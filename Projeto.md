@@ -8,7 +8,9 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Design system original copiado de `C:\Users\samue\Downloads\WppTrack Design System` para `wpptrack-design-system/`.
 - Visualizador do design system: `visualizacao-wpptrack.html`.
 - Visual inicial do SaaS para cliente final: `wpptrack-saas-visual.html`.
-- Spec formal aprovada em fluxo de brainstorming: `docs/superpowers/specs/2026-07-01-wpptrack-saas-design.md` (aguardando revisao final do usuario antes do plano de implementacao).
+- Spec formal aprovada em fluxo de brainstorming: `docs/superpowers/specs/2026-07-01-wpptrack-saas-design.md`.
+- Plano de implementacao da Fase 1: `docs/superpowers/plans/2026-07-01-wpptrack-foundation-shell-implementation.md`.
+- A Fase 1 cria monorepo, app web navegavel, API NestJS, contratos compartilhados, Prisma e BullMQ sem integrar provedores reais ainda.
 - Servidor local usado para visualizar: `http://127.0.0.1:5174/`.
 - Repositorio ainda sem commits iniciais no momento desta anotacao.
 
@@ -376,8 +378,8 @@ Checkpoint atual:
 
 Proximo passo do brainstorming:
 
-- Usuario revisar a spec formal `docs/superpowers/specs/2026-07-01-wpptrack-saas-design.md`.
-- Apos aprovacao, escrever plano de implementacao.
+- Usuario escolher a estrategia de execucao do plano da Fase 1.
+- Opcoes: subagent-driven development ou execucao inline neste chat.
 
 ## Perguntas Abertas
 
