@@ -14,6 +14,7 @@ describe("conversion event processor", () => {
     const conversionEventsService = {
       sendReadyEvent: vi.fn(async () => ({
         conversionEventLogId: "conversion_1",
+        workspaceId: "workspace_1",
         status: "sent"
       }))
     };
@@ -34,6 +35,7 @@ describe("conversion event processor", () => {
       } as never)
     ).resolves.toEqual({
       conversionEventLogId: "conversion_1",
+      workspaceId: "workspace_1",
       status: "sent"
     });
 
@@ -42,7 +44,7 @@ describe("conversion event processor", () => {
     );
     expect(prisma.jobAttempt.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        workspaceId: null,
+        workspaceId: "workspace_1",
         queueName: "conversion-events",
         jobId: "bull_job_1",
         jobName: "send-conversion-event",
@@ -53,10 +55,11 @@ describe("conversion event processor", () => {
         relatedEntityId: "conversion_1",
         errorCode: null,
         errorMessage: null,
-        summaryPayload: {
+        summaryPayload: expect.objectContaining({
           conversionEventLogId: "conversion_1",
+          workspaceId: "workspace_1",
           resultStatus: "sent"
-        }
+        })
       })
     });
   });
@@ -65,6 +68,7 @@ describe("conversion event processor", () => {
     const conversionEventsService = {
       sendReadyEvent: vi.fn(async () => ({
         conversionEventLogId: "conversion_1",
+        workspaceId: "workspace_1",
         status: "sent"
       }))
     };
@@ -91,6 +95,7 @@ describe("conversion event processor", () => {
       } as never)
     ).resolves.toEqual({
       conversionEventLogId: "conversion_1",
+      workspaceId: "workspace_1",
       status: "sent"
     });
 

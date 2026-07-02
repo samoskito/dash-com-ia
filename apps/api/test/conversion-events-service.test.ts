@@ -171,6 +171,7 @@ describe("conversion events service", () => {
 
     expect(result).toEqual({
       conversionEventLogId: "conversion_1",
+      workspaceId: "workspace_1",
       status: "sent"
     });
     expect(db.logs[0]).toMatchObject({
@@ -226,6 +227,7 @@ describe("conversion events service", () => {
 
     expect(result).toEqual({
       conversionEventLogId: "conversion_1",
+      workspaceId: "workspace_1",
       status: "not_configured"
     });
     expect(db.integrationLogs).toContainEqual(

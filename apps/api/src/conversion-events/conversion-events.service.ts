@@ -35,6 +35,7 @@ type ConversionEventLogRecord = {
 
 export type SendReadyEventResult = {
   conversionEventLogId: string;
+  workspaceId: string | null;
   status: "not_configured" | "sent" | "error" | "skipped";
 };
 
@@ -94,6 +95,7 @@ export class ConversionEventsService {
     if (!log || log.status !== "ready_to_send" || !log.dedupeKey) {
       return {
         conversionEventLogId: logId,
+        workspaceId: null,
         status: "skipped"
       };
     }
@@ -126,6 +128,7 @@ export class ConversionEventsService {
 
     return {
       conversionEventLogId: log.id,
+      workspaceId: log.workspaceId,
       status: result.status
     };
   }

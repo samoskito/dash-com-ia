@@ -28,6 +28,7 @@ export class ConversionEventProcessor extends WorkerHost {
 
       await this.recordAttempt(job, result.status, {
         conversionEventLogId: result.conversionEventLogId,
+        workspaceId: result.workspaceId,
         resultStatus: result.status
       });
 
@@ -57,7 +58,10 @@ export class ConversionEventProcessor extends WorkerHost {
     try {
       await this.prisma.jobAttempt.create({
         data: {
-          workspaceId: null,
+          workspaceId:
+            typeof summaryPayload.workspaceId === "string"
+              ? summaryPayload.workspaceId
+              : null,
           queueName: CONVERSION_EVENTS_QUEUE,
           jobId: String(job.id ?? job.data.conversionEventLogId),
           jobName: job.name || "send-conversion-event",
