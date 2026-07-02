@@ -1,3 +1,5 @@
+import type { ReportOverviewDto } from "@wpptrack/shared";
+import { serverApiFetch } from "../../../lib/server-api";
 import { mockReportOverview } from "../../../mock/reporting";
 
 function money(cents: number | null) {
@@ -11,13 +13,22 @@ function money(cents: number | null) {
   });
 }
 
-export default function ReportsPage() {
+async function getCampaignReports(): Promise<ReportOverviewDto> {
+  try {
+    return await serverApiFetch<ReportOverviewDto>("/reports/campaigns");
+  } catch {
+    return mockReportOverview;
+  }
+}
+
+export default async function ReportsPage() {
+  const report = await getCampaignReports();
   const rows = [
-    ...mockReportOverview.campaigns,
+    ...report.campaigns,
     {
       id: "cmp_remarketing",
       name: "Remarketing 7 dias",
-      status: "learning",
+      status: "unknown",
       spendCents: 84200,
       metaConversationsStarted: 121,
       costPerMetaConversationCents: 696,
@@ -34,7 +45,7 @@ export default function ReportsPage() {
     {
       id: "cmp_video_frio",
       name: "Publico frio - videos",
-      status: "limited",
+      status: "paused",
       spendCents: 67500,
       metaConversationsStarted: 88,
       costPerMetaConversationCents: 767,
@@ -84,7 +95,7 @@ export default function ReportsPage() {
               <tr key={row.id}>
                 <td>
                   <strong>{row.name}</strong>
-                  <span className={`event-chip${row.status === "limited" ? " warn" : ""}`}>
+                  <span className={`event-chip${row.status === "paused" ? " warn" : ""}`}>
                     {row.status}
                   </span>
                 </td>

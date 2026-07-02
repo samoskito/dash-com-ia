@@ -59,6 +59,75 @@ export type MetaOAuthTokenExchangeResult = {
   accessToken: string | null;
 };
 
+export type MetaCampaignAsset = {
+  id: string;
+  name: string;
+  status: string | null;
+  effectiveStatus: string | null;
+  objective: string | null;
+};
+
+export type MetaAdSetAsset = {
+  id: string;
+  name: string;
+  campaignId: string;
+  status: string | null;
+  effectiveStatus: string | null;
+};
+
+export type MetaAdAsset = {
+  id: string;
+  name: string;
+  campaignId: string;
+  adSetId: string;
+  status: string | null;
+  effectiveStatus: string | null;
+};
+
+export type MetaCampaignInsight = {
+  campaignId: string;
+  spendCents: number;
+  impressions: number;
+  clicks: number;
+  metaConversationsStarted: number;
+};
+
+type MetaCampaignGraphNode = {
+  id?: unknown;
+  name?: unknown;
+  status?: unknown;
+  effective_status?: unknown;
+  objective?: unknown;
+};
+
+type MetaAdSetGraphNode = {
+  id?: unknown;
+  name?: unknown;
+  campaign_id?: unknown;
+  status?: unknown;
+  effective_status?: unknown;
+};
+
+type MetaAdGraphNode = {
+  id?: unknown;
+  name?: unknown;
+  campaign_id?: unknown;
+  adset_id?: unknown;
+  status?: unknown;
+  effective_status?: unknown;
+};
+
+type MetaInsightGraphNode = {
+  campaign_id?: unknown;
+  spend?: unknown;
+  impressions?: unknown;
+  clicks?: unknown;
+  actions?: Array<{
+    action_type?: unknown;
+    value?: unknown;
+  }>;
+};
+
 @Injectable()
 export class MetaAdapter implements IntegrationAdapter {
   readonly provider = "meta" as const;
@@ -246,6 +315,119 @@ export class MetaAdapter implements IntegrationAdapter {
       .filter((item): item is MetaPixelAssetDto => Boolean(item.id && item.name));
   }
 
+  async listCampaigns(input: {
+    accessToken: string;
+    adAccountId: string;
+  }): Promise<MetaCampaignAsset[]> {
+    const response = await this.getGraphList<MetaCampaignGraphNode>(
+      `/${input.adAccountId}/campaigns`,
+      "id,name,status,effective_status,objective",
+      input.accessToken
+    );
+
+    return response
+      .map((item) => ({
+        id: this.asString(item.id),
+        name: this.asString(item.name),
+        status: this.asString(item.status),
+        effectiveStatus: this.asString(item.effective_status),
+        objective: this.asString(item.objective)
+      }))
+      .filter((item): item is MetaCampaignAsset => Boolean(item.id && item.name));
+  }
+
+  async listAdSets(input: {
+    accessToken: string;
+    adAccountId: string;
+  }): Promise<MetaAdSetAsset[]> {
+    const response = await this.getGraphList<MetaAdSetGraphNode>(
+      `/${input.adAccountId}/adsets`,
+      "id,name,campaign_id,status,effective_status",
+      input.accessToken
+    );
+
+    return response
+      .map((item) => ({
+        id: this.asString(item.id),
+        name: this.asString(item.name),
+        campaignId: this.asString(item.campaign_id),
+        status: this.asString(item.status),
+        effectiveStatus: this.asString(item.effective_status)
+      }))
+      .filter(
+        (item): item is MetaAdSetAsset =>
+          Boolean(item.id && item.name && item.campaignId)
+      );
+  }
+
+  async listAds(input: {
+    accessToken: string;
+    adAccountId: string;
+  }): Promise<MetaAdAsset[]> {
+    const response = await this.getGraphList<MetaAdGraphNode>(
+      `/${input.adAccountId}/ads`,
+      "id,name,campaign_id,adset_id,status,effective_status",
+      input.accessToken
+    );
+
+    return response
+      .map((item) => ({
+        id: this.asString(item.id),
+        name: this.asString(item.name),
+        campaignId: this.asString(item.campaign_id),
+        adSetId: this.asString(item.adset_id),
+        status: this.asString(item.status),
+        effectiveStatus: this.asString(item.effective_status)
+      }))
+      .filter(
+        (item): item is MetaAdAsset =>
+          Boolean(item.id && item.name && item.campaignId && item.adSetId)
+      );
+  }
+
+  async listCampaignInsights(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+  }): Promise<MetaCampaignInsight[]> {
+    const params = new URLSearchParams({
+      fields: "campaign_id,spend,impressions,clicks,actions",
+      level: "campaign",
+      time_range: JSON.stringify({
+        since: input.since,
+        until: input.until
+      }),
+      access_token: input.accessToken
+    });
+    const response = await this.fetchImpl(
+      `https://graph.facebook.com/${this.getGraphApiVersion()}/${input.adAccountId}/insights?${params.toString()}`
+    );
+    const payload = (await response.json().catch(() => ({}))) as MetaGraphListResponse<MetaInsightGraphNode>;
+
+    if (!response.ok) {
+      throw new Error(
+        this.asString(payload.error?.message) ??
+          `Meta Graph HTTP ${response.status}`
+      );
+    }
+
+    return (Array.isArray(payload.data) ? payload.data : [])
+      .map((item) => ({
+        campaignId: this.asString(item.campaign_id),
+        spendCents: this.asMoneyCents(item.spend),
+        impressions: this.asInteger(item.impressions),
+        clicks: this.asInteger(item.clicks),
+        metaConversationsStarted: this.actionValue(
+          item.actions,
+          "onsite_conversion.messaging_conversation_started_7d"
+        )
+      }))
+      .filter(
+        (item): item is MetaCampaignInsight => Boolean(item.campaignId)
+      );
+  }
+
   private getGraphApiVersion(): string {
     return this.env.META_GRAPH_API_VERSION ?? "v21.0";
   }
@@ -277,6 +459,39 @@ export class MetaAdapter implements IntegrationAdapter {
     return typeof value === "number" && Number.isInteger(value) && value > 0
       ? value
       : null;
+  }
+
+  private asInteger(value: unknown): number {
+    const parsed =
+      typeof value === "number"
+        ? value
+        : typeof value === "string"
+          ? Number(value)
+          : 0;
+
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
+  }
+
+  private asMoneyCents(value: unknown): number {
+    const parsed =
+      typeof value === "number"
+        ? value
+        : typeof value === "string"
+          ? Number(value)
+          : 0;
+
+    return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+  }
+
+  private actionValue(
+    actions: MetaInsightGraphNode["actions"],
+    actionType: string
+  ): number {
+    const action = actions?.find(
+      (item) => this.asString(item.action_type) === actionType
+    );
+
+    return this.asInteger(action?.value);
   }
 
   private async getGraphList<T>(

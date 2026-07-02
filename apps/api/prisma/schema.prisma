@@ -116,6 +116,9 @@ model Workspace {
   whatsappInstanceActivations WhatsappInstanceActivation[]
   conversionRules    ConversionRule[]
   metaIntegration    MetaIntegration?
+  metaCampaigns      MetaCampaign[]
+  metaAdSets         MetaAdSet[]
+  metaAds            MetaAd[]
 
   @@index([asaasCustomerId])
 }
@@ -511,4 +514,66 @@ model MetaIntegration {
   @@index([selectedBusinessId])
   @@index([selectedAdAccountId])
   @@index([selectedPixelId])
+}
+
+model MetaCampaign {
+  id                       String   @id @default(cuid())
+  workspaceId              String
+  adAccountId              String
+  campaignId               String
+  name                     String
+  status                   String?
+  effectiveStatus          String?
+  objective                String?
+  spendCents               Int      @default(0)
+  impressions              Int      @default(0)
+  clicks                   Int      @default(0)
+  metaConversationsStarted Int      @default(0)
+  lastSyncedAt             DateTime?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, campaignId])
+  @@index([workspaceId, adAccountId])
+  @@index([workspaceId, status])
+}
+
+model MetaAdSet {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  campaignId      String
+  adSetId         String
+  name            String
+  status          String?
+  effectiveStatus String?
+  lastSyncedAt    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, adSetId])
+  @@index([workspaceId, campaignId])
+}
+
+model MetaAd {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  campaignId      String
+  adSetId         String
+  adId            String
+  name            String
+  status          String?
+  effectiveStatus String?
+  lastSyncedAt    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, adId])
+  @@index([workspaceId, campaignId])
+  @@index([workspaceId, adSetId])
 }

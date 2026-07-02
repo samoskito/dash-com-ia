@@ -1,0 +1,124 @@
+import { Test } from "@nestjs/testing";
+import { describe, expect, it, vi } from "vitest";
+import request from "supertest";
+import { AuthService } from "../src/auth/auth.service";
+import { MetaReportingService } from "../src/reporting/meta-reporting.service";
+import { ReportingController } from "../src/reporting/reporting.controller";
+import { WorkspacesService } from "../src/workspaces/workspaces.service";
+
+async function createApp() {
+  const reportingService = {
+    getCampaignReportOverview: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      campaigns: [
+        {
+          id: "cmp_1",
+          name: "Black Friday WhatsApp",
+          status: "active",
+          spendCents: 120000,
+          metaConversationsStarted: 176,
+          costPerMetaConversationCents: 681,
+          realConversations: 0,
+          costPerRealConversationCents: null,
+          leadSubmitted: 1,
+          costPerLeadSubmittedCents: 120000,
+          qualifiedLead: 1,
+          costPerQualifiedLeadCents: 120000,
+          purchase: 1,
+          costPerPurchaseCents: 120000,
+          roas: null
+        }
+      ]
+    })),
+    syncWorkspaceMetaStructure: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      adAccountId: "act_123",
+      campaignsSynced: 1,
+      adSetsSynced: 1,
+      adsSynced: 1
+    }))
+  };
+  const authService = {
+    getSession: vi.fn(async () => ({
+      user: {
+        id: "user_1",
+        email: "owner@wpptrack.com",
+        name: "Owner",
+        authProvider: "email",
+        emailVerifiedAt: null
+      },
+      workspaces: [
+        {
+          id: "workspace_1",
+          name: "Workspace",
+          slug: "workspace",
+          role: "owner"
+        }
+      ]
+    }))
+  };
+  const workspacesService = {
+    getCurrentWorkspace: vi.fn(() => ({
+      id: "workspace_1",
+      name: "Workspace",
+      slug: "workspace",
+      role: "owner"
+    }))
+  };
+  const moduleRef = await Test.createTestingModule({
+    controllers: [ReportingController],
+    providers: [
+      { provide: MetaReportingService, useValue: reportingService },
+      { provide: AuthService, useValue: authService },
+      { provide: WorkspacesService, useValue: workspacesService }
+    ]
+  }).compile();
+  const app = moduleRef.createNestApplication();
+  await app.init();
+
+  return { app, reportingService };
+}
+
+describe("reporting controller", () => {
+  it("returns campaign reports for the current workspace", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/campaigns")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.campaigns[0].name).toBe("Black Friday WhatsApp");
+      });
+
+    expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias"
+    });
+
+    await app.close();
+  });
+
+  it("syncs Meta reporting snapshots for the current workspace", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/reports/meta/sync?since=2026-07-01&until=2026-07-02")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.campaignsSynced).toBe(1);
+        expect(body.adsSynced).toBe(1);
+      });
+
+    expect(reportingService.syncWorkspaceMetaStructure).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    });
+
+    await app.close();
+  });
+});

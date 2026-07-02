@@ -208,4 +208,148 @@ describe("meta adapter oauth", () => {
     expect(fetchCalls[1]).toContain("fields=id%2Cname%2Caccount_status%2Ccurrency%2Ctimezone_name");
     expect(fetchCalls[2]).toContain("fields=id%2Cname%2Ccode");
   });
+
+  it("lists campaigns, ad sets, ads and campaign insights from the selected ad account", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "cmp_1",
+                name: "Black Friday WhatsApp",
+                status: "ACTIVE",
+                effective_status: "ACTIVE",
+                objective: "OUTCOME_SALES"
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset_1",
+                name: "Publico quente",
+                campaign_id: "cmp_1",
+                status: "ACTIVE",
+                effective_status: "ACTIVE"
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.includes("/ads")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "ad_1",
+                name: "Criativo WhatsApp",
+                campaign_id: "cmp_1",
+                adset_id: "adset_1",
+                status: "ACTIVE",
+                effective_status: "ACTIVE"
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              campaign_id: "cmp_1",
+              spend: "1200.55",
+              impressions: "10000",
+              clicks: "420",
+              actions: [
+                {
+                  action_type: "onsite_conversion.messaging_conversation_started_7d",
+                  value: "176"
+                }
+              ]
+            }
+          ]
+        }),
+        { status: 200 }
+      );
+    }) as unknown as typeof fetch;
+    const adapter = new MetaAdapter(
+      {
+        META_GRAPH_API_VERSION: "v25.0"
+      },
+      fetchMock
+    );
+
+    await expect(
+      adapter.listCampaigns({
+        accessToken: "EAAB-secret-token",
+        adAccountId: "act_123"
+      })
+    ).resolves.toEqual([
+      {
+        id: "cmp_1",
+        name: "Black Friday WhatsApp",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        objective: "OUTCOME_SALES"
+      }
+    ]);
+    await expect(
+      adapter.listAdSets({
+        accessToken: "EAAB-secret-token",
+        adAccountId: "act_123"
+      })
+    ).resolves.toEqual([
+      {
+        id: "adset_1",
+        name: "Publico quente",
+        campaignId: "cmp_1",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE"
+      }
+    ]);
+    await expect(
+      adapter.listAds({
+        accessToken: "EAAB-secret-token",
+        adAccountId: "act_123"
+      })
+    ).resolves.toEqual([
+      {
+        id: "ad_1",
+        name: "Criativo WhatsApp",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE"
+      }
+    ]);
+    await expect(
+      adapter.listCampaignInsights({
+        accessToken: "EAAB-secret-token",
+        adAccountId: "act_123",
+        since: "2026-07-01",
+        until: "2026-07-02"
+      })
+    ).resolves.toEqual([
+      {
+        campaignId: "cmp_1",
+        spendCents: 120055,
+        impressions: 10000,
+        clicks: 420,
+        metaConversationsStarted: 176
+      }
+    ]);
+  });
 });

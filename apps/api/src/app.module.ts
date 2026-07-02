@@ -8,6 +8,7 @@ import { HealthController } from "./health/health.controller";
 import { IntegrationsModule } from "./integrations/integrations.module";
 import { MockController } from "./mock/mock.controller";
 import { MockService } from "./mock/mock.service";
+import { ReportingModule } from "./reporting/reporting.module";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
 
@@ -20,6 +21,7 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     IntegrationsModule,
     BillingModule,
     ConversionRulesModule,
+    ReportingModule,
     WebhooksModule
   ],
   controllers: [HealthController, MockController],
