@@ -5,6 +5,7 @@ import type { MetaCapiAdapter } from "../src/conversion-events/meta-capi.adapter
 function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
   const db = {
     integrationLogs: [] as Array<Record<string, unknown>>,
+    diagnosticEvents: [] as Array<Record<string, unknown>>,
     logs: [] as Array<Record<string, unknown>>
   };
   const prisma = {
@@ -48,6 +49,16 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
         };
         db.integrationLogs.push(log);
         return log;
+      }
+    },
+    diagnosticEvent: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const event = {
+          id: `diagnostic_${db.diagnosticEvents.length + 1}`,
+          ...data
+        };
+        db.diagnosticEvents.push(event);
+        return event;
       }
     }
   };
@@ -183,6 +194,69 @@ describe("conversion events service", () => {
       })
     );
     expect(JSON.stringify(db.integrationLogs)).not.toContain("secret");
+  });
+
+  it("records diagnostics when Meta CAPI send is blocked by missing configuration", async () => {
+    const { db, service } = createHarness();
+    await service.recordRuleMatches({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      rules: [
+        {
+          id: "rule_1",
+          workspaceId: "workspace_1",
+          name: "Lead qualificado",
+          triggerType: "keyword",
+          triggerValue: "quero comprar",
+          matchMode: "contains",
+          eventName: "QualifiedLead",
+          pixelId: "pixel_1",
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        }
+      ]
+    });
+
+    const result = await service.sendReadyEvent("conversion_1");
+
+    expect(result).toEqual({
+      conversionEventLogId: "conversion_1",
+      status: "not_configured"
+    });
+    expect(db.integrationLogs).toContainEqual(
+      expect.objectContaining({
+        id: "integration_1",
+        workspaceId: "workspace_1",
+        source: "meta",
+        operation: "meta.capi.send_event",
+        status: "blocked",
+        providerErrorMessage: "Meta CAPI token or pixel id not configured",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1"
+      })
+    );
+    expect(db.diagnosticEvents).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "meta",
+        eventType: "meta.capi.send_event",
+        severity: "warning",
+        status: "blocked",
+        integrationLogId: "integration_1",
+        conversionEventLogId: "conversion_1",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
+        errorCode: "MetaCapiNotConfigured"
+      })
+    );
+    expect(JSON.stringify(db.diagnosticEvents)).not.toContain("secret");
   });
 
   it("does not create duplicate conversion logs for the same dedupe key", async () => {

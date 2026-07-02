@@ -106,7 +106,11 @@ export class ConversionEventsService {
       phoneHash: log.phoneHash,
       adId: log.adId
     });
-    await this.recordMetaCapiIntegrationLog(log, startedAt, result);
+    const integrationLogId = await this.recordMetaCapiIntegrationLog(
+      log,
+      startedAt,
+      result
+    );
 
     await this.prisma.conversionEventLog.update({
       where: { id: log.id },
@@ -118,6 +122,7 @@ export class ConversionEventsService {
         errorMessage: result.errorMessage
       }
     });
+    await this.recordMetaCapiDiagnosticEvent(log, result, integrationLogId);
 
     return {
       conversionEventLogId: log.id,
@@ -133,7 +138,7 @@ export class ConversionEventsService {
       responseSummary: unknown;
       errorMessage: string | null;
     }
-  ): Promise<void> {
+  ): Promise<string | null> {
     const finishedAt = new Date();
     const status =
       result.status === "sent"
@@ -143,7 +148,7 @@ export class ConversionEventsService {
           : "error";
 
     try {
-      await this.prisma.integrationLog.create({
+      const integrationLog = await this.prisma.integrationLog.create({
         data: {
           workspaceId: log.workspaceId,
           source: "meta",
@@ -171,6 +176,60 @@ export class ConversionEventsService {
             result.responseSummary === null
               ? Prisma.JsonNull
               : (result.responseSummary as Prisma.InputJsonValue)
+        }
+      });
+      return integrationLog.id;
+    } catch {
+      return null;
+    }
+  }
+
+  private async recordMetaCapiDiagnosticEvent(
+    log: ConversionEventLogRecord,
+    result: {
+      status: SendReadyEventResult["status"];
+      errorMessage: string | null;
+    },
+    integrationLogId: string | null
+  ): Promise<void> {
+    if (result.status === "sent" || result.status === "skipped") {
+      return;
+    }
+
+    const isBlocked = result.status === "not_configured";
+
+    try {
+      await this.prisma.diagnosticEvent.create({
+        data: {
+          workspaceId: log.workspaceId,
+          source: "meta",
+          eventType: "meta.capi.send_event",
+          severity: isBlocked ? "warning" : "error",
+          status: isBlocked ? "blocked" : "error",
+          title: isBlocked
+            ? "Envio Meta CAPI bloqueado por configuracao"
+            : "Falha no envio Meta CAPI",
+          message:
+            result.errorMessage ??
+            (isBlocked
+              ? "Pixel ou token Meta CAPI nao configurado."
+              : "O envio do evento para a Meta falhou."),
+          leadId: log.leadId,
+          phoneHash: log.phoneHash,
+          campaignId: log.campaignId,
+          adSetId: log.adSetId,
+          adId: log.adId,
+          jobId: log.id,
+          errorCode: isBlocked ? "MetaCapiNotConfigured" : "MetaCapiSendError",
+          integrationLogId,
+          conversionEventLogId: log.id,
+          summaryPayload: {
+            conversionEventLogId: log.id,
+            eventName: log.eventName,
+            pixelId: log.pixelId,
+            status: result.status,
+            errorMessage: result.errorMessage
+          } as Prisma.InputJsonValue
         }
       });
     } catch {
