@@ -15,6 +15,7 @@ import {
   type BackofficeWhatsappInstanceDto,
   type WorkspaceBillingDto,
   type WorkspaceBillingUpdateInputDto,
+  type WorkspaceOperationalStatusUpdateInputDto,
   type WorkspaceInviteDto,
   type WorkspaceInviteAcceptDto,
   type WorkspaceInviteAcceptInputDto,
@@ -38,6 +39,7 @@ type WorkspaceBillingRecord = {
   name: string;
   slug: string;
   asaasCustomerId: string | null;
+  operationalStatus: "active" | "blocked";
   subscriptions?: Array<{
     status: string;
     activeInstances: number;
@@ -180,6 +182,7 @@ export class WorkspacesService {
         name: true,
         slug: true,
         asaasCustomerId: true,
+        operationalStatus: true,
         subscriptions: {
           orderBy: {
             updatedAt: "desc"
@@ -215,6 +218,7 @@ export class WorkspacesService {
         name: true,
         slug: true,
         asaasCustomerId: true,
+        operationalStatus: true,
         subscriptions: {
           orderBy: {
             updatedAt: "desc"
@@ -285,9 +289,13 @@ export class WorkspacesService {
       where: { id: workspaceId },
       select: {
         id: true,
-        asaasCustomerId: true
+        asaasCustomerId: true,
+        operationalStatus: true
       }
-    })) as Pick<WorkspaceBillingRecord, "id" | "asaasCustomerId"> | null;
+    })) as Pick<
+      WorkspaceBillingRecord,
+      "id" | "asaasCustomerId" | "operationalStatus"
+    > | null;
     const workspace = (await this.prisma.workspace.update({
       where: { id: workspaceId },
       data: {
@@ -298,6 +306,7 @@ export class WorkspacesService {
         name: true,
         slug: true,
         asaasCustomerId: true,
+        operationalStatus: true,
         subscriptions: {
           orderBy: {
             updatedAt: "desc"
@@ -332,6 +341,72 @@ export class WorkspacesService {
           before?.asaasCustomerId ?? null
         ),
         afterSummary: this.workspaceBillingAuditSummary(workspace.asaasCustomerId)
+      });
+    }
+
+    return this.toWorkspaceBillingDto(workspace);
+  }
+
+  async updateOperationalStatus(
+    workspaceId: string,
+    input: WorkspaceOperationalStatusUpdateInputDto,
+    actorUserId?: string
+  ): Promise<WorkspaceBillingDto> {
+    const before = (await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: {
+        id: true,
+        operationalStatus: true
+      }
+    })) as Pick<WorkspaceBillingRecord, "id" | "operationalStatus"> | null;
+
+    const workspace = (await this.prisma.workspace.update({
+      where: { id: workspaceId },
+      data: {
+        operationalStatus: input.operationalStatus
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        asaasCustomerId: true,
+        operationalStatus: true,
+        subscriptions: {
+          orderBy: {
+            updatedAt: "desc"
+          },
+          take: 1,
+          select: {
+            status: true,
+            activeInstances: true
+          }
+        },
+        whatsappInstances: {
+          where: {
+            status: "active"
+          },
+          select: {
+            id: true
+          }
+        }
+      }
+    })) as WorkspaceBillingRecord;
+
+    if (actorUserId) {
+      await this.recordWorkspaceAudit({
+        workspaceId: workspace.id,
+        actorUserId,
+        actorType: "platform_operator",
+        action: "workspace.operational_status_updated",
+        targetType: "Workspace",
+        targetId: workspace.id,
+        resultStatus: "success",
+        beforeSummary: {
+          operationalStatus: before?.operationalStatus ?? "active"
+        } as Prisma.InputJsonValue,
+        afterSummary: {
+          operationalStatus: workspace.operationalStatus
+        } as Prisma.InputJsonValue
       });
     }
 
@@ -539,6 +614,7 @@ export class WorkspacesService {
       name: workspace.name,
       slug: workspace.slug,
       asaasCustomerId: workspace.asaasCustomerId,
+      operationalStatus: workspace.operationalStatus,
       subscriptionStatus: this.toWorkspaceBillingStatus(subscription?.status),
       activeInstances:
         subscription?.activeInstances ?? workspace.whatsappInstances?.length ?? 0

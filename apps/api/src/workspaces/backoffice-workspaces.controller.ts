@@ -7,7 +7,10 @@ import {
   Param,
   Patch
 } from "@nestjs/common";
-import { workspaceBillingUpdateInputSchema } from "@wpptrack/shared";
+import {
+  workspaceBillingUpdateInputSchema,
+  workspaceOperationalStatusUpdateInputSchema
+} from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { PlatformAdminService } from "../auth/platform-admin.service";
 import { WorkspacesService } from "./workspaces.service";
@@ -61,6 +64,28 @@ export class BackofficeWorkspacesController {
     }
 
     return this.workspacesService.updateBillingConfiguration(
+      workspaceId,
+      parsed.data,
+      platformAdmin.id
+    );
+  }
+
+  @Patch(":workspaceId/operational-status")
+  async updateOperationalStatus(
+    @AuthToken() refreshToken: string,
+    @Param("workspaceId") workspaceId: string,
+    @Body() body: unknown
+  ) {
+    const platformAdmin =
+      await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    const parsed = workspaceOperationalStatusUpdateInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    return this.workspacesService.updateOperationalStatus(
       workspaceId,
       parsed.data,
       platformAdmin.id

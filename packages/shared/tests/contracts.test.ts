@@ -53,6 +53,7 @@ import {
   workspaceUpdateInputSchema,
   workspaceBillingListSchema,
   workspaceBillingSchema,
+  workspaceOperationalStatusUpdateInputSchema,
   workspaceBillingUpdateInputSchema,
   workspaceInviteAcceptInputSchema,
   workspaceInviteAcceptSchema,
@@ -542,13 +543,19 @@ describe("shared contracts", () => {
       name: "Comunidade NOD",
       slug: "comunidade-nod",
       asaasCustomerId: "cus_asaas_1",
+      operationalStatus: "active",
       subscriptionStatus: "active",
       activeInstances: 2
+    });
+    const statusInput = workspaceOperationalStatusUpdateInputSchema.parse({
+      operationalStatus: "blocked"
     });
 
     expect(input.asaasCustomerId).toBe("cus_asaas_1");
     expect(cleared.asaasCustomerId).toBeNull();
     expect(billing.asaasCustomerId).toBe("cus_asaas_1");
+    expect(billing.operationalStatus).toBe("active");
+    expect(statusInput.operationalStatus).toBe("blocked");
     expect(billing.subscriptionStatus).toBe("active");
     expect(billing.activeInstances).toBe(2);
   });
@@ -560,6 +567,7 @@ describe("shared contracts", () => {
         name: "Comunidade NOD",
         slug: "comunidade-nod",
         asaasCustomerId: "cus_asaas_1",
+        operationalStatus: "active",
         subscriptionStatus: "active",
         activeInstances: 1
       },
@@ -568,6 +576,7 @@ describe("shared contracts", () => {
         name: "Clinica Norte",
         slug: "clinica-norte",
         asaasCustomerId: null,
+        operationalStatus: "blocked",
         subscriptionStatus: "not_configured",
         activeInstances: 0
       }

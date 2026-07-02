@@ -9,6 +9,7 @@ function createHarness() {
         name: "Comunidade NOD",
         slug: "comunidade-nod",
         asaasCustomerId: null,
+        operationalStatus: "active",
         subscriptions: [],
         whatsappInstances: []
       }
@@ -99,6 +100,7 @@ describe("workspace billing service", () => {
       name: "Comunidade NOD",
       slug: "comunidade-nod",
       asaasCustomerId: "cus_asaas_1",
+      operationalStatus: "active",
       subscriptionStatus: "not_configured",
       activeInstances: 0
     });
@@ -144,10 +146,11 @@ describe("workspace billing service", () => {
     const { db, service } = createHarness();
     db.workspaces.push({
       id: "workspace_2",
-      name: "Clinica Norte",
-      slug: "clinica-norte",
-      asaasCustomerId: null,
-      subscriptions: [
+        name: "Clinica Norte",
+        slug: "clinica-norte",
+        asaasCustomerId: null,
+        operationalStatus: "active",
+        subscriptions: [
         {
           status: "active",
           activeInstances: 3
@@ -164,6 +167,7 @@ describe("workspace billing service", () => {
         name: "Clinica Norte",
         slug: "clinica-norte",
         asaasCustomerId: null,
+        operationalStatus: "active",
         subscriptionStatus: "active",
         activeInstances: 3
       },
@@ -172,6 +176,7 @@ describe("workspace billing service", () => {
         name: "Comunidade NOD",
         slug: "comunidade-nod",
         asaasCustomerId: null,
+        operationalStatus: "active",
         subscriptionStatus: "not_configured",
         activeInstances: 0
       }
@@ -185,6 +190,7 @@ describe("workspace billing service", () => {
       name: "Clinica Norte",
       slug: "clinica-norte",
       asaasCustomerId: "cus_asaas_2",
+      operationalStatus: "active",
       subscriptions: [],
       whatsappInstances: [
         {
@@ -238,5 +244,45 @@ describe("workspace billing service", () => {
         updatedAt: "2026-07-02T04:10:00.000Z"
       }
     ]);
+  });
+
+  it("updates workspace operational status and records a platform audit log", async () => {
+    const { db, service } = createHarness();
+
+    const updated = await service.updateOperationalStatus(
+      "workspace_1",
+      {
+        operationalStatus: "blocked"
+      },
+      "user_1"
+    );
+
+    expect(updated).toEqual({
+      id: "workspace_1",
+      name: "Comunidade NOD",
+      slug: "comunidade-nod",
+      asaasCustomerId: null,
+      operationalStatus: "blocked",
+      subscriptionStatus: "not_configured",
+      activeInstances: 0
+    });
+    expect(db.workspaces[0].operationalStatus).toBe("blocked");
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "platform_operator",
+        action: "workspace.operational_status_updated",
+        targetType: "Workspace",
+        targetId: "workspace_1",
+        resultStatus: "success",
+        beforeSummary: {
+          operationalStatus: "active"
+        },
+        afterSummary: {
+          operationalStatus: "blocked"
+        }
+      })
+    );
   });
 });

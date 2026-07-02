@@ -25,6 +25,11 @@ enum WorkspaceInviteStatus {
   expired
 }
 
+enum WorkspaceOperationalStatus {
+  active
+  blocked
+}
+
 enum WhatsappInstanceStatus {
   pending_payment
   active
@@ -107,6 +112,7 @@ model Workspace {
   name            String
   slug            String   @unique
   asaasCustomerId String?
+  operationalStatus WorkspaceOperationalStatus @default(active)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -130,6 +136,7 @@ model Workspace {
   metaAds            MetaAd[]
 
   @@index([asaasCustomerId])
+  @@index([operationalStatus])
 }
 
 model WorkspaceMember {

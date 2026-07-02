@@ -377,6 +377,35 @@ async function updateWorkspaceBilling(formData: FormData) {
   }
 }
 
+async function updateWorkspaceOperationalStatus(formData: FormData) {
+  "use server";
+
+  const workspaceId = String(formData.get("workspaceId") ?? "");
+  const operationalStatus = String(formData.get("operationalStatus") ?? "");
+
+  if (
+    !workspaceId ||
+    (operationalStatus !== "active" && operationalStatus !== "blocked")
+  ) {
+    return;
+  }
+
+  try {
+    await serverApiFetch(
+      `/backoffice/workspaces/${workspaceId}/operational-status`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          operationalStatus
+        })
+      }
+    );
+    revalidatePath("/backoffice");
+  } catch {
+    return;
+  }
+}
+
 async function createSplitReceiver(formData: FormData) {
   "use server";
 
@@ -898,6 +927,7 @@ export default async function BackofficePage({
                 <th>Workspace</th>
                 <th>Slug</th>
                 <th>Customer Asaas</th>
+                <th>Operacao</th>
                 <th>Assinatura</th>
                 <th>Instancias</th>
                 <th>Acao</th>
@@ -926,6 +956,39 @@ export default async function BackofficePage({
                       </form>
                     </td>
                     <td>
+                      <form
+                        className="inline-form"
+                        action={updateWorkspaceOperationalStatus}
+                      >
+                        <input type="hidden" name="workspaceId" value={workspace.id} />
+                        <input
+                          type="hidden"
+                          name="operationalStatus"
+                          value={
+                            workspace.operationalStatus === "blocked"
+                              ? "active"
+                              : "blocked"
+                          }
+                        />
+                        <span
+                          className={`event-chip${
+                            workspace.operationalStatus === "active"
+                              ? ""
+                              : " warn"
+                          }`}
+                        >
+                          {workspace.operationalStatus === "active"
+                            ? "ativo"
+                            : "bloqueado"}
+                        </span>
+                        <button className="button ghost" type="submit">
+                          {workspace.operationalStatus === "blocked"
+                            ? "Desbloquear"
+                            : "Bloquear"}
+                        </button>
+                      </form>
+                    </td>
+                    <td>
                       <span className={`event-chip${workspace.subscriptionStatus === "active" ? "" : " warn"}`}>
                         {workspace.subscriptionStatus}
                       </span>
@@ -945,6 +1008,7 @@ export default async function BackofficePage({
                   <td><strong>{workspaceEmptyTitle}</strong><span>Confira permissao de backoffice</span></td>
                   <td>-</td>
                   <td><span className="muted">Configurar customer</span></td>
+                  <td><span className="event-chip warn">sem status</span></td>
                   <td><span className="event-chip warn">sem assinatura</span></td>
                   <td>0 instancias</td>
                   <td><span className="event-chip warn">sem dados</span></td>

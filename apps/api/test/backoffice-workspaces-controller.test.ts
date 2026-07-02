@@ -18,26 +18,37 @@ async function createApp() {
         id: "workspace_1",
         name: "Comunidade NOD",
         slug: "comunidade-nod",
-        asaasCustomerId: "cus_asaas_1"
+        asaasCustomerId: "cus_asaas_1",
+        operationalStatus: "active"
       },
       {
         id: "workspace_2",
         name: "Clinica Norte",
         slug: "clinica-norte",
-        asaasCustomerId: null
+        asaasCustomerId: null,
+        operationalStatus: "blocked"
       }
     ]),
     getBillingConfiguration: vi.fn(async () => ({
       id: "workspace_1",
       name: "Comunidade NOD",
       slug: "comunidade-nod",
-      asaasCustomerId: "cus_asaas_1"
+      asaasCustomerId: "cus_asaas_1",
+      operationalStatus: "active"
     })),
     updateBillingConfiguration: vi.fn(async () => ({
       id: "workspace_1",
       name: "Comunidade NOD",
       slug: "comunidade-nod",
-        asaasCustomerId: "cus_asaas_2"
+      asaasCustomerId: "cus_asaas_2",
+      operationalStatus: "active"
+    })),
+    updateOperationalStatus: vi.fn(async () => ({
+      id: "workspace_1",
+      name: "Comunidade NOD",
+      slug: "comunidade-nod",
+      asaasCustomerId: "cus_asaas_1",
+      operationalStatus: "blocked"
     })),
     listBackofficeWhatsappInstances: vi.fn(async () => [
       {
@@ -150,6 +161,34 @@ describe("backoffice workspaces controller", () => {
       "workspace_1",
       {
         asaasCustomerId: "cus_asaas_2"
+      },
+      "user_1"
+    );
+
+    await app.close();
+  });
+
+  it("updates workspace operational status for platform admins", async () => {
+    const { app, platformAdminService, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .patch("/backoffice/workspaces/workspace_1/operational-status")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        operationalStatus: "blocked"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.operationalStatus).toBe("blocked");
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(workspacesService.updateOperationalStatus).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        operationalStatus: "blocked"
       },
       "user_1"
     );

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { workspaceRoles } from "../roles";
 
+export const workspaceOperationalStatuses = ["active", "blocked"] as const;
+
 export const workspacePermissionsSchema = z.object({
   canInviteMembers: z.boolean(),
   canManageBilling: z.boolean(),
@@ -28,6 +30,7 @@ export const workspaceBillingSchema = z.object({
   name: z.string().min(1),
   slug: z.string().min(1),
   asaasCustomerId: z.string().min(1).nullable(),
+  operationalStatus: z.enum(workspaceOperationalStatuses),
   subscriptionStatus: z.enum([
     "not_configured",
     "active",
@@ -42,6 +45,10 @@ export const workspaceBillingListSchema = z.array(workspaceBillingSchema);
 
 export const workspaceBillingUpdateInputSchema = z.object({
   asaasCustomerId: z.string().trim().min(1).nullable()
+});
+
+export const workspaceOperationalStatusUpdateInputSchema = z.object({
+  operationalStatus: z.enum(workspaceOperationalStatuses)
 });
 
 export const workspaceMemberSchema = z.object({
@@ -94,6 +101,10 @@ export type WorkspaceBillingListDto = z.infer<
 >;
 export type WorkspaceBillingUpdateInputDto = z.infer<
   typeof workspaceBillingUpdateInputSchema
+>;
+export type WorkspaceOperationalStatus = (typeof workspaceOperationalStatuses)[number];
+export type WorkspaceOperationalStatusUpdateInputDto = z.infer<
+  typeof workspaceOperationalStatusUpdateInputSchema
 >;
 export type WorkspaceMemberDto = z.infer<typeof workspaceMemberSchema>;
 export type WorkspaceInviteInputDto = z.infer<

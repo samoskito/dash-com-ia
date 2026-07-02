@@ -598,6 +598,7 @@ describe("backoffice route", () => {
               name: "Comunidade NOD",
               slug: "comunidade-nod",
               asaasCustomerId: "cus_asaas_1",
+              operationalStatus: "active",
               subscriptionStatus: "active",
               activeInstances: 2
             },
@@ -606,6 +607,7 @@ describe("backoffice route", () => {
               name: "Clinica Norte",
               slug: "clinica-norte",
               asaasCustomerId: null,
+              operationalStatus: "blocked",
               subscriptionStatus: "not_configured",
               activeInstances: 0
             }
@@ -632,6 +634,10 @@ describe("backoffice route", () => {
     expect(html).toContain("Clinica Norte");
     expect(html).toContain("Configurar customer");
     expect(html).toContain("active");
+    expect(html).toContain("Operacao");
+    expect(html).toContain("Bloquear");
+    expect(html).toContain("Desbloquear");
+    expect(html).toContain('name="operationalStatus"');
     expect(html).toContain("2 instancias");
     expect(html).toContain("not_configured");
   });
