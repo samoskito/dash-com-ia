@@ -60,6 +60,58 @@ async function createApp() {
         }
       ]
     })),
+    getAdSetReportOverview: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      adSets: [
+        {
+          id: "adset_1",
+          campaignId: "cmp_1",
+          campaignName: "Black Friday WhatsApp",
+          name: "Publico quente",
+          status: "active",
+          spendCents: 0,
+          metaConversationsStarted: 0,
+          costPerMetaConversationCents: null,
+          realConversations: 2,
+          costPerRealConversationCents: null,
+          leadSubmitted: 1,
+          costPerLeadSubmittedCents: null,
+          qualifiedLead: 1,
+          costPerQualifiedLeadCents: null,
+          purchase: 1,
+          costPerPurchaseCents: null,
+          roas: null
+        }
+      ]
+    })),
+    getAdReportOverview: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      ads: [
+        {
+          id: "ad_1",
+          campaignId: "cmp_1",
+          campaignName: "Black Friday WhatsApp",
+          adSetId: "adset_1",
+          adSetName: "Publico quente",
+          name: "Criativo WhatsApp",
+          status: "active",
+          spendCents: 0,
+          metaConversationsStarted: 0,
+          costPerMetaConversationCents: null,
+          realConversations: 2,
+          costPerRealConversationCents: null,
+          leadSubmitted: 1,
+          costPerLeadSubmittedCents: null,
+          qualifiedLead: 1,
+          costPerQualifiedLeadCents: null,
+          purchase: 1,
+          costPerPurchaseCents: null,
+          roas: null
+        }
+      ]
+    })),
     syncWorkspaceMetaStructure: vi.fn(async () => ({
       workspaceId: "workspace_1",
       adAccountId: "act_123",
@@ -197,6 +249,50 @@ describe("reporting controller", () => {
     expect(reportingService.getMetaStructureReport).toHaveBeenCalledWith(
       "workspace_1"
     );
+
+    await app.close();
+  });
+
+  it("returns ad set reports for the current workspace", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/adsets?since=2026-07-01&until=2026-07-02")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.adSets[0].name).toBe("Publico quente");
+      });
+
+    expect(reportingService.getAdSetReportOverview).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      rangeLabel: "2026-07-01 a 2026-07-02"
+    });
+
+    await app.close();
+  });
+
+  it("returns ad reports for the current workspace", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/ads?since=2026-07-01&until=2026-07-02")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.ads[0].name).toBe("Criativo WhatsApp");
+      });
+
+    expect(reportingService.getAdReportOverview).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      rangeLabel: "2026-07-01 a 2026-07-02"
+    });
 
     await app.close();
   });

@@ -34,6 +34,38 @@ export class ReportingController {
     });
   }
 
+  @Get("adsets")
+  async getAdSetReports(
+    @AuthToken() refreshToken: string,
+    @Query("since") since?: string,
+    @Query("until") until?: string
+  ) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.metaReportingService.getAdSetReportOverview({
+      workspaceId,
+      since,
+      until,
+      rangeLabel: this.rangeLabel(since, until)
+    });
+  }
+
+  @Get("ads")
+  async getAdReports(
+    @AuthToken() refreshToken: string,
+    @Query("since") since?: string,
+    @Query("until") until?: string
+  ) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.metaReportingService.getAdReportOverview({
+      workspaceId,
+      since,
+      until,
+      rangeLabel: this.rangeLabel(since, until)
+    });
+  }
+
   @Post("meta/sync")
   async syncMetaReports(
     @AuthToken() refreshToken: string,

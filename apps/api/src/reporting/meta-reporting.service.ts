@@ -1,5 +1,9 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type {
+  AdReportOverviewDto,
+  AdReportRowDto,
+  AdSetReportOverviewDto,
+  AdSetReportRowDto,
   CampaignReportRowDto,
   MetaStructureReportDto,
   ReportOverviewDto
@@ -65,12 +69,16 @@ type MetaAdRecord = {
 
 type ConversionEventRecord = {
   campaignId: string | null;
+  adSetId: string | null;
+  adId: string | null;
   eventName: string;
   status: string;
 };
 
 type LeadRecord = {
   campaignId: string | null;
+  adSetId: string | null;
+  adId: string | null;
 };
 
 @Injectable()
@@ -172,6 +180,8 @@ export class MetaReportingService {
       },
       select: {
         campaignId: true,
+        adSetId: true,
+        adId: true,
         eventName: true,
         status: true
       }
@@ -189,7 +199,9 @@ export class MetaReportingService {
           : {})
       },
       select: {
-        campaignId: true
+        campaignId: true,
+        adSetId: true,
+        adId: true
       }
     })) as LeadRecord[];
 
@@ -198,6 +210,86 @@ export class MetaReportingService {
       rangeLabel: input.rangeLabel,
       campaigns: campaigns.map((campaign) =>
         this.toReportRow(campaign, conversionLogs, leads)
+      )
+    };
+  }
+
+  async getAdSetReportOverview(input: {
+    workspaceId: string;
+    rangeLabel: string;
+    since?: string;
+    until?: string;
+  }): Promise<AdSetReportOverviewDto> {
+    const [campaigns, adSets, conversionLogs, leads] = await Promise.all([
+      this.prisma.metaCampaign.findMany({
+        where: { workspaceId: input.workspaceId },
+        orderBy: { name: "asc" }
+      }) as Promise<MetaCampaignRecord[]>,
+      this.prisma.metaAdSet.findMany({
+        where: { workspaceId: input.workspaceId },
+        orderBy: { name: "asc" }
+      }) as Promise<MetaAdSetRecord[]>,
+      this.getSentConversionEvents(input),
+      this.getLeads(input)
+    ]);
+    const campaignNames = new Map(
+      campaigns.map((campaign) => [campaign.campaignId, campaign.name])
+    );
+
+    return {
+      workspaceId: input.workspaceId,
+      rangeLabel: input.rangeLabel,
+      adSets: adSets.map((adSet) =>
+        this.toAdSetReportRow({
+          adSet,
+          campaignName:
+            campaignNames.get(adSet.campaignId) ?? "Campanha nao resolvida",
+          conversionLogs,
+          leads
+        })
+      )
+    };
+  }
+
+  async getAdReportOverview(input: {
+    workspaceId: string;
+    rangeLabel: string;
+    since?: string;
+    until?: string;
+  }): Promise<AdReportOverviewDto> {
+    const [campaigns, adSets, ads, conversionLogs, leads] = await Promise.all([
+      this.prisma.metaCampaign.findMany({
+        where: { workspaceId: input.workspaceId },
+        orderBy: { name: "asc" }
+      }) as Promise<MetaCampaignRecord[]>,
+      this.prisma.metaAdSet.findMany({
+        where: { workspaceId: input.workspaceId },
+        orderBy: { name: "asc" }
+      }) as Promise<MetaAdSetRecord[]>,
+      this.prisma.metaAd.findMany({
+        where: { workspaceId: input.workspaceId },
+        orderBy: { name: "asc" }
+      }) as Promise<MetaAdRecord[]>,
+      this.getSentConversionEvents(input),
+      this.getLeads(input)
+    ]);
+    const campaignNames = new Map(
+      campaigns.map((campaign) => [campaign.campaignId, campaign.name])
+    );
+    const adSetNames = new Map(adSets.map((adSet) => [adSet.adSetId, adSet.name]));
+
+    return {
+      workspaceId: input.workspaceId,
+      rangeLabel: input.rangeLabel,
+      ads: ads.map((ad) =>
+        this.toAdReportRow({
+          ad,
+          campaignName:
+            campaignNames.get(ad.campaignId) ?? "Campanha nao resolvida",
+          adSetName: adSetNames.get(ad.adSetId) ?? "Conjunto nao resolvido",
+          conversionLogs,
+          leads
+        })
       )
     };
   }
@@ -398,6 +490,137 @@ export class MetaReportingService {
       costPerPurchaseCents: this.costPer(campaign.spendCents, purchase),
       roas: null
     };
+  }
+
+  private toAdSetReportRow(input: {
+    adSet: MetaAdSetRecord;
+    campaignName: string;
+    conversionLogs: ConversionEventRecord[];
+    leads: LeadRecord[];
+  }): AdSetReportRowDto {
+    const events = input.conversionLogs.filter(
+      (item) => item.adSetId === input.adSet.adSetId
+    );
+    const realConversations = input.leads.filter(
+      (item) => item.adSetId === input.adSet.adSetId
+    ).length;
+    const metrics = this.toZeroSpendMetrics(events, realConversations);
+
+    return {
+      id: input.adSet.adSetId,
+      campaignId: input.adSet.campaignId,
+      campaignName: input.campaignName,
+      name: input.adSet.name,
+      status: this.toReportStatus(input.adSet.status),
+      ...metrics
+    };
+  }
+
+  private toAdReportRow(input: {
+    ad: MetaAdRecord;
+    campaignName: string;
+    adSetName: string;
+    conversionLogs: ConversionEventRecord[];
+    leads: LeadRecord[];
+  }): AdReportRowDto {
+    const events = input.conversionLogs.filter(
+      (item) => item.adId === input.ad.adId
+    );
+    const realConversations = input.leads.filter(
+      (item) => item.adId === input.ad.adId
+    ).length;
+    const metrics = this.toZeroSpendMetrics(events, realConversations);
+
+    return {
+      id: input.ad.adId,
+      campaignId: input.ad.campaignId,
+      campaignName: input.campaignName,
+      adSetId: input.ad.adSetId,
+      adSetName: input.adSetName,
+      name: input.ad.name,
+      status: this.toReportStatus(input.ad.status),
+      ...metrics
+    };
+  }
+
+  private toZeroSpendMetrics(
+    events: ConversionEventRecord[],
+    realConversations: number
+  ): Omit<
+    CampaignReportRowDto,
+    "id" | "name" | "status" | "spendCents" | "metaConversationsStarted"
+  > &
+    Pick<CampaignReportRowDto, "spendCents" | "metaConversationsStarted"> {
+    const spendCents = 0;
+    const metaConversationsStarted = 0;
+    const leadSubmitted = this.countEvents(events, "LeadSubmitted");
+    const qualifiedLead = this.countEvents(events, "QualifiedLead");
+    const purchase = this.countEvents(events, "Purchase");
+
+    return {
+      spendCents,
+      metaConversationsStarted,
+      costPerMetaConversationCents: null,
+      realConversations,
+      costPerRealConversationCents: null,
+      leadSubmitted,
+      costPerLeadSubmittedCents: null,
+      qualifiedLead,
+      costPerQualifiedLeadCents: null,
+      purchase,
+      costPerPurchaseCents: null,
+      roas: null
+    };
+  }
+
+  private getSentConversionEvents(input: {
+    workspaceId: string;
+    since?: string;
+    until?: string;
+  }): Promise<ConversionEventRecord[]> {
+    return this.prisma.conversionEventLog.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        status: "sent",
+        ...this.periodWhere(input)
+      },
+      select: {
+        campaignId: true,
+        adSetId: true,
+        adId: true,
+        eventName: true,
+        status: true
+      }
+    }) as Promise<ConversionEventRecord[]>;
+  }
+
+  private getLeads(input: {
+    workspaceId: string;
+    since?: string;
+    until?: string;
+  }): Promise<LeadRecord[]> {
+    return this.prisma.lead.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        ...this.periodWhere(input)
+      },
+      select: {
+        campaignId: true,
+        adSetId: true,
+        adId: true
+      }
+    }) as Promise<LeadRecord[]>;
+  }
+
+  private periodWhere(input: { since?: string; until?: string }) {
+    return input.since && input.until
+      ? {
+          createdAt: {
+            gte: new Date(`${input.since}T00:00:00.000Z`),
+            lte: new Date(`${input.until}T23:59:59.999Z`)
+          }
+        }
+      : {};
   }
 
   private countEvents(

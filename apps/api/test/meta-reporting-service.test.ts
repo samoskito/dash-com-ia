@@ -18,16 +18,22 @@ function createHarness() {
       {
         workspaceId: "workspace_1",
         campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
         createdAt: new Date("2026-07-01T12:00:00.000Z")
       },
       {
         workspaceId: "workspace_1",
         campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
         createdAt: new Date("2026-07-02T12:00:00.000Z")
       },
       {
         workspaceId: "workspace_1",
         campaignId: "cmp_other",
+        adSetId: "adset_other",
+        adId: "ad_other",
         createdAt: new Date("2026-07-02T12:00:00.000Z")
       }
     ],
@@ -35,18 +41,24 @@ function createHarness() {
       {
         workspaceId: "workspace_1",
         campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
         eventName: "LeadSubmitted",
         status: "sent"
       },
       {
         workspaceId: "workspace_1",
         campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
         eventName: "QualifiedLead",
         status: "sent"
       },
       {
         workspaceId: "workspace_1",
         campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
         eventName: "Purchase",
         status: "sent"
       }
@@ -290,6 +302,90 @@ describe("meta reporting service", () => {
               ]
             }
           ]
+        }
+      ]
+    });
+  });
+
+  it("returns ad set report rows combining structure with internal events", async () => {
+    const { service } = createHarness();
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    });
+
+    await expect(
+      service.getAdSetReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 2 dias"
+      })
+    ).resolves.toEqual({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 2 dias",
+      adSets: [
+        {
+          id: "adset_1",
+          campaignId: "cmp_1",
+          campaignName: "Black Friday WhatsApp",
+          name: "Publico quente",
+          status: "active",
+          spendCents: 0,
+          metaConversationsStarted: 0,
+          costPerMetaConversationCents: null,
+          realConversations: 2,
+          costPerRealConversationCents: null,
+          leadSubmitted: 1,
+          costPerLeadSubmittedCents: null,
+          qualifiedLead: 1,
+          costPerQualifiedLeadCents: null,
+          purchase: 1,
+          costPerPurchaseCents: null,
+          roas: null
+        }
+      ]
+    });
+  });
+
+  it("returns ad report rows combining structure with internal events", async () => {
+    const { service } = createHarness();
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    });
+
+    await expect(
+      service.getAdReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 2 dias"
+      })
+    ).resolves.toEqual({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 2 dias",
+      ads: [
+        {
+          id: "ad_1",
+          campaignId: "cmp_1",
+          campaignName: "Black Friday WhatsApp",
+          adSetId: "adset_1",
+          adSetName: "Publico quente",
+          name: "Criativo WhatsApp",
+          status: "active",
+          spendCents: 0,
+          metaConversationsStarted: 0,
+          costPerMetaConversationCents: null,
+          realConversations: 2,
+          costPerRealConversationCents: null,
+          leadSubmitted: 1,
+          costPerLeadSubmittedCents: null,
+          qualifiedLead: 1,
+          costPerQualifiedLeadCents: null,
+          purchase: 1,
+          costPerPurchaseCents: null,
+          roas: null
         }
       ]
     });
