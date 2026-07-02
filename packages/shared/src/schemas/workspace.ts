@@ -40,7 +40,19 @@ export const workspaceInviteSchema = z.object({
   email: z.string().email(),
   role: z.enum(workspaceRoles),
   status: z.enum(["pending", "accepted", "revoked", "expired"]),
-  expiresAt: z.string().datetime()
+  expiresAt: z.string().datetime(),
+  acceptToken: z.string().min(16).optional()
+});
+
+export const workspaceInviteAcceptInputSchema = z.object({
+  token: z.string().trim().min(16)
+});
+
+export const workspaceInviteAcceptSchema = z.object({
+  workspaceId: z.string().min(1),
+  memberId: z.string().min(1),
+  role: z.enum(workspaceRoles),
+  status: z.literal("accepted")
 });
 
 export type WorkspaceDto = z.infer<typeof workspaceSchema>;
@@ -53,3 +65,9 @@ export type WorkspaceInviteInputDto = z.infer<
   typeof workspaceInviteInputSchema
 >;
 export type WorkspaceInviteDto = z.infer<typeof workspaceInviteSchema>;
+export type WorkspaceInviteAcceptInputDto = z.infer<
+  typeof workspaceInviteAcceptInputSchema
+>;
+export type WorkspaceInviteAcceptDto = z.infer<
+  typeof workspaceInviteAcceptSchema
+>;

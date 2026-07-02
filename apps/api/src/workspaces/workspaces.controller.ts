@@ -6,7 +6,10 @@ import {
   Inject,
   Post
 } from "@nestjs/common";
-import { workspaceInviteInputSchema } from "@wpptrack/shared";
+import {
+  workspaceInviteAcceptInputSchema,
+  workspaceInviteInputSchema
+} from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "./workspaces.service";
@@ -42,5 +45,17 @@ export class WorkspacesController {
 
     const authenticated = await this.authService.getSession(refreshToken);
     return this.workspacesService.createInvite(authenticated, parsed.data);
+  }
+
+  @Post("invites/accept")
+  async acceptInvite(@AuthToken() refreshToken: string, @Body() body: unknown) {
+    const parsed = workspaceInviteAcceptInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    const authenticated = await this.authService.getSession(refreshToken);
+    return this.workspacesService.acceptInvite(authenticated, parsed.data);
   }
 }

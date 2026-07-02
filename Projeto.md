@@ -19,6 +19,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Cadastro cria usuario por email/senha, workspace inicial com papel `owner`, sessao persistida em `AuthSession`, refresh token opaco e cookie `HttpOnly`.
 - Wave 2 backend executada em 2026-07-02 com plano em `docs/superpowers/plans/2026-07-02-wpptrack-wave-2-real-saas-backend.md`.
 - Workspace API real adicionada: `GET /workspaces/current`, `GET /workspaces/current/members` e `POST /workspaces/current/invites`.
+- Convites de workspace agora possuem aceite autenticado: `POST /workspaces/invites/accept` valida token, email do usuario convidado, status pendente e expiracao, cria `WorkspaceMember` e marca o convite como `accepted`.
 - Diagnosticos persistentes implementados com Prisma/API: `DiagnosticEvent`, `WebhookLog`, `IntegrationLog`, `ConversionEventLog`, `JobAttempt` e `AuditLog`; endpoints iniciais em `/backoffice/diagnostics/events`.
 - API de integracoes exposta sem credenciais externas: `GET /integrations/health`, `GET /integrations/meta/start`, `GET /integrations/uazapi/start` e `GET /integrations/asaas/status`.
 - Billing/ativacao de instancia WhatsApp scaffoldado: `GET /billing/whatsapp-instance/quote` e `POST /billing/whatsapp-instance/checkout`; checkout cria instancia `pending_payment`, cobranca pendente e ativacao pendente, sem liberar uso antes de webhook/pagamento futuro.
@@ -411,7 +412,7 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: Google OAuth, recuperacao/verificacao de email, convites com aceite, processamento especifico dos webhooks Uazapi/Asaas, ligar webhooks Uazapi as regras de conversao, OAuth Meta real, envio Pixel/CAPI e telas detalhadas de diagnostico/retry.
+- Continuar a proxima rodada com: Google OAuth, recuperacao/verificacao de email, tela backoffice de split, OAuth Meta real, envio Pixel/CAPI e telas detalhadas de diagnostico/retry.
 
 ## Perguntas Abertas
 

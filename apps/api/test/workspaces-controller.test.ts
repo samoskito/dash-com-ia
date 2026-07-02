@@ -52,7 +52,14 @@ async function createApp() {
       email: "admin@wpptrack.com",
       role: "admin",
       status: "pending",
-      expiresAt: "2026-07-09T03:00:00.000Z"
+      expiresAt: "2026-07-09T03:00:00.000Z",
+      acceptToken: "invite-token-1234567890"
+    })),
+    acceptInvite: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      memberId: "member_2",
+      role: "admin",
+      status: "accepted"
     }))
   };
 
@@ -120,11 +127,35 @@ describe("workspaces controller", () => {
       .expect(({ body }) => {
         expect(body.email).toBe("admin@wpptrack.com");
         expect(body.status).toBe("pending");
+        expect(body.acceptToken).toBe("invite-token-1234567890");
       });
 
     expect(workspacesService.createInvite).toHaveBeenCalledWith(session, {
       email: "admin@wpptrack.com",
       role: "admin"
+    });
+
+    await app.close();
+  });
+
+  it("accepts pending workspace invites for the authenticated invited user", async () => {
+    const { app, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/workspaces/invites/accept")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        token: "invite-token-1234567890"
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.status).toBe("accepted");
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.memberId).toBe("member_2");
+      });
+
+    expect(workspacesService.acceptInvite).toHaveBeenCalledWith(session, {
+      token: "invite-token-1234567890"
     });
 
     await app.close();

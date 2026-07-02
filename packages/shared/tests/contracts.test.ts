@@ -23,6 +23,8 @@ import {
   splitReceiverSchema,
   splitReceiverUpdateInputSchema,
   workspaceInviteInputSchema,
+  workspaceInviteAcceptInputSchema,
+  workspaceInviteAcceptSchema,
   workspaceInviteSchema,
   workspaceMemberSchema,
   whatsappInstanceCheckoutInputSchema,
@@ -190,13 +192,26 @@ describe("shared contracts", () => {
       email: "admin@wpptrack.com",
       role: "admin",
       status: "pending",
-      expiresAt: "2026-07-09T03:00:00.000Z"
+      expiresAt: "2026-07-09T03:00:00.000Z",
+      acceptToken: "invite-token-1234567890"
+    });
+    const acceptInput = workspaceInviteAcceptInputSchema.parse({
+      token: "invite-token-1234567890"
+    });
+    const accepted = workspaceInviteAcceptSchema.parse({
+      workspaceId: "workspace_1",
+      memberId: "member_2",
+      role: "admin",
+      status: "accepted"
     });
 
     expect(workspace.permissions.canManageBilling).toBe(true);
     expect(member.role).toBe("owner");
     expect(inviteInput.email).toBe("admin@wpptrack.com");
     expect(invite.status).toBe("pending");
+    expect(invite.acceptToken).toBe("invite-token-1234567890");
+    expect(acceptInput.token).toBe("invite-token-1234567890");
+    expect(accepted.memberId).toBe("member_2");
   });
 
   it("rejects owner invites from client-facing workspace API", () => {

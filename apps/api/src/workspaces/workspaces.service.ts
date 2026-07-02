@@ -1,5 +1,6 @@
 import { randomBytes, createHash } from "node:crypto";
 import {
+  BadRequestException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -11,6 +12,8 @@ import {
   canViewReports,
   type CurrentWorkspaceDto,
   type WorkspaceInviteDto,
+  type WorkspaceInviteAcceptDto,
+  type WorkspaceInviteAcceptInputDto,
   type WorkspaceInviteInputDto,
   type WorkspaceMemberDto,
   type WorkspaceRole
@@ -83,12 +86,13 @@ export class WorkspacesService {
     }
 
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
+    const acceptToken = randomBytes(32).toString("hex");
     const invite = await this.prisma.workspaceInvite.create({
       data: {
         workspaceId: workspace.id,
         email: input.email,
         role: input.role,
-        tokenHash: this.hashInviteToken(randomBytes(32).toString("hex")),
+        tokenHash: this.hashInviteToken(acceptToken),
         expiresAt
       }
     });
@@ -98,8 +102,63 @@ export class WorkspacesService {
       email: invite.email,
       role: invite.role,
       status: invite.status,
-      expiresAt: invite.expiresAt.toISOString()
+      expiresAt: invite.expiresAt.toISOString(),
+      acceptToken
     };
+  }
+
+  async acceptInvite(
+    authenticated: AuthenticatedUser,
+    input: WorkspaceInviteAcceptInputDto
+  ): Promise<WorkspaceInviteAcceptDto> {
+    const tokenHash = this.hashInviteToken(input.token);
+    const invite = await this.prisma.workspaceInvite.findUnique({
+      where: { tokenHash }
+    });
+
+    if (!invite) {
+      throw new NotFoundException("Convite nao encontrado");
+    }
+
+    if (invite.status !== "pending") {
+      throw new BadRequestException("Convite nao esta pendente");
+    }
+
+    if (invite.expiresAt.getTime() <= Date.now()) {
+      await this.prisma.workspaceInvite.update({
+        where: { id: invite.id },
+        data: { status: "expired" }
+      });
+      throw new BadRequestException("Convite expirado");
+    }
+
+    if (invite.email.toLowerCase() !== authenticated.user.email.toLowerCase()) {
+      throw new ForbiddenException("Convite pertence a outro email");
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const member = await tx.workspaceMember.create({
+        data: {
+          workspaceId: invite.workspaceId,
+          userId: authenticated.user.id,
+          role: invite.role
+        }
+      });
+      await tx.workspaceInvite.update({
+        where: { id: invite.id },
+        data: {
+          status: "accepted",
+          acceptedAt: new Date()
+        }
+      });
+
+      return {
+        workspaceId: invite.workspaceId,
+        memberId: member.id,
+        role: invite.role,
+        status: "accepted"
+      };
+    });
   }
 
   private hashInviteToken(token: string): string {
