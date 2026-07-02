@@ -46,22 +46,22 @@ export default async function LoginPage({
             operacao em uma unica tela de controle.
           </p>
 
-          <div className="login-status-grid" aria-label="Status da plataforma">
+          <div className="login-status-grid" aria-label="Cobertura da plataforma">
             <div className="quality-card">
-              <span className="micro-label">Status da plataforma</span>
-              <strong>API online</strong>
+              <span className="micro-label">Leads rastreados</span>
+              <strong>Atribuicao por origem</strong>
             </div>
             <div className="quality-card">
-              <span className="micro-label">Meta CAPI</span>
-              <strong>99.2% aceito</strong>
+              <span className="micro-label">Campanhas Meta</span>
+              <strong>Funil por campanha</strong>
             </div>
             <div className="quality-card">
-              <span className="micro-label">WhatsApp</span>
-              <strong>Fila estavel</strong>
+              <span className="micro-label">Eventos Pixel</span>
+              <strong>Envio server-side</strong>
             </div>
             <div className="quality-card">
-              <span className="micro-label">Pixel</span>
-              <strong>Sinal ativo</strong>
+              <span className="micro-label">Diagnostico</span>
+              <strong>Logs auditaveis</strong>
             </div>
           </div>
         </div>

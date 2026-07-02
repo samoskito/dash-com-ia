@@ -523,6 +523,7 @@ Checkpoint atual:
 - `pnpm --filter @wpptrack/api dev` foi estabilizado em 2026-07-02: o script deixou de usar `nest start --watch`, que tentava executar `dist/main` no caminho errado do monorepo, e passou a usar `node --watch -r ts-node/register src/main.ts`. Teste `apps/api/test/package-scripts.test.ts` protege os entrypoints locais.
 - Layout autenticado do cliente agora detecta workspace bloqueado antes de renderizar paginas privadas: se `/workspaces/current` retornar `403` com bloqueio operacional, `apps/web/src/app/(app)/layout.tsx` exibe uma tela unica de `Workspace bloqueado` em vez de deixar cada pagina cair em `API indisponivel`.
 - Shell lateral do cliente agora usa contexto real de `/workspaces/current` para nome, slug, papel e status operacional do workspace; os placeholders estaticos de health (`API online`, `Meta v21`, `WhatsApp fila`, `Pixel ativo`) foram removidos do `AppShell`.
+- Tela publica de login nao deve afirmar health operacional ou taxas inventadas sem consultar backend. Os antigos cartoes estaticos `API online`, `99.2% aceito`, `Fila estavel` e `Sinal ativo` foram substituidos por cobertura neutra do produto: leads rastreados, campanhas Meta, eventos Pixel e diagnostico.
 
 Proximo passo operacional:
 
