@@ -1,10 +1,9 @@
 import type { MetaStructureReportDto, ReportOverviewDto } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
-import { mockReportOverview } from "../../../mock/reporting";
 
 type ReportsSearchParams = Record<string, string | string[] | undefined>;
-type ReportFetchState = "real" | "empty" | "fallback";
+type ReportFetchState = "real" | "empty" | "error";
 type CampaignReportsResult = {
   report: ReportOverviewDto;
   state: ReportFetchState;
@@ -48,8 +47,12 @@ async function getCampaignReports(filters: {
     };
   } catch {
     return {
-      report: mockReportOverview,
-      state: "fallback"
+      report: {
+        workspaceId: "unavailable",
+        rangeLabel: "API indisponivel",
+        campaigns: []
+      },
+      state: "error"
     };
   }
 }
@@ -130,8 +133,8 @@ export default async function ReportsPage({
             <button className="button" type="submit">Sincronizar Meta</button>
           </form>
           <span className="tag">{report.rangeLabel}</span>
-          {reportState === "fallback" ? (
-            <span className="tag">Dados de demonstracao</span>
+          {reportState === "error" ? (
+            <span className="tag">API indisponivel</span>
           ) : null}
         </div>
       </header>
@@ -187,8 +190,16 @@ export default async function ReportsPage({
             ) : (
               <tr>
                 <td>
-                  <strong>Nenhuma campanha sincronizada</strong>
-                  <span>Use Sincronizar Meta para carregar campanhas reais.</span>
+                  <strong>
+                    {reportState === "error"
+                      ? "Nao foi possivel carregar campanhas"
+                      : "Nenhuma campanha sincronizada"}
+                  </strong>
+                  <span>
+                    {reportState === "error"
+                      ? "Confira a API antes de analisar performance."
+                      : "Use Sincronizar Meta para carregar campanhas reais."}
+                  </span>
                 </td>
                 <td>{money(0)}</td>
                 <td>0<span>-</span></td>

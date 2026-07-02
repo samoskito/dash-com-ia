@@ -92,7 +92,7 @@ describe("overview route", () => {
     expect(html).not.toContain("Black Friday WhatsApp");
   });
 
-  it("marks overview fallback data explicitly when backend is unavailable", async () => {
+  it("renders an unavailable overview state without mock campaign data", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response("offline", { status: 503 })
     );
@@ -100,7 +100,8 @@ describe("overview route", () => {
     const element = await OverviewPage();
     const html = renderToStaticMarkup(createElement("div", null, element));
 
-    expect(html).toContain("Dados de demonstracao");
-    expect(html).toContain("Black Friday WhatsApp");
+    expect(html).toContain("API indisponivel");
+    expect(html).toContain("Nao foi possivel carregar relatorios");
+    expect(html).not.toContain("Black Friday WhatsApp");
   });
 });

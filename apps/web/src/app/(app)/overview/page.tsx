@@ -1,8 +1,7 @@
 import type { CampaignReportRowDto, ReportOverviewDto } from "@wpptrack/shared";
 import { serverApiFetch } from "../../../lib/server-api";
-import { mockReportOverview } from "../../../mock/reporting";
 
-type OverviewFetchState = "real" | "empty" | "fallback";
+type OverviewFetchState = "real" | "empty" | "error";
 type OverviewReportResult = {
   report: ReportOverviewDto;
   state: OverviewFetchState;
@@ -29,8 +28,12 @@ async function getOverviewReport(): Promise<OverviewReportResult> {
     };
   } catch {
     return {
-      report: mockReportOverview,
-      state: "fallback"
+      report: {
+        workspaceId: "unavailable",
+        rangeLabel: "API indisponivel",
+        campaigns: []
+      },
+      state: "error"
     };
   }
 }
@@ -114,8 +117,8 @@ export default async function OverviewPage() {
           <span className="tag">{report.rangeLabel}</span>
           <span className="tag">{campaigns.length} campanhas</span>
           <span className="tag">{trackedRate}% conciliadas</span>
-          {reportState === "fallback" ? (
-            <span className="tag">Dados de demonstracao</span>
+          {reportState === "error" ? (
+            <span className="tag">API indisponivel</span>
           ) : null}
         </div>
       </header>
@@ -131,10 +134,16 @@ export default async function OverviewPage() {
         <div className="surface-panel">
           <div>
             <span className="eyebrow">Funil integrado</span>
-            <h2>{campaign.name}</h2>
+            <h2>
+              {reportState === "error"
+                ? "Nao foi possivel carregar relatorios"
+                : campaign.name}
+            </h2>
           </div>
           <p>
-            {campaigns.length > 0
+            {reportState === "error"
+              ? "Confira a API antes de analisar performance."
+              : campaigns.length > 0
               ? `Investimento de ${money(campaign.spendCents)} gerou ${campaign.realConversations} conversas reais, ${campaign.leadSubmitted} leads e ${campaign.purchase} compras atribuidas.`
               : "Nenhuma campanha sincronizada. Use Sincronizar Meta em Relatorios para carregar dados reais."}
           </p>
@@ -167,7 +176,9 @@ export default async function OverviewPage() {
                 <span className="event-chip" key={item.id}>{item.name}</span>
               ))
             ) : (
-              <span className="event-chip warn">aguardando sync</span>
+              <span className="event-chip warn">
+                {reportState === "error" ? "API indisponivel" : "aguardando sync"}
+              </span>
             )}
           </div>
         </div>

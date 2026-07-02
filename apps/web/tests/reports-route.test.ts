@@ -133,7 +133,7 @@ describe("reports route", () => {
     expect(html).not.toContain("Remarketing 7 dias");
   });
 
-  it("marks report fallback data explicitly when backend is unavailable", async () => {
+  it("renders an unavailable state without demo rows when backend is unavailable", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response("offline", { status: 503 }))
       .mockResolvedValueOnce(new Response("offline", { status: 503 }));
@@ -141,7 +141,8 @@ describe("reports route", () => {
     const element = await ReportsPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
-    expect(html).toContain("Dados de demonstracao");
-    expect(html).toContain("Black Friday WhatsApp");
+    expect(html).toContain("API indisponivel");
+    expect(html).toContain("Nao foi possivel carregar campanhas");
+    expect(html).not.toContain("Black Friday WhatsApp");
   });
 });
