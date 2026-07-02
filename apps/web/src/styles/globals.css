@@ -328,6 +328,33 @@ button {
   color: #03110d;
 }
 
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.input-field {
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+  padding: 9px 12px;
+}
+
+.input-field:focus {
+  border-color: rgba(66, 240, 168, 0.7);
+  box-shadow: 0 0 0 3px rgba(18, 184, 132, 0.14);
+}
+
+.compact-input {
+  max-width: 220px;
+  width: 100%;
+}
+
 .metric-grid {
   display: grid;
   gap: 12px;

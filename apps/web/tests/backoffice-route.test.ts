@@ -17,6 +17,12 @@ describe("backoffice route", () => {
         })
       )
       .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
         new Response(
           JSON.stringify([
             {
@@ -78,6 +84,12 @@ describe("backoffice route", () => {
           status: 200,
           headers: { "Content-Type": "application/json" }
         })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
       );
 
     const element = await BackofficePage();
@@ -86,5 +98,52 @@ describe("backoffice route", () => {
     expect(html).toContain("Conversao nao enviada");
     expect(html).toContain("Reprocessar");
     expect(html).toContain("diag_1");
+  });
+
+  it("renders workspace billing configuration with editable Asaas customer ids", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "workspace_1",
+              name: "Comunidade NOD",
+              slug: "comunidade-nod",
+              asaasCustomerId: "cus_asaas_1"
+            },
+            {
+              id: "workspace_2",
+              name: "Clinica Norte",
+              slug: "clinica-norte",
+              asaasCustomerId: null
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      );
+
+    const element = await BackofficePage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/workspaces/billing",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Comunidade NOD");
+    expect(html).toContain("cus_asaas_1");
+    expect(html).toContain("Clinica Norte");
+    expect(html).toContain("Configurar customer");
   });
 });

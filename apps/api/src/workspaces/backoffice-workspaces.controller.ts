@@ -21,6 +21,13 @@ export class BackofficeWorkspacesController {
     private readonly workspacesService: WorkspacesService
   ) {}
 
+  @Get("billing")
+  async listBilling(@AuthToken() refreshToken: string) {
+    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    return this.workspacesService.listBillingConfigurations();
+  }
+
   @Get(":workspaceId/billing")
   async getBilling(
     @AuthToken() refreshToken: string,

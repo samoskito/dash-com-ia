@@ -104,6 +104,22 @@ export class WorkspacesService {
     return workspace;
   }
 
+  async listBillingConfigurations(): Promise<WorkspaceBillingDto[]> {
+    const workspaces = (await this.prisma.workspace.findMany({
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        asaasCustomerId: true
+      },
+      orderBy: {
+        name: "asc"
+      }
+    })) as WorkspaceBillingRecord[];
+
+    return workspaces;
+  }
+
   async updateBillingConfiguration(
     workspaceId: string,
     input: WorkspaceBillingUpdateInputDto

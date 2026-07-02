@@ -26,6 +26,8 @@ export const workspaceBillingSchema = z.object({
   asaasCustomerId: z.string().min(1).nullable()
 });
 
+export const workspaceBillingListSchema = z.array(workspaceBillingSchema);
+
 export const workspaceBillingUpdateInputSchema = z.object({
   asaasCustomerId: z.string().trim().min(1).nullable()
 });
@@ -72,6 +74,9 @@ export type WorkspacePermissionsDto = z.infer<
 >;
 export type CurrentWorkspaceDto = z.infer<typeof currentWorkspaceSchema>;
 export type WorkspaceBillingDto = z.infer<typeof workspaceBillingSchema>;
+export type WorkspaceBillingListDto = z.infer<
+  typeof workspaceBillingListSchema
+>;
 export type WorkspaceBillingUpdateInputDto = z.infer<
   typeof workspaceBillingUpdateInputSchema
 >;

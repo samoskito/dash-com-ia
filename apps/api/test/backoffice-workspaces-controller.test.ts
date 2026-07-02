@@ -13,6 +13,20 @@ async function createApp() {
     }))
   };
   const workspacesService = {
+    listBillingConfigurations: vi.fn(async () => [
+      {
+        id: "workspace_1",
+        name: "Comunidade NOD",
+        slug: "comunidade-nod",
+        asaasCustomerId: "cus_asaas_1"
+      },
+      {
+        id: "workspace_2",
+        name: "Clinica Norte",
+        slug: "clinica-norte",
+        asaasCustomerId: null
+      }
+    ]),
     getBillingConfiguration: vi.fn(async () => ({
       id: "workspace_1",
       name: "Comunidade NOD",
@@ -57,6 +71,26 @@ describe("backoffice workspaces controller", () => {
     expect(workspacesService.getBillingConfiguration).toHaveBeenCalledWith(
       "workspace_1"
     );
+
+    await app.close();
+  });
+
+  it("lists workspace billing configurations for platform admins", async () => {
+    const { app, platformAdminService, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/backoffice/workspaces/billing")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toHaveLength(2);
+        expect(body[1].asaasCustomerId).toBeNull();
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(workspacesService.listBillingConfigurations).toHaveBeenCalled();
 
     await app.close();
   });

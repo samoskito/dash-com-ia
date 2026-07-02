@@ -1,4 +1,8 @@
-import type { DiagnosticEventDto, SplitReceiverDto } from "@wpptrack/shared";
+import type {
+  DiagnosticEventDto,
+  SplitReceiverDto,
+  WorkspaceBillingDto
+} from "@wpptrack/shared";
 import { serverApiFetch } from "../../../lib/server-api";
 
 async function getDiagnosticEvents(): Promise<DiagnosticEventDto[]> {
@@ -12,6 +16,14 @@ async function getDiagnosticEvents(): Promise<DiagnosticEventDto[]> {
 async function getSplitReceivers(): Promise<SplitReceiverDto[]> {
   try {
     return await serverApiFetch<SplitReceiverDto[]>("/backoffice/split/receivers");
+  } catch {
+    return [];
+  }
+}
+
+async function getWorkspaceBilling(): Promise<WorkspaceBillingDto[]> {
+  try {
+    return await serverApiFetch<WorkspaceBillingDto[]>("/backoffice/workspaces/billing");
   } catch {
     return [];
   }
@@ -38,13 +50,36 @@ async function retryDiagnosticEvent(formData: FormData) {
   }
 }
 
+async function updateWorkspaceBilling(formData: FormData) {
+  "use server";
+
+  const workspaceId = String(formData.get("workspaceId") ?? "");
+  const rawCustomerId = String(formData.get("asaasCustomerId") ?? "").trim();
+
+  if (!workspaceId) {
+    return;
+  }
+
+  try {
+    await serverApiFetch(`/backoffice/workspaces/${workspaceId}/billing`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        asaasCustomerId: rawCustomerId || null
+      })
+    });
+  } catch {
+    return;
+  }
+}
+
 function percentFromBps(value: number): string {
   return `${(value / 100).toFixed(2)}%`;
 }
 
 export default async function BackofficePage() {
-  const [diagnosticEvents, splitReceivers] = await Promise.all([
+  const [diagnosticEvents, workspaceBilling, splitReceivers] = await Promise.all([
     getDiagnosticEvents(),
+    getWorkspaceBilling(),
     getSplitReceivers()
   ]);
   const panels = [
@@ -91,6 +126,61 @@ export default async function BackofficePage() {
             <p className="muted">{description}</p>
           </article>
         ))}
+      </div>
+
+      <div className="surface-panel">
+        <span className="eyebrow">Workspaces</span>
+        <h2>Customers Asaas por workspace</h2>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Workspace</th>
+                <th>Slug</th>
+                <th>Customer Asaas</th>
+                <th>Acao</th>
+              </tr>
+            </thead>
+            <tbody>
+              {workspaceBilling.length > 0 ? (
+                workspaceBilling.map((workspace) => (
+                  <tr key={workspace.id}>
+                    <td>
+                      <strong>{workspace.name}</strong>
+                      <span>{workspace.id}</span>
+                    </td>
+                    <td>{workspace.slug}</td>
+                    <td>
+                      <form className="inline-form" action={updateWorkspaceBilling}>
+                        <input type="hidden" name="workspaceId" value={workspace.id} />
+                        <input
+                          aria-label={`Customer Asaas de ${workspace.name}`}
+                          className="input-field compact-input"
+                          defaultValue={workspace.asaasCustomerId ?? ""}
+                          name="asaasCustomerId"
+                          placeholder="Configurar customer"
+                        />
+                        <button className="button" type="submit">Salvar</button>
+                      </form>
+                    </td>
+                    <td>
+                      <span className={`event-chip${workspace.asaasCustomerId ? "" : " warn"}`}>
+                        {workspace.asaasCustomerId ? "configurado" : "pendente"}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td><strong>Nenhum workspace carregado</strong><span>Confira permissao de backoffice</span></td>
+                  <td>-</td>
+                  <td><span className="muted">Configurar customer</span></td>
+                  <td><span className="event-chip warn">sem dados</span></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="surface-panel">
