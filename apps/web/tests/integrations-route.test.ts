@@ -140,6 +140,10 @@ describe("integrations route", () => {
     expect(html).toContain("BM Principal");
     expect(html).toContain("Conta WhatsApp");
     expect(html).toContain("Pixel Loja");
+    expect(html).toContain('name="businessId"');
+    expect(html).toContain('name="adAccountId"');
+    expect(html).toContain('name="pixelId"');
+    expect(html).toContain("Salvar selecao Meta");
     expect(html).toContain("Vendas");
     expect(html).toContain("provider_instance_1");
     expect(html).toContain("Conectar WhatsApp");

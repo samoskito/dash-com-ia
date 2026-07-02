@@ -105,6 +105,32 @@ async function createWhatsappCheckout(formData: FormData) {
   revalidatePath("/integrations");
 }
 
+async function saveMetaAssetSelection(formData: FormData) {
+  "use server";
+
+  const businessId = String(formData.get("businessId") ?? "").trim();
+  const adAccountId = String(formData.get("adAccountId") ?? "").trim();
+  const pixelId = String(formData.get("pixelId") ?? "").trim();
+
+  if (!businessId && !adAccountId && !pixelId) {
+    return;
+  }
+
+  try {
+    await serverApiFetch("/integrations/meta/assets/selection", {
+      method: "PUT",
+      body: JSON.stringify({
+        businessId: businessId || null,
+        adAccountId: adAccountId || null,
+        pixelId: pixelId || null
+      })
+    });
+    revalidatePath("/integrations");
+  } catch {
+    return;
+  }
+}
+
 function money(cents: number | null | undefined) {
   if (!cents) {
     return "Aguardando preco";
@@ -312,6 +338,50 @@ export default async function IntegrationsPage() {
         <p className="muted">
           {metaAssetsDetail(metaAssets)}
         </p>
+        {metaAssets ? (
+          <form className="filter-bar" action={saveMetaAssetSelection}>
+            <select
+              className="filter-control"
+              name="businessId"
+              defaultValue={metaAssets.selection.businessId ?? ""}
+              aria-label="Business Manager Meta"
+            >
+              <option value="">Sem BM</option>
+              {metaAssets.businesses.map((business) => (
+                <option key={business.id} value={business.id}>
+                  {business.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="filter-control"
+              name="adAccountId"
+              defaultValue={metaAssets.selection.adAccountId ?? ""}
+              aria-label="Conta de anuncio Meta"
+            >
+              <option value="">Sem conta</option>
+              {metaAssets.adAccounts.map((adAccount) => (
+                <option key={adAccount.id} value={adAccount.id}>
+                  {adAccount.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="filter-control"
+              name="pixelId"
+              defaultValue={metaAssets.selection.pixelId ?? ""}
+              aria-label="Pixel Meta"
+            >
+              <option value="">Sem Pixel</option>
+              {metaAssets.pixels.map((pixel) => (
+                <option key={pixel.id} value={pixel.id}>
+                  {pixel.name}
+                </option>
+              ))}
+            </select>
+            <button className="button" type="submit">Salvar selecao Meta</button>
+          </form>
+        ) : null}
         <div className="table-wrap">
           <table>
             <thead>
@@ -336,7 +406,7 @@ export default async function IntegrationsPage() {
                         (business) => business.id === metaAssets.selection.businessId
                       )?.verificationStatus ?? "sem status"}
                     </td>
-                    <td><button className="button" type="button">Selecionar</button></td>
+                    <td><span className="event-chip">selecionado</span></td>
                   </tr>
                   <tr>
                     <td>Conta de anuncio</td>
@@ -349,7 +419,7 @@ export default async function IntegrationsPage() {
                         (adAccount) => adAccount.id === metaAssets.selection.adAccountId
                       )?.currency ?? "sem moeda"}
                     </td>
-                    <td><button className="button" type="button">Selecionar</button></td>
+                    <td><span className="event-chip">selecionado</span></td>
                   </tr>
                   <tr>
                     <td>Pixel</td>
@@ -361,7 +431,7 @@ export default async function IntegrationsPage() {
                       {metaAssets.pixels.find((pixel) => pixel.id === metaAssets.selection.pixelId)
                         ?.code ?? "sem codigo"}
                     </td>
-                    <td><button className="button" type="button">Selecionar</button></td>
+                    <td><span className="event-chip">selecionado</span></td>
                   </tr>
                 </>
               ) : (
