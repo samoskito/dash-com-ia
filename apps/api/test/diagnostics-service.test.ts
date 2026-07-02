@@ -698,8 +698,14 @@ describe("diagnostics service", () => {
   });
 
   it("adds linked integration and conversion logs to the diagnostic timeline", async () => {
-    const { conversionEventLogs, events, integrationLogs, service } =
-      createHarness();
+    const {
+      conversionEventLogs,
+      events,
+      integrationLogs,
+      jobAttemptFindManyCalls,
+      jobAttempts,
+      service
+    } = createHarness();
     integrationLogs.push({
       id: "integration_1",
       workspaceId: "workspace_1",
@@ -740,6 +746,29 @@ describe("diagnostics service", () => {
       jobId: "bull_job_1",
       createdAt: new Date("2026-07-02T03:00:30.000Z")
     });
+    jobAttempts.push({
+      id: "job_attempt_1",
+      workspaceId: "workspace_1",
+      queueName: "conversion-events",
+      jobId: "bull_job_1",
+      jobName: "send-conversion-event",
+      attemptNumber: 1,
+      status: "failed",
+      scheduledAt: new Date("2026-07-02T03:00:35.000Z"),
+      startedAt: new Date("2026-07-02T03:00:40.000Z"),
+      finishedAt: new Date("2026-07-02T03:00:45.000Z"),
+      nextRetryAt: new Date("2026-07-02T03:05:00.000Z"),
+      source: "meta",
+      relatedEntityType: "ConversionEventLog",
+      relatedEntityId: "conversion_1",
+      errorCode: "META_TIMEOUT",
+      errorMessage: "Timeout Meta",
+      createdAt: new Date("2026-07-02T03:00:35.000Z"),
+      summaryPayload: {
+        conversionEventLogId: "conversion_1",
+        resultStatus: "error"
+      }
+    });
     events.push({
       id: "diag_1",
       workspaceId: "workspace_1",
@@ -769,6 +798,7 @@ describe("diagnostics service", () => {
     expect(detail.timeline.map((item) => item.kind)).toEqual([
       "diagnostic_event",
       "conversion_event_log",
+      "job_attempt",
       "integration_log"
     ]);
     expect(detail.timeline[1]).toMatchObject({
@@ -784,6 +814,15 @@ describe("diagnostics service", () => {
       }
     });
     expect(detail.timeline[2]).toMatchObject({
+      id: "job_attempt_1",
+      label: "send-conversion-event",
+      status: "failed",
+      summaryPayload: {
+        conversionEventLogId: "conversion_1",
+        resultStatus: "error"
+      }
+    });
+    expect(detail.timeline[3]).toMatchObject({
       id: "integration_1",
       label: "meta capi.events",
       status: "error",
@@ -796,6 +835,17 @@ describe("diagnostics service", () => {
         adId: "ad_1"
       }
     });
+    expect(jobAttemptFindManyCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          where: {
+            relatedEntityType: "ConversionEventLog",
+            relatedEntityId: "conversion_1"
+          },
+          take: 20
+        })
+      ])
+    );
   });
 
   it("returns duplicate webhook result without creating another diagnostic event", async () => {

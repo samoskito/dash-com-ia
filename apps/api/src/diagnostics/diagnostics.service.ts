@@ -910,7 +910,21 @@ export class DiagnosticsService {
       }
     }
 
-    const [auditLogs, jobAttempts] = await Promise.all([
+    const jobAttemptWhereInputs: Prisma.JobAttemptWhereInput[] = [
+      {
+        relatedEntityType: "DiagnosticEvent",
+        relatedEntityId: event.id
+      }
+    ];
+
+    if (event.conversionEventLogId) {
+      jobAttemptWhereInputs.push({
+        relatedEntityType: "ConversionEventLog",
+        relatedEntityId: event.conversionEventLogId
+      });
+    }
+
+    const [auditLogs, jobAttemptGroups] = await Promise.all([
       this.prisma.auditLog.findMany({
         where: {
           targetType: "DiagnosticEvent",
@@ -921,17 +935,24 @@ export class DiagnosticsService {
         },
         take: 20
       }) as Promise<AuditLogRecord[]>,
-      this.prisma.jobAttempt.findMany({
-        where: {
-          relatedEntityType: "DiagnosticEvent",
-          relatedEntityId: event.id
-        },
-        orderBy: {
-          createdAt: "asc"
-        },
-        take: 20
-      }) as Promise<JobAttemptRecord[]>
+      Promise.all(
+        jobAttemptWhereInputs.map(
+          (where) =>
+            this.prisma.jobAttempt.findMany({
+              where,
+              orderBy: {
+                createdAt: "asc"
+              },
+              take: 20
+            }) as Promise<JobAttemptRecord[]>
+        )
+      )
     ]);
+    const jobAttempts = Array.from(
+      new Map(
+        jobAttemptGroups.flat().map((jobAttempt) => [jobAttempt.id, jobAttempt])
+      ).values()
+    );
 
     for (const auditLog of auditLogs) {
       items.push({
