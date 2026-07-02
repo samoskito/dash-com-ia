@@ -20,6 +20,10 @@ type FakePrisma = {
   };
   workspaceInvite: {
     create: () => Promise<never>;
+    findMany: (args: {
+      where: { workspaceId: string };
+      orderBy: { createdAt: "desc" };
+    }) => Promise<Record<string, unknown>[]>;
     findUnique: (args: { where: { tokenHash: string } }) => Promise<Record<string, unknown> | null>;
     update: (args: { data: Record<string, unknown>; where: { id: string } }) => Promise<Record<string, unknown>>;
   };
@@ -61,6 +65,8 @@ function createHarness() {
       create: async () => {
         throw new Error("not used");
       },
+      findMany: async ({ where }: { where: { workspaceId: string } }) =>
+        db.invites.filter((invite) => invite.workspaceId === where.workspaceId),
       findUnique: async ({ where }: { where: { tokenHash: string } }) =>
         db.invites.find((invite) => invite.tokenHash === where.tokenHash) ?? null,
       update: async ({ data, where }: { data: Record<string, unknown>; where: { id: string } }) => {
@@ -89,6 +95,24 @@ function createHarness() {
 }
 
 describe("workspace invite service", () => {
+  it("lists workspace invites without exposing token hashes", async () => {
+    const { service } = createHarness();
+
+    const invites = await service.listInvites("workspace_1");
+
+    expect(invites).toEqual([
+      {
+        id: "invite_1",
+        email: "admin@wpptrack.com",
+        role: "admin",
+        status: "pending",
+        expiresAt: "2026-07-09T03:00:00.000Z"
+      }
+    ]);
+    expect(invites[0]).not.toHaveProperty("tokenHash");
+    expect(invites[0]).not.toHaveProperty("acceptToken");
+  });
+
   it("accepts a pending invite and creates a workspace membership", async () => {
     const { db, service, setInviteToken } = createHarness();
     setInviteToken("invite-token-1234567890");

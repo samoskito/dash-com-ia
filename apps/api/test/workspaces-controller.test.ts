@@ -47,6 +47,15 @@ async function createApp() {
         joinedAt: "2026-07-02T03:00:00.000Z"
       }
     ]),
+    listInvites: vi.fn(async () => [
+      {
+        id: "invite_1",
+        email: "admin@wpptrack.com",
+        role: "admin",
+        status: "pending",
+        expiresAt: "2026-07-09T03:00:00.000Z"
+      }
+    ]),
     createInvite: vi.fn(async () => ({
       id: "invite_1",
       email: "admin@wpptrack.com",
@@ -109,6 +118,24 @@ describe("workspaces controller", () => {
       });
 
     expect(workspacesService.listMembers).toHaveBeenCalledWith("workspace_1");
+
+    await app.close();
+  });
+
+  it("returns pending invites for the current workspace", async () => {
+    const { app, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/workspaces/current/invites")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body[0].email).toBe("admin@wpptrack.com");
+        expect(body[0].status).toBe("pending");
+        expect(body[0].acceptToken).toBeUndefined();
+      });
+
+    expect(workspacesService.listInvites).toHaveBeenCalledWith("workspace_1");
 
     await app.close();
   });

@@ -1,6 +1,7 @@
 import type {
   ConversionRuleDto,
   CurrentWorkspaceDto,
+  WorkspaceInviteDto,
   WorkspaceMemberDto
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
@@ -14,6 +15,7 @@ type ConversionRulesResult = {
 type WorkspaceSettingsResult = {
   workspace: CurrentWorkspaceDto | null;
   members: WorkspaceMemberDto[];
+  invites: WorkspaceInviteDto[];
   state: "real" | "empty" | "error";
 };
 
@@ -35,20 +37,23 @@ async function getConversionRules(): Promise<ConversionRulesResult> {
 
 async function getWorkspaceSettings(): Promise<WorkspaceSettingsResult> {
   try {
-    const [workspace, members] = await Promise.all([
+    const [workspace, members, invites] = await Promise.all([
       serverApiFetch<CurrentWorkspaceDto>("/workspaces/current"),
-      serverApiFetch<WorkspaceMemberDto[]>("/workspaces/current/members")
+      serverApiFetch<WorkspaceMemberDto[]>("/workspaces/current/members"),
+      serverApiFetch<WorkspaceInviteDto[]>("/workspaces/current/invites")
     ]);
 
     return {
       workspace,
       members,
+      invites,
       state: members.length > 0 ? "real" : "empty"
     };
   } catch {
     return {
       workspace: null,
       members: [],
+      invites: [],
       state: "error"
     };
   }
@@ -61,6 +66,14 @@ function triggerLabel(rule: Pick<ConversionRuleDto, "triggerType">): string {
 function matchLabel(rule: Pick<ConversionRuleDto, "matchMode" | "triggerValue">): string {
   const mode = rule.matchMode === "exact" ? "igual a" : "contem";
   return `${mode}: ${rule.triggerValue}`;
+}
+
+function shortDate(value: string): string {
+  return new Date(value).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  });
 }
 
 async function createConversionRule(formData: FormData) {
@@ -144,7 +157,7 @@ export default async function SettingsPage() {
     getConversionRules()
   ]);
   const { rules } = conversionRules;
-  const { workspace, members } = workspaceSettings;
+  const { workspace, members, invites } = workspaceSettings;
   const emptyTitle =
     conversionRules.state === "error"
       ? "Nao foi possivel carregar regras"
@@ -249,6 +262,25 @@ export default async function SettingsPage() {
               Enviar convite
             </button>
           </form>
+          {invites.length > 0 ? (
+            <div className="settings-list">
+              {invites.map((invite) => (
+                <div className="quality-card" key={invite.id}>
+                  <span>
+                    <strong>{invite.email}</strong>
+                    <span>expira em {shortDate(invite.expiresAt)}</span>
+                  </span>
+                  <span>{invite.status}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">
+              {workspaceSettings.state === "error"
+                ? "Nao foi possivel carregar convites."
+                : "Nenhum convite pendente retornado pela API."}
+            </p>
+          )}
         </article>
       </div>
 

@@ -35,6 +35,13 @@ export class WorkspacesController {
     return this.workspacesService.listMembers(workspace.id);
   }
 
+  @Get("current/invites")
+  async invites(@AuthToken() refreshToken: string) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    return this.workspacesService.listInvites(workspace.id);
+  }
+
   @Post("current/invites")
   async createInvite(@AuthToken() refreshToken: string, @Body() body: unknown) {
     const parsed = workspaceInviteInputSchema.safeParse(body);

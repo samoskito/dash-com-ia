@@ -63,6 +63,13 @@ function mockSettingsFetch(options: {
       );
     }
 
+    if (url.endsWith("/workspaces/current/invites")) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
     return new Response(JSON.stringify({ message: "not found" }), {
       status: 404,
       headers: { "Content-Type": "application/json" }
@@ -124,6 +131,22 @@ describe("settings route", () => {
         );
       }
 
+      if (url.endsWith("/workspaces/current/invites")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "invite_1",
+              email: "convite@example.com",
+              role: "member",
+              status: "pending",
+              expiresAt: "2026-07-09T10:00:00.000Z",
+              acceptToken: "secret-token-not-for-list"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
       return new Response(JSON.stringify({ message: "not found" }), {
         status: 404,
         headers: { "Content-Type": "application/json" }
@@ -141,11 +164,18 @@ describe("settings route", () => {
       "http://localhost:3333/workspaces/current/members",
       expect.objectContaining({ credentials: "include" })
     );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/workspaces/current/invites",
+      expect.objectContaining({ credentials: "include" })
+    );
     expect(html).toContain("Loja Samuel");
     expect(html).toContain("loja-samuel");
     expect(html).toContain("owner");
     expect(html).toContain("samuel@example.com");
     expect(html).toContain("trafego@example.com");
+    expect(html).toContain("convite@example.com");
+    expect(html).toContain("pending");
+    expect(html).not.toContain("secret-token-not-for-list");
     expect(html).toContain("Convidar membro");
     expect(html).toContain("Email do convidado");
     expect(html).not.toContain("3 usuarios ativos");

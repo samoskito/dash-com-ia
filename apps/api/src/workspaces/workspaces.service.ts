@@ -84,6 +84,23 @@ export class WorkspacesService {
     }));
   }
 
+  async listInvites(workspaceId: string): Promise<WorkspaceInviteDto[]> {
+    const invites = await this.prisma.workspaceInvite.findMany({
+      where: { workspaceId },
+      orderBy: {
+        createdAt: "desc"
+      }
+    });
+
+    return invites.map((invite) => ({
+      id: invite.id,
+      email: invite.email,
+      role: invite.role,
+      status: invite.status,
+      expiresAt: invite.expiresAt.toISOString()
+    }));
+  }
+
   async getBillingConfiguration(
     workspaceId: string
   ): Promise<WorkspaceBillingDto> {
