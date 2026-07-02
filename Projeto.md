@@ -520,6 +520,7 @@ Checkpoint atual:
 - Pipeline de sinal deixou de exibir `aguardando dados`/`sem metrica` fixos e passou a renderizar contadores reais vindos de `WebhookLog`, `Lead` e `ConversionEventLog`.
 - API nao registra mais o endpoint legado `/mock/reports/overview`; dados demonstrativos restantes devem existir apenas dentro de testes automatizados.
 - `next dev` do web foi estabilizado em 2026-07-02: o Next agora resolve `@wpptrack/shared` para `packages/shared/src` via alias em `apps/web/next.config.mjs`, evitando que o dev server compile o `dist/index.js` CommonJS do pacote compartilhado e quebre com `Cannot use import.meta outside a module` no React Refresh.
+- `pnpm --filter @wpptrack/api dev` foi estabilizado em 2026-07-02: o script deixou de usar `nest start --watch`, que tentava executar `dist/main` no caminho errado do monorepo, e passou a usar `node --watch -r ts-node/register src/main.ts`. Teste `apps/api/test/package-scripts.test.ts` protege os entrypoints locais.
 
 Proximo passo operacional:
 
