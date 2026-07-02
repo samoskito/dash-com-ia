@@ -59,6 +59,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Visao Geral e Relatorios agora diferenciam estados `real`, `empty` e `error`: resposta real vazia exibe estado vazio sem dados demo; falha de API exibe estado indisponivel sem renderizar campanha ou metricas ficticias.
 - Leads agora diferencia estados `real`, `empty` e `error`: resposta real vazia exibe estado vazio; falha de API mostra `API indisponivel`; a tela nao injeta mais leads/campanhas demonstrativos como fallback.
 - Configuracoes agora diferencia estados `real`, `empty` e `error` para regras de conversao: resposta vazia orienta criar regra; falha de API mostra `API indisponivel`; a tela nao injeta mais regras demonstrativas.
+- Modulo mock legado da API removido: a rota `GET /mock/reports/overview` e os dados demonstrativos `workspace_demo`/`cmp_black_friday` nao ficam mais registrados no `AppModule`; teste estrutural protege contra retorno de `MockController`/`MockService`.
 - Backoffice de split recebeu API inicial: `GET /backoffice/split/receivers`, `POST /backoffice/split/receivers` e `PATCH /backoffice/split/receivers/:id`, usando `SplitReceiver` para nome, wallet Asaas, email, percentual em basis points e status ativo.
 - Tela de backoffice agora consulta `/backoffice/split/receivers` e exibe recebedores, wallet Asaas, email, percentual e status; quando a API falha ou retorna vazia, mostra estado vazio/indisponivel sem recebedor demonstrativo.
 - Tela de backoffice agora exibe acao de `Reprocessar` para eventos reais da Central de Diagnostico; a acao chama o retry auditado `POST /backoffice/diagnostics/events/:id/retry` via server action e mostra estado vazio/indisponivel sem linhas demonstrativas quando nao ha eventos reais.
@@ -465,10 +466,11 @@ Checkpoint atual:
 - Configuracoes agora mostra estado vazio real ou `API indisponivel` para regras de conversao sem renderizar regras ficticias.
 - Backoffice agora removeu MRR/workspaces/alertas/tokens ficticios, recebedor Asaas de fallback e linhas demonstrativas da Central de Diagnostico; estados vazios e falhas de API ficam explicitos.
 - Integracoes agora salva a selecao Meta BM/conta/pixel por formulario server-side, sem expor token e sem botao falso; a tela tambem deixou de exibir fallback visual/provedores locais e percentuais/latencia inventados no pipeline.
+- API nao registra mais o endpoint legado `/mock/reports/overview`; dados demonstrativos restantes devem existir apenas dentro de testes automatizados.
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: substituir os ultimos placeholders operacionais por endpoints reais, remover o modulo mock legado da API se nao houver dependencia ativa, aplicar a migration `20260702133000_meta_ad_level_insights` no banco local/producao e validar a sincronizacao em uma conta Meta real.
+- Continuar a proxima rodada com: substituir os ultimos placeholders operacionais por endpoints reais, validar a sincronizacao em uma conta Meta real e preparar os proximos conectores operacionais que ainda estao somente documentados.
 
 ## Perguntas Abertas
 
