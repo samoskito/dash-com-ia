@@ -2,7 +2,9 @@ import { randomBytes, createHash } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
+  Optional,
   UnauthorizedException
 } from "@nestjs/common";
 import type {
@@ -21,6 +23,12 @@ import type {
   RegisterDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import {
+  RUNTIME_ENV,
+  RUNTIME_FETCH,
+  type RuntimeEnv,
+  type RuntimeFetch
+} from "../common/runtime/runtime.module";
 import { PasswordService } from "./password.service";
 import type { AuthenticatedUser } from "./session.types";
 
@@ -61,8 +69,6 @@ type AuthRequestContext = {
   userAgent?: string | null;
   ipAddress?: string | null;
 };
-type AuthEnv = Record<string, string | undefined>;
-type FetchLike = typeof fetch;
 type AuthActionTokenType = "password_reset" | "email_verification";
 type AuthActionTokenRecord = {
   id: string;
@@ -109,8 +115,12 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwordService: PasswordService,
-    private readonly env: AuthEnv = process.env,
-    private readonly fetchImpl: FetchLike = fetch
+    @Optional()
+    @Inject(RUNTIME_ENV)
+    private readonly env: RuntimeEnv = process.env,
+    @Optional()
+    @Inject(RUNTIME_FETCH)
+    private readonly fetchImpl: RuntimeFetch = fetch
   ) {}
 
   async register(

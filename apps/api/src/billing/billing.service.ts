@@ -1,13 +1,13 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import type {
   WhatsappInstanceCheckoutDto,
   WhatsappInstanceCheckoutInputDto,
   WhatsappInstanceQuoteDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { AsaasAdapter } from "./asaas.adapter";
 
-type BillingEnv = Record<string, string | undefined>;
 type AsaasPaymentWebhookPayload = Record<string, unknown>;
 
 export type AsaasPaymentProcessingResult = {
@@ -42,7 +42,9 @@ export class BillingService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AsaasAdapter) private readonly asaasAdapter: AsaasAdapter,
-    private readonly env: BillingEnv = process.env
+    @Optional()
+    @Inject(RUNTIME_ENV)
+    private readonly env: RuntimeEnv = process.env
   ) {}
 
   async getWhatsappInstanceQuote(

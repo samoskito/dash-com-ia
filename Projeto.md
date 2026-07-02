@@ -58,6 +58,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Detalhe da Central de Diagnostico agora retorna e renderiza `timeline` operacional com o proprio evento, webhook relacionado, auditorias de retry e tentativas de job vinculadas ao diagnostico. A meta e permitir investigacao pelo frontend interno sem abrir banco, preservando payloads sanitizados.
 - Reprocessamento da Central de Diagnostico ganhou primeiro caminho real por worker: `POST /backoffice/diagnostics/events/:id/retry` continua criando `AuditLog` e `JobAttempt`, mas agora tambem enfileira `retry-diagnostic-event` na fila `diagnostic-events`. O `DiagnosticProcessor` reenvia conversoes vinculadas a `ConversionEventLog` via `ConversionEventsService.sendReadyEvent`; diagnosticos sem alvo reprocessavel sao pulados com motivo seguro, sem chamar provedores externos cegamente.
 - Docker Desktop foi reiniciado pelo Codex em 2026-07-02 quando a distro WSL `docker-desktop` estava parada e o pipe `dockerDesktopLinuxEngine` ausente. Apos iniciar o Desktop, `docker compose ps` mostrou Postgres/Redis `Up` com portas `5432` e `6379` publicadas; `prisma migrate deploy` aplicou as migrations pendentes `20260702095000_whatsapp_provider_instance`, `20260702103000_meta_integration` e `20260702110000_meta_reporting_snapshots`; `prisma migrate status` confirmou banco atualizado.
+- Base de deploy Vercel + Dokploy documentada em `docs/deploy/vercel-dokploy.md`: topologia, variaveis, healthchecks, ordem de deploy, callbacks e validacao pos-deploy. A API tambem ganhou `GET /health/ready`, que valida PostgreSQL e Redis e retorna `503` quando alguma dependencia essencial falha, alem do script `pnpm --filter @wpptrack/api start` para runtime em producao.
 - Endpoints internos de backoffice agora exigem sessao valida e allowlist `WPPTRACK_PLATFORM_ADMIN_EMAILS`; usuarios autenticados fora da allowlist recebem acesso negado. As paginas server-side usam `serverApiFetch` para repassar cookie ao backend.
 - Backoffice de workspaces ganhou configuracao operacional de billing: `GET /backoffice/workspaces/billing` lista workspaces com `asaasCustomerId`; `GET/PATCH /backoffice/workspaces/:workspaceId/billing` permite visualizar/atualizar o customer Asaas, necessario para criar cobrancas reais no Asaas sem abrir o banco. A tela interna de backoffice ja renderiza essa lista e salva alteracoes por server action.
 - Rodada Paralela 1 executada e revisada: visual WppTrack/Telemetria Noturna aplicado ao web, Auth/Workspaces iniciado, scaffolds de integracoes Meta/Uazapi/Asaas criados e spec de Diagnosticos/Logs adicionada.
@@ -441,11 +442,11 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: detalhamento de ambientes/deploy e expansao dos alvos de retry da Central de Diagnostico.
+- Continuar a proxima rodada com: Leads persistentes, fluxo de adicionar instancia WhatsApp pela UI, CRUD visual de regras de conversao e idempotencia de webhooks/conversoes.
 
 ## Perguntas Abertas
 
-1. Detalhar ambientes, dominios, variaveis e pipeline de deploy para Vercel + VPS/Dokploy.
+1. Definir dominios finais de app/API e decidir se PostgreSQL/Redis ficarao no Dokploy ou em servicos gerenciados.
 2. Detalhar seguranca da autenticacao propria: hash de senha, refresh tokens/sessoes, recuperacao de senha, verificacao de email e Google OAuth.
 3. Mapear contrato tecnico da Uazapi e definir o adapter WhatsApp inicial.
 4. Validar detalhes do app Meta existente: app id, permissoes, produtos ativos, URLs de callback, modo live/dev e limites.

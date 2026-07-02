@@ -1,18 +1,20 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import type {
   MetaAdAccountAssetDto,
   MetaBusinessAssetDto,
   MetaOAuthCallbackResultDto,
   MetaPixelAssetDto
 } from "@wpptrack/shared";
+import {
+  RUNTIME_FETCH,
+  type RuntimeFetch
+} from "../../common/runtime/runtime.module";
 import type {
   IntegrationAdapter,
   IntegrationEnv,
   IntegrationHealthDto
 } from "../integration.types";
 import { INTEGRATION_ENV } from "../integration.types";
-
-type FetchLike = typeof fetch;
 
 type MetaTokenResponse = {
   access_token?: unknown;
@@ -134,7 +136,9 @@ export class MetaAdapter implements IntegrationAdapter {
 
   constructor(
     @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env,
-    private readonly fetchImpl: FetchLike = fetch
+    @Optional()
+    @Inject(RUNTIME_FETCH)
+    private readonly fetchImpl: RuntimeFetch = fetch
   ) {}
 
   async getHealth(): Promise<IntegrationHealthDto> {

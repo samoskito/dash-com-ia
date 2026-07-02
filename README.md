@@ -27,6 +27,10 @@ docker compose up -d postgres redis
 pnpm dev
 ```
 
+## Deploy
+
+The approved production topology is documented in `docs/deploy/vercel-dokploy.md`.
+
 ## Project Memory
 
 Read `Projeto.md` before changing product direction, architecture or implementation order.

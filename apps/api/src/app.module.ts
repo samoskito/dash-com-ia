@@ -1,10 +1,13 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "./auth/auth.module";
 import { BillingModule } from "./billing/billing.module";
+import { PrismaModule } from "./common/prisma/prisma.module";
 import { QueueModule } from "./common/queue/queue.module";
+import { RuntimeModule } from "./common/runtime/runtime.module";
 import { ConversionRulesModule } from "./conversion-rules/conversion-rules.module";
 import { DiagnosticsModule } from "./diagnostics/diagnostics.module";
 import { HealthController } from "./health/health.controller";
+import { HealthService } from "./health/health.service";
 import { IntegrationsModule } from "./integrations/integrations.module";
 import { MockController } from "./mock/mock.controller";
 import { MockService } from "./mock/mock.service";
@@ -14,7 +17,9 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
 
 @Module({
   imports: [
+    RuntimeModule,
     QueueModule,
+    PrismaModule,
     AuthModule,
     WorkspacesModule,
     DiagnosticsModule,
@@ -25,6 +30,6 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     WebhooksModule
   ],
   controllers: [HealthController, MockController],
-  providers: [MockService]
+  providers: [HealthService, MockService]
 })
 export class AppModule {}

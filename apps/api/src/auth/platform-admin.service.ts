@@ -1,7 +1,11 @@
-import { ForbiddenException, Inject, Injectable } from "@nestjs/common";
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Optional
+} from "@nestjs/common";
+import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { AuthService } from "./auth.service";
-
-type PlatformAdminEnv = Record<string, string | undefined>;
 
 export type PlatformAdminUser = {
   id: string;
@@ -12,7 +16,9 @@ export type PlatformAdminUser = {
 export class PlatformAdminService {
   constructor(
     @Inject(AuthService) private readonly authService: AuthService,
-    private readonly env: PlatformAdminEnv = process.env
+    @Optional()
+    @Inject(RUNTIME_ENV)
+    private readonly env: RuntimeEnv = process.env
   ) {}
 
   async assertPlatformAdmin(refreshToken: string): Promise<PlatformAdminUser> {

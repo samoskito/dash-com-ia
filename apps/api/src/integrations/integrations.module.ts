@@ -33,6 +33,7 @@ export { INTEGRATION_ENV } from "./integration.types";
   controllers: [IntegrationsController, WhatsappConnectionsController],
   exports: [
     MetaAdapter,
+    MetaTokenEncryptionService,
     MetaConnectionsService,
     UazapiAdapter,
     AsaasAdapter,
