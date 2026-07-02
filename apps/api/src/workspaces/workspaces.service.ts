@@ -146,6 +146,22 @@ export class WorkspacesService {
         slug: true
       }
     });
+    await this.recordWorkspaceAudit({
+      workspaceId: workspace.id,
+      actorUserId: authenticated.user.id,
+      action: "workspace.profile_updated",
+      targetType: "Workspace",
+      targetId: workspace.id,
+      resultStatus: "success",
+      beforeSummary: {
+        name: workspace.name,
+        slug: workspace.slug
+      } as Prisma.InputJsonValue,
+      afterSummary: {
+        name: updated.name,
+        slug: updated.slug
+      } as Prisma.InputJsonValue
+    });
 
     return {
       ...updated,
@@ -365,6 +381,23 @@ export class WorkspacesService {
       await this.prisma.workspaceInvite.update({
         where: { id: invite.id },
         data: { status: "expired" }
+      });
+      await this.recordWorkspaceAudit({
+        workspaceId: invite.workspaceId,
+        actorUserId: authenticated.user.id,
+        action: "workspace.invite_expired",
+        targetType: "WorkspaceInvite",
+        targetId: invite.id,
+        resultStatus: "expired",
+        beforeSummary: {
+          status: "pending",
+          invitedEmailHash: this.hashAuditValue(invite.email),
+          role: invite.role,
+          expiresAt: invite.expiresAt.toISOString()
+        } as Prisma.InputJsonValue,
+        afterSummary: {
+          status: "expired"
+        } as Prisma.InputJsonValue
       });
       throw new BadRequestException("Convite expirado");
     }

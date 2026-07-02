@@ -220,4 +220,31 @@ describe("workspace invite service", () => {
       })
     );
   });
+
+  it("marks expired invites as expired and audits the state change", async () => {
+    const { db, service, setInviteToken } = createHarness();
+    setInviteToken("invite-token-1234567890");
+    db.invites[0].expiresAt = new Date("2026-07-01T03:00:00.000Z");
+
+    await expect(
+      service.acceptInvite(authenticated, {
+        token: "invite-token-1234567890"
+      })
+    ).rejects.toThrow("Convite expirado");
+
+    expect(db.invites[0]).toMatchObject({
+      status: "expired"
+    });
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_2",
+        actorType: "user",
+        action: "workspace.invite_expired",
+        targetType: "WorkspaceInvite",
+        targetId: "invite_1",
+        resultStatus: "expired"
+      })
+    );
+  });
 });

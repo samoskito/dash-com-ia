@@ -78,6 +78,14 @@ type AuthRequestContext = {
   userAgent?: string | null;
   ipAddress?: string | null;
 };
+
+type CreatedWorkspaceOwnership = {
+  userId: string;
+  workspaceId: string;
+  workspaceName: string;
+  workspaceSlug: string;
+  memberId: string;
+};
 type AuthActionTokenType = "password_reset" | "email_verification";
 type AuthActionTokenRecord = {
   id: string;
@@ -149,7 +157,7 @@ export class AuthService {
     const name = input.name.trim();
     const workspaceName = input.workspaceName.trim();
 
-    const userId = await this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const slug = await this.resolveWorkspaceSlug(workspaceName, tx);
       const workspace = await tx.workspace.create({
         data: {
@@ -165,7 +173,7 @@ export class AuthService {
         }
       });
 
-      await tx.workspaceMember.create({
+      const member = await tx.workspaceMember.create({
         data: {
           workspaceId: workspace.id,
           userId: user.id,
@@ -173,10 +181,17 @@ export class AuthService {
         }
       });
 
-      return user.id;
+      return {
+        userId: user.id,
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        workspaceSlug: workspace.slug,
+        memberId: member.id
+      };
     });
+    await this.recordInitialWorkspaceOwnership(created, context);
 
-    return this.createSessionForUser(userId, context);
+    return this.createSessionForUser(created.userId, context);
   }
 
   async login(
@@ -730,7 +745,7 @@ export class AuthService {
     }
 
     const workspaceName = profile.name ?? profile.email.split("@")[0] ?? "Workspace";
-    const userId = await this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const slug = await this.resolveWorkspaceSlug(workspaceName, tx);
       const workspace = await tx.workspace.create({
         data: {
@@ -749,7 +764,7 @@ export class AuthService {
         }
       });
 
-      await tx.workspaceMember.create({
+      const member = await tx.workspaceMember.create({
         data: {
           workspaceId: workspace.id,
           userId: user.id,
@@ -757,10 +772,56 @@ export class AuthService {
         }
       });
 
-      return user.id;
+      return {
+        userId: user.id,
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        workspaceSlug: workspace.slug,
+        memberId: member.id
+      };
     });
+    await this.recordInitialWorkspaceOwnership(created, context);
 
-    return this.createSessionForUser(userId, context);
+    return this.createSessionForUser(created.userId, context);
+  }
+
+  private async recordInitialWorkspaceOwnership(
+    created: CreatedWorkspaceOwnership,
+    context: AuthRequestContext
+  ): Promise<void> {
+    await this.safeCreateAuditLog({
+      workspaceId: created.workspaceId,
+      actorUserId: created.userId,
+      actorType: "user",
+      action: "workspace.created",
+      targetType: "Workspace",
+      targetId: created.workspaceId,
+      reason: null,
+      sourceIp: context.ipAddress ?? null,
+      resultStatus: "success",
+      beforeSummary: null,
+      afterSummary: {
+        name: created.workspaceName,
+        slug: created.workspaceSlug
+      }
+    });
+    await this.safeCreateAuditLog({
+      workspaceId: created.workspaceId,
+      actorUserId: created.userId,
+      actorType: "user",
+      action: "workspace.member_added",
+      targetType: "WorkspaceMember",
+      targetId: created.memberId,
+      reason: null,
+      sourceIp: context.ipAddress ?? null,
+      resultStatus: "owner",
+      beforeSummary: null,
+      afterSummary: {
+        workspaceId: created.workspaceId,
+        userId: created.userId,
+        role: "owner"
+      }
+    });
   }
 
   private async resolveWorkspaceSlug(

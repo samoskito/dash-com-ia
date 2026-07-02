@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
+const auditLogs: Array<Record<string, unknown>> = [];
+
 const prisma = {
   workspace: {
     update: async ({ data, where }: { data: { name: string }; where: { id: string } }) => ({
@@ -16,6 +18,16 @@ const prisma = {
   workspaceInvite: {
     create: async () => {
       throw new Error("not used in permission tests");
+    }
+  },
+  auditLog: {
+    create: async ({ data }: { data: Record<string, unknown> }) => {
+      const log = {
+        id: `audit_${auditLogs.length + 1}`,
+        ...data
+      };
+      auditLogs.push(log);
+      return log;
     }
   }
 };
@@ -55,6 +67,7 @@ describe("workspace contracts", () => {
   });
 
   it("updates workspace profile name without changing the slug", async () => {
+    auditLogs.length = 0;
     const service = new WorkspacesService(prisma as never);
 
     const workspace = await service.updateCurrentWorkspace(
@@ -83,6 +96,23 @@ describe("workspace contracts", () => {
       name: "Loja Samuel",
       slug: "comunidade-nod",
       role: "owner"
+    });
+    expect(auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "workspace.profile_updated",
+        targetType: "Workspace",
+        targetId: "workspace_1",
+        resultStatus: "success"
+      })
+    );
+    expect(auditLogs[0].beforeSummary).toMatchObject({
+      name: "Comunidade NOD"
+    });
+    expect(auditLogs[0].afterSummary).toMatchObject({
+      name: "Loja Samuel"
     });
   });
 });

@@ -392,6 +392,29 @@ describe("auth service session lifecycle", () => {
     expect(db.sessions[0]?.refreshHash).not.toBe(result.refreshToken);
     expect(db.sessions[0]?.userAgent).toBe("Vitest");
     expect(db.sessions[0]?.ipAddress).toBe("127.0.0.1");
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "workspace.created",
+        targetType: "Workspace",
+        targetId: "workspace_1",
+        resultStatus: "success"
+      })
+    );
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "workspace.member_added",
+        targetType: "WorkspaceMember",
+        targetId: "member_1",
+        resultStatus: "owner"
+      })
+    );
+    expect(JSON.stringify(db.auditLogs)).not.toContain("strong-password");
   });
 
   it("rejects duplicate email registration", async () => {
