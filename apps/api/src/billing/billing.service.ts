@@ -1,6 +1,9 @@
-import { Inject, Injectable, Optional } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
+  BackofficeSubscriptionPlanCreateInputDto,
+  BackofficeSubscriptionPlanDto,
+  BackofficeSubscriptionPlanUpdateInputDto,
   BackofficePaymentChargeDto,
   WhatsappInstanceCheckoutDto,
   WhatsappInstanceCheckoutInputDto,
@@ -91,6 +94,16 @@ type WorkspaceSubscriptionRecord = {
   } | null;
 };
 
+type SubscriptionPlanRecord = {
+  id: string;
+  name: string;
+  slug: string;
+  pricePerWhatsappInstanceCents: number;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 type BackofficePaymentChargeFilters = {
   status?: string;
   workspaceId?: string;
@@ -175,6 +188,100 @@ export class BillingService {
       currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
       asaasSubscriptionId: subscription.asaasSubscriptionId
     };
+  }
+
+  async listBackofficeSubscriptionPlans(): Promise<
+    BackofficeSubscriptionPlanDto[]
+  > {
+    const plans = (await this.prisma.subscriptionPlan.findMany({
+      orderBy: {
+        createdAt: "desc"
+      }
+    })) as SubscriptionPlanRecord[];
+
+    return plans.map((plan) => this.toBackofficeSubscriptionPlanDto(plan));
+  }
+
+  async createBackofficeSubscriptionPlan(
+    input: BackofficeSubscriptionPlanCreateInputDto,
+    actorUserId?: string
+  ): Promise<BackofficeSubscriptionPlanDto> {
+    const plan = (await this.prisma.subscriptionPlan.create({
+      data: {
+        name: input.name,
+        slug: input.slug,
+        pricePerWhatsappInstanceCents: input.pricePerWhatsappInstanceCents,
+        active: input.active
+      }
+    })) as SubscriptionPlanRecord;
+
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: null,
+        actorUserId: actorUserId ?? null,
+        actorType: "platform_operator",
+        action: "billing.plan_created",
+        targetType: "SubscriptionPlan",
+        targetId: plan.id,
+        reason: "Plano de assinatura criado no backoffice da plataforma.",
+        resultStatus: "created",
+        afterSummary: {
+          name: plan.name,
+          slug: plan.slug,
+          pricePerWhatsappInstanceCents: plan.pricePerWhatsappInstanceCents,
+          active: plan.active
+        } as Prisma.InputJsonValue
+      }
+    });
+
+    return this.toBackofficeSubscriptionPlanDto(plan);
+  }
+
+  async updateBackofficeSubscriptionPlan(
+    id: string,
+    input: BackofficeSubscriptionPlanUpdateInputDto,
+    actorUserId?: string
+  ): Promise<BackofficeSubscriptionPlanDto> {
+    const existing = (await this.prisma.subscriptionPlan.findUnique({
+      where: { id }
+    })) as SubscriptionPlanRecord | null;
+
+    if (!existing) {
+      throw new NotFoundException("Plano nao encontrado");
+    }
+
+    const plan = (await this.prisma.subscriptionPlan.update({
+      where: { id },
+      data: input
+    })) as SubscriptionPlanRecord;
+
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: null,
+        actorUserId: actorUserId ?? null,
+        actorType: "platform_operator",
+        action: "billing.plan_updated",
+        targetType: "SubscriptionPlan",
+        targetId: plan.id,
+        reason: "Plano de assinatura atualizado no backoffice da plataforma.",
+        resultStatus: "updated",
+        beforeSummary: {
+          name: existing.name,
+          slug: existing.slug,
+          pricePerWhatsappInstanceCents:
+            existing.pricePerWhatsappInstanceCents,
+          active: existing.active
+        } as Prisma.InputJsonValue,
+        afterSummary: {
+          name: plan.name,
+          slug: plan.slug,
+          pricePerWhatsappInstanceCents: plan.pricePerWhatsappInstanceCents,
+          active: plan.active
+        } as Prisma.InputJsonValue
+      }
+    });
+
+    return this.toBackofficeSubscriptionPlanDto(plan);
   }
 
   async listBackofficePaymentCharges(
@@ -777,6 +884,20 @@ export class BillingService {
     }
 
     return "pending";
+  }
+
+  private toBackofficeSubscriptionPlanDto(
+    plan: SubscriptionPlanRecord
+  ): BackofficeSubscriptionPlanDto {
+    return {
+      id: plan.id,
+      name: plan.name,
+      slug: plan.slug,
+      pricePerWhatsappInstanceCents: plan.pricePerWhatsappInstanceCents,
+      active: plan.active,
+      createdAt: plan.createdAt.toISOString(),
+      updatedAt: plan.updatedAt.toISOString()
+    };
   }
 
   private isPaymentChargeStatus(

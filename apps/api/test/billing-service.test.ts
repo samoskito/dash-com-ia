@@ -29,6 +29,12 @@ type FakePrisma = {
     create: (args: unknown) => Promise<Record<string, unknown>>;
     update: (args: unknown) => Promise<Record<string, unknown>>;
   };
+  subscriptionPlan: {
+    create: (args: unknown) => Promise<Record<string, unknown>>;
+    findMany: (args: unknown) => Promise<Array<Record<string, unknown>>>;
+    findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
+    update: (args: unknown) => Promise<Record<string, unknown>>;
+  };
   integrationLog: {
     create: (args: unknown) => Promise<Record<string, unknown>>;
   };
@@ -69,6 +75,7 @@ function createHarness(
     charges: [] as Array<Record<string, unknown>>,
     activations: [] as Array<Record<string, unknown>>,
     splitReceivers: [] as Array<Record<string, unknown>>,
+    plans: [] as Array<Record<string, unknown>>,
     subscriptions: [] as Array<Record<string, unknown>>,
     workspaces: [
       {
@@ -117,6 +124,38 @@ function createHarness(
           ...data
         };
         return db.subscriptions[index];
+      }
+    },
+    subscriptionPlan: {
+      create: async (args) => {
+        const { data } = args as { data: Record<string, unknown> };
+        const now = new Date("2026-07-02T03:00:00.000Z");
+        const plan = {
+          id: `plan_${db.plans.length + 1}`,
+          createdAt: now,
+          updatedAt: now,
+          ...data
+        };
+        db.plans.push(plan);
+        return plan;
+      },
+      findMany: async () => db.plans,
+      findUnique: async (args) => {
+        const { where } = args as { where: { id: string } };
+        return db.plans.find((plan) => plan.id === where.id) ?? null;
+      },
+      update: async (args) => {
+        const { data, where } = args as {
+          data: Record<string, unknown>;
+          where: { id: string };
+        };
+        const index = db.plans.findIndex((plan) => plan.id === where.id);
+        db.plans[index] = {
+          ...db.plans[index],
+          ...data,
+          updatedAt: new Date("2026-07-02T03:30:00.000Z")
+        };
+        return db.plans[index];
       }
     },
     integrationLog: {
@@ -390,6 +429,71 @@ describe("billing service", () => {
       currentPeriodEnd: "2026-08-02T03:00:00.000Z",
       asaasSubscriptionId: "sub_asaas_1"
     });
+  });
+
+  it("manages subscription plans for platform backoffice", async () => {
+    const { db, service } = createHarness();
+    db.plans.push({
+      id: "plan_1",
+      name: "Plano Starter",
+      slug: "starter",
+      pricePerWhatsappInstanceCents: 9900,
+      active: true,
+      createdAt: new Date("2026-07-02T02:00:00.000Z"),
+      updatedAt: new Date("2026-07-02T02:00:00.000Z")
+    });
+
+    const initialPlans = await service.listBackofficeSubscriptionPlans();
+    const created = await service.createBackofficeSubscriptionPlan(
+      {
+        name: "Plano Growth",
+        slug: "growth",
+        pricePerWhatsappInstanceCents: 12900,
+        active: true
+      },
+      "user_1"
+    );
+    const updated = await service.updateBackofficeSubscriptionPlan(
+      created.id,
+      {
+        pricePerWhatsappInstanceCents: 14900,
+        active: false
+      },
+      "user_1"
+    );
+
+    expect(initialPlans[0]).toMatchObject({
+      id: "plan_1",
+      name: "Plano Starter",
+      slug: "starter",
+      pricePerWhatsappInstanceCents: 9900,
+      active: true
+    });
+    expect(updated).toMatchObject({
+      id: "plan_2",
+      name: "Plano Growth",
+      slug: "growth",
+      pricePerWhatsappInstanceCents: 14900,
+      active: false
+    });
+    expect(db.auditLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorUserId: "user_1",
+          actorType: "platform_operator",
+          action: "billing.plan_created",
+          targetType: "SubscriptionPlan",
+          targetId: "plan_2"
+        }),
+        expect.objectContaining({
+          actorUserId: "user_1",
+          actorType: "platform_operator",
+          action: "billing.plan_updated",
+          targetType: "SubscriptionPlan",
+          targetId: "plan_2"
+        })
+      ])
+    );
   });
 
   it("lists payment charges for platform backoffice", async () => {

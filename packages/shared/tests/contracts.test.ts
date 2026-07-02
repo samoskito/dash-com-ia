@@ -48,6 +48,9 @@ import {
   registerSchema,
   backofficePaymentChargeListSchema,
   backofficePaymentChargeSchema,
+  backofficeSubscriptionPlanCreateInputSchema,
+  backofficeSubscriptionPlanSchema,
+  backofficeSubscriptionPlanUpdateInputSchema,
   splitReceiverCreateInputSchema,
   splitReceiverSchema,
   splitReceiverUpdateInputSchema,
@@ -974,6 +977,32 @@ describe("shared contracts", () => {
     expect(charges[0]?.status).toBe("paid");
     expect(charges[0]?.amountCents).toBe(12900);
     expect(charges[0]?.workspaceName).toBe("Comunidade NOD");
+  });
+
+  it("validates backoffice subscription plan contracts", () => {
+    const create = backofficeSubscriptionPlanCreateInputSchema.parse({
+      name: "Plano Growth",
+      slug: "growth",
+      pricePerWhatsappInstanceCents: 12900,
+      active: true
+    });
+    const update = backofficeSubscriptionPlanUpdateInputSchema.parse({
+      pricePerWhatsappInstanceCents: 14900,
+      active: false
+    });
+    const plan = backofficeSubscriptionPlanSchema.parse({
+      id: "plan_1",
+      name: "Plano Growth",
+      slug: "growth",
+      pricePerWhatsappInstanceCents: 12900,
+      active: true,
+      createdAt: "2026-07-02T03:00:00.000Z",
+      updatedAt: "2026-07-02T03:00:00.000Z"
+    });
+
+    expect(create.slug).toBe("growth");
+    expect(update.active).toBe(false);
+    expect(plan.pricePerWhatsappInstanceCents).toBe(12900);
   });
 
   it("validates conversion rule contracts for keyword and WhatsApp labels", () => {

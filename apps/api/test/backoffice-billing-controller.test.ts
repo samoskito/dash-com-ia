@@ -13,6 +13,35 @@ async function createApp() {
     }))
   };
   const billingService = {
+    listBackofficeSubscriptionPlans: vi.fn(async () => [
+      {
+        id: "plan_1",
+        name: "Plano Growth",
+        slug: "growth",
+        pricePerWhatsappInstanceCents: 12900,
+        active: true,
+        createdAt: "2026-07-02T03:00:00.000Z",
+        updatedAt: "2026-07-02T03:00:00.000Z"
+      }
+    ]),
+    createBackofficeSubscriptionPlan: vi.fn(async () => ({
+      id: "plan_2",
+      name: "Plano Pro",
+      slug: "pro",
+      pricePerWhatsappInstanceCents: 19900,
+      active: true,
+      createdAt: "2026-07-02T03:00:00.000Z",
+      updatedAt: "2026-07-02T03:00:00.000Z"
+    })),
+    updateBackofficeSubscriptionPlan: vi.fn(async () => ({
+      id: "plan_1",
+      name: "Plano Growth",
+      slug: "growth",
+      pricePerWhatsappInstanceCents: 14900,
+      active: false,
+      createdAt: "2026-07-02T03:00:00.000Z",
+      updatedAt: "2026-07-02T03:30:00.000Z"
+    })),
     listBackofficePaymentCharges: vi.fn(async () => [
       {
         id: "charge_1",
@@ -46,6 +75,91 @@ async function createApp() {
 }
 
 describe("backoffice billing controller", () => {
+  it("lists subscription plans for platform admins", async () => {
+    const { app, billingService, platformAdminService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/backoffice/billing/plans")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toHaveLength(1);
+        expect(body[0].slug).toBe("growth");
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(billingService.listBackofficeSubscriptionPlans).toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("creates subscription plans for platform admins", async () => {
+    const { app, billingService, platformAdminService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/backoffice/billing/plans")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        name: "Plano Pro",
+        slug: "pro",
+        pricePerWhatsappInstanceCents: 19900,
+        active: true
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.id).toBe("plan_2");
+        expect(body.pricePerWhatsappInstanceCents).toBe(19900);
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(billingService.createBackofficeSubscriptionPlan).toHaveBeenCalledWith(
+      {
+        name: "Plano Pro",
+        slug: "pro",
+        pricePerWhatsappInstanceCents: 19900,
+        active: true
+      },
+      "user_1"
+    );
+
+    await app.close();
+  });
+
+  it("updates subscription plans for platform admins", async () => {
+    const { app, billingService, platformAdminService } = await createApp();
+
+    await request(app.getHttpServer())
+      .patch("/backoffice/billing/plans/plan_1")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        pricePerWhatsappInstanceCents: 14900,
+        active: false
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.id).toBe("plan_1");
+        expect(body.active).toBe(false);
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(billingService.updateBackofficeSubscriptionPlan).toHaveBeenCalledWith(
+      "plan_1",
+      {
+        pricePerWhatsappInstanceCents: 14900,
+        active: false
+      },
+      "user_1"
+    );
+
+    await app.close();
+  });
+
   it("lists payment charges for platform admins", async () => {
     const { app, billingService, platformAdminService } = await createApp();
 

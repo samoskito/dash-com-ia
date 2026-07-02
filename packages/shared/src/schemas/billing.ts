@@ -140,6 +140,40 @@ export const backofficePaymentChargeListSchema = z.array(
   backofficePaymentChargeSchema
 );
 
+export const backofficeSubscriptionPlanCreateInputSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  slug: z
+    .string()
+    .trim()
+    .min(2)
+    .max(80)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  pricePerWhatsappInstanceCents: z.number().int().positive(),
+  active: z.boolean().default(true)
+});
+
+export const backofficeSubscriptionPlanUpdateInputSchema =
+  backofficeSubscriptionPlanCreateInputSchema.partial().refine(
+    (input) => Object.keys(input).length > 0,
+    {
+      message: "Informe ao menos um campo para atualizar"
+    }
+  );
+
+export const backofficeSubscriptionPlanSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  slug: z.string().min(1),
+  pricePerWhatsappInstanceCents: z.number().int().positive(),
+  active: z.boolean(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime()
+});
+
+export const backofficeSubscriptionPlanListSchema = z.array(
+  backofficeSubscriptionPlanSchema
+);
+
 export const backofficeWhatsappInstanceSchema = z.object({
   id: z.string().min(1),
   workspaceId: z.string().min(1),
@@ -194,6 +228,15 @@ export type SplitReceiverUpdateInputDto = z.infer<
 export type SplitReceiverDto = z.infer<typeof splitReceiverSchema>;
 export type BackofficePaymentChargeDto = z.infer<
   typeof backofficePaymentChargeSchema
+>;
+export type BackofficeSubscriptionPlanCreateInputDto = z.infer<
+  typeof backofficeSubscriptionPlanCreateInputSchema
+>;
+export type BackofficeSubscriptionPlanUpdateInputDto = z.infer<
+  typeof backofficeSubscriptionPlanUpdateInputSchema
+>;
+export type BackofficeSubscriptionPlanDto = z.infer<
+  typeof backofficeSubscriptionPlanSchema
 >;
 export type BackofficeWhatsappInstanceDto = z.infer<
   typeof backofficeWhatsappInstanceSchema
