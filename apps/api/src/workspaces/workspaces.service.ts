@@ -278,8 +278,16 @@ export class WorkspacesService {
 
   async updateBillingConfiguration(
     workspaceId: string,
-    input: WorkspaceBillingUpdateInputDto
+    input: WorkspaceBillingUpdateInputDto,
+    actorUserId?: string
   ): Promise<WorkspaceBillingDto> {
+    const before = (await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: {
+        id: true,
+        asaasCustomerId: true
+      }
+    })) as Pick<WorkspaceBillingRecord, "id" | "asaasCustomerId"> | null;
     const workspace = (await this.prisma.workspace.update({
       where: { id: workspaceId },
       data: {
@@ -310,6 +318,22 @@ export class WorkspacesService {
         }
       }
     })) as WorkspaceBillingRecord;
+
+    if (actorUserId) {
+      await this.recordWorkspaceAudit({
+        workspaceId: workspace.id,
+        actorUserId,
+        actorType: "platform_operator",
+        action: "workspace.billing_updated",
+        targetType: "Workspace",
+        targetId: workspace.id,
+        resultStatus: "success",
+        beforeSummary: this.workspaceBillingAuditSummary(
+          before?.asaasCustomerId ?? null
+        ),
+        afterSummary: this.workspaceBillingAuditSummary(workspace.asaasCustomerId)
+      });
+    }
 
     return this.toWorkspaceBillingDto(workspace);
   }
@@ -469,6 +493,7 @@ export class WorkspacesService {
     targetType: string;
     targetId: string;
     resultStatus: string;
+    actorType?: string;
     beforeSummary?: Prisma.InputJsonValue;
     afterSummary?: Prisma.InputJsonValue;
   }): Promise<void> {
@@ -477,7 +502,7 @@ export class WorkspacesService {
         data: {
           workspaceId: input.workspaceId,
           actorUserId: input.actorUserId,
-          actorType: "user",
+          actorType: input.actorType ?? "user",
           action: input.action,
           targetType: input.targetType,
           targetId: input.targetId,
@@ -491,6 +516,17 @@ export class WorkspacesService {
     } catch {
       return;
     }
+  }
+
+  private workspaceBillingAuditSummary(
+    asaasCustomerId: string | null
+  ): Prisma.InputJsonValue {
+    return {
+      asaasCustomerConfigured: Boolean(asaasCustomerId),
+      asaasCustomerIdHash: asaasCustomerId
+        ? this.hashAuditValue(asaasCustomerId)
+        : null
+    } as Prisma.InputJsonValue;
   }
 
   private toWorkspaceBillingDto(

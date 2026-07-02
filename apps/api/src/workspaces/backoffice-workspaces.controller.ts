@@ -51,7 +51,8 @@ export class BackofficeWorkspacesController {
     @Param("workspaceId") workspaceId: string,
     @Body() body: unknown
   ) {
-    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+    const platformAdmin =
+      await this.platformAdminService.assertPlatformAdmin(refreshToken);
 
     const parsed = workspaceBillingUpdateInputSchema.safeParse(body);
 
@@ -61,7 +62,8 @@ export class BackofficeWorkspacesController {
 
     return this.workspacesService.updateBillingConfiguration(
       workspaceId,
-      parsed.data
+      parsed.data,
+      platformAdmin.id
     );
   }
 }

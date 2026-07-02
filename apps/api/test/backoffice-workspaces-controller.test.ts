@@ -150,7 +150,8 @@ describe("backoffice workspaces controller", () => {
       "workspace_1",
       {
         asaasCustomerId: "cus_asaas_2"
-      }
+      },
+      "user_1"
     );
 
     await app.close();

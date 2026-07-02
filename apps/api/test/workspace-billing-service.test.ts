@@ -12,7 +12,8 @@ function createHarness() {
         subscriptions: [],
         whatsappInstances: []
       }
-    ] as Array<Record<string, unknown>>
+    ] as Array<Record<string, unknown>>,
+    auditLogs: [] as Array<Record<string, unknown>>
   };
   const prisma = {
     workspace: {
@@ -37,6 +38,16 @@ function createHarness() {
           ...data
         };
         return db.workspaces[index];
+      }
+    },
+    auditLog: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const log = {
+          id: `audit_${db.auditLogs.length + 1}`,
+          ...data
+        };
+        db.auditLogs.push(log);
+        return log;
       }
     },
     whatsappInstance: {
@@ -92,6 +103,41 @@ describe("workspace billing service", () => {
       activeInstances: 0
     });
     expect(db.workspaces[0].asaasCustomerId).toBe("cus_asaas_1");
+  });
+
+  it("audits backoffice Asaas customer id changes without exposing raw customer id", async () => {
+    const { db, service } = createHarness();
+    db.workspaces[0].asaasCustomerId = "cus_old_secret";
+
+    await service.updateBillingConfiguration(
+      "workspace_1",
+      {
+        asaasCustomerId: " cus_new_secret "
+      },
+      "user_1"
+    );
+
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "platform_operator",
+        action: "workspace.billing_updated",
+        targetType: "Workspace",
+        targetId: "workspace_1",
+        resultStatus: "success",
+        beforeSummary: expect.objectContaining({
+          asaasCustomerConfigured: true,
+          asaasCustomerIdHash: expect.any(String)
+        }),
+        afterSummary: expect.objectContaining({
+          asaasCustomerConfigured: true,
+          asaasCustomerIdHash: expect.any(String)
+        })
+      })
+    );
+    expect(JSON.stringify(db.auditLogs)).not.toContain("cus_old_secret");
+    expect(JSON.stringify(db.auditLogs)).not.toContain("cus_new_secret");
   });
 
   it("lists workspaces with billing configuration ordered by name", async () => {
