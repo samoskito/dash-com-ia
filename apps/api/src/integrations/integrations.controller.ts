@@ -75,10 +75,15 @@ export class IntegrationsController {
     @AuthToken() refreshToken: string,
     @Body() body: Record<string, unknown>
   ) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
     const input = this.parseBody(metaAssetSelectionInputSchema.safeParse(body));
 
-    return this.integrationsService.saveMetaAssetSelection(workspaceId, input);
+    return this.integrationsService.saveMetaAssetSelection(
+      workspace.id,
+      input,
+      authenticated.user.id
+    );
   }
 
   @Get("uazapi/start")

@@ -4,7 +4,8 @@ import { MetaTokenEncryptionService } from "../src/integrations/meta/meta-token-
 
 function createHarness() {
   const db = {
-    records: [] as Array<Record<string, unknown>>
+    records: [] as Array<Record<string, unknown>>,
+    auditLogs: [] as Array<Record<string, unknown>>
   };
   const prisma = {
     metaIntegration: {
@@ -70,6 +71,17 @@ function createHarness() {
 
         return db.records[index];
       }
+    },
+    auditLog: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const log = {
+          id: `audit_${db.auditLogs.length + 1}`,
+          createdAt: new Date("2026-07-02T04:00:00.000Z"),
+          ...data
+        };
+        db.auditLogs.push(log);
+        return log;
+      }
     }
   };
   const encryption = new MetaTokenEncryptionService({
@@ -92,7 +104,8 @@ describe("meta connections service", () => {
       accessToken: "EAAB-secret-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read", "business_management"]
+      scopes: ["ads_read", "business_management"],
+      actorUserId: "user_1"
     });
 
     expect(connection).toMatchObject({
@@ -113,6 +126,18 @@ describe("meta connections service", () => {
         tokenTag: String(db.records[0]?.tokenTag)
       })
     ).toBe("EAAB-secret-token");
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "meta.oauth.connected",
+        targetType: "MetaIntegration",
+        targetId: "workspace_1",
+        resultStatus: "connected"
+      })
+    );
+    expect(JSON.stringify(db.auditLogs)).not.toContain("EAAB-secret-token");
   });
 
   it("returns not_connected when a workspace has no Meta integration", async () => {
@@ -197,7 +222,7 @@ describe("meta connections service", () => {
   });
 
   it("saves selected Meta business, ad account and pixel", async () => {
-    const { service } = createHarness();
+    const { db, service } = createHarness();
 
     await service.saveOAuthConnection({
       workspaceId: "workspace_1",
@@ -211,13 +236,29 @@ describe("meta connections service", () => {
       service.saveAssetSelection("workspace_1", {
         businessId: "business_1",
         adAccountId: "act_123",
-        pixelId: "pixel_1"
-      })
+        pixelId: "pixel_1",
+      }, "user_1")
     ).resolves.toMatchObject({
       workspaceId: "workspace_1",
       selectedBusinessId: "business_1",
       selectedAdAccountId: "act_123",
       selectedPixelId: "pixel_1"
+    });
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "meta.assets.selection_updated",
+        targetType: "MetaIntegration",
+        targetId: "workspace_1",
+        resultStatus: "success"
+      })
+    );
+    expect(db.auditLogs.at(-1)?.afterSummary).toMatchObject({
+      businessId: "business_1",
+      adAccountId: "act_123",
+      pixelId: "pixel_1"
     });
   });
 });

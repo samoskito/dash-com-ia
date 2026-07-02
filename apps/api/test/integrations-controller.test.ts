@@ -283,11 +283,15 @@ describe("integrations controller", () => {
         expect(body.selectedPixelId).toBe("pixel_1");
       });
 
-    expect(service.saveMetaAssetSelection).toHaveBeenCalledWith("workspace_1", {
-      businessId: "business_1",
-      adAccountId: "act_123",
-      pixelId: "pixel_1"
-    });
+    expect(service.saveMetaAssetSelection).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        businessId: "business_1",
+        adAccountId: "act_123",
+        pixelId: "pixel_1"
+      },
+      "user_1"
+    );
 
     await app.close();
   });

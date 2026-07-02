@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import type {
   MetaAssetSelectionInputDto,
   MetaAssetsDto,
@@ -15,6 +16,7 @@ export type SaveMetaConnectionInput = {
   tokenType: string | null;
   expiresInSeconds: number | null;
   scopes: string[];
+  actorUserId?: string | null;
 };
 
 type MetaIntegrationRecord = {
@@ -87,6 +89,18 @@ export class MetaConnectionsService {
       },
       update: data
     })) as MetaIntegrationRecord;
+    await this.recordMetaAudit({
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId ?? null,
+      action: "meta.oauth.connected",
+      resultStatus: "connected",
+      afterSummary: {
+        status: "connected",
+        tokenType: input.tokenType,
+        scopes: input.scopes,
+        expiresAt: expiresAt?.toISOString() ?? null
+      } as Prisma.InputJsonValue
+    });
 
     return this.toDto(connection);
   }
@@ -154,7 +168,8 @@ export class MetaConnectionsService {
 
   async saveAssetSelection(
     workspaceId: string,
-    input: MetaAssetSelectionInputDto
+    input: MetaAssetSelectionInputDto,
+    actorUserId?: string | null
   ): Promise<MetaConnectionDto> {
     const connection = (await this.prisma.metaIntegration.update({
       where: { workspaceId },
@@ -164,8 +179,47 @@ export class MetaConnectionsService {
         selectedPixelId: input.pixelId
       }
     })) as MetaIntegrationRecord;
+    await this.recordMetaAudit({
+      workspaceId,
+      actorUserId: actorUserId ?? null,
+      action: "meta.assets.selection_updated",
+      resultStatus: "success",
+      afterSummary: {
+        businessId: input.businessId,
+        adAccountId: input.adAccountId,
+        pixelId: input.pixelId
+      } as Prisma.InputJsonValue
+    });
 
     return this.toDto(connection);
+  }
+
+  private async recordMetaAudit(input: {
+    workspaceId: string;
+    actorUserId: string | null;
+    action: string;
+    resultStatus: string;
+    afterSummary: Prisma.InputJsonValue;
+  }): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId: input.workspaceId,
+          actorUserId: input.actorUserId,
+          actorType: input.actorUserId ? "user" : "system",
+          action: input.action,
+          targetType: "MetaIntegration",
+          targetId: input.workspaceId,
+          reason: null,
+          sourceIp: null,
+          resultStatus: input.resultStatus,
+          beforeSummary: undefined,
+          afterSummary: input.afterSummary
+        }
+      });
+    } catch {
+      return;
+    }
   }
 
   private emptyAssets(

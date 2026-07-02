@@ -154,13 +154,18 @@ export class IntegrationsService {
 
   async saveMetaAssetSelection(
     workspaceId: string,
-    input: MetaAssetSelectionInputDto
+    input: MetaAssetSelectionInputDto,
+    actorUserId?: string | null
   ): Promise<MetaConnectionDto> {
     if (!this.metaConnectionsService) {
       return this.getMetaConnection(workspaceId);
     }
 
-    return this.metaConnectionsService.saveAssetSelection(workspaceId, input);
+    return this.metaConnectionsService.saveAssetSelection(
+      workspaceId,
+      input,
+      actorUserId
+    );
   }
 
   getUazapiStartAction(): IntegrationStartActionDto {
