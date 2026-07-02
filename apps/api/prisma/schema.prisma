@@ -71,6 +71,7 @@ model WorkspaceMember {
   user      User      @relation(fields: [userId], references: [id])
 
   @@unique([workspaceId, userId])
+  @@index([userId])
 }
 
 model WhatsappInstance {
@@ -83,6 +84,8 @@ model WhatsappInstance {
   updatedAt   DateTime               @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId])
 }
 
 model AuthSession {
@@ -106,7 +109,7 @@ model WorkspaceInvite {
   email       String
   role        WorkspaceRole
   status      WorkspaceInviteStatus @default(pending)
-  tokenHash   String
+  tokenHash   String                @unique
   expiresAt   DateTime
   acceptedAt  DateTime?
   createdAt   DateTime              @default(now())
