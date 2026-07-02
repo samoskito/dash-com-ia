@@ -26,6 +26,7 @@ import {
   diagnosticRetryResultSchema,
   integrationHealthSchema,
   integrationHealthSummarySchema,
+  integrationPipelineOverviewSchema,
   metaAssetSelectionInputSchema,
   metaAssetsSchema,
   metaStructureReportSchema,
@@ -229,6 +230,30 @@ describe("shared contracts", () => {
 
     expect(summary.providers[0]?.provider).toBe("meta");
     expect(action.missingEnv).toEqual(["META_APP_ID", "META_APP_SECRET"]);
+  });
+
+  it("validates integration pipeline overview contracts", () => {
+    const overview = integrationPipelineOverviewSchema.parse({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      stages: [
+        {
+          key: "webhook",
+          label: "Webhook",
+          value: 12,
+          detail: "Webhooks Uazapi recebidos"
+        },
+        {
+          key: "meta_sent",
+          label: "Meta ACK",
+          value: 7,
+          detail: "Eventos enviados para Meta"
+        }
+      ]
+    });
+
+    expect(overview.stages[0]?.value).toBe(12);
+    expect(overview.stages[1]?.key).toBe("meta_sent");
   });
 
   it("validates login payloads and normalizes email", () => {

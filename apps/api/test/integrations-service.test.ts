@@ -232,4 +232,79 @@ describe("integrations service", () => {
       selectedPixelId: "pixel_1"
     });
   });
+
+  it("summarizes the integration signal pipeline from persisted logs", async () => {
+    const prisma = {
+      webhookLog: {
+        count: vi.fn(async () => 4)
+      },
+      lead: {
+        count: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
+          "OR" in where ? 3 : 5
+        )
+      },
+      conversionEventLog: {
+        count: vi.fn(async ({ where }: { where: { status?: string } }) =>
+          where.status === "sent" ? 2 : 6
+        )
+      }
+    };
+    const service = new IntegrationsService(
+      new MetaAdapter({}),
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {},
+      undefined,
+      prisma as never
+    );
+
+    await expect(
+      service.getPipelineOverview(
+        "workspace_1",
+        new Date("2026-07-02T12:00:00.000Z")
+      )
+    ).resolves.toEqual({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      stages: [
+        {
+          key: "ctwa",
+          label: "CTWA",
+          value: 3,
+          detail: "Leads com origem de campanha Meta"
+        },
+        {
+          key: "webhook",
+          label: "Webhook",
+          value: 4,
+          detail: "Webhooks Uazapi recebidos"
+        },
+        {
+          key: "lead",
+          label: "Lead",
+          value: 5,
+          detail: "Leads rastreados pelo WhatsApp"
+        },
+        {
+          key: "conversion_ready",
+          label: "CAPI pronta",
+          value: 6,
+          detail: "Eventos aguardando envio para Meta"
+        },
+        {
+          key: "meta_sent",
+          label: "Meta ACK",
+          value: 2,
+          detail: "Eventos enviados para Meta"
+        }
+      ]
+    });
+    expect(prisma.webhookLog.count).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        source: "uazapi",
+        receivedAt: { gte: new Date("2026-06-25T12:00:00.000Z") }
+      }
+    });
+  });
 });

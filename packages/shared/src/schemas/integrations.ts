@@ -23,6 +23,19 @@ export const integrationStartActionSchema = z.object({
   missingEnv: z.array(z.string()).default([])
 });
 
+export const integrationPipelineStageSchema = z.object({
+  key: z.enum(["ctwa", "webhook", "lead", "conversion_ready", "meta_sent"]),
+  label: z.string().min(1),
+  value: z.number().int().nonnegative(),
+  detail: z.string().min(1)
+});
+
+export const integrationPipelineOverviewSchema = z.object({
+  workspaceId: z.string().min(1),
+  rangeLabel: z.string().min(1),
+  stages: z.array(integrationPipelineStageSchema)
+});
+
 export const metaOAuthCallbackQuerySchema = z.object({
   code: z.string().min(1),
   state: z.string().min(1).optional()
@@ -107,6 +120,12 @@ export type IntegrationHealthSummaryDto = z.infer<
 >;
 export type IntegrationStartActionDto = z.infer<
   typeof integrationStartActionSchema
+>;
+export type IntegrationPipelineStageDto = z.infer<
+  typeof integrationPipelineStageSchema
+>;
+export type IntegrationPipelineOverviewDto = z.infer<
+  typeof integrationPipelineOverviewSchema
 >;
 export type MetaOAuthCallbackQueryDto = z.infer<
   typeof metaOAuthCallbackQuerySchema

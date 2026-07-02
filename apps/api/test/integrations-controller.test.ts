@@ -114,6 +114,18 @@ async function createApp() {
       action: "configure_env",
       label: "Configurar Asaas",
       missingEnv: ["ASAAS_API_KEY"]
+    })),
+    getPipelineOverview: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      stages: [
+        {
+          key: "webhook",
+          label: "Webhook",
+          value: 4,
+          detail: "Webhooks Uazapi recebidos"
+        }
+      ]
     }))
   };
   const authService = {
@@ -296,6 +308,24 @@ describe("integrations controller", () => {
       .expect(({ body }) => {
         expect(body.provider).toBe("asaas");
       });
+
+    await app.close();
+  });
+
+  it("returns integration pipeline overview for the current workspace", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/pipeline")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.stages[0].key).toBe("webhook");
+        expect(body.stages[0].value).toBe(4);
+      });
+
+    expect(service.getPipelineOverview).toHaveBeenCalledWith("workspace_1");
 
     await app.close();
   });

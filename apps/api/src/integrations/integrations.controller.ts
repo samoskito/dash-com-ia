@@ -32,6 +32,13 @@ export class IntegrationsController {
     return this.integrationsService.getHealthSummary();
   }
 
+  @Get("pipeline")
+  async getPipeline(@AuthToken() refreshToken: string) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.integrationsService.getPipelineOverview(workspaceId);
+  }
+
   @Get("meta/start")
   async startMeta(@AuthToken() refreshToken: string) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);

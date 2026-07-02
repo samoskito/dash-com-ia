@@ -1,5 +1,6 @@
 import type {
   IntegrationHealthSummaryDto,
+  IntegrationPipelineOverviewDto,
   MetaAssetsDto,
   MetaConnectionDto,
   WhatsappInstanceCheckoutDto,
@@ -90,6 +91,24 @@ async function getWhatsappQuote(): Promise<ResourceResult<WhatsappInstanceQuoteD
         "/billing/whatsapp-instance/quote"
       ),
       state: "real"
+    };
+  } catch {
+    return {
+      data: null,
+      state: "error"
+    };
+  }
+}
+
+async function getIntegrationPipeline(): Promise<ResourceResult<IntegrationPipelineOverviewDto | null>> {
+  try {
+    const pipeline = await serverApiFetch<IntegrationPipelineOverviewDto>(
+      "/integrations/pipeline"
+    );
+
+    return {
+      data: pipeline,
+      state: pipeline.stages.length > 0 ? "real" : "empty"
     };
   } catch {
     return {
@@ -300,19 +319,29 @@ function metaAssetsDetail(
   return "Ativos disponiveis para selecionar no proximo passo do fluxo operacional.";
 }
 
+function pipelineWidth(value: number, maxValue: number) {
+  if (maxValue <= 0 || value <= 0) {
+    return "0%";
+  }
+
+  return `${Math.max(8, Math.round((value / maxValue) * 100))}%`;
+}
+
 export default async function IntegrationsPage() {
   const [
     healthResult,
     whatsappInstancesResult,
     metaConnectionResult,
     metaAssetsResult,
-    whatsappQuoteResult
+    whatsappQuoteResult,
+    pipelineResult
   ] = await Promise.all([
     getHealth(),
     getWhatsappInstances(),
     getMetaConnection(),
     getMetaAssets(),
-    getWhatsappQuote()
+    getWhatsappQuote(),
+    getIntegrationPipeline()
   ]);
   const health = healthResult.data;
   const whatsappInstances = whatsappInstancesResult.data;
@@ -322,12 +351,18 @@ export default async function IntegrationsPage() {
   const metaConnection = metaConnectionResult.data;
   const metaAssets = metaAssetsResult.data;
   const whatsappQuote = whatsappQuoteResult.data;
+  const pipeline = pipelineResult.data;
+  const maxPipelineValue = Math.max(
+    ...((pipeline?.stages ?? []).map((stage) => stage.value)),
+    0
+  );
   const hasIntegrationError = [
     healthResult.state,
     whatsappInstancesResult.state,
     metaConnectionResult.state,
     metaAssetsResult.state,
-    whatsappQuoteResult.state
+    whatsappQuoteResult.state,
+    pipelineResult.state
   ].includes("error");
   const metaStatus = metaAssets?.status ?? metaConnection?.status;
   const selectedBusinessName = selectedMetaAssetName(
@@ -671,32 +706,30 @@ export default async function IntegrationsPage() {
       <div className="surface-panel">
         <span className="eyebrow">Pipeline de sinal</span>
         <h2>Do clique no anuncio ao evento enviado</h2>
+        <p className="muted">
+          {pipeline
+            ? `${pipeline.rangeLabel} com dados reais do workspace.`
+            : "Nao foi possivel carregar o pipeline operacional agora."}
+        </p>
         <div className="funnel-row" aria-label="Pipeline das integracoes">
-          <div className="funnel-step">
-            <span>CTWA</span>
-            <strong>aguardando dados</strong>
-            <div className="signal-bar"><i style={{ width: "0%" }} /></div>
-          </div>
-          <div className="funnel-step">
-            <span>Webhook</span>
-            <strong>aguardando eventos</strong>
-            <div className="signal-bar"><i style={{ width: "0%" }} /></div>
-          </div>
-          <div className="funnel-step">
-            <span>Resolver campanha</span>
-            <strong>sem metrica</strong>
-            <div className="signal-bar"><i style={{ width: "0%" }} /></div>
-          </div>
-          <div className="funnel-step">
-            <span>CAPI</span>
-            <strong>sem metrica</strong>
-            <div className="signal-bar"><i style={{ width: "0%" }} /></div>
-          </div>
-          <div className="funnel-step">
-            <span>Meta ACK</span>
-            <strong>sem metrica</strong>
-            <div className="signal-bar"><i style={{ width: "0%" }} /></div>
-          </div>
+          {pipeline?.stages.length ? (
+            pipeline.stages.map((stage) => (
+              <div className="funnel-step" key={stage.key}>
+                <span>{stage.label}</span>
+                <strong>{stage.value}</strong>
+                <p>{stage.detail}</p>
+                <div className="signal-bar">
+                  <i style={{ width: pipelineWidth(stage.value, maxPipelineValue) }} />
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="funnel-step">
+              <span>Pipeline</span>
+              <strong>{pipelineResult.state === "error" ? "API indisponivel" : "sem dados"}</strong>
+              <div className="signal-bar"><i style={{ width: "0%" }} /></div>
+            </div>
+          )}
         </div>
       </div>
     </section>

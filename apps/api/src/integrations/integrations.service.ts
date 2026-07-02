@@ -5,10 +5,12 @@ import type {
   MetaAssetSelectionInputDto,
   MetaAssetsDto,
   IntegrationHealthSummaryDto,
+  IntegrationPipelineOverviewDto,
   IntegrationStartActionDto,
   MetaOAuthCallbackQueryDto,
   MetaOAuthCallbackResultDto
 } from "@wpptrack/shared";
+import { PrismaService } from "../common/prisma/prisma.service";
 import { AsaasAdapter } from "./asaas/asaas.adapter";
 import type { IntegrationEnv } from "./integration.types";
 import { INTEGRATION_ENV } from "./integration.types";
@@ -24,7 +26,10 @@ export class IntegrationsService {
     private readonly asaasAdapter: AsaasAdapter,
     @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env,
     @Optional()
-    private readonly metaConnectionsService?: MetaConnectionsService
+    private readonly metaConnectionsService?: MetaConnectionsService,
+    @Optional()
+    @Inject(PrismaService)
+    private readonly prisma?: PrismaService
   ) {}
 
   async getHealthSummary(): Promise<IntegrationHealthSummaryDto> {
@@ -186,8 +191,143 @@ export class IntegrationsService {
     };
   }
 
+  async getPipelineOverview(
+    workspaceId: string,
+    now = new Date()
+  ): Promise<IntegrationPipelineOverviewDto> {
+    if (!this.prisma) {
+      return this.emptyPipelineOverview(workspaceId);
+    }
+
+    const since = new Date(now);
+    since.setDate(since.getDate() - 7);
+
+    const [
+      ctwaLeads,
+      webhooksReceived,
+      leadsTracked,
+      conversionsReady,
+      metaSent
+    ] = await Promise.all([
+      this.prisma.lead.count({
+        where: {
+          workspaceId,
+          createdAt: { gte: since },
+          OR: [
+            { campaignId: { not: null } },
+            { adSetId: { not: null } },
+            { adId: { not: null } }
+          ]
+        }
+      }),
+      this.prisma.webhookLog.count({
+        where: {
+          workspaceId,
+          source: "uazapi",
+          receivedAt: { gte: since }
+        }
+      }),
+      this.prisma.lead.count({
+        where: {
+          workspaceId,
+          createdAt: { gte: since }
+        }
+      }),
+      this.prisma.conversionEventLog.count({
+        where: {
+          workspaceId,
+          status: "ready_to_send",
+          createdAt: { gte: since }
+        }
+      }),
+      this.prisma.conversionEventLog.count({
+        where: {
+          workspaceId,
+          status: "sent",
+          createdAt: { gte: since }
+        }
+      })
+    ]);
+
+    return {
+      workspaceId,
+      rangeLabel: "Ultimos 7 dias",
+      stages: [
+        {
+          key: "ctwa",
+          label: "CTWA",
+          value: ctwaLeads,
+          detail: "Leads com origem de campanha Meta"
+        },
+        {
+          key: "webhook",
+          label: "Webhook",
+          value: webhooksReceived,
+          detail: "Webhooks Uazapi recebidos"
+        },
+        {
+          key: "lead",
+          label: "Lead",
+          value: leadsTracked,
+          detail: "Leads rastreados pelo WhatsApp"
+        },
+        {
+          key: "conversion_ready",
+          label: "CAPI pronta",
+          value: conversionsReady,
+          detail: "Eventos aguardando envio para Meta"
+        },
+        {
+          key: "meta_sent",
+          label: "Meta ACK",
+          value: metaSent,
+          detail: "Eventos enviados para Meta"
+        }
+      ]
+    };
+  }
+
   private missingEnv(keys: string[]): string[] {
     return keys.filter((key) => !this.env[key]);
+  }
+
+  private emptyPipelineOverview(workspaceId: string): IntegrationPipelineOverviewDto {
+    return {
+      workspaceId,
+      rangeLabel: "Ultimos 7 dias",
+      stages: [
+        {
+          key: "ctwa",
+          label: "CTWA",
+          value: 0,
+          detail: "Leads com origem de campanha Meta"
+        },
+        {
+          key: "webhook",
+          label: "Webhook",
+          value: 0,
+          detail: "Webhooks Uazapi recebidos"
+        },
+        {
+          key: "lead",
+          label: "Lead",
+          value: 0,
+          detail: "Leads rastreados pelo WhatsApp"
+        },
+        {
+          key: "conversion_ready",
+          label: "CAPI pronta",
+          value: 0,
+          detail: "Eventos aguardando envio para Meta"
+        },
+        {
+          key: "meta_sent",
+          label: "Meta ACK",
+          value: 0,
+          detail: "Eventos enviados para Meta"
+        }
+      ]
+    };
   }
 
   private createMetaOAuthState(workspaceId: string): string {

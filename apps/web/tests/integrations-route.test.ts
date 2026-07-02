@@ -118,6 +118,47 @@ describe("integrations route", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            stages: [
+              {
+                key: "ctwa",
+                label: "CTWA",
+                value: 3,
+                detail: "Leads com origem de campanha Meta"
+              },
+              {
+                key: "webhook",
+                label: "Webhook",
+                value: 4,
+                detail: "Webhooks Uazapi recebidos"
+              },
+              {
+                key: "lead",
+                label: "Lead",
+                value: 5,
+                detail: "Leads rastreados pelo WhatsApp"
+              },
+              {
+                key: "conversion_ready",
+                label: "CAPI pronta",
+                value: 6,
+                detail: "Eventos aguardando envio para Meta"
+              },
+              {
+                key: "meta_sent",
+                label: "Meta ACK",
+                value: 2,
+                detail: "Eventos enviados para Meta"
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
             whatsappInstanceId: "wpp_1",
             provider: "uazapi",
             billingStatus: "active",
@@ -149,6 +190,10 @@ describe("integrations route", () => {
       expect.objectContaining({ credentials: "include" })
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/integrations/pipeline",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/whatsapp/instances/wpp_1/status",
       expect.objectContaining({ credentials: "include" })
     );
@@ -173,10 +218,23 @@ describe("integrations route", () => {
     expect(html).toContain("Adicionar instancia");
     expect(html).toContain("99,00");
     expect(html).toContain("Antecipada via Asaas");
+    expect(html).toContain("Leads com origem de campanha Meta");
+    expect(html).toContain("Webhooks Uazapi recebidos");
+    expect(html).toContain("Eventos enviados para Meta");
+    expect(html).toContain("3");
+    expect(html).toContain("4");
+    expect(html).toContain("2");
+    expect(html).not.toContain("aguardando dados");
   });
 
   it("renders unavailable states without visual fallback providers or fake pipeline metrics", async () => {
     vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
