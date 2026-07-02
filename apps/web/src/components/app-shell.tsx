@@ -1,6 +1,7 @@
 import { clientNavigation } from "@wpptrack/shared";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { LogoutButton } from "./logout-button";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const health = [
@@ -47,6 +48,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               {item.label} {item.detail}
             </span>
           ))}
+          <LogoutButton />
         </section>
       </aside>
       <main className="content">{children}</main>

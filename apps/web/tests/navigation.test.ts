@@ -66,4 +66,15 @@ describe("navigation", () => {
     expect(mobileBlock).toContain("display: flex;");
     expect(mobileBlock).not.toContain("repeat(5, minmax(128px, 1fr))");
   });
+
+  it("protects app routes with the session middleware", () => {
+    const middleware = readFileSync(new URL("../src/middleware.ts", import.meta.url), "utf8");
+
+    for (const route of ["/overview", "/leads", "/reports", "/integrations", "/settings", "/backoffice"]) {
+      expect(middleware).toContain(route);
+    }
+
+    expect(middleware).toContain("wpptrack_session");
+    expect(middleware).toContain("/login");
+  });
 });
