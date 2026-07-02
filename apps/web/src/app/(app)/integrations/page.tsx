@@ -813,7 +813,9 @@ export default async function IntegrationsPage() {
               </button>
             </form>
             <p className="muted">
-              Ao adicionar uma instancia, o backend gera a cobranca no Asaas antes de liberar a conexao.
+              Ao continuar, o backend vai gerar uma cobranca de{" "}
+              {money(whatsappQuote?.nextInstanceAmountCents)} no Asaas antes
+              da conexao.
             </p>
           </>
         ) : (

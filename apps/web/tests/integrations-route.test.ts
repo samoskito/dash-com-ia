@@ -268,6 +268,9 @@ describe("integrations route", () => {
     expect(html).toContain('href="https://sandbox.asaas.com/i/pay_2"');
     expect(html).toContain("Adicionar instancia");
     expect(html).toContain("99,00");
+    expect(html).toContain(
+      "Ao continuar, o backend vai gerar uma cobranca de R$\u00a099,00 no Asaas antes da conexao."
+    );
     expect(html).toContain("Assinatura");
     expect(html).toContain("Por instancia");
     expect(html).toContain("198,00");
