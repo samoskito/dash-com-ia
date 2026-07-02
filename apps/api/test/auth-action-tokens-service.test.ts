@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
 import { AuthService } from "../src/auth/auth.service";
 import { PasswordService } from "../src/auth/password.service";
@@ -61,6 +62,10 @@ type FakePrisma = {
       data: Record<string, unknown>;
       where: { id: string };
     }) => Promise<TokenRecord>;
+    updateMany: (args: {
+      data: { usedAt: Date };
+      where: { userId: string; type: TokenRecord["type"]; usedAt: null };
+    }) => Promise<{ count: number }>;
   };
   authSession: {
     updateMany: (args: {
@@ -171,6 +176,28 @@ function createHarness() {
           ...data
         };
         return db.tokens[index];
+      },
+      updateMany: async ({ data, where }) => {
+        let count = 0;
+
+        db.tokens = db.tokens.map((token) => {
+          if (
+            token.userId === where.userId &&
+            token.type === where.type &&
+            token.usedAt === where.usedAt
+          ) {
+            count += 1;
+
+            return {
+              ...token,
+              usedAt: data.usedAt
+            };
+          }
+
+          return token;
+        });
+
+        return { count };
       }
     },
     authSession: {
@@ -320,6 +347,33 @@ describe("auth action token service", () => {
     });
     expect(audit?.targetId).not.toBe("user@wpptrack.com");
     expect(JSON.stringify(audit)).not.toContain("USER@WPPTRACK.COM");
+  });
+
+  it("invalidates previous active action tokens before issuing a new one", async () => {
+    const { db, service } = createHarness();
+
+    const first = await service.requestPasswordReset({
+      email: "user@wpptrack.com"
+    });
+    const second = await service.requestPasswordReset({
+      email: "user@wpptrack.com"
+    });
+
+    await expect(
+      service.resetPassword({
+        token: first.devToken!,
+        password: "new-strong-password"
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.resetPassword({
+        token: second.devToken!,
+        password: "newer-strong-password"
+      })
+    ).resolves.toEqual({ ok: true });
+    expect(db.tokens).toHaveLength(2);
+    expect(db.tokens[0].usedAt).toBeInstanceOf(Date);
+    expect(db.tokens[1].usedAt).toBeInstanceOf(Date);
   });
 
   it("does not create unlimited password reset tokens for repeated requests", async () => {

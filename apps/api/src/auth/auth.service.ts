@@ -1148,13 +1148,25 @@ export class AuthService {
   ): Promise<PasswordResetRequestDto | EmailVerificationStartDto> {
     const token = randomBytes(32).toString("hex");
 
-    await this.prisma.authActionToken.create({
-      data: {
-        userId,
-        type,
-        tokenHash: this.hashActionToken(token),
-        expiresAt: new Date(Date.now() + ttlMs)
-      }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.authActionToken.updateMany({
+        where: {
+          userId,
+          type,
+          usedAt: null
+        },
+        data: {
+          usedAt: new Date()
+        }
+      });
+      await tx.authActionToken.create({
+        data: {
+          userId,
+          type,
+          tokenHash: this.hashActionToken(token),
+          expiresAt: new Date(Date.now() + ttlMs)
+        }
+      });
     });
 
     return {
