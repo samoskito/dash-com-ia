@@ -324,7 +324,29 @@ function selectedMetaAssetName<T extends { id: string; name: string }>(
     return emptyLabel;
   }
 
-  return items.find((item) => item.id === selectedId)?.name ?? "ativo selecionado nao encontrado";
+  return (
+    items.find((item) => item.id === selectedId)?.name ??
+    "Ativo selecionado fora da ultima sincronizacao"
+  );
+}
+
+function selectedMetaAssetDetail<T extends { id: string }>(
+  items: T[],
+  selectedId: string | null | undefined,
+  detail: (item: T) => string | null | undefined,
+  emptyLabel: string
+) {
+  if (!selectedId) {
+    return emptyLabel;
+  }
+
+  const item = items.find((candidate) => candidate.id === selectedId);
+
+  if (!item) {
+    return "Ressincronize a Meta ou escolha outro ativo";
+  }
+
+  return detail(item) ?? emptyLabel;
 }
 
 function metaAssetsDetail(
@@ -598,9 +620,12 @@ export default async function IntegrationsPage() {
                       <span>{metaAssets.selection.businessId ?? "sem selecao"}</span>
                     </td>
                     <td>
-                      {metaAssets.businesses.find(
-                        (business) => business.id === metaAssets.selection.businessId
-                      )?.verificationStatus ?? "sem status"}
+                      {selectedMetaAssetDetail(
+                        metaAssets.businesses,
+                        metaAssets.selection.businessId,
+                        (business) => business.verificationStatus,
+                        "sem status"
+                      )}
                     </td>
                     <td><span className="event-chip">selecionado</span></td>
                   </tr>
@@ -611,9 +636,12 @@ export default async function IntegrationsPage() {
                       <span>{metaAssets.selection.adAccountId ?? "sem selecao"}</span>
                     </td>
                     <td>
-                      {metaAssets.adAccounts.find(
-                        (adAccount) => adAccount.id === metaAssets.selection.adAccountId
-                      )?.currency ?? "sem moeda"}
+                      {selectedMetaAssetDetail(
+                        metaAssets.adAccounts,
+                        metaAssets.selection.adAccountId,
+                        (adAccount) => adAccount.currency,
+                        "sem moeda"
+                      )}
                     </td>
                     <td><span className="event-chip">selecionado</span></td>
                   </tr>
@@ -624,8 +652,12 @@ export default async function IntegrationsPage() {
                       <span>{metaAssets.selection.pixelId ?? "sem selecao"}</span>
                     </td>
                     <td>
-                      {metaAssets.pixels.find((pixel) => pixel.id === metaAssets.selection.pixelId)
-                        ?.code ?? "sem codigo"}
+                      {selectedMetaAssetDetail(
+                        metaAssets.pixels,
+                        metaAssets.selection.pixelId,
+                        (pixel) => pixel.code,
+                        "sem codigo"
+                      )}
                     </td>
                     <td><span className="event-chip">selecionado</span></td>
                   </tr>

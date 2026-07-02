@@ -627,4 +627,119 @@ describe("integrations route", () => {
     expect(html).not.toContain("provisioning_hold");
     expect(html).not.toContain("manual_review");
   });
+
+  it("renders stale Meta asset selections as resync-required states", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            checkedAt: "2026-07-02T03:00:00.000Z",
+            providers: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "connected",
+            tokenType: "bearer",
+            scopes: ["ads_read"],
+            expiresAt: null,
+            connectedAt: "2026-07-02T03:00:00.000Z",
+            selectedBusinessId: "business_old",
+            selectedAdAccountId: "act_old",
+            selectedPixelId: "pixel_old"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "connected",
+            businesses: [{ id: "business_new", name: "BM Nova" }],
+            adAccounts: [{ id: "act_new", name: "Conta Nova" }],
+            pixels: [{ id: "pixel_new", name: "Pixel Novo", code: "999" }],
+            selection: {
+              businessId: "business_old",
+              adAccountId: "act_old",
+              pixelId: "pixel_old"
+            },
+            lastSyncedAt: "2026-07-02T03:00:00.000Z",
+            syncError: null
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            activeInstances: 0,
+            pricePerInstanceCents: 9900,
+            nextInstanceAmountCents: 9900,
+            currency: "BRL"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "active",
+            planName: "Por instancia",
+            activeInstances: 0,
+            pricePerWhatsappInstanceCents: 9900,
+            monthlyAmountCents: 0,
+            currentPeriodEnd: null,
+            asaasSubscriptionId: null
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            stages: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "workspace_1",
+            name: "Workspace",
+            slug: "workspace",
+            role: "owner",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await IntegrationsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Ativo selecionado fora da ultima sincronizacao");
+    expect(html).toContain("Ressincronize a Meta ou escolha outro ativo");
+    expect(html).not.toContain("ativo selecionado nao encontrado");
+  });
 });

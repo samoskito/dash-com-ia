@@ -527,6 +527,7 @@ Checkpoint atual:
 - Aba `Integracoes` agora trata status inesperados do backend como estado explicito desconhecido em PT-BR (`Status desconhecido` / `Meta com status desconhecido`) em vez de exibir enum bruto ou mascarar como `Meta nao conectado`.
 - Aba `Relatorios` agora traduz status conhecidos da estrutura Meta para PT-BR e usa `Status desconhecido` quando campanha/conjunto/anuncio vier sem status, evitando fallback `unknown` na UI.
 - Aba `Integracoes` agora mostra assinatura/instancia `active` como `Ativa` e usa `Nao vinculada` quando ainda nao existe `asaasSubscriptionId`, evitando indicar cobranca pendente sem evidencia.
+- Aba `Integracoes` agora diferencia selecao Meta stale: quando BM/conta/pixel selecionado nao existe mais na ultima lista sincronizada, a UI mostra `Ativo selecionado fora da ultima sincronizacao` e orienta `Ressincronize a Meta ou escolha outro ativo`.
 
 Proximo passo operacional:
 
