@@ -39,6 +39,21 @@ async function createApp() {
       authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc",
       missingEnv: [],
       state: "state-token"
+    })),
+    requestPasswordReset: vi.fn(async () => ({
+      ok: true,
+      delivery: "not_configured",
+      devToken: "reset-token-1234567890"
+    })),
+    resetPassword: vi.fn(async () => ({ ok: true })),
+    requestEmailVerification: vi.fn(async () => ({
+      ok: true,
+      delivery: "not_configured",
+      devToken: "verify-token-1234567890"
+    })),
+    confirmEmailVerification: vi.fn(async () => ({
+      ok: true,
+      emailVerifiedAt: "2026-07-02T03:00:00.000Z"
     }))
   };
 
@@ -173,6 +188,70 @@ describe("auth controller", () => {
 
     expect(authService.getGoogleOAuthStart).toHaveBeenCalledWith({
       redirectTo: "/overview"
+    });
+
+    await app.close();
+  });
+
+  it("starts and confirms password reset", async () => {
+    const { app, authService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/auth/password/forgot")
+      .send({ email: " SAMUEL@WPPTRACK.COM " })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.ok).toBe(true);
+        expect(body.devToken).toBe("reset-token-1234567890");
+      });
+
+    await request(app.getHttpServer())
+      .post("/auth/password/reset")
+      .send({
+        token: "reset-token-1234567890",
+        password: "new-strong-password"
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.ok).toBe(true);
+      });
+
+    expect(authService.requestPasswordReset).toHaveBeenCalledWith({
+      email: "samuel@wpptrack.com"
+    });
+    expect(authService.resetPassword).toHaveBeenCalledWith({
+      token: "reset-token-1234567890",
+      password: "new-strong-password"
+    });
+
+    await app.close();
+  });
+
+  it("starts and confirms email verification", async () => {
+    const { app, authService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/auth/email/verification/start")
+      .set("Authorization", `Bearer ${authPayload.refreshToken}`)
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.devToken).toBe("verify-token-1234567890");
+      });
+
+    await request(app.getHttpServer())
+      .post("/auth/email/verification/confirm")
+      .send({ token: "verify-token-1234567890" })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.ok).toBe(true);
+        expect(body.emailVerifiedAt).toBe("2026-07-02T03:00:00.000Z");
+      });
+
+    expect(authService.requestEmailVerification).toHaveBeenCalledWith(
+      authPayload.refreshToken
+    );
+    expect(authService.confirmEmailVerification).toHaveBeenCalledWith({
+      token: "verify-token-1234567890"
     });
 
     await app.close();

@@ -72,6 +72,11 @@ enum ConversionMatchMode {
   exact
 }
 
+enum AuthActionTokenType {
+  password_reset
+  email_verification
+}
+
 model User {
   id              String       @id @default(cuid())
   email           String       @unique
@@ -85,6 +90,7 @@ model User {
 
   memberships WorkspaceMember[]
   sessions    AuthSession[]
+  actionTokens AuthActionToken[]
   auditLogs   AuditLog[]
 }
 
@@ -152,6 +158,21 @@ model AuthSession {
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
+}
+
+model AuthActionToken {
+  id        String              @id @default(cuid())
+  userId    String
+  type      AuthActionTokenType
+  tokenHash String              @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, type, usedAt])
+  @@index([type, expiresAt])
 }
 
 model WorkspaceInvite {

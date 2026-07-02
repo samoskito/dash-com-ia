@@ -1,13 +1,21 @@
 import { randomBytes, createHash } from "node:crypto";
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException
 } from "@nestjs/common";
 import type {
+  EmailVerificationConfirmDto,
+  EmailVerificationConfirmInputDto,
+  EmailVerificationStartDto,
   GoogleOAuthStartDto,
   GoogleOAuthStartResultDto,
   LoginDto,
+  PasswordResetConfirmDto,
+  PasswordResetConfirmInputDto,
+  PasswordResetRequestDto,
+  PasswordResetRequestInputDto,
   RegisterDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
@@ -16,6 +24,8 @@ import type { AuthenticatedUser } from "./session.types";
 
 const refreshTokenBytes = 32;
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 30;
+const passwordResetTtlMs = 1000 * 60 * 30;
+const emailVerificationTtlMs = 1000 * 60 * 60 * 24;
 
 type WorkspaceMembershipRecord = {
   role: AuthenticatedUser["workspaces"][number]["role"];
@@ -50,6 +60,15 @@ type AuthRequestContext = {
   ipAddress?: string | null;
 };
 type AuthEnv = Record<string, string | undefined>;
+type AuthActionTokenType = "password_reset" | "email_verification";
+type AuthActionTokenRecord = {
+  id: string;
+  userId: string;
+  type: AuthActionTokenType;
+  tokenHash: string;
+  expiresAt: Date;
+  usedAt: Date | null;
+};
 
 export type AuthSessionResult = AuthenticatedUser & {
   refreshToken: string;
@@ -203,6 +222,81 @@ export class AuthService {
     };
   }
 
+  async requestPasswordReset(
+    input: PasswordResetRequestInputDto
+  ): Promise<PasswordResetRequestDto> {
+    const email = this.normalizeEmail(input.email);
+    const user = await this.prisma.user.findUnique({
+      where: { email }
+    });
+
+    if (!user) {
+      return {
+        ok: true,
+        delivery: this.getTokenDelivery(),
+        devToken: null
+      };
+    }
+
+    return this.createActionToken(
+      user.id,
+      "password_reset",
+      passwordResetTtlMs
+    );
+  }
+
+  async resetPassword(
+    input: PasswordResetConfirmInputDto
+  ): Promise<PasswordResetConfirmDto> {
+    const userId = await this.consumeActionToken("password_reset", input.token);
+    const passwordHash = await this.passwordService.hash(input.password);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash }
+    });
+
+    return { ok: true };
+  }
+
+  async requestEmailVerification(
+    refreshToken: string
+  ): Promise<EmailVerificationStartDto> {
+    const authenticated = await this.getSession(refreshToken);
+    return this.requestEmailVerificationForUser(authenticated.user.id);
+  }
+
+  async requestEmailVerificationForUser(
+    userId: string
+  ): Promise<EmailVerificationStartDto> {
+    await this.assertUserExists(userId);
+    return this.createActionToken(
+      userId,
+      "email_verification",
+      emailVerificationTtlMs
+    );
+  }
+
+  async confirmEmailVerification(
+    input: EmailVerificationConfirmInputDto
+  ): Promise<EmailVerificationConfirmDto> {
+    const userId = await this.consumeActionToken(
+      "email_verification",
+      input.token
+    );
+    const emailVerifiedAt = new Date();
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { emailVerifiedAt }
+    });
+
+    return {
+      ok: true,
+      emailVerifiedAt: emailVerifiedAt.toISOString()
+    };
+  }
+
   async validateEmailLogin(input: LoginDto): Promise<AuthenticatedUser> {
     const email = this.normalizeEmail(input.email);
     const user = (await this.prisma.user.findUnique({
@@ -335,6 +429,71 @@ export class AuthService {
     });
 
     return Buffer.from(payload).toString("base64url");
+  }
+
+  private async createActionToken(
+    userId: string,
+    type: AuthActionTokenType,
+    ttlMs: number
+  ): Promise<PasswordResetRequestDto | EmailVerificationStartDto> {
+    const token = randomBytes(32).toString("hex");
+
+    await this.prisma.authActionToken.create({
+      data: {
+        userId,
+        type,
+        tokenHash: this.hashActionToken(token),
+        expiresAt: new Date(Date.now() + ttlMs)
+      }
+    });
+
+    return {
+      ok: true,
+      delivery: this.getTokenDelivery(),
+      devToken: this.env.AUTH_EXPOSE_DEV_TOKENS === "true" ? token : null
+    };
+  }
+
+  private async consumeActionToken(
+    type: AuthActionTokenType,
+    token: string
+  ): Promise<string> {
+    const record = (await this.prisma.authActionToken.findFirst({
+      where: {
+        type,
+        tokenHash: this.hashActionToken(token),
+        usedAt: null
+      }
+    })) as AuthActionTokenRecord | null;
+
+    if (!record || record.expiresAt.getTime() <= Date.now()) {
+      throw new BadRequestException("Token invalido ou expirado");
+    }
+
+    await this.prisma.authActionToken.update({
+      where: { id: record.id },
+      data: { usedAt: new Date() }
+    });
+
+    return record.userId;
+  }
+
+  private async assertUserExists(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!user) {
+      throw this.invalidCredentials();
+    }
+  }
+
+  private getTokenDelivery(): "email_queued" | "not_configured" {
+    return this.env.EMAIL_PROVIDER ? "email_queued" : "not_configured";
+  }
+
+  private hashActionToken(token: string): string {
+    return createHash("sha256").update(token).digest("hex");
   }
 
   private invalidCredentials(): UnauthorizedException {

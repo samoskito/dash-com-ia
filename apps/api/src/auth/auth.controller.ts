@@ -11,8 +11,11 @@ import {
   UnauthorizedException
 } from "@nestjs/common";
 import {
+  emailVerificationConfirmInputSchema,
   googleOAuthStartSchema,
   loginSchema,
+  passwordResetConfirmInputSchema,
+  passwordResetRequestInputSchema,
   registerSchema
 } from "@wpptrack/shared";
 import { extractAuthToken, firstHeader } from "./auth-token";
@@ -103,6 +106,38 @@ export class AuthController {
     const input = this.parseBody(googleOAuthStartSchema.safeParse(body));
 
     return this.authService.getGoogleOAuthStart(input);
+  }
+
+  @Post("password/forgot")
+  async requestPasswordReset(@Body() body: unknown) {
+    const input = this.parseBody(
+      passwordResetRequestInputSchema.safeParse(body)
+    );
+
+    return this.authService.requestPasswordReset(input);
+  }
+
+  @Post("password/reset")
+  async resetPassword(@Body() body: unknown) {
+    const input = this.parseBody(
+      passwordResetConfirmInputSchema.safeParse(body)
+    );
+
+    return this.authService.resetPassword(input);
+  }
+
+  @Post("email/verification/start")
+  async requestEmailVerification(@Req() request: AuthRequest) {
+    return this.authService.requestEmailVerification(extractAuthToken(request));
+  }
+
+  @Post("email/verification/confirm")
+  async confirmEmailVerification(@Body() body: unknown) {
+    const input = this.parseBody(
+      emailVerificationConfirmInputSchema.safeParse(body)
+    );
+
+    return this.authService.confirmEmailVerification(input);
   }
 
   private parseBody<T>(result: { success: true; data: T } | { success: false }): T {

@@ -28,9 +28,69 @@ export const googleOAuthStartResultSchema = z.object({
   state: z.string().min(1).nullable()
 });
 
+export const passwordResetRequestInputSchema = z.object({
+  email: normalizedEmailSchema
+});
+
+export const authActionTokenDeliverySchema = z.enum([
+  "email_queued",
+  "not_configured"
+]);
+
+export const passwordResetRequestSchema = z.object({
+  ok: z.literal(true),
+  delivery: authActionTokenDeliverySchema,
+  devToken: z.string().min(16).nullable()
+});
+
+export const passwordResetConfirmInputSchema = z.object({
+  token: z.string().trim().min(16),
+  password: z.string().min(8)
+});
+
+export const passwordResetConfirmSchema = z.object({
+  ok: z.literal(true)
+});
+
+export const emailVerificationStartSchema = z.object({
+  ok: z.literal(true),
+  delivery: authActionTokenDeliverySchema,
+  devToken: z.string().min(16).nullable()
+});
+
+export const emailVerificationConfirmInputSchema = z.object({
+  token: z.string().trim().min(16)
+});
+
+export const emailVerificationConfirmSchema = z.object({
+  ok: z.literal(true),
+  emailVerifiedAt: z.string().datetime()
+});
+
 export type LoginDto = z.infer<typeof loginSchema>;
 export type RegisterDto = z.infer<typeof registerSchema>;
 export type GoogleOAuthStartDto = z.infer<typeof googleOAuthStartSchema>;
 export type GoogleOAuthStartResultDto = z.infer<
   typeof googleOAuthStartResultSchema
+>;
+export type PasswordResetRequestInputDto = z.infer<
+  typeof passwordResetRequestInputSchema
+>;
+export type PasswordResetRequestDto = z.infer<
+  typeof passwordResetRequestSchema
+>;
+export type PasswordResetConfirmInputDto = z.infer<
+  typeof passwordResetConfirmInputSchema
+>;
+export type PasswordResetConfirmDto = z.infer<
+  typeof passwordResetConfirmSchema
+>;
+export type EmailVerificationStartDto = z.infer<
+  typeof emailVerificationStartSchema
+>;
+export type EmailVerificationConfirmInputDto = z.infer<
+  typeof emailVerificationConfirmInputSchema
+>;
+export type EmailVerificationConfirmDto = z.infer<
+  typeof emailVerificationConfirmSchema
 >;

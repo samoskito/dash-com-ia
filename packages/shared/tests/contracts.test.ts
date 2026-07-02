@@ -11,6 +11,9 @@ import {
   conversionTriggerEvaluationInputSchema,
   googleOAuthStartSchema,
   googleOAuthStartResultSchema,
+  emailVerificationConfirmInputSchema,
+  emailVerificationConfirmSchema,
+  emailVerificationStartSchema,
   currentWorkspaceSchema,
   diagnosticEventCreateSchema,
   diagnosticEventDetailSchema,
@@ -19,6 +22,10 @@ import {
   integrationHealthSummarySchema,
   integrationStartActionSchema,
   loginSchema,
+  passwordResetConfirmInputSchema,
+  passwordResetConfirmSchema,
+  passwordResetRequestInputSchema,
+  passwordResetRequestSchema,
   registerSchema,
   splitReceiverCreateInputSchema,
   splitReceiverSchema,
@@ -169,6 +176,42 @@ describe("shared contracts", () => {
 
     expect(parsed.redirectTo).toBe("/dashboard");
     expect(result.action).toBe("redirect");
+  });
+
+  it("validates password reset and email verification contracts", () => {
+    const resetRequest = passwordResetRequestInputSchema.parse({
+      email: " USER@WPPTRACK.COM "
+    });
+    const resetResult = passwordResetRequestSchema.parse({
+      ok: true,
+      delivery: "not_configured",
+      devToken: "reset-token-1234567890"
+    });
+    const resetConfirm = passwordResetConfirmInputSchema.parse({
+      token: "reset-token-1234567890",
+      password: "new-strong-password"
+    });
+    const resetConfirmed = passwordResetConfirmSchema.parse({ ok: true });
+    const verificationStart = emailVerificationStartSchema.parse({
+      ok: true,
+      delivery: "not_configured",
+      devToken: null
+    });
+    const verificationConfirm = emailVerificationConfirmInputSchema.parse({
+      token: "verify-token-1234567890"
+    });
+    const verified = emailVerificationConfirmSchema.parse({
+      ok: true,
+      emailVerifiedAt: "2026-07-02T03:00:00.000Z"
+    });
+
+    expect(resetRequest.email).toBe("user@wpptrack.com");
+    expect(resetResult.devToken).toBe("reset-token-1234567890");
+    expect(resetConfirm.password).toBe("new-strong-password");
+    expect(resetConfirmed.ok).toBe(true);
+    expect(verificationStart.ok).toBe(true);
+    expect(verificationConfirm.token).toBe("verify-token-1234567890");
+    expect(verified.ok).toBe(true);
   });
 
   it("validates current workspace, members and invites", () => {
