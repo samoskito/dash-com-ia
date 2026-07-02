@@ -18,6 +18,7 @@ import {
   type WorkspaceInviteAcceptInputDto,
   type WorkspaceInviteInputDto,
   type WorkspaceMemberDto,
+  type WorkspaceUpdateInputDto,
   type WorkspaceRole
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
@@ -99,6 +100,35 @@ export class WorkspacesService {
       status: invite.status,
       expiresAt: invite.expiresAt.toISOString()
     }));
+  }
+
+  async updateCurrentWorkspace(
+    authenticated: AuthenticatedUser,
+    input: WorkspaceUpdateInputDto
+  ): Promise<CurrentWorkspaceDto> {
+    const workspace = this.getCurrentWorkspace(authenticated);
+
+    if (!workspace.permissions.canInviteMembers) {
+      throw new ForbiddenException("Sem permissao para atualizar workspace");
+    }
+
+    const updated = await this.prisma.workspace.update({
+      where: { id: workspace.id },
+      data: {
+        name: input.name
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true
+      }
+    });
+
+    return {
+      ...updated,
+      role: workspace.role,
+      permissions: workspace.permissions
+    };
   }
 
   async getBillingConfiguration(

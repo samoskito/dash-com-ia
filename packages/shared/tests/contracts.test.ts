@@ -47,6 +47,7 @@ import {
   splitReceiverSchema,
   splitReceiverUpdateInputSchema,
   workspaceInviteInputSchema,
+  workspaceUpdateInputSchema,
   workspaceBillingListSchema,
   workspaceBillingSchema,
   workspaceBillingUpdateInputSchema,
@@ -515,6 +516,14 @@ describe("shared contracts", () => {
     expect(invite.acceptToken).toBe("invite-token-1234567890");
     expect(acceptInput.token).toBe("invite-token-1234567890");
     expect(accepted.memberId).toBe("member_2");
+  });
+
+  it("validates workspace update input", () => {
+    const input = workspaceUpdateInputSchema.parse({
+      name: " Loja Samuel "
+    });
+
+    expect(input.name).toBe("Loja Samuel");
   });
 
   it("validates workspace billing configuration for platform backoffice", () => {

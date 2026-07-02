@@ -19,6 +19,10 @@ export const currentWorkspaceSchema = workspaceSchema.extend({
   permissions: workspacePermissionsSchema
 });
 
+export const workspaceUpdateInputSchema = z.object({
+  name: z.string().trim().min(2).max(120)
+});
+
 export const workspaceBillingSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -73,6 +77,9 @@ export type WorkspacePermissionsDto = z.infer<
   typeof workspacePermissionsSchema
 >;
 export type CurrentWorkspaceDto = z.infer<typeof currentWorkspaceSchema>;
+export type WorkspaceUpdateInputDto = z.infer<
+  typeof workspaceUpdateInputSchema
+>;
 export type WorkspaceBillingDto = z.infer<typeof workspaceBillingSchema>;
 export type WorkspaceBillingListDto = z.infer<
   typeof workspaceBillingListSchema

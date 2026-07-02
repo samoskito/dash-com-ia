@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
 const prisma = {
+  workspace: {
+    update: async ({ data, where }: { data: { name: string }; where: { id: string } }) => ({
+      id: where.id,
+      name: data.name,
+      slug: "comunidade-nod",
+      role: "owner"
+    })
+  },
   workspaceMember: {
     findMany: async () => []
   },
@@ -43,6 +51,38 @@ describe("workspace contracts", () => {
       canManageBilling: false,
       canManageIntegrations: false,
       canViewReports: true
+    });
+  });
+
+  it("updates workspace profile name without changing the slug", async () => {
+    const service = new WorkspacesService(prisma as never);
+
+    const workspace = await service.updateCurrentWorkspace(
+      {
+        user: {
+          id: "user_1",
+          email: "owner@wpptrack.com",
+          name: "Owner",
+          authProvider: "email",
+          emailVerifiedAt: null
+        },
+        workspaces: [
+          {
+            id: "workspace_1",
+            name: "Comunidade NOD",
+            slug: "comunidade-nod",
+            role: "owner"
+          }
+        ]
+      },
+      { name: "Loja Samuel" }
+    );
+
+    expect(workspace).toMatchObject({
+      id: "workspace_1",
+      name: "Loja Samuel",
+      slug: "comunidade-nod",
+      role: "owner"
     });
   });
 });

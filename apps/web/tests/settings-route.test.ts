@@ -171,6 +171,8 @@ describe("settings route", () => {
     expect(html).toContain("Loja Samuel");
     expect(html).toContain("loja-samuel");
     expect(html).toContain("owner");
+    expect(html).toContain("name=\"workspaceName\"");
+    expect(html).toContain("Salvar workspace");
     expect(html).toContain("samuel@example.com");
     expect(html).toContain("trafego@example.com");
     expect(html).toContain("convite@example.com");

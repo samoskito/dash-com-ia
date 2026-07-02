@@ -130,6 +130,26 @@ async function createWorkspaceInvite(formData: FormData) {
   }
 }
 
+async function updateWorkspaceProfile(formData: FormData) {
+  "use server";
+
+  const name = String(formData.get("workspaceName") ?? "").trim();
+
+  if (!name) {
+    return;
+  }
+
+  try {
+    await serverApiFetch("/workspaces/current", {
+      method: "PATCH",
+      body: JSON.stringify({ name })
+    });
+    revalidatePath("/settings");
+  } catch {
+    return;
+  }
+}
+
 async function updateConversionRuleStatus(formData: FormData) {
   "use server";
 
@@ -179,7 +199,6 @@ export default async function SettingsPage() {
           <span className={`status-chip${workspaceSettings.state === "error" || conversionRules.state === "error" ? " warn" : ""}`}>
             {workspaceSettings.state === "error" || conversionRules.state === "error" ? "API indisponivel" : "API conectada"}
           </span>
-          <button className="button primary" type="button">Salvar alteracoes</button>
           <button className="button" type="button">Testar eventos</button>
         </div>
       </header>
@@ -193,10 +212,13 @@ export default async function SettingsPage() {
               ? `Slug ${workspace.slug} com papel ${workspace.role}.`
               : "Confira a API antes de alterar dados da empresa."}
           </p>
-          <div className="control-row">
+          <form className="control-row" action={updateWorkspaceProfile}>
             <label>
               Nome publico
-              <input defaultValue={workspace?.name ?? ""} />
+              <input
+                defaultValue={workspace?.name ?? ""}
+                name="workspaceName"
+              />
             </label>
             <label>
               Permissao atual
@@ -206,7 +228,14 @@ export default async function SettingsPage() {
                 <option value="member">member</option>
               </select>
             </label>
-          </div>
+            <button
+              className="button primary"
+              disabled={!workspace?.permissions.canInviteMembers}
+              type="submit"
+            >
+              Salvar workspace
+            </button>
+          </form>
         </article>
 
         <article className="config-card">

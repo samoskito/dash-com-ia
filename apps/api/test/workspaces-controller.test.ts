@@ -56,6 +56,16 @@ async function createApp() {
         expiresAt: "2026-07-09T03:00:00.000Z"
       }
     ]),
+    updateCurrentWorkspace: vi.fn(async () => ({
+      ...session.workspaces[0],
+      name: "Loja Samuel",
+      permissions: {
+        canInviteMembers: true,
+        canManageBilling: true,
+        canManageIntegrations: true,
+        canViewReports: true
+      }
+    })),
     createInvite: vi.fn(async () => ({
       id: "invite_1",
       email: "admin@wpptrack.com",
@@ -101,6 +111,29 @@ describe("workspaces controller", () => {
 
     expect(authService.getSession).toHaveBeenCalledWith("refresh-token");
     expect(workspacesService.getCurrentWorkspace).toHaveBeenCalledWith(session);
+
+    await app.close();
+  });
+
+  it("updates the current workspace profile", async () => {
+    const { app, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .patch("/workspaces/current")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        name: " Loja Samuel "
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.name).toBe("Loja Samuel");
+        expect(body.slug).toBe("comunidade-nod");
+      });
+
+    expect(workspacesService.updateCurrentWorkspace).toHaveBeenCalledWith(
+      session,
+      { name: "Loja Samuel" }
+    );
 
     await app.close();
   });
