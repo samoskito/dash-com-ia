@@ -96,7 +96,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Spec e plano da Rodada Paralela 1: `docs/superpowers/specs/2026-07-02-wpptrack-parallel-wave-1-design.md` e `docs/superpowers/plans/2026-07-02-wpptrack-parallel-wave-1-implementation.md`.
 - Servidor local usado para visualizar: `http://127.0.0.1:5174/`.
 - Repositorio inicial ja possui commits da fundacao da Fase 1.
-- Diagnosticos/logs operacionais possuem spec dedicada em `docs/superpowers/specs/2026-07-02-wpptrack-diagnostics-logs-design.md`; a implementacao Prisma/API ja existe com retry auditado seguro e primeira acao no backoffice. Raw payload autorizado, telas detalhadas e reprocessamento real por worker ficam para ondas posteriores.
+- Diagnosticos/logs operacionais possuem spec dedicada em `docs/superpowers/specs/2026-07-02-wpptrack-diagnostics-logs-design.md`; a implementacao Prisma/API ja existe com retry auditado, listagens operacionais, filtros reais, detalhe com timeline e reprocessamento inicial por worker. Proximas ondas devem focar em acoes operacionais adicionais e validacao com provedores reais.
 
 ## Objetivo do Produto
 
@@ -230,7 +230,7 @@ Central de Diagnostico:
 - Ver execucoes de automacao/extracao Meta com status de sucesso e erro.
 - Ver mudancas em campanhas, conjuntos e anuncios com status de sucesso e erro.
 - Mostrar tentativas, status, payload resumido, resposta externa e proximo retry.
-- Permitir acao de reenfileirar/tentar novamente quando for seguro. A API de retry auditado e o primeiro botao no backoffice ja existem; ainda falta tela detalhada e worker real para reprocessar integracoes externas.
+- Permitir acao de reenfileirar/tentar novamente quando for seguro. A API de retry auditado, o botao no backoffice, a tela detalhada e o primeiro worker real de reprocessamento ja existem para conversoes vinculadas; proximos caminhos de retry devem ser adicionados por tipo de integracao quando houver acao segura.
 - Objetivo: permitir debug operacional pelo frontend interno sem exigir que o dono da plataforma abra banco de dados ou terminal.
 
 ## Funcionalidades Removidas do Prototipo Atual
@@ -298,7 +298,7 @@ Pendente de definicao: confirmar nomes finais das metricas na UI, formulas exata
   - Palavra-chave recebida na conversa.
   - Etiqueta aplicada ao chat/lead no WhatsApp Business, inicialmente via Uazapi.
 - No cadastro da regra, o usuario deve escolher o gatilho e o evento Meta a enviar, por exemplo: `LeadSubmitted`, `QualifiedLead`, `Purchase` ou outros eventos suportados.
-- Implementacao atual ja permite criar, listar, atualizar e avaliar regras ativas. O envio Pixel/CAPI possui adapter e metodo de processamento para logs `ready_to_send`, mas ainda falta plugar worker/fila e credenciais reais por workspace.
+- Implementacao atual ja permite criar, listar, atualizar e avaliar regras ativas. O envio Pixel/CAPI possui adapter, fila BullMQ e worker para logs `ready_to_send`; ainda falta evoluir credenciais Meta/CAPI por workspace quando o modelo deixar de usar token global de ambiente.
 - Webhooks Uazapi ja conseguem aplicar as regras, registrar logs de conversao internos e enfileirar envio Pixel/CAPI para cada log criado. Quando ha `pixelId`, `ad_id` e token CAPI configurado, o worker tenta enviar para a Meta; quando falta contexto/credencial, o log registra o estado operacional sem liberar falso sucesso.
 - Envio Pixel/CAPI agora possui fila BullMQ dedicada: webhooks Uazapi criam `ConversionEventLog` e enfileiram jobs na fila `conversion-events`; `ConversionEventProcessor` executa `ConversionEventsService.sendReadyEvent` em worker com retry, evitando que o webhook fique preso na chamada externa da Meta.
 - Para enviar um evento ao Pixel, o backend deve buscar o `ad_id` do lead.
@@ -498,8 +498,8 @@ Proximo passo operacional:
 ## Perguntas Abertas
 
 1. Definir dominios finais de app/API e decidir se PostgreSQL/Redis ficarao no Dokploy ou em servicos gerenciados.
-2. Detalhar seguranca da autenticacao propria: hash de senha, refresh tokens/sessoes, recuperacao de senha, verificacao de email e Google OAuth.
-3. Mapear contrato tecnico da Uazapi e definir o adapter WhatsApp inicial.
+2. Evoluir seguranca operacional da autenticacao propria: politicas de rate limit, auditoria de login, rotacao/expiracao refinada de sessoes e revisao de hardening antes de producao.
+3. Validar em ambiente real o contrato Uazapi para eventos de etiqueta no WhatsApp Business e ajustar o adapter conforme payload oficial observado.
 4. Validar detalhes do app Meta existente: app id, permissoes, produtos ativos, URLs de callback, modo live/dev e limites.
 5. Quais metricas de trafego sao obrigatorias na primeira versao robusta?
 6. Confirmar formulas finais das metricas de funil: conversas Meta, conversa real, LeadSubmitted, QualifiedLead, Purchase e custos por etapa.
