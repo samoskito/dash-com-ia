@@ -5,6 +5,10 @@ import {
   canViewReports,
   campaignReportRowSchema,
   clientNavigation,
+  conversionRuleCreateInputSchema,
+  conversionRuleSchema,
+  conversionRuleUpdateInputSchema,
+  conversionTriggerEvaluationInputSchema,
   googleOAuthStartSchema,
   currentWorkspaceSchema,
   diagnosticEventCreateSchema,
@@ -271,5 +275,42 @@ describe("shared contracts", () => {
     expect(quote.currency).toBe("BRL");
     expect(input.provider).toBe("uazapi");
     expect(checkout.status).toBe("pending_payment");
+  });
+
+  it("validates conversion rule contracts for keyword and WhatsApp labels", () => {
+    const create = conversionRuleCreateInputSchema.parse({
+      name: "Lead qualificado por palavra",
+      triggerType: "keyword",
+      triggerValue: "quero comprar",
+      matchMode: "contains",
+      eventName: "QualifiedLead",
+      pixelId: "1234567890"
+    });
+    const update = conversionRuleUpdateInputSchema.parse({
+      active: false,
+      triggerValue: "VIP"
+    });
+    const rule = conversionRuleSchema.parse({
+      id: "rule_1",
+      workspaceId: "workspace_1",
+      name: "Compra por etiqueta",
+      triggerType: "whatsapp_label",
+      triggerValue: "Venda fechada",
+      matchMode: "exact",
+      eventName: "Purchase",
+      pixelId: null,
+      active: true,
+      createdAt: "2026-07-02T03:00:00.000Z",
+      updatedAt: "2026-07-02T03:00:00.000Z"
+    });
+    const evaluation = conversionTriggerEvaluationInputSchema.parse({
+      messageText: "Oi, quero comprar agora",
+      labels: ["Venda fechada"]
+    });
+
+    expect(create.eventName).toBe("QualifiedLead");
+    expect(update.active).toBe(false);
+    expect(rule.triggerType).toBe("whatsapp_label");
+    expect(evaluation.labels).toEqual(["Venda fechada"]);
   });
 });

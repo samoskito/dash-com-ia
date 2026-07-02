@@ -8,3 +8,4 @@ export * from "./schemas/integrations";
 export * from "./schemas/auth";
 export * from "./schemas/diagnostics";
 export * from "./schemas/billing";
+export * from "./schemas/conversion-rules";

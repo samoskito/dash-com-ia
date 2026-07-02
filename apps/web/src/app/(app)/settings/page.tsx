@@ -1,4 +1,69 @@
-export default function SettingsPage() {
+import type { ConversionRuleDto } from "@wpptrack/shared";
+import { apiFetch } from "../../../lib/api";
+
+async function getConversionRules(): Promise<ConversionRuleDto[] | null> {
+  try {
+    return await apiFetch<ConversionRuleDto[]>("/conversion-rules");
+  } catch {
+    return null;
+  }
+}
+
+function triggerLabel(rule: Pick<ConversionRuleDto, "triggerType">): string {
+  return rule.triggerType === "keyword" ? "Palavra-chave" : "Etiqueta WhatsApp";
+}
+
+function matchLabel(rule: Pick<ConversionRuleDto, "matchMode" | "triggerValue">): string {
+  const mode = rule.matchMode === "exact" ? "igual a" : "contem";
+  return `${mode}: ${rule.triggerValue}`;
+}
+
+const fallbackRules: ConversionRuleDto[] = [
+  {
+    id: "fallback_1",
+    workspaceId: "workspace_preview",
+    name: "Novo lead",
+    triggerType: "keyword",
+    triggerValue: "primeira mensagem valida",
+    matchMode: "contains",
+    eventName: "LeadSubmitted",
+    pixelId: null,
+    active: true,
+    createdAt: "2026-07-02T03:00:00.000Z",
+    updatedAt: "2026-07-02T03:00:00.000Z"
+  },
+  {
+    id: "fallback_2",
+    workspaceId: "workspace_preview",
+    name: "Lead qualificado",
+    triggerType: "whatsapp_label",
+    triggerValue: "Qualificado",
+    matchMode: "exact",
+    eventName: "QualifiedLead",
+    pixelId: null,
+    active: true,
+    createdAt: "2026-07-02T03:00:00.000Z",
+    updatedAt: "2026-07-02T03:00:00.000Z"
+  },
+  {
+    id: "fallback_3",
+    workspaceId: "workspace_preview",
+    name: "Compra confirmada",
+    triggerType: "whatsapp_label",
+    triggerValue: "Venda fechada",
+    matchMode: "exact",
+    eventName: "Purchase",
+    pixelId: null,
+    active: true,
+    createdAt: "2026-07-02T03:00:00.000Z",
+    updatedAt: "2026-07-02T03:00:00.000Z"
+  }
+];
+
+export default async function SettingsPage() {
+  const conversionRules = await getConversionRules();
+  const rules = conversionRules ?? fallbackRules;
+
   return (
     <section className="page-stack">
       <header className="page-header">
@@ -8,6 +73,7 @@ export default function SettingsPage() {
           <p>Empresa, membros, papeis, palavras-chave, etiquetas e mapeamento de eventos.</p>
         </div>
         <div className="header-actions">
+          <span className="status-chip">{conversionRules ? "API conectada" : "Fallback visual"}</span>
           <button className="button primary" type="button">Salvar alteracoes</button>
           <button className="button" type="button">Testar eventos</button>
         </div>
@@ -70,32 +136,24 @@ export default function SettingsPage() {
                 <th>Regra</th>
                 <th>Origem</th>
                 <th>Evento Meta</th>
-                <th>Prioridade</th>
+                <th>Gatilho</th>
                 <th>Saude</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td><strong>Novo lead</strong><span>Primeira mensagem valida</span></td>
-                <td>WhatsApp webhook</td>
-                <td>LeadSubmitted</td>
-                <td>Alta</td>
-                <td><span className="event-chip">ativo</span></td>
-              </tr>
-              <tr>
-                <td><strong>Lead qualificado</strong><span>Etiqueta comercial aplicada</span></td>
-                <td>CRM / atendimento</td>
-                <td>QualifiedLead</td>
-                <td>Media</td>
-                <td><span className="event-chip warn">revisar</span></td>
-              </tr>
-              <tr>
-                <td><strong>Compra confirmada</strong><span>Pedido pago ou tag venda</span></td>
-                <td>Checkout / manual</td>
-                <td>Purchase</td>
-                <td>Alta</td>
-                <td><span className="event-chip">ativo</span></td>
-              </tr>
+              {rules.map((rule) => (
+                <tr key={rule.id}>
+                  <td><strong>{rule.name}</strong><span>{matchLabel(rule)}</span></td>
+                  <td>{triggerLabel(rule)}</td>
+                  <td>{rule.eventName}</td>
+                  <td>{rule.triggerValue}</td>
+                  <td>
+                    <span className={`event-chip${rule.active ? "" : " warn"}`}>
+                      {rule.active ? "ativo" : "pausado"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

@@ -26,6 +26,9 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Frontend parcialmente conectado ao backend: tela de login/cadastro chama `/auth/login` e `/auth/register`; pagina de integracoes tenta ler `/integrations/health`; backoffice tenta ler eventos diagnosticos reais com fallback visual.
 - Frontend agora possui middleware de protecao para `/overview`, `/leads`, `/reports`, `/integrations`, `/settings` e `/backoffice`, exigindo cookie `wpptrack_session`; o shell possui acao de logout chamando `/auth/logout`.
 - Webhooks publicos iniciais adicionados para registrar rastros operacionais: `POST /webhooks/uazapi`, `POST /webhooks/asaas` e `POST /webhooks/meta`; eles gravam `WebhookLog` sanitizado e `DiagnosticEvent` vinculado.
+- Regras de conversao configuraveis implementadas em 2026-07-02: backend Prisma/API para gatilhos por `keyword` e `whatsapp_label`, endpoints `/conversion-rules`, `/conversion-rules/:id` e `/conversion-rules/evaluate`, schema compartilhado e tela `Configuracoes` lendo regras reais com fallback visual.
+- Migration real adicional aplicada no Postgres local: `20260702040655_conversion_rules`.
+- Verificacao apos regras de conversao: `pnpm test` passou com API 17 arquivos/44 testes, shared 16 testes e web 3 arquivos/8 testes; `pnpm typecheck` passou; `prisma migrate status` indicou schema atualizado com 5 migrations.
 - Rodada Paralela 1 executada e revisada: visual WppTrack/Telemetria Noturna aplicado ao web, Auth/Workspaces iniciado, scaffolds de integracoes Meta/Uazapi/Asaas criados e spec de Diagnosticos/Logs adicionada.
 - Verificacao da Rodada Paralela 1: `pnpm test`, `pnpm typecheck`, `pnpm build`, `prisma generate` e `prisma validate` passaram. O bloqueio anterior do Docker Desktop Linux engine foi resolvido quando o Docker Desktop foi aberto.
 - Spec e plano da Rodada Paralela 1: `docs/superpowers/specs/2026-07-02-wpptrack-parallel-wave-1-design.md` e `docs/superpowers/plans/2026-07-02-wpptrack-parallel-wave-1-implementation.md`.
@@ -229,6 +232,7 @@ Pendente de definicao: confirmar nomes finais das metricas na UI, formulas exata
   - Palavra-chave recebida na conversa.
   - Etiqueta aplicada ao chat/lead no WhatsApp Business, inicialmente via Uazapi.
 - No cadastro da regra, o usuario deve escolher o gatilho e o evento Meta a enviar, por exemplo: `LeadSubmitted`, `QualifiedLead`, `Purchase` ou outros eventos suportados.
+- Implementacao atual ja permite criar, listar, atualizar e avaliar regras ativas sem ainda enviar eventos ao Meta. O envio real ao Pixel/CAPI continua pendente da etapa de Meta OAuth/Pixel e da resolucao de lead/ad_id.
 - Para enviar um evento ao Pixel, o backend deve buscar o `ad_id` do lead.
 - Se houver mais de uma BM/conta conectada no futuro, o backend deve validar a qual BM/conta pertence o anuncio antes de enviar o evento.
 - O fluxo padrao do cliente final continua sendo BM/conta de anuncio unica, mas a arquitetura deve tolerar mais de uma conexao Meta quando isso for necessario.
@@ -400,7 +404,7 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: Google OAuth, recuperacao/verificacao de email, convites com aceite, processamento especifico dos webhooks Uazapi/Asaas, OAuth Meta real, envio Pixel/CAPI e telas detalhadas de diagnostico/retry.
+- Continuar a proxima rodada com: Google OAuth, recuperacao/verificacao de email, convites com aceite, processamento especifico dos webhooks Uazapi/Asaas, ligar webhooks Uazapi as regras de conversao, OAuth Meta real, envio Pixel/CAPI e telas detalhadas de diagnostico/retry.
 
 ## Perguntas Abertas
 

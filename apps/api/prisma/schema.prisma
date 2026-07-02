@@ -62,6 +62,16 @@ enum WhatsappInstanceActivationStatus {
   expired
 }
 
+enum ConversionTriggerType {
+  keyword
+  whatsapp_label
+}
+
+enum ConversionMatchMode {
+  contains
+  exact
+}
+
 model User {
   id              String       @id @default(cuid())
   email           String       @unique
@@ -97,6 +107,7 @@ model Workspace {
   subscriptions      WorkspaceSubscription[]
   paymentCharges     PaymentCharge[]
   whatsappInstanceActivations WhatsappInstanceActivation[]
+  conversionRules    ConversionRule[]
 }
 
 model WorkspaceMember {
@@ -429,4 +440,23 @@ model WhatsappInstanceActivation {
 
   @@index([workspaceId, status])
   @@index([whatsappInstanceId])
+}
+
+model ConversionRule {
+  id           String                @id @default(cuid())
+  workspaceId  String
+  name         String
+  triggerType  ConversionTriggerType
+  triggerValue String
+  matchMode    ConversionMatchMode   @default(contains)
+  eventName    String
+  pixelId      String?
+  active       Boolean               @default(true)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, active])
+  @@index([workspaceId, triggerType, triggerValue])
 }

@@ -4,6 +4,8 @@
 
 **Goal:** Move WppTrack from navigable shell plus auth foundation into a functional SaaS backend that can persist workspace data, expose diagnostics, and provide non-secret integration/billing control surfaces without requiring real Meta, Uazapi or Asaas credentials.
 
+**Execution checkpoint 2026-07-02:** All scoped Wave 2 backend tasks below were implemented and committed. Additional follow-up work also added provider webhook ingestion and configurable conversion rules for keyword/WhatsApp-label triggers. See `Projeto.md` for current state and next wave.
+
 **Architecture:** Keep all external-provider secrets and calls behind NestJS modules. Use Prisma migrations for durable entities, shared Zod schemas for API contracts, and thin controllers over services. Frontend can remain visually stable while consuming typed backend endpoints in later tasks.
 
 **Tech Stack:** NestJS, Prisma, PostgreSQL, BullMQ/Redis, Zod, Vitest, Next.js, pnpm/turbo.
