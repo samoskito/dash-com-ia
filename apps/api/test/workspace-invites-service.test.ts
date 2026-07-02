@@ -13,19 +13,40 @@ const authenticated = {
   workspaces: []
 };
 
+const ownerAuthenticated = {
+  user: {
+    id: "user_1",
+    email: "owner@wpptrack.com",
+    name: "Owner",
+    authProvider: "email",
+    emailVerifiedAt: null
+  },
+  workspaces: [
+    {
+      id: "workspace_1",
+      name: "Comunidade NOD",
+      slug: "comunidade-nod",
+      role: "owner" as const
+    }
+  ]
+};
+
 type FakePrisma = {
   workspaceMember: {
     findMany: () => Promise<never[]>;
     create: (args: { data: Record<string, unknown> }) => Promise<Record<string, unknown>>;
   };
   workspaceInvite: {
-    create: () => Promise<never>;
+    create: (args: { data: Record<string, unknown> }) => Promise<Record<string, unknown>>;
     findMany: (args: {
       where: { workspaceId: string };
       orderBy: { createdAt: "desc" };
     }) => Promise<Record<string, unknown>[]>;
     findUnique: (args: { where: { tokenHash: string } }) => Promise<Record<string, unknown> | null>;
     update: (args: { data: Record<string, unknown>; where: { id: string } }) => Promise<Record<string, unknown>>;
+  };
+  auditLog: {
+    create: (args: { data: Record<string, unknown> }) => Promise<Record<string, unknown>>;
   };
   $transaction: <T>(callback: (tx: FakePrisma) => Promise<T>) => Promise<T>;
 };
@@ -46,7 +67,8 @@ function createHarness() {
         createdAt: now
       }
     ],
-    members: [] as Array<Record<string, unknown>>
+    members: [] as Array<Record<string, unknown>>,
+    auditLogs: [] as Array<Record<string, unknown>>
   };
   const prisma: FakePrisma = {
     workspaceMember: {
@@ -62,8 +84,16 @@ function createHarness() {
       }
     },
     workspaceInvite: {
-      create: async () => {
-        throw new Error("not used");
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const invite = {
+          id: `invite_${db.invites.length + 1}`,
+          status: "pending",
+          acceptedAt: null,
+          createdAt: now,
+          ...data
+        };
+        db.invites.push(invite as (typeof db.invites)[number]);
+        return invite;
       },
       findMany: async ({ where }: { where: { workspaceId: string } }) =>
         db.invites.filter((invite) => invite.workspaceId === where.workspaceId),
@@ -76,6 +106,17 @@ function createHarness() {
           ...data
         };
         return db.invites[index];
+      }
+    },
+    auditLog: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const log = {
+          id: `audit_${db.auditLogs.length + 1}`,
+          createdAt: now,
+          ...data
+        };
+        db.auditLogs.push(log);
+        return log;
       }
     },
     $transaction: async <T>(callback: (tx: typeof prisma) => Promise<T>) =>
@@ -95,6 +136,38 @@ function createHarness() {
 }
 
 describe("workspace invite service", () => {
+  it("creates pending workspace invites and audits without storing invite tokens", async () => {
+    const { db, service } = createHarness();
+
+    const invite = await service.createInvite(ownerAuthenticated, {
+      email: "new@wpptrack.com",
+      role: "member"
+    });
+
+    expect(invite).toMatchObject({
+      id: "invite_2",
+      email: "new@wpptrack.com",
+      role: "member",
+      status: "pending"
+    });
+    expect(invite.acceptToken).toBeDefined();
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "workspace.invite_created",
+        targetType: "WorkspaceInvite",
+        targetId: "invite_2",
+        resultStatus: "pending"
+      })
+    );
+    expect(JSON.stringify(db.auditLogs)).not.toContain(
+      db.invites[1].tokenHash as string
+    );
+    expect(JSON.stringify(db.auditLogs)).not.toContain(invite.acceptToken);
+  });
+
   it("lists workspace invites without exposing token hashes", async () => {
     const { service } = createHarness();
 
@@ -135,5 +208,16 @@ describe("workspace invite service", () => {
     expect(db.invites[0]).toMatchObject({
       status: "accepted"
     });
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_2",
+        actorType: "user",
+        action: "workspace.invite_accepted",
+        targetType: "WorkspaceInvite",
+        targetId: "invite_1",
+        resultStatus: "accepted"
+      })
+    );
   });
 });

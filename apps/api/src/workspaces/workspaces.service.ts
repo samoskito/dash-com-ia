@@ -6,6 +6,7 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import {
   canManageIntegrations,
   canManageWorkspaceBilling,
@@ -318,6 +319,20 @@ export class WorkspacesService {
         expiresAt
       }
     });
+    await this.recordWorkspaceAudit({
+      workspaceId: workspace.id,
+      actorUserId: authenticated.user.id,
+      action: "workspace.invite_created",
+      targetType: "WorkspaceInvite",
+      targetId: invite.id,
+      resultStatus: "pending",
+      afterSummary: {
+        invitedEmailHash: this.hashAuditValue(invite.email),
+        role: invite.role,
+        status: invite.status,
+        expiresAt: invite.expiresAt.toISOString()
+      } as Prisma.InputJsonValue
+    });
 
     return {
       id: invite.id,
@@ -358,7 +373,7 @@ export class WorkspacesService {
       throw new ForbiddenException("Convite pertence a outro email");
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const member = await tx.workspaceMember.create({
         data: {
           workspaceId: invite.workspaceId,
@@ -378,13 +393,71 @@ export class WorkspacesService {
         workspaceId: invite.workspaceId,
         memberId: member.id,
         role: invite.role,
-        status: "accepted"
+        status: "accepted" as const
       };
     });
+    await this.recordWorkspaceAudit({
+      workspaceId: invite.workspaceId,
+      actorUserId: authenticated.user.id,
+      action: "workspace.invite_accepted",
+      targetType: "WorkspaceInvite",
+      targetId: invite.id,
+      resultStatus: "accepted",
+      beforeSummary: {
+        status: "pending",
+        invitedEmailHash: this.hashAuditValue(invite.email),
+        role: invite.role
+      } as Prisma.InputJsonValue,
+      afterSummary: {
+        status: "accepted",
+        memberId: result.memberId,
+        userId: authenticated.user.id,
+        role: result.role
+      } as Prisma.InputJsonValue
+    });
+
+    return result;
   }
 
   private hashInviteToken(token: string): string {
     return createHash("sha256").update(token).digest("hex");
+  }
+
+  private hashAuditValue(value: string): string {
+    return createHash("sha256")
+      .update(value.trim().toLowerCase())
+      .digest("hex");
+  }
+
+  private async recordWorkspaceAudit(input: {
+    workspaceId: string;
+    actorUserId: string;
+    action: string;
+    targetType: string;
+    targetId: string;
+    resultStatus: string;
+    beforeSummary?: Prisma.InputJsonValue;
+    afterSummary?: Prisma.InputJsonValue;
+  }): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId: input.workspaceId,
+          actorUserId: input.actorUserId,
+          actorType: "user",
+          action: input.action,
+          targetType: input.targetType,
+          targetId: input.targetId,
+          reason: null,
+          sourceIp: null,
+          resultStatus: input.resultStatus,
+          beforeSummary: input.beforeSummary,
+          afterSummary: input.afterSummary
+        }
+      });
+    } catch {
+      return;
+    }
   }
 
   private toWorkspaceBillingDto(
