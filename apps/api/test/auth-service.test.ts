@@ -1,4 +1,9 @@
-import { ConflictException, UnauthorizedException } from "@nestjs/common";
+import {
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  UnauthorizedException
+} from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { AuthService } from "../src/auth/auth.service";
 import { PasswordService } from "../src/auth/password.service";
@@ -42,6 +47,22 @@ type DbSession = {
   createdAt: Date;
 };
 
+type DbAuditLog = {
+  id: string;
+  workspaceId: string | null;
+  actorUserId: string | null;
+  actorType: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  reason: string | null;
+  sourceIp: string | null;
+  resultStatus: string;
+  beforeSummary: unknown;
+  afterSummary: unknown;
+  createdAt: Date;
+};
+
 type FakePrisma = {
   $transaction: <T>(callback: (tx: FakePrisma) => Promise<T>) => Promise<T>;
   user: {
@@ -61,6 +82,10 @@ type FakePrisma = {
     findUnique: (args: unknown) => Promise<unknown>;
     updateMany: (args: unknown) => Promise<{ count: number }>;
   };
+  auditLog: {
+    create: (args: unknown) => Promise<unknown>;
+    count: (args: unknown) => Promise<number>;
+  };
 };
 
 function createHarness(
@@ -71,7 +96,8 @@ function createHarness(
     users: [] as DbUser[],
     workspaces: [] as DbWorkspace[],
     members: [] as DbMember[],
-    sessions: [] as DbSession[]
+    sessions: [] as DbSession[],
+    auditLogs: [] as DbAuditLog[]
   };
 
   const includeMemberships = (user: DbUser) => ({
@@ -258,6 +284,69 @@ function createHarness(
 
         return { count };
       }
+    },
+    auditLog: {
+      create: async (args) => {
+        const { data } = args as {
+          data: Omit<DbAuditLog, "id" | "createdAt">;
+        };
+        const auditLog: DbAuditLog = {
+          id: `audit_${db.auditLogs.length + 1}`,
+          ...data,
+          createdAt: new Date()
+        };
+
+        db.auditLogs.push(auditLog);
+        return auditLog;
+      },
+      count: async (args) => {
+        const { where } = args as {
+          where: {
+            action?: string;
+            resultStatus?: string;
+            createdAt?: { gte?: Date };
+            OR?: Array<{ targetId?: string; sourceIp?: string | null }>;
+          };
+        };
+
+        return db.auditLogs.filter((auditLog) => {
+          if (where.action && auditLog.action !== where.action) {
+            return false;
+          }
+          if (
+            where.resultStatus &&
+            auditLog.resultStatus !== where.resultStatus
+          ) {
+            return false;
+          }
+          if (
+            where.createdAt?.gte &&
+            auditLog.createdAt.getTime() < where.createdAt.gte.getTime()
+          ) {
+            return false;
+          }
+          if (where.OR?.length) {
+            return where.OR.some((condition) => {
+              if (
+                condition.targetId !== undefined &&
+                auditLog.targetId === condition.targetId
+              ) {
+                return true;
+              }
+              if (
+                condition.sourceIp !== undefined &&
+                auditLog.sourceIp === condition.sourceIp
+              ) {
+                return true;
+              }
+
+              return false;
+            });
+          }
+
+          return true;
+        }).length;
+      }
     }
   };
 
@@ -326,7 +415,7 @@ describe("auth service session lifecycle", () => {
   });
 
   it("logs in with email credentials and resolves the session from refresh token", async () => {
-    const { service } = createHarness();
+    const { db, service } = createHarness();
     await service.register({
       name: "Samuel Choairy",
       email: "samuel@wpptrack.com",
@@ -343,10 +432,96 @@ describe("auth service session lifecycle", () => {
     expect(login.user.email).toBe("samuel@wpptrack.com");
     expect(me.user.email).toBe("samuel@wpptrack.com");
     expect(me.workspaces[0]?.role).toBe("owner");
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        action: "auth.login_succeeded",
+        actorUserId: "user_1",
+        actorType: "user",
+        targetType: "User",
+        targetId: "user_1",
+        resultStatus: "success"
+      })
+    );
+  });
+
+  it("audits failed email login attempts without storing the raw email", async () => {
+    const { db, service } = createHarness();
+    await service.register({
+      name: "Samuel Choairy",
+      email: "samuel@wpptrack.com",
+      password: "strong-password",
+      workspaceName: "Comunidade NOD"
+    });
+
+    await expect(
+      service.login(
+        {
+          email: "SAMUEL@WPPTRACK.COM",
+          password: "wrong-password"
+        },
+        {
+          ipAddress: "127.0.0.1",
+          userAgent: "Vitest"
+        }
+      )
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    const failedAudit = db.auditLogs.find(
+      (auditLog) => auditLog.action === "auth.login_failed"
+    );
+
+    expect(failedAudit).toMatchObject({
+      actorUserId: null,
+      actorType: "anonymous",
+      targetType: "AuthIdentity",
+      sourceIp: "127.0.0.1",
+      resultStatus: "failed"
+    });
+    expect(failedAudit?.targetId).not.toBe("samuel@wpptrack.com");
+    expect(JSON.stringify(failedAudit)).not.toContain("wrong-password");
+  });
+
+  it("temporarily blocks email login after repeated recent failures", async () => {
+    const { service } = createHarness();
+    await service.register({
+      name: "Samuel Choairy",
+      email: "samuel@wpptrack.com",
+      password: "strong-password",
+      workspaceName: "Comunidade NOD"
+    });
+
+    for (let index = 0; index < 5; index += 1) {
+      await expect(
+        service.login(
+          {
+            email: "samuel@wpptrack.com",
+            password: "wrong-password"
+          },
+          {
+            ipAddress: "127.0.0.1"
+          }
+        )
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    }
+
+    await expect(
+      service.login(
+        {
+          email: "samuel@wpptrack.com",
+          password: "strong-password"
+        },
+        {
+          ipAddress: "127.0.0.1"
+        }
+      )
+    ).rejects.toMatchObject({
+      constructor: HttpException,
+      status: HttpStatus.TOO_MANY_REQUESTS
+    });
   });
 
   it("revokes refresh sessions on logout", async () => {
-    const { service } = createHarness();
+    const { db, service } = createHarness();
     await service.register({
       name: "Samuel Choairy",
       email: "samuel@wpptrack.com",
@@ -362,6 +537,15 @@ describe("auth service session lifecycle", () => {
 
     await expect(service.getSession(login.refreshToken)).rejects.toBeInstanceOf(
       UnauthorizedException
+    );
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        action: "auth.logout",
+        actorUserId: "user_1",
+        actorType: "user",
+        targetType: "AuthSession",
+        resultStatus: "success"
+      })
     );
   });
 

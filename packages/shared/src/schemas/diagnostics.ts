@@ -228,6 +228,38 @@ export const diagnosticConversionEventLogListSchema = z.array(
   diagnosticConversionEventLogSchema
 );
 
+export const diagnosticAuditLogSchema = z.object({
+  id: z.string().min(1),
+  workspaceId: z.string().min(1).nullable(),
+  actorUserId: z.string().nullable(),
+  actorType: z.string().min(1),
+  action: z.string().min(1),
+  targetType: z.string().min(1),
+  targetId: z.string().min(1),
+  reason: z.string().nullable(),
+  sourceIp: z.string().nullable(),
+  resultStatus: z.string().min(1),
+  createdAt: z.string().datetime(),
+  beforeSummary: z.record(z.unknown()).nullable(),
+  afterSummary: z.record(z.unknown()).nullable()
+});
+
+export const diagnosticAuditLogListQuerySchema = z.object({
+  workspaceId: z.string().min(1).optional(),
+  actorUserId: z.string().min(1).optional(),
+  actorType: z.string().min(1).optional(),
+  action: z.string().min(1).optional(),
+  targetType: z.string().min(1).optional(),
+  targetId: z.string().min(1).optional(),
+  resultStatus: z.string().min(1).optional(),
+  q: z.string().trim().min(1).optional(),
+  since: z.string().datetime().optional(),
+  until: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(10)
+});
+
+export const diagnosticAuditLogListSchema = z.array(diagnosticAuditLogSchema);
+
 export const diagnosticTimelineItemSchema = z.object({
   id: z.string().min(1),
   kind: z.enum([
@@ -293,6 +325,10 @@ export type DiagnosticConversionEventLogDto = z.infer<
 >;
 export type DiagnosticConversionEventLogListQueryDto = z.infer<
   typeof diagnosticConversionEventLogListQuerySchema
+>;
+export type DiagnosticAuditLogDto = z.infer<typeof diagnosticAuditLogSchema>;
+export type DiagnosticAuditLogListQueryDto = z.infer<
+  typeof diagnosticAuditLogListQuerySchema
 >;
 export type DiagnosticTimelineItemDto = z.infer<
   typeof diagnosticTimelineItemSchema

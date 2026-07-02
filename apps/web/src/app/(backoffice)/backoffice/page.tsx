@@ -1,6 +1,7 @@
 import type {
   BackofficePaymentChargeDto,
   BackofficeWhatsappInstanceDto,
+  DiagnosticAuditLogDto,
   DiagnosticConversionEventLogDto,
   DiagnosticEventDto,
   DiagnosticIntegrationLogDto,
@@ -62,6 +63,15 @@ type ConversionEventLogFilters = Omit<
   eventName?: string;
   sourceTrigger?: string;
   pixelId?: string;
+};
+
+type AuditLogFilters = Pick<
+  DiagnosticFilters,
+  "q" | "since" | "status" | "until" | "workspaceId"
+> & {
+  action?: string;
+  actorType?: string;
+  targetType?: string;
 };
 
 type ResourceResult<T> = {
@@ -195,6 +205,38 @@ async function getConversionEventLogs(
 
     const logs = await serverApiFetch<DiagnosticConversionEventLogDto[]>(
       `/backoffice/diagnostics/conversions?${params.toString()}`
+    );
+
+    return {
+      data: logs,
+      state: logs.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      data: [],
+      state: "error"
+    };
+  }
+}
+
+async function getAuditLogs(
+  filters: AuditLogFilters
+): Promise<ResourceResult<DiagnosticAuditLogDto[]>> {
+  try {
+    const params = new URLSearchParams({ limit: "10" });
+
+    if (filters.status) {
+      params.set("resultStatus", filters.status);
+    }
+
+    for (const [key, value] of Object.entries(filters)) {
+      if (value && key !== "status") {
+        params.set(key, value);
+      }
+    }
+
+    const logs = await serverApiFetch<DiagnosticAuditLogDto[]>(
+      `/backoffice/diagnostics/audit?${params.toString()}`
     );
 
     return {
@@ -527,6 +569,16 @@ export default async function BackofficePage({
     adId: diagnosticFilters.adId,
     errorCode: diagnosticFilters.errorCode
   };
+  const auditLogFilters: AuditLogFilters = {
+    workspaceId: diagnosticFilters.workspaceId,
+    status: diagnosticFilters.status,
+    action: diagnosticFilters.eventType,
+    actorType: asStringParam(resolvedSearchParams.actorType),
+    targetType: asStringParam(resolvedSearchParams.targetType),
+    q: diagnosticFilters.q,
+    since: diagnosticFilters.since,
+    until: diagnosticFilters.until
+  };
   const [
     diagnosticEventsResult,
     workspaceBillingResult,
@@ -536,7 +588,8 @@ export default async function BackofficePage({
     webhookLogsResult,
     jobAttemptsResult,
     integrationLogsResult,
-    conversionEventLogsResult
+    conversionEventLogsResult,
+    auditLogsResult
   ] = await Promise.all([
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
@@ -546,13 +599,15 @@ export default async function BackofficePage({
     getWebhookLogs(webhookLogFilters),
     getJobAttempts(jobAttemptFilters),
     getIntegrationLogs(integrationLogFilters),
-    getConversionEventLogs(conversionEventLogFilters)
+    getConversionEventLogs(conversionEventLogFilters),
+    getAuditLogs(auditLogFilters)
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
   const webhookLogs = webhookLogsResult.data;
   const jobAttempts = jobAttemptsResult.data;
   const integrationLogs = integrationLogsResult.data;
   const conversionEventLogs = conversionEventLogsResult.data;
+  const auditLogs = auditLogsResult.data;
   const workspaceBilling = workspaceBillingResult.data;
   const splitReceivers = splitReceiversResult.data;
   const paymentCharges = paymentChargesResult.data;
@@ -562,6 +617,8 @@ export default async function BackofficePage({
     jobName: jobAttemptFilters.jobName,
     queueName: jobAttemptFilters.queueName,
     jobId: integrationLogFilters.jobId,
+    actorType: auditLogFilters.actorType,
+    targetType: auditLogFilters.targetType,
     pixelId: conversionEventLogFilters.pixelId,
     sourceTrigger: conversionEventLogFilters.sourceTrigger
   }).filter(Boolean).length;
@@ -577,7 +634,8 @@ export default async function BackofficePage({
     webhookLogsResult.state,
     jobAttemptsResult.state,
     integrationLogsResult.state,
-    conversionEventLogsResult.state
+    conversionEventLogsResult.state,
+    auditLogsResult.state
   ].includes("error");
   const configuredCustomers = workspaceBilling.filter(
     (workspace) => workspace.asaasCustomerId
@@ -618,10 +676,11 @@ export default async function BackofficePage({
       webhookLogsResult.state === "error" ||
       jobAttemptsResult.state === "error" ||
       integrationLogsResult.state === "error" ||
-      conversionEventLogsResult.state === "error"
+      conversionEventLogsResult.state === "error" ||
+      auditLogsResult.state === "error"
         ? "API indisponivel"
-        : `${diagnosticEvents.length} eventos / ${webhookLogs.length} webhooks / ${jobAttempts.length} jobs / ${integrationLogs.length} chamadas / ${conversionEventLogs.length} CAPI`,
-      "Eventos, webhooks, jobs, chamadas externas e conversoes reais retornados pela Central de Diagnostico."
+        : `${diagnosticEvents.length} eventos / ${webhookLogs.length} webhooks / ${jobAttempts.length} jobs / ${integrationLogs.length} chamadas / ${conversionEventLogs.length} CAPI / ${auditLogs.length} auditorias`,
+      "Eventos, webhooks, jobs, chamadas externas, conversoes e auditorias reais retornados pela Central de Diagnostico."
     ]
   ];
   const workspaceEmptyTitle =
@@ -656,6 +715,10 @@ export default async function BackofficePage({
     conversionEventLogsResult.state === "error"
       ? "Nao foi possivel carregar eventos Pixel/CAPI"
       : "Nenhum evento Pixel/CAPI encontrado";
+  const auditLogEmptyTitle =
+    auditLogsResult.state === "error"
+      ? "Nao foi possivel carregar auditorias"
+      : "Nenhuma auditoria operacional encontrada";
   const paymentChargeEmptyTitle =
     paymentChargesResult.state === "error"
       ? "Nao foi possivel carregar cobrancas"
@@ -1055,6 +1118,18 @@ export default async function BackofficePage({
           />
           <input
             className="filter-control"
+            name="actorType"
+            placeholder="Ator auditoria"
+            defaultValue={auditLogFilters.actorType}
+          />
+          <input
+            className="filter-control"
+            name="targetType"
+            placeholder="Alvo auditoria"
+            defaultValue={auditLogFilters.targetType}
+          />
+          <input
+            className="filter-control"
             name="since"
             type="date"
             defaultValue={dateInputValue(diagnosticFilters.since)}
@@ -1109,6 +1184,54 @@ export default async function BackofficePage({
             ? `${activeDiagnosticFilterCount} filtros ativos`
             : "Mostrando os ultimos eventos recebidos pela plataforma."}
         </p>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Auditoria operacional</th>
+                <th>Ator</th>
+                <th>Alvo</th>
+                <th>Origem</th>
+                <th>Data</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditLogs.length > 0 ? (
+                auditLogs.map((audit) => (
+                  <tr key={audit.id}>
+                    <td>
+                      <strong>{audit.action}</strong>
+                      <span>{audit.reason ?? audit.id}</span>
+                    </td>
+                    <td>
+                      <strong>{audit.actorType}</strong>
+                      <span>{audit.actorUserId ?? "sem usuario"}</span>
+                    </td>
+                    <td>
+                      {audit.targetType}
+                      {audit.targetId ? ` / ${audit.targetId}` : ""}
+                    </td>
+                    <td>{audit.sourceIp ?? audit.workspaceId ?? "plataforma"}</td>
+                    <td>{new Date(audit.createdAt).toLocaleString("pt-BR")}</td>
+                    <td>
+                      <span className={`event-chip${audit.resultStatus === "failed" ? " warn" : ""}`}>
+                        {audit.resultStatus}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>
+                    <strong>{auditLogEmptyTitle}</strong>
+                    <span>Logins, logouts, retries e acoes administrativas aparecem aqui.</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>

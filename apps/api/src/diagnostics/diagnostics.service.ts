@@ -1,6 +1,8 @@
 import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
+  DiagnosticAuditLogDto,
+  DiagnosticAuditLogListQueryDto,
   DiagnosticConversionEventLogDto,
   DiagnosticConversionEventLogListQueryDto,
   DiagnosticSourceDto,
@@ -70,7 +72,14 @@ type WebhookLogRecord = {
 
 type AuditLogRecord = {
   id: string;
+  workspaceId: string | null;
+  actorUserId: string | null;
+  actorType: string;
   action: string;
+  targetType: string;
+  targetId: string;
+  reason: string | null;
+  sourceIp: string | null;
   resultStatus: string;
   createdAt: Date;
   beforeSummary?: unknown;
@@ -610,6 +619,68 @@ export class DiagnosticsService {
     return logs.map((log) => this.toConversionEventLogDto(log));
   }
 
+  async listAuditLogs(
+    query: DiagnosticAuditLogListQueryDto
+  ): Promise<DiagnosticAuditLogDto[]> {
+    const where: Prisma.AuditLogWhereInput = {};
+
+    if (query.workspaceId) {
+      where.workspaceId = query.workspaceId;
+    }
+
+    if (query.actorUserId) {
+      where.actorUserId = query.actorUserId;
+    }
+
+    if (query.actorType) {
+      where.actorType = query.actorType;
+    }
+
+    if (query.action) {
+      where.action = query.action;
+    }
+
+    if (query.targetType) {
+      where.targetType = query.targetType;
+    }
+
+    if (query.targetId) {
+      where.targetId = query.targetId;
+    }
+
+    if (query.resultStatus) {
+      where.resultStatus = query.resultStatus;
+    }
+
+    if (query.since || query.until) {
+      where.createdAt = {
+        ...(query.since ? { gte: new Date(query.since) } : {}),
+        ...(query.until ? { lte: new Date(query.until) } : {})
+      };
+    }
+
+    if (query.q) {
+      where.OR = [
+        { action: { contains: query.q, mode: "insensitive" } },
+        { actorType: { contains: query.q, mode: "insensitive" } },
+        { targetType: { contains: query.q, mode: "insensitive" } },
+        { targetId: { contains: query.q, mode: "insensitive" } },
+        { resultStatus: { contains: query.q, mode: "insensitive" } },
+        { reason: { contains: query.q, mode: "insensitive" } }
+      ];
+    }
+
+    const logs = (await this.prisma.auditLog.findMany({
+      where,
+      orderBy: {
+        createdAt: "desc"
+      },
+      take: query.limit
+    })) as AuditLogRecord[];
+
+    return logs.map((log) => this.toAuditLogDto(log));
+  }
+
   async getEvent(id: string): Promise<DiagnosticEventDetailDto> {
     const event = (await this.prisma.diagnosticEvent.findUnique({
       where: { id }
@@ -809,6 +880,24 @@ export class DiagnosticsService {
       errorMessage: log.errorMessage,
       jobId: log.jobId,
       createdAt: log.createdAt.toISOString()
+    };
+  }
+
+  private toAuditLogDto(log: AuditLogRecord): DiagnosticAuditLogDto {
+    return {
+      id: log.id,
+      workspaceId: log.workspaceId,
+      actorUserId: log.actorUserId,
+      actorType: log.actorType,
+      action: log.action,
+      targetType: log.targetType,
+      targetId: log.targetId,
+      reason: log.reason,
+      sourceIp: log.sourceIp,
+      resultStatus: log.resultStatus,
+      createdAt: log.createdAt.toISOString(),
+      beforeSummary: this.payloadRecord(log.beforeSummary),
+      afterSummary: this.payloadRecord(log.afterSummary)
     };
   }
 

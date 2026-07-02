@@ -108,6 +108,24 @@ const conversionEventLog = {
   createdAt: "2026-07-02T03:00:00.000Z"
 };
 
+const auditLog = {
+  id: "audit_1",
+  workspaceId: "workspace_1",
+  actorUserId: "user_1",
+  actorType: "user",
+  action: "auth.login_failed",
+  targetType: "AuthIdentity",
+  targetId: "identity_hash_1",
+  reason: "Credenciais invalidas",
+  sourceIp: "127.0.0.1",
+  resultStatus: "failed",
+  createdAt: "2026-07-02T03:00:00.000Z",
+  beforeSummary: null,
+  afterSummary: {
+    userAgent: "Vitest"
+  }
+};
+
 async function createApp() {
   const service = {
     listEvents: vi.fn(async () => [diagnosticEvent]),
@@ -115,6 +133,7 @@ async function createApp() {
     listJobAttempts: vi.fn(async () => [jobAttempt]),
     listIntegrationLogs: vi.fn(async () => [integrationLog]),
     listConversionEventLogs: vi.fn(async () => [conversionEventLog]),
+    listAuditLogs: vi.fn(async () => [auditLog]),
     getEvent: vi.fn(async () => diagnosticEvent),
     recordEvent: vi.fn(async () => diagnosticEvent),
     retryEvent: vi.fn(async () => ({
@@ -313,6 +332,40 @@ describe("diagnostics controller", () => {
       campaignId: "cmp_1",
       adId: "ad_1",
       errorCode: "META_CONTEXT_MISSING",
+      limit: 10
+    });
+
+    await app.close();
+  });
+
+  it("lists backoffice audit logs", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/diagnostics/audit?workspaceId=workspace_1&actorUserId=user_1&actorType=user&action=auth.login_failed&targetType=AuthIdentity&targetId=identity_hash_1&resultStatus=failed&q=login&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&limit=10"
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body[0].id).toBe("audit_1");
+        expect(body[0].action).toBe("auth.login_failed");
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(service.listAuditLogs).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      actorUserId: "user_1",
+      actorType: "user",
+      action: "auth.login_failed",
+      targetType: "AuthIdentity",
+      targetId: "identity_hash_1",
+      resultStatus: "failed",
+      q: "login",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
       limit: 10
     });
 

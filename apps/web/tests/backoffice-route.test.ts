@@ -477,6 +477,111 @@ describe("backoffice route", () => {
     expect(html).toContain("pixel_1");
   });
 
+  it("renders audit logs returned by the diagnostics endpoint", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "audit_1",
+              workspaceId: "workspace_1",
+              actorUserId: "user_1",
+              actorType: "user",
+              action: "auth.login_failed",
+              targetType: "AuthIdentity",
+              targetId: "identity_hash_1",
+              reason: "Credenciais invalidas",
+              sourceIp: "127.0.0.1",
+              resultStatus: "failed",
+              createdAt: "2026-07-02T03:00:00.000Z",
+              beforeSummary: null,
+              afterSummary: {
+                userAgent: "Vitest"
+              }
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        workspaceId: "workspace_1",
+        status: "failed",
+        eventType: "auth.login_failed",
+        actorType: "user",
+        targetType: "AuthIdentity",
+        q: "login",
+        since: "2026-07-01",
+        until: "2026-07-02"
+      })
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/diagnostics/audit?limit=10&resultStatus=failed&workspaceId=workspace_1&action=auth.login_failed&actorType=user&targetType=AuthIdentity&q=login&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Auditoria operacional");
+    expect(html).toContain("auth.login_failed");
+    expect(html).toContain("Credenciais invalidas");
+    expect(html).toContain("127.0.0.1");
+  });
+
   it("renders workspace billing configuration with editable Asaas customer ids", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(

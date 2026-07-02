@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import {
   diagnosticConversionEventLogListQuerySchema,
+  diagnosticAuditLogListQuerySchema,
   diagnosticEventCreateSchema,
   diagnosticEventListQuerySchema,
   diagnosticIntegrationLogListQuerySchema,
@@ -108,6 +109,22 @@ export class DiagnosticsController {
     }
 
     return this.diagnosticsService.listConversionEventLogs(parsed.data);
+  }
+
+  @Get("audit")
+  async listAuditLogs(
+    @AuthToken() refreshToken: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    const parsed = diagnosticAuditLogListQuerySchema.safeParse(query);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Filtros invalidos");
+    }
+
+    return this.diagnosticsService.listAuditLogs(parsed.data);
   }
 
   @Get("events/:id")

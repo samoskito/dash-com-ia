@@ -13,6 +13,7 @@ function createHarness() {
   const integrationLogFindManyCalls: Array<Record<string, unknown>> = [];
   const conversionEventLogFindManyCalls: Array<Record<string, unknown>> = [];
   const diagnosticFindManyCalls: Array<Record<string, unknown>> = [];
+  const auditLogFindManyCalls: Array<Record<string, unknown>> = [];
   const diagnosticsQueueService = {
     enqueueRetry: vi.fn(async (payload: Record<string, unknown>) => ({
       diagnosticEventId: payload.diagnosticEventId,
@@ -92,7 +93,18 @@ function createHarness() {
       findMany: async ({ where }: { where: Record<string, unknown> }) =>
         auditLogs.filter((auditLog) =>
           Object.entries(where).every(([key, value]) => auditLog[key] === value)
-        )
+        ),
+      findManyForList: async ({
+        where,
+        take
+      }: {
+        where: Record<string, unknown>;
+        take: number;
+      }) => {
+        auditLogFindManyCalls.push({ where, take });
+
+        return auditLogs.slice(0, take);
+      }
     },
     jobAttempt: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -180,8 +192,25 @@ function createHarness() {
     );
   };
 
+  prisma.auditLog.findMany = async (args: {
+    where: Record<string, unknown>;
+    take?: number;
+  }) => {
+    if (typeof args.take === "number") {
+      return prisma.auditLog.findManyForList({
+        where: args.where,
+        take: args.take
+      });
+    }
+
+    return auditLogs.filter((auditLog) =>
+      Object.entries(args.where).every(([key, value]) => auditLog[key] === value)
+    );
+  };
+
   return {
     auditLogs,
+    auditLogFindManyCalls,
     conversionEventLogFindManyCalls,
     conversionEventLogs,
     diagnosticFindManyCalls,
@@ -659,6 +688,74 @@ describe("diagnostics service", () => {
       ]
     });
     expect(conversionEventLogFindManyCalls[0]?.take).toBe(10);
+  });
+
+  it("lists audit logs with operational filters", async () => {
+    const { auditLogFindManyCalls, auditLogs, service } = createHarness();
+    auditLogs.push({
+      id: "audit_1",
+      workspaceId: "workspace_1",
+      actorUserId: "user_1",
+      actorType: "user",
+      action: "auth.login_failed",
+      targetType: "AuthIdentity",
+      targetId: "identity_hash_1",
+      reason: "Credenciais invalidas",
+      sourceIp: "127.0.0.1",
+      resultStatus: "failed",
+      beforeSummary: null,
+      afterSummary: {
+        userAgent: "Vitest"
+      },
+      createdAt: new Date("2026-07-02T03:00:00.000Z")
+    });
+
+    const result = await service.listAuditLogs({
+      workspaceId: "workspace_1",
+      actorUserId: "user_1",
+      actorType: "user",
+      action: "auth.login_failed",
+      targetType: "AuthIdentity",
+      targetId: "identity_hash_1",
+      resultStatus: "failed",
+      q: "login",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      limit: 10
+    });
+
+    expect(result[0]).toMatchObject({
+      id: "audit_1",
+      workspaceId: "workspace_1",
+      actorUserId: "user_1",
+      actorType: "user",
+      action: "auth.login_failed",
+      targetType: "AuthIdentity",
+      targetId: "identity_hash_1",
+      resultStatus: "failed"
+    });
+    expect(auditLogFindManyCalls[0]?.where).toEqual({
+      workspaceId: "workspace_1",
+      actorUserId: "user_1",
+      actorType: "user",
+      action: "auth.login_failed",
+      targetType: "AuthIdentity",
+      targetId: "identity_hash_1",
+      resultStatus: "failed",
+      createdAt: {
+        gte: new Date("2026-07-01T00:00:00.000Z"),
+        lte: new Date("2026-07-02T23:59:59.000Z")
+      },
+      OR: [
+        { action: { contains: "login", mode: "insensitive" } },
+        { actorType: { contains: "login", mode: "insensitive" } },
+        { targetType: { contains: "login", mode: "insensitive" } },
+        { targetId: { contains: "login", mode: "insensitive" } },
+        { resultStatus: { contains: "login", mode: "insensitive" } },
+        { reason: { contains: "login", mode: "insensitive" } }
+      ]
+    });
+    expect(auditLogFindManyCalls[0]?.take).toBe(10);
   });
 
   it("returns an operational timeline for webhook, event, retry audit and job attempts", async () => {

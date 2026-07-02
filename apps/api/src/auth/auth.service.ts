@@ -2,11 +2,14 @@ import { randomBytes, createHash } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Optional,
   UnauthorizedException
 } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import type {
   EmailVerificationConfirmDto,
   EmailVerificationConfirmInputDto,
@@ -36,6 +39,8 @@ const refreshTokenBytes = 32;
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 30;
 const passwordResetTtlMs = 1000 * 60 * 30;
 const emailVerificationTtlMs = 1000 * 60 * 60 * 24;
+const loginFailureWindowMs = 1000 * 60 * 15;
+const loginFailureLimit = 5;
 
 type WorkspaceMembershipRecord = {
   role: AuthenticatedUser["workspaces"][number]["role"];
@@ -60,6 +65,8 @@ type EmailLoginUserRecord = {
 type SessionUserRecord = EmailLoginUserRecord;
 
 type AuthSessionRecord = {
+  id?: string;
+  userId?: string;
   revokedAt: Date | null;
   expiresAt: Date;
   user: SessionUserRecord;
@@ -174,9 +181,26 @@ export class AuthService {
     input: LoginDto,
     context: AuthRequestContext = {}
   ): Promise<AuthSessionResult> {
-    const authenticated = await this.validateEmailLogin(input);
+    const email = this.normalizeEmail(input.email);
 
-    return this.createSessionForUser(authenticated.user.id, context);
+    await this.assertLoginNotRateLimited(email, context);
+
+    let authenticated: AuthenticatedUser;
+
+    try {
+      authenticated = await this.validateEmailLogin(input);
+    } catch (error) {
+      await this.recordLoginFailure(email, context);
+      throw error;
+    }
+
+    const session = await this.createSessionForUser(
+      authenticated.user.id,
+      context
+    );
+    await this.recordLoginSuccess(session, context);
+
+    return session;
   }
 
   async getSession(refreshToken: string): Promise<AuthenticatedUser> {
@@ -208,15 +232,49 @@ export class AuthService {
   }
 
   async logout(refreshToken: string): Promise<void> {
+    const refreshHash = this.hashRefreshToken(refreshToken);
+    const session = (await this.prisma.authSession.findUnique({
+      where: { refreshHash },
+      include: {
+        user: {
+          include: {
+            memberships: {
+              include: {
+                workspace: true
+              }
+            }
+          }
+        }
+      }
+    })) as AuthSessionRecord | null;
+
     await this.prisma.authSession.updateMany({
       where: {
-        refreshHash: this.hashRefreshToken(refreshToken),
+        refreshHash,
         revokedAt: null
       },
       data: {
         revokedAt: new Date()
       }
     });
+
+    if (session && !session.revokedAt) {
+      await this.safeCreateAuditLog({
+        workspaceId: session.user.memberships[0]?.workspace.id ?? null,
+        actorUserId: session.user.id,
+        actorType: "user",
+        action: "auth.logout",
+        targetType: "AuthSession",
+        targetId: session.id ?? refreshHash,
+        reason: null,
+        sourceIp: null,
+        resultStatus: "success",
+        beforeSummary: null,
+        afterSummary: {
+          userId: session.user.id
+        }
+      });
+    }
   }
 
   getGoogleOAuthStart(
@@ -711,6 +769,128 @@ export class AuthService {
 
   private hashRefreshToken(refreshToken: string): string {
     return createHash("sha256").update(refreshToken).digest("hex");
+  }
+
+  private hashAuthIdentity(email: string): string {
+    return createHash("sha256")
+      .update(this.normalizeEmail(email))
+      .digest("hex");
+  }
+
+  private async assertLoginNotRateLimited(
+    email: string,
+    context: AuthRequestContext
+  ): Promise<void> {
+    const filters: Array<{ targetId?: string; sourceIp?: string }> = [
+      {
+        targetId: this.hashAuthIdentity(email)
+      }
+    ];
+
+    if (context.ipAddress) {
+      filters.push({ sourceIp: context.ipAddress });
+    }
+
+    const recentFailures = await this.prisma.auditLog.count({
+      where: {
+        action: "auth.login_failed",
+        resultStatus: "failed",
+        createdAt: {
+          gte: new Date(Date.now() - loginFailureWindowMs)
+        },
+        OR: filters
+      }
+    });
+
+    if (recentFailures >= loginFailureLimit) {
+      throw new HttpException(
+        "Muitas tentativas de login. Tente novamente em alguns minutos.",
+        HttpStatus.TOO_MANY_REQUESTS
+      );
+    }
+  }
+
+  private async recordLoginFailure(
+    email: string,
+    context: AuthRequestContext
+  ): Promise<void> {
+    await this.safeCreateAuditLog({
+      workspaceId: null,
+      actorUserId: null,
+      actorType: "anonymous",
+      action: "auth.login_failed",
+      targetType: "AuthIdentity",
+      targetId: this.hashAuthIdentity(email),
+      reason: "Credenciais invalidas",
+      sourceIp: context.ipAddress ?? null,
+      resultStatus: "failed",
+      beforeSummary: null,
+      afterSummary: {
+        userAgent: context.userAgent ?? null
+      }
+    });
+  }
+
+  private async recordLoginSuccess(
+    session: AuthSessionResult,
+    context: AuthRequestContext
+  ): Promise<void> {
+    await this.safeCreateAuditLog({
+      workspaceId: session.workspaces[0]?.id ?? null,
+      actorUserId: session.user.id,
+      actorType: "user",
+      action: "auth.login_succeeded",
+      targetType: "User",
+      targetId: session.user.id,
+      reason: null,
+      sourceIp: context.ipAddress ?? null,
+      resultStatus: "success",
+      beforeSummary: null,
+      afterSummary: {
+        authProvider: session.user.authProvider,
+        userAgent: context.userAgent ?? null
+      }
+    });
+  }
+
+  private async safeCreateAuditLog(input: {
+    workspaceId: string | null;
+    actorUserId: string | null;
+    actorType: string;
+    action: string;
+    targetType: string;
+    targetId: string;
+    reason: string | null;
+    sourceIp: string | null;
+    resultStatus: string;
+    beforeSummary: unknown;
+    afterSummary: unknown;
+  }): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId: input.workspaceId,
+          actorUserId: input.actorUserId,
+          actorType: input.actorType,
+          action: input.action,
+          targetType: input.targetType,
+          targetId: input.targetId,
+          reason: input.reason,
+          sourceIp: input.sourceIp,
+          resultStatus: input.resultStatus,
+          beforeSummary:
+            input.beforeSummary === null
+              ? undefined
+              : (input.beforeSummary as Prisma.InputJsonValue),
+          afterSummary:
+            input.afterSummary === null
+              ? undefined
+              : (input.afterSummary as Prisma.InputJsonValue)
+        }
+      });
+    } catch {
+      return;
+    }
   }
 
   private createOAuthState(redirectTo?: string): string {
