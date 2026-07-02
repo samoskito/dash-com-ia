@@ -10,6 +10,7 @@ import {
   conversionRuleUpdateInputSchema,
   conversionTriggerEvaluationInputSchema,
   googleOAuthStartSchema,
+  googleOAuthStartResultSchema,
   currentWorkspaceSchema,
   diagnosticEventCreateSchema,
   diagnosticEventDetailSchema,
@@ -158,8 +159,16 @@ describe("shared contracts", () => {
     const parsed = googleOAuthStartSchema.parse({
       redirectTo: "/dashboard"
     });
+    const result = googleOAuthStartResultSchema.parse({
+      provider: "google",
+      action: "redirect",
+      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc",
+      missingEnv: [],
+      state: "state-token"
+    });
 
     expect(parsed.redirectTo).toBe("/dashboard");
+    expect(result.action).toBe("redirect");
   });
 
   it("validates current workspace, members and invites", () => {

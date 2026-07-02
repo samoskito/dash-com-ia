@@ -4,7 +4,12 @@ import {
   Injectable,
   UnauthorizedException
 } from "@nestjs/common";
-import type { LoginDto, RegisterDto } from "@wpptrack/shared";
+import type {
+  GoogleOAuthStartDto,
+  GoogleOAuthStartResultDto,
+  LoginDto,
+  RegisterDto
+} from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { PasswordService } from "./password.service";
 import type { AuthenticatedUser } from "./session.types";
@@ -44,6 +49,7 @@ type AuthRequestContext = {
   userAgent?: string | null;
   ipAddress?: string | null;
 };
+type AuthEnv = Record<string, string | undefined>;
 
 export type AuthSessionResult = AuthenticatedUser & {
   refreshToken: string;
@@ -54,7 +60,8 @@ export type AuthSessionResult = AuthenticatedUser & {
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly passwordService: PasswordService
+    private readonly passwordService: PasswordService,
+    private readonly env: AuthEnv = process.env
   ) {}
 
   async register(
@@ -151,6 +158,49 @@ export class AuthService {
         revokedAt: new Date()
       }
     });
+  }
+
+  getGoogleOAuthStart(
+    input: GoogleOAuthStartDto
+  ): GoogleOAuthStartResultDto {
+    const clientId = this.env.GOOGLE_CLIENT_ID;
+    const redirectUri = this.env.GOOGLE_REDIRECT_URI;
+    const requiredEnv: Array<[string, string | undefined]> = [
+      ["GOOGLE_CLIENT_ID", clientId],
+      ["GOOGLE_REDIRECT_URI", redirectUri]
+    ];
+    const missingEnv = requiredEnv
+      .filter(([, value]) => !value)
+      .map(([key]) => key);
+
+    if (missingEnv.length > 0) {
+      return {
+        provider: "google",
+        action: "configure_env",
+        authorizationUrl: null,
+        missingEnv,
+        state: null
+      };
+    }
+
+    const state = this.createOAuthState(input.redirectTo);
+    const params = new URLSearchParams({
+      client_id: clientId!,
+      redirect_uri: redirectUri!,
+      response_type: "code",
+      scope: "openid email profile",
+      access_type: "offline",
+      prompt: "select_account",
+      state
+    });
+
+    return {
+      provider: "google",
+      action: "redirect",
+      authorizationUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+      missingEnv: [],
+      state
+    };
   }
 
   async validateEmailLogin(input: LoginDto): Promise<AuthenticatedUser> {
@@ -276,6 +326,15 @@ export class AuthService {
 
   private hashRefreshToken(refreshToken: string): string {
     return createHash("sha256").update(refreshToken).digest("hex");
+  }
+
+  private createOAuthState(redirectTo?: string): string {
+    const payload = JSON.stringify({
+      redirectTo: redirectTo ?? "/overview",
+      nonce: randomBytes(16).toString("hex")
+    });
+
+    return Buffer.from(payload).toString("base64url");
   }
 
   private invalidCredentials(): UnauthorizedException {

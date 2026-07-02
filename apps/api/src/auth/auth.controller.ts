@@ -10,7 +10,11 @@ import {
   Res,
   UnauthorizedException
 } from "@nestjs/common";
-import { loginSchema, registerSchema } from "@wpptrack/shared";
+import {
+  googleOAuthStartSchema,
+  loginSchema,
+  registerSchema
+} from "@wpptrack/shared";
 import { extractAuthToken, firstHeader } from "./auth-token";
 import { AuthService, type AuthSessionResult } from "./auth.service";
 
@@ -92,6 +96,13 @@ export class AuthController {
     response.clearCookie(sessionCookieName, { path: "/" });
 
     return { ok: true };
+  }
+
+  @Post("google/start")
+  startGoogleOAuth(@Body() body: unknown) {
+    const input = this.parseBody(googleOAuthStartSchema.safeParse(body));
+
+    return this.authService.getGoogleOAuthStart(input);
   }
 
   private parseBody<T>(result: { success: true; data: T } | { success: false }): T {

@@ -32,7 +32,14 @@ async function createApp() {
       user: authPayload.user,
       workspaces: authPayload.workspaces
     })),
-    logout: vi.fn(async () => undefined)
+    logout: vi.fn(async () => undefined),
+    getGoogleOAuthStart: vi.fn(() => ({
+      provider: "google",
+      action: "redirect",
+      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc",
+      missingEnv: [],
+      state: "state-token"
+    }))
   };
 
   const moduleRef = await Test.createTestingModule({
@@ -145,6 +152,28 @@ describe("auth controller", () => {
       });
 
     expect(authService.logout).toHaveBeenCalledWith(authPayload.refreshToken);
+
+    await app.close();
+  });
+
+  it("returns a Google OAuth start action without contacting Google", async () => {
+    const { app, authService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/auth/google/start")
+      .send({
+        redirectTo: "/overview"
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.provider).toBe("google");
+        expect(body.action).toBe("redirect");
+        expect(body.authorizationUrl).toContain("accounts.google.com");
+      });
+
+    expect(authService.getGoogleOAuthStart).toHaveBeenCalledWith({
+      redirectTo: "/overview"
+    });
 
     await app.close();
   });
