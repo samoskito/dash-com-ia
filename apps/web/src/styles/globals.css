@@ -117,6 +117,86 @@ textarea {
   min-height: 100vh;
 }
 
+.login-page {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+  padding: 24px;
+}
+
+.login-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--ink);
+  display: grid;
+  gap: 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  max-width: 940px;
+  padding: 28px;
+  width: 100%;
+}
+
+.login-panel h1 {
+  font-family: var(--font-display);
+  font-size: 40px;
+  letter-spacing: 0;
+  margin: 16px 0 0;
+}
+
+.login-panel p:not(.eyebrow) {
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 12px 0 0;
+}
+
+.login-form {
+  display: grid;
+  gap: 14px;
+}
+
+.login-form label {
+  color: var(--text-secondary);
+  display: grid;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  gap: 8px;
+  text-transform: uppercase;
+}
+
+.login-form input {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--ink);
+  min-height: 44px;
+  padding: 10px 12px;
+}
+
+.login-form button {
+  background: var(--brand);
+  border: 0;
+  border-radius: 8px;
+  color: #07100e;
+  cursor: pointer;
+  font-weight: 900;
+  min-height: 44px;
+  padding: 10px 12px;
+}
+
+.login-form .secondary-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--ink);
+}
+
+.login-form a {
+  color: var(--brand-strong);
+  font-weight: 800;
+  justify-self: start;
+}
+
 .page-header {
   align-items: flex-end;
   display: flex;
@@ -271,6 +351,10 @@ td span {
   .metric-grid,
   .funnel-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .login-panel {
+    grid-template-columns: 1fr;
   }
 }
 
