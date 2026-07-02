@@ -29,12 +29,16 @@ type FakePrisma = {
     create: (args: unknown) => Promise<Record<string, unknown>>;
     update: (args: unknown) => Promise<Record<string, unknown>>;
   };
+  integrationLog: {
+    create: (args: unknown) => Promise<Record<string, unknown>>;
+  };
   $transaction: <T>(callback: (tx: FakePrisma) => Promise<T>) => Promise<T>;
 };
 
 function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
   const db = {
     instances: [] as Array<Record<string, unknown>>,
+    integrationLogs: [] as Array<Record<string, unknown>>,
     charges: [] as Array<Record<string, unknown>>,
     activations: [] as Array<Record<string, unknown>>,
     splitReceivers: [] as Array<Record<string, unknown>>,
@@ -86,6 +90,18 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
           ...data
         };
         return db.subscriptions[index];
+      }
+    },
+    integrationLog: {
+      create: async (args) => {
+        const { data } = args as { data: Record<string, unknown> };
+        const log = {
+          id: `integration_${db.integrationLogs.length + 1}`,
+          startedAt: data.startedAt ?? new Date("2026-07-02T03:00:00.000Z"),
+          ...data
+        };
+        db.integrationLogs.push(log);
+        return log;
       }
     },
     whatsappInstance: {
@@ -444,6 +460,17 @@ describe("billing service", () => {
       externalChargeId: "pay_asaas_1",
       checkoutUrl: "https://sandbox.asaas.com/i/pay_asaas_1"
     });
+    expect(db.integrationLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "asaas",
+        operation: "asaas.payment.create",
+        status: "success",
+        providerRequestId: "pay_asaas_1",
+        jobId: "charge_1"
+      })
+    );
+    expect(JSON.stringify(db.integrationLogs)).not.toContain("secret");
   });
 
   it("activates WhatsApp instance only after Asaas payment confirmation", async () => {

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import type {
   BackofficePaymentChargeDto,
   WhatsappInstanceCheckoutDto,
@@ -266,12 +267,24 @@ export class BillingService {
         percentageBps: true
       }
     })) as SplitReceiverRecord[];
+    const asaasStartedAt = new Date();
     const asaasPayment = await this.asaasAdapter.createPayment({
       customerId: workspace?.asaasCustomerId ?? null,
       localChargeId: records.charge.id,
       amountCents,
       description,
       splitReceivers
+    });
+    await this.recordAsaasPaymentCreateLog({
+      workspaceId,
+      chargeId: records.charge.id,
+      whatsappInstanceId: records.whatsappInstance.id,
+      amountCents,
+      description,
+      customerConfigured: Boolean(workspace?.asaasCustomerId),
+      splitReceiversCount: splitReceivers.length,
+      startedAt: asaasStartedAt,
+      result: asaasPayment
     });
 
     if (asaasPayment.status === "created") {
@@ -296,6 +309,59 @@ export class BillingService {
       paymentProviderStatus: asaasPayment.status,
       externalChargeId: asaasPayment.externalChargeId
     };
+  }
+
+  private async recordAsaasPaymentCreateLog(input: {
+    workspaceId: string;
+    chargeId: string;
+    whatsappInstanceId: string;
+    amountCents: number;
+    description: string;
+    customerConfigured: boolean;
+    splitReceiversCount: number;
+    startedAt: Date;
+    result: {
+      status: "not_configured" | "created";
+      externalChargeId: string | null;
+      checkoutUrl: string | null;
+    };
+  }): Promise<void> {
+    const finishedAt = new Date();
+
+    try {
+      await this.prisma.integrationLog.create({
+        data: {
+          workspaceId: input.workspaceId,
+          source: "asaas",
+          operation: "asaas.payment.create",
+          status: input.result.status === "created" ? "success" : "blocked",
+          startedAt: input.startedAt,
+          finishedAt,
+          durationMs: Math.max(0, finishedAt.getTime() - input.startedAt.getTime()),
+          providerRequestId: input.result.externalChargeId,
+          providerErrorMessage:
+            input.result.status === "created"
+              ? null
+              : "Asaas nao configurado para criar cobranca",
+          jobId: input.chargeId,
+          requestSummary: {
+            chargeId: input.chargeId,
+            whatsappInstanceId: input.whatsappInstanceId,
+            amountCents: input.amountCents,
+            description: input.description,
+            customerConfigured: input.customerConfigured,
+            splitReceiversCount: input.splitReceiversCount
+          } as Prisma.InputJsonValue,
+          responseSummary: {
+            status: input.result.status,
+            externalChargeId: input.result.externalChargeId,
+            hasCheckoutUrl: Boolean(input.result.checkoutUrl)
+          } as Prisma.InputJsonValue
+        }
+      });
+    } catch {
+      return;
+    }
   }
 
   async processAsaasPaymentWebhook(
