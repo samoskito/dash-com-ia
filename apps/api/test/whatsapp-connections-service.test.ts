@@ -35,6 +35,19 @@ function createHarness() {
         providerTokenTag: "tag",
         createdAt: new Date("2026-07-02T03:01:00.000Z"),
         activations: []
+      },
+      {
+        id: "wpp_cloud",
+        workspaceId: "workspace_1",
+        name: "Oficial",
+        provider: "cloud_api",
+        status: "active",
+        providerInstanceId: null,
+        providerTokenEncrypted: null,
+        providerTokenIv: null,
+        providerTokenTag: null,
+        createdAt: new Date("2026-07-02T03:02:00.000Z"),
+        activations: []
       }
     ] as Array<Record<string, unknown>>
   };
@@ -163,6 +176,15 @@ describe("whatsapp connections service", () => {
         providerInstanceId: "provider_instance_1",
         checkoutUrl: null,
         createdAt: expect.any(String)
+      },
+      {
+        id: "wpp_cloud",
+        name: "Oficial",
+        provider: "cloud_api",
+        billingStatus: "active",
+        providerInstanceId: null,
+        checkoutUrl: null,
+        createdAt: expect.any(String)
       }
     ]);
   });
@@ -206,6 +228,35 @@ describe("whatsapp connections service", () => {
     );
     expect(JSON.stringify(db.integrationLogs)).not.toContain("qr-code-text");
     expect(JSON.stringify(db.integrationLogs)).not.toContain("secret");
+  });
+
+  it("returns explicit pending setup for active WhatsApp Cloud API instances", async () => {
+    const { db, service, tokenEncryption, uazapiAdapter } = createHarness();
+
+    const status = await service.getStatus("workspace_1", "wpp_cloud");
+
+    expect(uazapiAdapter.getInstanceStatus).not.toHaveBeenCalled();
+    expect(tokenEncryption.decrypt).not.toHaveBeenCalled();
+    expect(status).toEqual({
+      whatsappInstanceId: "wpp_cloud",
+      provider: "cloud_api",
+      billingStatus: "active",
+      connectionStatus: "not_configured",
+      qrCode: null,
+      message: "WhatsApp Cloud API oficial ainda nao configurada para esta instancia"
+    });
+    expect(db.integrationLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "meta",
+        operation: "whatsapp.cloud_api.status",
+        status: "blocked",
+        providerRequestId: null,
+        providerErrorMessage:
+          "WhatsApp Cloud API oficial ainda nao configurada para esta instancia",
+        jobId: "wpp_cloud"
+      })
+    );
   });
 
   it("connects active whatsapp instances and persists provider instance id", async () => {

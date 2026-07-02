@@ -557,10 +557,11 @@ Checkpoint atual:
 - Central de Diagnostico agora possui resumo operacional agregado em `GET /backoffice/diagnostics/summary`, com contadores por periodo/workspace para eventos, webhooks, jobs, chamadas externas, eventos Pixel/CAPI, auditorias e falhas. O backoffice usa esse resumo no cartao `Diagnosticos` para mostrar `Saude critica`/`Atencao`/`Saudavel` e quantidade de falhas no periodo sem depender de terminal ou consulta direta ao banco.
 - Webhook Meta agora suporta o challenge oficial de inscricao: `GET /webhooks/meta` valida `hub.mode=subscribe`, `hub.verify_token` contra `META_WEBHOOK_VERIFY_TOKEN` e retorna `hub.challenge` sem gravar payload nem acionar efeitos colaterais. Token invalido ou ausente retorna `401`.
 - Worker de sincronizacao de relatorios Meta (`meta-report-sync`) agora registra `JobAttempt` real em sucesso e falha, com workspace, periodo, job BullMQ, tentativa, status, erro e resumo de campanhas/conjuntos/anuncios sincronizados. Assim a tabela `Jobs operacionais` mostra a execucao do sync Meta e nao apenas o enqueue.
+- Instancias WhatsApp com provider `cloud_api` agora possuem caminho operacional explicito: status/conectar/QR/etiquetas retornam `not_configured` seguro enquanto a Cloud API oficial nao estiver configurada, registram `IntegrationLog` com `source: meta` e nao chamam Uazapi nem descriptografam tokens. Isso deixa o adapter oficial preparado para evolucao sem quebrar a operacao atual em Uazapi.
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: parser mais robusto de Uazapi/CTWA/etiquetas, preparar adapter minimo para WhatsApp Cloud API, endurecer contrato de datas/formulas dos relatorios e validar sincronizacao/envio CAPI em contas reais quando as credenciais estiverem disponiveis.
+- Continuar a proxima rodada com: parser mais robusto de Uazapi/CTWA/etiquetas, endurecer contrato de datas/formulas dos relatorios e validar sincronizacao/envio CAPI em contas reais quando as credenciais estiverem disponiveis.
 
 ## Perguntas Abertas
 
