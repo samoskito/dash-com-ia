@@ -10,7 +10,8 @@ import {
 } from "@nestjs/common";
 import {
   diagnosticEventCreateSchema,
-  diagnosticEventListQuerySchema
+  diagnosticEventListQuerySchema,
+  diagnosticRetryInputSchema
 } from "@wpptrack/shared";
 import { DiagnosticsService } from "./diagnostics.service";
 
@@ -46,5 +47,16 @@ export class DiagnosticsController {
     }
 
     return this.diagnosticsService.recordEvent(parsed.data);
+  }
+
+  @Post("events/:id/retry")
+  retryEvent(@Param("id") id: string, @Body() body: unknown) {
+    const parsed = diagnosticRetryInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    return this.diagnosticsService.retryEvent(id, parsed.data);
   }
 }

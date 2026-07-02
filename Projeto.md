@@ -23,6 +23,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Workspace API real adicionada: `GET /workspaces/current`, `GET /workspaces/current/members` e `POST /workspaces/current/invites`.
 - Convites de workspace agora possuem aceite autenticado: `POST /workspaces/invites/accept` valida token, email do usuario convidado, status pendente e expiracao, cria `WorkspaceMember` e marca o convite como `accepted`.
 - Diagnosticos persistentes implementados com Prisma/API: `DiagnosticEvent`, `WebhookLog`, `IntegrationLog`, `ConversionEventLog`, `JobAttempt` e `AuditLog`; endpoints iniciais em `/backoffice/diagnostics/events`.
+- Central de Diagnostico agora possui retry auditado: `POST /backoffice/diagnostics/events/:id/retry` valida motivo, cria `AuditLog` com acao `diagnostic.retry_requested`, cria `JobAttempt` em `diagnostics.retry` e retorna status `queued`, sem reexecutar integracoes externas nesta etapa.
 - API de integracoes exposta sem credenciais externas: `GET /integrations/health`, `GET /integrations/meta/start`, `GET /integrations/uazapi/start` e `GET /integrations/asaas/status`.
 - Billing/ativacao de instancia WhatsApp scaffoldado: `GET /billing/whatsapp-instance/quote` e `POST /billing/whatsapp-instance/checkout`; checkout cria instancia `pending_payment`, cobranca pendente e ativacao pendente, sem liberar uso antes de webhook/pagamento futuro.
 - Migrations reais adicionais aplicadas no Postgres local: `20260702034254_diagnostics_logs` e `20260702034847_billing_activation`.
@@ -42,7 +43,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Spec e plano da Rodada Paralela 1: `docs/superpowers/specs/2026-07-02-wpptrack-parallel-wave-1-design.md` e `docs/superpowers/plans/2026-07-02-wpptrack-parallel-wave-1-implementation.md`.
 - Servidor local usado para visualizar: `http://127.0.0.1:5174/`.
 - Repositorio inicial ja possui commits da fundacao da Fase 1.
-- Diagnosticos/logs operacionais possuem spec dedicada em `docs/superpowers/specs/2026-07-02-wpptrack-diagnostics-logs-design.md`; a primeira implementacao Prisma/API ja existe, mas retry seguro, raw payload autorizado e telas detalhadas ainda ficam para ondas posteriores.
+- Diagnosticos/logs operacionais possuem spec dedicada em `docs/superpowers/specs/2026-07-02-wpptrack-diagnostics-logs-design.md`; a implementacao Prisma/API ja existe com retry auditado seguro. Raw payload autorizado, telas detalhadas e reprocessamento real por worker ficam para ondas posteriores.
 
 ## Objetivo do Produto
 
@@ -175,7 +176,7 @@ Central de Diagnostico:
 - Ver execucoes de automacao/extracao Meta com status de sucesso e erro.
 - Ver mudancas em campanhas, conjuntos e anuncios com status de sucesso e erro.
 - Mostrar tentativas, status, payload resumido, resposta externa e proximo retry.
-- Permitir acao de reenfileirar/tentar novamente quando for seguro.
+- Permitir acao de reenfileirar/tentar novamente quando for seguro. A API de retry auditado ja existe; ainda falta tela detalhada e worker real para reprocessar integracoes externas.
 - Objetivo: permitir debug operacional pelo frontend interno sem exigir que o dono da plataforma abra banco de dados ou terminal.
 
 ## Funcionalidades Removidas do Prototipo Atual
@@ -416,7 +417,7 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: Google OAuth, recuperacao/verificacao de email, tela backoffice de split, OAuth Meta real, envio Pixel/CAPI e telas detalhadas de diagnostico/retry.
+- Continuar a proxima rodada com: callback do Google OAuth, OAuth Meta real, criacao real de cobranca Asaas, envio Pixel/CAPI e telas detalhadas da Central de Diagnostico.
 
 ## Perguntas Abertas
 

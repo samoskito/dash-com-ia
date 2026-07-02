@@ -62,6 +62,18 @@ export const diagnosticEventDetailSchema = diagnosticEventSchema.extend({
   summaryPayload: z.record(z.unknown()).nullable()
 });
 
+export const diagnosticRetryInputSchema = z.object({
+  reason: z.string().trim().min(10).max(500)
+});
+
+export const diagnosticRetryResultSchema = z.object({
+  ok: z.literal(true),
+  status: z.literal("queued"),
+  diagnosticEventId: z.string().min(1),
+  auditLogId: z.string().min(1),
+  jobAttemptId: z.string().min(1)
+});
+
 export type DiagnosticSourceDto = z.infer<typeof diagnosticSourceSchema>;
 export type DiagnosticSeverityDto = z.infer<typeof diagnosticSeveritySchema>;
 export type DiagnosticEventDto = z.infer<typeof diagnosticEventSchema>;
@@ -73,4 +85,8 @@ export type DiagnosticEventListQueryDto = z.infer<
 >;
 export type DiagnosticEventDetailDto = z.infer<
   typeof diagnosticEventDetailSchema
+>;
+export type DiagnosticRetryInputDto = z.infer<typeof diagnosticRetryInputSchema>;
+export type DiagnosticRetryResultDto = z.infer<
+  typeof diagnosticRetryResultSchema
 >;

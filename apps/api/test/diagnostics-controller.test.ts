@@ -30,7 +30,14 @@ async function createApp() {
   const service = {
     listEvents: vi.fn(async () => [diagnosticEvent]),
     getEvent: vi.fn(async () => diagnosticEvent),
-    recordEvent: vi.fn(async () => diagnosticEvent)
+    recordEvent: vi.fn(async () => diagnosticEvent),
+    retryEvent: vi.fn(async () => ({
+      ok: true,
+      status: "queued",
+      diagnosticEventId: "diag_1",
+      auditLogId: "audit_1",
+      jobAttemptId: "job_attempt_1"
+    }))
   };
 
   const moduleRef = await Test.createTestingModule({
@@ -108,6 +115,28 @@ describe("diagnostics controller", () => {
         workspaceId: "workspace_1"
       })
     );
+
+    await app.close();
+  });
+
+  it("queues an audited retry for a diagnostic event", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/backoffice/diagnostics/events/diag_1/retry")
+      .send({
+        reason: "Cliente relatou conversao ausente"
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.status).toBe("queued");
+        expect(body.auditLogId).toBe("audit_1");
+        expect(body.jobAttemptId).toBe("job_attempt_1");
+      });
+
+    expect(service.retryEvent).toHaveBeenCalledWith("diag_1", {
+      reason: "Cliente relatou conversao ausente"
+    });
 
     await app.close();
   });

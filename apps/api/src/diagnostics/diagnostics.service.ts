@@ -5,7 +5,9 @@ import type {
   DiagnosticEventCreateDto,
   DiagnosticEventDetailDto,
   DiagnosticEventDto,
-  DiagnosticEventListQueryDto
+  DiagnosticEventListQueryDto,
+  DiagnosticRetryInputDto,
+  DiagnosticRetryResultDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 
@@ -169,6 +171,72 @@ export class DiagnosticsService {
     }
 
     return this.toDetailDto(event);
+  }
+
+  async retryEvent(
+    id: string,
+    input: DiagnosticRetryInputDto
+  ): Promise<DiagnosticRetryResultDto> {
+    const event = (await this.prisma.diagnosticEvent.findUnique({
+      where: { id }
+    })) as DiagnosticEventRecord | null;
+
+    if (!event) {
+      throw new NotFoundException("Evento diagnostico nao encontrado");
+    }
+
+    const auditLog = await this.prisma.auditLog.create({
+      data: {
+        workspaceId: event.workspaceId,
+        actorType: "platform",
+        action: "diagnostic.retry_requested",
+        targetType: "DiagnosticEvent",
+        targetId: event.id,
+        reason: input.reason,
+        resultStatus: "queued",
+        beforeSummary: this.redactSensitive({
+          status: event.status,
+          source: event.source,
+          eventType: event.eventType,
+          jobId: event.jobId,
+          errorCode: event.errorCode
+        }) as Prisma.InputJsonValue,
+        afterSummary: {
+          retryStatus: "queued"
+        }
+      }
+    });
+
+    const jobAttempt = await this.prisma.jobAttempt.create({
+      data: {
+        workspaceId: event.workspaceId,
+        queueName: "diagnostics.retry",
+        jobId: `diagnostic-retry-${event.id}-${Date.now()}`,
+        jobName: "retry-diagnostic-event",
+        attemptNumber: 1,
+        status: "queued",
+        scheduledAt: new Date(),
+        source: event.source,
+        relatedEntityType: "DiagnosticEvent",
+        relatedEntityId: event.id,
+        errorCode: event.errorCode,
+        summaryPayload: this.redactSensitive({
+          diagnosticEventId: event.id,
+          originalEventType: event.eventType,
+          originalStatus: event.status,
+          originalJobId: event.jobId,
+          retryReason: input.reason
+        }) as Prisma.InputJsonValue
+      }
+    });
+
+    return {
+      ok: true,
+      status: "queued",
+      diagnosticEventId: event.id,
+      auditLogId: auditLog.id,
+      jobAttemptId: jobAttempt.id
+    };
   }
 
   private toDto(event: DiagnosticEventRecord): DiagnosticEventDto {

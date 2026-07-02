@@ -18,6 +18,8 @@ import {
   diagnosticEventCreateSchema,
   diagnosticEventDetailSchema,
   diagnosticEventListQuerySchema,
+  diagnosticRetryInputSchema,
+  diagnosticRetryResultSchema,
   integrationHealthSchema,
   integrationHealthSummarySchema,
   integrationStartActionSchema,
@@ -318,6 +320,22 @@ describe("shared contracts", () => {
     expect(create.source).toBe("meta");
     expect(query.limit).toBe(25);
     expect(detail.errorCode).toBe("MISSING_CURRENCY");
+  });
+
+  it("validates diagnostic retry contracts", () => {
+    const input = diagnosticRetryInputSchema.parse({
+      reason: "Cliente relatou conversao faltando no relatorio"
+    });
+    const result = diagnosticRetryResultSchema.parse({
+      ok: true,
+      status: "queued",
+      diagnosticEventId: "diag_1",
+      auditLogId: "audit_1",
+      jobAttemptId: "job_attempt_1"
+    });
+
+    expect(input.reason).toContain("conversao");
+    expect(result.status).toBe("queued");
   });
 
   it("validates billing quote and checkout contracts", () => {

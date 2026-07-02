@@ -3,6 +3,8 @@ import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
 
 function createHarness() {
   const events: Array<Record<string, unknown>> = [];
+  const auditLogs: Array<Record<string, unknown>> = [];
+  const jobAttempts: Array<Record<string, unknown>> = [];
   const prisma = {
     diagnosticEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -23,11 +25,35 @@ function createHarness() {
           .slice(0, take),
       findUnique: async ({ where }: { where: { id: string } }) =>
         events.find((event) => event.id === where.id) ?? null
+    },
+    auditLog: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const auditLog = {
+          id: `audit_${auditLogs.length + 1}`,
+          createdAt: new Date("2026-07-02T03:00:00.000Z"),
+          ...data
+        };
+        auditLogs.push(auditLog);
+        return auditLog;
+      }
+    },
+    jobAttempt: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const jobAttempt = {
+          id: `job_attempt_${jobAttempts.length + 1}`,
+          createdAt: new Date("2026-07-02T03:00:00.000Z"),
+          ...data
+        };
+        jobAttempts.push(jobAttempt);
+        return jobAttempt;
+      }
     }
   };
 
   return {
+    auditLogs,
     events,
+    jobAttempts,
     service: new DiagnosticsService(prisma as never)
   };
 }
@@ -62,6 +88,61 @@ describe("diagnostics service", () => {
         currency: null
       }
     });
+  });
+
+  it("queues an audited retry without calling external providers", async () => {
+    const { auditLogs, events, jobAttempts, service } = createHarness();
+    await service.recordEvent({
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      eventType: "conversion_trigger",
+      severity: "warning",
+      status: "error",
+      title: "Conversao nao enviada",
+      message: "Regra por etiqueta falhou",
+      leadId: "lead_1",
+      jobId: "job_original",
+      summaryPayload: {
+        label: "Venda fechada"
+      }
+    });
+
+    const retry = await service.retryEvent("diag_1", {
+      reason: "Cliente relatou conversao ausente"
+    });
+
+    expect(retry).toEqual({
+      ok: true,
+      status: "queued",
+      diagnosticEventId: "diag_1",
+      auditLogId: "audit_1",
+      jobAttemptId: "job_attempt_1"
+    });
+    expect(auditLogs[0]).toMatchObject({
+      workspaceId: "workspace_1",
+      actorType: "platform",
+      action: "diagnostic.retry_requested",
+      targetType: "DiagnosticEvent",
+      targetId: "diag_1",
+      reason: "Cliente relatou conversao ausente",
+      resultStatus: "queued"
+    });
+    expect(jobAttempts[0]).toMatchObject({
+      workspaceId: "workspace_1",
+      queueName: "diagnostics.retry",
+      jobName: "retry-diagnostic-event",
+      attemptNumber: 1,
+      status: "queued",
+      source: "uazapi",
+      relatedEntityType: "DiagnosticEvent",
+      relatedEntityId: "diag_1"
+    });
+    expect(jobAttempts[0]?.summaryPayload).toMatchObject({
+      diagnosticEventId: "diag_1",
+      originalEventType: "conversion_trigger",
+      originalStatus: "error"
+    });
+    expect(events).toHaveLength(1);
   });
 
   it("lists events using normalized filters", async () => {
