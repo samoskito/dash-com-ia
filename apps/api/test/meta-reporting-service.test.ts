@@ -14,6 +14,8 @@ function createHarness() {
     campaigns: [] as Array<Record<string, unknown>>,
     adSets: [] as Array<Record<string, unknown>>,
     ads: [] as Array<Record<string, unknown>>,
+    integrationLogs: [] as Array<Record<string, unknown>>,
+    diagnosticEvents: [] as Array<Record<string, unknown>>,
     leads: [
       {
         workspaceId: "workspace_1",
@@ -97,6 +99,26 @@ function createHarness() {
     },
     lead: {
       findMany: vi.fn(async () => db.leads)
+    },
+    integrationLog: {
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        const log = {
+          id: `integration_${db.integrationLogs.length + 1}`,
+          ...data
+        };
+        db.integrationLogs.push(log);
+        return log;
+      })
+    },
+    diagnosticEvent: {
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        const event = {
+          id: `diagnostic_${db.diagnosticEvents.length + 1}`,
+          ...data
+        };
+        db.diagnosticEvents.push(event);
+        return event;
+      })
     }
   };
   const encryption = {
@@ -230,6 +252,76 @@ describe("meta reporting service", () => {
       spendCents: 30000,
       metaConversationsStarted: 40
     });
+    expect(db.integrationLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "meta",
+        operation: "meta.reporting.sync",
+        status: "success",
+        providerRequestId: "act_123"
+      })
+    );
+    expect(db.integrationLogs[0].requestSummary).toMatchObject({
+      adAccountId: "act_123",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    });
+    expect(db.integrationLogs[0].responseSummary).toMatchObject({
+      campaignsSynced: 1,
+      adSetsSynced: 1,
+      adsSynced: 1
+    });
+    expect(db.diagnosticEvents).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "meta",
+        eventType: "meta.reporting.sync",
+        severity: "info",
+        status: "success",
+        integrationLogId: "integration_1"
+      })
+    );
+    expect(JSON.stringify(db.integrationLogs)).not.toContain("EAAB-secret-token");
+    expect(JSON.stringify(db.diagnosticEvents)).not.toContain("EAAB-secret-token");
+  });
+
+  it("records operational diagnostics when Meta structure sync fails", async () => {
+    const { db, metaAdapter, service } = createHarness();
+    metaAdapter.listCampaigns.mockRejectedValueOnce(
+      new Error("Meta API unavailable")
+    );
+
+    await expect(
+      service.syncWorkspaceMetaStructure({
+        workspaceId: "workspace_1",
+        since: "2026-07-01",
+        until: "2026-07-02"
+      })
+    ).rejects.toThrow("Meta API unavailable");
+
+    expect(db.integrationLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "meta",
+        operation: "meta.reporting.sync",
+        status: "error",
+        providerRequestId: "act_123",
+        providerErrorMessage: "Meta API unavailable"
+      })
+    );
+    expect(db.diagnosticEvents).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "meta",
+        eventType: "meta.reporting.sync",
+        severity: "error",
+        status: "error",
+        integrationLogId: "integration_1",
+        errorCode: "MetaReportingSyncError"
+      })
+    );
+    expect(JSON.stringify(db.integrationLogs)).not.toContain("EAAB-secret-token");
+    expect(JSON.stringify(db.diagnosticEvents)).not.toContain("EAAB-secret-token");
   });
 
   it("returns campaign report rows combining Meta spend with internal conversion events", async () => {

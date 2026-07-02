@@ -1,4 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import type {
   AdReportOverviewDto,
   AdReportRowDto,
@@ -98,6 +99,7 @@ export class MetaReportingService {
   async syncWorkspaceMetaStructure(
     input: MetaStructureSyncInput
   ): Promise<MetaStructureSyncResult> {
+    const startedAt = new Date();
     const connection = await this.getConnection(input.workspaceId);
     const accessToken = this.encryption.decrypt({
       encryptedAccessToken: connection.encryptedAccessToken,
@@ -110,75 +112,180 @@ export class MetaReportingService {
       throw new NotFoundException("Conta de anuncio Meta nao selecionada");
     }
 
-    const [campaigns, adSets, ads, campaignInsights, adSetInsights, adInsights] = await Promise.all([
-      this.metaAdapter.listCampaigns({ accessToken, adAccountId }),
-      this.metaAdapter.listAdSets({ accessToken, adAccountId }),
-      this.metaAdapter.listAds({ accessToken, adAccountId }),
-      this.metaAdapter.listCampaignInsights({
-        accessToken,
-        adAccountId,
-        since: input.since,
-        until: input.until
-      }),
-      this.metaAdapter.listAdSetInsights({
-        accessToken,
-        adAccountId,
-        since: input.since,
-        until: input.until
-      }),
-      this.metaAdapter.listAdInsights({
-        accessToken,
-        adAccountId,
-        since: input.since,
-        until: input.until
-      })
-    ]);
-    const insightByCampaign = new Map(
-      campaignInsights.map((item) => [item.campaignId, item])
-    );
-    const insightByAdSet = new Map(
-      adSetInsights.map((item) => [item.adSetId, item])
-    );
-    const insightByAd = new Map(
-      adInsights.map((item) => [item.adId, item])
-    );
-    const syncedAt = new Date();
-
-    await Promise.all([
-      ...campaigns.map((campaign) =>
-        this.upsertCampaign({
-          workspaceId: input.workspaceId,
+    try {
+      const [campaigns, adSets, ads, campaignInsights, adSetInsights, adInsights] = await Promise.all([
+        this.metaAdapter.listCampaigns({ accessToken, adAccountId }),
+        this.metaAdapter.listAdSets({ accessToken, adAccountId }),
+        this.metaAdapter.listAds({ accessToken, adAccountId }),
+        this.metaAdapter.listCampaignInsights({
+          accessToken,
           adAccountId,
-          campaign,
-          insight: insightByCampaign.get(campaign.id),
-          syncedAt
+          since: input.since,
+          until: input.until
+        }),
+        this.metaAdapter.listAdSetInsights({
+          accessToken,
+          adAccountId,
+          since: input.since,
+          until: input.until
+        }),
+        this.metaAdapter.listAdInsights({
+          accessToken,
+          adAccountId,
+          since: input.since,
+          until: input.until
         })
-      ),
-      ...adSets.map((adSet) =>
-        this.upsertAdSet({
-          workspaceId: input.workspaceId,
-          adSet,
-          insight: insightByAdSet.get(adSet.id),
-          syncedAt
-        })
-      ),
-      ...ads.map((ad) =>
-        this.upsertAd({
-          workspaceId: input.workspaceId,
-          ad,
-          insight: insightByAd.get(ad.id),
-          syncedAt
-        })
-      )
-    ]);
+      ]);
+      const insightByCampaign = new Map(
+        campaignInsights.map((item) => [item.campaignId, item])
+      );
+      const insightByAdSet = new Map(
+        adSetInsights.map((item) => [item.adSetId, item])
+      );
+      const insightByAd = new Map(
+        adInsights.map((item) => [item.adId, item])
+      );
+      const syncedAt = new Date();
 
-    return {
-      workspaceId: input.workspaceId,
-      adAccountId,
-      campaignsSynced: campaigns.length,
-      adSetsSynced: adSets.length,
-      adsSynced: ads.length
-    };
+      await Promise.all([
+        ...campaigns.map((campaign) =>
+          this.upsertCampaign({
+            workspaceId: input.workspaceId,
+            adAccountId,
+            campaign,
+            insight: insightByCampaign.get(campaign.id),
+            syncedAt
+          })
+        ),
+        ...adSets.map((adSet) =>
+          this.upsertAdSet({
+            workspaceId: input.workspaceId,
+            adSet,
+            insight: insightByAdSet.get(adSet.id),
+            syncedAt
+          })
+        ),
+        ...ads.map((ad) =>
+          this.upsertAd({
+            workspaceId: input.workspaceId,
+            ad,
+            insight: insightByAd.get(ad.id),
+            syncedAt
+          })
+        )
+      ]);
+
+      const result = {
+        workspaceId: input.workspaceId,
+        adAccountId,
+        campaignsSynced: campaigns.length,
+        adSetsSynced: adSets.length,
+        adsSynced: ads.length
+      };
+      await this.recordMetaReportingSyncDiagnostics({
+        input,
+        adAccountId,
+        startedAt,
+        result
+      });
+
+      return result;
+    } catch (error) {
+      await this.recordMetaReportingSyncDiagnostics({
+        input,
+        adAccountId,
+        startedAt,
+        error
+      });
+      throw error;
+    }
+  }
+
+  private async recordMetaReportingSyncDiagnostics(input: {
+    input: MetaStructureSyncInput;
+    adAccountId: string;
+    startedAt: Date;
+    result?: MetaStructureSyncResult;
+    error?: unknown;
+  }): Promise<void> {
+    const finishedAt = new Date();
+    const errorMessage =
+      input.error instanceof Error
+        ? input.error.message
+        : input.error
+          ? "Erro desconhecido ao sincronizar relatorios Meta"
+          : null;
+    const status = input.error ? "error" : "success";
+
+    try {
+      const integrationLog = await this.prisma.integrationLog.create({
+        data: {
+          workspaceId: input.input.workspaceId,
+          source: "meta",
+          operation: "meta.reporting.sync",
+          status,
+          startedAt: input.startedAt,
+          finishedAt,
+          durationMs: Math.max(
+            0,
+            finishedAt.getTime() - input.startedAt.getTime()
+          ),
+          providerRequestId: input.adAccountId,
+          providerErrorCode: input.error ? "MetaReportingSyncError" : null,
+          providerErrorMessage: errorMessage,
+          requestSummary: {
+            adAccountId: input.adAccountId,
+            since: input.input.since,
+            until: input.input.until
+          } as Prisma.InputJsonValue,
+          responseSummary: input.result
+            ? ({
+                campaignsSynced: input.result.campaignsSynced,
+                adSetsSynced: input.result.adSetsSynced,
+                adsSynced: input.result.adsSynced
+              } as Prisma.InputJsonValue)
+            : ({
+                errorMessage
+              } as Prisma.InputJsonValue)
+        }
+      });
+      await this.prisma.diagnosticEvent.create({
+        data: {
+          workspaceId: input.input.workspaceId,
+          source: "meta",
+          eventType: "meta.reporting.sync",
+          severity: input.error ? "error" : "info",
+          status,
+          occurredAt: finishedAt,
+          title: input.error
+            ? "Falha na sincronizacao de relatorios Meta"
+            : "Sincronizacao de relatorios Meta concluida",
+          message: input.error
+            ? errorMessage ?? "A sincronizacao Meta falhou."
+            : "Campanhas, conjuntos e anuncios Meta foram sincronizados.",
+          jobId: null,
+          errorCode: input.error ? "MetaReportingSyncError" : null,
+          integrationLogId: integrationLog.id,
+          summaryPayload: {
+            adAccountId: input.adAccountId,
+            since: input.input.since,
+            until: input.input.until,
+            status,
+            ...(input.result
+              ? {
+                  campaignsSynced: input.result.campaignsSynced,
+                  adSetsSynced: input.result.adSetsSynced,
+                  adsSynced: input.result.adsSynced
+                }
+              : {
+                  errorMessage
+                })
+          } as Prisma.InputJsonValue
+        }
+      });
+    } catch {
+      return;
+    }
   }
 
   async getCampaignReportOverview(input: {
