@@ -72,9 +72,9 @@ export function LoginForm() {
       <button type="submit" disabled={loading}>
         {loading ? "Processando..." : mode === "login" ? "Entrar" : "Criar conta"}
       </button>
-      <button type="button" className="secondary-button">
+      <a className="secondary-button" href="/login/google">
         Entrar com Google
-      </button>
+      </a>
       <button
         type="button"
         className="link-button"

@@ -308,7 +308,8 @@ button {
 
 .button,
 .filter-control,
-.login-form button {
+.login-form button,
+.login-form .secondary-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;

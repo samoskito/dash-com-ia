@@ -18,6 +18,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Autenticacao propria avancou para endpoints HTTP reais no NestJS: `POST /auth/register`, `POST /auth/login`, `GET /auth/me` e `POST /auth/logout`.
 - Cadastro cria usuario por email/senha, workspace inicial com papel `owner`, sessao persistida em `AuthSession`, refresh token opaco e cookie `HttpOnly`.
 - Google OAuth agora possui fluxo backend real: `POST /auth/google/start` monta a URL de autorizacao com scopes `openid email profile`; `GET /auth/google/callback` troca o `code` em `https://oauth2.googleapis.com/token`, busca perfil em `https://openidconnect.googleapis.com/v1/userinfo`, cria/linka usuario Google, cria workspace inicial para usuario novo e abre sessao com cookie `HttpOnly`.
+- Frontend de login agora possui link funcional `Entrar com Google`: `/login/google` chama o backend `/auth/google/start` e redireciona para o Google quando configurado, ou volta para `/login?error=google_env` quando faltam credenciais.
 - Recuperacao de senha e verificacao de email receberam scaffold persistente: `AuthActionToken` no Prisma, `POST /auth/password/forgot`, `POST /auth/password/reset`, `POST /auth/email/verification/start` e `POST /auth/email/verification/confirm`. Tokens ficam hasheados no banco e so sao retornados em desenvolvimento/controlado com `AUTH_EXPOSE_DEV_TOKENS=true`.
 - Wave 2 backend executada em 2026-07-02 com plano em `docs/superpowers/plans/2026-07-02-wpptrack-wave-2-real-saas-backend.md`.
 - Workspace API real adicionada: `GET /workspaces/current`, `GET /workspaces/current/members` e `POST /workspaces/current/invites`.
@@ -432,7 +433,7 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: persistencia segura do OAuth Meta por workspace, selecao/sincronizacao de BM/conta/pixel/campanhas, melhoria do pos-callback Google no frontend e telas detalhadas da Central de Diagnostico.
+- Continuar a proxima rodada com: persistencia segura do OAuth Meta por workspace, selecao/sincronizacao de BM/conta/pixel/campanhas, tela/redirect pos-callback Google mais polido e telas detalhadas da Central de Diagnostico.
 
 ## Perguntas Abertas
 
