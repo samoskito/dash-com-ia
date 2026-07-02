@@ -4,7 +4,8 @@ import {
   canManageWorkspaceBilling,
   canViewReports,
   campaignReportRowSchema,
-  clientNavigation
+  clientNavigation,
+  integrationHealthSchema
 } from "../src";
 
 describe("shared contracts", () => {
@@ -39,5 +40,27 @@ describe("shared contracts", () => {
     });
 
     expect(parsed.purchase).toBe(3);
+  });
+
+  it("validates integration health payloads", () => {
+    const parsed = integrationHealthSchema.parse({
+      provider: "meta",
+      status: "disconnected",
+      checkedAt: "2026-07-01T21:30:00.000Z",
+      message: "Missing credentials"
+    });
+
+    expect(parsed.provider).toBe("meta");
+    expect(parsed.status).toBe("disconnected");
+  });
+
+  it("rejects invalid integration health payloads", () => {
+    expect(() =>
+      integrationHealthSchema.parse({
+        provider: "stripe",
+        status: "online",
+        checkedAt: "not-a-date"
+      })
+    ).toThrow();
   });
 });
