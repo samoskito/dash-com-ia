@@ -13,6 +13,7 @@ import { WebhooksController } from "../src/webhooks/webhooks.controller";
 
 afterEach(() => {
   delete process.env.ASAAS_WEBHOOK_AUTH_TOKEN;
+  delete process.env.UAZAPI_WEBHOOK_AUTH_TOKEN;
 });
 
 async function createApp() {
@@ -240,6 +241,65 @@ describe("webhooks controller", () => {
     expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
     expect(conversionEventsService.recordRuleMatches).not.toHaveBeenCalled();
     expect(conversionEventsQueueService.enqueueSend).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects Uazapi webhooks with invalid auth token when configured", async () => {
+    process.env.UAZAPI_WEBHOOK_AUTH_TOKEN = "secure-uazapi-webhook-token";
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      leadsService
+    } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_2"
+      })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .set("x-wpptrack-webhook-token", "wrong-token")
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_2"
+      })
+      .expect(401);
+
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+    expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
+    expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("accepts Uazapi webhooks with valid auth token from header or query", async () => {
+    process.env.UAZAPI_WEBHOOK_AUTH_TOKEN = "secure-uazapi-webhook-token";
+    const { app, diagnosticsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .set("x-wpptrack-webhook-token", "secure-uazapi-webhook-token")
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_2"
+      })
+      .expect(202);
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi?token=secure-uazapi-webhook-token")
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_3"
+      })
+      .expect(202);
+
+    expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledTimes(2);
 
     await app.close();
   });

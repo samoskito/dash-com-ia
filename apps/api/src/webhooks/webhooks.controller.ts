@@ -6,6 +6,7 @@ import {
   HttpCode,
   Inject,
   Post,
+  Query,
   UnauthorizedException
 } from "@nestjs/common";
 import type { DiagnosticSourceDto } from "@wpptrack/shared";
@@ -42,8 +43,15 @@ export class WebhooksController {
   @HttpCode(202)
   recordUazapi(
     @Body() body: WebhookBody,
-    @Headers("x-workspace-id") workspaceId?: string
+    @Headers("x-workspace-id") workspaceId?: string,
+    @Headers("x-wpptrack-webhook-token") webhookToken?: string,
+    @Headers("authorization") authorization?: string,
+    @Query("token") queryToken?: string
   ) {
+    this.assertUazapiWebhookToken(
+      webhookToken ?? this.getBearerToken(authorization) ?? queryToken
+    );
+
     return this.recordUazapiWebhook(body, workspaceId);
   }
 
@@ -214,6 +222,29 @@ export class WebhooksController {
     ) {
       throw new UnauthorizedException("Webhook Asaas nao autorizado");
     }
+  }
+
+  private assertUazapiWebhookToken(receivedToken?: string) {
+    const expectedToken = process.env.UAZAPI_WEBHOOK_AUTH_TOKEN;
+
+    if (!expectedToken) {
+      return;
+    }
+
+    if (
+      !receivedToken ||
+      this.hashToken(receivedToken) !== this.hashToken(expectedToken)
+    ) {
+      throw new UnauthorizedException("Webhook Uazapi nao autorizado");
+    }
+  }
+
+  private getBearerToken(authorization?: string): string | undefined {
+    if (!authorization?.startsWith("Bearer ")) {
+      return undefined;
+    }
+
+    return this.firstString(authorization.slice("Bearer ".length));
   }
 
   private hashToken(token: string): string {
