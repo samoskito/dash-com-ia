@@ -306,6 +306,8 @@ async function retryDiagnosticEvent(formData: FormData) {
         reason: "Retry solicitado pelo backoffice WppTrack"
       })
     });
+    revalidatePath("/backoffice");
+    revalidatePath(`/backoffice/diagnostics/${eventId}`);
   } catch {
     return;
   }

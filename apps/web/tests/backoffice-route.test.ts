@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import BackofficePage from "../src/app/(backoffice)/backoffice/page";
@@ -8,6 +9,18 @@ afterEach(() => {
 });
 
 describe("backoffice route", () => {
+  it("revalidates diagnostic pages after retrying from the list", () => {
+    const source = readFileSync(
+      "src/app/(backoffice)/backoffice/page.tsx",
+      "utf8"
+    );
+
+    expect(source).toContain('revalidatePath("/backoffice")');
+    expect(source).toContain(
+      "revalidatePath(`/backoffice/diagnostics/${eventId}`)"
+    );
+  });
+
   it("renders split receivers returned by the backend", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(

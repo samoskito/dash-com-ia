@@ -1,4 +1,5 @@
 import type { DiagnosticEventDetailDto } from "@wpptrack/shared";
+import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../../../lib/server-api";
 
 type DiagnosticEventPageProps = {
@@ -35,6 +36,8 @@ async function retryDiagnosticEvent(formData: FormData) {
         reason: "Retry solicitado na tela de detalhe do backoffice WppTrack"
       })
     });
+    revalidatePath("/backoffice");
+    revalidatePath(`/backoffice/diagnostics/${eventId}`);
   } catch {
     return;
   }
