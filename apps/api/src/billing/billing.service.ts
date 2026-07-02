@@ -5,6 +5,7 @@ import type {
   WhatsappInstanceQuoteDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { AsaasAdapter } from "./asaas.adapter";
 
 type BillingEnv = Record<string, string | undefined>;
 type AsaasPaymentWebhookPayload = Record<string, unknown>;
@@ -27,10 +28,20 @@ type PaymentChargeWithActivation = {
   } | null;
 };
 
+type WorkspaceBillingRecord = {
+  asaasCustomerId: string | null;
+};
+
+type SplitReceiverRecord = {
+  walletId: string;
+  percentageBps: number;
+};
+
 @Injectable()
 export class BillingService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AsaasAdapter) private readonly asaasAdapter: AsaasAdapter,
     private readonly env: BillingEnv = process.env
   ) {}
 
@@ -59,8 +70,9 @@ export class BillingService {
     input: WhatsappInstanceCheckoutInputDto
   ): Promise<WhatsappInstanceCheckoutDto> {
     const amountCents = this.getPricePerInstanceCents();
+    const description = `Ativacao da instancia WhatsApp ${input.instanceName}`;
 
-    return this.prisma.$transaction(async (tx) => {
+    const records = await this.prisma.$transaction(async (tx) => {
       const whatsappInstance = await tx.whatsappInstance.create({
         data: {
           workspaceId,
@@ -76,7 +88,7 @@ export class BillingService {
           status: "pending",
           externalChargeId: null,
           amountCents,
-          description: `Ativacao da instancia WhatsApp ${input.instanceName}`,
+          description,
           checkoutUrl: null
         }
       });
@@ -91,18 +103,57 @@ export class BillingService {
       });
 
       return {
-        workspaceId,
-        whatsappInstanceId: whatsappInstance.id,
-        activationId: activation.id,
-        chargeId: charge.id,
-        status: "pending_payment",
-        amountCents,
-        checkoutUrl: charge.checkoutUrl,
-        paymentProvider: "asaas",
-        paymentProviderStatus: "not_configured",
-        externalChargeId: charge.externalChargeId
+        activation,
+        charge,
+        whatsappInstance
       };
     });
+
+    const workspace = (await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: {
+        asaasCustomerId: true
+      }
+    })) as WorkspaceBillingRecord | null;
+    const splitReceivers = (await this.prisma.splitReceiver.findMany({
+      where: {
+        active: true
+      },
+      select: {
+        walletId: true,
+        percentageBps: true
+      }
+    })) as SplitReceiverRecord[];
+    const asaasPayment = await this.asaasAdapter.createPayment({
+      customerId: workspace?.asaasCustomerId ?? null,
+      localChargeId: records.charge.id,
+      amountCents,
+      description,
+      splitReceivers
+    });
+
+    if (asaasPayment.status === "created") {
+      await this.prisma.paymentCharge.update({
+        where: { id: records.charge.id },
+        data: {
+          externalChargeId: asaasPayment.externalChargeId,
+          checkoutUrl: asaasPayment.checkoutUrl
+        }
+      });
+    }
+
+    return {
+      workspaceId,
+      whatsappInstanceId: records.whatsappInstance.id,
+      activationId: records.activation.id,
+      chargeId: records.charge.id,
+      status: "pending_payment",
+      amountCents,
+      checkoutUrl: asaasPayment.checkoutUrl,
+      paymentProvider: "asaas",
+      paymentProviderStatus: asaasPayment.status,
+      externalChargeId: asaasPayment.externalChargeId
+    };
   }
 
   async processAsaasPaymentWebhook(

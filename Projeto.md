@@ -27,7 +27,8 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Central de Diagnostico agora possui retry auditado: `POST /backoffice/diagnostics/events/:id/retry` valida motivo, cria `AuditLog` com acao `diagnostic.retry_requested`, cria `JobAttempt` em `diagnostics.retry` e retorna status `queued`, sem reexecutar integracoes externas nesta etapa.
 - API de integracoes exposta sem credenciais externas: `GET /integrations/health`, `GET /integrations/meta/start`, `GET /integrations/uazapi/start` e `GET /integrations/asaas/status`.
 - Billing/ativacao de instancia WhatsApp scaffoldado: `GET /billing/whatsapp-instance/quote` e `POST /billing/whatsapp-instance/checkout`; checkout cria instancia `pending_payment`, cobranca pendente e ativacao pendente, sem liberar uso antes de webhook/pagamento futuro.
-- Checkout de instancia agora retorna metadados explicitos de pagamento: `paymentProvider: asaas`, `paymentProviderStatus` e `externalChargeId`. Sem credenciais/adapter real, o status fica `not_configured` e a cobranca segue local/pendente para preservar o fluxo pagamento-antes-da-ativacao.
+- Checkout de instancia agora retorna metadados explicitos de pagamento: `paymentProvider: asaas`, `paymentProviderStatus` e `externalChargeId`. Sem credenciais ou sem `asaasCustomerId` no workspace, o status fica `not_configured` e a cobranca segue local/pendente para preservar o fluxo pagamento-antes-da-ativacao.
+- Criacao real de cobranca Asaas foi preparada no backend: `AsaasAdapter` chama `POST /payments` com header `access_token`, `billingType: UNDEFINED`, valor em reais, `externalReference` apontando para a cobranca local e split percentual por `walletId` dos `SplitReceiver` ativos. Quando Asaas responde com `id`/`invoiceUrl`, o backend persiste `externalChargeId` e `checkoutUrl`.
 - Migrations reais adicionais aplicadas no Postgres local: `20260702034254_diagnostics_logs` e `20260702034847_billing_activation`.
 - Frontend parcialmente conectado ao backend: tela de login/cadastro chama `/auth/login` e `/auth/register`; pagina de integracoes tenta ler `/integrations/health`; backoffice tenta ler eventos diagnosticos reais com fallback visual.
 - Frontend agora possui middleware de protecao para `/overview`, `/leads`, `/reports`, `/integrations`, `/settings` e `/backoffice`, exigindo cookie `wpptrack_session`; o shell possui acao de logout chamando `/auth/logout`.
@@ -36,7 +37,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Migration real adicional aplicada no Postgres local: `20260702040655_conversion_rules`.
 - Verificacao apos regras de conversao: `pnpm test` passou com API 17 arquivos/44 testes, shared 16 testes e web 3 arquivos/8 testes; `pnpm typecheck` passou; `prisma migrate status` indicou schema atualizado com 5 migrations.
 - Processamento inicial de webhook Asaas implementado: `PAYMENT_RECEIVED`/`PAYMENT_CONFIRMED` ou status `RECEIVED`/`CONFIRMED` busca a cobranca por `externalChargeId` ou `chargeId` local, marca `PaymentCharge` como `paid`, ativa `WhatsappInstanceActivation` e muda a `WhatsappInstance` para `active`.
-- A criacao real da cobranca no Asaas ainda depende das credenciais/contrato final e do cadastro/mapeamento de cliente Asaas; o fluxo interno de ativacao pos-pagamento ja esta preparado e testado.
+- A criacao real da cobranca no Asaas agora esta plugada ao checkout, mas depende de `ASAAS_BASE_URL`, `ASAAS_API_KEY` e `Workspace.asaasCustomerId`. Ainda falta a tela/fluxo administrativo para cadastrar ou sincronizar o customer Asaas de cada workspace.
 - Webhook Uazapi agora avalia regras de conversao quando recebe `x-workspace-id`: extrai texto de mensagem e etiquetas comuns do payload, executa `/conversion-rules` internamente e cria `ConversionEventLog` para regras encontradas, com status `ready_to_send` quando ha `pixelId` e `adId`, ou `pending_meta_context` quando falta contexto Meta.
 - Backoffice de split recebeu API inicial: `GET /backoffice/split/receivers`, `POST /backoffice/split/receivers` e `PATCH /backoffice/split/receivers/:id`, usando `SplitReceiver` para nome, wallet Asaas, email, percentual em basis points e status ativo.
 - Tela de backoffice agora consulta `/backoffice/split/receivers` e exibe recebedores, wallet Asaas, email, percentual e status com fallback visual quando a API nao responde.
@@ -89,7 +90,7 @@ O foco principal e dar clareza operacional e performance para campanhas de Whats
 - Nao limitar por numero de conversas/leads no primeiro momento, pois a plataforma nao tera chat e a proposta e evitar atrito por volume de conversa.
 - Regra importante: **nova instancia de WhatsApp so deve ser liberada apos pagamento confirmado**.
 - Fluxo desejado: ao adicionar instancia, o frontend mostra o valor fixo por instancia; o backend cria a cobranca/checkout no Asaas; o usuario paga; o webhook do Asaas confirma; somente entao a instancia muda de pendente para ativa.
-- Implementacao atual ja cobre o controle interno desse fluxo: checkout local deixa instancia/cobranca/ativacao pendentes, identifica o provedor Asaas e o webhook Asaas confirmado ativa a instancia. Falta plugar a criacao real da cobranca/checkout no Asaas.
+- Implementacao atual ja cobre o controle interno desse fluxo: checkout local deixa instancia/cobranca/ativacao pendentes, tenta criar cobranca real no Asaas quando o workspace possui `asaasCustomerId`, identifica o provedor Asaas e o webhook Asaas confirmado ativa a instancia.
 - Evitar modelo "usa agora e paga depois", para reduzir risco de inadimplencia/calote.
 - O valor por instancia deve ser previsivel para o usuario, por exemplo: `quantidade de instancias ativas x valor fixo por instancia`.
 - Split Asaas: sera **percentual**, com contas/recebedores fixos definidos pela plataforma para socios do projeto. Usuarios finais nao configuram split.
@@ -97,7 +98,7 @@ O foco principal e dar clareza operacional e performance para campanhas de Whats
 - Acesso ao backoffice deve ser controlado por sessao e allowlist de emails da plataforma em `WPPTRACK_PLATFORM_ADMIN_EMAILS`.
 - No backoffice interno, os donos do SaaS poderao configurar as contas recebedoras do split Asaas e seus percentuais.
 - O backoffice de split deve permitir adicionar/remover socios/recebedores e ajustar percentuais quando houver mudanca societaria.
-- Implementacao atual ja possui API para listar, criar e atualizar recebedores de split e a tela de backoffice ja lista esses recebedores; falta aplicar os recebedores na criacao real das cobrancas Asaas.
+- Implementacao atual ja possui API para listar, criar e atualizar recebedores de split, a tela de backoffice ja lista esses recebedores, e os recebedores ativos sao enviados como split percentual na criacao real das cobrancas Asaas.
 - Backoffice interno aprovado: modelo **B+**, com financeiro/split, gestao de clientes/workspaces e uma **Central de Diagnostico** operacional.
 - A Central de Diagnostico deve permitir que o dono da plataforma, mesmo sem abrir banco/terminal, investigue problemas de webhooks, conversoes, Meta, Uazapi e Asaas.
 - Hospedagem/deploy escolhido: **Vercel para Next.js** e **VPS/Dokploy para NestJS, PostgreSQL, Redis/BullMQ e workers**.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BillingService } from "../src/billing/billing.service";
+import type { AsaasAdapter } from "../src/billing/asaas.adapter";
 
 type FakePrisma = {
   whatsappInstance: {
@@ -16,16 +17,37 @@ type FakePrisma = {
     findFirst: (args: unknown) => Promise<Record<string, unknown> | null>;
     update: (args: unknown) => Promise<Record<string, unknown>>;
   };
+  splitReceiver: {
+    findMany: (args: unknown) => Promise<Array<Record<string, unknown>>>;
+  };
+  workspace: {
+    findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
+  };
   $transaction: <T>(callback: (tx: FakePrisma) => Promise<T>) => Promise<T>;
 };
 
-function createHarness() {
+function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
   const db = {
     instances: [] as Array<Record<string, unknown>>,
     charges: [] as Array<Record<string, unknown>>,
-    activations: [] as Array<Record<string, unknown>>
+    activations: [] as Array<Record<string, unknown>>,
+    splitReceivers: [] as Array<Record<string, unknown>>,
+    workspaces: [
+      {
+        id: "workspace_1",
+        asaasCustomerId: null
+      }
+    ] as Array<Record<string, unknown>>
   };
   const prisma: FakePrisma = {
+    workspace: {
+      findUnique: async (args) => {
+        const { where } = args as { where: { id: string } };
+        return (
+          db.workspaces.find((workspace) => workspace.id === where.id) ?? null
+        );
+      }
+    },
     whatsappInstance: {
       count: async (args) => {
         const { where } = args as { where: Record<string, unknown> };
@@ -107,6 +129,14 @@ function createHarness() {
         return db.charges[index];
       }
     },
+    splitReceiver: {
+      findMany: async (args) => {
+        const { where } = args as { where: Record<string, unknown> };
+        return db.splitReceivers.filter(
+          (receiver) => receiver.active === where.active
+        );
+      }
+    },
     whatsappInstanceActivation: {
       create: async (args) => {
         const { data } = args as { data: Record<string, unknown> };
@@ -138,9 +168,19 @@ function createHarness() {
 
   return {
     db,
-    service: new BillingService(prisma as never, {
-      WPPTRACK_WHATSAPP_INSTANCE_PRICE_CENTS: "12900"
-    })
+    service: new BillingService(
+      prisma as never,
+      (asaasAdapter ?? {
+        createPayment: async () => ({
+          status: "not_configured" as const,
+          externalChargeId: null,
+          checkoutUrl: null
+        })
+      }) as never,
+      {
+        WPPTRACK_WHATSAPP_INSTANCE_PRICE_CENTS: "12900"
+      }
+    )
   };
 }
 
@@ -194,6 +234,42 @@ describe("billing service", () => {
     expect(db.activations[0]).toMatchObject({
       status: "pending_payment",
       amountCents: 12900
+    });
+  });
+
+  it("creates an Asaas payment when credentials and customer are ready", async () => {
+    const adapter = {
+      createPayment: async () => ({
+        status: "created" as const,
+        externalChargeId: "pay_asaas_1",
+        checkoutUrl: "https://sandbox.asaas.com/i/pay_asaas_1"
+      })
+    };
+    const { db, service } = createHarness(adapter);
+    db.workspaces[0].asaasCustomerId = "cus_asaas_1";
+    db.splitReceivers.push({
+      id: "receiver_1",
+      walletId: "wallet_1",
+      percentageBps: 2500,
+      active: true
+    });
+
+    const checkout = await service.createWhatsappInstanceCheckout(
+      "workspace_1",
+      {
+        instanceName: "Comercial",
+        provider: "uazapi"
+      }
+    );
+
+    expect(checkout).toMatchObject({
+      paymentProviderStatus: "created",
+      externalChargeId: "pay_asaas_1",
+      checkoutUrl: "https://sandbox.asaas.com/i/pay_asaas_1"
+    });
+    expect(db.charges[0]).toMatchObject({
+      externalChargeId: "pay_asaas_1",
+      checkoutUrl: "https://sandbox.asaas.com/i/pay_asaas_1"
     });
   });
 
