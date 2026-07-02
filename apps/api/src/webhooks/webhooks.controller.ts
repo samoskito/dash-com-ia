@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import type { DiagnosticSourceDto } from "@wpptrack/shared";
 import { BillingService } from "../billing/billing.service";
+import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
 import { ConversionEventsService } from "../conversion-events/conversion-events.service";
 import { ConversionRulesService } from "../conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../diagnostics/diagnostics.service";
@@ -26,7 +27,9 @@ export class WebhooksController {
     @Inject(ConversionRulesService)
     private readonly conversionRulesService: ConversionRulesService,
     @Inject(ConversionEventsService)
-    private readonly conversionEventsService: ConversionEventsService
+    private readonly conversionEventsService: ConversionEventsService,
+    @Inject(ConversionEventsQueueService)
+    private readonly conversionEventsQueueService: ConversionEventsQueueService
   ) {}
 
   @Post("uazapi")
@@ -138,9 +141,9 @@ export class WebhooksController {
       adSetId: this.firstString(body.adSetId),
       adId: this.firstString(body.adId)
     });
-    const sent = await Promise.all(
+    const queued = await Promise.all(
       conversion.created.map((logId) =>
-        this.conversionEventsService.sendReadyEvent(logId)
+        this.conversionEventsQueueService.enqueueSend(logId)
       )
     );
 
@@ -148,7 +151,7 @@ export class WebhooksController {
       ...diagnostic,
       conversion: {
         ...conversion,
-        sent
+        queued
       }
     };
   }

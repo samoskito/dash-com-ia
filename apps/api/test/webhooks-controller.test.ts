@@ -2,6 +2,7 @@ import { Test } from "@nestjs/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { BillingService } from "../src/billing/billing.service";
+import { ConversionEventsQueueService } from "../src/common/queue/conversion-events-queue.service";
 import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
 import { ConversionRulesService } from "../src/conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
@@ -47,10 +48,13 @@ async function createApp() {
   const conversionEventsService = {
     recordRuleMatches: vi.fn(async () => ({
       created: ["conversion_1"]
-    })),
-    sendReadyEvent: vi.fn(async () => ({
+    }))
+  };
+  const conversionEventsQueueService = {
+    enqueueSend: vi.fn(async () => ({
       conversionEventLogId: "conversion_1",
-      status: "sent"
+      jobId: "conversion-send:conversion_1",
+      status: "queued"
     }))
   };
 
@@ -60,7 +64,11 @@ async function createApp() {
       { provide: DiagnosticsService, useValue: diagnosticsService },
       { provide: BillingService, useValue: billingService },
       { provide: ConversionRulesService, useValue: conversionRulesService },
-      { provide: ConversionEventsService, useValue: conversionEventsService }
+      { provide: ConversionEventsService, useValue: conversionEventsService },
+      {
+        provide: ConversionEventsQueueService,
+        useValue: conversionEventsQueueService
+      }
     ]
   }).compile();
 
@@ -72,7 +80,8 @@ async function createApp() {
     diagnosticsService,
     billingService,
     conversionRulesService,
-    conversionEventsService
+    conversionEventsService,
+    conversionEventsQueueService
   };
 }
 
@@ -82,7 +91,8 @@ describe("webhooks controller", () => {
       app,
       diagnosticsService,
       conversionRulesService,
-      conversionEventsService
+      conversionEventsService,
+      conversionEventsQueueService
     } = await createApp();
 
     await request(app.getHttpServer())
@@ -102,10 +112,11 @@ describe("webhooks controller", () => {
         expect(body.status).toBe("received");
         expect(body.webhookLogId).toBe("webhook_1");
         expect(body.conversion.created).toEqual(["conversion_1"]);
-        expect(body.conversion.sent).toEqual([
+        expect(body.conversion.queued).toEqual([
           {
             conversionEventLogId: "conversion_1",
-            status: "sent"
+            jobId: "conversion-send:conversion_1",
+            status: "queued"
           }
         ]);
       });
@@ -133,7 +144,7 @@ describe("webhooks controller", () => {
         ])
       })
     );
-    expect(conversionEventsService.sendReadyEvent).toHaveBeenCalledWith(
+    expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
       "conversion_1"
     );
 

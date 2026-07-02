@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONVERSION_EVENTS_QUEUE,
   DIAGNOSTIC_QUEUE,
+  type ConversionEventJobPayload,
   type DiagnosticJobPayload
 } from "../src/common/queue/queue.constants";
 
@@ -18,5 +20,14 @@ describe("diagnostic queue contract", () => {
     };
 
     expect(payload.source).toBe("meta");
+  });
+
+  it("uses the conversion events queue contract", () => {
+    const payload: ConversionEventJobPayload = {
+      conversionEventLogId: "conversion_1"
+    };
+
+    expect(CONVERSION_EVENTS_QUEUE).toBe("conversion-events");
+    expect(payload.conversionEventLogId).toBe("conversion_1");
   });
 });
