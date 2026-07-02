@@ -425,6 +425,103 @@ describe("reports route", () => {
     expect(html).not.toContain("Black Friday WhatsApp");
   });
 
+  it("renders unknown Meta structure statuses in Portuguese", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            campaigns: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            campaigns: [
+              {
+                id: "cmp_1",
+                name: "Campanha Meta",
+                status: null,
+                effectiveStatus: null,
+                objective: null,
+                adSets: [
+                  {
+                    id: "adset_1",
+                    name: "Publico",
+                    status: null,
+                    effectiveStatus: null,
+                    ads: [
+                      {
+                        id: "ad_1",
+                        name: "Criativo",
+                        status: null,
+                        effectiveStatus: null
+                      }
+                    ]
+                  },
+                  {
+                    id: "adset_2",
+                    name: "Publico sem anuncio",
+                    status: null,
+                    effectiveStatus: null,
+                    ads: []
+                  }
+                ]
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            adSets: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            ads: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "workspace_1",
+            name: "Workspace",
+            slug: "workspace",
+            role: "owner",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await ReportsPage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Status desconhecido");
+    expect(html).not.toContain(">unknown<");
+  });
+
   it("hides Meta sync action for workspace members", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(

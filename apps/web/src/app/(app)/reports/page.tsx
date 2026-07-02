@@ -50,6 +50,25 @@ function money(cents: number | null) {
   });
 }
 
+function metaStatusLabel(status: string | null | undefined) {
+  if (!status) {
+    return "Status desconhecido";
+  }
+
+  const labels: Record<string, string> = {
+    ACTIVE: "Ativo",
+    PAUSED: "Pausado",
+    DELETED: "Excluido",
+    ARCHIVED: "Arquivado",
+    IN_PROCESS: "Em processamento",
+    WITH_ISSUES: "Com problemas",
+    CAMPAIGN_PAUSED: "Campanha pausada",
+    ADSET_PAUSED: "Conjunto pausado"
+  };
+
+  return labels[status.toUpperCase()] ?? "Status desconhecido";
+}
+
 async function getCampaignReports(filters: {
   since?: string;
   until?: string;
@@ -705,7 +724,7 @@ export default async function ReportsPage({
                             </td>
                             <td>
                               <span className="event-chip">
-                                {ad.effectiveStatus ?? ad.status ?? "unknown"}
+                                {metaStatusLabel(ad.effectiveStatus ?? ad.status)}
                               </span>
                             </td>
                           </tr>
@@ -723,7 +742,7 @@ export default async function ReportsPage({
                             <td>Sem anuncios sincronizados</td>
                             <td>
                               <span className="event-chip warn">
-                                {adSet.effectiveStatus ?? adSet.status ?? "unknown"}
+                                {metaStatusLabel(adSet.effectiveStatus ?? adSet.status)}
                               </span>
                             </td>
                           </tr>
