@@ -493,6 +493,7 @@ Checkpoint atual:
 - Integracoes agora tambem exibe status/QR real da conexao Uazapi para instancias WhatsApp ativas, usando os endpoints ja existentes de status/conexao.
 - Pipeline de sinal deixou de exibir `aguardando dados`/`sem metrica` fixos e passou a renderizar contadores reais vindos de `WebhookLog`, `Lead` e `ConversionEventLog`.
 - API nao registra mais o endpoint legado `/mock/reports/overview`; dados demonstrativos restantes devem existir apenas dentro de testes automatizados.
+- `next dev` do web foi estabilizado em 2026-07-02: o Next agora resolve `@wpptrack/shared` para `packages/shared/src` via alias em `apps/web/next.config.mjs`, evitando que o dev server compile o `dist/index.js` CommonJS do pacote compartilhado e quebre com `Cannot use import.meta outside a module` no React Refresh.
 
 Proximo passo operacional:
 
