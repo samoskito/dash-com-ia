@@ -218,7 +218,22 @@ export class WebhooksController {
   }
 
   private async recordUazapiWebhook(body: WebhookBody, workspaceId?: string) {
-    const diagnostic = await this.record("uazapi", body, workspaceId);
+    const metadata = this.getUazapiWebhookMetadata(body);
+    const diagnostic = await this.diagnosticsService.recordWebhookLog({
+      workspaceId,
+      source: "uazapi",
+      eventType: metadata.eventType,
+      externalEventId: metadata.externalEventId,
+      idempotencyKey: metadata.externalEventId
+        ? `uazapi:${metadata.externalEventId}`
+        : undefined,
+      leadId: metadata.leadId,
+      phoneHash: metadata.phoneHash,
+      campaignId: metadata.campaignId,
+      adSetId: metadata.adSetId,
+      adId: metadata.adId,
+      summaryPayload: body
+    });
 
     if (diagnostic.status === "duplicate") {
       return {
@@ -267,7 +282,7 @@ export class WebhooksController {
       workspaceId,
       rules,
       leadId: lead?.id ?? this.firstString(body.leadId),
-      phoneHash: this.firstString(body.phoneHash),
+      phoneHash: metadata.phoneHash,
       campaignId: this.firstString(body.campaignId),
       adSetId: this.firstString(body.adSetId),
       adId: this.firstString(body.adId)
@@ -297,6 +312,29 @@ export class WebhooksController {
     }
 
     return this.firstString(body.object) ?? this.firstString(body.event) ?? "meta.webhook";
+  }
+
+  private getUazapiWebhookMetadata(body: WebhookBody): {
+    eventType: string;
+    externalEventId?: string;
+    leadId?: string;
+    phoneHash?: string;
+    campaignId?: string;
+    adSetId?: string;
+    adId?: string;
+  } {
+    return {
+      eventType: this.getEventType("uazapi", body),
+      externalEventId:
+        this.firstString(body.id) ??
+        this.firstString(body.eventId) ??
+        this.firstString(body.externalEventId),
+      leadId: this.firstString(body.leadId),
+      phoneHash: this.firstString(body.phoneHash) ?? this.hashPhone(this.getPhone(body)),
+      campaignId: this.firstString(body.campaignId),
+      adSetId: this.firstString(body.adSetId),
+      adId: this.firstString(body.adId)
+    };
   }
 
   private firstString(value: unknown): string | undefined {
@@ -376,6 +414,20 @@ export class WebhooksController {
         ? this.firstString((contact as Record<string, unknown>).name)
         : undefined)
     );
+  }
+
+  private hashPhone(phone?: string): string | undefined {
+    const normalized = this.normalizePhone(phone);
+
+    return normalized
+      ? createHash("sha256").update(normalized).digest("hex")
+      : undefined;
+  }
+
+  private normalizePhone(phone?: string): string | undefined {
+    const digits = phone?.replace(/\D/g, "");
+
+    return digits || undefined;
   }
 
   private labelToString(label: unknown): string | undefined {

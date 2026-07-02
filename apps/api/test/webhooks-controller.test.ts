@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Test } from "@nestjs/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
@@ -95,6 +96,9 @@ async function createApp() {
 
 describe("webhooks controller", () => {
   it("records Uazapi webhooks", async () => {
+    const expectedPhoneHash = createHash("sha256")
+      .update("5511988441020")
+      .digest("hex");
     const {
       app,
       diagnosticsService,
@@ -116,8 +120,10 @@ describe("webhooks controller", () => {
         },
         labels: ["Venda fechada"],
         phone: "+55 11 98844-1020",
+        leadId: "lead_external_1",
         name: "Mariana Alves",
         campaignId: "cmp_1",
+        adSetId: "adset_1",
         adId: "ad_1"
       })
       .expect(202)
@@ -139,7 +145,12 @@ describe("webhooks controller", () => {
         workspaceId: "workspace_1",
         source: "uazapi",
         eventType: "message.received",
-        externalEventId: "evt_uazapi_1"
+        externalEventId: "evt_uazapi_1",
+        leadId: "lead_external_1",
+        phoneHash: expectedPhoneHash,
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1"
       })
     );
     expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
@@ -165,6 +176,7 @@ describe("webhooks controller", () => {
         phone: "+55 11 98844-1020",
         labels: ["Venda fechada"],
         campaignId: "cmp_1",
+        adSetId: "adset_1",
         adId: "ad_1"
       })
     );

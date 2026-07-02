@@ -156,6 +156,8 @@ export type WebhookLogInput = {
   eventType: string;
   externalEventId?: string;
   idempotencyKey?: string;
+  leadId?: string;
+  phoneHash?: string;
   campaignId?: string;
   adSetId?: string;
   adId?: string;
@@ -240,6 +242,8 @@ export class DiagnosticsService {
         source: input.source,
         eventType: input.eventType,
         externalEventId: input.externalEventId ?? null,
+        leadId: input.leadId ?? null,
+        phoneHash: input.phoneHash ?? null,
         campaignId: input.campaignId ?? null,
         adSetId: input.adSetId ?? null,
         adId: input.adId ?? null,
@@ -261,6 +265,8 @@ export class DiagnosticsService {
         status: "received",
         title: `Webhook ${input.source} recebido`,
         message: `Evento ${input.eventType} recebido para processamento`,
+        leadId: input.leadId ?? null,
+        phoneHash: input.phoneHash ?? null,
         campaignId: input.campaignId ?? null,
         adSetId: input.adSetId ?? null,
         adId: input.adId ?? null,

@@ -262,6 +262,40 @@ describe("diagnostics service", () => {
     });
   });
 
+  it("records webhook diagnostic metadata for lead and attribution lookup", async () => {
+    const { events, service, webhookLogs } = createHarness();
+
+    await service.recordWebhookLog({
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      eventType: "message.received",
+      externalEventId: "evt_uazapi_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      summaryPayload: {
+        message: "Venda fechada"
+      }
+    });
+
+    expect(webhookLogs[0]).toMatchObject({
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1"
+    });
+    expect(events[0]).toMatchObject({
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1"
+    });
+  });
+
   it("queues an audited retry without calling external providers", async () => {
     const { auditLogs, events, jobAttempts, service } = createHarness();
     await service.recordEvent({
