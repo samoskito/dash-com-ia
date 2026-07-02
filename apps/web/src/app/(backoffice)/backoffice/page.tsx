@@ -50,6 +50,7 @@ type IntegrationLogFilters = Omit<
   DiagnosticFilters,
   "severity" | "phoneHash" | "errorCode" | "eventType"
 > & {
+  jobId?: string;
   operation?: string;
   providerErrorCode?: string;
 };
@@ -505,12 +506,15 @@ export default async function BackofficePage({
     campaignId: diagnosticFilters.campaignId,
     adSetId: diagnosticFilters.adSetId,
     adId: diagnosticFilters.adId,
+    jobId: asStringParam(resolvedSearchParams.jobId),
     providerErrorCode: diagnosticFilters.errorCode
   };
   const conversionEventLogFilters: ConversionEventLogFilters = {
     workspaceId: diagnosticFilters.workspaceId,
     status: diagnosticFilters.status,
     eventName: diagnosticFilters.eventType,
+    sourceTrigger: asStringParam(resolvedSearchParams.sourceTrigger),
+    pixelId: asStringParam(resolvedSearchParams.pixelId),
     q: diagnosticFilters.q,
     since: diagnosticFilters.since,
     until: diagnosticFilters.until,
@@ -554,7 +558,10 @@ export default async function BackofficePage({
   const activeDiagnosticFilterCount = Object.values({
     ...diagnosticFilters,
     jobName: jobAttemptFilters.jobName,
-    queueName: jobAttemptFilters.queueName
+    queueName: jobAttemptFilters.queueName,
+    jobId: integrationLogFilters.jobId,
+    pixelId: conversionEventLogFilters.pixelId,
+    sourceTrigger: conversionEventLogFilters.sourceTrigger
   }).filter(Boolean).length;
   const activePaymentChargeFilterCount = Object.values(paymentChargeFilters).filter(
     Boolean
@@ -1025,6 +1032,24 @@ export default async function BackofficePage({
             name="jobName"
             placeholder="Job"
             defaultValue={jobAttemptFilters.jobName}
+          />
+          <input
+            className="filter-control"
+            name="jobId"
+            placeholder="ID do job"
+            defaultValue={integrationLogFilters.jobId}
+          />
+          <input
+            className="filter-control"
+            name="sourceTrigger"
+            placeholder="Gatilho CAPI"
+            defaultValue={conversionEventLogFilters.sourceTrigger}
+          />
+          <input
+            className="filter-control"
+            name="pixelId"
+            placeholder="Pixel"
+            defaultValue={conversionEventLogFilters.pixelId}
           />
           <input
             className="filter-control"
