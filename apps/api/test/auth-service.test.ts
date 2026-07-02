@@ -384,7 +384,8 @@ describe("auth service session lifecycle", () => {
         id: "workspace_1",
         name: "Comunidade NOD",
         slug: "comunidade-nod",
-        role: "owner"
+        role: "owner",
+        operationalStatus: "active"
       }
     ]);
     expect(result.refreshToken).toHaveLength(64);

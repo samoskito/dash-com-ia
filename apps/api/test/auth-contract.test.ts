@@ -71,7 +71,8 @@ describe("auth contracts", () => {
                 workspace: {
                   id: "workspace_1",
                   name: "WppTrack",
-                  slug: "wpptrack"
+                  slug: "wpptrack",
+                  operationalStatus: "blocked"
                 }
               }
             ]
@@ -92,7 +93,8 @@ describe("auth contracts", () => {
         id: "workspace_1",
         name: "WppTrack",
         slug: "wpptrack",
-        role: "owner"
+        role: "owner",
+        operationalStatus: "blocked"
       }
     ]);
   });

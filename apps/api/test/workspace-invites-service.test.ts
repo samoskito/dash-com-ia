@@ -26,7 +26,8 @@ const ownerAuthenticated = {
       id: "workspace_1",
       name: "Comunidade NOD",
       slug: "comunidade-nod",
-      role: "owner" as const
+      role: "owner" as const,
+      operationalStatus: "active" as const
     }
   ]
 };

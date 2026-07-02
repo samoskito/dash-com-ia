@@ -83,6 +83,10 @@ export class WorkspacesService {
       throw new NotFoundException("Workspace nao encontrado");
     }
 
+    if (workspace.operationalStatus === "blocked") {
+      throw new ForbiddenException("Workspace bloqueado operacionalmente");
+    }
+
     return {
       ...workspace,
       permissions: this.getPermissions(workspace.role)
@@ -168,6 +172,7 @@ export class WorkspacesService {
     return {
       ...updated,
       role: workspace.role,
+      operationalStatus: workspace.operationalStatus,
       permissions: workspace.permissions
     };
   }

@@ -1,3 +1,4 @@
+import { ForbiddenException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
@@ -84,7 +85,8 @@ describe("workspace contracts", () => {
             id: "workspace_1",
             name: "Comunidade NOD",
             slug: "comunidade-nod",
-            role: "owner"
+            role: "owner",
+            operationalStatus: "active"
           }
         ]
       },
@@ -114,5 +116,30 @@ describe("workspace contracts", () => {
     expect(auditLogs[0].afterSummary).toMatchObject({
       name: "Loja Samuel"
     });
+  });
+
+  it("blocks client-facing access when the current workspace is operationally blocked", () => {
+    const service = new WorkspacesService(prisma as never);
+
+    expect(() =>
+      service.getCurrentWorkspace({
+        user: {
+          id: "user_1",
+          email: "owner@wpptrack.com",
+          name: "Owner",
+          authProvider: "email",
+          emailVerifiedAt: null
+        },
+        workspaces: [
+          {
+            id: "workspace_1",
+            name: "Comunidade NOD",
+            slug: "comunidade-nod",
+            role: "owner",
+            operationalStatus: "blocked"
+          }
+        ]
+      })
+    ).toThrow(ForbiddenException);
   });
 });

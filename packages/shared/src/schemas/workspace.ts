@@ -14,7 +14,8 @@ export const workspaceSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   slug: z.string().min(1),
-  role: z.enum(workspaceRoles)
+  role: z.enum(workspaceRoles),
+  operationalStatus: z.enum(workspaceOperationalStatuses).default("active")
 });
 
 export const currentWorkspaceSchema = workspaceSchema.extend({

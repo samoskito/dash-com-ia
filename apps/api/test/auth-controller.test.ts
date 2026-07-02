@@ -21,7 +21,8 @@ const authPayload = {
       id: "workspace_1",
       name: "Comunidade NOD",
       slug: "comunidade-nod",
-      role: "owner"
+      role: "owner",
+      operationalStatus: "active"
     }
   ],
   refreshToken: "a".repeat(64),

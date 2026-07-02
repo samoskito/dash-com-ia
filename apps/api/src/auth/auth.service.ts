@@ -50,6 +50,7 @@ type WorkspaceMembershipRecord = {
     id: string;
     name: string;
     slug: string;
+    operationalStatus?: AuthenticatedUser["workspaces"][number]["operationalStatus"];
   };
 };
 
@@ -857,7 +858,11 @@ export class AuthService {
         id: membership.workspace.id,
         name: membership.workspace.name,
         slug: membership.workspace.slug,
-        role: membership.role
+        role: membership.role,
+        operationalStatus:
+          membership.workspace.operationalStatus === "blocked"
+            ? "blocked"
+            : "active"
       }))
     };
   }
