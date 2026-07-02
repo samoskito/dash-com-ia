@@ -1,4 +1,9 @@
-import { randomBytes, createHash } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual
+} from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -1067,26 +1072,73 @@ export class AuthService {
   }
 
   private createOAuthState(redirectTo?: string): string {
-    const payload = JSON.stringify({
-      redirectTo: redirectTo ?? "/overview",
-      nonce: randomBytes(16).toString("hex")
-    });
+    const payload = Buffer.from(
+      JSON.stringify({
+        redirectTo: this.safeRedirectPath(redirectTo ?? "/overview"),
+        nonce: randomBytes(16).toString("hex")
+      })
+    ).toString("base64url");
+    const signature = this.signOAuthStatePayload(payload);
 
-    return Buffer.from(payload).toString("base64url");
+    return `${payload}.${signature}`;
   }
 
   private readOAuthRedirect(state: string): string {
+    const [payload, signature] = state.split(".");
+
+    if (
+      !payload ||
+      !signature ||
+      !this.isValidOAuthStateSignature(payload, signature)
+    ) {
+      return "/overview";
+    }
+
     try {
       const decoded = JSON.parse(
-        Buffer.from(state, "base64url").toString("utf8")
+        Buffer.from(payload, "base64url").toString("utf8")
       ) as { redirectTo?: unknown };
 
-      return typeof decoded.redirectTo === "string" && decoded.redirectTo
-        ? decoded.redirectTo
-        : "/overview";
+      return this.safeRedirectPath(decoded.redirectTo);
     } catch {
       return "/overview";
     }
+  }
+
+  private safeRedirectPath(path: unknown): string {
+    return typeof path === "string" &&
+      path.startsWith("/") &&
+      !path.startsWith("//")
+      ? path
+      : "/overview";
+  }
+
+  private signOAuthStatePayload(payload: string): string {
+    return createHmac("sha256", this.getOAuthStateSecret())
+      .update(payload)
+      .digest("base64url");
+  }
+
+  private isValidOAuthStateSignature(
+    payload: string,
+    signature: string
+  ): boolean {
+    const expected = Buffer.from(this.signOAuthStatePayload(payload));
+    const received = Buffer.from(signature);
+
+    return (
+      expected.length === received.length &&
+      timingSafeEqual(expected, received)
+    );
+  }
+
+  private getOAuthStateSecret(): string {
+    return (
+      this.env.GOOGLE_OAUTH_STATE_SECRET ??
+      this.env.JWT_REFRESH_SECRET ??
+      this.env.GOOGLE_CLIENT_SECRET ??
+      "wpptrack-dev-oauth-state-secret"
+    );
   }
 
   private async createActionToken(

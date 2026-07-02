@@ -8,6 +8,21 @@ function createService(
   return new AuthService({} as never, {} as never, env, fetchImpl);
 }
 
+function tamperOAuthStateRedirect(state: string, redirectTo: string): string {
+  const [payload, signature] = state.split(".");
+  const decoded = JSON.parse(
+    Buffer.from(payload ?? state, "base64url").toString("utf8")
+  ) as Record<string, unknown>;
+  const tamperedPayload = Buffer.from(
+    JSON.stringify({
+      ...decoded,
+      redirectTo
+    })
+  ).toString("base64url");
+
+  return signature ? `${tamperedPayload}.${signature}` : tamperedPayload;
+}
+
 describe("google oauth service", () => {
   it("returns missing env action when Google credentials are not configured", () => {
     const service = createService({});
@@ -58,6 +73,30 @@ describe("google oauth service", () => {
       action: "configure_env",
       missingEnv: ["GOOGLE_CLIENT_SECRET"],
       codeReceived: true,
+      redirectTo: "/overview"
+    });
+  });
+
+  it("ignores tampered Google OAuth state redirects", async () => {
+    const service = createService({
+      GOOGLE_CLIENT_ID: "client_123",
+      GOOGLE_REDIRECT_URI: "https://api.wpptrack.test/auth/google/callback"
+    });
+    const start = service.getGoogleOAuthStart({
+      redirectTo: "/reports"
+    });
+    const tamperedState = tamperOAuthStateRedirect(
+      start.state!,
+      "/settings"
+    );
+
+    const result = await service.handleGoogleOAuthCallback({
+      code: "oauth-code",
+      state: tamperedState
+    });
+
+    expect(result).toMatchObject({
+      action: "configure_env",
       redirectTo: "/overview"
     });
   });
