@@ -2,6 +2,12 @@ import type { CampaignReportRowDto, ReportOverviewDto } from "@wpptrack/shared";
 import { serverApiFetch } from "../../../lib/server-api";
 import { mockReportOverview } from "../../../mock/reporting";
 
+type OverviewFetchState = "real" | "empty" | "fallback";
+type OverviewReportResult = {
+  report: ReportOverviewDto;
+  state: OverviewFetchState;
+};
+
 function money(cents: number | null) {
   if (cents === null) {
     return "-";
@@ -13,11 +19,19 @@ function money(cents: number | null) {
   });
 }
 
-async function getOverviewReport(): Promise<ReportOverviewDto> {
+async function getOverviewReport(): Promise<OverviewReportResult> {
   try {
-    return await serverApiFetch<ReportOverviewDto>("/reports/campaigns");
+    const report = await serverApiFetch<ReportOverviewDto>("/reports/campaigns");
+
+    return {
+      report,
+      state: report.campaigns.length > 0 ? "real" : "empty"
+    };
   } catch {
-    return mockReportOverview;
+    return {
+      report: mockReportOverview,
+      state: "fallback"
+    };
   }
 }
 
@@ -43,7 +57,12 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
 
   return {
     id: "all_campaigns",
-    name: campaigns.length === 1 ? campaigns[0]?.name ?? "Campanha" : "Todas as campanhas",
+    name:
+      campaigns.length === 0
+        ? "Nenhuma campanha sincronizada"
+        : campaigns.length === 1
+          ? campaigns[0]?.name ?? "Campanha"
+          : "Todas as campanhas",
     status: campaigns.some((campaign) => campaign.status === "active") ? "active" : "unknown",
     spendCents,
     metaConversationsStarted,
@@ -73,7 +92,7 @@ function funnelWidth(part: number, total: number): string {
 }
 
 export default async function OverviewPage() {
-  const report = await getOverviewReport();
+  const { report, state: reportState } = await getOverviewReport();
   const campaigns = report.campaigns;
   const campaign = sumCampaigns(campaigns);
   const trackedRate = percent(campaign.realConversations, campaign.metaConversationsStarted);
@@ -95,11 +114,14 @@ export default async function OverviewPage() {
           <span className="tag">{report.rangeLabel}</span>
           <span className="tag">{campaigns.length} campanhas</span>
           <span className="tag">{trackedRate}% conciliadas</span>
+          {reportState === "fallback" ? (
+            <span className="tag">Dados de demonstracao</span>
+          ) : null}
         </div>
       </header>
 
       <div className="metric-grid">
-        <Metric label="Conversas Meta" value={String(campaign.metaConversationsStarted)} delta="+12.4% vs periodo anterior" />
+        <Metric label="Conversas Meta" value={String(campaign.metaConversationsStarted)} delta={report.rangeLabel} />
         <Metric label="Conversas reais" value={String(campaign.realConversations)} delta={`${trackedRate}% conciliadas`} />
         <Metric label="LeadSubmitted" value={String(campaign.leadSubmitted)} delta={`${leadRate}% das conversas reais`} />
         <Metric label="Purchase" value={String(campaign.purchase)} delta={`${purchaseRate}% dos leads`} />
@@ -112,8 +134,9 @@ export default async function OverviewPage() {
             <h2>{campaign.name}</h2>
           </div>
           <p>
-            Investimento de {money(campaign.spendCents)} gerou {campaign.realConversations} conversas
-            reais, {campaign.leadSubmitted} leads e {campaign.purchase} compras atribuidas.
+            {campaigns.length > 0
+              ? `Investimento de ${money(campaign.spendCents)} gerou ${campaign.realConversations} conversas reais, ${campaign.leadSubmitted} leads e ${campaign.purchase} compras atribuidas.`
+              : "Nenhuma campanha sincronizada. Use Sincronizar Meta em Relatorios para carregar dados reais."}
           </p>
           <div className="funnel-row" aria-label="Resumo do funil">
             <FunnelStep label="Meta conv." value={campaign.metaConversationsStarted} width="100%" />
@@ -139,9 +162,13 @@ export default async function OverviewPage() {
             />
           </div>
           <div className="chip-row" aria-label="Campanhas no recorte">
-            {campaigns.map((item) => (
-              <span className="event-chip" key={item.id}>{item.name}</span>
-            ))}
+            {campaigns.length > 0 ? (
+              campaigns.map((item) => (
+                <span className="event-chip" key={item.id}>{item.name}</span>
+              ))
+            ) : (
+              <span className="event-chip warn">aguardando sync</span>
+            )}
           </div>
         </div>
 

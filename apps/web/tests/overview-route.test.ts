@@ -71,4 +71,36 @@ describe("overview route", () => {
     expect(html).toContain(">1<");
     expect(html).not.toContain("Black Friday WhatsApp");
   });
+
+  it("renders an empty overview state without mock campaign data", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          workspaceId: "workspace_1",
+          rangeLabel: "Ultimos 7 dias",
+          campaigns: []
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const element = await OverviewPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Nenhuma campanha sincronizada");
+    expect(html).toContain("0 campanhas");
+    expect(html).not.toContain("Black Friday WhatsApp");
+  });
+
+  it("marks overview fallback data explicitly when backend is unavailable", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("offline", { status: 503 })
+    );
+
+    const element = await OverviewPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Dados de demonstracao");
+    expect(html).toContain("Black Friday WhatsApp");
+  });
 });

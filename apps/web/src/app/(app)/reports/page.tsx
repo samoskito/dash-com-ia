@@ -4,6 +4,11 @@ import { serverApiFetch } from "../../../lib/server-api";
 import { mockReportOverview } from "../../../mock/reporting";
 
 type ReportsSearchParams = Record<string, string | string[] | undefined>;
+type ReportFetchState = "real" | "empty" | "fallback";
+type CampaignReportsResult = {
+  report: ReportOverviewDto;
+  state: ReportFetchState;
+};
 
 function money(cents: number | null) {
   if (cents === null) {
@@ -19,7 +24,7 @@ function money(cents: number | null) {
 async function getCampaignReports(filters: {
   since?: string;
   until?: string;
-}): Promise<ReportOverviewDto> {
+}): Promise<CampaignReportsResult> {
   try {
     const params = new URLSearchParams();
 
@@ -33,11 +38,19 @@ async function getCampaignReports(filters: {
 
     const query = params.toString();
 
-    return await serverApiFetch<ReportOverviewDto>(
+    const report = await serverApiFetch<ReportOverviewDto>(
       query ? `/reports/campaigns?${query}` : "/reports/campaigns"
     );
+
+    return {
+      report,
+      state: report.campaigns.length > 0 ? "real" : "empty"
+    };
   } catch {
-    return mockReportOverview;
+    return {
+      report: mockReportOverview,
+      state: "fallback"
+    };
   }
 }
 
@@ -90,10 +103,11 @@ export default async function ReportsPage({
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const since = asStringParam(resolvedSearchParams.since);
   const until = asStringParam(resolvedSearchParams.until);
-  const [report, metaStructure] = await Promise.all([
+  const [campaignReports, metaStructure] = await Promise.all([
     getCampaignReports({ since, until }),
     getMetaStructureReport()
   ]);
+  const { report, state: reportState } = campaignReports;
   const rows = report.campaigns;
 
   return (
@@ -116,6 +130,9 @@ export default async function ReportsPage({
             <button className="button" type="submit">Sincronizar Meta</button>
           </form>
           <span className="tag">{report.rangeLabel}</span>
+          {reportState === "fallback" ? (
+            <span className="tag">Dados de demonstracao</span>
+          ) : null}
         </div>
       </header>
 
@@ -134,38 +151,54 @@ export default async function ReportsPage({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.id}>
+            {rows.length > 0 ? (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    <strong>{row.name}</strong>
+                    <span className={`event-chip${row.status === "paused" ? " warn" : ""}`}>
+                      {row.status}
+                    </span>
+                  </td>
+                  <td>{money(row.spendCents)}</td>
+                  <td>
+                    {row.metaConversationsStarted}
+                    <span>{money(row.costPerMetaConversationCents)}</span>
+                  </td>
+                  <td>
+                    {row.realConversations}
+                    <span>{money(row.costPerRealConversationCents)}</span>
+                  </td>
+                  <td>
+                    {row.leadSubmitted}
+                    <span>{money(row.costPerLeadSubmittedCents)}</span>
+                  </td>
+                  <td>
+                    {row.qualifiedLead}
+                    <span>{money(row.costPerQualifiedLeadCents)}</span>
+                  </td>
+                  <td>
+                    {row.purchase}
+                    <span>{money(row.costPerPurchaseCents)}</span>
+                  </td>
+                  <td>{row.roas === null ? "-" : `${row.roas}x`}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
                 <td>
-                  <strong>{row.name}</strong>
-                  <span className={`event-chip${row.status === "paused" ? " warn" : ""}`}>
-                    {row.status}
-                  </span>
+                  <strong>Nenhuma campanha sincronizada</strong>
+                  <span>Use Sincronizar Meta para carregar campanhas reais.</span>
                 </td>
-                <td>{money(row.spendCents)}</td>
-                <td>
-                  {row.metaConversationsStarted}
-                  <span>{money(row.costPerMetaConversationCents)}</span>
-                </td>
-                <td>
-                  {row.realConversations}
-                  <span>{money(row.costPerRealConversationCents)}</span>
-                </td>
-                <td>
-                  {row.leadSubmitted}
-                  <span>{money(row.costPerLeadSubmittedCents)}</span>
-                </td>
-                <td>
-                  {row.qualifiedLead}
-                  <span>{money(row.costPerQualifiedLeadCents)}</span>
-                </td>
-                <td>
-                  {row.purchase}
-                  <span>{money(row.costPerPurchaseCents)}</span>
-                </td>
-                <td>{row.roas === null ? "-" : `${row.roas}x`}</td>
+                <td>{money(0)}</td>
+                <td>0<span>-</span></td>
+                <td>0<span>-</span></td>
+                <td>0<span>-</span></td>
+                <td>0<span>-</span></td>
+                <td>0<span>-</span></td>
+                <td>-</td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
