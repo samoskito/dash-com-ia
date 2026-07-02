@@ -47,6 +47,21 @@ enum DiagnosticSeverity {
   critical
 }
 
+enum PaymentChargeStatus {
+  pending
+  paid
+  failed
+  canceled
+  expired
+}
+
+enum WhatsappInstanceActivationStatus {
+  pending_payment
+  active
+  canceled
+  expired
+}
+
 model User {
   id              String       @id @default(cuid())
   email           String       @unique
@@ -79,6 +94,9 @@ model Workspace {
   conversionEventLogs ConversionEventLog[]
   jobAttempts        JobAttempt[]
   auditLogs          AuditLog[]
+  subscriptions      WorkspaceSubscription[]
+  paymentCharges     PaymentCharge[]
+  whatsappInstanceActivations WhatsappInstanceActivation[]
 }
 
 model WorkspaceMember {
@@ -105,6 +123,7 @@ model WhatsappInstance {
   updatedAt   DateTime               @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
+  activations WhatsappInstanceActivation[]
 
   @@index([workspaceId])
 }
@@ -315,4 +334,99 @@ model AuditLog {
   @@index([workspaceId, createdAt])
   @@index([actorUserId])
   @@index([targetType, targetId])
+}
+
+model SubscriptionPlan {
+  id                             String   @id @default(cuid())
+  name                           String
+  slug                           String   @unique
+  pricePerWhatsappInstanceCents  Int
+  active                         Boolean  @default(true)
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  subscriptions WorkspaceSubscription[]
+}
+
+model WorkspaceSubscription {
+  id                  String   @id @default(cuid())
+  workspaceId         String
+  planId              String?
+  status              String
+  activeInstances     Int      @default(0)
+  asaasSubscriptionId String?
+  currentPeriodEnd    DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  plan SubscriptionPlan? @relation(fields: [planId], references: [id])
+
+  @@index([workspaceId, status])
+  @@index([asaasSubscriptionId])
+}
+
+model PaymentCharge {
+  id               String              @id @default(cuid())
+  workspaceId      String
+  provider         String              @default("asaas")
+  externalChargeId String?
+  status           PaymentChargeStatus @default(pending)
+  amountCents      Int
+  description      String
+  checkoutUrl      String?
+  dueAt            DateTime?
+  paidAt           DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  activation WhatsappInstanceActivation?
+
+  @@index([workspaceId, status])
+  @@index([externalChargeId])
+}
+
+model SplitReceiver {
+  id            String   @id @default(cuid())
+  name          String
+  walletId      String
+  email         String?
+  percentageBps Int
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  rules SplitRule[]
+}
+
+model SplitRule {
+  id            String   @id @default(cuid())
+  receiverId    String
+  percentageBps Int
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  receiver SplitReceiver @relation(fields: [receiverId], references: [id])
+
+  @@index([receiverId, active])
+}
+
+model WhatsappInstanceActivation {
+  id                 String                            @id @default(cuid())
+  workspaceId        String
+  whatsappInstanceId String
+  paymentChargeId    String                            @unique
+  status             WhatsappInstanceActivationStatus  @default(pending_payment)
+  amountCents        Int
+  createdAt          DateTime                          @default(now())
+  activatedAt        DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  whatsappInstance WhatsappInstance @relation(fields: [whatsappInstanceId], references: [id])
+  paymentCharge PaymentCharge @relation(fields: [paymentChargeId], references: [id])
+
+  @@index([workspaceId, status])
+  @@index([whatsappInstanceId])
 }

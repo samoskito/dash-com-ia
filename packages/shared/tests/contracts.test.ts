@@ -17,7 +17,10 @@ import {
   registerSchema,
   workspaceInviteInputSchema,
   workspaceInviteSchema,
-  workspaceMemberSchema
+  workspaceMemberSchema,
+  whatsappInstanceCheckoutInputSchema,
+  whatsappInstanceCheckoutSchema,
+  whatsappInstanceQuoteSchema
 } from "../src";
 
 describe("shared contracts", () => {
@@ -241,5 +244,32 @@ describe("shared contracts", () => {
     expect(create.source).toBe("meta");
     expect(query.limit).toBe(25);
     expect(detail.errorCode).toBe("MISSING_CURRENCY");
+  });
+
+  it("validates billing quote and checkout contracts", () => {
+    const quote = whatsappInstanceQuoteSchema.parse({
+      workspaceId: "workspace_1",
+      activeInstances: 1,
+      pricePerInstanceCents: 9900,
+      nextInstanceAmountCents: 9900,
+      currency: "BRL"
+    });
+    const input = whatsappInstanceCheckoutInputSchema.parse({
+      instanceName: "Comercial",
+      provider: "uazapi"
+    });
+    const checkout = whatsappInstanceCheckoutSchema.parse({
+      workspaceId: "workspace_1",
+      whatsappInstanceId: "wpp_1",
+      activationId: "activation_1",
+      chargeId: "charge_1",
+      status: "pending_payment",
+      amountCents: 9900,
+      checkoutUrl: null
+    });
+
+    expect(quote.currency).toBe("BRL");
+    expect(input.provider).toBe("uazapi");
+    expect(checkout.status).toBe("pending_payment");
   });
 });

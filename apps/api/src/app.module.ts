@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "./auth/auth.module";
+import { BillingModule } from "./billing/billing.module";
 import { QueueModule } from "./common/queue/queue.module";
 import { DiagnosticsModule } from "./diagnostics/diagnostics.module";
 import { HealthController } from "./health/health.controller";
@@ -14,7 +15,8 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     AuthModule,
     WorkspacesModule,
     DiagnosticsModule,
-    IntegrationsModule
+    IntegrationsModule,
+    BillingModule
   ],
   controllers: [HealthController, MockController],
   providers: [MockService]
