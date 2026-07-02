@@ -13,6 +13,10 @@ export const leadListQuerySchema = z.object({
   status: z.enum(leadStatuses).optional(),
   eventName: z.string().trim().min(1).max(120).optional(),
   campaignId: z.string().trim().min(1).max(120).optional(),
+  adSetId: z.string().trim().min(1).max(120).optional(),
+  adId: z.string().trim().min(1).max(120).optional(),
+  since: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  until: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50)
 });
 

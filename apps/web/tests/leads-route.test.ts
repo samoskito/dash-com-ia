@@ -55,6 +55,35 @@ describe("leads route", () => {
     expect(html).toContain("+55 11 *****-1020");
   });
 
+  it("passes report drill-down filters to the backend", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
+        since: "2026-07-01",
+        until: "2026-07-02"
+      })
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/leads?campaignId=cmp_1&adSetId=adset_1&adId=ad_1&since=2026-07-01&until=2026-07-02",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Filtro do relatorio aplicado");
+    expect(html).toContain('name="campaignId"');
+    expect(html).toContain('name="adSetId"');
+    expect(html).toContain('name="adId"');
+  });
+
   it("renders an unavailable state without demo leads when the backend fails", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ message: "unavailable" }), {

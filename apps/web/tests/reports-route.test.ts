@@ -197,6 +197,15 @@ describe("reports route", () => {
     expect(html).toContain("Insights Meta por anuncio sincronizados");
     expect(html).toContain("600,00");
     expect(html).toContain("300,00");
+    expect(html).toContain(
+      'href="/leads?campaignId=cmp_1&amp;since=2026-07-01&amp;until=2026-07-02"'
+    );
+    expect(html).toContain(
+      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;since=2026-07-01&amp;until=2026-07-02"'
+    );
+    expect(html).toContain(
+      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-01&amp;until=2026-07-02"'
+    );
     expect(html).not.toContain("nao tem investimento proprio persistido");
   });
 

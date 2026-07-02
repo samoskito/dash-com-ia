@@ -154,6 +154,28 @@ describe("leads controller", () => {
     await app.close();
   });
 
+  it("forwards report drill-down filters to the leads service", async () => {
+    const { app, leadsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/leads?campaignId=cmp_1&adSetId=adset_1&adId=ad_1&since=2026-07-01&until=2026-07-02"
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200);
+
+    expect(leadsService.listLeads).toHaveBeenCalledWith("workspace_1", {
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      limit: 50
+    });
+
+    await app.close();
+  });
+
   it("returns lead detail for the current workspace", async () => {
     const { app, leadsService } = await createApp();
 

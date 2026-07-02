@@ -757,6 +757,11 @@ describe("shared contracts", () => {
     const query = leadListQuerySchema.parse({
       search: "  mariana  ",
       status: "qualified",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
       limit: "25"
     });
     const lead = leadListItemSchema.parse({
@@ -782,6 +787,11 @@ describe("shared contracts", () => {
     expect(query).toMatchObject({
       search: "mariana",
       status: "qualified",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
       limit: 25
     });
     expect(lead.lastEventName).toBe("QualifiedLead");

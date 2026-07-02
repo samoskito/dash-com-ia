@@ -89,11 +89,15 @@ export class LeadsService {
     workspaceId: string,
     query: LeadListQueryDto
   ): Promise<LeadListItemDto[]> {
+    const createdAtRange = this.createdAtRange(query);
     const leads = (await this.prisma.lead.findMany({
       where: {
         workspaceId,
         ...(query.status ? { status: query.status } : {}),
         ...(query.campaignId ? { campaignId: query.campaignId } : {}),
+        ...(query.adSetId ? { adSetId: query.adSetId } : {}),
+        ...(query.adId ? { adId: query.adId } : {}),
+        ...(createdAtRange ? { createdAt: createdAtRange } : {}),
         ...(query.search
           ? {
               OR: [
@@ -384,6 +388,23 @@ export class LeadsService {
       lastMessageAt: lead.lastMessageAt?.toISOString() ?? null,
       createdAt: lead.createdAt.toISOString(),
       updatedAt: lead.updatedAt.toISOString()
+    };
+  }
+
+  private createdAtRange(
+    query: Pick<LeadListQueryDto, "since" | "until">
+  ): { gte?: Date; lte?: Date } | null {
+    if (!query.since && !query.until) {
+      return null;
+    }
+
+    return {
+      ...(query.since
+        ? { gte: new Date(`${query.since}T00:00:00.000Z`) }
+        : {}),
+      ...(query.until
+        ? { lte: new Date(`${query.until}T23:59:59.999Z`) }
+        : {})
     };
   }
 

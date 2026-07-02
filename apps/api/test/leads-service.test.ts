@@ -141,6 +141,34 @@ describe("leads service", () => {
     ]);
   });
 
+  it("filters leads by report attribution and lead creation period", async () => {
+    const { prisma, service } = createHarness();
+
+    await service.listLeads("workspace_1", {
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      limit: 50
+    });
+
+    expect(prisma.lead.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: "workspace_1",
+          campaignId: "cmp_1",
+          adSetId: "adset_1",
+          adId: "ad_1",
+          createdAt: {
+            gte: new Date("2026-07-01T00:00:00.000Z"),
+            lte: new Date("2026-07-02T23:59:59.999Z")
+          }
+        })
+      })
+    );
+  });
+
   it("upserts a lead from Uazapi webhook attribution data", async () => {
     const { prisma, service } = createHarness();
 

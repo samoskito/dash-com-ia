@@ -8,6 +8,7 @@ import type {
   MetaStructureReportDto,
   ReportOverviewDto
 } from "@wpptrack/shared";
+import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
 
@@ -189,6 +190,40 @@ function asStringParam(
   value: string | string[] | undefined
 ): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function leadsHref(filters: {
+  campaignId?: string | null;
+  adSetId?: string | null;
+  adId?: string | null;
+  since?: string;
+  until?: string;
+}): string {
+  const params = new URLSearchParams();
+
+  if (filters.campaignId) {
+    params.set("campaignId", filters.campaignId);
+  }
+
+  if (filters.adSetId) {
+    params.set("adSetId", filters.adSetId);
+  }
+
+  if (filters.adId) {
+    params.set("adId", filters.adId);
+  }
+
+  if (filters.since) {
+    params.set("since", filters.since);
+  }
+
+  if (filters.until) {
+    params.set("until", filters.until);
+  }
+
+  const query = params.toString();
+
+  return query ? `/leads?${query}` : "/leads";
 }
 
 function reportStatusChip(status: PerformanceRow["status"]) {
@@ -448,13 +483,23 @@ export default async function ReportsPage({
           <tbody>
             {rows.length > 0 ? (
               rows.map((row) => (
-                <tr key={row.id}>
-                  <td>
-                    <strong>{row.name}</strong>
-                    {reportStatusChip(row.status)}
-                  </td>
-                  <PerformanceMetricsCells row={row} />
-                </tr>
+                  <tr key={row.id}>
+                    <td>
+                      <strong>
+                        <Link
+                          href={leadsHref({
+                            campaignId: row.id,
+                            since,
+                            until
+                          })}
+                        >
+                          {row.name}
+                        </Link>
+                      </strong>
+                      {reportStatusChip(row.status)}
+                    </td>
+                    <PerformanceMetricsCells row={row} />
+                  </tr>
               ))
             ) : (
               <tr>
@@ -500,7 +545,18 @@ export default async function ReportsPage({
                 adSetRows.map((row) => (
                   <tr key={row.id}>
                     <td>
-                      <strong>{row.name}</strong>
+                      <strong>
+                        <Link
+                          href={leadsHref({
+                            campaignId: row.campaignId,
+                            adSetId: row.id,
+                            since,
+                            until
+                          })}
+                        >
+                          {row.name}
+                        </Link>
+                      </strong>
                       <span>{row.campaignName}</span>
                       {reportStatusChip(row.status)}
                     </td>
@@ -552,7 +608,19 @@ export default async function ReportsPage({
                 adRows.map((row) => (
                   <tr key={row.id}>
                     <td>
-                      <strong>{row.name}</strong>
+                      <strong>
+                        <Link
+                          href={leadsHref({
+                            campaignId: row.campaignId,
+                            adSetId: row.adSetId,
+                            adId: row.id,
+                            since,
+                            until
+                          })}
+                        >
+                          {row.name}
+                        </Link>
+                      </strong>
                       <span>{row.campaignName} / {row.adSetName}</span>
                       {reportStatusChip(row.status)}
                     </td>

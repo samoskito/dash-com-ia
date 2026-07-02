@@ -13,6 +13,11 @@ async function getLeads(filters: {
   search?: string;
   status?: string;
   eventName?: string;
+  campaignId?: string;
+  adSetId?: string;
+  adId?: string;
+  since?: string;
+  until?: string;
 }): Promise<LeadsResult> {
   try {
     const params = new URLSearchParams();
@@ -27,6 +32,26 @@ async function getLeads(filters: {
 
     if (filters.eventName) {
       params.set("eventName", filters.eventName);
+    }
+
+    if (filters.campaignId) {
+      params.set("campaignId", filters.campaignId);
+    }
+
+    if (filters.adSetId) {
+      params.set("adSetId", filters.adSetId);
+    }
+
+    if (filters.adId) {
+      params.set("adId", filters.adId);
+    }
+
+    if (filters.since) {
+      params.set("since", filters.since);
+    }
+
+    if (filters.until) {
+      params.set("until", filters.until);
     }
 
     const query = params.toString();
@@ -87,7 +112,22 @@ export default async function LeadsPage({
   const search = asStringParam(resolvedSearchParams.search);
   const status = asStringParam(resolvedSearchParams.status);
   const eventName = asStringParam(resolvedSearchParams.eventName);
-  const result = await getLeads({ search, status, eventName });
+  const campaignId = asStringParam(resolvedSearchParams.campaignId);
+  const adSetId = asStringParam(resolvedSearchParams.adSetId);
+  const adId = asStringParam(resolvedSearchParams.adId);
+  const since = asStringParam(resolvedSearchParams.since);
+  const until = asStringParam(resolvedSearchParams.until);
+  const hasReportFilter = Boolean(campaignId || adSetId || adId || since || until);
+  const result = await getLeads({
+    search,
+    status,
+    eventName,
+    campaignId,
+    adSetId,
+    adId,
+    since,
+    until
+  });
   const { leads } = result;
   const pendingCount = leads.filter((lead) => !lead.lastEventName).length;
   const emptyTitle =
@@ -130,8 +170,19 @@ export default async function LeadsPage({
           <option value="QualifiedLead">QualifiedLead</option>
           <option value="Purchase">Purchase</option>
         </select>
+        <input type="hidden" name="campaignId" value={campaignId ?? ""} />
+        <input type="hidden" name="adSetId" value={adSetId ?? ""} />
+        <input type="hidden" name="adId" value={adId ?? ""} />
+        <input type="hidden" name="since" value={since ?? ""} />
+        <input type="hidden" name="until" value={until ?? ""} />
         <button className="button" type="submit">Filtrar</button>
       </form>
+      {hasReportFilter ? (
+        <p className="muted">
+          Filtro do relatorio aplicado
+          {since && until ? `: ${since} ate ${until}` : "."}
+        </p>
+      ) : null}
 
       <div className="table-wrap">
         <table>
