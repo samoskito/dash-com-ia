@@ -12,6 +12,7 @@ describe("login route", () => {
     expect(html).toContain("Telemetria de conversoes");
     expect(html).toContain("Entrar com Google");
     expect(html).toContain('href="/login/google"');
+    expect(html).toContain('href="/login/forgot"');
     expect(html).toContain("Status da plataforma");
     expect(html).toContain('name="email"');
     expect(html).toContain('name="password"');

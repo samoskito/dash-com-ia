@@ -82,7 +82,7 @@ export function LoginForm({ initialError = null }: { initialError?: string | nul
       >
         {mode === "login" ? "Criar conta" : "Ja tenho conta"}
       </button>
-      {mode === "login" ? <a href="/login">Esqueci minha senha</a> : null}
+      {mode === "login" ? <a href="/login/forgot">Esqueci minha senha</a> : null}
     </form>
   );
 }
