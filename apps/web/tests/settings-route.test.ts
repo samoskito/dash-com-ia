@@ -12,6 +12,7 @@ function mockSettingsFetch(options: {
   rulesStatus?: number;
   workspaceStatus?: number;
   membersStatus?: number;
+  authStatus?: number;
 }) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
@@ -21,6 +22,25 @@ function mockSettingsFetch(options: {
         status: options.rulesStatus ?? 200,
         headers: { "Content-Type": "application/json" }
       });
+    }
+
+    if (url.endsWith("/auth/me")) {
+      return new Response(
+        JSON.stringify({
+          user: {
+            id: "user_1",
+            email: "samuel@example.com",
+            name: "Samuel",
+            authProvider: "email",
+            emailVerifiedAt: null
+          },
+          workspaces: []
+        }),
+        {
+          status: options.authStatus ?? 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
     }
 
     if (url.endsWith("/workspaces/current")) {
@@ -87,6 +107,22 @@ describe("settings route", () => {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });
+      }
+
+      if (url.endsWith("/auth/me")) {
+        return new Response(
+          JSON.stringify({
+            user: {
+              id: "user_1",
+              email: "samuel@example.com",
+              name: "Samuel",
+              authProvider: "email",
+              emailVerifiedAt: null
+            },
+            workspaces: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
       }
 
       if (url.endsWith("/workspaces/current")) {
@@ -168,12 +204,18 @@ describe("settings route", () => {
       "http://localhost:3333/workspaces/current/invites",
       expect.objectContaining({ credentials: "include" })
     );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/auth/me",
+      expect.objectContaining({ credentials: "include" })
+    );
     expect(html).toContain("Loja Samuel");
     expect(html).toContain("loja-samuel");
     expect(html).toContain("owner");
     expect(html).toContain("name=\"workspaceName\"");
     expect(html).toContain("Salvar workspace");
     expect(html).toContain("samuel@example.com");
+    expect(html).toContain("Email pendente");
+    expect(html).toContain("Enviar verificacao");
     expect(html).toContain("trafego@example.com");
     expect(html).toContain("convite@example.com");
     expect(html).toContain("pending");

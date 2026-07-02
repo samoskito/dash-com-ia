@@ -7,6 +7,19 @@ import type {
 import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
 
+type AccountUserDto = {
+  id: string;
+  email: string;
+  name: string | null;
+  authProvider: string;
+  emailVerifiedAt: string | null;
+};
+
+type AccountSettingsResult = {
+  user: AccountUserDto | null;
+  state: "real" | "error";
+};
+
 type ConversionRulesResult = {
   rules: ConversionRuleDto[];
   state: "real" | "empty" | "error";
@@ -18,6 +31,22 @@ type WorkspaceSettingsResult = {
   invites: WorkspaceInviteDto[];
   state: "real" | "empty" | "error";
 };
+
+async function getAccountSettings(): Promise<AccountSettingsResult> {
+  try {
+    const account = await serverApiFetch<{ user: AccountUserDto }>("/auth/me");
+
+    return {
+      user: account.user,
+      state: "real"
+    };
+  } catch {
+    return {
+      user: null,
+      state: "error"
+    };
+  }
+}
 
 async function getConversionRules(): Promise<ConversionRulesResult> {
   try {
@@ -171,13 +200,28 @@ async function updateConversionRuleStatus(formData: FormData) {
   }
 }
 
+async function requestEmailVerification() {
+  "use server";
+
+  try {
+    await serverApiFetch("/auth/email/verification/start", {
+      method: "POST"
+    });
+    revalidatePath("/settings");
+  } catch {
+    return;
+  }
+}
+
 export default async function SettingsPage() {
-  const [workspaceSettings, conversionRules] = await Promise.all([
+  const [workspaceSettings, conversionRules, accountSettings] = await Promise.all([
     getWorkspaceSettings(),
-    getConversionRules()
+    getConversionRules(),
+    getAccountSettings()
   ]);
   const { rules } = conversionRules;
   const { workspace, members, invites } = workspaceSettings;
+  const accountUser = accountSettings.user;
   const emptyTitle =
     conversionRules.state === "error"
       ? "Nao foi possivel carregar regras"
@@ -234,6 +278,41 @@ export default async function SettingsPage() {
               type="submit"
             >
               Salvar workspace
+            </button>
+          </form>
+        </article>
+
+        <article className="config-card">
+          <span className="micro-label">Conta</span>
+          <strong>{accountUser?.email ?? "Conta indisponivel"}</strong>
+          <p className="muted">
+            {accountSettings.state === "error"
+              ? "Nao foi possivel carregar os dados da conta."
+              : accountUser?.emailVerifiedAt
+                ? "Email verificado"
+                : "Email pendente"}
+          </p>
+          <form className="control-row" action={requestEmailVerification}>
+            <label>
+              Provedor
+              <input
+                readOnly
+                value={accountUser?.authProvider ?? "indisponivel"}
+              />
+            </label>
+            <label>
+              Status
+              <input
+                readOnly
+                value={accountUser?.emailVerifiedAt ? "Email verificado" : "Email pendente"}
+              />
+            </label>
+            <button
+              className="button primary"
+              disabled={!accountUser || Boolean(accountUser.emailVerifiedAt)}
+              type="submit"
+            >
+              Enviar verificacao
             </button>
           </form>
         </article>
