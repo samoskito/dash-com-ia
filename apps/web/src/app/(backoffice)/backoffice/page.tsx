@@ -38,6 +38,14 @@ type PaymentChargeFilters = {
 
 type WebhookLogFilters = Omit<DiagnosticFilters, "severity">;
 
+type JobAttemptFilters = Pick<
+  DiagnosticFilters,
+  "q" | "since" | "source" | "status" | "until" | "workspaceId"
+> & {
+  jobName?: string;
+  queueName?: string;
+};
+
 type IntegrationLogFilters = Omit<
   DiagnosticFilters,
   "severity" | "phoneHash" | "errorCode" | "eventType"
@@ -116,10 +124,20 @@ async function getWebhookLogs(
   }
 }
 
-async function getJobAttempts(): Promise<ResourceResult<DiagnosticJobAttemptDto[]>> {
+async function getJobAttempts(
+  filters: JobAttemptFilters
+): Promise<ResourceResult<DiagnosticJobAttemptDto[]>> {
   try {
+    const params = new URLSearchParams({ limit: "10" });
+
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) {
+        params.set(key, value);
+      }
+    }
+
     const jobs = await serverApiFetch<DiagnosticJobAttemptDto[]>(
-      "/backoffice/diagnostics/jobs?limit=10"
+      `/backoffice/diagnostics/jobs?${params.toString()}`
     );
 
     return {
@@ -465,6 +483,16 @@ export default async function BackofficePage({
     adId: diagnosticFilters.adId,
     errorCode: diagnosticFilters.errorCode
   };
+  const jobAttemptFilters: JobAttemptFilters = {
+    workspaceId: diagnosticFilters.workspaceId,
+    source: diagnosticFilters.source,
+    status: diagnosticFilters.status,
+    queueName: asStringParam(resolvedSearchParams.queueName),
+    jobName: asStringParam(resolvedSearchParams.jobName),
+    q: diagnosticFilters.q,
+    since: diagnosticFilters.since,
+    until: diagnosticFilters.until
+  };
   const integrationLogFilters: IntegrationLogFilters = {
     workspaceId: diagnosticFilters.workspaceId,
     source: diagnosticFilters.source,
@@ -510,7 +538,7 @@ export default async function BackofficePage({
     getPaymentCharges(paymentChargeFilters),
     getBackofficeWhatsappInstances(),
     getWebhookLogs(webhookLogFilters),
-    getJobAttempts(),
+    getJobAttempts(jobAttemptFilters),
     getIntegrationLogs(integrationLogFilters),
     getConversionEventLogs(conversionEventLogFilters)
   ]);
@@ -523,9 +551,11 @@ export default async function BackofficePage({
   const splitReceivers = splitReceiversResult.data;
   const paymentCharges = paymentChargesResult.data;
   const whatsappInstances = whatsappInstancesResult.data;
-  const activeDiagnosticFilterCount = Object.values(diagnosticFilters).filter(
-    Boolean
-  ).length;
+  const activeDiagnosticFilterCount = Object.values({
+    ...diagnosticFilters,
+    jobName: jobAttemptFilters.jobName,
+    queueName: jobAttemptFilters.queueName
+  }).filter(Boolean).length;
   const activePaymentChargeFilterCount = Object.values(paymentChargeFilters).filter(
     Boolean
   ).length;
@@ -983,6 +1013,18 @@ export default async function BackofficePage({
             name="eventType"
             placeholder="Tipo de evento"
             defaultValue={diagnosticFilters.eventType}
+          />
+          <input
+            className="filter-control"
+            name="queueName"
+            placeholder="Fila"
+            defaultValue={jobAttemptFilters.queueName}
+          />
+          <input
+            className="filter-control"
+            name="jobName"
+            placeholder="Job"
+            defaultValue={jobAttemptFilters.jobName}
           />
           <input
             className="filter-control"

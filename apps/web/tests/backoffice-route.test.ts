@@ -242,11 +242,22 @@ describe("backoffice route", () => {
         )
       );
 
-    const element = await BackofficePage({});
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        workspaceId: "workspace_1",
+        source: "meta",
+        status: "failed",
+        queueName: "conversion-events",
+        jobName: "send-conversion-event",
+        q: "timeout meta",
+        since: "2026-07-01",
+        until: "2026-07-02"
+      })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/backoffice/diagnostics/jobs?limit=10",
+      "http://localhost:3333/backoffice/diagnostics/jobs?limit=10&workspaceId=workspace_1&source=meta&status=failed&queueName=conversion-events&jobName=send-conversion-event&q=timeout+meta&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z",
       expect.objectContaining({ credentials: "include" })
     );
     expect(html).toContain("Jobs operacionais");
