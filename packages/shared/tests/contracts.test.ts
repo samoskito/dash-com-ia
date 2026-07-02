@@ -5,7 +5,10 @@ import {
   canViewReports,
   campaignReportRowSchema,
   clientNavigation,
-  integrationHealthSchema
+  googleOAuthStartSchema,
+  integrationHealthSchema,
+  loginSchema,
+  registerSchema
 } from "../src";
 
 describe("shared contracts", () => {
@@ -62,5 +65,37 @@ describe("shared contracts", () => {
         checkedAt: "not-a-date"
       })
     ).toThrow();
+  });
+
+  it("validates login payloads and normalizes email", () => {
+    const parsed = loginSchema.parse({
+      email: "  OWNER@WPPTRACK.COM  ",
+      password: "secret123"
+    });
+
+    expect(parsed).toEqual({
+      email: "owner@wpptrack.com",
+      password: "secret123"
+    });
+  });
+
+  it("validates register payloads", () => {
+    const parsed = registerSchema.parse({
+      name: "Samuel",
+      email: "SAMUEL@WPPTRACK.COM",
+      password: "strong-password"
+    });
+
+    expect(parsed.email).toBe("samuel@wpptrack.com");
+  });
+
+  it("validates google oauth start payloads without requiring oauth wiring", () => {
+    const parsed = googleOAuthStartSchema.parse({
+      redirectUri: "https://app.wpptrack.com/auth/google/callback"
+    });
+
+    expect(parsed.redirectUri).toBe(
+      "https://app.wpptrack.com/auth/google/callback"
+    );
   });
 });
