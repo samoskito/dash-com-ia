@@ -18,6 +18,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Autenticacao propria avancou para endpoints HTTP reais no NestJS: `POST /auth/register`, `POST /auth/login`, `GET /auth/me` e `POST /auth/logout`.
 - Cadastro cria usuario por email/senha, workspace inicial com papel `owner`, sessao persistida em `AuthSession`, refresh token opaco e cookie `HttpOnly`.
 - Google OAuth recebeu scaffold inicial: `POST /auth/google/start` retorna `configure_env` quando faltam `GOOGLE_CLIENT_ID`/`GOOGLE_REDIRECT_URI`, ou monta a URL de autorizacao do Google com scopes `openid email profile` sem chamar servico externo.
+- Callback Google OAuth scaffoldado: `GET /auth/google/callback` valida `code/state`, informa `configure_env` quando falta `GOOGLE_CLIENT_SECRET`/env obrigatoria e retorna `exchange_pending` quando o ambiente esta pronto. A etapa ainda nao troca code por token nem cria/login de usuario Google.
 - Recuperacao de senha e verificacao de email receberam scaffold persistente: `AuthActionToken` no Prisma, `POST /auth/password/forgot`, `POST /auth/password/reset`, `POST /auth/email/verification/start` e `POST /auth/email/verification/confirm`. Tokens ficam hasheados no banco e so sao retornados em desenvolvimento/controlado com `AUTH_EXPOSE_DEV_TOKENS=true`.
 - Wave 2 backend executada em 2026-07-02 com plano em `docs/superpowers/plans/2026-07-02-wpptrack-wave-2-real-saas-backend.md`.
 - Workspace API real adicionada: `GET /workspaces/current`, `GET /workspaces/current/members` e `POST /workspaces/current/invites`.
@@ -73,7 +74,7 @@ O foco principal e dar clareza operacional e performance para campanhas de Whats
 - Isso nao reintroduz a camada de agencias/clientes; cada workspace representa uma empresa final, que pode convidar membros internos.
 - Autenticacao: **sistema proprio**, sem depender de provedores externos como Clerk/Auth0.
 - Login previsto: **email/senha** e **Google OAuth**.
-- Implementacao atual cobre email/senha completo, recuperacao de senha, verificacao de email e inicio do Google OAuth; callback/troca de code por token e criacao/login de usuario Google ficam para a etapa em que as credenciais e callback publico estiverem definidos.
+- Implementacao atual cobre email/senha completo, recuperacao de senha, verificacao de email, inicio do Google OAuth e callback scaffoldado. Troca real de code por token e criacao/login de usuario Google ficam para a etapa em que as credenciais e callback publico estiverem definidos.
 - Papeis iniciais no workspace: **owner, admin e member**.
 - A arquitetura de permissoes deve ser preparada para evoluir para permissoes granulares no futuro, por exemplo: ver relatorios, gerenciar integracoes, exportar dados, convidar usuarios e administrar cobranca.
 - IA de analise de conversa: **estrutura preparada desde o inicio, mas recurso desligado/fora do foco inicial**.
@@ -417,7 +418,7 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: callback do Google OAuth, OAuth Meta real, criacao real de cobranca Asaas, envio Pixel/CAPI e telas detalhadas da Central de Diagnostico.
+- Continuar a proxima rodada com: troca real do Google OAuth, OAuth Meta real, criacao real de cobranca Asaas, envio Pixel/CAPI e telas detalhadas da Central de Diagnostico.
 
 ## Perguntas Abertas
 

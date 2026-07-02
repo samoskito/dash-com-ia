@@ -28,6 +28,19 @@ export const googleOAuthStartResultSchema = z.object({
   state: z.string().min(1).nullable()
 });
 
+export const googleOAuthCallbackQuerySchema = z.object({
+  code: z.string().trim().min(1),
+  state: z.string().trim().min(1)
+});
+
+export const googleOAuthCallbackResultSchema = z.object({
+  provider: z.literal("google"),
+  action: z.enum(["configure_env", "exchange_pending"]),
+  missingEnv: z.array(z.string()),
+  codeReceived: z.literal(true),
+  redirectTo: z.string().min(1)
+});
+
 export const passwordResetRequestInputSchema = z.object({
   email: normalizedEmailSchema
 });
@@ -72,6 +85,12 @@ export type RegisterDto = z.infer<typeof registerSchema>;
 export type GoogleOAuthStartDto = z.infer<typeof googleOAuthStartSchema>;
 export type GoogleOAuthStartResultDto = z.infer<
   typeof googleOAuthStartResultSchema
+>;
+export type GoogleOAuthCallbackQueryDto = z.infer<
+  typeof googleOAuthCallbackQuerySchema
+>;
+export type GoogleOAuthCallbackResultDto = z.infer<
+  typeof googleOAuthCallbackResultSchema
 >;
 export type PasswordResetRequestInputDto = z.infer<
   typeof passwordResetRequestInputSchema

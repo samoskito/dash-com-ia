@@ -9,6 +9,8 @@ import {
   conversionRuleSchema,
   conversionRuleUpdateInputSchema,
   conversionTriggerEvaluationInputSchema,
+  googleOAuthCallbackQuerySchema,
+  googleOAuthCallbackResultSchema,
   googleOAuthStartSchema,
   googleOAuthStartResultSchema,
   emailVerificationConfirmInputSchema,
@@ -178,6 +180,23 @@ describe("shared contracts", () => {
 
     expect(parsed.redirectTo).toBe("/dashboard");
     expect(result.action).toBe("redirect");
+  });
+
+  it("validates google oauth callback scaffolding payloads", () => {
+    const query = googleOAuthCallbackQuerySchema.parse({
+      code: "oauth-code",
+      state: "state-token"
+    });
+    const result = googleOAuthCallbackResultSchema.parse({
+      provider: "google",
+      action: "exchange_pending",
+      missingEnv: [],
+      codeReceived: true,
+      redirectTo: "/overview"
+    });
+
+    expect(query.code).toBe("oauth-code");
+    expect(result.action).toBe("exchange_pending");
   });
 
   it("validates password reset and email verification contracts", () => {

@@ -6,12 +6,14 @@ import {
   HttpCode,
   Inject,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException
 } from "@nestjs/common";
 import {
   emailVerificationConfirmInputSchema,
+  googleOAuthCallbackQuerySchema,
   googleOAuthStartSchema,
   loginSchema,
   passwordResetConfirmInputSchema,
@@ -106,6 +108,13 @@ export class AuthController {
     const input = this.parseBody(googleOAuthStartSchema.safeParse(body));
 
     return this.authService.getGoogleOAuthStart(input);
+  }
+
+  @Get("google/callback")
+  handleGoogleOAuthCallback(@Query() query: Record<string, unknown>) {
+    const input = this.parseBody(googleOAuthCallbackQuerySchema.safeParse(query));
+
+    return this.authService.handleGoogleOAuthCallback(input);
   }
 
   @Post("password/forgot")

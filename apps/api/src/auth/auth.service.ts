@@ -9,6 +9,8 @@ import type {
   EmailVerificationConfirmDto,
   EmailVerificationConfirmInputDto,
   EmailVerificationStartDto,
+  GoogleOAuthCallbackQueryDto,
+  GoogleOAuthCallbackResultDto,
   GoogleOAuthStartDto,
   GoogleOAuthStartResultDto,
   LoginDto,
@@ -222,6 +224,38 @@ export class AuthService {
     };
   }
 
+  handleGoogleOAuthCallback(
+    input: GoogleOAuthCallbackQueryDto
+  ): GoogleOAuthCallbackResultDto {
+    const requiredEnv: Array<[string, string | undefined]> = [
+      ["GOOGLE_CLIENT_ID", this.env.GOOGLE_CLIENT_ID],
+      ["GOOGLE_CLIENT_SECRET", this.env.GOOGLE_CLIENT_SECRET],
+      ["GOOGLE_REDIRECT_URI", this.env.GOOGLE_REDIRECT_URI]
+    ];
+    const missingEnv = requiredEnv
+      .filter(([, value]) => !value)
+      .map(([key]) => key);
+    const redirectTo = this.readOAuthRedirect(input.state);
+
+    if (missingEnv.length > 0) {
+      return {
+        provider: "google",
+        action: "configure_env",
+        missingEnv,
+        codeReceived: true,
+        redirectTo
+      };
+    }
+
+    return {
+      provider: "google",
+      action: "exchange_pending",
+      missingEnv: [],
+      codeReceived: true,
+      redirectTo
+    };
+  }
+
   async requestPasswordReset(
     input: PasswordResetRequestInputDto
   ): Promise<PasswordResetRequestDto> {
@@ -429,6 +463,20 @@ export class AuthService {
     });
 
     return Buffer.from(payload).toString("base64url");
+  }
+
+  private readOAuthRedirect(state: string): string {
+    try {
+      const decoded = JSON.parse(
+        Buffer.from(state, "base64url").toString("utf8")
+      ) as { redirectTo?: unknown };
+
+      return typeof decoded.redirectTo === "string" && decoded.redirectTo
+        ? decoded.redirectTo
+        : "/overview";
+    } catch {
+      return "/overview";
+    }
   }
 
   private async createActionToken(

@@ -38,4 +38,48 @@ describe("google oauth service", () => {
     expect(action.authorizationUrl).toContain("scope=openid+email+profile");
     expect(action.state).toEqual(expect.any(String));
   });
+
+  it("reports missing callback env without exchanging the authorization code", () => {
+    const service = createService({
+      GOOGLE_CLIENT_ID: "client_123",
+      GOOGLE_REDIRECT_URI: "https://api.wpptrack.test/auth/google/callback"
+    });
+
+    const result = service.handleGoogleOAuthCallback({
+      code: "oauth-code",
+      state: "state-token"
+    });
+
+    expect(result).toEqual({
+      provider: "google",
+      action: "configure_env",
+      missingEnv: ["GOOGLE_CLIENT_SECRET"],
+      codeReceived: true,
+      redirectTo: "/overview"
+    });
+  });
+
+  it("accepts callback input and decodes redirect state when env is ready", () => {
+    const service = createService({
+      GOOGLE_CLIENT_ID: "client_123",
+      GOOGLE_CLIENT_SECRET: "secret_123",
+      GOOGLE_REDIRECT_URI: "https://api.wpptrack.test/auth/google/callback"
+    });
+    const start = service.getGoogleOAuthStart({
+      redirectTo: "/reports"
+    });
+
+    const result = service.handleGoogleOAuthCallback({
+      code: "oauth-code",
+      state: start.state!
+    });
+
+    expect(result).toEqual({
+      provider: "google",
+      action: "exchange_pending",
+      missingEnv: [],
+      codeReceived: true,
+      redirectTo: "/reports"
+    });
+  });
 });
