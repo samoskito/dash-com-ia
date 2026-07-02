@@ -8,6 +8,8 @@ import {
 } from "@nestjs/common";
 import type { DiagnosticSourceDto } from "@wpptrack/shared";
 import { BillingService } from "../billing/billing.service";
+import { ConversionEventsService } from "../conversion-events/conversion-events.service";
+import { ConversionRulesService } from "../conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../diagnostics/diagnostics.service";
 
 type WebhookBody = Record<string, unknown>;
@@ -18,7 +20,11 @@ export class WebhooksController {
     @Inject(DiagnosticsService)
     private readonly diagnosticsService: DiagnosticsService,
     @Inject(BillingService)
-    private readonly billingService: BillingService
+    private readonly billingService: BillingService,
+    @Inject(ConversionRulesService)
+    private readonly conversionRulesService: ConversionRulesService,
+    @Inject(ConversionEventsService)
+    private readonly conversionEventsService: ConversionEventsService
   ) {}
 
   @Post("uazapi")
@@ -27,7 +33,7 @@ export class WebhooksController {
     @Body() body: WebhookBody,
     @Headers("x-workspace-id") workspaceId?: string
   ) {
-    return this.record("uazapi", body, workspaceId);
+    return this.recordUazapiWebhook(body, workspaceId);
   }
 
   @Post("asaas")
@@ -79,6 +85,42 @@ export class WebhooksController {
     };
   }
 
+  private async recordUazapiWebhook(body: WebhookBody, workspaceId?: string) {
+    const diagnostic = await this.record("uazapi", body, workspaceId);
+
+    if (!workspaceId) {
+      return {
+        ...diagnostic,
+        conversion: {
+          created: []
+        }
+      };
+    }
+
+    const triggerInput = {
+      messageText: this.getMessageText(body),
+      labels: this.getLabels(body)
+    };
+    const rules = await this.conversionRulesService.evaluateTriggers(
+      workspaceId,
+      triggerInput
+    );
+    const conversion = await this.conversionEventsService.recordRuleMatches({
+      workspaceId,
+      rules,
+      leadId: this.firstString(body.leadId),
+      phoneHash: this.firstString(body.phoneHash),
+      campaignId: this.firstString(body.campaignId),
+      adSetId: this.firstString(body.adSetId),
+      adId: this.firstString(body.adId)
+    });
+
+    return {
+      ...diagnostic,
+      conversion
+    };
+  }
+
   private getEventType(source: DiagnosticSourceDto, body: WebhookBody): string {
     if (source === "asaas") {
       return this.firstString(body.event) ?? "asaas.webhook";
@@ -93,5 +135,67 @@ export class WebhooksController {
 
   private firstString(value: unknown): string | undefined {
     return typeof value === "string" && value.trim() ? value : undefined;
+  }
+
+  private getMessageText(body: WebhookBody): string | undefined {
+    const message = body.message;
+
+    if (typeof message === "string") {
+      return this.firstString(message);
+    }
+
+    if (message && typeof message === "object" && !Array.isArray(message)) {
+      const messageObject = message as Record<string, unknown>;
+      return (
+        this.firstString(messageObject.text) ??
+        this.firstString(messageObject.body) ??
+        this.firstString(messageObject.message) ??
+        this.firstString(messageObject.conversation)
+      );
+    }
+
+    return (
+      this.firstString(body.text) ??
+      this.firstString(body.body) ??
+      this.firstString(body.messageText)
+    );
+  }
+
+  private getLabels(body: WebhookBody): string[] {
+    const rawLabels =
+      body.labels ??
+      (body.chat &&
+      typeof body.chat === "object" &&
+      !Array.isArray(body.chat)
+        ? (body.chat as Record<string, unknown>).labels
+        : undefined) ??
+      body.label;
+
+    if (!rawLabels) {
+      return [];
+    }
+
+    const list = Array.isArray(rawLabels) ? rawLabels : [rawLabels];
+
+    return list
+      .map((label) => this.labelToString(label))
+      .filter((label): label is string => Boolean(label));
+  }
+
+  private labelToString(label: unknown): string | undefined {
+    if (typeof label === "string") {
+      return this.firstString(label);
+    }
+
+    if (label && typeof label === "object" && !Array.isArray(label)) {
+      const labelObject = label as Record<string, unknown>;
+      return (
+        this.firstString(labelObject.name) ??
+        this.firstString(labelObject.title) ??
+        this.firstString(labelObject.label)
+      );
+    }
+
+    return undefined;
   }
 }

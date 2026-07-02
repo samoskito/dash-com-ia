@@ -1,0 +1,83 @@
+import { describe, expect, it } from "vitest";
+import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
+
+function createHarness() {
+  const db = {
+    logs: [] as Array<Record<string, unknown>>
+  };
+  const prisma = {
+    conversionEventLog: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const log = {
+          id: `conversion_${db.logs.length + 1}`,
+          createdAt: new Date("2026-07-02T03:00:00.000Z"),
+          ...data
+        };
+        db.logs.push(log);
+        return log;
+      }
+    }
+  };
+
+  return {
+    db,
+    service: new ConversionEventsService(prisma as never)
+  };
+}
+
+describe("conversion events service", () => {
+  it("records conversion logs for matched keyword and label rules without sending Meta events", async () => {
+    const { db, service } = createHarness();
+
+    const result = await service.recordRuleMatches({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      rules: [
+        {
+          id: "rule_1",
+          workspaceId: "workspace_1",
+          name: "Lead qualificado",
+          triggerType: "keyword",
+          triggerValue: "quero comprar",
+          matchMode: "contains",
+          eventName: "QualifiedLead",
+          pixelId: "pixel_1",
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        },
+        {
+          id: "rule_2",
+          workspaceId: "workspace_1",
+          name: "Compra",
+          triggerType: "whatsapp_label",
+          triggerValue: "Venda fechada",
+          matchMode: "exact",
+          eventName: "Purchase",
+          pixelId: null,
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        }
+      ]
+    });
+
+    expect(result.created).toHaveLength(2);
+    expect(db.logs[0]).toMatchObject({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      sourceTrigger: "keyword",
+      eventName: "QualifiedLead",
+      status: "ready_to_send",
+      pixelId: "pixel_1",
+      adId: "ad_1"
+    });
+    expect(db.logs[1]).toMatchObject({
+      sourceTrigger: "whatsapp_label",
+      eventName: "Purchase",
+      status: "pending_meta_context"
+    });
+  });
+});

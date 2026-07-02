@@ -2,6 +2,8 @@ import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { BillingService } from "../src/billing/billing.service";
+import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
+import { ConversionRulesService } from "../src/conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
 import { WebhooksController } from "../src/webhooks/webhooks.controller";
 
@@ -21,24 +23,59 @@ async function createApp() {
       activationId: "activation_1"
     }))
   };
+  const conversionRulesService = {
+    evaluateTriggers: vi.fn(async () => [
+      {
+        id: "rule_1",
+        workspaceId: "workspace_1",
+        name: "Lead qualificado",
+        triggerType: "keyword",
+        triggerValue: "quero comprar",
+        matchMode: "contains",
+        eventName: "QualifiedLead",
+        pixelId: null,
+        active: true,
+        createdAt: "2026-07-02T03:00:00.000Z",
+        updatedAt: "2026-07-02T03:00:00.000Z"
+      }
+    ])
+  };
+  const conversionEventsService = {
+    recordRuleMatches: vi.fn(async () => ({
+      created: ["conversion_1"]
+    }))
+  };
 
   const moduleRef = await Test.createTestingModule({
     controllers: [WebhooksController],
     providers: [
       { provide: DiagnosticsService, useValue: diagnosticsService },
-      { provide: BillingService, useValue: billingService }
+      { provide: BillingService, useValue: billingService },
+      { provide: ConversionRulesService, useValue: conversionRulesService },
+      { provide: ConversionEventsService, useValue: conversionEventsService }
     ]
   }).compile();
 
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, diagnosticsService, billingService };
+  return {
+    app,
+    diagnosticsService,
+    billingService,
+    conversionRulesService,
+    conversionEventsService
+  };
 }
 
 describe("webhooks controller", () => {
   it("records Uazapi webhooks", async () => {
-    const { app, diagnosticsService } = await createApp();
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      conversionEventsService
+    } = await createApp();
 
     await request(app.getHttpServer())
       .post("/webhooks/uazapi")
@@ -46,12 +83,17 @@ describe("webhooks controller", () => {
       .send({
         event: "message.received",
         id: "evt_uazapi_1",
-        token: "secret"
+        token: "secret",
+        message: {
+          text: "Oi, quero comprar"
+        },
+        labels: ["Venda fechada"]
       })
       .expect(202)
       .expect(({ body }) => {
         expect(body.status).toBe("received");
         expect(body.webhookLogId).toBe("webhook_1");
+        expect(body.conversion.created).toEqual(["conversion_1"]);
       });
 
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
@@ -60,6 +102,21 @@ describe("webhooks controller", () => {
         source: "uazapi",
         eventType: "message.received",
         externalEventId: "evt_uazapi_1"
+      })
+    );
+    expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        messageText: "Oi, quero comprar",
+        labels: ["Venda fechada"]
+      }
+    );
+    expect(conversionEventsService.recordRuleMatches).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        rules: expect.arrayContaining([
+          expect.objectContaining({ eventName: "QualifiedLead" })
+        ])
       })
     );
 

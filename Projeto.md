@@ -31,6 +31,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Verificacao apos regras de conversao: `pnpm test` passou com API 17 arquivos/44 testes, shared 16 testes e web 3 arquivos/8 testes; `pnpm typecheck` passou; `prisma migrate status` indicou schema atualizado com 5 migrations.
 - Processamento inicial de webhook Asaas implementado: `PAYMENT_RECEIVED`/`PAYMENT_CONFIRMED` ou status `RECEIVED`/`CONFIRMED` busca a cobranca por `externalChargeId` ou `chargeId` local, marca `PaymentCharge` como `paid`, ativa `WhatsappInstanceActivation` e muda a `WhatsappInstance` para `active`.
 - A criacao real da cobranca no Asaas ainda depende das credenciais/contrato final; o fluxo interno de ativacao pos-pagamento ja esta preparado e testado.
+- Webhook Uazapi agora avalia regras de conversao quando recebe `x-workspace-id`: extrai texto de mensagem e etiquetas comuns do payload, executa `/conversion-rules` internamente e cria `ConversionEventLog` para regras encontradas, com status `ready_to_send` quando ha `pixelId` e `adId`, ou `pending_meta_context` quando falta contexto Meta.
 - Rodada Paralela 1 executada e revisada: visual WppTrack/Telemetria Noturna aplicado ao web, Auth/Workspaces iniciado, scaffolds de integracoes Meta/Uazapi/Asaas criados e spec de Diagnosticos/Logs adicionada.
 - Verificacao da Rodada Paralela 1: `pnpm test`, `pnpm typecheck`, `pnpm build`, `prisma generate` e `prisma validate` passaram. O bloqueio anterior do Docker Desktop Linux engine foi resolvido quando o Docker Desktop foi aberto.
 - Spec e plano da Rodada Paralela 1: `docs/superpowers/specs/2026-07-02-wpptrack-parallel-wave-1-design.md` e `docs/superpowers/plans/2026-07-02-wpptrack-parallel-wave-1-implementation.md`.
@@ -236,6 +237,7 @@ Pendente de definicao: confirmar nomes finais das metricas na UI, formulas exata
   - Etiqueta aplicada ao chat/lead no WhatsApp Business, inicialmente via Uazapi.
 - No cadastro da regra, o usuario deve escolher o gatilho e o evento Meta a enviar, por exemplo: `LeadSubmitted`, `QualifiedLead`, `Purchase` ou outros eventos suportados.
 - Implementacao atual ja permite criar, listar, atualizar e avaliar regras ativas sem ainda enviar eventos ao Meta. O envio real ao Pixel/CAPI continua pendente da etapa de Meta OAuth/Pixel e da resolucao de lead/ad_id.
+- Webhooks Uazapi ja conseguem aplicar as regras e registrar logs de conversao internos. Essa etapa ainda nao envia ao Meta; ela prepara a fila/logica para o futuro worker de Pixel/CAPI.
 - Para enviar um evento ao Pixel, o backend deve buscar o `ad_id` do lead.
 - Se houver mais de uma BM/conta conectada no futuro, o backend deve validar a qual BM/conta pertence o anuncio antes de enviar o evento.
 - O fluxo padrao do cliente final continua sendo BM/conta de anuncio unica, mas a arquitetura deve tolerar mais de uma conexao Meta quando isso for necessario.
