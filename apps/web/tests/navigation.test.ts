@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { clientNavigation, backofficeNavigation } from "@wpptrack/shared";
 import { AppShell } from "../src/components/app-shell";
 
@@ -50,5 +51,19 @@ describe("navigation", () => {
       "split",
       "diagnostics"
     ]);
+  });
+
+  it("contains mobile nav scrolling without widening the app shell", () => {
+    const css = readFileSync(new URL("../src/styles/globals.css", import.meta.url), "utf8");
+    const mobileBlock = css.slice(
+      css.indexOf("@media (max-width: 900px)"),
+      css.indexOf("@media (max-width: 620px)")
+    );
+
+    expect(mobileBlock).toContain(".app-shell");
+    expect(mobileBlock).toContain("min-width: 0;");
+    expect(mobileBlock).toContain("max-width: 100%;");
+    expect(mobileBlock).toContain("display: flex;");
+    expect(mobileBlock).not.toContain("repeat(5, minmax(128px, 1fr))");
   });
 });
