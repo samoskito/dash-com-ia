@@ -8,7 +8,9 @@ describe("login route", () => {
     const html = renderToStaticMarkup(createElement(LoginPage));
 
     expect(html).toContain("Entrar no WppTrack");
-    expect(html).toContain("Continuar com Google");
+    expect(html).toContain("Telemetria de conversoes");
+    expect(html).toContain("Entrar com Google");
+    expect(html).toContain("Status da plataforma");
     expect(html).toContain('name="email"');
     expect(html).toContain('name="password"');
   });

@@ -6,12 +6,31 @@ export default function LoginPage() {
           <span className="brand-mark" aria-hidden="true">
             W
           </span>
-          <p className="eyebrow">Acesso seguro</p>
+          <p className="eyebrow">Telemetria de conversoes</p>
           <h1 id="login-title">Entrar no WppTrack</h1>
           <p>
-            Acesse o painel para acompanhar leads, relatorios, integracoes e
-            diagnosticos da sua operacao.
+            Acesse o painel para acompanhar leads, campanhas, eventos Pixel e diagnosticos da sua
+            operacao em uma unica tela de controle.
           </p>
+
+          <div className="login-status-grid" aria-label="Status da plataforma">
+            <div className="quality-card">
+              <span className="micro-label">Status da plataforma</span>
+              <strong>API online</strong>
+            </div>
+            <div className="quality-card">
+              <span className="micro-label">Meta CAPI</span>
+              <strong>99.2% aceito</strong>
+            </div>
+            <div className="quality-card">
+              <span className="micro-label">WhatsApp</span>
+              <strong>Fila estavel</strong>
+            </div>
+            <div className="quality-card">
+              <span className="micro-label">Pixel</span>
+              <strong>Sinal ativo</strong>
+            </div>
+          </div>
         </div>
 
         <form className="login-form">
@@ -25,7 +44,7 @@ export default function LoginPage() {
           </label>
           <button type="submit">Entrar</button>
           <button type="button" className="secondary-button">
-            Continuar com Google
+            Entrar com Google
           </button>
           <a href="/login">Esqueci minha senha</a>
         </form>

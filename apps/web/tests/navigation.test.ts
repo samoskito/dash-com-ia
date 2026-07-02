@@ -30,6 +30,19 @@ describe("navigation", () => {
     expect(html).not.toContain("Clientes");
   });
 
+  it("renders workspace context and telemetry health chips", () => {
+    const html = renderToStaticMarkup(
+      createElement(AppShell, null, createElement("p", null, "Panel content"))
+    );
+
+    expect(html).toContain("Workspace");
+    expect(html).toContain("Operacao principal");
+
+    for (const label of ["API", "Meta", "WhatsApp", "Pixel"]) {
+      expect(html).toContain(label);
+    }
+  });
+
   it("keeps internal backoffice separate", () => {
     expect(backofficeNavigation.map((item) => item.id)).toEqual([
       "workspaces",
