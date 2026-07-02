@@ -1,5 +1,16 @@
-import { BadRequestException, Controller, Get, Inject, Query } from "@nestjs/common";
-import { metaOAuthCallbackQuerySchema } from "@wpptrack/shared";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Put,
+  Query
+} from "@nestjs/common";
+import {
+  metaAssetSelectionInputSchema,
+  metaOAuthCallbackQuerySchema
+} from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
@@ -43,6 +54,24 @@ export class IntegrationsController {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
 
     return this.integrationsService.getMetaConnection(workspaceId);
+  }
+
+  @Get("meta/assets")
+  async getMetaAssets(@AuthToken() refreshToken: string) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.integrationsService.getMetaAssets(workspaceId);
+  }
+
+  @Put("meta/assets/selection")
+  async saveMetaAssetSelection(
+    @AuthToken() refreshToken: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const input = this.parseBody(metaAssetSelectionInputSchema.safeParse(body));
+
+    return this.integrationsService.saveMetaAssetSelection(workspaceId, input);
   }
 
   @Get("uazapi/start")

@@ -2,6 +2,8 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import type {
   MetaConnectionDto,
+  MetaAssetSelectionInputDto,
+  MetaAssetsDto,
   IntegrationHealthSummaryDto,
   IntegrationStartActionDto,
   MetaOAuthCallbackQueryDto,
@@ -122,6 +124,38 @@ export class IntegrationsService {
     }
 
     return this.metaConnectionsService.getConnection(workspaceId);
+  }
+
+  async getMetaAssets(workspaceId: string): Promise<MetaAssetsDto> {
+    if (!this.metaConnectionsService) {
+      return {
+        workspaceId,
+        status: "not_connected",
+        businesses: [],
+        adAccounts: [],
+        pixels: [],
+        selection: {
+          businessId: null,
+          adAccountId: null,
+          pixelId: null
+        },
+        lastSyncedAt: null,
+        syncError: null
+      };
+    }
+
+    return this.metaConnectionsService.listAssets(workspaceId, this.metaAdapter);
+  }
+
+  async saveMetaAssetSelection(
+    workspaceId: string,
+    input: MetaAssetSelectionInputDto
+  ): Promise<MetaConnectionDto> {
+    if (!this.metaConnectionsService) {
+      return this.getMetaConnection(workspaceId);
+    }
+
+    return this.metaConnectionsService.saveAssetSelection(workspaceId, input);
   }
 
   getUazapiStartAction(): IntegrationStartActionDto {

@@ -1,5 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { MetaOAuthCallbackResultDto } from "@wpptrack/shared";
+import type {
+  MetaAdAccountAssetDto,
+  MetaBusinessAssetDto,
+  MetaOAuthCallbackResultDto,
+  MetaPixelAssetDto
+} from "@wpptrack/shared";
 import type {
   IntegrationAdapter,
   IntegrationEnv,
@@ -18,6 +23,35 @@ type MetaTokenResponse = {
     type?: unknown;
     code?: unknown;
   };
+};
+
+type MetaGraphListResponse<T> = {
+  data?: T[];
+  error?: {
+    message?: unknown;
+    type?: unknown;
+    code?: unknown;
+  };
+};
+
+type MetaBusinessGraphNode = {
+  id?: unknown;
+  name?: unknown;
+  verification_status?: unknown;
+};
+
+type MetaAdAccountGraphNode = {
+  id?: unknown;
+  name?: unknown;
+  account_status?: unknown;
+  currency?: unknown;
+  timezone_name?: unknown;
+};
+
+type MetaPixelGraphNode = {
+  id?: unknown;
+  name?: unknown;
+  code?: unknown;
 };
 
 export type MetaOAuthTokenExchangeResult = {
@@ -150,6 +184,68 @@ export class MetaAdapter implements IntegrationAdapter {
     }
   }
 
+  async listBusinesses(input: {
+    accessToken: string;
+  }): Promise<MetaBusinessAssetDto[]> {
+    const response = await this.getGraphList<MetaBusinessGraphNode>(
+      "/me/businesses",
+      "id,name,verification_status",
+      input.accessToken
+    );
+
+    return response
+      .map((item) => ({
+        id: this.asString(item.id),
+        name: this.asString(item.name),
+        verificationStatus: this.asString(item.verification_status)
+      }))
+      .filter(
+        (item): item is MetaBusinessAssetDto => Boolean(item.id && item.name)
+      );
+  }
+
+  async listOwnedAdAccounts(input: {
+    accessToken: string;
+    businessId: string;
+  }): Promise<MetaAdAccountAssetDto[]> {
+    const response = await this.getGraphList<MetaAdAccountGraphNode>(
+      `/${input.businessId}/owned_ad_accounts`,
+      "id,name,account_status,currency,timezone_name",
+      input.accessToken
+    );
+
+    return response
+      .map((item) => ({
+        id: this.asString(item.id),
+        name: this.asString(item.name),
+        accountStatus: this.asString(item.account_status),
+        currency: this.asString(item.currency),
+        timezoneName: this.asString(item.timezone_name)
+      }))
+      .filter(
+        (item): item is MetaAdAccountAssetDto => Boolean(item.id && item.name)
+      );
+  }
+
+  async listAdAccountPixels(input: {
+    accessToken: string;
+    adAccountId: string;
+  }): Promise<MetaPixelAssetDto[]> {
+    const response = await this.getGraphList<MetaPixelGraphNode>(
+      `/${input.adAccountId}/adspixels`,
+      "id,name,code",
+      input.accessToken
+    );
+
+    return response
+      .map((item) => ({
+        id: this.asString(item.id),
+        name: this.asString(item.name),
+        code: this.asString(item.code)
+      }))
+      .filter((item): item is MetaPixelAssetDto => Boolean(item.id && item.name));
+  }
+
   private getGraphApiVersion(): string {
     return this.env.META_GRAPH_API_VERSION ?? "v21.0";
   }
@@ -166,12 +262,44 @@ export class MetaAdapter implements IntegrationAdapter {
   }
 
   private asString(value: unknown): string | null {
-    return typeof value === "string" && value.trim() ? value : null;
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+
+    return null;
   }
 
   private asPositiveInteger(value: unknown): number | null {
     return typeof value === "number" && Number.isInteger(value) && value > 0
       ? value
       : null;
+  }
+
+  private async getGraphList<T>(
+    path: string,
+    fields: string,
+    accessToken: string
+  ): Promise<T[]> {
+    const params = new URLSearchParams({
+      fields,
+      access_token: accessToken
+    });
+    const response = await this.fetchImpl(
+      `https://graph.facebook.com/${this.getGraphApiVersion()}${path}?${params.toString()}`
+    );
+    const payload = (await response.json().catch(() => ({}))) as MetaGraphListResponse<T>;
+
+    if (!response.ok) {
+      throw new Error(
+        this.asString(payload.error?.message) ??
+          `Meta Graph HTTP ${response.status}`
+      );
+    }
+
+    return Array.isArray(payload.data) ? payload.data : [];
   }
 }

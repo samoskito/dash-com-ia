@@ -1,5 +1,6 @@
 import type {
   IntegrationHealthSummaryDto,
+  MetaAssetsDto,
   MetaConnectionDto,
   WhatsappInstanceSummaryDto
 } from "@wpptrack/shared";
@@ -26,6 +27,14 @@ async function getWhatsappInstances(): Promise<WhatsappInstanceSummaryDto[]> {
 async function getMetaConnection(): Promise<MetaConnectionDto | null> {
   try {
     return await serverApiFetch<MetaConnectionDto>("/integrations/meta/connection");
+  } catch {
+    return null;
+  }
+}
+
+async function getMetaAssets(): Promise<MetaAssetsDto | null> {
+  try {
+    return await serverApiFetch<MetaAssetsDto>("/integrations/meta/assets");
   } catch {
     return null;
   }
@@ -63,6 +72,7 @@ function statusLabel(status: string) {
   const labels: Record<string, string> = {
     connected: "Configurado",
     disconnected: "Configurar",
+    not_connected: "Nao conectado",
     error: "Erro",
     pending_payment: "Pagamento pendente",
     needs_reconnect: "Reconectar",
@@ -72,12 +82,81 @@ function statusLabel(status: string) {
   return labels[status] ?? status;
 }
 
+function metaConnectionTitle(status?: MetaAssetsDto["status"] | MetaConnectionDto["status"]) {
+  if (status === "connected") {
+    return "Meta conectado";
+  }
+
+  if (status === "needs_reconnect") {
+    return "Meta precisa reconectar";
+  }
+
+  if (status === "error") {
+    return "Meta com erro";
+  }
+
+  return "Meta nao conectado";
+}
+
+function selectedMetaAssetName<T extends { id: string; name: string }>(
+  items: T[],
+  selectedId: string | null | undefined,
+  emptyLabel: string
+) {
+  if (!selectedId) {
+    return emptyLabel;
+  }
+
+  return items.find((item) => item.id === selectedId)?.name ?? "ativo selecionado nao encontrado";
+}
+
+function metaAssetsDetail(metaAssets: MetaAssetsDto | null) {
+  if (!metaAssets) {
+    return "Nao foi possivel ler os ativos Meta agora; exibindo fallback visual.";
+  }
+
+  if (metaAssets.status === "not_connected") {
+    return "Conecte a conta Meta para carregar BMs, contas de anuncio e Pixels.";
+  }
+
+  if (metaAssets.syncError) {
+    return metaAssets.syncError;
+  }
+
+  if (
+    metaAssets.businesses.length === 0 &&
+    metaAssets.adAccounts.length === 0 &&
+    metaAssets.pixels.length === 0
+  ) {
+    return "Conta conectada, mas nenhum ativo Meta foi encontrado neste workspace.";
+  }
+
+  return "Ativos disponiveis para selecionar no proximo passo do fluxo operacional.";
+}
+
 export default async function IntegrationsPage() {
-  const [health, whatsappInstances, metaConnection] = await Promise.all([
+  const [health, whatsappInstances, metaConnection, metaAssets] = await Promise.all([
     getHealth(),
     getWhatsappInstances(),
-    getMetaConnection()
+    getMetaConnection(),
+    getMetaAssets()
   ]);
+  const metaStatus = metaAssets?.status ?? metaConnection?.status;
+  const selectedBusinessName = selectedMetaAssetName(
+    metaAssets?.businesses ?? [],
+    metaAssets?.selection.businessId,
+    metaAssets?.status === "connected" ? "aguardando BM" : "Meta nao conectado"
+  );
+  const selectedAdAccountName = selectedMetaAssetName(
+    metaAssets?.adAccounts ?? [],
+    metaAssets?.selection.adAccountId,
+    metaAssets?.status === "connected" ? "aguardando conta" : "Meta nao conectado"
+  );
+  const selectedPixelName = selectedMetaAssetName(
+    metaAssets?.pixels ?? [],
+    metaAssets?.selection.pixelId,
+    metaAssets?.status === "connected" ? "aguardando Pixel" : "Meta nao conectado"
+  );
   const integrations =
     health?.providers.map((item) => ({
       title: providerTitle(item.provider),
@@ -146,15 +225,23 @@ export default async function IntegrationsPage() {
 
       <div className="surface-panel">
         <span className="eyebrow">Meta OAuth</span>
-        <h2>{metaConnection?.status === "connected" ? "Meta conectado" : "Meta nao conectado"}</h2>
+        <h2>{metaConnectionTitle(metaStatus)}</h2>
         <div className="metric-grid compact">
           <div className="metric-card">
             <span className="micro-label">Status</span>
-            <strong>{metaConnection ? statusLabel(metaConnection.status) : "Fallback visual"}</strong>
+            <strong>{metaStatus ? statusLabel(metaStatus) : "Fallback visual"}</strong>
+          </div>
+          <div className="metric-card">
+            <span className="micro-label">BM selecionado</span>
+            <strong>{selectedBusinessName}</strong>
+          </div>
+          <div className="metric-card">
+            <span className="micro-label">Conta selecionada</span>
+            <strong>{selectedAdAccountName}</strong>
           </div>
           <div className="metric-card">
             <span className="micro-label">Pixel selecionado</span>
-            <strong>{metaConnection?.selectedPixelId ?? "aguardando selecao"}</strong>
+            <strong>{selectedPixelName}</strong>
           </div>
           <div className="metric-card">
             <span className="micro-label">Escopos</span>
@@ -162,6 +249,75 @@ export default async function IntegrationsPage() {
               {metaConnection?.scopes.length ? metaConnection.scopes.join(", ") : "sem escopos"}
             </strong>
           </div>
+        </div>
+        <p className="muted">
+          {metaAssetsDetail(metaAssets)}
+        </p>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Ativo</th>
+                <th>Detalhe</th>
+                <th>Selecao</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metaAssets ? (
+                <>
+                  <tr>
+                    <td>Business Manager</td>
+                    <td>
+                      <strong>{selectedBusinessName}</strong>
+                      <span>{metaAssets.selection.businessId ?? "sem selecao"}</span>
+                    </td>
+                    <td>
+                      {metaAssets.businesses.find(
+                        (business) => business.id === metaAssets.selection.businessId
+                      )?.verificationStatus ?? "sem status"}
+                    </td>
+                    <td><button className="button" type="button">Selecionar</button></td>
+                  </tr>
+                  <tr>
+                    <td>Conta de anuncio</td>
+                    <td>
+                      <strong>{selectedAdAccountName}</strong>
+                      <span>{metaAssets.selection.adAccountId ?? "sem selecao"}</span>
+                    </td>
+                    <td>
+                      {metaAssets.adAccounts.find(
+                        (adAccount) => adAccount.id === metaAssets.selection.adAccountId
+                      )?.currency ?? "sem moeda"}
+                    </td>
+                    <td><button className="button" type="button">Selecionar</button></td>
+                  </tr>
+                  <tr>
+                    <td>Pixel</td>
+                    <td>
+                      <strong>{selectedPixelName}</strong>
+                      <span>{metaAssets.selection.pixelId ?? "sem selecao"}</span>
+                    </td>
+                    <td>
+                      {metaAssets.pixels.find((pixel) => pixel.id === metaAssets.selection.pixelId)
+                        ?.code ?? "sem codigo"}
+                    </td>
+                    <td><button className="button" type="button">Selecionar</button></td>
+                  </tr>
+                </>
+              ) : (
+                <tr>
+                  <td>Meta</td>
+                  <td>
+                    <strong>Ativos indisponiveis</strong>
+                    <span>fallback visual</span>
+                  </td>
+                  <td>aguardando API</td>
+                  <td><span className="event-chip warn">sem dados</span></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
         <p className="muted">
           Tokens Meta ficam criptografados no backend. Esta tela mostra apenas estado,

@@ -152,4 +152,84 @@ describe("integrations service", () => {
     });
     expect(metaConnectionsService.getConnection).toHaveBeenCalledWith("workspace_1");
   });
+
+  it("returns selectable Meta assets for a workspace", async () => {
+    const metaAdapter = new MetaAdapter({});
+    const metaConnectionsService = {
+      listAssets: vi.fn(async () => ({
+        workspaceId: "workspace_1",
+        status: "connected",
+        businesses: [{ id: "business_1", name: "BM Principal", verificationStatus: null }],
+        adAccounts: [
+          {
+            id: "act_123",
+            name: "Conta WhatsApp",
+            accountStatus: "1",
+            currency: "BRL",
+            timezoneName: "America/Sao_Paulo"
+          }
+        ],
+        pixels: [{ id: "pixel_1", name: "Pixel Loja", code: "1234567890" }],
+        selection: {
+          businessId: "business_1",
+          adAccountId: "act_123",
+          pixelId: "pixel_1"
+        },
+        lastSyncedAt: "2026-07-02T12:00:00.000Z",
+        syncError: null
+      }))
+    };
+    const service = new IntegrationsService(
+      metaAdapter,
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {},
+      metaConnectionsService as never
+    );
+
+    await expect(service.getMetaAssets("workspace_1")).resolves.toMatchObject({
+      workspaceId: "workspace_1",
+      businesses: [{ name: "BM Principal" }],
+      pixels: [{ name: "Pixel Loja" }]
+    });
+    expect(metaConnectionsService.listAssets).toHaveBeenCalledWith(
+      "workspace_1",
+      metaAdapter
+    );
+  });
+
+  it("saves selected Meta assets for a workspace", async () => {
+    const metaConnectionsService = {
+      saveAssetSelection: vi.fn(async () => ({
+        workspaceId: "workspace_1",
+        status: "connected",
+        tokenType: "bearer",
+        scopes: ["ads_read"],
+        expiresAt: null,
+        connectedAt: "2026-07-02T03:00:00.000Z",
+        selectedBusinessId: "business_1",
+        selectedAdAccountId: "act_123",
+        selectedPixelId: "pixel_1"
+      }))
+    };
+    const service = new IntegrationsService(
+      new MetaAdapter({}),
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {},
+      metaConnectionsService as never
+    );
+
+    await expect(
+      service.saveMetaAssetSelection("workspace_1", {
+        businessId: "business_1",
+        adAccountId: "act_123",
+        pixelId: "pixel_1"
+      })
+    ).resolves.toMatchObject({
+      selectedBusinessId: "business_1",
+      selectedAdAccountId: "act_123",
+      selectedPixelId: "pixel_1"
+    });
+  });
 });

@@ -24,6 +24,8 @@ import {
   diagnosticRetryResultSchema,
   integrationHealthSchema,
   integrationHealthSummarySchema,
+  metaAssetSelectionInputSchema,
+  metaAssetsSchema,
   metaConnectionSchema,
   metaOAuthCallbackQuerySchema,
   metaOAuthCallbackResultSchema,
@@ -253,6 +255,54 @@ describe("shared contracts", () => {
 
     expect(connection.status).toBe("connected");
     expect(JSON.stringify(connection)).not.toContain("accessToken");
+  });
+
+  it("validates Meta assets and selected BM/account/pixel payloads", () => {
+    const assets = metaAssetsSchema.parse({
+      workspaceId: "workspace_1",
+      status: "connected",
+      businesses: [
+        {
+          id: "business_1",
+          name: "BM Principal",
+          verificationStatus: "verified"
+        }
+      ],
+      adAccounts: [
+        {
+          id: "act_123",
+          name: "Conta WhatsApp",
+          accountStatus: "1",
+          currency: "BRL",
+          timezoneName: "America/Sao_Paulo"
+        }
+      ],
+      pixels: [
+        {
+          id: "pixel_1",
+          name: "Pixel Loja",
+          code: "1234567890"
+        }
+      ],
+      selection: {
+        businessId: "business_1",
+        adAccountId: "act_123",
+        pixelId: "pixel_1"
+      },
+      lastSyncedAt: "2026-07-02T12:00:00.000Z",
+      syncError: null
+    });
+    const input = metaAssetSelectionInputSchema.parse({
+      businessId: "business_1",
+      adAccountId: "act_123",
+      pixelId: "pixel_1"
+    });
+
+    expect(assets.businesses[0]?.name).toBe("BM Principal");
+    expect(assets.adAccounts[0]?.currency).toBe("BRL");
+    expect(assets.pixels[0]?.name).toBe("Pixel Loja");
+    expect(input.pixelId).toBe("pixel_1");
+    expect(JSON.stringify(assets)).not.toContain("accessToken");
   });
 
   it("validates password reset and email verification contracts", () => {

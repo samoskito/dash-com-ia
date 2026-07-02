@@ -110,4 +110,102 @@ describe("meta adapter oauth", () => {
       missingEnv: ["META_OAUTH_REDIRECT_URL"]
     });
   });
+
+  it("lists Meta businesses, ad accounts and pixels from Graph API with backend token", async () => {
+    const fetchCalls: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      fetchCalls.push(url);
+
+      if (url.includes("/me/businesses")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "business_1",
+                name: "BM Principal",
+                verification_status: "verified"
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.includes("/business_1/owned_ad_accounts")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "act_123",
+                name: "Conta WhatsApp",
+                account_status: 1,
+                currency: "BRL",
+                timezone_name: "America/Sao_Paulo"
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "pixel_1",
+              name: "Pixel Loja",
+              code: "1234567890"
+            }
+          ]
+        }),
+        { status: 200 }
+      );
+    }) as unknown as typeof fetch;
+    const adapter = new MetaAdapter(
+      {
+        META_GRAPH_API_VERSION: "v25.0"
+      },
+      fetchMock
+    );
+
+    await expect(
+      adapter.listBusinesses({ accessToken: "EAAB-secret-token" })
+    ).resolves.toEqual([
+      {
+        id: "business_1",
+        name: "BM Principal",
+        verificationStatus: "verified"
+      }
+    ]);
+    await expect(
+      adapter.listOwnedAdAccounts({
+        accessToken: "EAAB-secret-token",
+        businessId: "business_1"
+      })
+    ).resolves.toEqual([
+      {
+        id: "act_123",
+        name: "Conta WhatsApp",
+        accountStatus: "1",
+        currency: "BRL",
+        timezoneName: "America/Sao_Paulo"
+      }
+    ]);
+    await expect(
+      adapter.listAdAccountPixels({
+        accessToken: "EAAB-secret-token",
+        adAccountId: "act_123"
+      })
+    ).resolves.toEqual([
+      {
+        id: "pixel_1",
+        name: "Pixel Loja",
+        code: "1234567890"
+      }
+    ]);
+    expect(fetchCalls[0]).toContain("access_token=EAAB-secret-token");
+    expect(fetchCalls[1]).toContain("fields=id%2Cname%2Caccount_status%2Ccurrency%2Ctimezone_name");
+    expect(fetchCalls[2]).toContain("fields=id%2Cname%2Ccode");
+  });
 });

@@ -47,6 +47,48 @@ export const metaConnectionSchema = z.object({
   selectedPixelId: z.string().min(1).nullable()
 });
 
+export const metaBusinessAssetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  verificationStatus: z.string().min(1).nullable()
+});
+
+export const metaAdAccountAssetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  accountStatus: z.string().min(1).nullable(),
+  currency: z.string().min(1).nullable(),
+  timezoneName: z.string().min(1).nullable()
+});
+
+export const metaPixelAssetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  code: z.string().min(1).nullable()
+});
+
+export const metaAssetSelectionSchema = z.object({
+  businessId: z.string().min(1).nullable(),
+  adAccountId: z.string().min(1).nullable(),
+  pixelId: z.string().min(1).nullable()
+});
+
+export const metaAssetsSchema = z.object({
+  workspaceId: z.string().min(1),
+  status: metaConnectionStatusSchema,
+  businesses: z.array(metaBusinessAssetSchema),
+  adAccounts: z.array(metaAdAccountAssetSchema),
+  pixels: z.array(metaPixelAssetSchema),
+  selection: metaAssetSelectionSchema,
+  lastSyncedAt: z.string().datetime().nullable(),
+  syncError: z.string().min(1).nullable()
+});
+
+export const metaAssetSelectionInputSchema = metaAssetSelectionSchema.refine(
+  (value) => Boolean(value.businessId || value.adAccountId || value.pixelId),
+  "Informe ao menos um ativo Meta"
+);
+
 export const metaOAuthCallbackResultSchema = z.object({
   provider: z.literal("meta"),
   status: z.enum(["configure_env", "connected", "exchange_failed"]),
@@ -76,3 +118,11 @@ export type MetaConnectionStatusDto = z.infer<
   typeof metaConnectionStatusSchema
 >;
 export type MetaConnectionDto = z.infer<typeof metaConnectionSchema>;
+export type MetaBusinessAssetDto = z.infer<typeof metaBusinessAssetSchema>;
+export type MetaAdAccountAssetDto = z.infer<typeof metaAdAccountAssetSchema>;
+export type MetaPixelAssetDto = z.infer<typeof metaPixelAssetSchema>;
+export type MetaAssetSelectionDto = z.infer<typeof metaAssetSelectionSchema>;
+export type MetaAssetsDto = z.infer<typeof metaAssetsSchema>;
+export type MetaAssetSelectionInputDto = z.infer<
+  typeof metaAssetSelectionInputSchema
+>;

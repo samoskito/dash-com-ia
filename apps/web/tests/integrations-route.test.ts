@@ -63,6 +63,45 @@ describe("integrations route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "connected",
+            businesses: [
+              {
+                id: "business_1",
+                name: "BM Principal",
+                verificationStatus: "verified"
+              }
+            ],
+            adAccounts: [
+              {
+                id: "act_1",
+                name: "Conta WhatsApp",
+                accountStatus: "active",
+                currency: "BRL",
+                timezoneName: "America/Sao_Paulo"
+              }
+            ],
+            pixels: [
+              {
+                id: "pixel_1",
+                name: "Pixel Loja",
+                code: "123456789"
+              }
+            ],
+            selection: {
+              businessId: "business_1",
+              adAccountId: "act_1",
+              pixelId: "pixel_1"
+            },
+            lastSyncedAt: "2026-07-02T03:00:00.000Z",
+            syncError: null
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
       );
 
     const element = await IntegrationsPage();
@@ -76,8 +115,15 @@ describe("integrations route", () => {
       "http://localhost:3333/integrations/meta/connection",
       expect.objectContaining({ credentials: "include" })
     );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/integrations/meta/assets",
+      expect.objectContaining({ credentials: "include" })
+    );
     expect(html).toContain("Meta conectado");
     expect(html).toContain("pixel_1");
+    expect(html).toContain("BM Principal");
+    expect(html).toContain("Conta WhatsApp");
+    expect(html).toContain("Pixel Loja");
     expect(html).toContain("Vendas");
     expect(html).toContain("provider_instance_1");
     expect(html).toContain("Conectar WhatsApp");

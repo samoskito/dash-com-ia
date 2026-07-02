@@ -58,6 +58,51 @@ async function createApp() {
       selectedAdAccountId: null,
       selectedPixelId: null
     })),
+    getMetaAssets: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      status: "connected",
+      businesses: [
+        {
+          id: "business_1",
+          name: "BM Principal",
+          verificationStatus: "verified"
+        }
+      ],
+      adAccounts: [
+        {
+          id: "act_123",
+          name: "Conta WhatsApp",
+          accountStatus: "1",
+          currency: "BRL",
+          timezoneName: "America/Sao_Paulo"
+        }
+      ],
+      pixels: [
+        {
+          id: "pixel_1",
+          name: "Pixel Loja",
+          code: "1234567890"
+        }
+      ],
+      selection: {
+        businessId: "business_1",
+        adAccountId: "act_123",
+        pixelId: "pixel_1"
+      },
+      lastSyncedAt: "2026-07-02T12:00:00.000Z",
+      syncError: null
+    })),
+    saveMetaAssetSelection: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      status: "connected",
+      tokenType: "bearer",
+      scopes: ["ads_read"],
+      expiresAt: null,
+      connectedAt: "2026-07-02T03:00:00.000Z",
+      selectedBusinessId: "business_1",
+      selectedAdAccountId: "act_123",
+      selectedPixelId: "pixel_1"
+    })),
     getUazapiStartAction: vi.fn(() => ({
       provider: "uazapi",
       action: "configure_env",
@@ -184,6 +229,53 @@ describe("integrations controller", () => {
       });
 
     expect(service.getMetaConnection).toHaveBeenCalledWith("workspace_1");
+
+    await app.close();
+  });
+
+  it("returns selectable Meta assets for the current workspace", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/meta/assets")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.businesses[0].name).toBe("BM Principal");
+        expect(body.adAccounts[0].name).toBe("Conta WhatsApp");
+        expect(body.pixels[0].name).toBe("Pixel Loja");
+        expect(JSON.stringify(body)).not.toContain("EAAB");
+      });
+
+    expect(service.getMetaAssets).toHaveBeenCalledWith("workspace_1");
+
+    await app.close();
+  });
+
+  it("saves selected Meta assets for the current workspace", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .put("/integrations/meta/assets/selection")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        businessId: "business_1",
+        adAccountId: "act_123",
+        pixelId: "pixel_1"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.selectedBusinessId).toBe("business_1");
+        expect(body.selectedAdAccountId).toBe("act_123");
+        expect(body.selectedPixelId).toBe("pixel_1");
+      });
+
+    expect(service.saveMetaAssetSelection).toHaveBeenCalledWith("workspace_1", {
+      businessId: "business_1",
+      adAccountId: "act_123",
+      pixelId: "pixel_1"
+    });
 
     await app.close();
   });
