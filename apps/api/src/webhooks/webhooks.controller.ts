@@ -1,10 +1,12 @@
+import { createHash } from "node:crypto";
 import {
   Body,
   Controller,
   Headers,
   HttpCode,
   Inject,
-  Post
+  Post,
+  UnauthorizedException
 } from "@nestjs/common";
 import type { DiagnosticSourceDto } from "@wpptrack/shared";
 import { BillingService } from "../billing/billing.service";
@@ -40,8 +42,11 @@ export class WebhooksController {
   @HttpCode(202)
   recordAsaas(
     @Body() body: WebhookBody,
+    @Headers("asaas-access-token") asaasAccessToken?: string,
     @Headers("x-workspace-id") workspaceId?: string
   ) {
+    this.assertAsaasWebhookToken(asaasAccessToken);
+
     return this.recordAsaasWebhook(body, workspaceId);
   }
 
@@ -83,6 +88,25 @@ export class WebhooksController {
       ...diagnostic,
       billing
     };
+  }
+
+  private assertAsaasWebhookToken(receivedToken?: string) {
+    const expectedToken = process.env.ASAAS_WEBHOOK_AUTH_TOKEN;
+
+    if (!expectedToken) {
+      return;
+    }
+
+    if (
+      !receivedToken ||
+      this.hashToken(receivedToken) !== this.hashToken(expectedToken)
+    ) {
+      throw new UnauthorizedException("Webhook Asaas nao autorizado");
+    }
+  }
+
+  private hashToken(token: string): string {
+    return createHash("sha256").update(token).digest("hex");
   }
 
   private async recordUazapiWebhook(body: WebhookBody, workspaceId?: string) {

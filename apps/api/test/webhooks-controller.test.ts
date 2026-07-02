@@ -1,11 +1,15 @@
 import { Test } from "@nestjs/testing";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { BillingService } from "../src/billing/billing.service";
 import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
 import { ConversionRulesService } from "../src/conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
 import { WebhooksController } from "../src/webhooks/webhooks.controller";
+
+afterEach(() => {
+  delete process.env.ASAAS_WEBHOOK_AUTH_TOKEN;
+});
 
 async function createApp() {
   const diagnosticsService = {
@@ -179,6 +183,51 @@ describe("webhooks controller", () => {
         eventType: "page"
       })
     );
+
+    await app.close();
+  });
+
+  it("rejects Asaas webhooks with invalid auth token when configured", async () => {
+    process.env.ASAAS_WEBHOOK_AUTH_TOKEN = "secure-webhook-token-123456789012345";
+    const { app, billingService, diagnosticsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/asaas")
+      .send({
+        event: "PAYMENT_RECEIVED",
+        id: "evt_asaas_1"
+      })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post("/webhooks/asaas")
+      .set("asaas-access-token", "wrong-token")
+      .send({
+        event: "PAYMENT_RECEIVED",
+        id: "evt_asaas_1"
+      })
+      .expect(401);
+
+    expect(billingService.processAsaasPaymentWebhook).not.toHaveBeenCalled();
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("accepts Asaas webhooks with valid auth token when configured", async () => {
+    process.env.ASAAS_WEBHOOK_AUTH_TOKEN = "secure-webhook-token-123456789012345";
+    const { app, billingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/asaas")
+      .set("asaas-access-token", "secure-webhook-token-123456789012345")
+      .send({
+        event: "PAYMENT_RECEIVED",
+        id: "evt_asaas_1"
+      })
+      .expect(202);
+
+    expect(billingService.processAsaasPaymentWebhook).toHaveBeenCalledOnce();
 
     await app.close();
   });
