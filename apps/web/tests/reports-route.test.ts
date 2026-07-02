@@ -72,11 +72,16 @@ describe("reports route", () => {
         )
       );
 
-    const element = await ReportsPage();
+    const element = await ReportsPage({
+      searchParams: Promise.resolve({
+        since: "2026-07-01",
+        until: "2026-07-02"
+      })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/campaigns",
+      "http://localhost:3333/reports/campaigns?since=2026-07-01&until=2026-07-02",
       expect.objectContaining({ credentials: "include" })
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -87,6 +92,8 @@ describe("reports route", () => {
     expect(html).toContain("Publico quente");
     expect(html).toContain("Criativo WhatsApp");
     expect(html).toContain("Sincronizar Meta");
+    expect(html).toContain("2026-07-01");
+    expect(html).toContain("2026-07-02");
     expect(html).toContain("Atualizacao enfileirada");
     expect(html).toContain("1.200,00");
     expect(html).toContain("176");

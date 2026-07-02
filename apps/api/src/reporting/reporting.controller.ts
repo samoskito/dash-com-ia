@@ -19,12 +19,18 @@ export class ReportingController {
   ) {}
 
   @Get("campaigns")
-  async getCampaignReports(@AuthToken() refreshToken: string) {
+  async getCampaignReports(
+    @AuthToken() refreshToken: string,
+    @Query("since") since?: string,
+    @Query("until") until?: string
+  ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
 
     return this.metaReportingService.getCampaignReportOverview({
       workspaceId,
-      rangeLabel: "Ultimos 7 dias"
+      since,
+      until,
+      rangeLabel: this.rangeLabel(since, until)
     });
   }
 
@@ -66,5 +72,9 @@ export class ReportingController {
 
   private defaultUntil(): string {
     return new Date().toISOString().slice(0, 10);
+  }
+
+  private rangeLabel(since?: string, until?: string): string {
+    return since && until ? `${since} a ${until}` : "Ultimos 7 dias";
   }
 }

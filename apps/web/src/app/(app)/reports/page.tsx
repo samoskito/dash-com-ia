@@ -3,6 +3,8 @@ import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
 import { mockReportOverview } from "../../../mock/reporting";
 
+type ReportsSearchParams = Record<string, string | string[] | undefined>;
+
 function money(cents: number | null) {
   if (cents === null) {
     return "-";
@@ -14,9 +16,26 @@ function money(cents: number | null) {
   });
 }
 
-async function getCampaignReports(): Promise<ReportOverviewDto> {
+async function getCampaignReports(filters: {
+  since?: string;
+  until?: string;
+}): Promise<ReportOverviewDto> {
   try {
-    return await serverApiFetch<ReportOverviewDto>("/reports/campaigns");
+    const params = new URLSearchParams();
+
+    if (filters.since) {
+      params.set("since", filters.since);
+    }
+
+    if (filters.until) {
+      params.set("until", filters.until);
+    }
+
+    const query = params.toString();
+
+    return await serverApiFetch<ReportOverviewDto>(
+      query ? `/reports/campaigns?${query}` : "/reports/campaigns"
+    );
   } catch {
     return mockReportOverview;
   }
@@ -30,11 +49,25 @@ async function getMetaStructureReport(): Promise<MetaStructureReportDto | null> 
   }
 }
 
-async function syncMetaReports() {
+async function syncMetaReports(formData: FormData) {
   "use server";
 
   try {
-    await serverApiFetch("/reports/meta/sync", {
+    const since = String(formData.get("since") ?? "");
+    const until = String(formData.get("until") ?? "");
+    const params = new URLSearchParams();
+
+    if (since) {
+      params.set("since", since);
+    }
+
+    if (until) {
+      params.set("until", until);
+    }
+
+    const query = params.toString();
+
+    await serverApiFetch(query ? `/reports/meta/sync?${query}` : "/reports/meta/sync", {
       method: "POST"
     });
     revalidatePath("/reports");
@@ -43,9 +76,22 @@ async function syncMetaReports() {
   }
 }
 
-export default async function ReportsPage() {
+function asStringParam(
+  value: string | string[] | undefined
+): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function ReportsPage({
+  searchParams
+}: {
+  searchParams?: Promise<ReportsSearchParams>;
+}) {
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const since = asStringParam(resolvedSearchParams.since);
+  const until = asStringParam(resolvedSearchParams.until);
   const [report, metaStructure] = await Promise.all([
-    getCampaignReports(),
+    getCampaignReports({ since, until }),
     getMetaStructureReport()
   ]);
   const rows = [
@@ -95,10 +141,14 @@ export default async function ReportsPage() {
           <p>Metricas Meta Ads combinadas com leads reais e eventos de conversao.</p>
         </div>
         <div className="header-actions">
-          <span className="tag">Custo por evento</span>
-          <span className="tag">Atribuicao CTWA</span>
-          <span className="tag">Exportacao CSV</span>
+          <form className="inline-form" action="/reports">
+            <input type="date" name="since" defaultValue={since} aria-label="Data inicial" />
+            <input type="date" name="until" defaultValue={until} aria-label="Data final" />
+            <button className="button" type="submit">Filtrar periodo</button>
+          </form>
           <form action={syncMetaReports}>
+            <input type="hidden" name="since" value={since ?? ""} />
+            <input type="hidden" name="until" value={until ?? ""} />
             <button className="button" type="submit">Sincronizar Meta</button>
           </form>
           <span className="tag">Atualizacao enfileirada</span>

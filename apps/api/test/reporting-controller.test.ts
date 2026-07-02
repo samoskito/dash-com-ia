@@ -140,6 +140,24 @@ describe("reporting controller", () => {
     await app.close();
   });
 
+  it("passes report period filters to campaign reports", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/campaigns?since=2026-07-01&until=2026-07-02")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+
+    expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      rangeLabel: "2026-07-01 a 2026-07-02"
+    });
+
+    await app.close();
+  });
+
   it("queues Meta reporting snapshot sync for the current workspace", async () => {
     const { app, queueService, reportingService } = await createApp();
 

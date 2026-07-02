@@ -146,6 +146,8 @@ export class MetaReportingService {
   async getCampaignReportOverview(input: {
     workspaceId: string;
     rangeLabel: string;
+    since?: string;
+    until?: string;
   }): Promise<ReportOverviewDto> {
     const campaigns = (await this.prisma.metaCampaign.findMany({
       where: { workspaceId: input.workspaceId },
@@ -154,7 +156,15 @@ export class MetaReportingService {
     const conversionLogs = (await this.prisma.conversionEventLog.findMany({
       where: {
         workspaceId: input.workspaceId,
-        status: "sent"
+        status: "sent",
+        ...(input.since && input.until
+          ? {
+              createdAt: {
+                gte: new Date(`${input.since}T00:00:00.000Z`),
+                lte: new Date(`${input.until}T23:59:59.999Z`)
+              }
+            }
+          : {})
       },
       select: {
         campaignId: true,

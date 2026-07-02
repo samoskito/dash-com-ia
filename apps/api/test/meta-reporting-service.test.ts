@@ -196,6 +196,34 @@ describe("meta reporting service", () => {
     });
   });
 
+  it("filters internal conversion events by report period when provided", async () => {
+    const { prisma, service } = createHarness();
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    });
+
+    await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    });
+
+    expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          createdAt: {
+            gte: new Date("2026-07-01T00:00:00.000Z"),
+            lte: new Date("2026-07-02T23:59:59.999Z")
+          }
+        })
+      })
+    );
+  });
+
   it("returns campaign, ad set and ad structure from persisted snapshots", async () => {
     const { service } = createHarness();
 
