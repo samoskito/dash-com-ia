@@ -255,6 +255,90 @@ describe("backoffice route", () => {
     expect(html).toContain("conversion_1");
   });
 
+  it("renders integration logs returned by the diagnostics endpoint", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "integration_1",
+              workspaceId: "workspace_1",
+              source: "meta",
+              operation: "meta.campaigns.sync",
+              status: "error",
+              startedAt: "2026-07-02T03:00:00.000Z",
+              finishedAt: "2026-07-02T03:00:02.000Z",
+              durationMs: 2000,
+              httpStatus: 500,
+              providerRequestId: "fb_req_1",
+              providerErrorCode: "META_RATE_LIMIT",
+              providerErrorMessage: "Rate limit",
+              leadId: null,
+              campaignId: "cmp_1",
+              adSetId: null,
+              adId: null,
+              jobId: "bull_job_1"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await BackofficePage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/diagnostics/integrations?limit=10",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Chamadas externas");
+    expect(html).toContain("meta.campaigns.sync");
+    expect(html).toContain("META_RATE_LIMIT");
+    expect(html).toContain("fb_req_1");
+  });
+
   it("renders workspace billing configuration with editable Asaas customer ids", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(

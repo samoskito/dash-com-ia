@@ -66,11 +66,32 @@ const jobAttempt = {
   createdAt: "2026-07-02T03:00:00.000Z"
 };
 
+const integrationLog = {
+  id: "integration_1",
+  workspaceId: "workspace_1",
+  source: "meta",
+  operation: "meta.campaigns.sync",
+  status: "error",
+  startedAt: "2026-07-02T03:00:00.000Z",
+  finishedAt: "2026-07-02T03:00:02.000Z",
+  durationMs: 2000,
+  httpStatus: 500,
+  providerRequestId: "fb_req_1",
+  providerErrorCode: "META_RATE_LIMIT",
+  providerErrorMessage: "Rate limit",
+  leadId: null,
+  campaignId: "cmp_1",
+  adSetId: null,
+  adId: null,
+  jobId: "bull_job_1"
+};
+
 async function createApp() {
   const service = {
     listEvents: vi.fn(async () => [diagnosticEvent]),
     listWebhookLogs: vi.fn(async () => [webhookLog]),
     listJobAttempts: vi.fn(async () => [jobAttempt]),
+    listIntegrationLogs: vi.fn(async () => [integrationLog]),
     getEvent: vi.fn(async () => diagnosticEvent),
     recordEvent: vi.fn(async () => diagnosticEvent),
     retryEvent: vi.fn(async () => ({
@@ -198,6 +219,40 @@ describe("diagnostics controller", () => {
       q: "timeout",
       since: "2026-07-01T00:00:00.000Z",
       until: "2026-07-02T23:59:59.000Z",
+      limit: 10
+    });
+
+    await app.close();
+  });
+
+  it("lists backoffice integration logs", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/diagnostics/integrations?workspaceId=workspace_1&source=meta&status=error&operation=meta.campaigns.sync&q=rate&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&campaignId=cmp_1&jobId=bull_job_1&providerErrorCode=META_RATE_LIMIT&limit=10"
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body[0].id).toBe("integration_1");
+        expect(body[0].providerErrorCode).toBe("META_RATE_LIMIT");
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(service.listIntegrationLogs).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      source: "meta",
+      status: "error",
+      operation: "meta.campaigns.sync",
+      q: "rate",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      campaignId: "cmp_1",
+      jobId: "bull_job_1",
+      providerErrorCode: "META_RATE_LIMIT",
       limit: 10
     });
 

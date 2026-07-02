@@ -2,6 +2,7 @@ import type {
   BackofficePaymentChargeDto,
   BackofficeWhatsappInstanceDto,
   DiagnosticEventDto,
+  DiagnosticIntegrationLogDto,
   DiagnosticJobAttemptDto,
   DiagnosticWebhookLogDto,
   SplitReceiverDto,
@@ -35,6 +36,14 @@ type PaymentChargeFilters = {
 };
 
 type WebhookLogFilters = Omit<DiagnosticFilters, "severity">;
+
+type IntegrationLogFilters = Omit<
+  DiagnosticFilters,
+  "severity" | "phoneHash" | "errorCode" | "eventType"
+> & {
+  operation?: string;
+  providerErrorCode?: string;
+};
 
 type ResourceResult<T> = {
   data: T;
@@ -106,6 +115,34 @@ async function getJobAttempts(): Promise<ResourceResult<DiagnosticJobAttemptDto[
     return {
       data: jobs,
       state: jobs.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      data: [],
+      state: "error"
+    };
+  }
+}
+
+async function getIntegrationLogs(
+  filters: IntegrationLogFilters
+): Promise<ResourceResult<DiagnosticIntegrationLogDto[]>> {
+  try {
+    const params = new URLSearchParams({ limit: "10" });
+
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) {
+        params.set(key, value);
+      }
+    }
+
+    const logs = await serverApiFetch<DiagnosticIntegrationLogDto[]>(
+      `/backoffice/diagnostics/integrations?${params.toString()}`
+    );
+
+    return {
+      data: logs,
+      state: logs.length > 0 ? "real" : "empty"
     };
   } catch {
     return {
@@ -390,6 +427,20 @@ export default async function BackofficePage({
     adId: diagnosticFilters.adId,
     errorCode: diagnosticFilters.errorCode
   };
+  const integrationLogFilters: IntegrationLogFilters = {
+    workspaceId: diagnosticFilters.workspaceId,
+    source: diagnosticFilters.source,
+    status: diagnosticFilters.status,
+    operation: diagnosticFilters.eventType,
+    q: diagnosticFilters.q,
+    since: diagnosticFilters.since,
+    until: diagnosticFilters.until,
+    leadId: diagnosticFilters.leadId,
+    campaignId: diagnosticFilters.campaignId,
+    adSetId: diagnosticFilters.adSetId,
+    adId: diagnosticFilters.adId,
+    providerErrorCode: diagnosticFilters.errorCode
+  };
   const [
     diagnosticEventsResult,
     workspaceBillingResult,
@@ -397,7 +448,8 @@ export default async function BackofficePage({
     paymentChargesResult,
     whatsappInstancesResult,
     webhookLogsResult,
-    jobAttemptsResult
+    jobAttemptsResult,
+    integrationLogsResult
   ] = await Promise.all([
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
@@ -405,11 +457,13 @@ export default async function BackofficePage({
     getPaymentCharges(paymentChargeFilters),
     getBackofficeWhatsappInstances(),
     getWebhookLogs(webhookLogFilters),
-    getJobAttempts()
+    getJobAttempts(),
+    getIntegrationLogs(integrationLogFilters)
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
   const webhookLogs = webhookLogsResult.data;
   const jobAttempts = jobAttemptsResult.data;
+  const integrationLogs = integrationLogsResult.data;
   const workspaceBilling = workspaceBillingResult.data;
   const splitReceivers = splitReceiversResult.data;
   const paymentCharges = paymentChargesResult.data;
@@ -427,7 +481,8 @@ export default async function BackofficePage({
     paymentChargesResult.state,
     whatsappInstancesResult.state,
     webhookLogsResult.state,
-    jobAttemptsResult.state
+    jobAttemptsResult.state,
+    integrationLogsResult.state
   ].includes("error");
   const configuredCustomers = workspaceBilling.filter(
     (workspace) => workspace.asaasCustomerId
@@ -466,10 +521,11 @@ export default async function BackofficePage({
       "Diagnosticos",
       diagnosticEventsResult.state === "error" ||
       webhookLogsResult.state === "error" ||
-      jobAttemptsResult.state === "error"
+      jobAttemptsResult.state === "error" ||
+      integrationLogsResult.state === "error"
         ? "API indisponivel"
-        : `${diagnosticEvents.length} eventos / ${webhookLogs.length} webhooks / ${jobAttempts.length} jobs`,
-      "Eventos, webhooks e jobs reais retornados pela Central de Diagnostico."
+        : `${diagnosticEvents.length} eventos / ${webhookLogs.length} webhooks / ${jobAttempts.length} jobs / ${integrationLogs.length} chamadas`,
+      "Eventos, webhooks, jobs e chamadas externas reais retornados pela Central de Diagnostico."
     ]
   ];
   const workspaceEmptyTitle =
@@ -496,6 +552,10 @@ export default async function BackofficePage({
     jobAttemptsResult.state === "error"
       ? "Nao foi possivel carregar jobs"
       : "Nenhum job operacional encontrado";
+  const integrationLogEmptyTitle =
+    integrationLogsResult.state === "error"
+      ? "Nao foi possivel carregar chamadas externas"
+      : "Nenhuma chamada externa encontrada";
   const paymentChargeEmptyTitle =
     paymentChargesResult.state === "error"
       ? "Nao foi possivel carregar cobrancas"
@@ -958,6 +1018,54 @@ export default async function BackofficePage({
                   <td colSpan={6}>
                     <strong>{webhookLogEmptyTitle}</strong>
                     <span>Webhooks Uazapi, Meta e Asaas recebidos aparecem aqui.</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Chamadas externas</th>
+                <th>Provider</th>
+                <th>Atribuicao</th>
+                <th>Duracao</th>
+                <th>Request</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {integrationLogs.length > 0 ? (
+                integrationLogs.map((log) => (
+                  <tr key={log.id}>
+                    <td>
+                      <strong>{log.operation}</strong>
+                      <span>{log.workspaceId ?? "plataforma"}</span>
+                    </td>
+                    <td>
+                      <strong>{log.source}</strong>
+                      <span>{log.httpStatus ?? "sem http"}</span>
+                    </td>
+                    <td>
+                      {log.campaignId ?? log.leadId ?? "sem atribuicao"}
+                      {log.adId ? ` / ${log.adId}` : ""}
+                    </td>
+                    <td>{log.durationMs !== null ? `${log.durationMs}ms` : "em aberto"}</td>
+                    <td>{log.providerRequestId ?? log.jobId ?? "sem id"}</td>
+                    <td>
+                      <span className={`event-chip${log.providerErrorCode ? " warn" : ""}`}>
+                        {log.providerErrorCode ?? log.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>
+                    <strong>{integrationLogEmptyTitle}</strong>
+                    <span>Chamadas Meta, Uazapi e Asaas aparecem aqui.</span>
                   </td>
                 </tr>
               )}

@@ -6,6 +6,8 @@ import type {
   DiagnosticEventDetailDto,
   DiagnosticEventDto,
   DiagnosticEventListQueryDto,
+  DiagnosticIntegrationLogDto,
+  DiagnosticIntegrationLogListQueryDto,
   DiagnosticJobAttemptDto,
   DiagnosticJobAttemptListQueryDto,
   DiagnosticWebhookLogDto,
@@ -92,6 +94,26 @@ type JobAttemptRecord = {
   errorMessage: string | null;
   createdAt: Date;
   summaryPayload?: unknown;
+};
+
+type IntegrationLogRecord = {
+  id: string;
+  workspaceId: string | null;
+  source: DiagnosticSourceDto;
+  operation: string;
+  status: string;
+  startedAt: Date;
+  finishedAt: Date | null;
+  durationMs: number | null;
+  httpStatus: number | null;
+  providerRequestId: string | null;
+  providerErrorCode: string | null;
+  providerErrorMessage: string | null;
+  leadId: string | null;
+  campaignId: string | null;
+  adSetId: string | null;
+  adId: string | null;
+  jobId: string | null;
 };
 
 export type WebhookLogInput = {
@@ -414,6 +436,79 @@ export class DiagnosticsService {
     return attempts.map((attempt) => this.toJobAttemptDto(attempt));
   }
 
+  async listIntegrationLogs(
+    query: DiagnosticIntegrationLogListQueryDto
+  ): Promise<DiagnosticIntegrationLogDto[]> {
+    const where: Prisma.IntegrationLogWhereInput = {};
+
+    if (query.workspaceId) {
+      where.workspaceId = query.workspaceId;
+    }
+
+    if (query.source) {
+      where.source = query.source;
+    }
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    if (query.operation) {
+      where.operation = query.operation;
+    }
+
+    if (query.since || query.until) {
+      where.startedAt = {
+        ...(query.since ? { gte: new Date(query.since) } : {}),
+        ...(query.until ? { lte: new Date(query.until) } : {})
+      };
+    }
+
+    if (query.leadId) {
+      where.leadId = query.leadId;
+    }
+
+    if (query.campaignId) {
+      where.campaignId = query.campaignId;
+    }
+
+    if (query.adSetId) {
+      where.adSetId = query.adSetId;
+    }
+
+    if (query.adId) {
+      where.adId = query.adId;
+    }
+
+    if (query.jobId) {
+      where.jobId = query.jobId;
+    }
+
+    if (query.providerErrorCode) {
+      where.providerErrorCode = query.providerErrorCode;
+    }
+
+    if (query.q) {
+      where.OR = [
+        { operation: { contains: query.q, mode: "insensitive" } },
+        { status: { contains: query.q, mode: "insensitive" } },
+        { providerRequestId: { contains: query.q, mode: "insensitive" } },
+        { providerErrorCode: { contains: query.q, mode: "insensitive" } },
+        { providerErrorMessage: { contains: query.q, mode: "insensitive" } }
+      ];
+    }
+
+    const logs = (await this.prisma.integrationLog.findMany({
+      where,
+      orderBy: {
+        startedAt: "desc"
+      },
+      take: query.limit
+    })) as IntegrationLogRecord[];
+
+    return logs.map((log) => this.toIntegrationLogDto(log));
+  }
+
   async getEvent(id: string): Promise<DiagnosticEventDetailDto> {
     const event = (await this.prisma.diagnosticEvent.findUnique({
       where: { id }
@@ -563,6 +658,30 @@ export class DiagnosticsService {
       errorCode: attempt.errorCode,
       errorMessage: attempt.errorMessage,
       createdAt: attempt.createdAt.toISOString()
+    };
+  }
+
+  private toIntegrationLogDto(
+    log: IntegrationLogRecord
+  ): DiagnosticIntegrationLogDto {
+    return {
+      id: log.id,
+      workspaceId: log.workspaceId,
+      source: log.source,
+      operation: log.operation,
+      status: log.status,
+      startedAt: log.startedAt.toISOString(),
+      finishedAt: log.finishedAt?.toISOString() ?? null,
+      durationMs: log.durationMs,
+      httpStatus: log.httpStatus,
+      providerRequestId: log.providerRequestId,
+      providerErrorCode: log.providerErrorCode,
+      providerErrorMessage: log.providerErrorMessage,
+      leadId: log.leadId,
+      campaignId: log.campaignId,
+      adSetId: log.adSetId,
+      adId: log.adId,
+      jobId: log.jobId
     };
   }
 

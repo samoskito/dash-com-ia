@@ -11,6 +11,7 @@ import {
 import {
   diagnosticEventCreateSchema,
   diagnosticEventListQuerySchema,
+  diagnosticIntegrationLogListQuerySchema,
   diagnosticJobAttemptListQuerySchema,
   diagnosticWebhookLogListQuerySchema,
   diagnosticRetryInputSchema
@@ -74,6 +75,22 @@ export class DiagnosticsController {
     }
 
     return this.diagnosticsService.listJobAttempts(parsed.data);
+  }
+
+  @Get("integrations")
+  async listIntegrationLogs(
+    @AuthToken() refreshToken: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    const parsed = diagnosticIntegrationLogListQuerySchema.safeParse(query);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Filtros invalidos");
+    }
+
+    return this.diagnosticsService.listIntegrationLogs(parsed.data);
   }
 
   @Get("events/:id")

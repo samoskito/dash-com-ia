@@ -143,6 +143,47 @@ export const diagnosticJobAttemptListSchema = z.array(
   diagnosticJobAttemptSchema
 );
 
+export const diagnosticIntegrationLogSchema = z.object({
+  id: z.string().min(1),
+  workspaceId: z.string().min(1).nullable(),
+  source: diagnosticSourceSchema,
+  operation: z.string().min(1),
+  status: z.string().min(1),
+  startedAt: z.string().datetime(),
+  finishedAt: z.string().datetime().nullable(),
+  durationMs: z.number().int().nonnegative().nullable(),
+  httpStatus: z.number().int().nullable(),
+  providerRequestId: z.string().nullable(),
+  providerErrorCode: z.string().nullable(),
+  providerErrorMessage: z.string().nullable(),
+  leadId: z.string().nullable(),
+  campaignId: z.string().nullable(),
+  adSetId: z.string().nullable(),
+  adId: z.string().nullable(),
+  jobId: z.string().nullable()
+});
+
+export const diagnosticIntegrationLogListQuerySchema = z.object({
+  workspaceId: z.string().min(1).optional(),
+  source: diagnosticSourceSchema.optional(),
+  status: z.string().min(1).optional(),
+  operation: z.string().min(1).optional(),
+  q: z.string().trim().min(1).optional(),
+  since: z.string().datetime().optional(),
+  until: z.string().datetime().optional(),
+  leadId: z.string().min(1).optional(),
+  campaignId: z.string().min(1).optional(),
+  adSetId: z.string().min(1).optional(),
+  adId: z.string().min(1).optional(),
+  jobId: z.string().min(1).optional(),
+  providerErrorCode: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(10)
+});
+
+export const diagnosticIntegrationLogListSchema = z.array(
+  diagnosticIntegrationLogSchema
+);
+
 export const diagnosticTimelineItemSchema = z.object({
   id: z.string().min(1),
   kind: z.enum([
@@ -196,6 +237,12 @@ export type DiagnosticJobAttemptDto = z.infer<
 >;
 export type DiagnosticJobAttemptListQueryDto = z.infer<
   typeof diagnosticJobAttemptListQuerySchema
+>;
+export type DiagnosticIntegrationLogDto = z.infer<
+  typeof diagnosticIntegrationLogSchema
+>;
+export type DiagnosticIntegrationLogListQueryDto = z.infer<
+  typeof diagnosticIntegrationLogListQuerySchema
 >;
 export type DiagnosticTimelineItemDto = z.infer<
   typeof diagnosticTimelineItemSchema

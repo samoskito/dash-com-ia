@@ -5,9 +5,11 @@ function createHarness() {
   const events: Array<Record<string, unknown>> = [];
   const auditLogs: Array<Record<string, unknown>> = [];
   const jobAttempts: Array<Record<string, unknown>> = [];
+  const integrationLogs: Array<Record<string, unknown>> = [];
   const webhookLogs: Array<Record<string, unknown>> = [];
   const webhookFindManyCalls: Array<Record<string, unknown>> = [];
   const jobAttemptFindManyCalls: Array<Record<string, unknown>> = [];
+  const integrationLogFindManyCalls: Array<Record<string, unknown>> = [];
   const diagnosticFindManyCalls: Array<Record<string, unknown>> = [];
   const diagnosticsQueueService = {
     enqueueRetry: vi.fn(async (payload: Record<string, unknown>) => ({
@@ -115,6 +117,28 @@ function createHarness() {
 
         return jobAttempts.slice(0, take);
       }
+    },
+    integrationLog: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const integrationLog = {
+          id: `integration_${integrationLogs.length + 1}`,
+          startedAt: new Date("2026-07-02T03:00:00.000Z"),
+          ...data
+        };
+        integrationLogs.push(integrationLog);
+        return integrationLog;
+      },
+      findMany: async ({
+        where,
+        take
+      }: {
+        where: Record<string, unknown>;
+        take: number;
+      }) => {
+        integrationLogFindManyCalls.push({ where, take });
+
+        return integrationLogs.slice(0, take);
+      }
     }
   };
 
@@ -138,6 +162,8 @@ function createHarness() {
     auditLogs,
     diagnosticFindManyCalls,
     events,
+    integrationLogFindManyCalls,
+    integrationLogs,
     jobAttemptFindManyCalls,
     jobAttempts,
     webhookFindManyCalls,
@@ -458,6 +484,79 @@ describe("diagnostics service", () => {
       ]
     });
     expect(jobAttemptFindManyCalls[0]?.take).toBe(10);
+  });
+
+  it("lists integration logs with operational filters", async () => {
+    const { integrationLogFindManyCalls, integrationLogs, service } =
+      createHarness();
+    integrationLogs.push({
+      id: "integration_1",
+      workspaceId: "workspace_1",
+      source: "meta",
+      operation: "meta.campaigns.sync",
+      status: "error",
+      startedAt: new Date("2026-07-02T03:00:00.000Z"),
+      finishedAt: new Date("2026-07-02T03:00:02.000Z"),
+      durationMs: 2000,
+      httpStatus: 500,
+      providerRequestId: "fb_req_1",
+      providerErrorCode: "META_RATE_LIMIT",
+      providerErrorMessage: "Rate limit",
+      leadId: null,
+      campaignId: "cmp_1",
+      adSetId: null,
+      adId: null,
+      jobId: "bull_job_1"
+    });
+
+    const result = await service.listIntegrationLogs({
+      workspaceId: "workspace_1",
+      source: "meta",
+      status: "error",
+      operation: "meta.campaigns.sync",
+      q: "rate",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      campaignId: "cmp_1",
+      jobId: "bull_job_1",
+      providerErrorCode: "META_RATE_LIMIT",
+      limit: 10
+    });
+
+    expect(result[0]).toMatchObject({
+      id: "integration_1",
+      workspaceId: "workspace_1",
+      source: "meta",
+      operation: "meta.campaigns.sync",
+      status: "error",
+      httpStatus: 500,
+      providerRequestId: "fb_req_1",
+      providerErrorCode: "META_RATE_LIMIT",
+      providerErrorMessage: "Rate limit",
+      campaignId: "cmp_1",
+      jobId: "bull_job_1"
+    });
+    expect(integrationLogFindManyCalls[0]?.where).toEqual({
+      workspaceId: "workspace_1",
+      source: "meta",
+      status: "error",
+      operation: "meta.campaigns.sync",
+      startedAt: {
+        gte: new Date("2026-07-01T00:00:00.000Z"),
+        lte: new Date("2026-07-02T23:59:59.000Z")
+      },
+      campaignId: "cmp_1",
+      jobId: "bull_job_1",
+      providerErrorCode: "META_RATE_LIMIT",
+      OR: [
+        { operation: { contains: "rate", mode: "insensitive" } },
+        { status: { contains: "rate", mode: "insensitive" } },
+        { providerRequestId: { contains: "rate", mode: "insensitive" } },
+        { providerErrorCode: { contains: "rate", mode: "insensitive" } },
+        { providerErrorMessage: { contains: "rate", mode: "insensitive" } }
+      ]
+    });
+    expect(integrationLogFindManyCalls[0]?.take).toBe(10);
   });
 
   it("returns an operational timeline for webhook, event, retry audit and job attempts", async () => {
