@@ -46,6 +46,8 @@ describe("reports route", () => {
       expect.objectContaining({ credentials: "include" })
     );
     expect(html).toContain("Black Friday WhatsApp");
+    expect(html).toContain("Sincronizar Meta");
+    expect(html).toContain("Atualizacao enfileirada");
     expect(html).toContain("1.200,00");
     expect(html).toContain("176");
     expect(html).toContain("LeadSubmitted");

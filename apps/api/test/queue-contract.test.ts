@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   CONVERSION_EVENTS_QUEUE,
   DIAGNOSTIC_QUEUE,
+  META_REPORT_SYNC_QUEUE,
   type ConversionEventJobPayload,
-  type DiagnosticJobPayload
+  type DiagnosticJobPayload,
+  type MetaReportSyncJobPayload
 } from "../src/common/queue/queue.constants";
 
 describe("diagnostic queue contract", () => {
@@ -29,5 +31,16 @@ describe("diagnostic queue contract", () => {
 
     expect(CONVERSION_EVENTS_QUEUE).toBe("conversion-events");
     expect(payload.conversionEventLogId).toBe("conversion_1");
+  });
+
+  it("uses the Meta report sync queue contract", () => {
+    const payload: MetaReportSyncJobPayload = {
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    };
+
+    expect(META_REPORT_SYNC_QUEUE).toBe("meta-report-sync");
+    expect(payload.workspaceId).toBe("workspace_1");
   });
 });

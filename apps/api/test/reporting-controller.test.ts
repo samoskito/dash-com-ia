@@ -2,6 +2,7 @@ import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { AuthService } from "../src/auth/auth.service";
+import { MetaReportSyncQueueService } from "../src/reporting/meta-report-sync-queue.service";
 import { MetaReportingService } from "../src/reporting/meta-reporting.service";
 import { ReportingController } from "../src/reporting/reporting.controller";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
@@ -39,6 +40,15 @@ async function createApp() {
       adsSynced: 1
     }))
   };
+  const queueService = {
+    enqueueSync: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      jobId: "meta-report-sync:workspace_1:2026-07-01:2026-07-02",
+      status: "queued"
+    }))
+  };
   const authService = {
     getSession: vi.fn(async () => ({
       user: {
@@ -70,6 +80,7 @@ async function createApp() {
     controllers: [ReportingController],
     providers: [
       { provide: MetaReportingService, useValue: reportingService },
+      { provide: MetaReportSyncQueueService, useValue: queueService },
       { provide: AuthService, useValue: authService },
       { provide: WorkspacesService, useValue: workspacesService }
     ]
@@ -77,7 +88,7 @@ async function createApp() {
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, reportingService };
+  return { app, queueService, reportingService };
 }
 
 describe("reporting controller", () => {
@@ -101,23 +112,24 @@ describe("reporting controller", () => {
     await app.close();
   });
 
-  it("syncs Meta reporting snapshots for the current workspace", async () => {
-    const { app, reportingService } = await createApp();
+  it("queues Meta reporting snapshot sync for the current workspace", async () => {
+    const { app, queueService, reportingService } = await createApp();
 
     await request(app.getHttpServer())
       .post("/reports/meta/sync?since=2026-07-01&until=2026-07-02")
       .set("Cookie", "wpptrack_session=refresh-token")
       .expect(201)
       .expect(({ body }) => {
-        expect(body.campaignsSynced).toBe(1);
-        expect(body.adsSynced).toBe(1);
+        expect(body.status).toBe("queued");
+        expect(body.jobId).toBe("meta-report-sync:workspace_1:2026-07-01:2026-07-02");
       });
 
-    expect(reportingService.syncWorkspaceMetaStructure).toHaveBeenCalledWith({
+    expect(queueService.enqueueSync).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       since: "2026-07-01",
       until: "2026-07-02"
     });
+    expect(reportingService.syncWorkspaceMetaStructure).not.toHaveBeenCalled();
 
     await app.close();
   });

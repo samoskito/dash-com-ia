@@ -2,6 +2,7 @@ import { Controller, Get, Inject, Post, Query } from "@nestjs/common";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
+import { MetaReportSyncQueueService } from "./meta-report-sync-queue.service";
 import { MetaReportingService } from "./meta-reporting.service";
 
 @Controller("reports")
@@ -9,6 +10,8 @@ export class ReportingController {
   constructor(
     @Inject(MetaReportingService)
     private readonly metaReportingService: MetaReportingService,
+    @Inject(MetaReportSyncQueueService)
+    private readonly metaReportSyncQueueService: MetaReportSyncQueueService,
     @Inject(AuthService)
     private readonly authService: AuthService,
     @Inject(WorkspacesService)
@@ -33,7 +36,7 @@ export class ReportingController {
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
 
-    return this.metaReportingService.syncWorkspaceMetaStructure({
+    return this.metaReportSyncQueueService.enqueueSync({
       workspaceId,
       since,
       until

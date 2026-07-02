@@ -1,4 +1,5 @@
 import type { ReportOverviewDto } from "@wpptrack/shared";
+import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
 import { mockReportOverview } from "../../../mock/reporting";
 
@@ -18,6 +19,19 @@ async function getCampaignReports(): Promise<ReportOverviewDto> {
     return await serverApiFetch<ReportOverviewDto>("/reports/campaigns");
   } catch {
     return mockReportOverview;
+  }
+}
+
+async function syncMetaReports() {
+  "use server";
+
+  try {
+    await serverApiFetch("/reports/meta/sync", {
+      method: "POST"
+    });
+    revalidatePath("/reports");
+  } catch {
+    return;
   }
 }
 
@@ -73,6 +87,10 @@ export default async function ReportsPage() {
           <span className="tag">Custo por evento</span>
           <span className="tag">Atribuicao CTWA</span>
           <span className="tag">Exportacao CSV</span>
+          <form action={syncMetaReports}>
+            <button className="button" type="submit">Sincronizar Meta</button>
+          </form>
+          <span className="tag">Atualizacao enfileirada</span>
         </div>
       </header>
 
