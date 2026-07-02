@@ -3,6 +3,7 @@ import type {
   SplitReceiverDto,
   WorkspaceBillingDto
 } from "@wpptrack/shared";
+import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
 
 type BackofficeSearchParams = Record<string, string | string[] | undefined>;
@@ -132,8 +133,75 @@ async function updateWorkspaceBilling(formData: FormData) {
   }
 }
 
+async function createSplitReceiver(formData: FormData) {
+  "use server";
+
+  const name = String(formData.get("name") ?? "").trim();
+  const walletId = String(formData.get("walletId") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim();
+
+  if (!name || !walletId) {
+    return;
+  }
+
+  try {
+    await serverApiFetch("/backoffice/split/receivers", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        walletId,
+        email: email || null,
+        percentageBps: percentageInputToBps(formData.get("percentage")),
+        active: String(formData.get("active") ?? "true") === "true"
+      })
+    });
+    revalidatePath("/backoffice");
+  } catch {
+    return;
+  }
+}
+
+async function updateSplitReceiver(formData: FormData) {
+  "use server";
+
+  const receiverId = String(formData.get("receiverId") ?? "").trim();
+  const name = String(formData.get("name") ?? "").trim();
+  const walletId = String(formData.get("walletId") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim();
+
+  if (!receiverId || !name || !walletId) {
+    return;
+  }
+
+  try {
+    await serverApiFetch(`/backoffice/split/receivers/${receiverId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name,
+        walletId,
+        email: email || null,
+        percentageBps: percentageInputToBps(formData.get("percentage")),
+        active: String(formData.get("active") ?? "true") === "true"
+      })
+    });
+    revalidatePath("/backoffice");
+  } catch {
+    return;
+  }
+}
+
 function percentFromBps(value: number): string {
   return `${(value / 100).toFixed(2)}%`;
+}
+
+function percentageInputToBps(value: FormDataEntryValue | null): number {
+  const parsed = Number(String(value ?? "0").replace(",", "."));
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  return Math.min(10000, Math.round(parsed * 100));
 }
 
 function asStringParam(
@@ -344,6 +412,22 @@ export default async function BackofficePage({
       <div className="surface-panel">
         <span className="eyebrow">Split Asaas</span>
         <h2>Recebedores da plataforma</h2>
+        <form className="inline-form" action={createSplitReceiver}>
+          <input name="name" placeholder="Novo recebedor" aria-label="Novo recebedor" />
+          <input name="walletId" placeholder="Wallet Asaas" aria-label="Wallet Asaas" />
+          <input name="email" type="email" placeholder="Email opcional" aria-label="Email opcional" />
+          <input
+            name="percentage"
+            inputMode="decimal"
+            placeholder="Percentual"
+            aria-label="Percentual do split"
+          />
+          <select name="active" defaultValue="true" aria-label="Estado do recebedor">
+            <option value="true">ativo</option>
+            <option value="false">pausado</option>
+          </select>
+          <button className="button primary" type="submit">Adicionar recebedor</button>
+        </form>
         <div className="table-wrap">
           <table>
             <thead>
@@ -359,14 +443,45 @@ export default async function BackofficePage({
               {splitReceivers.length > 0 ? (
                 splitReceivers.map((receiver) => (
                   <tr key={receiver.id}>
-                    <td><strong>{receiver.name}</strong><span>{receiver.id}</span></td>
-                    <td>{receiver.walletId}</td>
-                    <td>{receiver.email ?? "sem email"}</td>
-                    <td>{percentFromBps(receiver.percentageBps)}</td>
-                    <td>
-                      <span className={`event-chip${receiver.active ? "" : " warn"}`}>
-                        {receiver.active ? "ativo" : "pausado"}
-                      </span>
+                    <td colSpan={5}>
+                      <form className="inline-form" action={updateSplitReceiver}>
+                        <input type="hidden" name="receiverId" value={receiver.id} />
+                        <input
+                          aria-label={`Nome de ${receiver.name}`}
+                          defaultValue={receiver.name}
+                          name="name"
+                        />
+                        <input
+                          aria-label={`Wallet de ${receiver.name}`}
+                          defaultValue={receiver.walletId}
+                          name="walletId"
+                        />
+                        <input
+                          aria-label={`Email de ${receiver.name}`}
+                          defaultValue={receiver.email ?? ""}
+                          name="email"
+                          type="email"
+                        />
+                        <input
+                          aria-label={`Percentual de ${receiver.name}`}
+                          defaultValue={percentFromBps(receiver.percentageBps).replace("%", "")}
+                          inputMode="decimal"
+                          name="percentage"
+                        />
+                        <select
+                          aria-label={`Estado de ${receiver.name}`}
+                          defaultValue={String(receiver.active)}
+                          name="active"
+                        >
+                          <option value="true">ativo</option>
+                          <option value="false">pausado</option>
+                        </select>
+                        <button className="button" type="submit">Salvar recebedor</button>
+                        <span>{percentFromBps(receiver.percentageBps)}</span>
+                        <span className={`event-chip${receiver.active ? "" : " warn"}`}>
+                          {receiver.active ? "ativo" : "pausado"}
+                        </span>
+                      </form>
                     </td>
                   </tr>
                 ))

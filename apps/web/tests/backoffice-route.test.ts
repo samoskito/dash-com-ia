@@ -50,6 +50,11 @@ describe("backoffice route", () => {
     expect(html).toContain("Socio Operacional");
     expect(html).toContain("wallet_asaas_1");
     expect(html).toContain("25.00%");
+    expect(html).toContain("Novo recebedor");
+    expect(html).toContain("Adicionar recebedor");
+    expect(html).toContain("Salvar recebedor");
+    expect(html).toContain('name="receiverId"');
+    expect(html).toContain('name="percentage"');
   });
 
   it("renders diagnostic retry action when backend returns events", async () => {
