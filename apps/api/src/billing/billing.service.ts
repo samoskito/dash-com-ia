@@ -13,7 +13,7 @@ type AsaasPaymentWebhookPayload = Record<string, unknown>;
 
 export type AsaasPaymentProcessingResult = {
   processed: boolean;
-  status: "ignored" | "paid";
+  status: "ignored" | "paid" | "failed";
   chargeId?: string;
   activationId?: string;
   whatsappInstanceId?: string;
@@ -219,7 +219,9 @@ export class BillingService {
   async processAsaasPaymentWebhook(
     payload: AsaasPaymentWebhookPayload
   ): Promise<AsaasPaymentProcessingResult> {
-    if (!this.isPaidAsaasPayload(payload)) {
+    const paymentStatus = this.getAsaasPaymentStatus(payload);
+
+    if (paymentStatus === "ignored") {
       return {
         processed: false,
         status: "ignored"
@@ -255,6 +257,23 @@ export class BillingService {
       return {
         processed: false,
         status: "ignored"
+      };
+    }
+
+    if (paymentStatus === "failed") {
+      await this.prisma.paymentCharge.update({
+        where: { id: charge.id },
+        data: {
+          status: "failed"
+        }
+      });
+
+      return {
+        processed: true,
+        status: "failed",
+        chargeId: charge.id,
+        activationId: charge.activation.id,
+        whatsappInstanceId: charge.activation.whatsappInstanceId
       };
     }
 
@@ -317,17 +336,40 @@ export class BillingService {
     return "pending";
   }
 
-  private isPaidAsaasPayload(payload: AsaasPaymentWebhookPayload): boolean {
+  private getAsaasPaymentStatus(
+    payload: AsaasPaymentWebhookPayload
+  ): "ignored" | "paid" | "failed" {
     const event = this.firstString(payload.event)?.toUpperCase();
     const payment = this.getPaymentPayload(payload);
     const paymentStatus = this.firstString(payment.status)?.toUpperCase();
 
-    return (
+    if (
       event === "PAYMENT_RECEIVED" ||
       event === "PAYMENT_CONFIRMED" ||
       paymentStatus === "RECEIVED" ||
       paymentStatus === "CONFIRMED"
-    );
+    ) {
+      return "paid";
+    }
+
+    if (
+      event === "PAYMENT_OVERDUE" ||
+      event === "PAYMENT_DELETED" ||
+      event === "PAYMENT_REFUNDED" ||
+      event === "PAYMENT_CHARGEBACK_REQUESTED" ||
+      event === "PAYMENT_CHARGEBACK_DISPUTE" ||
+      event === "PAYMENT_AWAITING_CHARGEBACK_REVERSAL" ||
+      paymentStatus === "OVERDUE" ||
+      paymentStatus === "DELETED" ||
+      paymentStatus === "REFUNDED" ||
+      paymentStatus === "CHARGEBACK_REQUESTED" ||
+      paymentStatus === "CHARGEBACK_DISPUTE" ||
+      paymentStatus === "AWAITING_CHARGEBACK_REVERSAL"
+    ) {
+      return "failed";
+    }
+
+    return "ignored";
   }
 
   private getAsaasPaymentId(

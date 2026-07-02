@@ -346,4 +346,33 @@ describe("billing service", () => {
     expect(db.activations[0]).toMatchObject({ status: "active" });
     expect(db.instances[0]).toMatchObject({ status: "active" });
   });
+
+  it("marks the charge as failed without activating the instance when Asaas reports payment failure", async () => {
+    const { db, service } = createHarness();
+    const checkout = await service.createWhatsappInstanceCheckout(
+      "workspace_1",
+      {
+        instanceName: "Comercial",
+        provider: "uazapi"
+      }
+    );
+    db.charges[0].externalChargeId = "pay_asaas_1";
+
+    const result = await service.processAsaasPaymentWebhook({
+      event: "PAYMENT_OVERDUE",
+      payment: {
+        id: "pay_asaas_1",
+        status: "OVERDUE"
+      }
+    });
+
+    expect(result).toMatchObject({
+      processed: true,
+      chargeId: checkout.chargeId,
+      status: "failed"
+    });
+    expect(db.charges[0]).toMatchObject({ status: "failed" });
+    expect(db.activations[0]).toMatchObject({ status: "pending_payment" });
+    expect(db.instances[0]).toMatchObject({ status: "pending_payment" });
+  });
 });
