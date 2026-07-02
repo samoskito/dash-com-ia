@@ -70,6 +70,68 @@ describe("reports route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            adSets: [
+              {
+                id: "adset_1",
+                campaignId: "cmp_1",
+                campaignName: "Black Friday WhatsApp",
+                name: "Publico quente",
+                status: "active",
+                spendCents: 0,
+                metaConversationsStarted: 0,
+                costPerMetaConversationCents: null,
+                realConversations: 2,
+                costPerRealConversationCents: null,
+                leadSubmitted: 1,
+                costPerLeadSubmittedCents: null,
+                qualifiedLead: 1,
+                costPerQualifiedLeadCents: null,
+                purchase: 1,
+                costPerPurchaseCents: null,
+                roas: null
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            ads: [
+              {
+                id: "ad_1",
+                campaignId: "cmp_1",
+                campaignName: "Black Friday WhatsApp",
+                adSetId: "adset_1",
+                adSetName: "Publico quente",
+                name: "Criativo WhatsApp",
+                status: "active",
+                spendCents: 0,
+                metaConversationsStarted: 0,
+                costPerMetaConversationCents: null,
+                realConversations: 2,
+                costPerRealConversationCents: null,
+                leadSubmitted: 1,
+                costPerLeadSubmittedCents: null,
+                qualifiedLead: 1,
+                costPerQualifiedLeadCents: null,
+                purchase: 1,
+                costPerPurchaseCents: null,
+                roas: null
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
       );
 
     const element = await ReportsPage({
@@ -88,6 +150,14 @@ describe("reports route", () => {
       "http://localhost:3333/reports/meta/structure",
       expect.objectContaining({ credentials: "include" })
     );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/reports/adsets?since=2026-07-01&until=2026-07-02",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/reports/ads?since=2026-07-01&until=2026-07-02",
+      expect.objectContaining({ credentials: "include" })
+    );
     expect(html).toContain("Black Friday WhatsApp");
     expect(html).not.toContain("Remarketing 7 dias");
     expect(html).not.toContain("Publico frio - videos");
@@ -100,6 +170,10 @@ describe("reports route", () => {
     expect(html).toContain("176");
     expect(html).toContain("2");
     expect(html).toContain("LeadSubmitted");
+    expect(html).toContain("Performance por conjunto");
+    expect(html).toContain("Performance por anuncio");
+    expect(html).toContain("Conjunto nao tem investimento proprio persistido");
+    expect(html).toContain("Anuncio nao tem investimento proprio persistido");
   });
 
   it("renders an empty campaign state without demo rows when backend returns no campaigns", async () => {
@@ -122,12 +196,34 @@ describe("reports route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            adSets: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            ads: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
       );
 
     const element = await ReportsPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("Nenhuma campanha sincronizada");
+    expect(html).toContain("Nenhum conjunto sincronizado");
+    expect(html).toContain("Nenhum anuncio sincronizado");
     expect(html).toContain("Use Sincronizar Meta");
     expect(html).not.toContain("Black Friday WhatsApp");
     expect(html).not.toContain("Remarketing 7 dias");
@@ -136,6 +232,8 @@ describe("reports route", () => {
   it("renders an unavailable state without demo rows when backend is unavailable", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response("offline", { status: 503 }))
+      .mockResolvedValueOnce(new Response("offline", { status: 503 }))
+      .mockResolvedValueOnce(new Response("offline", { status: 503 }))
       .mockResolvedValueOnce(new Response("offline", { status: 503 }));
 
     const element = await ReportsPage({});
@@ -143,6 +241,8 @@ describe("reports route", () => {
 
     expect(html).toContain("API indisponivel");
     expect(html).toContain("Nao foi possivel carregar campanhas");
+    expect(html).toContain("Nao foi possivel carregar conjuntos");
+    expect(html).toContain("Nao foi possivel carregar anuncios");
     expect(html).not.toContain("Black Friday WhatsApp");
   });
 });

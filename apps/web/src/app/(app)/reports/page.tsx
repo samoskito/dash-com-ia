@@ -1,4 +1,12 @@
-import type { MetaStructureReportDto, ReportOverviewDto } from "@wpptrack/shared";
+import type {
+  AdReportOverviewDto,
+  AdReportRowDto,
+  AdSetReportOverviewDto,
+  AdSetReportRowDto,
+  CampaignReportRowDto,
+  MetaStructureReportDto,
+  ReportOverviewDto
+} from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
 
@@ -8,6 +16,18 @@ type CampaignReportsResult = {
   report: ReportOverviewDto;
   state: ReportFetchState;
 };
+type AdSetReportsResult = {
+  report: AdSetReportOverviewDto;
+  state: ReportFetchState;
+};
+type AdReportsResult = {
+  report: AdReportOverviewDto;
+  state: ReportFetchState;
+};
+type PerformanceRow =
+  | CampaignReportRowDto
+  | AdSetReportRowDto
+  | AdReportRowDto;
 
 function money(cents: number | null) {
   if (cents === null) {
@@ -25,17 +45,7 @@ async function getCampaignReports(filters: {
   until?: string;
 }): Promise<CampaignReportsResult> {
   try {
-    const params = new URLSearchParams();
-
-    if (filters.since) {
-      params.set("since", filters.since);
-    }
-
-    if (filters.until) {
-      params.set("until", filters.until);
-    }
-
-    const query = params.toString();
+    const query = reportQuery(filters);
 
     const report = await serverApiFetch<ReportOverviewDto>(
       query ? `/reports/campaigns?${query}` : "/reports/campaigns"
@@ -57,12 +67,78 @@ async function getCampaignReports(filters: {
   }
 }
 
+async function getAdSetReports(filters: {
+  since?: string;
+  until?: string;
+}): Promise<AdSetReportsResult> {
+  try {
+    const query = reportQuery(filters);
+    const report = await serverApiFetch<AdSetReportOverviewDto>(
+      query ? `/reports/adsets?${query}` : "/reports/adsets"
+    );
+
+    return {
+      report,
+      state: report.adSets.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      report: {
+        workspaceId: "unavailable",
+        rangeLabel: "API indisponivel",
+        adSets: []
+      },
+      state: "error"
+    };
+  }
+}
+
+async function getAdReports(filters: {
+  since?: string;
+  until?: string;
+}): Promise<AdReportsResult> {
+  try {
+    const query = reportQuery(filters);
+    const report = await serverApiFetch<AdReportOverviewDto>(
+      query ? `/reports/ads?${query}` : "/reports/ads"
+    );
+
+    return {
+      report,
+      state: report.ads.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      report: {
+        workspaceId: "unavailable",
+        rangeLabel: "API indisponivel",
+        ads: []
+      },
+      state: "error"
+    };
+  }
+}
+
 async function getMetaStructureReport(): Promise<MetaStructureReportDto | null> {
   try {
     return await serverApiFetch<MetaStructureReportDto>("/reports/meta/structure");
   } catch {
     return null;
   }
+}
+
+function reportQuery(filters: { since?: string; until?: string }) {
+  const params = new URLSearchParams();
+
+  if (filters.since) {
+    params.set("since", filters.since);
+  }
+
+  if (filters.until) {
+    params.set("until", filters.until);
+  }
+
+  return params.toString();
 }
 
 async function syncMetaReports(formData: FormData) {
@@ -98,6 +174,57 @@ function asStringParam(
   return Array.isArray(value) ? value[0] : value;
 }
 
+function reportStatusChip(status: PerformanceRow["status"]) {
+  return (
+    <span className={`event-chip${status === "paused" ? " warn" : ""}`}>
+      {status}
+    </span>
+  );
+}
+
+function PerformanceMetricsCells({ row }: { row: PerformanceRow }) {
+  return (
+    <>
+      <td>{money(row.spendCents)}</td>
+      <td>
+        {row.metaConversationsStarted}
+        <span>{money(row.costPerMetaConversationCents)}</span>
+      </td>
+      <td>
+        {row.realConversations}
+        <span>{money(row.costPerRealConversationCents)}</span>
+      </td>
+      <td>
+        {row.leadSubmitted}
+        <span>{money(row.costPerLeadSubmittedCents)}</span>
+      </td>
+      <td>
+        {row.qualifiedLead}
+        <span>{money(row.costPerQualifiedLeadCents)}</span>
+      </td>
+      <td>
+        {row.purchase}
+        <span>{money(row.costPerPurchaseCents)}</span>
+      </td>
+      <td>{row.roas === null ? "-" : `${row.roas}x`}</td>
+    </>
+  );
+}
+
+function EmptyPerformanceCells() {
+  return (
+    <>
+      <td>{money(0)}</td>
+      <td>0<span>-</span></td>
+      <td>0<span>-</span></td>
+      <td>0<span>-</span></td>
+      <td>0<span>-</span></td>
+      <td>0<span>-</span></td>
+      <td>-</td>
+    </>
+  );
+}
+
 export default async function ReportsPage({
   searchParams
 }: {
@@ -106,12 +233,16 @@ export default async function ReportsPage({
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const since = asStringParam(resolvedSearchParams.since);
   const until = asStringParam(resolvedSearchParams.until);
-  const [campaignReports, metaStructure] = await Promise.all([
+  const [campaignReports, metaStructure, adSetReports, adReports] = await Promise.all([
     getCampaignReports({ since, until }),
-    getMetaStructureReport()
+    getMetaStructureReport(),
+    getAdSetReports({ since, until }),
+    getAdReports({ since, until })
   ]);
   const { report, state: reportState } = campaignReports;
   const rows = report.campaigns;
+  const adSetRows = adSetReports.report.adSets;
+  const adRows = adReports.report.ads;
 
   return (
     <section className="page-stack">
@@ -159,32 +290,9 @@ export default async function ReportsPage({
                 <tr key={row.id}>
                   <td>
                     <strong>{row.name}</strong>
-                    <span className={`event-chip${row.status === "paused" ? " warn" : ""}`}>
-                      {row.status}
-                    </span>
+                    {reportStatusChip(row.status)}
                   </td>
-                  <td>{money(row.spendCents)}</td>
-                  <td>
-                    {row.metaConversationsStarted}
-                    <span>{money(row.costPerMetaConversationCents)}</span>
-                  </td>
-                  <td>
-                    {row.realConversations}
-                    <span>{money(row.costPerRealConversationCents)}</span>
-                  </td>
-                  <td>
-                    {row.leadSubmitted}
-                    <span>{money(row.costPerLeadSubmittedCents)}</span>
-                  </td>
-                  <td>
-                    {row.qualifiedLead}
-                    <span>{money(row.costPerQualifiedLeadCents)}</span>
-                  </td>
-                  <td>
-                    {row.purchase}
-                    <span>{money(row.costPerPurchaseCents)}</span>
-                  </td>
-                  <td>{row.roas === null ? "-" : `${row.roas}x`}</td>
+                  <PerformanceMetricsCells row={row} />
                 </tr>
               ))
             ) : (
@@ -201,17 +309,115 @@ export default async function ReportsPage({
                       : "Use Sincronizar Meta para carregar campanhas reais."}
                   </span>
                 </td>
-                <td>{money(0)}</td>
-                <td>0<span>-</span></td>
-                <td>0<span>-</span></td>
-                <td>0<span>-</span></td>
-                <td>0<span>-</span></td>
-                <td>0<span>-</span></td>
-                <td>-</td>
+                <EmptyPerformanceCells />
               </tr>
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="surface-panel">
+        <span className="eyebrow">Conjuntos</span>
+        <h2>Performance por conjunto</h2>
+        <p className="muted">Conjunto nao tem investimento proprio persistido nesta etapa; custos ficam em branco ate sincronizarmos insights por conjunto.</p>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Conjunto</th>
+                <th>Investimento</th>
+                <th>Conversas Meta</th>
+                <th>Conversas reais</th>
+                <th>LeadSubmitted</th>
+                <th>QualifiedLead</th>
+                <th>Purchase</th>
+                <th>ROAS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {adSetRows.length > 0 ? (
+                adSetRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      <strong>{row.name}</strong>
+                      <span>{row.campaignName}</span>
+                      {reportStatusChip(row.status)}
+                    </td>
+                    <PerformanceMetricsCells row={row} />
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td>
+                    <strong>
+                      {adSetReports.state === "error"
+                        ? "Nao foi possivel carregar conjuntos"
+                        : "Nenhum conjunto sincronizado"}
+                    </strong>
+                    <span>
+                      {adSetReports.state === "error"
+                        ? "Confira a API antes de analisar conjuntos."
+                        : "Use Sincronizar Meta para carregar conjuntos reais."}
+                    </span>
+                  </td>
+                  <EmptyPerformanceCells />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="surface-panel">
+        <span className="eyebrow">Anuncios</span>
+        <h2>Performance por anuncio</h2>
+        <p className="muted">Anuncio nao tem investimento proprio persistido nesta etapa; custos ficam em branco ate sincronizarmos insights por anuncio.</p>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Anuncio</th>
+                <th>Investimento</th>
+                <th>Conversas Meta</th>
+                <th>Conversas reais</th>
+                <th>LeadSubmitted</th>
+                <th>QualifiedLead</th>
+                <th>Purchase</th>
+                <th>ROAS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {adRows.length > 0 ? (
+                adRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      <strong>{row.name}</strong>
+                      <span>{row.campaignName} / {row.adSetName}</span>
+                      {reportStatusChip(row.status)}
+                    </td>
+                    <PerformanceMetricsCells row={row} />
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td>
+                    <strong>
+                      {adReports.state === "error"
+                        ? "Nao foi possivel carregar anuncios"
+                        : "Nenhum anuncio sincronizado"}
+                    </strong>
+                    <span>
+                      {adReports.state === "error"
+                        ? "Confira a API antes de analisar anuncios."
+                        : "Use Sincronizar Meta para carregar anuncios reais."}
+                    </span>
+                  </td>
+                  <EmptyPerformanceCells />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="surface-panel">
