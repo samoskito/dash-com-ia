@@ -6,9 +6,13 @@ import {
   campaignReportRowSchema,
   clientNavigation,
   googleOAuthStartSchema,
+  currentWorkspaceSchema,
   integrationHealthSchema,
   loginSchema,
-  registerSchema
+  registerSchema,
+  workspaceInviteInputSchema,
+  workspaceInviteSchema,
+  workspaceMemberSchema
 } from "../src";
 
 describe("shared contracts", () => {
@@ -116,5 +120,53 @@ describe("shared contracts", () => {
     });
 
     expect(parsed.redirectTo).toBe("/dashboard");
+  });
+
+  it("validates current workspace, members and invites", () => {
+    const workspace = currentWorkspaceSchema.parse({
+      id: "workspace_1",
+      name: "Comunidade NOD",
+      slug: "comunidade-nod",
+      role: "owner",
+      permissions: {
+        canInviteMembers: true,
+        canManageBilling: true,
+        canManageIntegrations: true,
+        canViewReports: true
+      }
+    });
+    const member = workspaceMemberSchema.parse({
+      id: "member_1",
+      userId: "user_1",
+      email: "owner@wpptrack.com",
+      name: "Owner",
+      role: "owner",
+      joinedAt: "2026-07-02T03:00:00.000Z"
+    });
+    const inviteInput = workspaceInviteInputSchema.parse({
+      email: " ADMIN@WPPTRACK.COM ",
+      role: "admin"
+    });
+    const invite = workspaceInviteSchema.parse({
+      id: "invite_1",
+      email: "admin@wpptrack.com",
+      role: "admin",
+      status: "pending",
+      expiresAt: "2026-07-09T03:00:00.000Z"
+    });
+
+    expect(workspace.permissions.canManageBilling).toBe(true);
+    expect(member.role).toBe("owner");
+    expect(inviteInput.email).toBe("admin@wpptrack.com");
+    expect(invite.status).toBe("pending");
+  });
+
+  it("rejects owner invites from client-facing workspace API", () => {
+    expect(() =>
+      workspaceInviteInputSchema.parse({
+        email: "owner2@wpptrack.com",
+        role: "owner"
+      })
+    ).toThrow();
   });
 });

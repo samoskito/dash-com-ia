@@ -11,6 +11,7 @@ import {
   UnauthorizedException
 } from "@nestjs/common";
 import { loginSchema, registerSchema } from "@wpptrack/shared";
+import { extractAuthToken, firstHeader } from "./auth-token";
 import { AuthService, type AuthSessionResult } from "./auth.service";
 
 const sessionCookieName = "wpptrack_session";
@@ -49,7 +50,7 @@ export class AuthController {
   ): Promise<AuthSessionResult> {
     const input = this.parseBody(registerSchema.safeParse(body));
     const session = await this.authService.register(input, {
-      userAgent: this.firstHeader(request.headers["user-agent"]) ?? null,
+      userAgent: firstHeader(request.headers["user-agent"]) ?? null,
       ipAddress: request.ip ?? null
     });
 
@@ -67,7 +68,7 @@ export class AuthController {
   ): Promise<AuthSessionResult> {
     const input = this.parseBody(loginSchema.safeParse(body));
     const session = await this.authService.login(input, {
-      userAgent: this.firstHeader(request.headers["user-agent"]) ?? null,
+      userAgent: firstHeader(request.headers["user-agent"]) ?? null,
       ipAddress: request.ip ?? null
     });
 
@@ -78,7 +79,7 @@ export class AuthController {
 
   @Get("me")
   async me(@Req() request: AuthRequest) {
-    return this.authService.getSession(this.extractRefreshToken(request));
+    return this.authService.getSession(extractAuthToken(request));
   }
 
   @Post("logout")
@@ -87,7 +88,7 @@ export class AuthController {
     @Req() request: AuthRequest,
     @Res({ passthrough: true }) response: CookieResponse
   ) {
-    await this.authService.logout(this.extractRefreshToken(request));
+    await this.authService.logout(extractAuthToken(request));
     response.clearCookie(sessionCookieName, { path: "/" });
 
     return { ok: true };
@@ -114,28 +115,4 @@ export class AuthController {
     });
   }
 
-  private extractRefreshToken(request: AuthRequest): string {
-    const authorization = this.firstHeader(request.headers.authorization);
-
-    if (authorization?.startsWith("Bearer ")) {
-      return authorization.slice("Bearer ".length).trim();
-    }
-
-    const cookie = this.firstHeader(request.headers.cookie);
-    const cookieToken = cookie
-      ?.split(";")
-      .map((part) => part.trim())
-      .find((part) => part.startsWith(`${sessionCookieName}=`))
-      ?.slice(sessionCookieName.length + 1);
-
-    if (cookieToken) {
-      return decodeURIComponent(cookieToken);
-    }
-
-    throw new UnauthorizedException("Sessao nao encontrada");
-  }
-
-  private firstHeader(value: HeaderValue): string | undefined {
-    return Array.isArray(value) ? value[0] : value;
-  }
 }
