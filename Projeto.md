@@ -16,6 +16,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Limitacao local conhecida: Docker Desktop/Postgres/Redis nao estao disponiveis neste ambiente ate aqui, entao migracoes reais do Prisma e verificacao dos servicos locais via `docker compose up`/`pnpm dev` ainda nao foram executadas.
 - Servidor local usado para visualizar: `http://127.0.0.1:5174/`.
 - Repositorio inicial ja possui commits da fundacao da Fase 1.
+- Diagnosticos/logs operacionais possuem spec dedicada em `docs/superpowers/specs/2026-07-02-wpptrack-diagnostics-logs-design.md`; implementacao Prisma/API fica para fase posterior para evitar conflito com Auth/Workspace.
 
 ## Objetivo do Produto
 
