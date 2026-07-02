@@ -154,4 +154,54 @@ describe("integrations route", () => {
     expect(html).toContain("99,00");
     expect(html).toContain("Antecipada via Asaas");
   });
+
+  it("renders unavailable states without visual fallback providers or fake pipeline metrics", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        })
+      );
+
+    const element = await IntegrationsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("API indisponivel");
+    expect(html).toContain("Nao foi possivel carregar integracoes");
+    expect(html).toContain("Ativos Meta indisponiveis");
+    expect(html).toContain("Nao foi possivel carregar instancias");
+    expect(html).not.toContain("Fallback visual");
+    expect(html).not.toContain("Fallback local");
+    expect(html).not.toContain("Sem credenciais reais");
+    expect(html).not.toContain("capturado");
+    expect(html).not.toContain("online");
+    expect(html).not.toContain("92%");
+    expect(html).not.toContain("99%");
+    expect(html).not.toContain("18s");
+  });
 });

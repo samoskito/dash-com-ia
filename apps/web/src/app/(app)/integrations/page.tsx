@@ -10,47 +10,86 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { serverApiFetch } from "../../../lib/server-api";
 
-async function getHealth(): Promise<IntegrationHealthSummaryDto | null> {
+type ResourceResult<T> = {
+  data: T;
+  state: "real" | "empty" | "error";
+};
+
+async function getHealth(): Promise<ResourceResult<IntegrationHealthSummaryDto | null>> {
   try {
-    return await serverApiFetch<IntegrationHealthSummaryDto>("/integrations/health");
+    const health = await serverApiFetch<IntegrationHealthSummaryDto>("/integrations/health");
+
+    return {
+      data: health,
+      state: health.providers.length > 0 ? "real" : "empty"
+    };
   } catch {
-    return null;
+    return {
+      data: null,
+      state: "error"
+    };
   }
 }
 
-async function getWhatsappInstances(): Promise<WhatsappInstanceSummaryDto[]> {
+async function getWhatsappInstances(): Promise<ResourceResult<WhatsappInstanceSummaryDto[]>> {
   try {
-    return await serverApiFetch<WhatsappInstanceSummaryDto[]>(
+    const instances = await serverApiFetch<WhatsappInstanceSummaryDto[]>(
       "/integrations/whatsapp/instances"
     );
+
+    return {
+      data: instances,
+      state: instances.length > 0 ? "real" : "empty"
+    };
   } catch {
-    return [];
+    return {
+      data: [],
+      state: "error"
+    };
   }
 }
 
-async function getWhatsappQuote(): Promise<WhatsappInstanceQuoteDto | null> {
+async function getWhatsappQuote(): Promise<ResourceResult<WhatsappInstanceQuoteDto | null>> {
   try {
-    return await serverApiFetch<WhatsappInstanceQuoteDto>(
-      "/billing/whatsapp-instance/quote"
-    );
+    return {
+      data: await serverApiFetch<WhatsappInstanceQuoteDto>(
+        "/billing/whatsapp-instance/quote"
+      ),
+      state: "real"
+    };
   } catch {
-    return null;
+    return {
+      data: null,
+      state: "error"
+    };
   }
 }
 
-async function getMetaConnection(): Promise<MetaConnectionDto | null> {
+async function getMetaConnection(): Promise<ResourceResult<MetaConnectionDto | null>> {
   try {
-    return await serverApiFetch<MetaConnectionDto>("/integrations/meta/connection");
+    return {
+      data: await serverApiFetch<MetaConnectionDto>("/integrations/meta/connection"),
+      state: "real"
+    };
   } catch {
-    return null;
+    return {
+      data: null,
+      state: "error"
+    };
   }
 }
 
-async function getMetaAssets(): Promise<MetaAssetsDto | null> {
+async function getMetaAssets(): Promise<ResourceResult<MetaAssetsDto | null>> {
   try {
-    return await serverApiFetch<MetaAssetsDto>("/integrations/meta/assets");
+    return {
+      data: await serverApiFetch<MetaAssetsDto>("/integrations/meta/assets"),
+      state: "real"
+    };
   } catch {
-    return null;
+    return {
+      data: null,
+      state: "error"
+    };
   }
 }
 
@@ -194,9 +233,14 @@ function selectedMetaAssetName<T extends { id: string; name: string }>(
   return items.find((item) => item.id === selectedId)?.name ?? "ativo selecionado nao encontrado";
 }
 
-function metaAssetsDetail(metaAssets: MetaAssetsDto | null) {
+function metaAssetsDetail(
+  metaAssets: MetaAssetsDto | null,
+  state: ResourceResult<MetaAssetsDto | null>["state"]
+) {
   if (!metaAssets) {
-    return "Nao foi possivel ler os ativos Meta agora; exibindo fallback visual.";
+    return state === "error"
+      ? "Nao foi possivel ler os ativos Meta agora."
+      : "Conecte a conta Meta para carregar os ativos.";
   }
 
   if (metaAssets.status === "not_connected") {
@@ -219,13 +263,31 @@ function metaAssetsDetail(metaAssets: MetaAssetsDto | null) {
 }
 
 export default async function IntegrationsPage() {
-  const [health, whatsappInstances, metaConnection, metaAssets, whatsappQuote] = await Promise.all([
+  const [
+    healthResult,
+    whatsappInstancesResult,
+    metaConnectionResult,
+    metaAssetsResult,
+    whatsappQuoteResult
+  ] = await Promise.all([
     getHealth(),
     getWhatsappInstances(),
     getMetaConnection(),
     getMetaAssets(),
     getWhatsappQuote()
   ]);
+  const health = healthResult.data;
+  const whatsappInstances = whatsappInstancesResult.data;
+  const metaConnection = metaConnectionResult.data;
+  const metaAssets = metaAssetsResult.data;
+  const whatsappQuote = whatsappQuoteResult.data;
+  const hasIntegrationError = [
+    healthResult.state,
+    whatsappInstancesResult.state,
+    metaConnectionResult.state,
+    metaAssetsResult.state,
+    whatsappQuoteResult.state
+  ].includes("error");
   const metaStatus = metaAssets?.status ?? metaConnection?.status;
   const selectedBusinessName = selectedMetaAssetName(
     metaAssets?.businesses ?? [],
@@ -254,29 +316,17 @@ export default async function IntegrationsPage() {
         hour: "2-digit",
         minute: "2-digit"
       })}`
-    })) ?? [
-      {
-        title: "WhatsApp / Uazapi",
-        status: "Aguardando API",
-        tone: "warn",
-        description: "Nao foi possivel ler o backend agora; exibindo fallback visual.",
-        detail: "Fallback local"
-      },
-      {
-        title: "Meta OAuth",
-        status: "Aguardando API",
-        tone: "warn",
-        description: "O endpoint real sera usado quando a API estiver acessivel.",
-        detail: "Fallback local"
-      },
-      {
-        title: "Asaas",
-        status: "Aguardando API",
-        tone: "warn",
-        description: "Status de cobranca e webhooks entra pelo backend.",
-        detail: "Fallback local"
-      }
-    ];
+    })) ?? [];
+  const metaStatusLabel =
+    metaAssetsResult.state === "error" && metaConnectionResult.state === "error"
+      ? "API indisponivel"
+      : metaStatus
+        ? statusLabel(metaStatus)
+        : "Meta nao conectado";
+  const whatsappInstancesEmptyTitle =
+    whatsappInstancesResult.state === "error"
+      ? "Nao foi possivel carregar instancias"
+      : "Nenhuma instancia";
 
   return (
     <section className="page-stack">
@@ -287,25 +337,44 @@ export default async function IntegrationsPage() {
           <p>Uazapi primeiro, Meta OAuth desde o inicio e Cloud API preparada para futuro.</p>
         </div>
         <div className="header-actions">
-          <span className="status-chip">{health ? "API conectada" : "Fallback visual"}</span>
-          <span className="status-chip warn">Sem credenciais reais</span>
+          <span className={`status-chip${hasIntegrationError ? " warn" : ""}`}>
+            {hasIntegrationError ? "API indisponivel" : "API conectada"}
+          </span>
+          <span className="status-chip">{integrations.length} provedores</span>
         </div>
       </header>
 
       <div className="integration-grid">
-        {integrations.map((item) => (
-          <article className="integration-card" key={item.title}>
-            <span className={`status-chip${item.tone ? ` ${item.tone}` : ""}`}>{item.status}</span>
+        {integrations.length > 0 ? (
+          integrations.map((item) => (
+            <article className="integration-card" key={item.title}>
+              <span className={`status-chip${item.tone ? ` ${item.tone}` : ""}`}>{item.status}</span>
+              <div>
+                <span className="micro-label">{item.title}</span>
+                <strong>{item.detail}</strong>
+              </div>
+              <p className="muted">{item.description}</p>
+              <button className="button" type="button">
+                Ver diagnostico
+              </button>
+            </article>
+          ))
+        ) : (
+          <article className="integration-card">
+            <span className="status-chip warn">
+              {healthResult.state === "error" ? "API indisponivel" : "Sem provedores"}
+            </span>
             <div>
-              <span className="micro-label">{item.title}</span>
-              <strong>{item.detail}</strong>
+              <span className="micro-label">Integracoes</span>
+              <strong>
+                {healthResult.state === "error"
+                  ? "Nao foi possivel carregar integracoes"
+                  : "Nenhuma integracao retornada"}
+              </strong>
             </div>
-            <p className="muted">{item.description}</p>
-            <button className="button" type="button">
-              Ver diagnostico
-            </button>
+            <p className="muted">A lista sera preenchida somente com provedores retornados pelo backend.</p>
           </article>
-        ))}
+        )}
       </div>
 
       <div className="surface-panel">
@@ -314,7 +383,7 @@ export default async function IntegrationsPage() {
         <div className="metric-grid compact">
           <div className="metric-card">
             <span className="micro-label">Status</span>
-            <strong>{metaStatus ? statusLabel(metaStatus) : "Fallback visual"}</strong>
+            <strong>{metaStatusLabel}</strong>
           </div>
           <div className="metric-card">
             <span className="micro-label">BM selecionado</span>
@@ -336,7 +405,7 @@ export default async function IntegrationsPage() {
           </div>
         </div>
         <p className="muted">
-          {metaAssetsDetail(metaAssets)}
+          {metaAssetsDetail(metaAssets, metaAssetsResult.state)}
         </p>
         {metaAssets ? (
           <form className="filter-bar" action={saveMetaAssetSelection}>
@@ -438,8 +507,8 @@ export default async function IntegrationsPage() {
                 <tr>
                   <td>Meta</td>
                   <td>
-                    <strong>Ativos indisponiveis</strong>
-                    <span>fallback visual</span>
+                    <strong>Ativos Meta indisponiveis</strong>
+                    <span>aguardando API</span>
                   </td>
                   <td>aguardando API</td>
                   <td><span className="event-chip warn">sem dados</span></td>
@@ -523,12 +592,12 @@ export default async function IntegrationsPage() {
               ) : (
                 <tr>
                   <td>
-                    <strong>Nenhuma instancia</strong>
+                    <strong>{whatsappInstancesEmptyTitle}</strong>
                     <span>Adicione e pague uma instancia para conectar o WhatsApp</span>
                   </td>
-                  <td>uazapi</td>
-                  <td>Pagamento pendente</td>
-                  <td>aguardando conexao</td>
+                  <td>-</td>
+                  <td>-</td>
+                  <td>-</td>
                   <td><span className="event-chip warn">sem dados</span></td>
                 </tr>
               )}
@@ -543,28 +612,28 @@ export default async function IntegrationsPage() {
         <div className="funnel-row" aria-label="Pipeline das integracoes">
           <div className="funnel-step">
             <span>CTWA</span>
-            <strong>capturado</strong>
-            <div className="signal-bar"><i style={{ width: "96%" }} /></div>
+            <strong>aguardando dados</strong>
+            <div className="signal-bar"><i style={{ width: "0%" }} /></div>
           </div>
           <div className="funnel-step">
             <span>Webhook</span>
-            <strong>online</strong>
-            <div className="signal-bar"><i style={{ width: "91%" }} /></div>
+            <strong>aguardando eventos</strong>
+            <div className="signal-bar"><i style={{ width: "0%" }} /></div>
           </div>
           <div className="funnel-step">
             <span>Resolver campanha</span>
-            <strong>92%</strong>
-            <div className="signal-bar"><i style={{ width: "92%" }} /></div>
+            <strong>sem metrica</strong>
+            <div className="signal-bar"><i style={{ width: "0%" }} /></div>
           </div>
           <div className="funnel-step">
             <span>CAPI</span>
-            <strong>99%</strong>
-            <div className="signal-bar"><i style={{ width: "99%" }} /></div>
+            <strong>sem metrica</strong>
+            <div className="signal-bar"><i style={{ width: "0%" }} /></div>
           </div>
           <div className="funnel-step">
             <span>Meta ACK</span>
-            <strong>18s</strong>
-            <div className="signal-bar"><i style={{ width: "84%" }} /></div>
+            <strong>sem metrica</strong>
+            <div className="signal-bar"><i style={{ width: "0%" }} /></div>
           </div>
         </div>
       </div>

@@ -49,6 +49,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Persistencia segura do OAuth Meta por workspace implementada: `MetaIntegration` armazena access token criptografado com AES-256-GCM usando `META_TOKEN_ENCRYPTION_KEY`, scopes, expiracao, status e selecoes futuras de BM/conta/pixel. O callback OAuth usa `state` assinado para identificar o workspace, salva a conexao e retorna apenas DTO sanitizado. A aba `Integracoes` consulta `GET /integrations/meta/connection` e mostra status/escopos/pixel sem expor token.
 - Primeira camada de ativos Meta implementada: `GET /integrations/meta/assets` usa o token OAuth criptografado/descriptografado apenas no backend para buscar `businesses`, `owned_ad_accounts` e `adspixels` no Graph API; `PUT /integrations/meta/assets/selection` salva BM, conta de anuncio e Pixel selecionados no `MetaIntegration`. A aba `Integracoes` mostra BM/conta/pixel selecionados e estados humanos de conexao/sincronizacao. Sincronizacao persistente de campanhas/conjuntos/anuncios e metricas ainda fica para a proxima onda Meta.
 - Aba `Integracoes` agora possui formulario real para salvar selecao Meta BM/conta/pixel via `PUT /integrations/meta/assets/selection`; os botoes placebo de selecionar foram substituidos por leitura do ativo selecionado.
+- Aba `Integracoes` agora diferencia estados carregados/vazios/indisponiveis para health, WhatsApp, Meta e quote de cobranca; nao renderiza mais provedores fallback locais, texto `Fallback visual` ou metricas ficticias no pipeline de sinal.
 - Primeira camada de reporting Meta persistente implementada: novos snapshots `MetaCampaign`, `MetaAdSet` e `MetaAd` guardam campanhas, conjuntos e anuncios por workspace/conta selecionada. `POST /reports/meta/sync` agora enfileira a sincronizacao na fila BullMQ `meta-report-sync`; o worker `MetaReportSyncProcessor` busca campanhas/adsets/ads/insights no Graph API usando o token OAuth somente no backend e persiste investimento, impressoes, cliques e conversas Meta por campanha. `GET /reports/campaigns` monta `ReportOverviewDto` cruzando snapshots Meta com `ConversionEventLog` interno para `LeadSubmitted`, `QualifiedLead` e `Purchase`. A tela `Relatorios` tenta ler esse endpoint real, mostra estados vazio/erro sem dados demonstrativos e possui botao `Sincronizar Meta`.
 - Estrutura Meta detalhada em relatorios implementada: `GET /reports/meta/structure` retorna campanhas com conjuntos e anuncios a partir dos snapshots `MetaCampaign`, `MetaAdSet` e `MetaAd`. A tela `Relatorios` renderiza a tabela `Estrutura Meta` com campanha, conjunto, anuncio e status, permitindo inspecionar se a sincronizacao trouxe a hierarquia usada nos relatorios.
 - Filtros de periodo iniciais em `Relatorios` implementados: a tela aceita `since` e `until` na query string, renderiza inputs de data e envia os mesmos filtros para `GET /reports/campaigns` e para o enqueue `POST /reports/meta/sync`. No backend, o range vira `rangeLabel` e filtra eventos internos (`ConversionEventLog.createdAt`) quando ambos os campos estao presentes.
@@ -460,11 +461,11 @@ Checkpoint atual:
 - Leads agora mostra estado vazio real ou `API indisponivel` sem renderizar pessoas/campanhas ficticias quando a API retorna vazia ou falha.
 - Configuracoes agora mostra estado vazio real ou `API indisponivel` para regras de conversao sem renderizar regras ficticias.
 - Backoffice agora removeu MRR/workspaces/alertas/tokens ficticios, recebedor Asaas de fallback e linhas demonstrativas da Central de Diagnostico; estados vazios e falhas de API ficam explicitos.
-- Integracoes agora salva a selecao Meta BM/conta/pixel por formulario server-side, sem expor token e sem botao falso.
+- Integracoes agora salva a selecao Meta BM/conta/pixel por formulario server-side, sem expor token e sem botao falso; a tela tambem deixou de exibir fallback visual/provedores locais e percentuais/latencia inventados no pipeline.
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: reduzir fallbacks restantes em Integracoes e evoluir relatorios por conjunto/anuncio.
+- Continuar a proxima rodada com: evoluir relatorios por conjunto/anuncio e substituir os ultimos placeholders operacionais por endpoints reais.
 
 ## Perguntas Abertas
 
