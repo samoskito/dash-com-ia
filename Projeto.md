@@ -39,6 +39,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Processamento inicial de webhook Asaas implementado: `PAYMENT_RECEIVED`/`PAYMENT_CONFIRMED` ou status `RECEIVED`/`CONFIRMED` busca a cobranca por `externalChargeId` ou `chargeId` local, marca `PaymentCharge` como `paid`, ativa `WhatsappInstanceActivation` e muda a `WhatsappInstance` para `active`.
 - A criacao real da cobranca no Asaas agora esta plugada ao checkout, mas depende de `ASAAS_BASE_URL`, `ASAAS_API_KEY` e `Workspace.asaasCustomerId`. Ainda falta a tela/fluxo administrativo para cadastrar ou sincronizar o customer Asaas de cada workspace.
 - Webhook Uazapi agora avalia regras de conversao quando recebe `x-workspace-id`: extrai texto de mensagem e etiquetas comuns do payload, executa `/conversion-rules` internamente e cria `ConversionEventLog` para regras encontradas, com status `ready_to_send` quando ha `pixelId` e `adId`, ou `pending_meta_context` quando falta contexto Meta.
+- Envio Meta CAPI recebeu adapter plugavel: `MetaCapiAdapter` envia eventos para `/{PIXEL_ID}/events` usando `META_CAPI_ACCESS_TOKEN` e `META_GRAPH_API_VERSION`; `ConversionEventsService.sendReadyEvent` pega logs `ready_to_send`, envia para a Meta quando possivel e atualiza `ConversionEventLog` para `sent`, `error` ou `not_configured` com resposta resumida.
 - Backoffice de split recebeu API inicial: `GET /backoffice/split/receivers`, `POST /backoffice/split/receivers` e `PATCH /backoffice/split/receivers/:id`, usando `SplitReceiver` para nome, wallet Asaas, email, percentual em basis points e status ativo.
 - Tela de backoffice agora consulta `/backoffice/split/receivers` e exibe recebedores, wallet Asaas, email, percentual e status com fallback visual quando a API nao responde.
 - Tela de backoffice agora exibe acao de `Reprocessar` para eventos reais da Central de Diagnostico; a acao chama o retry auditado `POST /backoffice/diagnostics/events/:id/retry` via server action e usa fallback visual quando nao ha eventos reais.
@@ -250,8 +251,8 @@ Pendente de definicao: confirmar nomes finais das metricas na UI, formulas exata
   - Palavra-chave recebida na conversa.
   - Etiqueta aplicada ao chat/lead no WhatsApp Business, inicialmente via Uazapi.
 - No cadastro da regra, o usuario deve escolher o gatilho e o evento Meta a enviar, por exemplo: `LeadSubmitted`, `QualifiedLead`, `Purchase` ou outros eventos suportados.
-- Implementacao atual ja permite criar, listar, atualizar e avaliar regras ativas sem ainda enviar eventos ao Meta. O envio real ao Pixel/CAPI continua pendente da etapa de Meta OAuth/Pixel e da resolucao de lead/ad_id.
-- Webhooks Uazapi ja conseguem aplicar as regras e registrar logs de conversao internos. Essa etapa ainda nao envia ao Meta; ela prepara a fila/logica para o futuro worker de Pixel/CAPI.
+- Implementacao atual ja permite criar, listar, atualizar e avaliar regras ativas. O envio Pixel/CAPI possui adapter e metodo de processamento para logs `ready_to_send`, mas ainda falta plugar worker/fila e credenciais reais por workspace.
+- Webhooks Uazapi ja conseguem aplicar as regras e registrar logs de conversao internos. Quando ha `pixelId` e `ad_id`, o log fica pronto para envio pelo metodo `sendReadyEvent`.
 - Para enviar um evento ao Pixel, o backend deve buscar o `ad_id` do lead.
 - Se houver mais de uma BM/conta conectada no futuro, o backend deve validar a qual BM/conta pertence o anuncio antes de enviar o evento.
 - O fluxo padrao do cliente final continua sendo BM/conta de anuncio unica, mas a arquitetura deve tolerar mais de uma conexao Meta quando isso for necessario.
