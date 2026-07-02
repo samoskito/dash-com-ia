@@ -32,6 +32,34 @@ async function createApp() {
         }
       ]
     })),
+    getMetaStructureReport: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      campaigns: [
+        {
+          id: "cmp_1",
+          name: "Black Friday WhatsApp",
+          status: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          objective: "OUTCOME_SALES",
+          adSets: [
+            {
+              id: "adset_1",
+              name: "Publico quente",
+              status: "ACTIVE",
+              effectiveStatus: "ACTIVE",
+              ads: [
+                {
+                  id: "ad_1",
+                  name: "Criativo WhatsApp",
+                  status: "ACTIVE",
+                  effectiveStatus: "ACTIVE"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    })),
     syncWorkspaceMetaStructure: vi.fn(async () => ({
       workspaceId: "workspace_1",
       adAccountId: "act_123",
@@ -130,6 +158,27 @@ describe("reporting controller", () => {
       until: "2026-07-02"
     });
     expect(reportingService.syncWorkspaceMetaStructure).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("returns Meta campaign structure for the current workspace", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/meta/structure")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.campaigns[0].adSets[0].ads[0].name).toBe(
+          "Criativo WhatsApp"
+        );
+      });
+
+    expect(reportingService.getMetaStructureReport).toHaveBeenCalledWith(
+      "workspace_1"
+    );
 
     await app.close();
   });

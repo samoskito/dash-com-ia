@@ -26,6 +26,7 @@ import {
   integrationHealthSummarySchema,
   metaAssetSelectionInputSchema,
   metaAssetsSchema,
+  metaStructureReportSchema,
   metaConnectionSchema,
   metaOAuthCallbackQuerySchema,
   metaOAuthCallbackResultSchema,
@@ -86,6 +87,41 @@ describe("shared contracts", () => {
     });
 
     expect(parsed.purchase).toBe(3);
+  });
+
+  it("validates Meta campaign/adset/ad structure reports", () => {
+    const parsed = metaStructureReportSchema.parse({
+      workspaceId: "workspace_1",
+      campaigns: [
+        {
+          id: "cmp_1",
+          name: "Black Friday WhatsApp",
+          status: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          objective: "OUTCOME_SALES",
+          adSets: [
+            {
+              id: "adset_1",
+              name: "Publico quente",
+              status: "ACTIVE",
+              effectiveStatus: "ACTIVE",
+              ads: [
+                {
+                  id: "ad_1",
+                  name: "Criativo WhatsApp",
+                  status: "ACTIVE",
+                  effectiveStatus: "ACTIVE"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(parsed.campaigns[0]?.adSets[0]?.ads[0]?.name).toBe(
+      "Criativo WhatsApp"
+    );
   });
 
   it("validates integration health payloads", () => {

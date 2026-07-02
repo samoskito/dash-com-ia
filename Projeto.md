@@ -49,6 +49,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Persistencia segura do OAuth Meta por workspace implementada: `MetaIntegration` armazena access token criptografado com AES-256-GCM usando `META_TOKEN_ENCRYPTION_KEY`, scopes, expiracao, status e selecoes futuras de BM/conta/pixel. O callback OAuth usa `state` assinado para identificar o workspace, salva a conexao e retorna apenas DTO sanitizado. A aba `Integracoes` consulta `GET /integrations/meta/connection` e mostra status/escopos/pixel sem expor token.
 - Primeira camada de ativos Meta implementada: `GET /integrations/meta/assets` usa o token OAuth criptografado/descriptografado apenas no backend para buscar `businesses`, `owned_ad_accounts` e `adspixels` no Graph API; `PUT /integrations/meta/assets/selection` salva BM, conta de anuncio e Pixel selecionados no `MetaIntegration`. A aba `Integracoes` mostra BM/conta/pixel selecionados e estados humanos de conexao/sincronizacao. Sincronizacao persistente de campanhas/conjuntos/anuncios e metricas ainda fica para a proxima onda Meta.
 - Primeira camada de reporting Meta persistente implementada: novos snapshots `MetaCampaign`, `MetaAdSet` e `MetaAd` guardam campanhas, conjuntos e anuncios por workspace/conta selecionada. `POST /reports/meta/sync` agora enfileira a sincronizacao na fila BullMQ `meta-report-sync`; o worker `MetaReportSyncProcessor` busca campanhas/adsets/ads/insights no Graph API usando o token OAuth somente no backend e persiste investimento, impressoes, cliques e conversas Meta por campanha. `GET /reports/campaigns` monta `ReportOverviewDto` cruzando snapshots Meta com `ConversionEventLog` interno para `LeadSubmitted`, `QualifiedLead` e `Purchase`. A tela `Relatorios` passa a tentar ler esse endpoint real com fallback visual e botao `Sincronizar Meta`.
+- Estrutura Meta detalhada em relatorios implementada: `GET /reports/meta/structure` retorna campanhas com conjuntos e anuncios a partir dos snapshots `MetaCampaign`, `MetaAdSet` e `MetaAd`. A tela `Relatorios` renderiza a tabela `Estrutura Meta` com campanha, conjunto, anuncio e status, permitindo inspecionar se a sincronizacao trouxe a hierarquia usada nos relatorios.
 - Backoffice de split recebeu API inicial: `GET /backoffice/split/receivers`, `POST /backoffice/split/receivers` e `PATCH /backoffice/split/receivers/:id`, usando `SplitReceiver` para nome, wallet Asaas, email, percentual em basis points e status ativo.
 - Tela de backoffice agora consulta `/backoffice/split/receivers` e exibe recebedores, wallet Asaas, email, percentual e status com fallback visual quando a API nao responde.
 - Tela de backoffice agora exibe acao de `Reprocessar` para eventos reais da Central de Diagnostico; a acao chama o retry auditado `POST /backoffice/diagnostics/events/:id/retry` via server action e usa fallback visual quando nao ha eventos reais.
@@ -436,7 +437,7 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: enriquecer reporting Meta com adsets/anuncios na UI, filtros por periodo, tela/redirect pos-callback Google mais polido e telas detalhadas da Central de Diagnostico.
+- Continuar a proxima rodada com: filtros por periodo nos relatorios, tela/redirect pos-callback Google mais polido e telas detalhadas da Central de Diagnostico.
 
 ## Perguntas Abertas
 

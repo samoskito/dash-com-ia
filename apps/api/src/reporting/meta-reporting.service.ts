@@ -1,5 +1,9 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { CampaignReportRowDto, ReportOverviewDto } from "@wpptrack/shared";
+import type {
+  CampaignReportRowDto,
+  MetaStructureReportDto,
+  ReportOverviewDto
+} from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import {
   MetaAdapter,
@@ -36,8 +40,27 @@ type MetaCampaignRecord = {
   campaignId: string;
   name: string;
   status: string | null;
+  effectiveStatus?: string | null;
+  objective?: string | null;
   spendCents: number;
   metaConversationsStarted: number;
+};
+
+type MetaAdSetRecord = {
+  adSetId: string;
+  campaignId: string;
+  name: string;
+  status: string | null;
+  effectiveStatus: string | null;
+};
+
+type MetaAdRecord = {
+  adId: string;
+  adSetId: string;
+  campaignId: string;
+  name: string;
+  status: string | null;
+  effectiveStatus: string | null;
 };
 
 type ConversionEventRecord = {
@@ -146,6 +169,52 @@ export class MetaReportingService {
       campaigns: campaigns.map((campaign) =>
         this.toReportRow(campaign, conversionLogs)
       )
+    };
+  }
+
+  async getMetaStructureReport(
+    workspaceId: string
+  ): Promise<MetaStructureReportDto> {
+    const [campaigns, adSets, ads] = (await Promise.all([
+      this.prisma.metaCampaign.findMany({
+        where: { workspaceId },
+        orderBy: { name: "asc" }
+      }),
+      this.prisma.metaAdSet.findMany({
+        where: { workspaceId },
+        orderBy: { name: "asc" }
+      }),
+      this.prisma.metaAd.findMany({
+        where: { workspaceId },
+        orderBy: { name: "asc" }
+      })
+    ])) as [MetaCampaignRecord[], MetaAdSetRecord[], MetaAdRecord[]];
+
+    return {
+      workspaceId,
+      campaigns: campaigns.map((campaign) => ({
+        id: campaign.campaignId,
+        name: campaign.name,
+        status: campaign.status,
+        effectiveStatus: campaign.effectiveStatus ?? null,
+        objective: campaign.objective ?? null,
+        adSets: adSets
+          .filter((adSet) => adSet.campaignId === campaign.campaignId)
+          .map((adSet) => ({
+            id: adSet.adSetId,
+            name: adSet.name,
+            status: adSet.status,
+            effectiveStatus: adSet.effectiveStatus,
+            ads: ads
+              .filter((ad) => ad.adSetId === adSet.adSetId)
+              .map((ad) => ({
+                id: ad.adId,
+                name: ad.name,
+                status: ad.status,
+                effectiveStatus: ad.effectiveStatus
+              }))
+          }))
+      }))
     };
   }
 

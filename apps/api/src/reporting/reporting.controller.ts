@@ -43,6 +43,13 @@ export class ReportingController {
     });
   }
 
+  @Get("meta/structure")
+  async getMetaStructure(@AuthToken() refreshToken: string) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.metaReportingService.getMetaStructureReport(workspaceId);
+  }
+
   private async getCurrentWorkspaceId(refreshToken: string): Promise<string> {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);

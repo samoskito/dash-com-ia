@@ -52,14 +52,16 @@ function createHarness() {
         const record = { ...create, ...update };
         db.adSets.push(record);
         return record;
-      })
+      }),
+      findMany: vi.fn(async () => db.adSets)
     },
     metaAd: {
       upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
         const record = { ...create, ...update };
         db.ads.push(record);
         return record;
-      })
+      }),
+      findMany: vi.fn(async () => db.ads)
     },
     conversionEventLog: {
       findMany: vi.fn(async () => db.conversionLogs)
@@ -189,6 +191,47 @@ describe("meta reporting service", () => {
           purchase: 1,
           costPerPurchaseCents: 120000,
           roas: null
+        }
+      ]
+    });
+  });
+
+  it("returns campaign, ad set and ad structure from persisted snapshots", async () => {
+    const { service } = createHarness();
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    });
+
+    await expect(
+      service.getMetaStructureReport("workspace_1")
+    ).resolves.toEqual({
+      workspaceId: "workspace_1",
+      campaigns: [
+        {
+          id: "cmp_1",
+          name: "Black Friday WhatsApp",
+          status: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          objective: "OUTCOME_SALES",
+          adSets: [
+            {
+              id: "adset_1",
+              name: "Publico quente",
+              status: "ACTIVE",
+              effectiveStatus: "ACTIVE",
+              ads: [
+                {
+                  id: "ad_1",
+                  name: "Criativo WhatsApp",
+                  status: "ACTIVE",
+                  effectiveStatus: "ACTIVE"
+                }
+              ]
+            }
+          ]
         }
       ]
     });

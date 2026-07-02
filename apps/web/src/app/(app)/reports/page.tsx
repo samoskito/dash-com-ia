@@ -1,4 +1,4 @@
-import type { ReportOverviewDto } from "@wpptrack/shared";
+import type { MetaStructureReportDto, ReportOverviewDto } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
 import { mockReportOverview } from "../../../mock/reporting";
@@ -22,6 +22,14 @@ async function getCampaignReports(): Promise<ReportOverviewDto> {
   }
 }
 
+async function getMetaStructureReport(): Promise<MetaStructureReportDto | null> {
+  try {
+    return await serverApiFetch<MetaStructureReportDto>("/reports/meta/structure");
+  } catch {
+    return null;
+  }
+}
+
 async function syncMetaReports() {
   "use server";
 
@@ -36,7 +44,10 @@ async function syncMetaReports() {
 }
 
 export default async function ReportsPage() {
-  const report = await getCampaignReports();
+  const [report, metaStructure] = await Promise.all([
+    getCampaignReports(),
+    getMetaStructureReport()
+  ]);
   const rows = [
     ...report.campaigns,
     {
@@ -143,6 +154,81 @@ export default async function ReportsPage() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="surface-panel">
+        <span className="eyebrow">Estrutura Meta</span>
+        <h2>Campanhas, conjuntos e anuncios sincronizados</h2>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Campanha</th>
+                <th>Conjunto</th>
+                <th>Anuncio</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metaStructure?.campaigns.length ? (
+                metaStructure.campaigns.flatMap((campaign) =>
+                  campaign.adSets.flatMap((adSet) =>
+                    adSet.ads.length
+                      ? adSet.ads.map((ad) => (
+                          <tr key={`${campaign.id}:${adSet.id}:${ad.id}`}>
+                            <td>
+                              <strong>{campaign.name}</strong>
+                              <span>{campaign.objective ?? "sem objetivo"}</span>
+                            </td>
+                            <td>
+                              <strong>{adSet.name}</strong>
+                              <span>{adSet.id}</span>
+                            </td>
+                            <td>
+                              <strong>{ad.name}</strong>
+                              <span>{ad.id}</span>
+                            </td>
+                            <td>
+                              <span className="event-chip">
+                                {ad.effectiveStatus ?? ad.status ?? "unknown"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      : [
+                          <tr key={`${campaign.id}:${adSet.id}:empty`}>
+                            <td>
+                              <strong>{campaign.name}</strong>
+                              <span>{campaign.objective ?? "sem objetivo"}</span>
+                            </td>
+                            <td>
+                              <strong>{adSet.name}</strong>
+                              <span>{adSet.id}</span>
+                            </td>
+                            <td>Sem anuncios sincronizados</td>
+                            <td>
+                              <span className="event-chip warn">
+                                {adSet.effectiveStatus ?? adSet.status ?? "unknown"}
+                              </span>
+                            </td>
+                          </tr>
+                        ]
+                  )
+                )
+              ) : (
+                <tr>
+                  <td>
+                    <strong>Nenhuma estrutura Meta sincronizada</strong>
+                    <span>Use o botao Sincronizar Meta para enfileirar a leitura.</span>
+                  </td>
+                  <td>sem conjunto</td>
+                  <td>sem anuncio</td>
+                  <td><span className="event-chip warn">aguardando sync</span></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
   );
