@@ -1,6 +1,7 @@
 import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
+import { PlatformAdminService } from "../src/auth/platform-admin.service";
 import { DiagnosticsController } from "../src/diagnostics/diagnostics.controller";
 import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
 
@@ -39,30 +40,43 @@ async function createApp() {
       jobAttemptId: "job_attempt_1"
     }))
   };
+  const platformAdminService = {
+    assertPlatformAdmin: vi.fn(async () => ({
+      id: "user_1",
+      email: "owner@wpptrack.com"
+    }))
+  };
 
   const moduleRef = await Test.createTestingModule({
     controllers: [DiagnosticsController],
-    providers: [{ provide: DiagnosticsService, useValue: service }]
+    providers: [
+      { provide: DiagnosticsService, useValue: service },
+      { provide: PlatformAdminService, useValue: platformAdminService }
+    ]
   }).compile();
 
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, service };
+  return { app, platformAdminService, service };
 }
 
 describe("diagnostics controller", () => {
   it("lists backoffice diagnostic events", async () => {
-    const { app, service } = await createApp();
+    const { app, platformAdminService, service } = await createApp();
 
     await request(app.getHttpServer())
       .get("/backoffice/diagnostics/events?workspaceId=workspace_1&source=meta&limit=10")
+      .set("Authorization", "Bearer refresh-token")
       .expect(200)
       .expect(({ body }) => {
         expect(body[0].id).toBe("diag_1");
         expect(body[0].source).toBe("meta");
       });
 
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
     expect(service.listEvents).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       source: "meta",
@@ -73,25 +87,30 @@ describe("diagnostics controller", () => {
   });
 
   it("returns event detail", async () => {
-    const { app, service } = await createApp();
+    const { app, platformAdminService, service } = await createApp();
 
     await request(app.getHttpServer())
       .get("/backoffice/diagnostics/events/diag_1")
+      .set("Authorization", "Bearer refresh-token")
       .expect(200)
       .expect(({ body }) => {
         expect(body.summaryPayload.currency).toBeNull();
       });
 
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
     expect(service.getEvent).toHaveBeenCalledWith("diag_1");
 
     await app.close();
   });
 
   it("records diagnostic events through an internal scaffold endpoint", async () => {
-    const { app, service } = await createApp();
+    const { app, platformAdminService, service } = await createApp();
 
     await request(app.getHttpServer())
       .post("/backoffice/diagnostics/events")
+      .set("Authorization", "Bearer refresh-token")
       .send({
         workspaceId: "workspace_1",
         source: "meta",
@@ -109,6 +128,9 @@ describe("diagnostics controller", () => {
         expect(body.errorCode).toBe("MISSING_CURRENCY");
       });
 
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
     expect(service.recordEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         source: "meta",
@@ -120,10 +142,11 @@ describe("diagnostics controller", () => {
   });
 
   it("queues an audited retry for a diagnostic event", async () => {
-    const { app, service } = await createApp();
+    const { app, platformAdminService, service } = await createApp();
 
     await request(app.getHttpServer())
       .post("/backoffice/diagnostics/events/diag_1/retry")
+      .set("Authorization", "Bearer refresh-token")
       .send({
         reason: "Cliente relatou conversao ausente"
       })
@@ -134,6 +157,9 @@ describe("diagnostics controller", () => {
         expect(body.jobAttemptId).toBe("job_attempt_1");
       });
 
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
     expect(service.retryEvent).toHaveBeenCalledWith("diag_1", {
       reason: "Cliente relatou conversao ausente"
     });

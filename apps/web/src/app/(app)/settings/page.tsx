@@ -1,9 +1,9 @@
 import type { ConversionRuleDto } from "@wpptrack/shared";
-import { apiFetch } from "../../../lib/api";
+import { serverApiFetch } from "../../../lib/server-api";
 
 async function getConversionRules(): Promise<ConversionRuleDto[] | null> {
   try {
-    return await apiFetch<ConversionRuleDto[]>("/conversion-rules");
+    return await serverApiFetch<ConversionRuleDto[]>("/conversion-rules");
   } catch {
     return null;
   }

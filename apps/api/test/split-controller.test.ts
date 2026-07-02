@@ -1,6 +1,7 @@
 import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
+import { PlatformAdminService } from "../src/auth/platform-admin.service";
 import { SplitController } from "../src/billing/split.controller";
 import { SplitService } from "../src/billing/split.service";
 
@@ -28,22 +29,32 @@ async function createApp() {
       updatedAt: "2026-07-02T03:00:00.000Z"
     }))
   };
+  const platformAdminService = {
+    assertPlatformAdmin: vi.fn(async () => ({
+      id: "user_1",
+      email: "owner@wpptrack.com"
+    }))
+  };
   const moduleRef = await Test.createTestingModule({
     controllers: [SplitController],
-    providers: [{ provide: SplitService, useValue: splitService }]
+    providers: [
+      { provide: SplitService, useValue: splitService },
+      { provide: PlatformAdminService, useValue: platformAdminService }
+    ]
   }).compile();
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, splitService };
+  return { app, platformAdminService, splitService };
 }
 
 describe("split controller", () => {
   it("creates split receivers in platform backoffice", async () => {
-    const { app, splitService } = await createApp();
+    const { app, platformAdminService, splitService } = await createApp();
 
     await request(app.getHttpServer())
       .post("/backoffice/split/receivers")
+      .set("Authorization", "Bearer refresh-token")
       .send({
         name: "Socio Operacional",
         walletId: "wallet_asaas_1",
@@ -57,6 +68,9 @@ describe("split controller", () => {
         expect(body.percentageBps).toBe(2500);
       });
 
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
     expect(splitService.createReceiver).toHaveBeenCalledWith({
       name: "Socio Operacional",
       walletId: "wallet_asaas_1",
@@ -69,10 +83,11 @@ describe("split controller", () => {
   });
 
   it("updates split receivers in platform backoffice", async () => {
-    const { app, splitService } = await createApp();
+    const { app, platformAdminService, splitService } = await createApp();
 
     await request(app.getHttpServer())
       .patch("/backoffice/split/receivers/receiver_1")
+      .set("Authorization", "Bearer refresh-token")
       .send({
         percentageBps: 1500,
         active: false
@@ -82,6 +97,9 @@ describe("split controller", () => {
         expect(body.active).toBe(false);
       });
 
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
     expect(splitService.updateReceiver).toHaveBeenCalledWith("receiver_1", {
       percentageBps: 1500,
       active: false

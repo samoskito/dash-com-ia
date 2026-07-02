@@ -41,6 +41,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Backoffice de split recebeu API inicial: `GET /backoffice/split/receivers`, `POST /backoffice/split/receivers` e `PATCH /backoffice/split/receivers/:id`, usando `SplitReceiver` para nome, wallet Asaas, email, percentual em basis points e status ativo.
 - Tela de backoffice agora consulta `/backoffice/split/receivers` e exibe recebedores, wallet Asaas, email, percentual e status com fallback visual quando a API nao responde.
 - Tela de backoffice agora exibe acao de `Reprocessar` para eventos reais da Central de Diagnostico; a acao chama o retry auditado `POST /backoffice/diagnostics/events/:id/retry` via server action e usa fallback visual quando nao ha eventos reais.
+- Endpoints internos de backoffice agora exigem sessao valida e allowlist `WPPTRACK_PLATFORM_ADMIN_EMAILS`; usuarios autenticados fora da allowlist recebem acesso negado. As paginas server-side usam `serverApiFetch` para repassar cookie ao backend.
 - Rodada Paralela 1 executada e revisada: visual WppTrack/Telemetria Noturna aplicado ao web, Auth/Workspaces iniciado, scaffolds de integracoes Meta/Uazapi/Asaas criados e spec de Diagnosticos/Logs adicionada.
 - Verificacao da Rodada Paralela 1: `pnpm test`, `pnpm typecheck`, `pnpm build`, `prisma generate` e `prisma validate` passaram. O bloqueio anterior do Docker Desktop Linux engine foi resolvido quando o Docker Desktop foi aberto.
 - Spec e plano da Rodada Paralela 1: `docs/superpowers/specs/2026-07-02-wpptrack-parallel-wave-1-design.md` e `docs/superpowers/plans/2026-07-02-wpptrack-parallel-wave-1-implementation.md`.
@@ -93,6 +94,7 @@ O foco principal e dar clareza operacional e performance para campanhas de Whats
 - O valor por instancia deve ser previsivel para o usuario, por exemplo: `quantidade de instancias ativas x valor fixo por instancia`.
 - Split Asaas: sera **percentual**, com contas/recebedores fixos definidos pela plataforma para socios do projeto. Usuarios finais nao configuram split.
 - Deve existir uma area interna/backoffice para os donos do SaaS, invisivel para usuarios finais.
+- Acesso ao backoffice deve ser controlado por sessao e allowlist de emails da plataforma em `WPPTRACK_PLATFORM_ADMIN_EMAILS`.
 - No backoffice interno, os donos do SaaS poderao configurar as contas recebedoras do split Asaas e seus percentuais.
 - O backoffice de split deve permitir adicionar/remover socios/recebedores e ajustar percentuais quando houver mudanca societaria.
 - Implementacao atual ja possui API para listar, criar e atualizar recebedores de split e a tela de backoffice ja lista esses recebedores; falta aplicar os recebedores na criacao real das cobrancas Asaas.

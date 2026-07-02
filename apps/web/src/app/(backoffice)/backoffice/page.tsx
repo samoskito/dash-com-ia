@@ -1,9 +1,9 @@
 import type { DiagnosticEventDto, SplitReceiverDto } from "@wpptrack/shared";
-import { apiFetch } from "../../../lib/api";
+import { serverApiFetch } from "../../../lib/server-api";
 
 async function getDiagnosticEvents(): Promise<DiagnosticEventDto[]> {
   try {
-    return await apiFetch<DiagnosticEventDto[]>("/backoffice/diagnostics/events?limit=5");
+    return await serverApiFetch<DiagnosticEventDto[]>("/backoffice/diagnostics/events?limit=5");
   } catch {
     return [];
   }
@@ -11,7 +11,7 @@ async function getDiagnosticEvents(): Promise<DiagnosticEventDto[]> {
 
 async function getSplitReceivers(): Promise<SplitReceiverDto[]> {
   try {
-    return await apiFetch<SplitReceiverDto[]>("/backoffice/split/receivers");
+    return await serverApiFetch<SplitReceiverDto[]>("/backoffice/split/receivers");
   } catch {
     return [];
   }
@@ -27,7 +27,7 @@ async function retryDiagnosticEvent(formData: FormData) {
   }
 
   try {
-    await apiFetch(`/backoffice/diagnostics/events/${eventId}/retry`, {
+    await serverApiFetch(`/backoffice/diagnostics/events/${eventId}/retry`, {
       method: "POST",
       body: JSON.stringify({
         reason: "Retry solicitado pelo backoffice WppTrack"

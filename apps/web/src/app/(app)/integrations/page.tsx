@@ -1,9 +1,9 @@
 import type { IntegrationHealthSummaryDto } from "@wpptrack/shared";
-import { apiFetch } from "../../../lib/api";
+import { serverApiFetch } from "../../../lib/server-api";
 
 async function getHealth(): Promise<IntegrationHealthSummaryDto | null> {
   try {
-    return await apiFetch<IntegrationHealthSummaryDto>("/integrations/health");
+    return await serverApiFetch<IntegrationHealthSummaryDto>("/integrations/health");
   } catch {
     return null;
   }
