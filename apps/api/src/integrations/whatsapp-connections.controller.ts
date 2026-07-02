@@ -14,6 +14,13 @@ export class WhatsappConnectionsController {
     private readonly whatsappConnectionsService: WhatsappConnectionsService
   ) {}
 
+  @Get()
+  async listInstances(@AuthToken() refreshToken: string) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.whatsappConnectionsService.listInstances(workspaceId);
+  }
+
   @Get(":instanceId/status")
   async getStatus(
     @AuthToken() refreshToken: string,

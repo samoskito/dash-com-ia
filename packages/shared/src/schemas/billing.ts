@@ -44,6 +44,19 @@ export const whatsappInstanceConnectionSchema = z.object({
   message: z.string().min(1).nullable()
 });
 
+export const whatsappInstanceSummarySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  provider: z.enum(["uazapi", "cloud_api"]),
+  billingStatus: z.enum(["pending_payment", "active", "suspended", "cancelled"]),
+  providerInstanceId: z.string().min(1).nullable(),
+  createdAt: z.string().datetime()
+});
+
+export const whatsappInstanceSummaryListSchema = z.array(
+  whatsappInstanceSummarySchema
+);
+
 export const splitReceiverCreateInputSchema = z.object({
   name: z.string().trim().min(2).max(120),
   walletId: z.string().trim().min(3).max(120),
@@ -84,6 +97,12 @@ export type WhatsappInstanceCheckoutDto = z.infer<
 >;
 export type WhatsappInstanceConnectionDto = z.infer<
   typeof whatsappInstanceConnectionSchema
+>;
+export type WhatsappInstanceSummaryDto = z.infer<
+  typeof whatsappInstanceSummarySchema
+>;
+export type WhatsappInstanceSummaryListDto = z.infer<
+  typeof whatsappInstanceSummaryListSchema
 >;
 export type SplitReceiverCreateInputDto = z.infer<
   typeof splitReceiverCreateInputSchema

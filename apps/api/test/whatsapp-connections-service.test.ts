@@ -11,7 +11,8 @@ function createHarness() {
         name: "Comercial",
         provider: "uazapi",
         status: "pending_payment",
-        providerInstanceId: null
+        providerInstanceId: null,
+        createdAt: new Date("2026-07-02T03:00:00.000Z")
       },
       {
         id: "wpp_active",
@@ -19,7 +20,8 @@ function createHarness() {
         name: "Vendas",
         provider: "uazapi",
         status: "active",
-        providerInstanceId: "provider_instance_1"
+        providerInstanceId: "provider_instance_1",
+        createdAt: new Date("2026-07-02T03:01:00.000Z")
       }
     ] as Array<Record<string, unknown>>
   };
@@ -34,6 +36,8 @@ function createHarness() {
           (instance) =>
             instance.id === where.id && instance.workspaceId === where.workspaceId
         ) ?? null,
+      findMany: async ({ where }: { where: { workspaceId: string } }) =>
+        db.instances.filter((instance) => instance.workspaceId === where.workspaceId),
       update: async ({
         data,
         where
@@ -81,6 +85,31 @@ function createHarness() {
 }
 
 describe("whatsapp connections service", () => {
+  it("lists whatsapp instances for the current workspace", async () => {
+    const { service } = createHarness();
+
+    const instances = await service.listInstances("workspace_1");
+
+    expect(instances).toEqual([
+      {
+        id: "wpp_pending",
+        name: "Comercial",
+        provider: "uazapi",
+        billingStatus: "pending_payment",
+        providerInstanceId: null,
+        createdAt: expect.any(String)
+      },
+      {
+        id: "wpp_active",
+        name: "Vendas",
+        provider: "uazapi",
+        billingStatus: "active",
+        providerInstanceId: "provider_instance_1",
+        createdAt: expect.any(String)
+      }
+    ]);
+  });
+
   it("refuses to connect a whatsapp instance before payment activation", async () => {
     const { service, uazapiAdapter } = createHarness();
 

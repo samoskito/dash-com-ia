@@ -1,4 +1,7 @@
-import type { IntegrationHealthSummaryDto } from "@wpptrack/shared";
+import type {
+  IntegrationHealthSummaryDto,
+  WhatsappInstanceSummaryDto
+} from "@wpptrack/shared";
 import { serverApiFetch } from "../../../lib/server-api";
 
 async function getHealth(): Promise<IntegrationHealthSummaryDto | null> {
@@ -6,6 +9,34 @@ async function getHealth(): Promise<IntegrationHealthSummaryDto | null> {
     return await serverApiFetch<IntegrationHealthSummaryDto>("/integrations/health");
   } catch {
     return null;
+  }
+}
+
+async function getWhatsappInstances(): Promise<WhatsappInstanceSummaryDto[]> {
+  try {
+    return await serverApiFetch<WhatsappInstanceSummaryDto[]>(
+      "/integrations/whatsapp/instances"
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function connectWhatsappInstance(formData: FormData) {
+  "use server";
+
+  const instanceId = String(formData.get("instanceId") ?? "");
+
+  if (!instanceId) {
+    return;
+  }
+
+  try {
+    await serverApiFetch(`/integrations/whatsapp/instances/${instanceId}/connect`, {
+      method: "POST"
+    });
+  } catch {
+    return;
   }
 }
 
@@ -33,7 +64,10 @@ function statusLabel(status: string) {
 }
 
 export default async function IntegrationsPage() {
-  const health = await getHealth();
+  const [health, whatsappInstances] = await Promise.all([
+    getHealth(),
+    getWhatsappInstances()
+  ]);
   const integrations =
     health?.providers.map((item) => ({
       title: providerTitle(item.provider),
@@ -98,6 +132,62 @@ export default async function IntegrationsPage() {
             </button>
           </article>
         ))}
+      </div>
+
+      <div className="surface-panel">
+        <span className="eyebrow">WhatsApp Business</span>
+        <h2>Instancias conectadas</h2>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Instancia</th>
+                <th>Provider</th>
+                <th>Billing</th>
+                <th>ID Uazapi</th>
+                <th>Acao</th>
+              </tr>
+            </thead>
+            <tbody>
+              {whatsappInstances.length > 0 ? (
+                whatsappInstances.map((instance) => (
+                  <tr key={instance.id}>
+                    <td>
+                      <strong>{instance.name}</strong>
+                      <span>{instance.id}</span>
+                    </td>
+                    <td>{instance.provider}</td>
+                    <td>{statusLabel(instance.billingStatus)}</td>
+                    <td>{instance.providerInstanceId ?? "aguardando conexao"}</td>
+                    <td>
+                      {instance.billingStatus === "active" ? (
+                        <form action={connectWhatsappInstance}>
+                          <input type="hidden" name="instanceId" value={instance.id} />
+                          <button className="button" type="submit">
+                            Conectar WhatsApp
+                          </button>
+                        </form>
+                      ) : (
+                        <span className="event-chip warn">Pagamento pendente</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td>
+                    <strong>Nenhuma instancia</strong>
+                    <span>Adicione e pague uma instancia para conectar o WhatsApp</span>
+                  </td>
+                  <td>uazapi</td>
+                  <td>Pagamento pendente</td>
+                  <td>aguardando conexao</td>
+                  <td><span className="event-chip warn">sem dados</span></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="surface-panel">

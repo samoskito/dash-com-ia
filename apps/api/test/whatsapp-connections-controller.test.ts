@@ -30,6 +30,16 @@ async function createApp() {
     getCurrentWorkspace: vi.fn((authenticated) => authenticated.workspaces[0])
   };
   const whatsappConnectionsService = {
+    listInstances: vi.fn(async () => [
+      {
+        id: "wpp_1",
+        name: "Vendas",
+        provider: "uazapi",
+        billingStatus: "active",
+        providerInstanceId: "provider_instance_1",
+        createdAt: "2026-07-02T03:00:00.000Z"
+      }
+    ]),
     getStatus: vi.fn(async () => ({
       whatsappInstanceId: "wpp_1",
       provider: "uazapi",
@@ -74,6 +84,25 @@ async function createApp() {
 }
 
 describe("whatsapp connections controller", () => {
+  it("lists instances for the current workspace", async () => {
+    const { app, whatsappConnectionsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/whatsapp/instances")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body[0].id).toBe("wpp_1");
+        expect(body[0].providerInstanceId).toBe("provider_instance_1");
+      });
+
+    expect(whatsappConnectionsService.listInstances).toHaveBeenCalledWith(
+      "workspace_1"
+    );
+
+    await app.close();
+  });
+
   it("returns status for the current workspace instance", async () => {
     const { app, authService, whatsappConnectionsService } = await createApp();
 

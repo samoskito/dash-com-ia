@@ -5,6 +5,7 @@ import {
   NotFoundException
 } from "@nestjs/common";
 import type { WhatsappInstanceConnectionDto } from "@wpptrack/shared";
+import type { WhatsappInstanceSummaryDto } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import {
   UazapiAdapter,
@@ -26,6 +27,22 @@ export class WhatsappConnectionsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(UazapiAdapter) private readonly uazapiAdapter: UazapiAdapter
   ) {}
+
+  async listInstances(workspaceId: string): Promise<WhatsappInstanceSummaryDto[]> {
+    const instances = (await this.prisma.whatsappInstance.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: "asc" }
+    })) as Array<WhatsappInstanceRecord & { createdAt: Date }>;
+
+    return instances.map((instance) => ({
+      id: instance.id,
+      name: instance.name,
+      provider: instance.provider,
+      billingStatus: instance.status,
+      providerInstanceId: instance.providerInstanceId,
+      createdAt: instance.createdAt.toISOString()
+    }));
+  }
 
   async getStatus(
     workspaceId: string,

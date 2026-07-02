@@ -45,6 +45,7 @@ import {
   whatsappInstanceCheckoutInputSchema,
   whatsappInstanceCheckoutSchema,
   whatsappInstanceConnectionSchema,
+  whatsappInstanceSummarySchema,
   whatsappInstanceQuoteSchema
 } from "../src";
 
@@ -443,6 +444,20 @@ describe("shared contracts", () => {
 
     expect(connection.provider).toBe("uazapi");
     expect(connection.qrCode).toBe("base64-or-text-qr");
+  });
+
+  it("validates whatsapp instance summary contracts", () => {
+    const instance = whatsappInstanceSummarySchema.parse({
+      id: "wpp_1",
+      name: "Comercial",
+      provider: "uazapi",
+      billingStatus: "active",
+      providerInstanceId: "provider_instance_1",
+      createdAt: "2026-07-02T03:00:00.000Z"
+    });
+
+    expect(instance.billingStatus).toBe("active");
+    expect(instance.providerInstanceId).toBe("provider_instance_1");
   });
 
   it("validates split receiver contracts for platform backoffice", () => {
