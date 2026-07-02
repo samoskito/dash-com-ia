@@ -35,6 +35,7 @@ type FakePrisma = {
     findMany: (args: unknown) => Promise<Array<Record<string, unknown>>>;
     findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
     update: (args: unknown) => Promise<Record<string, unknown>>;
+    updateMany: (args: unknown) => Promise<{ count: number }>;
   };
   integrationLog: {
     create: (args: unknown) => Promise<Record<string, unknown>>;
@@ -165,6 +166,34 @@ function createHarness(
           updatedAt: new Date("2026-07-02T03:30:00.000Z")
         };
         return db.plans[index];
+      },
+      updateMany: async (args) => {
+        const { data, where } = args as {
+          data: Record<string, unknown>;
+          where: { active?: boolean; id?: { not?: string } };
+        };
+        let count = 0;
+
+        db.plans = db.plans.map((plan) => {
+          const matchesActive =
+            where.active === undefined || plan.active === where.active;
+          const matchesId =
+            where.id?.not === undefined || plan.id !== where.id.not;
+
+          if (!matchesActive || !matchesId) {
+            return plan;
+          }
+
+          count += 1;
+
+          return {
+            ...plan,
+            ...data,
+            updatedAt: new Date("2026-07-02T03:30:00.000Z")
+          };
+        });
+
+        return { count };
       }
     },
     integrationLog: {
@@ -537,6 +566,58 @@ describe("billing service", () => {
         })
       ])
     );
+  });
+
+  it("keeps only one active subscription plan for billing prices", async () => {
+    const { db, service } = createHarness();
+    db.plans.push(
+      {
+        id: "plan_1",
+        name: "Plano Starter",
+        slug: "starter",
+        pricePerWhatsappInstanceCents: 9900,
+        active: true,
+        createdAt: new Date("2026-07-02T02:00:00.000Z"),
+        updatedAt: new Date("2026-07-02T02:00:00.000Z")
+      },
+      {
+        id: "plan_2",
+        name: "Plano Growth",
+        slug: "growth",
+        pricePerWhatsappInstanceCents: 15900,
+        active: false,
+        createdAt: new Date("2026-07-02T03:00:00.000Z"),
+        updatedAt: new Date("2026-07-02T03:00:00.000Z")
+      }
+    );
+
+    const created = await service.createBackofficeSubscriptionPlan({
+      name: "Plano Scale",
+      slug: "scale",
+      pricePerWhatsappInstanceCents: 24900,
+      active: true
+    });
+    const reactivated = await service.updateBackofficeSubscriptionPlan(
+      "plan_2",
+      {
+        active: true
+      }
+    );
+
+    expect(created).toMatchObject({
+      id: "plan_3",
+      active: true
+    });
+    expect(reactivated).toMatchObject({
+      id: "plan_2",
+      active: true
+    });
+    expect(db.plans.filter((plan) => plan.active)).toEqual([
+      expect.objectContaining({
+        id: "plan_2",
+        name: "Plano Growth"
+      })
+    ]);
   });
 
   it("lists payment charges for platform backoffice", async () => {

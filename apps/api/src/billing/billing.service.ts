@@ -218,13 +218,26 @@ export class BillingService {
     input: BackofficeSubscriptionPlanCreateInputDto,
     actorUserId?: string
   ): Promise<BackofficeSubscriptionPlanDto> {
-    const plan = (await this.prisma.subscriptionPlan.create({
-      data: {
-        name: input.name,
-        slug: input.slug,
-        pricePerWhatsappInstanceCents: input.pricePerWhatsappInstanceCents,
-        active: input.active
+    const plan = (await this.prisma.$transaction(async (tx) => {
+      if (input.active) {
+        await tx.subscriptionPlan.updateMany({
+          where: {
+            active: true
+          },
+          data: {
+            active: false
+          }
+        });
       }
+
+      return tx.subscriptionPlan.create({
+        data: {
+          name: input.name,
+          slug: input.slug,
+          pricePerWhatsappInstanceCents: input.pricePerWhatsappInstanceCents,
+          active: input.active
+        }
+      });
     })) as SubscriptionPlanRecord;
 
     await this.prisma.auditLog.create({
@@ -262,9 +275,25 @@ export class BillingService {
       throw new NotFoundException("Plano nao encontrado");
     }
 
-    const plan = (await this.prisma.subscriptionPlan.update({
-      where: { id },
-      data: input
+    const plan = (await this.prisma.$transaction(async (tx) => {
+      if (input.active === true) {
+        await tx.subscriptionPlan.updateMany({
+          where: {
+            active: true,
+            id: {
+              not: id
+            }
+          },
+          data: {
+            active: false
+          }
+        });
+      }
+
+      return tx.subscriptionPlan.update({
+        where: { id },
+        data: input
+      });
     })) as SubscriptionPlanRecord;
 
     await this.prisma.auditLog.create({
