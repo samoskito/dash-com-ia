@@ -44,6 +44,7 @@ import {
   workspaceMemberSchema,
   whatsappInstanceCheckoutInputSchema,
   whatsappInstanceCheckoutSchema,
+  whatsappInstanceConnectionSchema,
   whatsappInstanceQuoteSchema
 } from "../src";
 
@@ -428,6 +429,20 @@ describe("shared contracts", () => {
     expect(input.provider).toBe("uazapi");
     expect(checkout.status).toBe("pending_payment");
     expect(checkout.paymentProviderStatus).toBe("not_configured");
+  });
+
+  it("validates whatsapp instance connection status contracts", () => {
+    const connection = whatsappInstanceConnectionSchema.parse({
+      whatsappInstanceId: "wpp_1",
+      provider: "uazapi",
+      billingStatus: "active",
+      connectionStatus: "qr_required",
+      qrCode: "base64-or-text-qr",
+      message: "Escaneie o QR Code no WhatsApp Business"
+    });
+
+    expect(connection.provider).toBe("uazapi");
+    expect(connection.qrCode).toBe("base64-or-text-qr");
   });
 
   it("validates split receiver contracts for platform backoffice", () => {

@@ -138,6 +138,7 @@ model WhatsappInstance {
   workspaceId String
   name        String
   provider    String
+  providerInstanceId String?
   status      WhatsappInstanceStatus @default(pending_payment)
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
@@ -146,6 +147,7 @@ model WhatsappInstance {
   activations WhatsappInstanceActivation[]
 
   @@index([workspaceId])
+  @@index([providerInstanceId])
 }
 
 model AuthSession {

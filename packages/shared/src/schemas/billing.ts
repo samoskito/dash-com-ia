@@ -26,6 +26,24 @@ export const whatsappInstanceCheckoutSchema = z.object({
   externalChargeId: z.string().min(1).nullable()
 });
 
+export const whatsappConnectionStatuses = [
+  "not_configured",
+  "pending",
+  "qr_required",
+  "connected",
+  "disconnected",
+  "error"
+] as const;
+
+export const whatsappInstanceConnectionSchema = z.object({
+  whatsappInstanceId: z.string().min(1),
+  provider: z.enum(["uazapi", "cloud_api"]),
+  billingStatus: z.enum(["pending_payment", "active", "suspended", "cancelled"]),
+  connectionStatus: z.enum(whatsappConnectionStatuses),
+  qrCode: z.string().min(1).nullable(),
+  message: z.string().min(1).nullable()
+});
+
 export const splitReceiverCreateInputSchema = z.object({
   name: z.string().trim().min(2).max(120),
   walletId: z.string().trim().min(3).max(120),
@@ -63,6 +81,9 @@ export type WhatsappInstanceCheckoutInputDto = z.infer<
 >;
 export type WhatsappInstanceCheckoutDto = z.infer<
   typeof whatsappInstanceCheckoutSchema
+>;
+export type WhatsappInstanceConnectionDto = z.infer<
+  typeof whatsappInstanceConnectionSchema
 >;
 export type SplitReceiverCreateInputDto = z.infer<
   typeof splitReceiverCreateInputSchema
