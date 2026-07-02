@@ -31,6 +31,7 @@ type FakePrisma = {
   };
   subscriptionPlan: {
     create: (args: unknown) => Promise<Record<string, unknown>>;
+    findFirst: (args: unknown) => Promise<Record<string, unknown> | null>;
     findMany: (args: unknown) => Promise<Array<Record<string, unknown>>>;
     findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
     update: (args: unknown) => Promise<Record<string, unknown>>;
@@ -138,6 +139,14 @@ function createHarness(
         };
         db.plans.push(plan);
         return plan;
+      },
+      findFirst: async (args) => {
+        const { where } = args as { where?: { active?: boolean } };
+        const plans = where?.active === undefined
+          ? db.plans
+          : db.plans.filter((plan) => plan.active === where.active);
+
+        return plans[0] ?? null;
       },
       findMany: async () => db.plans,
       findUnique: async (args) => {
@@ -397,6 +406,40 @@ describe("billing service", () => {
       pricePerInstanceCents: 12900,
       nextInstanceAmountCents: 12900,
       currency: "BRL"
+    });
+  });
+
+  it("uses the active subscription plan price for quotes and checkout charges", async () => {
+    const { db, service } = createHarness();
+    db.plans.push({
+      id: "plan_1",
+      name: "Plano Growth",
+      slug: "growth",
+      pricePerWhatsappInstanceCents: 15900,
+      active: true,
+      createdAt: new Date("2026-07-02T03:00:00.000Z"),
+      updatedAt: new Date("2026-07-02T03:00:00.000Z")
+    });
+
+    const quote = await service.getWhatsappInstanceQuote("workspace_1");
+    const checkout = await service.createWhatsappInstanceCheckout(
+      "workspace_1",
+      {
+        instanceName: "Comercial",
+        provider: "uazapi"
+      }
+    );
+
+    expect(quote).toMatchObject({
+      pricePerInstanceCents: 15900,
+      nextInstanceAmountCents: 15900
+    });
+    expect(checkout.amountCents).toBe(15900);
+    expect(db.charges[0]).toMatchObject({
+      amountCents: 15900
+    });
+    expect(db.activations[0]).toMatchObject({
+      amountCents: 15900
     });
   });
 
@@ -814,6 +857,15 @@ describe("billing service", () => {
 
   it("updates the workspace subscription summary after activating a paid instance", async () => {
     const { db, service } = createHarness();
+    db.plans.push({
+      id: "plan_1",
+      name: "Plano Growth",
+      slug: "growth",
+      pricePerWhatsappInstanceCents: 15900,
+      active: true,
+      createdAt: new Date("2026-07-02T03:00:00.000Z"),
+      updatedAt: new Date("2026-07-02T03:00:00.000Z")
+    });
     await service.createWhatsappInstanceCheckout("workspace_1", {
       instanceName: "Comercial",
       provider: "uazapi"
@@ -835,8 +887,13 @@ describe("billing service", () => {
     expect(subscription).toMatchObject({
       workspaceId: "workspace_1",
       status: "active",
+      planName: "Plano Growth",
       activeInstances: 1,
-      monthlyAmountCents: 12900
+      pricePerWhatsappInstanceCents: 15900,
+      monthlyAmountCents: 15900
+    });
+    expect(db.subscriptions[0]).toMatchObject({
+      planId: "plan_1"
     });
   });
 

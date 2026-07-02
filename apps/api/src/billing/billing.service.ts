@@ -104,6 +104,11 @@ type SubscriptionPlanRecord = {
   updatedAt: Date;
 };
 
+type ActiveSubscriptionPlan = Pick<
+  SubscriptionPlanRecord,
+  "id" | "name" | "pricePerWhatsappInstanceCents"
+>;
+
 type BackofficePaymentChargeFilters = {
   status?: string;
   workspaceId?: string;
@@ -134,7 +139,10 @@ export class BillingService {
         status: "active"
       }
     });
-    const pricePerInstanceCents = this.getPricePerInstanceCents();
+    const pricePlan = await this.getActiveSubscriptionPlan();
+    const pricePerInstanceCents =
+      pricePlan?.pricePerWhatsappInstanceCents ??
+      this.getFallbackPricePerInstanceCents();
 
     return {
       workspaceId,
@@ -173,14 +181,18 @@ export class BillingService {
       };
     }
 
+    const activePlan = subscription.plan
+      ? null
+      : await this.getActiveSubscriptionPlan();
     const pricePerWhatsappInstanceCents =
       subscription.plan?.pricePerWhatsappInstanceCents ??
-      this.getPricePerInstanceCents();
+      activePlan?.pricePerWhatsappInstanceCents ??
+      this.getFallbackPricePerInstanceCents();
 
     return {
       workspaceId,
       status: this.toSubscriptionStatus(subscription.status),
-      planName: subscription.plan?.name ?? null,
+      planName: subscription.plan?.name ?? activePlan?.name ?? null,
       activeInstances: subscription.activeInstances,
       pricePerWhatsappInstanceCents,
       monthlyAmountCents:
@@ -341,7 +353,10 @@ export class BillingService {
     input: WhatsappInstanceCheckoutInputDto,
     actorUserId?: string
   ): Promise<WhatsappInstanceCheckoutDto> {
-    const amountCents = this.getPricePerInstanceCents();
+    const activePlan = await this.getActiveSubscriptionPlan();
+    const amountCents =
+      activePlan?.pricePerWhatsappInstanceCents ??
+      this.getFallbackPricePerInstanceCents();
     const description = `Ativacao da instancia WhatsApp ${input.instanceName}`;
 
     const records = await this.prisma.$transaction(async (tx) => {
@@ -630,6 +645,7 @@ export class BillingService {
       };
     }
 
+    const activePlan = await this.getActiveSubscriptionPlan();
     const providerActivation = await this.prepareProviderActivation(
       charge.activation.whatsappInstance
     );
@@ -676,7 +692,8 @@ export class BillingService {
           where: { id: subscription.id },
           data: {
             status: "active",
-            activeInstances
+            activeInstances,
+            ...(activePlan ? { planId: activePlan.id } : {})
           }
         });
       } else {
@@ -684,7 +701,8 @@ export class BillingService {
           data: {
             workspaceId: charge.workspaceId,
             status: "active",
-            activeInstances
+            activeInstances,
+            ...(activePlan ? { planId: activePlan.id } : {})
           }
         });
       }
@@ -843,7 +861,25 @@ export class BillingService {
     }
   }
 
-  private getPricePerInstanceCents(): number {
+  private async getActiveSubscriptionPlan(): Promise<ActiveSubscriptionPlan | null> {
+    const plan = (await this.prisma.subscriptionPlan.findFirst({
+      where: {
+        active: true
+      },
+      orderBy: {
+        createdAt: "desc"
+      },
+      select: {
+        id: true,
+        name: true,
+        pricePerWhatsappInstanceCents: true
+      }
+    })) as ActiveSubscriptionPlan | null;
+
+    return plan;
+  }
+
+  private getFallbackPricePerInstanceCents(): number {
     const configured = Number(
       this.env.WPPTRACK_WHATSAPP_INSTANCE_PRICE_CENTS ?? "9900"
     );
