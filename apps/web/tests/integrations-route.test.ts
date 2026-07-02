@@ -256,6 +256,7 @@ describe("integrations route", () => {
     expect(html).toContain("Escaneie o QR Code");
     expect(html).toContain("wpp_1");
     expect(html).toContain("Suporte");
+    expect(html).toContain("ID Uazapi ainda nao emitido");
     expect(html).toContain("Pagamento pendente");
     expect(html).toContain("Pagar agora");
     expect(html).toContain('href="https://sandbox.asaas.com/i/pay_2"');
@@ -420,7 +421,9 @@ describe("integrations route", () => {
     expect(html).toContain("Nao vinculada");
     expect(html).toContain("Sem permissao para alterar Meta");
     expect(html).toContain("Sem permissao para adicionar instancias");
+    expect(html).toContain("Aguardando eventos reais");
     expect(html).not.toContain("pendente");
+    expect(html).not.toContain("sem dados");
     expect(html).not.toContain("Salvar selecao Meta");
     expect(html).not.toContain("Adicionar instancia");
     expect(html).not.toContain("Conectar WhatsApp");

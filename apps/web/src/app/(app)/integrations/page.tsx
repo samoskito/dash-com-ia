@@ -795,7 +795,7 @@ export default async function IntegrationsPage() {
                         <span>-</span>
                       )}
                     </td>
-                    <td>{instance.providerInstanceId ?? "aguardando conexao"}</td>
+                    <td>{instance.providerInstanceId ?? "ID Uazapi ainda nao emitido"}</td>
                     <td>
                       {instance.billingStatus === "active" && canManageIntegrations ? (
                         <form action={connectWhatsappInstance}>
@@ -868,7 +868,11 @@ export default async function IntegrationsPage() {
           ) : (
             <div className="funnel-step">
               <span>Pipeline</span>
-              <strong>{pipelineResult.state === "error" ? "API indisponivel" : "sem dados"}</strong>
+              <strong>
+                {pipelineResult.state === "error"
+                  ? "API indisponivel"
+                  : "Aguardando eventos reais"}
+              </strong>
               <div className="signal-bar"><i style={{ width: "0%" }} /></div>
             </div>
           )}

@@ -529,6 +529,7 @@ Checkpoint atual:
 - Aba `Integracoes` agora mostra assinatura/instancia `active` como `Ativa` e usa `Nao vinculada` quando ainda nao existe `asaasSubscriptionId`, evitando indicar cobranca pendente sem evidencia.
 - Aba `Integracoes` agora diferencia selecao Meta stale: quando BM/conta/pixel selecionado nao existe mais na ultima lista sincronizada, a UI mostra `Ativo selecionado fora da ultima sincronizacao` e orienta `Ressincronize a Meta ou escolha outro ativo`.
 - Aba `Integracoes` agora removeu `aguardando API`/`sem dados` genericos dos estados indisponiveis de ativos Meta e instancias WhatsApp, mostrando `Leitura de ativos indisponivel`, `Tente novamente apos a API responder` e chips `indisponivel` quando a falha vem da API.
+- Aba `Integracoes` agora removeu os ultimos estados genericos do pipeline/WhatsApp: instancia sem `providerInstanceId` mostra `ID Uazapi ainda nao emitido` e pipeline vazio mostra `Aguardando eventos reais`.
 
 Proximo passo operacional:
 
