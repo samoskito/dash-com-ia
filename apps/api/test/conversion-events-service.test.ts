@@ -4,6 +4,7 @@ import type { MetaCapiAdapter } from "../src/conversion-events/meta-capi.adapter
 
 function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
   const db = {
+    integrationLogs: [] as Array<Record<string, unknown>>,
     logs: [] as Array<Record<string, unknown>>
   };
   const prisma = {
@@ -36,6 +37,17 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
           ...data
         };
         return db.logs[index];
+      }
+    },
+    integrationLog: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const log = {
+          id: `integration_${db.integrationLogs.length + 1}`,
+          startedAt: data.startedAt ?? new Date("2026-07-02T03:00:00.000Z"),
+          ...data
+        };
+        db.integrationLogs.push(log);
+        return log;
       }
     }
   };
@@ -158,6 +170,19 @@ describe("conversion events service", () => {
       errorMessage: null
     });
     expect(db.logs[0].sentAt).toBeInstanceOf(Date);
+    expect(db.integrationLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "meta",
+        operation: "meta.capi.send_event",
+        status: "success",
+        providerRequestId: "conversion_1",
+        leadId: "lead_1",
+        adId: "ad_1",
+        jobId: "conversion_1"
+      })
+    );
+    expect(JSON.stringify(db.integrationLogs)).not.toContain("secret");
   });
 
   it("does not create duplicate conversion logs for the same dedupe key", async () => {
