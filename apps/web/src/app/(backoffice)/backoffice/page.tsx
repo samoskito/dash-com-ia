@@ -1,4 +1,4 @@
-import type { DiagnosticEventDto } from "@wpptrack/shared";
+import type { DiagnosticEventDto, SplitReceiverDto } from "@wpptrack/shared";
 import { apiFetch } from "../../../lib/api";
 
 async function getDiagnosticEvents(): Promise<DiagnosticEventDto[]> {
@@ -9,14 +9,44 @@ async function getDiagnosticEvents(): Promise<DiagnosticEventDto[]> {
   }
 }
 
+async function getSplitReceivers(): Promise<SplitReceiverDto[]> {
+  try {
+    return await apiFetch<SplitReceiverDto[]>("/backoffice/split/receivers");
+  } catch {
+    return [];
+  }
+}
+
+function percentFromBps(value: number): string {
+  return `${(value / 100).toFixed(2)}%`;
+}
+
 export default async function BackofficePage() {
-  const diagnosticEvents = await getDiagnosticEvents();
+  const [diagnosticEvents, splitReceivers] = await Promise.all([
+    getDiagnosticEvents(),
+    getSplitReceivers()
+  ]);
   const panels = [
     ["Billing", "R$ 18.420", "MRR consolidado, inadimplencia e notas pendentes."],
     ["Split", "94.2%", "Repasse capturado por workspace com divergencias sinalizadas."],
     ["Workspaces", "128", "Operacoes ativas, suspensas e em trial monitoradas."],
     ["Diagnosticos", "7 alertas", "Webhooks, Meta tokens, filas e entregas CAPI."]
   ];
+  const receivers =
+    splitReceivers.length > 0
+      ? splitReceivers
+      : [
+          {
+            id: "fallback_receiver_1",
+            name: "Recebedor principal",
+            walletId: "wallet_asaas_preview",
+            email: "financeiro@wpptrack.local",
+            percentageBps: 10000,
+            active: true,
+            createdAt: "2026-07-02T03:00:00.000Z",
+            updatedAt: "2026-07-02T03:00:00.000Z"
+          }
+        ];
 
   return (
     <section className="page-stack standalone-page">
@@ -40,6 +70,39 @@ export default async function BackofficePage() {
             <p className="muted">{description}</p>
           </article>
         ))}
+      </div>
+
+      <div className="surface-panel">
+        <span className="eyebrow">Split Asaas</span>
+        <h2>Recebedores da plataforma</h2>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Recebedor</th>
+                <th>Wallet</th>
+                <th>Email</th>
+                <th>Percentual</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {receivers.map((receiver) => (
+                <tr key={receiver.id}>
+                  <td><strong>{receiver.name}</strong><span>{receiver.id}</span></td>
+                  <td>{receiver.walletId}</td>
+                  <td>{receiver.email ?? "sem email"}</td>
+                  <td>{percentFromBps(receiver.percentageBps)}</td>
+                  <td>
+                    <span className={`event-chip${receiver.active ? "" : " warn"}`}>
+                      {receiver.active ? "ativo" : "pausado"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="surface-panel">
