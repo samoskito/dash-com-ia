@@ -1,9 +1,19 @@
-import type { ConversionRuleDto } from "@wpptrack/shared";
+import type {
+  ConversionRuleDto,
+  CurrentWorkspaceDto,
+  WorkspaceMemberDto
+} from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
 
 type ConversionRulesResult = {
   rules: ConversionRuleDto[];
+  state: "real" | "empty" | "error";
+};
+
+type WorkspaceSettingsResult = {
+  workspace: CurrentWorkspaceDto | null;
+  members: WorkspaceMemberDto[];
   state: "real" | "empty" | "error";
 };
 
@@ -18,6 +28,27 @@ async function getConversionRules(): Promise<ConversionRulesResult> {
   } catch {
     return {
       rules: [],
+      state: "error"
+    };
+  }
+}
+
+async function getWorkspaceSettings(): Promise<WorkspaceSettingsResult> {
+  try {
+    const [workspace, members] = await Promise.all([
+      serverApiFetch<CurrentWorkspaceDto>("/workspaces/current"),
+      serverApiFetch<WorkspaceMemberDto[]>("/workspaces/current/members")
+    ]);
+
+    return {
+      workspace,
+      members,
+      state: members.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      workspace: null,
+      members: [],
       state: "error"
     };
   }
@@ -65,6 +96,27 @@ async function createConversionRule(formData: FormData) {
   }
 }
 
+async function createWorkspaceInvite(formData: FormData) {
+  "use server";
+
+  const email = String(formData.get("email") ?? "").trim();
+  const role = String(formData.get("role") ?? "member");
+
+  if (!email) {
+    return;
+  }
+
+  try {
+    await serverApiFetch("/workspaces/current/invites", {
+      method: "POST",
+      body: JSON.stringify({ email, role })
+    });
+    revalidatePath("/settings");
+  } catch {
+    return;
+  }
+}
+
 async function updateConversionRuleStatus(formData: FormData) {
   "use server";
 
@@ -87,8 +139,12 @@ async function updateConversionRuleStatus(formData: FormData) {
 }
 
 export default async function SettingsPage() {
-  const conversionRules = await getConversionRules();
+  const [workspaceSettings, conversionRules] = await Promise.all([
+    getWorkspaceSettings(),
+    getConversionRules()
+  ]);
   const { rules } = conversionRules;
+  const { workspace, members } = workspaceSettings;
   const emptyTitle =
     conversionRules.state === "error"
       ? "Nao foi possivel carregar regras"
@@ -107,8 +163,8 @@ export default async function SettingsPage() {
           <p>Empresa, membros, papeis, palavras-chave, etiquetas e mapeamento de eventos.</p>
         </div>
         <div className="header-actions">
-          <span className={`status-chip${conversionRules.state === "error" ? " warn" : ""}`}>
-            {conversionRules.state === "error" ? "API indisponivel" : "API conectada"}
+          <span className={`status-chip${workspaceSettings.state === "error" || conversionRules.state === "error" ? " warn" : ""}`}>
+            {workspaceSettings.state === "error" || conversionRules.state === "error" ? "API indisponivel" : "API conectada"}
           </span>
           <button className="button primary" type="button">Salvar alteracoes</button>
           <button className="button" type="button">Testar eventos</button>
@@ -118,18 +174,23 @@ export default async function SettingsPage() {
       <div className="config-grid">
         <article className="config-card">
           <span className="micro-label">Workspace</span>
-          <strong>Operacao principal</strong>
-          <p className="muted">Documento fiscal, timezone, dominio de tracking e politica de retencao.</p>
+          <strong>{workspace?.name ?? "Workspace indisponivel"}</strong>
+          <p className="muted">
+            {workspace
+              ? `Slug ${workspace.slug} com papel ${workspace.role}.`
+              : "Confira a API antes de alterar dados da empresa."}
+          </p>
           <div className="control-row">
             <label>
               Nome publico
-              <input defaultValue="Operacao principal" />
+              <input defaultValue={workspace?.name ?? ""} />
             </label>
             <label>
-              Timezone
-              <select defaultValue="America/Sao_Paulo">
-                <option>America/Sao_Paulo</option>
-                <option>America/Manaus</option>
+              Permissao atual
+              <select defaultValue={workspace?.role ?? "member"}>
+                <option value="owner">owner</option>
+                <option value="admin">admin</option>
+                <option value="member">member</option>
               </select>
             </label>
           </div>
@@ -137,28 +198,57 @@ export default async function SettingsPage() {
 
         <article className="config-card">
           <span className="micro-label">Membros</span>
-          <strong>3 usuarios ativos</strong>
-          <p className="muted">Administrador, operador de vendas e analista de trafego com acessos separados.</p>
-          <div className="chip-row">
-            <span className="tag">Admin</span>
-            <span className="tag">Vendas</span>
-            <span className="tag">Trafego</span>
-          </div>
+          <strong>
+            {workspaceSettings.state === "error"
+              ? "Membros indisponiveis"
+              : `${members.length} usuario${members.length === 1 ? "" : "s"} ativo${members.length === 1 ? "" : "s"}`}
+          </strong>
+          <p className="muted">Convites e papeis separados para donos, administradores e operadores.</p>
+          {members.length > 0 ? (
+            <div className="settings-list">
+              {members.map((member) => (
+                <div className="quality-card" key={member.id}>
+                  <span>
+                    <strong>{member.name ?? member.email}</strong>
+                    <span>{member.email}</span>
+                  </span>
+                  <span>{member.role}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">
+              {workspaceSettings.state === "error"
+                ? "Nao foi possivel carregar membros."
+                : "Nenhum membro retornado pela API."}
+            </p>
+          )}
         </article>
 
         <article className="config-card">
-          <span className="micro-label">Meta API</span>
-          <strong>Versao v21.0</strong>
-          <p className="muted">Controle operacional da versao usada em insights, OAuth, Pixel e CAPI.</p>
-          <div className="control-row">
+          <span className="micro-label">Convites</span>
+          <strong>Convidar membro</strong>
+          <p className="muted">O convite e criado no backend e nao concede papel owner diretamente.</p>
+          <form className="control-row" action={createWorkspaceInvite}>
             <label>
-              Versao ativa
-              <select defaultValue="v21.0">
-                <option>v21.0</option>
-                <option>v20.0</option>
+              Email do convidado
+              <input name="email" type="email" placeholder="pessoa@empresa.com" />
+            </label>
+            <label>
+              Papel
+              <select name="role" defaultValue="member">
+                <option value="member">member</option>
+                <option value="admin">admin</option>
               </select>
             </label>
-          </div>
+            <button
+              className="button primary"
+              disabled={!workspace?.permissions.canInviteMembers}
+              type="submit"
+            >
+              Enviar convite
+            </button>
+          </form>
         </article>
       </div>
 
