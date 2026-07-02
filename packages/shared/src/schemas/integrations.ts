@@ -23,6 +23,21 @@ export const integrationStartActionSchema = z.object({
   missingEnv: z.array(z.string()).default([])
 });
 
+export const metaOAuthCallbackQuerySchema = z.object({
+  code: z.string().min(1),
+  state: z.string().min(1).optional()
+});
+
+export const metaOAuthCallbackResultSchema = z.object({
+  provider: z.literal("meta"),
+  status: z.enum(["configure_env", "connected", "exchange_failed"]),
+  tokenType: z.string().min(1).nullable().default(null),
+  expiresInSeconds: z.number().int().positive().nullable().default(null),
+  scopes: z.array(z.string()).default([]),
+  missingEnv: z.array(z.string()).default([]),
+  message: z.string().min(1).optional()
+});
+
 export type IntegrationProvider = z.infer<typeof integrationProviderSchema>;
 export type IntegrationHealthDto = z.infer<typeof integrationHealthSchema>;
 export type IntegrationHealthSummaryDto = z.infer<
@@ -30,4 +45,10 @@ export type IntegrationHealthSummaryDto = z.infer<
 >;
 export type IntegrationStartActionDto = z.infer<
   typeof integrationStartActionSchema
+>;
+export type MetaOAuthCallbackQueryDto = z.infer<
+  typeof metaOAuthCallbackQuerySchema
+>;
+export type MetaOAuthCallbackResultDto = z.infer<
+  typeof metaOAuthCallbackResultSchema
 >;

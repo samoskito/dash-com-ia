@@ -24,6 +24,8 @@ import {
   diagnosticRetryResultSchema,
   integrationHealthSchema,
   integrationHealthSummarySchema,
+  metaOAuthCallbackQuerySchema,
+  metaOAuthCallbackResultSchema,
   integrationStartActionSchema,
   loginSchema,
   passwordResetConfirmInputSchema,
@@ -202,6 +204,25 @@ describe("shared contracts", () => {
 
     expect(query.code).toBe("oauth-code");
     expect(result.action).toBe("exchange_pending");
+  });
+
+  it("validates Meta OAuth callback and sanitized exchange result payloads", () => {
+    const query = metaOAuthCallbackQuerySchema.parse({
+      code: "meta-code",
+      state: "workspace-state"
+    });
+    const result = metaOAuthCallbackResultSchema.parse({
+      provider: "meta",
+      status: "connected",
+      tokenType: "bearer",
+      expiresInSeconds: 5183944,
+      scopes: ["ads_read", "business_management"],
+      message: "Meta OAuth conectado"
+    });
+
+    expect(query.code).toBe("meta-code");
+    expect(result.status).toBe("connected");
+    expect("accessToken" in result).toBe(false);
   });
 
   it("validates password reset and email verification contracts", () => {

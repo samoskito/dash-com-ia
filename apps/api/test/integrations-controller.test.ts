@@ -37,6 +37,14 @@ async function createApp() {
       label: "Configurar app Meta",
       missingEnv: ["META_APP_ID", "META_APP_SECRET"]
     })),
+    handleMetaCallback: vi.fn(async () => ({
+      provider: "meta",
+      status: "connected",
+      tokenType: "bearer",
+      expiresInSeconds: 5183944,
+      scopes: ["ads_read"],
+      message: "Meta OAuth conectado"
+    })),
     getUazapiStartAction: vi.fn(() => ({
       provider: "uazapi",
       action: "configure_env",
@@ -92,6 +100,26 @@ describe("integrations controller", () => {
         expect(body.action).toBe("configure_env");
         expect(body.missingEnv).toContain("META_APP_ID");
       });
+
+    await app.close();
+  });
+
+  it("handles Meta OAuth callback through the backend service", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/meta/callback?code=meta-code&state=state-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.provider).toBe("meta");
+        expect(body.status).toBe("connected");
+        expect(JSON.stringify(body)).not.toContain("access_token");
+      });
+
+    expect(service.handleMetaCallback).toHaveBeenCalledWith({
+      code: "meta-code",
+      state: "state-token"
+    });
 
     await app.close();
   });

@@ -1,7 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type {
   IntegrationHealthSummaryDto,
-  IntegrationStartActionDto
+  IntegrationStartActionDto,
+  MetaOAuthCallbackQueryDto,
+  MetaOAuthCallbackResultDto
 } from "@wpptrack/shared";
 import { AsaasAdapter } from "./asaas/asaas.adapter";
 import type { IntegrationEnv } from "./integration.types";
@@ -30,7 +32,11 @@ export class IntegrationsService {
   }
 
   getMetaStartAction(): IntegrationStartActionDto {
-    const missingEnv = this.missingEnv(["META_APP_ID", "META_APP_SECRET"]);
+    const missingEnv = this.missingEnv([
+      "META_APP_ID",
+      "META_APP_SECRET",
+      "META_OAUTH_REDIRECT_URL"
+    ]);
 
     if (missingEnv.length > 0) {
       return {
@@ -45,9 +51,15 @@ export class IntegrationsService {
       provider: "meta",
       action: "oauth_redirect",
       label: "Conectar Meta via OAuth",
-      href: this.env.META_OAUTH_REDIRECT_URL ?? "/integrations/meta/callback",
+      href: this.metaAdapter.getOAuthAuthorizationUrl(),
       missingEnv: []
     };
+  }
+
+  async handleMetaCallback(
+    input: MetaOAuthCallbackQueryDto
+  ): Promise<MetaOAuthCallbackResultDto> {
+    return this.metaAdapter.exchangeCode({ code: input.code });
   }
 
   getUazapiStartAction(): IntegrationStartActionDto {
