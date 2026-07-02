@@ -32,6 +32,9 @@ type FakePrisma = {
   integrationLog: {
     create: (args: unknown) => Promise<Record<string, unknown>>;
   };
+  auditLog: {
+    create: (args: unknown) => Promise<Record<string, unknown>>;
+  };
   $transaction: <T>(callback: (tx: FakePrisma) => Promise<T>) => Promise<T>;
 };
 
@@ -39,6 +42,7 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
   const db = {
     instances: [] as Array<Record<string, unknown>>,
     integrationLogs: [] as Array<Record<string, unknown>>,
+    auditLogs: [] as Array<Record<string, unknown>>,
     charges: [] as Array<Record<string, unknown>>,
     activations: [] as Array<Record<string, unknown>>,
     splitReceivers: [] as Array<Record<string, unknown>>,
@@ -101,6 +105,18 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
           ...data
         };
         db.integrationLogs.push(log);
+        return log;
+      }
+    },
+    auditLog: {
+      create: async (args) => {
+        const { data } = args as { data: Record<string, unknown> };
+        const log = {
+          id: `audit_${db.auditLogs.length + 1}`,
+          createdAt: data.createdAt ?? new Date("2026-07-02T03:00:00.000Z"),
+          ...data
+        };
+        db.auditLogs.push(log);
         return log;
       }
     },
@@ -500,6 +516,28 @@ describe("billing service", () => {
     expect(db.charges[0]).toMatchObject({ status: "paid" });
     expect(db.activations[0]).toMatchObject({ status: "active" });
     expect(db.instances[0]).toMatchObject({ status: "active" });
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: null,
+        actorType: "system",
+        action: "billing.payment_confirmed",
+        targetType: "PaymentCharge",
+        targetId: checkout.chargeId,
+        resultStatus: "paid"
+      })
+    );
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: null,
+        actorType: "system",
+        action: "billing.whatsapp_instance_activated",
+        targetType: "WhatsappInstance",
+        targetId: checkout.whatsappInstanceId,
+        resultStatus: "active"
+      })
+    );
   });
 
   it("updates the workspace subscription summary after activating a paid instance", async () => {
@@ -557,5 +595,16 @@ describe("billing service", () => {
     expect(db.charges[0]).toMatchObject({ status: "failed" });
     expect(db.activations[0]).toMatchObject({ status: "pending_payment" });
     expect(db.instances[0]).toMatchObject({ status: "pending_payment" });
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: null,
+        actorType: "system",
+        action: "billing.payment_failed",
+        targetType: "PaymentCharge",
+        targetId: checkout.chargeId,
+        resultStatus: "failed"
+      })
+    );
   });
 });

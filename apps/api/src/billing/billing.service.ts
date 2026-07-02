@@ -364,6 +364,37 @@ export class BillingService {
     }
   }
 
+  private async recordBillingAudit(input: {
+    workspaceId: string;
+    action: string;
+    targetType: string;
+    targetId: string;
+    resultStatus: string;
+    reason?: string;
+    beforeSummary?: Prisma.InputJsonValue;
+    afterSummary?: Prisma.InputJsonValue;
+  }): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId: input.workspaceId,
+          actorUserId: null,
+          actorType: "system",
+          action: input.action,
+          targetType: input.targetType,
+          targetId: input.targetId,
+          reason: input.reason ?? null,
+          sourceIp: null,
+          resultStatus: input.resultStatus,
+          beforeSummary: input.beforeSummary,
+          afterSummary: input.afterSummary
+        }
+      });
+    } catch {
+      return;
+    }
+  }
+
   async processAsaasPaymentWebhook(
     payload: AsaasPaymentWebhookPayload
   ): Promise<AsaasPaymentProcessingResult> {
@@ -414,6 +445,23 @@ export class BillingService {
         data: {
           status: "failed"
         }
+      });
+      await this.recordBillingAudit({
+        workspaceId: charge.workspaceId,
+        action: "billing.payment_failed",
+        targetType: "PaymentCharge",
+        targetId: charge.id,
+        resultStatus: "failed",
+        reason: "Asaas informou falha ou inadimplencia da cobranca.",
+        beforeSummary: {
+          previousStatus: charge.status,
+          externalChargeId: charge.externalChargeId
+        } as Prisma.InputJsonValue,
+        afterSummary: {
+          paymentStatus,
+          activationId: charge.activation.id,
+          whatsappInstanceId: charge.activation.whatsappInstanceId
+        } as Prisma.InputJsonValue
       });
 
       return {
@@ -478,6 +526,40 @@ export class BillingService {
           }
         });
       }
+    });
+    await this.recordBillingAudit({
+      workspaceId: charge.workspaceId,
+      action: "billing.payment_confirmed",
+      targetType: "PaymentCharge",
+      targetId: charge.id,
+      resultStatus: "paid",
+      reason: "Asaas confirmou o pagamento da cobranca.",
+      beforeSummary: {
+        previousStatus: charge.status,
+        externalChargeId: charge.externalChargeId
+      } as Prisma.InputJsonValue,
+      afterSummary: {
+        paymentStatus,
+        activationId: charge.activation.id,
+        whatsappInstanceId: charge.activation.whatsappInstanceId
+      } as Prisma.InputJsonValue
+    });
+    await this.recordBillingAudit({
+      workspaceId: charge.workspaceId,
+      action: "billing.whatsapp_instance_activated",
+      targetType: "WhatsappInstance",
+      targetId: charge.activation.whatsappInstanceId,
+      resultStatus: "active",
+      reason: "Instancia liberada apos confirmacao de pagamento Asaas.",
+      beforeSummary: {
+        activationStatus: "pending_payment",
+        chargeId: charge.id
+      } as Prisma.InputJsonValue,
+      afterSummary: {
+        activationStatus: "active",
+        activationId: charge.activation.id,
+        chargeId: charge.id
+      } as Prisma.InputJsonValue
     });
 
     return {
