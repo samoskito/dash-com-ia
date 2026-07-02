@@ -1,4 +1,6 @@
 export type IntegrationEnv = Record<string, string | undefined>;
+export const INTEGRATION_ENV = Symbol("INTEGRATION_ENV");
+
 export type IntegrationProvider = "meta" | "uazapi" | "asaas";
 export type IntegrationStatus =
   | "connected"

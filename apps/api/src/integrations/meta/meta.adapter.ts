@@ -1,15 +1,18 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import type {
   IntegrationAdapter,
   IntegrationEnv,
   IntegrationHealthDto
 } from "../integration.types";
+import { INTEGRATION_ENV } from "../integration.types";
 
 @Injectable()
 export class MetaAdapter implements IntegrationAdapter {
   readonly provider = "meta" as const;
 
-  constructor(private readonly env: IntegrationEnv = process.env) {}
+  constructor(
+    @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env
+  ) {}
 
   async getHealth(): Promise<IntegrationHealthDto> {
     const hasCredentials = Boolean(this.env.META_APP_ID && this.env.META_APP_SECRET);
