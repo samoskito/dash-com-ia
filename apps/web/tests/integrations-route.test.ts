@@ -114,6 +114,19 @@ describe("integrations route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            whatsappInstanceId: "wpp_1",
+            provider: "uazapi",
+            billingStatus: "active",
+            connectionStatus: "qr_required",
+            qrCode: "qr-code-text",
+            message: "Escaneie o QR Code"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
       );
 
     const element = await IntegrationsPage();
@@ -135,6 +148,10 @@ describe("integrations route", () => {
       "http://localhost:3333/billing/whatsapp-instance/quote",
       expect.objectContaining({ credentials: "include" })
     );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/integrations/whatsapp/instances/wpp_1/status",
+      expect.objectContaining({ credentials: "include" })
+    );
     expect(html).toContain("Meta conectado");
     expect(html).toContain("pixel_1");
     expect(html).toContain("BM Principal");
@@ -147,6 +164,9 @@ describe("integrations route", () => {
     expect(html).toContain("Vendas");
     expect(html).toContain("provider_instance_1");
     expect(html).toContain("Conectar WhatsApp");
+    expect(html).toContain("QR pendente");
+    expect(html).toContain("qr-code-text");
+    expect(html).toContain("Escaneie o QR Code");
     expect(html).toContain("wpp_1");
     expect(html).toContain("Suporte");
     expect(html).toContain("Pagamento pendente");

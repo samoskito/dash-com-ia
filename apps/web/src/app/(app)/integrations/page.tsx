@@ -3,6 +3,7 @@ import type {
   MetaAssetsDto,
   MetaConnectionDto,
   WhatsappInstanceCheckoutDto,
+  WhatsappInstanceConnectionDto,
   WhatsappInstanceQuoteDto,
   WhatsappInstanceSummaryDto
 } from "@wpptrack/shared";
@@ -47,6 +48,39 @@ async function getWhatsappInstances(): Promise<ResourceResult<WhatsappInstanceSu
       state: "error"
     };
   }
+}
+
+async function getWhatsappInstanceStatuses(
+  instances: WhatsappInstanceSummaryDto[]
+): Promise<Record<string, WhatsappInstanceConnectionDto>> {
+  const activeInstances = instances.filter(
+    (instance) => instance.billingStatus === "active"
+  );
+  const entries = await Promise.all(
+    activeInstances.map(async (instance) => {
+      try {
+        const status = await serverApiFetch<WhatsappInstanceConnectionDto>(
+          `/integrations/whatsapp/instances/${instance.id}/status`
+        );
+
+        return [instance.id, status] as const;
+      } catch {
+        return [
+          instance.id,
+          {
+            whatsappInstanceId: instance.id,
+            provider: instance.provider,
+            billingStatus: instance.billingStatus,
+            connectionStatus: "error",
+            qrCode: null,
+            message: "Nao foi possivel carregar o status da instancia."
+          }
+        ] as const;
+      }
+    })
+  );
+
+  return Object.fromEntries(entries);
 }
 
 async function getWhatsappQuote(): Promise<ResourceResult<WhatsappInstanceQuoteDto | null>> {
@@ -106,6 +140,7 @@ async function connectWhatsappInstance(formData: FormData) {
     await serverApiFetch(`/integrations/whatsapp/instances/${instanceId}/connect`, {
       method: "POST"
     });
+    revalidatePath("/integrations");
   } catch {
     return;
   }
@@ -199,6 +234,9 @@ function statusLabel(status: string) {
     error: "Erro",
     pending_payment: "Pagamento pendente",
     needs_reconnect: "Reconectar",
+    not_configured: "Nao configurado",
+    pending: "Aguardando",
+    qr_required: "QR pendente",
     syncing: "Sincronizando"
   };
 
@@ -278,6 +316,9 @@ export default async function IntegrationsPage() {
   ]);
   const health = healthResult.data;
   const whatsappInstances = whatsappInstancesResult.data;
+  const whatsappInstanceStatuses = await getWhatsappInstanceStatuses(
+    whatsappInstances
+  );
   const metaConnection = metaConnectionResult.data;
   const metaAssets = metaAssetsResult.data;
   const whatsappQuote = whatsappQuoteResult.data;
@@ -560,6 +601,7 @@ export default async function IntegrationsPage() {
                 <th>Instancia</th>
                 <th>Provider</th>
                 <th>Billing</th>
+                <th>Conexao</th>
                 <th>ID Uazapi</th>
                 <th>Acao</th>
               </tr>
@@ -574,6 +616,25 @@ export default async function IntegrationsPage() {
                     </td>
                     <td>{instance.provider}</td>
                     <td>{statusLabel(instance.billingStatus)}</td>
+                    <td>
+                      {whatsappInstanceStatuses[instance.id] ? (
+                        <>
+                          <strong>
+                            {statusLabel(
+                              whatsappInstanceStatuses[instance.id].connectionStatus
+                            )}
+                          </strong>
+                          {whatsappInstanceStatuses[instance.id].message ? (
+                            <span>{whatsappInstanceStatuses[instance.id].message}</span>
+                          ) : null}
+                          {whatsappInstanceStatuses[instance.id].qrCode ? (
+                            <code>{whatsappInstanceStatuses[instance.id].qrCode}</code>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span>-</span>
+                      )}
+                    </td>
                     <td>{instance.providerInstanceId ?? "aguardando conexao"}</td>
                     <td>
                       {instance.billingStatus === "active" ? (
@@ -595,6 +656,7 @@ export default async function IntegrationsPage() {
                     <strong>{whatsappInstancesEmptyTitle}</strong>
                     <span>Adicione e pague uma instancia para conectar o WhatsApp</span>
                   </td>
+                  <td>-</td>
                   <td>-</td>
                   <td>-</td>
                   <td>-</td>
