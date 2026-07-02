@@ -6,10 +6,12 @@ function createHarness() {
   const auditLogs: Array<Record<string, unknown>> = [];
   const jobAttempts: Array<Record<string, unknown>> = [];
   const integrationLogs: Array<Record<string, unknown>> = [];
+  const conversionEventLogs: Array<Record<string, unknown>> = [];
   const webhookLogs: Array<Record<string, unknown>> = [];
   const webhookFindManyCalls: Array<Record<string, unknown>> = [];
   const jobAttemptFindManyCalls: Array<Record<string, unknown>> = [];
   const integrationLogFindManyCalls: Array<Record<string, unknown>> = [];
+  const conversionEventLogFindManyCalls: Array<Record<string, unknown>> = [];
   const diagnosticFindManyCalls: Array<Record<string, unknown>> = [];
   const diagnosticsQueueService = {
     enqueueRetry: vi.fn(async (payload: Record<string, unknown>) => ({
@@ -139,6 +141,19 @@ function createHarness() {
 
         return integrationLogs.slice(0, take);
       }
+    },
+    conversionEventLog: {
+      findMany: async ({
+        where,
+        take
+      }: {
+        where: Record<string, unknown>;
+        take: number;
+      }) => {
+        conversionEventLogFindManyCalls.push({ where, take });
+
+        return conversionEventLogs.slice(0, take);
+      }
     }
   };
 
@@ -160,6 +175,8 @@ function createHarness() {
 
   return {
     auditLogs,
+    conversionEventLogFindManyCalls,
+    conversionEventLogs,
     diagnosticFindManyCalls,
     events,
     integrationLogFindManyCalls,
@@ -557,6 +574,84 @@ describe("diagnostics service", () => {
       ]
     });
     expect(integrationLogFindManyCalls[0]?.take).toBe(10);
+  });
+
+  it("lists conversion event logs with operational filters", async () => {
+    const { conversionEventLogFindManyCalls, conversionEventLogs, service } =
+      createHarness();
+    conversionEventLogs.push({
+      id: "conversion_1",
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      sourceTrigger: "keyword",
+      eventName: "QualifiedLead",
+      status: "error",
+      pixelId: "pixel_1",
+      metaAccountId: "act_1",
+      campaignId: "cmp_1",
+      adSetId: null,
+      adId: "ad_1",
+      attributionStatus: "matched",
+      dedupeKey: "dedupe_1",
+      sentAt: null,
+      errorCode: "META_CONTEXT_MISSING",
+      errorMessage: "Contexto Meta ausente",
+      jobId: "bull_job_1",
+      createdAt: new Date("2026-07-02T03:00:00.000Z")
+    });
+
+    const result = await service.listConversionEventLogs({
+      workspaceId: "workspace_1",
+      status: "error",
+      eventName: "QualifiedLead",
+      sourceTrigger: "keyword",
+      pixelId: "pixel_1",
+      q: "context",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adId: "ad_1",
+      errorCode: "META_CONTEXT_MISSING",
+      limit: 10
+    });
+
+    expect(result[0]).toMatchObject({
+      id: "conversion_1",
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      eventName: "QualifiedLead",
+      status: "error",
+      pixelId: "pixel_1",
+      errorCode: "META_CONTEXT_MISSING",
+      jobId: "bull_job_1"
+    });
+    expect(conversionEventLogFindManyCalls[0]?.where).toEqual({
+      workspaceId: "workspace_1",
+      status: "error",
+      eventName: "QualifiedLead",
+      sourceTrigger: "keyword",
+      pixelId: "pixel_1",
+      createdAt: {
+        gte: new Date("2026-07-01T00:00:00.000Z"),
+        lte: new Date("2026-07-02T23:59:59.000Z")
+      },
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adId: "ad_1",
+      errorCode: "META_CONTEXT_MISSING",
+      OR: [
+        { eventName: { contains: "context", mode: "insensitive" } },
+        { status: { contains: "context", mode: "insensitive" } },
+        { sourceTrigger: { contains: "context", mode: "insensitive" } },
+        { errorCode: { contains: "context", mode: "insensitive" } },
+        { errorMessage: { contains: "context", mode: "insensitive" } }
+      ]
+    });
+    expect(conversionEventLogFindManyCalls[0]?.take).toBe(10);
   });
 
   it("returns an operational timeline for webhook, event, retry audit and job attempts", async () => {

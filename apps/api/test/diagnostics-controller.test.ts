@@ -86,12 +86,35 @@ const integrationLog = {
   jobId: "bull_job_1"
 };
 
+const conversionEventLog = {
+  id: "conversion_1",
+  workspaceId: "workspace_1",
+  leadId: "lead_1",
+  phoneHash: "phone_hash_1",
+  sourceTrigger: "keyword",
+  eventName: "QualifiedLead",
+  status: "error",
+  pixelId: "pixel_1",
+  metaAccountId: "act_1",
+  campaignId: "cmp_1",
+  adSetId: null,
+  adId: "ad_1",
+  attributionStatus: "matched",
+  dedupeKey: "dedupe_1",
+  sentAt: null,
+  errorCode: "META_CONTEXT_MISSING",
+  errorMessage: "Contexto Meta ausente",
+  jobId: "bull_job_1",
+  createdAt: "2026-07-02T03:00:00.000Z"
+};
+
 async function createApp() {
   const service = {
     listEvents: vi.fn(async () => [diagnosticEvent]),
     listWebhookLogs: vi.fn(async () => [webhookLog]),
     listJobAttempts: vi.fn(async () => [jobAttempt]),
     listIntegrationLogs: vi.fn(async () => [integrationLog]),
+    listConversionEventLogs: vi.fn(async () => [conversionEventLog]),
     getEvent: vi.fn(async () => diagnosticEvent),
     recordEvent: vi.fn(async () => diagnosticEvent),
     retryEvent: vi.fn(async () => ({
@@ -253,6 +276,43 @@ describe("diagnostics controller", () => {
       campaignId: "cmp_1",
       jobId: "bull_job_1",
       providerErrorCode: "META_RATE_LIMIT",
+      limit: 10
+    });
+
+    await app.close();
+  });
+
+  it("lists backoffice conversion event logs", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/diagnostics/conversions?workspaceId=workspace_1&status=error&eventName=QualifiedLead&sourceTrigger=keyword&pixelId=pixel_1&q=context&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&leadId=lead_1&phoneHash=phone_hash_1&campaignId=cmp_1&adId=ad_1&errorCode=META_CONTEXT_MISSING&limit=10"
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body[0].id).toBe("conversion_1");
+        expect(body[0].eventName).toBe("QualifiedLead");
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(service.listConversionEventLogs).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      status: "error",
+      eventName: "QualifiedLead",
+      sourceTrigger: "keyword",
+      pixelId: "pixel_1",
+      q: "context",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adId: "ad_1",
+      errorCode: "META_CONTEXT_MISSING",
       limit: 10
     });
 

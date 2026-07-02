@@ -1,6 +1,8 @@
 import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
+  DiagnosticConversionEventLogDto,
+  DiagnosticConversionEventLogListQueryDto,
   DiagnosticSourceDto,
   DiagnosticEventCreateDto,
   DiagnosticEventDetailDto,
@@ -114,6 +116,28 @@ type IntegrationLogRecord = {
   adSetId: string | null;
   adId: string | null;
   jobId: string | null;
+};
+
+type ConversionEventLogRecord = {
+  id: string;
+  workspaceId: string | null;
+  leadId: string | null;
+  phoneHash: string | null;
+  sourceTrigger: string;
+  eventName: string;
+  status: string;
+  pixelId: string | null;
+  metaAccountId: string | null;
+  campaignId: string | null;
+  adSetId: string | null;
+  adId: string | null;
+  attributionStatus: string | null;
+  dedupeKey: string | null;
+  sentAt: Date | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  jobId: string | null;
+  createdAt: Date;
 };
 
 export type WebhookLogInput = {
@@ -509,6 +533,83 @@ export class DiagnosticsService {
     return logs.map((log) => this.toIntegrationLogDto(log));
   }
 
+  async listConversionEventLogs(
+    query: DiagnosticConversionEventLogListQueryDto
+  ): Promise<DiagnosticConversionEventLogDto[]> {
+    const where: Prisma.ConversionEventLogWhereInput = {};
+
+    if (query.workspaceId) {
+      where.workspaceId = query.workspaceId;
+    }
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    if (query.eventName) {
+      where.eventName = query.eventName;
+    }
+
+    if (query.sourceTrigger) {
+      where.sourceTrigger = query.sourceTrigger;
+    }
+
+    if (query.pixelId) {
+      where.pixelId = query.pixelId;
+    }
+
+    if (query.since || query.until) {
+      where.createdAt = {
+        ...(query.since ? { gte: new Date(query.since) } : {}),
+        ...(query.until ? { lte: new Date(query.until) } : {})
+      };
+    }
+
+    if (query.leadId) {
+      where.leadId = query.leadId;
+    }
+
+    if (query.phoneHash) {
+      where.phoneHash = query.phoneHash;
+    }
+
+    if (query.campaignId) {
+      where.campaignId = query.campaignId;
+    }
+
+    if (query.adSetId) {
+      where.adSetId = query.adSetId;
+    }
+
+    if (query.adId) {
+      where.adId = query.adId;
+    }
+
+    if (query.errorCode) {
+      where.errorCode = query.errorCode;
+    }
+
+    if (query.q) {
+      where.OR = [
+        { eventName: { contains: query.q, mode: "insensitive" } },
+        { status: { contains: query.q, mode: "insensitive" } },
+        { sourceTrigger: { contains: query.q, mode: "insensitive" } },
+        { errorCode: { contains: query.q, mode: "insensitive" } },
+        { errorMessage: { contains: query.q, mode: "insensitive" } }
+      ];
+    }
+
+    const logs = (await this.prisma.conversionEventLog.findMany({
+      where,
+      orderBy: {
+        createdAt: "desc"
+      },
+      take: query.limit
+    })) as ConversionEventLogRecord[];
+
+    return logs.map((log) => this.toConversionEventLogDto(log));
+  }
+
   async getEvent(id: string): Promise<DiagnosticEventDetailDto> {
     const event = (await this.prisma.diagnosticEvent.findUnique({
       where: { id }
@@ -682,6 +783,32 @@ export class DiagnosticsService {
       adSetId: log.adSetId,
       adId: log.adId,
       jobId: log.jobId
+    };
+  }
+
+  private toConversionEventLogDto(
+    log: ConversionEventLogRecord
+  ): DiagnosticConversionEventLogDto {
+    return {
+      id: log.id,
+      workspaceId: log.workspaceId,
+      leadId: log.leadId,
+      phoneHash: log.phoneHash,
+      sourceTrigger: log.sourceTrigger,
+      eventName: log.eventName,
+      status: log.status,
+      pixelId: log.pixelId,
+      metaAccountId: log.metaAccountId,
+      campaignId: log.campaignId,
+      adSetId: log.adSetId,
+      adId: log.adId,
+      attributionStatus: log.attributionStatus,
+      dedupeKey: log.dedupeKey,
+      sentAt: log.sentAt?.toISOString() ?? null,
+      errorCode: log.errorCode,
+      errorMessage: log.errorMessage,
+      jobId: log.jobId,
+      createdAt: log.createdAt.toISOString()
     };
   }
 

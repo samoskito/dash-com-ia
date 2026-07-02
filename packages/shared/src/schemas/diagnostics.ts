@@ -184,6 +184,50 @@ export const diagnosticIntegrationLogListSchema = z.array(
   diagnosticIntegrationLogSchema
 );
 
+export const diagnosticConversionEventLogSchema = z.object({
+  id: z.string().min(1),
+  workspaceId: z.string().min(1).nullable(),
+  leadId: z.string().nullable(),
+  phoneHash: z.string().nullable(),
+  sourceTrigger: z.string().min(1),
+  eventName: z.string().min(1),
+  status: z.string().min(1),
+  pixelId: z.string().nullable(),
+  metaAccountId: z.string().nullable(),
+  campaignId: z.string().nullable(),
+  adSetId: z.string().nullable(),
+  adId: z.string().nullable(),
+  attributionStatus: z.string().nullable(),
+  dedupeKey: z.string().nullable(),
+  sentAt: z.string().datetime().nullable(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  jobId: z.string().nullable(),
+  createdAt: z.string().datetime()
+});
+
+export const diagnosticConversionEventLogListQuerySchema = z.object({
+  workspaceId: z.string().min(1).optional(),
+  status: z.string().min(1).optional(),
+  eventName: z.string().min(1).optional(),
+  sourceTrigger: z.string().min(1).optional(),
+  pixelId: z.string().min(1).optional(),
+  q: z.string().trim().min(1).optional(),
+  since: z.string().datetime().optional(),
+  until: z.string().datetime().optional(),
+  leadId: z.string().min(1).optional(),
+  phoneHash: z.string().min(1).optional(),
+  campaignId: z.string().min(1).optional(),
+  adSetId: z.string().min(1).optional(),
+  adId: z.string().min(1).optional(),
+  errorCode: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(10)
+});
+
+export const diagnosticConversionEventLogListSchema = z.array(
+  diagnosticConversionEventLogSchema
+);
+
 export const diagnosticTimelineItemSchema = z.object({
   id: z.string().min(1),
   kind: z.enum([
@@ -243,6 +287,12 @@ export type DiagnosticIntegrationLogDto = z.infer<
 >;
 export type DiagnosticIntegrationLogListQueryDto = z.infer<
   typeof diagnosticIntegrationLogListQuerySchema
+>;
+export type DiagnosticConversionEventLogDto = z.infer<
+  typeof diagnosticConversionEventLogSchema
+>;
+export type DiagnosticConversionEventLogListQueryDto = z.infer<
+  typeof diagnosticConversionEventLogListQuerySchema
 >;
 export type DiagnosticTimelineItemDto = z.infer<
   typeof diagnosticTimelineItemSchema

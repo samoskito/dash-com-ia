@@ -339,6 +339,98 @@ describe("backoffice route", () => {
     expect(html).toContain("fb_req_1");
   });
 
+  it("renders conversion event logs returned by the diagnostics endpoint", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "conversion_1",
+              workspaceId: "workspace_1",
+              leadId: "lead_1",
+              phoneHash: "phone_hash_1",
+              sourceTrigger: "keyword",
+              eventName: "QualifiedLead",
+              status: "error",
+              pixelId: "pixel_1",
+              metaAccountId: "act_1",
+              campaignId: "cmp_1",
+              adSetId: null,
+              adId: "ad_1",
+              attributionStatus: "matched",
+              dedupeKey: "dedupe_1",
+              sentAt: null,
+              errorCode: "META_CONTEXT_MISSING",
+              errorMessage: "Contexto Meta ausente",
+              jobId: "bull_job_1",
+              createdAt: "2026-07-02T03:00:00.000Z"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await BackofficePage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/diagnostics/conversions?limit=10",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Eventos Pixel/CAPI");
+    expect(html).toContain("QualifiedLead");
+    expect(html).toContain("META_CONTEXT_MISSING");
+    expect(html).toContain("pixel_1");
+  });
+
   it("renders workspace billing configuration with editable Asaas customer ids", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(

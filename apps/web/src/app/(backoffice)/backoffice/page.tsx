@@ -1,6 +1,7 @@
 import type {
   BackofficePaymentChargeDto,
   BackofficeWhatsappInstanceDto,
+  DiagnosticConversionEventLogDto,
   DiagnosticEventDto,
   DiagnosticIntegrationLogDto,
   DiagnosticJobAttemptDto,
@@ -43,6 +44,15 @@ type IntegrationLogFilters = Omit<
 > & {
   operation?: string;
   providerErrorCode?: string;
+};
+
+type ConversionEventLogFilters = Omit<
+  DiagnosticFilters,
+  "severity" | "source" | "eventType"
+> & {
+  eventName?: string;
+  sourceTrigger?: string;
+  pixelId?: string;
 };
 
 type ResourceResult<T> = {
@@ -138,6 +148,34 @@ async function getIntegrationLogs(
 
     const logs = await serverApiFetch<DiagnosticIntegrationLogDto[]>(
       `/backoffice/diagnostics/integrations?${params.toString()}`
+    );
+
+    return {
+      data: logs,
+      state: logs.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      data: [],
+      state: "error"
+    };
+  }
+}
+
+async function getConversionEventLogs(
+  filters: ConversionEventLogFilters
+): Promise<ResourceResult<DiagnosticConversionEventLogDto[]>> {
+  try {
+    const params = new URLSearchParams({ limit: "10" });
+
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) {
+        params.set(key, value);
+      }
+    }
+
+    const logs = await serverApiFetch<DiagnosticConversionEventLogDto[]>(
+      `/backoffice/diagnostics/conversions?${params.toString()}`
     );
 
     return {
@@ -441,6 +479,20 @@ export default async function BackofficePage({
     adId: diagnosticFilters.adId,
     providerErrorCode: diagnosticFilters.errorCode
   };
+  const conversionEventLogFilters: ConversionEventLogFilters = {
+    workspaceId: diagnosticFilters.workspaceId,
+    status: diagnosticFilters.status,
+    eventName: diagnosticFilters.eventType,
+    q: diagnosticFilters.q,
+    since: diagnosticFilters.since,
+    until: diagnosticFilters.until,
+    leadId: diagnosticFilters.leadId,
+    phoneHash: diagnosticFilters.phoneHash,
+    campaignId: diagnosticFilters.campaignId,
+    adSetId: diagnosticFilters.adSetId,
+    adId: diagnosticFilters.adId,
+    errorCode: diagnosticFilters.errorCode
+  };
   const [
     diagnosticEventsResult,
     workspaceBillingResult,
@@ -449,7 +501,8 @@ export default async function BackofficePage({
     whatsappInstancesResult,
     webhookLogsResult,
     jobAttemptsResult,
-    integrationLogsResult
+    integrationLogsResult,
+    conversionEventLogsResult
   ] = await Promise.all([
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
@@ -458,12 +511,14 @@ export default async function BackofficePage({
     getBackofficeWhatsappInstances(),
     getWebhookLogs(webhookLogFilters),
     getJobAttempts(),
-    getIntegrationLogs(integrationLogFilters)
+    getIntegrationLogs(integrationLogFilters),
+    getConversionEventLogs(conversionEventLogFilters)
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
   const webhookLogs = webhookLogsResult.data;
   const jobAttempts = jobAttemptsResult.data;
   const integrationLogs = integrationLogsResult.data;
+  const conversionEventLogs = conversionEventLogsResult.data;
   const workspaceBilling = workspaceBillingResult.data;
   const splitReceivers = splitReceiversResult.data;
   const paymentCharges = paymentChargesResult.data;
@@ -482,7 +537,8 @@ export default async function BackofficePage({
     whatsappInstancesResult.state,
     webhookLogsResult.state,
     jobAttemptsResult.state,
-    integrationLogsResult.state
+    integrationLogsResult.state,
+    conversionEventLogsResult.state
   ].includes("error");
   const configuredCustomers = workspaceBilling.filter(
     (workspace) => workspace.asaasCustomerId
@@ -522,10 +578,11 @@ export default async function BackofficePage({
       diagnosticEventsResult.state === "error" ||
       webhookLogsResult.state === "error" ||
       jobAttemptsResult.state === "error" ||
-      integrationLogsResult.state === "error"
+      integrationLogsResult.state === "error" ||
+      conversionEventLogsResult.state === "error"
         ? "API indisponivel"
-        : `${diagnosticEvents.length} eventos / ${webhookLogs.length} webhooks / ${jobAttempts.length} jobs / ${integrationLogs.length} chamadas`,
-      "Eventos, webhooks, jobs e chamadas externas reais retornados pela Central de Diagnostico."
+        : `${diagnosticEvents.length} eventos / ${webhookLogs.length} webhooks / ${jobAttempts.length} jobs / ${integrationLogs.length} chamadas / ${conversionEventLogs.length} CAPI`,
+      "Eventos, webhooks, jobs, chamadas externas e conversoes reais retornados pela Central de Diagnostico."
     ]
   ];
   const workspaceEmptyTitle =
@@ -556,6 +613,10 @@ export default async function BackofficePage({
     integrationLogsResult.state === "error"
       ? "Nao foi possivel carregar chamadas externas"
       : "Nenhuma chamada externa encontrada";
+  const conversionEventLogEmptyTitle =
+    conversionEventLogsResult.state === "error"
+      ? "Nao foi possivel carregar eventos Pixel/CAPI"
+      : "Nenhum evento Pixel/CAPI encontrado";
   const paymentChargeEmptyTitle =
     paymentChargesResult.state === "error"
       ? "Nao foi possivel carregar cobrancas"
@@ -1018,6 +1079,55 @@ export default async function BackofficePage({
                   <td colSpan={6}>
                     <strong>{webhookLogEmptyTitle}</strong>
                     <span>Webhooks Uazapi, Meta e Asaas recebidos aparecem aqui.</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Eventos Pixel/CAPI</th>
+                <th>Lead</th>
+                <th>Pixel</th>
+                <th>Atribuicao</th>
+                <th>Enviado</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {conversionEventLogs.length > 0 ? (
+                conversionEventLogs.map((event) => (
+                  <tr key={event.id}>
+                    <td>
+                      <strong>{event.eventName}</strong>
+                      <span>{event.sourceTrigger}</span>
+                    </td>
+                    <td>{event.leadId ?? event.phoneHash ?? "sem lead"}</td>
+                    <td>{event.pixelId ?? "sem pixel"}</td>
+                    <td>
+                      {event.campaignId ?? "sem campanha"}
+                      {event.adId ? ` / ${event.adId}` : ""}
+                    </td>
+                    <td>
+                      {event.sentAt
+                        ? new Date(event.sentAt).toLocaleString("pt-BR")
+                        : "nao enviado"}
+                    </td>
+                    <td>
+                      <span className={`event-chip${event.errorCode ? " warn" : ""}`}>
+                        {event.errorCode ?? event.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>
+                    <strong>{conversionEventLogEmptyTitle}</strong>
+                    <span>Conversoes geradas por regras aparecem aqui.</span>
                   </td>
                 </tr>
               )}
