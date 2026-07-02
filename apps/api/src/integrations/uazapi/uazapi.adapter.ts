@@ -46,15 +46,15 @@ export class UazapiAdapter implements IntegrationAdapter {
   }
 
   async getInstanceStatus(instanceRef: string): Promise<UazapiConnectionResult> {
-    return this.requestInstance("GET", `/instance/status/${instanceRef}`, instanceRef);
+    return this.requestInstance("GET", "/instance/status", instanceRef);
   }
 
   async connectInstance(instanceRef: string): Promise<UazapiConnectionResult> {
-    return this.requestInstance("POST", `/instance/connect/${instanceRef}`, instanceRef);
+    return this.requestInstance("POST", "/instance/connect", instanceRef);
   }
 
   async getQr(instanceRef: string): Promise<UazapiConnectionResult> {
-    return this.requestInstance("GET", `/instance/qr/${instanceRef}`, instanceRef);
+    return this.getInstanceStatus(instanceRef);
   }
 
   private async requestInstance(
@@ -77,7 +77,7 @@ export class UazapiAdapter implements IntegrationAdapter {
         {
           method,
           headers: {
-            Authorization: `Bearer ${this.env.UAZAPI_TOKEN}`,
+            token: this.env.UAZAPI_TOKEN,
             "Content-Type": "application/json"
           }
         }
@@ -111,45 +111,71 @@ export class UazapiAdapter implements IntegrationAdapter {
     payload: Record<string, unknown>,
     fallbackInstanceId: string
   ): UazapiConnectionResult {
+    const instance = this.asRecord(payload.instance);
+    const status = this.asRecord(payload.status);
+    const instanceStatus = this.asString(instance?.status) ?? this.asString(payload.status);
+    const qrCode =
+      this.asString(instance?.qrcode) ??
+      this.asString(instance?.qrCode) ??
+      this.asString(payload.qrcode) ??
+      this.asString(payload.qrCode) ??
+      this.asString(payload.qr) ??
+      null;
+
     return {
       providerInstanceId:
+        this.asString(instance?.id) ??
+        this.asString(instance?.instanceId) ??
         this.asString(payload.instanceId) ??
         this.asString(payload.instance_id) ??
         fallbackInstanceId,
-      connectionStatus: this.normalizeStatus(payload.status),
-      qrCode:
-        this.asString(payload.qrCode) ??
-        this.asString(payload.qrcode) ??
-        this.asString(payload.qr) ??
-        null,
+      connectionStatus: this.normalizeStatus(instanceStatus, status, qrCode),
+      qrCode,
       message: this.asString(payload.message)
     };
   }
 
-  private normalizeStatus(value: unknown): UazapiConnectionResult["connectionStatus"] {
-    const status = this.asString(value)?.toLowerCase();
-
-    if (!status) {
-      return "pending";
-    }
-
-    if (["connected", "open", "online", "authenticated"].includes(status)) {
+  private normalizeStatus(
+    value: unknown,
+    status: Record<string, unknown> | null,
+    qrCode: string | null
+  ): UazapiConnectionResult["connectionStatus"] {
+    if (status?.connected === true || status?.loggedIn === true) {
       return "connected";
     }
 
-    if (["qr", "qrcode", "qr_required", "scan_qr"].includes(status)) {
+    const statusText = this.asString(value)?.toLowerCase();
+
+    if (!statusText) {
+      return "pending";
+    }
+
+    if (["connected", "open", "online", "authenticated"].includes(statusText)) {
+      return "connected";
+    }
+
+    if (
+      ["qr", "qrcode", "qr_required", "scan_qr"].includes(statusText) ||
+      (statusText === "connecting" && qrCode)
+    ) {
       return "qr_required";
     }
 
-    if (["disconnected", "closed", "offline"].includes(status)) {
+    if (["disconnected", "closed", "offline", "hibernated"].includes(statusText)) {
       return "disconnected";
     }
 
-    if (["error", "failed"].includes(status)) {
+    if (["error", "failed"].includes(statusText)) {
       return "error";
     }
 
     return "pending";
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
   }
 
   private asString(value: unknown): string | null {
