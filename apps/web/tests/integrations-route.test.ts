@@ -484,6 +484,10 @@ describe("integrations route", () => {
     expect(html).toContain("Nao foi possivel carregar integracoes");
     expect(html).toContain("Ativos Meta indisponiveis");
     expect(html).toContain("Nao foi possivel carregar instancias");
+    expect(html).toContain("Leitura de ativos indisponivel");
+    expect(html).toContain("Tente novamente apos a API responder");
+    expect(html).not.toContain("aguardando API");
+    expect(html).not.toContain("sem dados");
     expect(html).not.toContain("Fallback visual");
     expect(html).not.toContain("Fallback local");
     expect(html).not.toContain("Sem credenciais reais");

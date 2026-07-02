@@ -667,10 +667,22 @@ export default async function IntegrationsPage() {
                   <td>Meta</td>
                   <td>
                     <strong>Ativos Meta indisponiveis</strong>
-                    <span>aguardando API</span>
+                    <span>
+                      {metaAssetsResult.state === "error"
+                        ? "Leitura de ativos indisponivel"
+                        : "Conecte a Meta para carregar ativos"}
+                    </span>
                   </td>
-                  <td>aguardando API</td>
-                  <td><span className="event-chip warn">sem dados</span></td>
+                  <td>
+                    {metaAssetsResult.state === "error"
+                      ? "Tente novamente apos a API responder"
+                      : "Aguardando conexao Meta"}
+                  </td>
+                  <td>
+                    <span className="event-chip warn">
+                      {metaAssetsResult.state === "error" ? "indisponivel" : "sem ativos"}
+                    </span>
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -819,7 +831,13 @@ export default async function IntegrationsPage() {
                   <td>-</td>
                   <td>-</td>
                   <td>-</td>
-                  <td><span className="event-chip warn">sem dados</span></td>
+                  <td>
+                    <span className="event-chip warn">
+                      {whatsappInstancesResult.state === "error"
+                        ? "indisponivel"
+                        : "sem instancias"}
+                    </span>
+                  </td>
                 </tr>
               )}
             </tbody>
