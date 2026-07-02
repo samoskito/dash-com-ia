@@ -40,7 +40,7 @@ async function createApp() {
       missingEnv: [],
       state: "state-token"
     })),
-    handleGoogleOAuthCallback: vi.fn(() => ({
+    handleGoogleOAuthCallback: vi.fn(async () => ({
       provider: "google",
       action: "exchange_pending",
       missingEnv: [],
@@ -200,7 +200,7 @@ describe("auth controller", () => {
     await app.close();
   });
 
-  it("handles Google OAuth callback as a backend-only scaffold", async () => {
+  it("handles Google OAuth callback through the backend service", async () => {
     const { app, authService } = await createApp();
 
     await request(app.getHttpServer())
@@ -212,10 +212,15 @@ describe("auth controller", () => {
         expect(body.codeReceived).toBe(true);
       });
 
-    expect(authService.handleGoogleOAuthCallback).toHaveBeenCalledWith({
-      code: "oauth-code",
-      state: "state-token"
-    });
+    expect(authService.handleGoogleOAuthCallback).toHaveBeenCalledWith(
+      {
+        code: "oauth-code",
+        state: "state-token"
+      },
+      expect.objectContaining({
+        ipAddress: expect.any(String)
+      })
+    );
 
     await app.close();
   });

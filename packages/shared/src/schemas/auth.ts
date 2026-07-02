@@ -35,10 +35,16 @@ export const googleOAuthCallbackQuerySchema = z.object({
 
 export const googleOAuthCallbackResultSchema = z.object({
   provider: z.literal("google"),
-  action: z.enum(["configure_env", "exchange_pending"]),
+  action: z.enum([
+    "configure_env",
+    "exchange_pending",
+    "authenticated",
+    "exchange_failed"
+  ]),
   missingEnv: z.array(z.string()),
   codeReceived: z.literal(true),
-  redirectTo: z.string().min(1)
+  redirectTo: z.string().min(1),
+  message: z.string().min(1).optional()
 });
 
 export const passwordResetRequestInputSchema = z.object({

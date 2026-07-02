@@ -206,6 +206,18 @@ describe("shared contracts", () => {
     expect(result.action).toBe("exchange_pending");
   });
 
+  it("validates completed google oauth callback payloads", () => {
+    const result = googleOAuthCallbackResultSchema.parse({
+      provider: "google",
+      action: "authenticated",
+      missingEnv: [],
+      codeReceived: true,
+      redirectTo: "/overview"
+    });
+
+    expect(result.action).toBe("authenticated");
+  });
+
   it("validates Meta OAuth callback and sanitized exchange result payloads", () => {
     const query = metaOAuthCallbackQuerySchema.parse({
       code: "meta-code",

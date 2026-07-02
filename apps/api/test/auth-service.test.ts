@@ -1,5 +1,5 @@
 import { ConflictException, UnauthorizedException } from "@nestjs/common";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AuthService } from "../src/auth/auth.service";
 import { PasswordService } from "../src/auth/password.service";
 
@@ -47,6 +47,7 @@ type FakePrisma = {
   user: {
     findUnique: (args: unknown) => Promise<unknown>;
     create: (args: unknown) => Promise<unknown>;
+    update: (args: unknown) => Promise<unknown>;
   };
   workspace: {
     findUnique: (args: unknown) => Promise<unknown>;
@@ -62,7 +63,10 @@ type FakePrisma = {
   };
 };
 
-function createHarness() {
+function createHarness(
+  env: Record<string, string | undefined> = {},
+  fetchImpl?: typeof fetch
+) {
   const db = {
     users: [] as DbUser[],
     workspaces: [] as DbWorkspace[],
@@ -87,34 +91,68 @@ function createHarness() {
       callback(prisma),
     user: {
       findUnique: async (args) => {
-        const { where } = args as { where: { email?: string; id?: string } };
+        const { where } = args as {
+          where: { email?: string; id?: string; googleId?: string };
+        };
         const user = db.users.find(
           (candidate) =>
             (where.email !== undefined && candidate.email === where.email) ||
-            (where.id !== undefined && candidate.id === where.id)
+            (where.id !== undefined && candidate.id === where.id) ||
+            (where.googleId !== undefined && candidate.googleId === where.googleId)
         );
 
         return user ? includeMemberships(user) : null;
       },
       create: async (args) => {
         const { data } = args as {
-          data: { email: string; name: string; passwordHash: string };
+          data: {
+            email: string;
+            name: string | null;
+            passwordHash?: string | null;
+            authProvider?: "email" | "google";
+            googleId?: string | null;
+            emailVerifiedAt?: Date | null;
+          };
         };
         const now = new Date("2026-07-02T03:00:00.000Z");
         const user: DbUser = {
           id: `user_${db.users.length + 1}`,
           email: data.email,
           name: data.name,
-          passwordHash: data.passwordHash,
-          authProvider: "email",
-          googleId: null,
-          emailVerifiedAt: null,
+          passwordHash: data.passwordHash ?? null,
+          authProvider: data.authProvider ?? "email",
+          googleId: data.googleId ?? null,
+          emailVerifiedAt: data.emailVerifiedAt ?? null,
           createdAt: now,
           updatedAt: now
         };
 
         db.users.push(user);
         return user;
+      },
+      update: async (args) => {
+        const { where, data } = args as {
+          where: { id: string };
+          data: Partial<
+            Pick<
+              DbUser,
+              "authProvider" | "googleId" | "emailVerifiedAt" | "name"
+            >
+          >;
+        };
+        const index = db.users.findIndex((user) => user.id === where.id);
+
+        if (index === -1) {
+          return null;
+        }
+
+        db.users[index] = {
+          ...db.users[index]!,
+          ...data,
+          updatedAt: new Date("2026-07-02T03:00:00.000Z")
+        };
+
+        return includeMemberships(db.users[index]!);
       }
     },
     workspace: {
@@ -225,7 +263,12 @@ function createHarness() {
 
   return {
     db,
-    service: new AuthService(prisma as never, new PasswordService())
+    service: new AuthService(
+      prisma as never,
+      new PasswordService(),
+      env,
+      fetchImpl
+    )
   };
 }
 
@@ -320,5 +363,78 @@ describe("auth service session lifecycle", () => {
     await expect(service.getSession(login.refreshToken)).rejects.toBeInstanceOf(
       UnauthorizedException
     );
+  });
+
+  it("exchanges Google callback code, creates a workspace owner and opens a session", async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(input), init });
+
+      if (String(input) === "https://oauth2.googleapis.com/token") {
+        return new Response(
+          JSON.stringify({
+            access_token: "google-access-token",
+            token_type: "Bearer",
+            expires_in: 3600
+          }),
+          { status: 200 }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          sub: "google-user-1",
+          email: " OWNER@WPPTRACK.COM ",
+          email_verified: true,
+          name: "Owner Google"
+        }),
+        { status: 200 }
+      );
+    }) as unknown as typeof fetch;
+    const { db, service } = createHarness(
+      {
+        GOOGLE_CLIENT_ID: "client_123",
+        GOOGLE_CLIENT_SECRET: "secret_123",
+        GOOGLE_REDIRECT_URI: "https://api.wpptrack.test/auth/google/callback"
+      },
+      fetchMock
+    );
+    const start = service.getGoogleOAuthStart({ redirectTo: "/reports" });
+
+    const result = await service.handleGoogleOAuthCallback(
+      {
+        code: "oauth-code",
+        state: start.state!
+      },
+      {
+        userAgent: "Vitest",
+        ipAddress: "127.0.0.1"
+      }
+    );
+
+    if (result.action !== "authenticated") {
+      throw new Error(`Expected authenticated, received ${result.action}`);
+    }
+
+    expect(result.redirectTo).toBe("/reports");
+    expect(result.session.user.email).toBe("owner@wpptrack.com");
+    expect(result.session.workspaces[0]?.role).toBe("owner");
+    expect(db.users[0]).toMatchObject({
+      email: "owner@wpptrack.com",
+      authProvider: "google",
+      googleId: "google-user-1",
+      name: "Owner Google"
+    });
+    expect(db.users[0]?.emailVerifiedAt).toBeInstanceOf(Date);
+    expect(db.workspaces[0]?.name).toBe("Owner Google");
+    expect(db.sessions[0]?.userAgent).toBe("Vitest");
+    expect(fetchCalls[0]?.url).toBe("https://oauth2.googleapis.com/token");
+    expect(fetchCalls[0]?.init?.method).toBe("POST");
+    expect(fetchCalls[1]?.url).toBe(
+      "https://openidconnect.googleapis.com/v1/userinfo"
+    );
+    expect(fetchCalls[1]?.init?.headers).toMatchObject({
+      Authorization: "Bearer google-access-token"
+    });
   });
 });

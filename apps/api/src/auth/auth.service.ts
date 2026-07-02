@@ -62,6 +62,7 @@ type AuthRequestContext = {
   ipAddress?: string | null;
 };
 type AuthEnv = Record<string, string | undefined>;
+type FetchLike = typeof fetch;
 type AuthActionTokenType = "password_reset" | "email_verification";
 type AuthActionTokenRecord = {
   id: string;
@@ -71,6 +72,32 @@ type AuthActionTokenRecord = {
   expiresAt: Date;
   usedAt: Date | null;
 };
+
+type GoogleTokenResponse = {
+  access_token?: unknown;
+  token_type?: unknown;
+  expires_in?: unknown;
+  error?: unknown;
+  error_description?: unknown;
+};
+
+type GoogleUserInfoResponse = {
+  sub?: unknown;
+  email?: unknown;
+  email_verified?: unknown;
+  name?: unknown;
+};
+
+type GoogleOAuthCallbackNonAuthenticatedResult = GoogleOAuthCallbackResultDto & {
+  action: "configure_env" | "exchange_pending" | "exchange_failed";
+};
+
+type GoogleOAuthCallbackServiceResult =
+  | GoogleOAuthCallbackNonAuthenticatedResult
+  | (GoogleOAuthCallbackResultDto & {
+      action: "authenticated";
+      session: AuthSessionResult;
+    });
 
 export type AuthSessionResult = AuthenticatedUser & {
   refreshToken: string;
@@ -82,7 +109,8 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwordService: PasswordService,
-    private readonly env: AuthEnv = process.env
+    private readonly env: AuthEnv = process.env,
+    private readonly fetchImpl: FetchLike = fetch
   ) {}
 
   async register(
@@ -224,9 +252,10 @@ export class AuthService {
     };
   }
 
-  handleGoogleOAuthCallback(
-    input: GoogleOAuthCallbackQueryDto
-  ): GoogleOAuthCallbackResultDto {
+  async handleGoogleOAuthCallback(
+    input: GoogleOAuthCallbackQueryDto,
+    context: AuthRequestContext = {}
+  ): Promise<GoogleOAuthCallbackServiceResult> {
     const requiredEnv: Array<[string, string | undefined]> = [
       ["GOOGLE_CLIENT_ID", this.env.GOOGLE_CLIENT_ID],
       ["GOOGLE_CLIENT_SECRET", this.env.GOOGLE_CLIENT_SECRET],
@@ -247,12 +276,49 @@ export class AuthService {
       };
     }
 
+    const token = await this.exchangeGoogleCode(input.code);
+
+    if (!token.accessToken) {
+      return {
+        provider: "google",
+        action: "exchange_failed",
+        missingEnv: [],
+        codeReceived: true,
+        redirectTo,
+        message: token.message
+      };
+    }
+
+    const profile = await this.getGoogleUserInfo(token.accessToken);
+
+    if (!profile.googleId || !profile.email) {
+      return {
+        provider: "google",
+        action: "exchange_failed",
+        missingEnv: [],
+        codeReceived: true,
+        redirectTo,
+        message: profile.message
+      };
+    }
+
+    const session = await this.authenticateGoogleProfile(
+      {
+        googleId: profile.googleId,
+        email: profile.email,
+        emailVerified: profile.emailVerified,
+        name: profile.name
+      },
+      context
+    );
+
     return {
       provider: "google",
-      action: "exchange_pending",
+      action: "authenticated",
       missingEnv: [],
       codeReceived: true,
-      redirectTo
+      redirectTo,
+      session
     };
   }
 
@@ -399,6 +465,183 @@ export class AuthService {
     };
   }
 
+  private async exchangeGoogleCode(
+    code: string
+  ): Promise<{ accessToken: string | null; message?: string }> {
+    const body = new URLSearchParams({
+      code,
+      client_id: this.env.GOOGLE_CLIENT_ID ?? "",
+      client_secret: this.env.GOOGLE_CLIENT_SECRET ?? "",
+      redirect_uri: this.env.GOOGLE_REDIRECT_URI ?? "",
+      grant_type: "authorization_code"
+    });
+
+    try {
+      const response = await this.fetchImpl("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body
+      });
+      const payload = (await response.json().catch(() => ({}))) as GoogleTokenResponse;
+
+      if (!response.ok || !this.asString(payload.access_token)) {
+        return {
+          accessToken: null,
+          message:
+            this.asString(payload.error_description) ??
+            this.asString(payload.error) ??
+            `Google OAuth HTTP ${response.status}`
+        };
+      }
+
+      return {
+        accessToken: this.asString(payload.access_token)
+      };
+    } catch (error) {
+      return {
+        accessToken: null,
+        message:
+          error instanceof Error ? error.message : "Erro ao trocar code Google"
+      };
+    }
+  }
+
+  private async getGoogleUserInfo(accessToken: string): Promise<{
+    googleId: string | null;
+    email: string | null;
+    emailVerified: boolean;
+    name: string | null;
+    message?: string;
+  }> {
+    try {
+      const response = await this.fetchImpl(
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          }
+        }
+      );
+      const payload = (await response.json().catch(() => ({}))) as GoogleUserInfoResponse;
+
+      if (!response.ok) {
+        return {
+          googleId: null,
+          email: null,
+          emailVerified: false,
+          name: null,
+          message: `Google userinfo HTTP ${response.status}`
+        };
+      }
+
+      return {
+        googleId: this.asString(payload.sub),
+        email: this.asString(payload.email)
+          ? this.normalizeEmail(this.asString(payload.email)!)
+          : null,
+        emailVerified: payload.email_verified === true,
+        name: this.asString(payload.name),
+        message: undefined
+      };
+    } catch (error) {
+      return {
+        googleId: null,
+        email: null,
+        emailVerified: false,
+        name: null,
+        message:
+          error instanceof Error ? error.message : "Erro ao buscar perfil Google"
+      };
+    }
+  }
+
+  private async authenticateGoogleProfile(
+    profile: {
+      googleId: string;
+      email: string;
+      emailVerified: boolean;
+      name: string | null;
+    },
+    context: AuthRequestContext
+  ): Promise<AuthSessionResult> {
+    const existingByGoogle = (await this.prisma.user.findUnique({
+      where: { googleId: profile.googleId },
+      include: {
+        memberships: {
+          include: {
+            workspace: true
+          }
+        }
+      }
+    })) as EmailLoginUserRecord | null;
+
+    if (existingByGoogle) {
+      return this.createSessionForUser(existingByGoogle.id, context);
+    }
+
+    const existingByEmail = (await this.prisma.user.findUnique({
+      where: { email: profile.email },
+      include: {
+        memberships: {
+          include: {
+            workspace: true
+          }
+        }
+      }
+    })) as EmailLoginUserRecord | null;
+
+    if (existingByEmail) {
+      await this.prisma.user.update({
+        where: { id: existingByEmail.id },
+        data: {
+          authProvider: "google",
+          googleId: profile.googleId,
+          name: existingByEmail.name ?? profile.name,
+          emailVerifiedAt:
+            existingByEmail.emailVerifiedAt ??
+            (profile.emailVerified ? new Date() : null)
+        }
+      });
+
+      return this.createSessionForUser(existingByEmail.id, context);
+    }
+
+    const workspaceName = profile.name ?? profile.email.split("@")[0] ?? "Workspace";
+    const userId = await this.prisma.$transaction(async (tx) => {
+      const slug = await this.resolveWorkspaceSlug(workspaceName, tx);
+      const workspace = await tx.workspace.create({
+        data: {
+          name: workspaceName,
+          slug
+        }
+      });
+      const user = await tx.user.create({
+        data: {
+          email: profile.email,
+          name: profile.name,
+          passwordHash: null,
+          authProvider: "google",
+          googleId: profile.googleId,
+          emailVerifiedAt: profile.emailVerified ? new Date() : null
+        }
+      });
+
+      await tx.workspaceMember.create({
+        data: {
+          workspaceId: workspace.id,
+          userId: user.id,
+          role: "owner"
+        }
+      });
+
+      return user.id;
+    });
+
+    return this.createSessionForUser(userId, context);
+  }
+
   private async resolveWorkspaceSlug(
     workspaceName: string,
     tx: Pick<PrismaService, "workspace">
@@ -439,6 +682,10 @@ export class AuthService {
 
   private normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
+  }
+
+  private asString(value: unknown): string | null {
+    return typeof value === "string" && value.trim() ? value : null;
   }
 
   private slugify(value: string): string {

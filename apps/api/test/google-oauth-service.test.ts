@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { AuthService } from "../src/auth/auth.service";
 
-function createService(env: Record<string, string | undefined>) {
-  return new AuthService({} as never, {} as never, env);
+function createService(
+  env: Record<string, string | undefined>,
+  fetchImpl?: typeof fetch
+) {
+  return new AuthService({} as never, {} as never, env, fetchImpl);
 }
 
 describe("google oauth service", () => {
@@ -39,13 +42,13 @@ describe("google oauth service", () => {
     expect(action.state).toEqual(expect.any(String));
   });
 
-  it("reports missing callback env without exchanging the authorization code", () => {
+  it("reports missing callback env without exchanging the authorization code", async () => {
     const service = createService({
       GOOGLE_CLIENT_ID: "client_123",
       GOOGLE_REDIRECT_URI: "https://api.wpptrack.test/auth/google/callback"
     });
 
-    const result = service.handleGoogleOAuthCallback({
+    const result = await service.handleGoogleOAuthCallback({
       code: "oauth-code",
       state: "state-token"
     });
@@ -59,27 +62,38 @@ describe("google oauth service", () => {
     });
   });
 
-  it("accepts callback input and decodes redirect state when env is ready", () => {
-    const service = createService({
-      GOOGLE_CLIENT_ID: "client_123",
-      GOOGLE_CLIENT_SECRET: "secret_123",
-      GOOGLE_REDIRECT_URI: "https://api.wpptrack.test/auth/google/callback"
-    });
+  it("returns exchange_failed when Google rejects the callback code", async () => {
+    const service = createService(
+      {
+        GOOGLE_CLIENT_ID: "client_123",
+        GOOGLE_CLIENT_SECRET: "secret_123",
+        GOOGLE_REDIRECT_URI: "https://api.wpptrack.test/auth/google/callback"
+      },
+      (async () =>
+        new Response(
+          JSON.stringify({
+            error: "invalid_grant",
+            error_description: "Bad authorization code"
+          }),
+          { status: 400 }
+        )) as typeof fetch
+    );
     const start = service.getGoogleOAuthStart({
       redirectTo: "/reports"
     });
 
-    const result = service.handleGoogleOAuthCallback({
+    const result = await service.handleGoogleOAuthCallback({
       code: "oauth-code",
       state: start.state!
     });
 
     expect(result).toEqual({
       provider: "google",
-      action: "exchange_pending",
+      action: "exchange_failed",
       missingEnv: [],
       codeReceived: true,
-      redirectTo: "/reports"
+      redirectTo: "/reports",
+      message: "Bad authorization code"
     });
   });
 });

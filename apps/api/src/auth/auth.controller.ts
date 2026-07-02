@@ -111,10 +111,22 @@ export class AuthController {
   }
 
   @Get("google/callback")
-  handleGoogleOAuthCallback(@Query() query: Record<string, unknown>) {
+  async handleGoogleOAuthCallback(
+    @Query() query: Record<string, unknown>,
+    @Req() request: AuthRequest,
+    @Res({ passthrough: true }) response: CookieResponse
+  ) {
     const input = this.parseBody(googleOAuthCallbackQuerySchema.safeParse(query));
+    const result = await this.authService.handleGoogleOAuthCallback(input, {
+      userAgent: firstHeader(request.headers["user-agent"]) ?? null,
+      ipAddress: request.ip ?? null
+    });
 
-    return this.authService.handleGoogleOAuthCallback(input);
+    if (result.action === "authenticated" && "session" in result) {
+      this.setSessionCookie(response, result.session);
+    }
+
+    return result;
   }
 
   @Post("password/forgot")
