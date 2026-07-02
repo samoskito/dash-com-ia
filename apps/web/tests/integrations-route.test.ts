@@ -102,6 +102,18 @@ describe("integrations route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            activeInstances: 1,
+            pricePerInstanceCents: 9900,
+            nextInstanceAmountCents: 9900,
+            currency: "BRL"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
       );
 
     const element = await IntegrationsPage();
@@ -119,6 +131,10 @@ describe("integrations route", () => {
       "http://localhost:3333/integrations/meta/assets",
       expect.objectContaining({ credentials: "include" })
     );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/billing/whatsapp-instance/quote",
+      expect.objectContaining({ credentials: "include" })
+    );
     expect(html).toContain("Meta conectado");
     expect(html).toContain("pixel_1");
     expect(html).toContain("BM Principal");
@@ -130,5 +146,8 @@ describe("integrations route", () => {
     expect(html).toContain("wpp_1");
     expect(html).toContain("Suporte");
     expect(html).toContain("Pagamento pendente");
+    expect(html).toContain("Adicionar instancia");
+    expect(html).toContain("99,00");
+    expect(html).toContain("Antecipada via Asaas");
   });
 });

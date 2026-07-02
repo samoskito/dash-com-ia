@@ -442,10 +442,11 @@ Checkpoint atual:
 - Docker Desktop validado localmente com PostgreSQL e Redis ativos. Migrations aplicadas ate `20260702123000_leads`.
 - API agora possui readiness real em `/health/ready`, script de start de producao e modulo global de runtime para `process.env`/`fetch`.
 - Leads persistentes iniciados: modelo `Lead`, contratos compartilhados, `GET /leads`, upsert via webhook Uazapi e tela `Leads` consumindo backend com fallback visual.
+- Tela de `Integracoes` agora consulta `GET /billing/whatsapp-instance/quote` e possui formulario real para adicionar instancia WhatsApp via `POST /billing/whatsapp-instance/checkout`; a liberacao continua dependente do pagamento confirmado pelo webhook Asaas.
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: fluxo de adicionar instancia WhatsApp pela UI, CRUD visual de regras de conversao e idempotencia de webhooks/conversoes.
+- Continuar a proxima rodada com: CRUD visual de regras de conversao e idempotencia de webhooks/conversoes.
 
 ## Perguntas Abertas
 

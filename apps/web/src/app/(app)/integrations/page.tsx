@@ -2,8 +2,12 @@ import type {
   IntegrationHealthSummaryDto,
   MetaAssetsDto,
   MetaConnectionDto,
+  WhatsappInstanceCheckoutDto,
+  WhatsappInstanceQuoteDto,
   WhatsappInstanceSummaryDto
 } from "@wpptrack/shared";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { serverApiFetch } from "../../../lib/server-api";
 
 async function getHealth(): Promise<IntegrationHealthSummaryDto | null> {
@@ -21,6 +25,16 @@ async function getWhatsappInstances(): Promise<WhatsappInstanceSummaryDto[]> {
     );
   } catch {
     return [];
+  }
+}
+
+async function getWhatsappQuote(): Promise<WhatsappInstanceQuoteDto | null> {
+  try {
+    return await serverApiFetch<WhatsappInstanceQuoteDto>(
+      "/billing/whatsapp-instance/quote"
+    );
+  } catch {
+    return null;
   }
 }
 
@@ -56,6 +70,50 @@ async function connectWhatsappInstance(formData: FormData) {
   } catch {
     return;
   }
+}
+
+async function createWhatsappCheckout(formData: FormData) {
+  "use server";
+
+  const instanceName = String(formData.get("instanceName") ?? "").trim();
+
+  if (!instanceName) {
+    return;
+  }
+
+  let checkout: WhatsappInstanceCheckoutDto;
+
+  try {
+    checkout = await serverApiFetch<WhatsappInstanceCheckoutDto>(
+      "/billing/whatsapp-instance/checkout",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          instanceName,
+          provider: "uazapi"
+        })
+      }
+    );
+  } catch {
+    return;
+  }
+
+  if (checkout.checkoutUrl) {
+    redirect(checkout.checkoutUrl);
+  }
+
+  revalidatePath("/integrations");
+}
+
+function money(cents: number | null | undefined) {
+  if (!cents) {
+    return "Aguardando preco";
+  }
+
+  return (cents / 100).toLocaleString("pt-BR", {
+    currency: "BRL",
+    style: "currency"
+  });
 }
 
 function providerTitle(provider: string) {
@@ -135,11 +193,12 @@ function metaAssetsDetail(metaAssets: MetaAssetsDto | null) {
 }
 
 export default async function IntegrationsPage() {
-  const [health, whatsappInstances, metaConnection, metaAssets] = await Promise.all([
+  const [health, whatsappInstances, metaConnection, metaAssets, whatsappQuote] = await Promise.all([
     getHealth(),
     getWhatsappInstances(),
     getMetaConnection(),
-    getMetaAssets()
+    getMetaAssets(),
+    getWhatsappQuote()
   ]);
   const metaStatus = metaAssets?.status ?? metaConnection?.status;
   const selectedBusinessName = selectedMetaAssetName(
@@ -328,6 +387,33 @@ export default async function IntegrationsPage() {
       <div className="surface-panel">
         <span className="eyebrow">WhatsApp Business</span>
         <h2>Instancias conectadas</h2>
+        <div className="metric-grid compact">
+          <div className="metric-card">
+            <span className="micro-label">Instancias ativas</span>
+            <strong>{whatsappQuote?.activeInstances ?? whatsappInstances.length}</strong>
+          </div>
+          <div className="metric-card">
+            <span className="micro-label">Nova instancia</span>
+            <strong>{money(whatsappQuote?.nextInstanceAmountCents)}</strong>
+          </div>
+          <div className="metric-card">
+            <span className="micro-label">Cobranca</span>
+            <strong>Antecipada via Asaas</strong>
+          </div>
+        </div>
+        <form className="inline-form" action={createWhatsappCheckout}>
+          <input
+            name="instanceName"
+            placeholder="Nome da instancia"
+            aria-label="Nome da instancia WhatsApp"
+          />
+          <button className="button" type="submit">
+            Adicionar instancia
+          </button>
+        </form>
+        <p className="muted">
+          Ao adicionar uma instancia, o backend gera a cobranca no Asaas antes de liberar a conexao.
+        </p>
         <div className="table-wrap">
           <table>
             <thead>
