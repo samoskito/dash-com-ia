@@ -850,6 +850,66 @@ export class DiagnosticsService {
       }
     }
 
+    if (event.conversionEventLogId) {
+      const conversionEvent = (await this.prisma.conversionEventLog.findUnique({
+        where: { id: event.conversionEventLogId }
+      })) as ConversionEventLogRecord | null;
+
+      if (conversionEvent) {
+        items.push({
+          id: conversionEvent.id,
+          kind: "conversion_event_log",
+          label: `Conversao ${conversionEvent.eventName}`,
+          status: conversionEvent.status,
+          occurredAt: (
+            conversionEvent.sentAt ?? conversionEvent.createdAt
+          ).toISOString(),
+          summaryPayload: this.payloadRecord({
+            sourceTrigger: conversionEvent.sourceTrigger,
+            pixelId: conversionEvent.pixelId,
+            metaAccountId: conversionEvent.metaAccountId,
+            campaignId: conversionEvent.campaignId,
+            adSetId: conversionEvent.adSetId,
+            adId: conversionEvent.adId,
+            attributionStatus: conversionEvent.attributionStatus,
+            dedupeKey: conversionEvent.dedupeKey,
+            errorCode: conversionEvent.errorCode,
+            errorMessage: conversionEvent.errorMessage,
+            jobId: conversionEvent.jobId
+          })
+        });
+      }
+    }
+
+    if (event.integrationLogId) {
+      const integration = (await this.prisma.integrationLog.findUnique({
+        where: { id: event.integrationLogId }
+      })) as IntegrationLogRecord | null;
+
+      if (integration) {
+        items.push({
+          id: integration.id,
+          kind: "integration_log",
+          label: `${integration.source} ${integration.operation}`,
+          status: integration.status,
+          occurredAt: (
+            integration.finishedAt ?? integration.startedAt
+          ).toISOString(),
+          summaryPayload: this.payloadRecord({
+            httpStatus: integration.httpStatus,
+            providerRequestId: integration.providerRequestId,
+            providerErrorCode: integration.providerErrorCode,
+            providerErrorMessage: integration.providerErrorMessage,
+            durationMs: integration.durationMs,
+            campaignId: integration.campaignId,
+            adSetId: integration.adSetId,
+            adId: integration.adId,
+            jobId: integration.jobId
+          })
+        });
+      }
+    }
+
     const [auditLogs, jobAttempts] = await Promise.all([
       this.prisma.auditLog.findMany({
         where: {

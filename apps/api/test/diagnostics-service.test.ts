@@ -130,6 +130,9 @@ function createHarness() {
         integrationLogs.push(integrationLog);
         return integrationLog;
       },
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        integrationLogs.find((integrationLog) => integrationLog.id === where.id) ??
+        null,
       findMany: async ({
         where,
         take
@@ -143,6 +146,10 @@ function createHarness() {
       }
     },
     conversionEventLog: {
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        conversionEventLogs.find(
+          (conversionEventLog) => conversionEventLog.id === where.id
+        ) ?? null,
       findMany: async ({
         where,
         take
@@ -687,6 +694,107 @@ describe("diagnostics service", () => {
     expect(detail.timeline[2]).toMatchObject({
       label: "diagnostic.retry_requested",
       status: "queued"
+    });
+  });
+
+  it("adds linked integration and conversion logs to the diagnostic timeline", async () => {
+    const { conversionEventLogs, events, integrationLogs, service } =
+      createHarness();
+    integrationLogs.push({
+      id: "integration_1",
+      workspaceId: "workspace_1",
+      source: "meta",
+      operation: "capi.events",
+      status: "error",
+      httpStatus: 400,
+      providerRequestId: "fb_req_1",
+      providerErrorCode: "META_CONTEXT_MISSING",
+      providerErrorMessage: "Contexto Meta ausente",
+      durationMs: 832,
+      startedAt: new Date("2026-07-02T03:01:00.000Z"),
+      finishedAt: new Date("2026-07-02T03:01:02.000Z"),
+      leadId: "lead_1",
+      campaignId: "cmp_1",
+      adSetId: null,
+      adId: "ad_1",
+      jobId: "bull_job_1"
+    });
+    conversionEventLogs.push({
+      id: "conversion_1",
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      sourceTrigger: "keyword",
+      eventName: "QualifiedLead",
+      status: "error",
+      pixelId: "pixel_1",
+      metaAccountId: "act_1",
+      campaignId: "cmp_1",
+      adSetId: null,
+      adId: "ad_1",
+      attributionStatus: "matched",
+      dedupeKey: "dedupe_1",
+      sentAt: null,
+      errorCode: "META_CONTEXT_MISSING",
+      errorMessage: "Contexto Meta ausente",
+      jobId: "bull_job_1",
+      createdAt: new Date("2026-07-02T03:00:30.000Z")
+    });
+    events.push({
+      id: "diag_1",
+      workspaceId: "workspace_1",
+      source: "meta",
+      eventType: "conversion.send_failed",
+      severity: "error",
+      status: "error",
+      occurredAt: new Date("2026-07-02T03:00:00.000Z"),
+      title: "Falha ao enviar conversao",
+      message: "Contexto Meta ausente",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: null,
+      adId: "ad_1",
+      jobId: "bull_job_1",
+      errorCode: "META_CONTEXT_MISSING",
+      summaryPayload: null,
+      webhookLogId: null,
+      integrationLogId: "integration_1",
+      conversionEventLogId: "conversion_1",
+      createdAt: new Date("2026-07-02T03:00:00.000Z")
+    });
+
+    const detail = await service.getEvent("diag_1");
+
+    expect(detail.timeline.map((item) => item.kind)).toEqual([
+      "diagnostic_event",
+      "conversion_event_log",
+      "integration_log"
+    ]);
+    expect(detail.timeline[1]).toMatchObject({
+      id: "conversion_1",
+      label: "Conversao QualifiedLead",
+      status: "error",
+      summaryPayload: {
+        sourceTrigger: "keyword",
+        pixelId: "pixel_1",
+        campaignId: "cmp_1",
+        adId: "ad_1",
+        errorCode: "META_CONTEXT_MISSING"
+      }
+    });
+    expect(detail.timeline[2]).toMatchObject({
+      id: "integration_1",
+      label: "meta capi.events",
+      status: "error",
+      summaryPayload: {
+        httpStatus: 400,
+        providerRequestId: "fb_req_1",
+        providerErrorCode: "META_CONTEXT_MISSING",
+        durationMs: 832,
+        campaignId: "cmp_1",
+        adId: "ad_1"
+      }
     });
   });
 
