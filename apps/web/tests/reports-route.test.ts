@@ -185,6 +185,9 @@ describe("reports route", () => {
     expect(html).toContain("Publico quente");
     expect(html).toContain("Criativo WhatsApp");
     expect(html).toContain("Sincronizar Meta");
+    expect(html).toContain(
+      'href="/reports/export?since=2026-07-01&amp;until=2026-07-02"'
+    );
     expect(html).toContain("2026-07-01");
     expect(html).toContain("2026-07-02");
     expect(html).toContain("1.200,00");

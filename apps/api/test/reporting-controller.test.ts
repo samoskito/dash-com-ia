@@ -112,6 +112,12 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         }
       ]
     })),
+    getCampaignReportCsv: vi.fn(async () => ({
+      filename: "wpptrack-campanhas-2026-07-01-2026-07-02.csv",
+      content:
+        "Campanha,Status,Investimento,Conversas Meta,Conversas reais,LeadSubmitted,QualifiedLead,Purchase,ROAS\n" +
+        "Black Friday WhatsApp,active,1200.00,176,0,1,1,1,\n"
+    })),
     syncWorkspaceMetaStructure: vi.fn(async () => ({
       workspaceId: "workspace_1",
       adAccountId: "act_123",
@@ -201,6 +207,30 @@ describe("reporting controller", () => {
       .expect(200);
 
     expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      rangeLabel: "2026-07-01 a 2026-07-02"
+    });
+
+    await app.close();
+  });
+
+  it("exports campaign reports as CSV for the current workspace", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/campaigns/export.csv?since=2026-07-01&until=2026-07-02")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect("Content-Type", /text\/csv/)
+      .expect("Content-Disposition", /wpptrack-campanhas-2026-07-01-2026-07-02.csv/)
+      .expect((response) => {
+        expect(response.text).toContain("Campanha,Status,Investimento");
+        expect(response.text).toContain("Black Friday WhatsApp");
+      });
+
+    expect(reportingService.getCampaignReportCsv).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       since: "2026-07-01",
       until: "2026-07-02",

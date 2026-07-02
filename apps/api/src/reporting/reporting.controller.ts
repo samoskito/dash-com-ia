@@ -4,7 +4,8 @@ import {
   Get,
   Inject,
   Post,
-  Query
+  Query,
+  Res
 } from "@nestjs/common";
 import { canManageIntegrations } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
@@ -12,6 +13,10 @@ import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { MetaReportSyncQueueService } from "./meta-report-sync-queue.service";
 import { MetaReportingService } from "./meta-reporting.service";
+
+type HeaderResponse = {
+  setHeader(name: string, value: string): void;
+};
 
 @Controller("reports")
 export class ReportingController {
@@ -40,6 +45,30 @@ export class ReportingController {
       until,
       rangeLabel: this.rangeLabel(since, until)
     });
+  }
+
+  @Get("campaigns/export.csv")
+  async exportCampaignReports(
+    @AuthToken() refreshToken: string,
+    @Res({ passthrough: true }) response: HeaderResponse,
+    @Query("since") since?: string,
+    @Query("until") until?: string
+  ) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const csv = await this.metaReportingService.getCampaignReportCsv({
+      workspaceId,
+      since,
+      until,
+      rangeLabel: this.rangeLabel(since, until)
+    });
+
+    response.setHeader("Content-Type", "text/csv; charset=utf-8");
+    response.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${csv.filename}"`
+    );
+
+    return csv.content;
   }
 
   @Get("adsets")

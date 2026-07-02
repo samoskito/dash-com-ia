@@ -35,6 +35,11 @@ export type MetaStructureSyncResult = {
   adsSynced: number;
 };
 
+export type ReportCsvResult = {
+  filename: string;
+  content: string;
+};
+
 type MetaIntegrationRecord = {
   workspaceId: string;
   encryptedAccessToken: string;
@@ -344,6 +349,44 @@ export class MetaReportingService {
       campaigns: campaigns.map((campaign) =>
         this.toReportRow(campaign, conversionLogs, leads)
       )
+    };
+  }
+
+  async getCampaignReportCsv(input: {
+    workspaceId: string;
+    rangeLabel: string;
+    since?: string;
+    until?: string;
+  }): Promise<ReportCsvResult> {
+    const report = await this.getCampaignReportOverview(input);
+    const rows = [
+      [
+        "Campanha",
+        "Status",
+        "Investimento",
+        "Conversas Meta",
+        "Conversas reais",
+        "LeadSubmitted",
+        "QualifiedLead",
+        "Purchase",
+        "ROAS"
+      ],
+      ...report.campaigns.map((campaign) => [
+        campaign.name,
+        campaign.status,
+        this.centsToDecimal(campaign.spendCents),
+        String(campaign.metaConversationsStarted),
+        String(campaign.realConversations),
+        String(campaign.leadSubmitted),
+        String(campaign.qualifiedLead),
+        String(campaign.purchase),
+        campaign.roas === null ? "" : String(campaign.roas)
+      ])
+    ];
+
+    return {
+      filename: this.csvFilename(input),
+      content: `${rows.map((row) => row.map(this.csvCell).join(",")).join("\n")}\n`
     };
   }
 
@@ -794,6 +837,20 @@ export class MetaReportingService {
 
   private costPer(spendCents: number, count: number): number | null {
     return count > 0 ? Math.floor(spendCents / count) : null;
+  }
+
+  private centsToDecimal(cents: number): string {
+    return (cents / 100).toFixed(2);
+  }
+
+  private csvCell(value: string): string {
+    return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  }
+
+  private csvFilename(input: { since?: string; until?: string }): string {
+    return input.since && input.until
+      ? `wpptrack-campanhas-${input.since}-${input.until}.csv`
+      : "wpptrack-campanhas.csv";
   }
 
   private toReportStatus(status: string | null): CampaignReportRowDto["status"] {

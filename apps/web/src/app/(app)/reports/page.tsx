@@ -226,6 +226,22 @@ function leadsHref(filters: {
   return query ? `/leads?${query}` : "/leads";
 }
 
+function reportExportHref(filters: { since?: string; until?: string }): string {
+  const params = new URLSearchParams();
+
+  if (filters.since) {
+    params.set("since", filters.since);
+  }
+
+  if (filters.until) {
+    params.set("until", filters.until);
+  }
+
+  const query = params.toString();
+
+  return query ? `/reports/export?${query}` : "/reports/export";
+}
+
 function reportStatusChip(status: PerformanceRow["status"]) {
   return (
     <span className={`event-chip${status === "paused" ? " warn" : ""}`}>
@@ -410,6 +426,12 @@ export default async function ReportsPage({
             />
             <button className="button" type="submit">Filtrar periodo</button>
           </form>
+          <Link
+            className="button"
+            href={reportExportHref({ since, until })}
+          >
+            Exportar CSV
+          </Link>
           {canSyncMetaReports ? (
             <form action={syncMetaReports}>
               <input type="hidden" name="since" value={since ?? ""} />
