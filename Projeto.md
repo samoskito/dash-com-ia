@@ -252,7 +252,7 @@ Pendente de definicao: confirmar nomes finais das metricas na UI, formulas exata
   - Etiqueta aplicada ao chat/lead no WhatsApp Business, inicialmente via Uazapi.
 - No cadastro da regra, o usuario deve escolher o gatilho e o evento Meta a enviar, por exemplo: `LeadSubmitted`, `QualifiedLead`, `Purchase` ou outros eventos suportados.
 - Implementacao atual ja permite criar, listar, atualizar e avaliar regras ativas. O envio Pixel/CAPI possui adapter e metodo de processamento para logs `ready_to_send`, mas ainda falta plugar worker/fila e credenciais reais por workspace.
-- Webhooks Uazapi ja conseguem aplicar as regras e registrar logs de conversao internos. Quando ha `pixelId` e `ad_id`, o log fica pronto para envio pelo metodo `sendReadyEvent`.
+- Webhooks Uazapi ja conseguem aplicar as regras, registrar logs de conversao internos e acionar imediatamente `sendReadyEvent` para cada log criado. Quando ha `pixelId`, `ad_id` e token CAPI configurado, o fluxo tenta enviar para a Meta; quando falta contexto/credencial, o log registra o estado operacional sem liberar falso sucesso.
 - Para enviar um evento ao Pixel, o backend deve buscar o `ad_id` do lead.
 - Se houver mais de uma BM/conta conectada no futuro, o backend deve validar a qual BM/conta pertence o anuncio antes de enviar o evento.
 - O fluxo padrao do cliente final continua sendo BM/conta de anuncio unica, mas a arquitetura deve tolerar mais de uma conexao Meta quando isso for necessario.

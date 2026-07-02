@@ -43,6 +43,10 @@ async function createApp() {
   const conversionEventsService = {
     recordRuleMatches: vi.fn(async () => ({
       created: ["conversion_1"]
+    })),
+    sendReadyEvent: vi.fn(async () => ({
+      conversionEventLogId: "conversion_1",
+      status: "sent"
     }))
   };
 
@@ -94,6 +98,12 @@ describe("webhooks controller", () => {
         expect(body.status).toBe("received");
         expect(body.webhookLogId).toBe("webhook_1");
         expect(body.conversion.created).toEqual(["conversion_1"]);
+        expect(body.conversion.sent).toEqual([
+          {
+            conversionEventLogId: "conversion_1",
+            status: "sent"
+          }
+        ]);
       });
 
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
@@ -118,6 +128,9 @@ describe("webhooks controller", () => {
           expect.objectContaining({ eventName: "QualifiedLead" })
         ])
       })
+    );
+    expect(conversionEventsService.sendReadyEvent).toHaveBeenCalledWith(
+      "conversion_1"
     );
 
     await app.close();

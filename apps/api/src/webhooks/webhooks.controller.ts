@@ -114,10 +114,18 @@ export class WebhooksController {
       adSetId: this.firstString(body.adSetId),
       adId: this.firstString(body.adId)
     });
+    const sent = await Promise.all(
+      conversion.created.map((logId) =>
+        this.conversionEventsService.sendReadyEvent(logId)
+      )
+    );
 
     return {
       ...diagnostic,
-      conversion
+      conversion: {
+        ...conversion,
+        sent
+      }
     };
   }
 
