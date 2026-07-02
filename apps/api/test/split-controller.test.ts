@@ -71,13 +71,16 @@ describe("split controller", () => {
     expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
       "refresh-token"
     );
-    expect(splitService.createReceiver).toHaveBeenCalledWith({
-      name: "Socio Operacional",
-      walletId: "wallet_asaas_1",
-      email: "socio@wpptrack.com",
-      percentageBps: 2500,
-      active: true
-    });
+    expect(splitService.createReceiver).toHaveBeenCalledWith(
+      {
+        name: "Socio Operacional",
+        walletId: "wallet_asaas_1",
+        email: "socio@wpptrack.com",
+        percentageBps: 2500,
+        active: true
+      },
+      "user_1"
+    );
 
     await app.close();
   });
@@ -100,10 +103,14 @@ describe("split controller", () => {
     expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
       "refresh-token"
     );
-    expect(splitService.updateReceiver).toHaveBeenCalledWith("receiver_1", {
-      percentageBps: 1500,
-      active: false
-    });
+    expect(splitService.updateReceiver).toHaveBeenCalledWith(
+      "receiver_1",
+      {
+        percentageBps: 1500,
+        active: false
+      },
+      "user_1"
+    );
 
     await app.close();
   });

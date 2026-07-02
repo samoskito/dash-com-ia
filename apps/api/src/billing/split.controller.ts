@@ -33,7 +33,8 @@ export class SplitController {
 
   @Post("receivers")
   async createReceiver(@AuthToken() refreshToken: string, @Body() body: unknown) {
-    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+    const platformAdmin =
+      await this.platformAdminService.assertPlatformAdmin(refreshToken);
 
     const parsed = splitReceiverCreateInputSchema.safeParse(body);
 
@@ -41,7 +42,7 @@ export class SplitController {
       throw new BadRequestException("Payload invalido");
     }
 
-    return this.splitService.createReceiver(parsed.data);
+    return this.splitService.createReceiver(parsed.data, platformAdmin.id);
   }
 
   @Patch("receivers/:id")
@@ -50,7 +51,8 @@ export class SplitController {
     @Param("id") receiverId: string,
     @Body() body: unknown
   ) {
-    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+    const platformAdmin =
+      await this.platformAdminService.assertPlatformAdmin(refreshToken);
 
     const parsed = splitReceiverUpdateInputSchema.safeParse(body);
 
@@ -58,6 +60,10 @@ export class SplitController {
       throw new BadRequestException("Payload invalido");
     }
 
-    return this.splitService.updateReceiver(receiverId, parsed.data);
+    return this.splitService.updateReceiver(
+      receiverId,
+      parsed.data,
+      platformAdmin.id
+    );
   }
 }
