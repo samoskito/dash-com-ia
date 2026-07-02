@@ -21,6 +21,7 @@ export type AsaasPaymentProcessingResult = {
 
 type PaymentChargeWithActivation = {
   id: string;
+  workspaceId: string;
   status: string;
   externalChargeId: string | null;
   activation: {
@@ -298,6 +299,38 @@ export class BillingService {
           status: "active"
         }
       });
+      const activeInstances = await tx.whatsappInstance.count({
+        where: {
+          workspaceId: charge.workspaceId,
+          status: "active"
+        }
+      });
+      const subscription = await tx.workspaceSubscription.findFirst({
+        where: {
+          workspaceId: charge.workspaceId
+        },
+        orderBy: {
+          updatedAt: "desc"
+        }
+      });
+
+      if (subscription) {
+        await tx.workspaceSubscription.update({
+          where: { id: subscription.id },
+          data: {
+            status: "active",
+            activeInstances
+          }
+        });
+      } else {
+        await tx.workspaceSubscription.create({
+          data: {
+            workspaceId: charge.workspaceId,
+            status: "active",
+            activeInstances
+          }
+        });
+      }
     });
 
     return {

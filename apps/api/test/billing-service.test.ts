@@ -25,6 +25,8 @@ type FakePrisma = {
   };
   workspaceSubscription: {
     findFirst: (args: unknown) => Promise<Record<string, unknown> | null>;
+    create: (args: unknown) => Promise<Record<string, unknown>>;
+    update: (args: unknown) => Promise<Record<string, unknown>>;
   };
   $transaction: <T>(callback: (tx: FakePrisma) => Promise<T>) => Promise<T>;
 };
@@ -60,6 +62,29 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
             (subscription) => subscription.workspaceId === where.workspaceId
           ) ?? null
         );
+      },
+      create: async (args) => {
+        const { data } = args as { data: Record<string, unknown> };
+        const subscription = {
+          id: `subscription_${db.subscriptions.length + 1}`,
+          ...data
+        };
+        db.subscriptions.push(subscription);
+        return subscription;
+      },
+      update: async (args) => {
+        const { data, where } = args as {
+          data: Record<string, unknown>;
+          where: { id: string };
+        };
+        const index = db.subscriptions.findIndex(
+          (subscription) => subscription.id === where.id
+        );
+        db.subscriptions[index] = {
+          ...db.subscriptions[index],
+          ...data
+        };
+        return db.subscriptions[index];
       }
     },
     whatsappInstance: {
@@ -345,6 +370,34 @@ describe("billing service", () => {
     expect(db.charges[0]).toMatchObject({ status: "paid" });
     expect(db.activations[0]).toMatchObject({ status: "active" });
     expect(db.instances[0]).toMatchObject({ status: "active" });
+  });
+
+  it("updates the workspace subscription summary after activating a paid instance", async () => {
+    const { db, service } = createHarness();
+    await service.createWhatsappInstanceCheckout("workspace_1", {
+      instanceName: "Comercial",
+      provider: "uazapi"
+    });
+    db.charges[0].externalChargeId = "pay_asaas_1";
+
+    await service.processAsaasPaymentWebhook({
+      event: "PAYMENT_CONFIRMED",
+      payment: {
+        id: "pay_asaas_1",
+        status: "CONFIRMED"
+      }
+    });
+
+    const subscription = await service.getWorkspaceSubscriptionSummary(
+      "workspace_1"
+    );
+
+    expect(subscription).toMatchObject({
+      workspaceId: "workspace_1",
+      status: "active",
+      activeInstances: 1,
+      monthlyAmountCents: 12900
+    });
   });
 
   it("marks the charge as failed without activating the instance when Asaas reports payment failure", async () => {
