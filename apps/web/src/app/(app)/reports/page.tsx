@@ -29,6 +29,14 @@ type PerformanceRow =
   | CampaignReportRowDto
   | AdSetReportRowDto
   | AdReportRowDto;
+type ReportTotals = {
+  spendCents: number;
+  metaConversationsStarted: number;
+  realConversations: number;
+  leadSubmitted: number;
+  qualifiedLead: number;
+  purchase: number;
+};
 
 function money(cents: number | null) {
   if (cents === null) {
@@ -234,6 +242,61 @@ function EmptyPerformanceCells() {
   );
 }
 
+function reportTotals(rows: CampaignReportRowDto[]): ReportTotals {
+  return rows.reduce(
+    (totals, row) => ({
+      spendCents: totals.spendCents + (row.spendCents ?? 0),
+      metaConversationsStarted:
+        totals.metaConversationsStarted + row.metaConversationsStarted,
+      realConversations: totals.realConversations + row.realConversations,
+      leadSubmitted: totals.leadSubmitted + row.leadSubmitted,
+      qualifiedLead: totals.qualifiedLead + row.qualifiedLead,
+      purchase: totals.purchase + row.purchase
+    }),
+    {
+      spendCents: 0,
+      metaConversationsStarted: 0,
+      realConversations: 0,
+      leadSubmitted: 0,
+      qualifiedLead: 0,
+      purchase: 0
+    }
+  );
+}
+
+function deltaLabel(current: number, previous: number): string {
+  if (previous === 0) {
+    return current === 0 ? "0%" : "sem base";
+  }
+
+  const delta = ((current - previous) / previous) * 100;
+  const sign = delta > 0 ? "+" : "";
+
+  return `${sign}${Math.round(delta)}%`;
+}
+
+function ComparisonMetric({
+  label,
+  current,
+  previous,
+  format = String
+}: {
+  label: string;
+  current: number;
+  previous: number;
+  format?: (value: number) => string;
+}) {
+  return (
+    <div className="metric-card">
+      <span className="micro-label">{label}</span>
+      <strong>{format(current)}</strong>
+      <span>
+        Periodo comparado {format(previous)} / {deltaLabel(current, previous)}
+      </span>
+    </div>
+  );
+}
+
 export default async function ReportsPage({
   searchParams
 }: {
@@ -242,23 +305,34 @@ export default async function ReportsPage({
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const since = asStringParam(resolvedSearchParams.since);
   const until = asStringParam(resolvedSearchParams.until);
+  const compareSince = asStringParam(resolvedSearchParams.compareSince);
+  const compareUntil = asStringParam(resolvedSearchParams.compareUntil);
+  const hasComparison = Boolean(compareSince && compareUntil);
   const [
     campaignReports,
     metaStructure,
     adSetReports,
     adReports,
-    currentWorkspace
+    currentWorkspace,
+    comparisonReports
   ] = await Promise.all([
     getCampaignReports({ since, until }),
     getMetaStructureReport(),
     getAdSetReports({ since, until }),
     getAdReports({ since, until }),
-    getCurrentWorkspace()
+    getCurrentWorkspace(),
+    hasComparison
+      ? getCampaignReports({ since: compareSince, until: compareUntil })
+      : Promise.resolve(null)
   ]);
   const { report, state: reportState } = campaignReports;
   const rows = report.campaigns;
   const adSetRows = adSetReports.report.adSets;
   const adRows = adReports.report.ads;
+  const currentTotals = reportTotals(rows);
+  const comparisonTotals = comparisonReports
+    ? reportTotals(comparisonReports.report.campaigns)
+    : null;
   const canSyncMetaReports = Boolean(
     currentWorkspace?.permissions.canManageIntegrations
   );
@@ -287,6 +361,18 @@ export default async function ReportsPage({
           <form className="inline-form" action="/reports">
             <input type="date" name="since" defaultValue={since} aria-label="Data inicial" />
             <input type="date" name="until" defaultValue={until} aria-label="Data final" />
+            <input
+              type="date"
+              name="compareSince"
+              defaultValue={compareSince}
+              aria-label="Data inicial comparada"
+            />
+            <input
+              type="date"
+              name="compareUntil"
+              defaultValue={compareUntil}
+              aria-label="Data final comparada"
+            />
             <button className="button" type="submit">Filtrar periodo</button>
           </form>
           {canSyncMetaReports ? (
@@ -304,6 +390,46 @@ export default async function ReportsPage({
           ) : null}
         </div>
       </header>
+
+      {comparisonReports && comparisonTotals ? (
+        <div className="surface-panel">
+          <span className="eyebrow">Comparacao entre periodos</span>
+          <h2>Periodo atual vs. {comparisonReports.report.rangeLabel}</h2>
+          <div className="metric-grid compact">
+            <ComparisonMetric
+              label="Investimento"
+              current={currentTotals.spendCents}
+              previous={comparisonTotals.spendCents}
+              format={money}
+            />
+            <ComparisonMetric
+              label="Conversas Meta"
+              current={currentTotals.metaConversationsStarted}
+              previous={comparisonTotals.metaConversationsStarted}
+            />
+            <ComparisonMetric
+              label="Conversas reais"
+              current={currentTotals.realConversations}
+              previous={comparisonTotals.realConversations}
+            />
+            <ComparisonMetric
+              label="LeadSubmitted"
+              current={currentTotals.leadSubmitted}
+              previous={comparisonTotals.leadSubmitted}
+            />
+            <ComparisonMetric
+              label="QualifiedLead"
+              current={currentTotals.qualifiedLead}
+              previous={comparisonTotals.qualifiedLead}
+            />
+            <ComparisonMetric
+              label="Purchase"
+              current={currentTotals.purchase}
+              previous={comparisonTotals.purchase}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <div className="table-wrap">
         <table>

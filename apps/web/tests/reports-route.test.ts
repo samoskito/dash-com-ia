@@ -270,6 +270,131 @@ describe("reports route", () => {
     expect(html).not.toContain("Remarketing 7 dias");
   });
 
+  it("renders comparison metrics when a comparison period is selected", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "08/07/2026 a 14/07/2026",
+            campaigns: [
+              {
+                id: "cmp_1",
+                name: "Semana atual",
+                status: "active",
+                spendCents: 150000,
+                metaConversationsStarted: 90,
+                costPerMetaConversationCents: 1666,
+                realConversations: 30,
+                costPerRealConversationCents: 5000,
+                leadSubmitted: 12,
+                costPerLeadSubmittedCents: 12500,
+                qualifiedLead: 6,
+                costPerQualifiedLeadCents: 25000,
+                purchase: 3,
+                costPerPurchaseCents: 50000,
+                roas: null
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            campaigns: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "08/07/2026 a 14/07/2026",
+            adSets: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "08/07/2026 a 14/07/2026",
+            ads: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "workspace_1",
+            name: "Workspace",
+            slug: "workspace",
+            role: "owner",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "01/07/2026 a 07/07/2026",
+            campaigns: [
+              {
+                id: "cmp_1",
+                name: "Semana anterior",
+                status: "active",
+                spendCents: 100000,
+                metaConversationsStarted: 60,
+                costPerMetaConversationCents: 1666,
+                realConversations: 20,
+                costPerRealConversationCents: 5000,
+                leadSubmitted: 10,
+                costPerLeadSubmittedCents: 10000,
+                qualifiedLead: 4,
+                costPerQualifiedLeadCents: 25000,
+                purchase: 2,
+                costPerPurchaseCents: 50000,
+                roas: null
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await ReportsPage({
+      searchParams: Promise.resolve({
+        since: "2026-07-08",
+        until: "2026-07-14",
+        compareSince: "2026-07-01",
+        compareUntil: "2026-07-07"
+      })
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/reports/campaigns?since=2026-07-01&until=2026-07-07",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Comparacao entre periodos");
+    expect(html).toContain("01/07/2026 a 07/07/2026");
+    expect(html).toContain("+50%");
+    expect(html).toContain("+20%");
+  });
+
   it("renders an unavailable state without demo rows when backend is unavailable", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response("offline", { status: 503 }))
