@@ -818,11 +818,13 @@ describe("shared contracts", () => {
       provider: "uazapi",
       billingStatus: "active",
       providerInstanceId: "provider_instance_1",
+      checkoutUrl: null,
       createdAt: "2026-07-02T03:00:00.000Z"
     });
 
     expect(instance.billingStatus).toBe("active");
     expect(instance.providerInstanceId).toBe("provider_instance_1");
+    expect(instance.checkoutUrl).toBeNull();
   });
 
   it("validates split receiver contracts for platform backoffice", () => {

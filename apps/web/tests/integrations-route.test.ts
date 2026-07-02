@@ -34,6 +34,7 @@ describe("integrations route", () => {
               provider: "uazapi",
               billingStatus: "active",
               providerInstanceId: "provider_instance_1",
+              checkoutUrl: null,
               createdAt: "2026-07-02T03:00:00.000Z"
             },
             {
@@ -42,6 +43,7 @@ describe("integrations route", () => {
               provider: "uazapi",
               billingStatus: "pending_payment",
               providerInstanceId: null,
+              checkoutUrl: "https://sandbox.asaas.com/i/pay_2",
               createdAt: "2026-07-02T03:00:00.000Z"
             }
           ]),
@@ -215,6 +217,8 @@ describe("integrations route", () => {
     expect(html).toContain("wpp_1");
     expect(html).toContain("Suporte");
     expect(html).toContain("Pagamento pendente");
+    expect(html).toContain("Pagar agora");
+    expect(html).toContain('href="https://sandbox.asaas.com/i/pay_2"');
     expect(html).toContain("Adicionar instancia");
     expect(html).toContain("99,00");
     expect(html).toContain("Antecipada via Asaas");

@@ -19,6 +19,11 @@ type WhatsappInstanceRecord = {
   provider: "uazapi" | "cloud_api";
   status: "pending_payment" | "active" | "suspended" | "cancelled";
   providerInstanceId: string | null;
+  activations?: Array<{
+    paymentCharge: {
+      checkoutUrl: string | null;
+    };
+  }>;
 };
 
 @Injectable()
@@ -31,6 +36,19 @@ export class WhatsappConnectionsService {
   async listInstances(workspaceId: string): Promise<WhatsappInstanceSummaryDto[]> {
     const instances = (await this.prisma.whatsappInstance.findMany({
       where: { workspaceId },
+      include: {
+        activations: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: {
+            paymentCharge: {
+              select: {
+                checkoutUrl: true
+              }
+            }
+          }
+        }
+      },
       orderBy: { createdAt: "asc" }
     })) as Array<WhatsappInstanceRecord & { createdAt: Date }>;
 
@@ -40,6 +58,7 @@ export class WhatsappConnectionsService {
       provider: instance.provider,
       billingStatus: instance.status,
       providerInstanceId: instance.providerInstanceId,
+      checkoutUrl: instance.activations?.[0]?.paymentCharge.checkoutUrl ?? null,
       createdAt: instance.createdAt.toISOString()
     }));
   }

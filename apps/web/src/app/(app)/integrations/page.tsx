@@ -679,6 +679,15 @@ export default async function IntegrationsPage() {
                             Conectar WhatsApp
                           </button>
                         </form>
+                      ) : instance.checkoutUrl ? (
+                        <a
+                          className="button primary"
+                          href={instance.checkoutUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Pagar agora
+                        </a>
                       ) : (
                         <span className="event-chip warn">Pagamento pendente</span>
                       )}

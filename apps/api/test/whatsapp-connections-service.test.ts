@@ -12,7 +12,14 @@ function createHarness() {
         provider: "uazapi",
         status: "pending_payment",
         providerInstanceId: null,
-        createdAt: new Date("2026-07-02T03:00:00.000Z")
+        createdAt: new Date("2026-07-02T03:00:00.000Z"),
+        activations: [
+          {
+            paymentCharge: {
+              checkoutUrl: "https://sandbox.asaas.com/i/pay_1"
+            }
+          }
+        ]
       },
       {
         id: "wpp_active",
@@ -21,7 +28,8 @@ function createHarness() {
         provider: "uazapi",
         status: "active",
         providerInstanceId: "provider_instance_1",
-        createdAt: new Date("2026-07-02T03:01:00.000Z")
+        createdAt: new Date("2026-07-02T03:01:00.000Z"),
+        activations: []
       }
     ] as Array<Record<string, unknown>>
   };
@@ -97,6 +105,7 @@ describe("whatsapp connections service", () => {
         provider: "uazapi",
         billingStatus: "pending_payment",
         providerInstanceId: null,
+        checkoutUrl: "https://sandbox.asaas.com/i/pay_1",
         createdAt: expect.any(String)
       },
       {
@@ -105,6 +114,7 @@ describe("whatsapp connections service", () => {
         provider: "uazapi",
         billingStatus: "active",
         providerInstanceId: "provider_instance_1",
+        checkoutUrl: null,
         createdAt: expect.any(String)
       }
     ]);

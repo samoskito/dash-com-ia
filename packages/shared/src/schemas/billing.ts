@@ -50,6 +50,7 @@ export const whatsappInstanceSummarySchema = z.object({
   provider: z.enum(["uazapi", "cloud_api"]),
   billingStatus: z.enum(["pending_payment", "active", "suspended", "cancelled"]),
   providerInstanceId: z.string().min(1).nullable(),
+  checkoutUrl: z.string().min(1).nullable(),
   createdAt: z.string().datetime()
 });
 
