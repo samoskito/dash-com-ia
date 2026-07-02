@@ -1,7 +1,9 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import type { Job } from "bullmq";
 import { ConversionEventsService } from "../../conversion-events/conversion-events.service";
+import { PrismaService } from "../prisma/prisma.service";
 import {
   CONVERSION_EVENTS_QUEUE,
   type ConversionEventJobPayload
@@ -11,14 +13,77 @@ import {
 export class ConversionEventProcessor extends WorkerHost {
   constructor(
     @Inject(ConversionEventsService)
-    private readonly conversionEventsService: ConversionEventsService
+    private readonly conversionEventsService: ConversionEventsService,
+    @Inject(PrismaService)
+    private readonly prisma: PrismaService
   ) {
     super();
   }
 
   async process(job: Job<ConversionEventJobPayload>) {
-    return this.conversionEventsService.sendReadyEvent(
-      job.data.conversionEventLogId
-    );
+    try {
+      const result = await this.conversionEventsService.sendReadyEvent(
+        job.data.conversionEventLogId
+      );
+
+      await this.recordAttempt(job, result.status, {
+        conversionEventLogId: result.conversionEventLogId,
+        resultStatus: result.status
+      });
+
+      return result;
+    } catch (error) {
+      await this.recordAttempt(
+        job,
+        "failed",
+        {
+          conversionEventLogId: job.data.conversionEventLogId
+        },
+        error
+      );
+
+      throw error;
+    }
+  }
+
+  private async recordAttempt(
+    job: Job<ConversionEventJobPayload>,
+    status: string,
+    summaryPayload: Record<string, unknown>,
+    error?: unknown
+  ) {
+    const now = new Date();
+
+    try {
+      await this.prisma.jobAttempt.create({
+        data: {
+          workspaceId: null,
+          queueName: CONVERSION_EVENTS_QUEUE,
+          jobId: String(job.id ?? job.data.conversionEventLogId),
+          jobName: job.name || "send-conversion-event",
+          attemptNumber: (job.attemptsMade ?? 0) + 1,
+          status,
+          scheduledAt:
+            typeof job.timestamp === "number" ? new Date(job.timestamp) : null,
+          startedAt: now,
+          finishedAt: now,
+          nextRetryAt: null,
+          source: "meta",
+          relatedEntityType: "ConversionEventLog",
+          relatedEntityId: job.data.conversionEventLogId,
+          errorCode: null,
+          errorMessage: error instanceof Error ? error.message : null,
+          summaryPayload: this.toJsonSummary(summaryPayload)
+        }
+      });
+    } catch {
+      // Observability failure must not duplicate external provider side effects.
+    }
+  }
+
+  private toJsonSummary(
+    summaryPayload: Record<string, unknown>
+  ): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(summaryPayload)) as Prisma.InputJsonValue;
   }
 }

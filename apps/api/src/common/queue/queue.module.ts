@@ -1,6 +1,7 @@
 import { BullModule } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
 import { ConversionEventsModule } from "../../conversion-events/conversion-events.module";
+import { PrismaModule } from "../prisma/prisma.module";
 import { ConversionEventProcessor } from "./conversion-event.processor";
 import { ConversionEventsQueueService } from "./conversion-events-queue.service";
 import { DiagnosticProcessor } from "./diagnostic.processor";
@@ -10,6 +11,7 @@ import { CONVERSION_EVENTS_QUEUE, DIAGNOSTIC_QUEUE } from "./queue.constants";
 @Module({
   imports: [
     ConversionEventsModule,
+    PrismaModule,
     BullModule.forRoot({
       connection: {
         url: process.env.REDIS_URL ?? "redis://localhost:6379"
