@@ -8,6 +8,12 @@ function createHarness() {
   };
   const prisma = {
     webhookLog: {
+      findUnique: async ({ where }: { where: { idempotencyKey?: string } }) =>
+        db.webhooks.find(
+          (webhook) =>
+            where.idempotencyKey !== undefined &&
+            webhook.idempotencyKey === where.idempotencyKey
+        ) ?? null,
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const webhook = {
           id: `webhook_${db.webhooks.length + 1}`,

@@ -24,8 +24,13 @@ function createHarness() {
         webhookLogs.push(webhookLog);
         return webhookLog;
       },
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        webhookLogs.find((webhookLog) => webhookLog.id === where.id) ?? null
+      findUnique: async ({ where }: { where: { id?: string; idempotencyKey?: string } }) =>
+        webhookLogs.find(
+          (webhookLog) =>
+            (where.id !== undefined && webhookLog.id === where.id) ||
+            (where.idempotencyKey !== undefined &&
+              webhookLog.idempotencyKey === where.idempotencyKey)
+        ) ?? null
     },
     diagnosticEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -277,5 +282,31 @@ describe("diagnostics service", () => {
       label: "diagnostic.retry_requested",
       status: "queued"
     });
+  });
+
+  it("returns duplicate webhook result without creating another diagnostic event", async () => {
+    const { events, service, webhookLogs } = createHarness();
+
+    const first = await service.recordWebhookLog({
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      eventType: "message.received",
+      externalEventId: "evt_1",
+      idempotencyKey: "uazapi:evt_1"
+    });
+    const second = await service.recordWebhookLog({
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      eventType: "message.received",
+      externalEventId: "evt_1",
+      idempotencyKey: "uazapi:evt_1"
+    });
+
+    expect(second).toEqual({
+      ...first,
+      status: "duplicate"
+    });
+    expect(webhookLogs).toHaveLength(1);
+    expect(events).toHaveLength(1);
   });
 });

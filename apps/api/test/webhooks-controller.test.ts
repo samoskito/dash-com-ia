@@ -174,6 +174,49 @@ describe("webhooks controller", () => {
     await app.close();
   });
 
+  it("does not run conversion side effects for duplicate Uazapi webhooks", async () => {
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      conversionEventsService,
+      conversionEventsQueueService,
+      leadsService
+    } = await createApp();
+    diagnosticsService.recordWebhookLog.mockResolvedValueOnce({
+      webhookLogId: "webhook_1",
+      diagnosticEventId: "diag_1",
+      status: "duplicate"
+    });
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .set("x-workspace-id", "workspace_1")
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_1",
+        message: {
+          text: "Oi, quero comprar"
+        }
+      })
+      .expect(202)
+      .expect(({ body }) => {
+        expect(body.status).toBe("duplicate");
+        expect(body.conversion).toEqual({
+          created: [],
+          duplicates: [],
+          queued: []
+        });
+      });
+
+    expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
+    expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+    expect(conversionEventsService.recordRuleMatches).not.toHaveBeenCalled();
+    expect(conversionEventsQueueService.enqueueSend).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it("records Asaas and Meta webhooks", async () => {
     const { app, diagnosticsService, billingService } = await createApp();
 

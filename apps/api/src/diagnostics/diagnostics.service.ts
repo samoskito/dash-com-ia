@@ -81,7 +81,7 @@ export type WebhookLogInput = {
 export type WebhookLogResult = {
   webhookLogId: string;
   diagnosticEventId: string;
-  status: "received";
+  status: "received" | "duplicate";
 };
 
 @Injectable()
@@ -125,6 +125,26 @@ export class DiagnosticsService {
   }
 
   async recordWebhookLog(input: WebhookLogInput): Promise<WebhookLogResult> {
+    if (input.idempotencyKey) {
+      const existing = (await this.prisma.webhookLog.findUnique({
+        where: { idempotencyKey: input.idempotencyKey }
+      })) as WebhookLogRecord | null;
+
+      if (existing) {
+        const existingEvents = (await this.prisma.diagnosticEvent.findMany({
+          where: { webhookLogId: existing.id },
+          orderBy: { occurredAt: "asc" },
+          take: 1
+        })) as DiagnosticEventRecord[];
+
+        return {
+          webhookLogId: existing.id,
+          diagnosticEventId: existingEvents[0]?.id ?? existing.id,
+          status: "duplicate"
+        };
+      }
+    }
+
     const webhook = await this.prisma.webhookLog.create({
       data: {
         workspaceId: input.workspaceId ?? null,

@@ -229,13 +229,12 @@ model WebhookLog {
   errorMessage   String?
   summaryPayload Json?
   rawPayloadRef  String?
-  idempotencyKey String?
+  idempotencyKey String? @unique
 
   workspace Workspace? @relation(fields: [workspaceId], references: [id])
   diagnosticEvents DiagnosticEvent[]
 
   @@index([workspaceId, source, status, receivedAt])
-  @@index([idempotencyKey])
 }
 
 model IntegrationLog {
@@ -280,7 +279,7 @@ model ConversionEventLog {
   adSetId                 String?
   adId                    String?
   attributionStatus       String?
-  dedupeKey               String?
+  dedupeKey               String? @unique
   sentAt                  DateTime?
   providerResponseSummary Json?
   errorCode               String?
@@ -292,7 +291,6 @@ model ConversionEventLog {
   diagnosticEvents DiagnosticEvent[]
 
   @@index([workspaceId, status, createdAt])
-  @@index([dedupeKey])
   @@index([leadId])
 }
 

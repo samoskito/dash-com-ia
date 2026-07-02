@@ -118,11 +118,24 @@ export class WebhooksController {
   private async recordUazapiWebhook(body: WebhookBody, workspaceId?: string) {
     const diagnostic = await this.record("uazapi", body, workspaceId);
 
+    if (diagnostic.status === "duplicate") {
+      return {
+        ...diagnostic,
+        conversion: {
+          created: [],
+          duplicates: [],
+          queued: []
+        }
+      };
+    }
+
     if (!workspaceId) {
       return {
         ...diagnostic,
         conversion: {
-          created: []
+          created: [],
+          duplicates: [],
+          queued: []
         }
       };
     }

@@ -8,6 +8,12 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
   };
   const prisma = {
     conversionEventLog: {
+      findUnique: async ({ where }: { where: { id?: string; dedupeKey?: string } }) =>
+        db.logs.find(
+          (log) =>
+            (where.id !== undefined && log.id === where.id) ||
+            (where.dedupeKey !== undefined && log.dedupeKey === where.dedupeKey)
+        ) ?? null,
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const log = {
           id: `conversion_${db.logs.length + 1}`,
@@ -17,8 +23,6 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
         db.logs.push(log);
         return log;
       },
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        db.logs.find((log) => log.id === where.id) ?? null,
       update: async ({
         data,
         where
@@ -154,5 +158,38 @@ describe("conversion events service", () => {
       errorMessage: null
     });
     expect(db.logs[0].sentAt).toBeInstanceOf(Date);
+  });
+
+  it("does not create duplicate conversion logs for the same dedupe key", async () => {
+    const { db, service } = createHarness();
+    const input = {
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      rules: [
+        {
+          id: "rule_1",
+          workspaceId: "workspace_1",
+          name: "Lead qualificado",
+          triggerType: "keyword" as const,
+          triggerValue: "quero comprar",
+          matchMode: "contains" as const,
+          eventName: "QualifiedLead" as const,
+          pixelId: "pixel_1",
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        }
+      ]
+    };
+
+    const first = await service.recordRuleMatches(input);
+    const second = await service.recordRuleMatches(input);
+
+    expect(first.created).toEqual(["conversion_1"]);
+    expect(second.created).toEqual([]);
+    expect(second.duplicates).toEqual(["conversion_1"]);
+    expect(db.logs).toHaveLength(1);
   });
 });

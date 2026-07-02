@@ -444,10 +444,11 @@ Checkpoint atual:
 - Leads persistentes iniciados: modelo `Lead`, contratos compartilhados, `GET /leads`, upsert via webhook Uazapi e tela `Leads` consumindo backend com fallback visual.
 - Tela de `Integracoes` agora consulta `GET /billing/whatsapp-instance/quote` e possui formulario real para adicionar instancia WhatsApp via `POST /billing/whatsapp-instance/checkout`; a liberacao continua dependente do pagamento confirmado pelo webhook Asaas.
 - Tela de `Configuracoes` agora possui CRUD visual inicial para regras de conversao: cria regras por palavra-chave/etiqueta via `POST /conversion-rules` e pausa/ativa regras via `PATCH /conversion-rules/:id`.
+- Idempotencia inicial implementada: `WebhookLog.idempotencyKey` e `ConversionEventLog.dedupeKey` sao unicos no banco. Webhooks Uazapi duplicados retornam `duplicate` sem reavaliar regras, recriar lead ou enfileirar novo envio Meta; conversoes duplicadas retornam em `duplicates` sem novo log.
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: idempotencia de webhooks/conversoes.
+- Continuar a proxima rodada com: filtros reais no Centro de Diagnosticos, remocao gradual de mocks restantes em Overview/Reports e polimento de selecao Meta BM/conta/pixel.
 
 ## Perguntas Abertas
 

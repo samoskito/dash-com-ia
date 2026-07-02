@@ -16,6 +16,7 @@ export type RecordRuleMatchesInput = {
 
 export type RecordRuleMatchesResult = {
   created: string[];
+  duplicates: string[];
 };
 
 type ConversionEventLogRecord = {
@@ -44,9 +45,20 @@ export class ConversionEventsService {
     input: RecordRuleMatchesInput
   ): Promise<RecordRuleMatchesResult> {
     const created: string[] = [];
+    const duplicates: string[] = [];
 
     for (const rule of input.rules) {
       const status = rule.pixelId && input.adId ? "ready_to_send" : "pending_meta_context";
+      const dedupeKey = this.buildDedupeKey(input, rule);
+      const existing = (await this.prisma.conversionEventLog.findUnique({
+        where: { dedupeKey }
+      })) as ConversionEventLogRecord | null;
+
+      if (existing) {
+        duplicates.push(existing.id);
+        continue;
+      }
+
       const log = await this.prisma.conversionEventLog.create({
         data: {
           workspaceId: input.workspaceId,
@@ -60,14 +72,14 @@ export class ConversionEventsService {
           adSetId: input.adSetId ?? null,
           adId: input.adId ?? null,
           attributionStatus: input.adId ? "attributed" : "missing_ad_id",
-          dedupeKey: this.buildDedupeKey(input, rule)
+          dedupeKey
         }
       });
 
       created.push(log.id);
     }
 
-    return { created };
+    return { created, duplicates };
   }
 
   async sendReadyEvent(logId: string): Promise<SendReadyEventResult> {
