@@ -264,6 +264,49 @@ describe("webhooks controller", () => {
     await app.close();
   });
 
+  it("extracts attribution fields from Meta leadgen webhooks", async () => {
+    const { app, diagnosticsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/meta")
+      .set("x-workspace-id", "workspace_1")
+      .send({
+        object: "page",
+        entry: [
+          {
+            id: "page_1",
+            changes: [
+              {
+                field: "leadgen",
+                value: {
+                  leadgen_id: "leadgen_1",
+                  campaign_id: "cmp_1",
+                  adset_id: "adset_1",
+                  ad_id: "ad_1"
+                }
+              }
+            ]
+          }
+        ]
+      })
+      .expect(202);
+
+    expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "meta",
+        eventType: "meta.leadgen",
+        externalEventId: "leadgen_1",
+        idempotencyKey: "meta:leadgen_1",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1"
+      })
+    );
+
+    await app.close();
+  });
+
   it("does not run billing side effects for duplicate Asaas webhooks", async () => {
     const { app, diagnosticsService, billingService } = await createApp();
     diagnosticsService.recordWebhookLog.mockResolvedValueOnce({

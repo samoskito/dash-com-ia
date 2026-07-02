@@ -62,7 +62,7 @@ export class WebhooksController {
     @Body() body: WebhookBody,
     @Headers("x-workspace-id") workspaceId?: string
   ) {
-    return this.record("meta", body, workspaceId);
+    return this.recordMetaWebhook(body, workspaceId);
   }
 
   private record(
@@ -105,6 +105,97 @@ export class WebhooksController {
       ...diagnostic,
       billing
     };
+  }
+
+  private recordMetaWebhook(body: WebhookBody, workspaceId?: string) {
+    const meta = this.getMetaWebhookMetadata(body);
+    const externalEventId =
+      meta.externalEventId ??
+      this.firstString(body.id) ??
+      this.firstString(body.eventId) ??
+      this.firstString(body.externalEventId);
+
+    return this.diagnosticsService.recordWebhookLog({
+      workspaceId,
+      source: "meta",
+      eventType: meta.eventType,
+      externalEventId,
+      idempotencyKey: externalEventId ? `meta:${externalEventId}` : undefined,
+      campaignId: meta.campaignId,
+      adSetId: meta.adSetId,
+      adId: meta.adId,
+      summaryPayload: body
+    });
+  }
+
+  private getMetaWebhookMetadata(body: WebhookBody): {
+    eventType: string;
+    externalEventId?: string;
+    campaignId?: string;
+    adSetId?: string;
+    adId?: string;
+  } {
+    const change = this.getFirstMetaChange(body);
+    const value = change?.value;
+
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const valueObject = value as Record<string, unknown>;
+      const field = this.firstString(change?.field);
+      const isLeadgen =
+        field === "leadgen" ||
+        Boolean(this.firstString(valueObject.leadgen_id));
+
+      if (isLeadgen) {
+        return {
+          eventType: "meta.leadgen",
+          externalEventId:
+            this.firstString(valueObject.leadgen_id) ??
+            this.firstString(valueObject.id),
+          campaignId:
+            this.firstString(valueObject.campaign_id) ??
+            this.firstString(valueObject.campaignId),
+          adSetId:
+            this.firstString(valueObject.adset_id) ??
+            this.firstString(valueObject.ad_set_id) ??
+            this.firstString(valueObject.adgroup_id) ??
+            this.firstString(valueObject.adSetId),
+          adId:
+            this.firstString(valueObject.ad_id) ??
+            this.firstString(valueObject.adId)
+        };
+      }
+    }
+
+    return {
+      eventType:
+        this.firstString(body.object) ??
+        this.firstString(body.event) ??
+        "meta.webhook"
+    };
+  }
+
+  private getFirstMetaChange(body: WebhookBody): Record<string, unknown> | null {
+    const entries = Array.isArray(body.entry) ? body.entry : [];
+
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        continue;
+      }
+
+      const changes = (entry as Record<string, unknown>).changes;
+
+      if (!Array.isArray(changes)) {
+        continue;
+      }
+
+      for (const change of changes) {
+        if (change && typeof change === "object" && !Array.isArray(change)) {
+          return change as Record<string, unknown>;
+        }
+      }
+    }
+
+    return null;
   }
 
   private assertAsaasWebhookToken(receivedToken?: string) {

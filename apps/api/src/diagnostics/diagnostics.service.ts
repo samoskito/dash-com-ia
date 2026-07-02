@@ -156,6 +156,9 @@ export type WebhookLogInput = {
   eventType: string;
   externalEventId?: string;
   idempotencyKey?: string;
+  campaignId?: string;
+  adSetId?: string;
+  adId?: string;
   summaryPayload?: Record<string, unknown>;
 };
 
@@ -237,6 +240,9 @@ export class DiagnosticsService {
         source: input.source,
         eventType: input.eventType,
         externalEventId: input.externalEventId ?? null,
+        campaignId: input.campaignId ?? null,
+        adSetId: input.adSetId ?? null,
+        adId: input.adId ?? null,
         status: "received",
         idempotencyKey: input.idempotencyKey ?? null,
         summaryPayload: input.summaryPayload
@@ -255,6 +261,9 @@ export class DiagnosticsService {
         status: "received",
         title: `Webhook ${input.source} recebido`,
         message: `Evento ${input.eventType} recebido para processamento`,
+        campaignId: input.campaignId ?? null,
+        adSetId: input.adSetId ?? null,
+        adId: input.adId ?? null,
         webhookLogId: webhook.id,
         summaryPayload: input.summaryPayload
           ? (this.redactSensitive(
