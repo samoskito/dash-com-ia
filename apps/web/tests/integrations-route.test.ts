@@ -416,8 +416,11 @@ describe("integrations route", () => {
 
     expect(html).toContain("BM Principal");
     expect(html).toContain("Vendas");
+    expect(html).toContain("Ativa");
+    expect(html).toContain("Nao vinculada");
     expect(html).toContain("Sem permissao para alterar Meta");
     expect(html).toContain("Sem permissao para adicionar instancias");
+    expect(html).not.toContain("pendente");
     expect(html).not.toContain("Salvar selecao Meta");
     expect(html).not.toContain("Adicionar instancia");
     expect(html).not.toContain("Conectar WhatsApp");

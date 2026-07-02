@@ -284,6 +284,7 @@ function statusLabel(status: string) {
     not_connected: "Nao conectado",
     error: "Erro",
     pending_payment: "Pagamento pendente",
+    active: "Ativa",
     needs_reconnect: "Reconectar",
     not_configured: "Nao configurado",
     pending: "Aguardando",
@@ -687,7 +688,7 @@ export default async function IntegrationsPage() {
           </div>
           <div className="metric-card">
             <span className="micro-label">Asaas</span>
-            <strong>{billingSubscription?.asaasSubscriptionId ?? "pendente"}</strong>
+            <strong>{billingSubscription?.asaasSubscriptionId ?? "Nao vinculada"}</strong>
           </div>
         </div>
         {canManageBilling ? (

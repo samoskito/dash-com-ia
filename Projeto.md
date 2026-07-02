@@ -526,6 +526,7 @@ Checkpoint atual:
 - Tela publica de login nao deve afirmar health operacional ou taxas inventadas sem consultar backend. Os antigos cartoes estaticos `API online`, `99.2% aceito`, `Fila estavel` e `Sinal ativo` foram substituidos por cobertura neutra do produto: leads rastreados, campanhas Meta, eventos Pixel e diagnostico.
 - Aba `Integracoes` agora trata status inesperados do backend como estado explicito desconhecido em PT-BR (`Status desconhecido` / `Meta com status desconhecido`) em vez de exibir enum bruto ou mascarar como `Meta nao conectado`.
 - Aba `Relatorios` agora traduz status conhecidos da estrutura Meta para PT-BR e usa `Status desconhecido` quando campanha/conjunto/anuncio vier sem status, evitando fallback `unknown` na UI.
+- Aba `Integracoes` agora mostra assinatura/instancia `active` como `Ativa` e usa `Nao vinculada` quando ainda nao existe `asaasSubscriptionId`, evitando indicar cobranca pendente sem evidencia.
 
 Proximo passo operacional:
 
