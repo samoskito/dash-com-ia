@@ -13,6 +13,33 @@ type TokenRecord = {
   createdAt: Date;
 };
 
+type SessionRecord = {
+  id: string;
+  userId: string;
+  refreshHash: string;
+  userAgent: string | null;
+  ipAddress: string | null;
+  expiresAt: Date;
+  revokedAt: Date | null;
+  createdAt: Date;
+};
+
+type AuditLogRecord = {
+  id: string;
+  workspaceId: string | null;
+  actorUserId: string | null;
+  actorType: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  reason: string | null;
+  sourceIp: string | null;
+  resultStatus: string;
+  beforeSummary?: unknown;
+  afterSummary?: unknown;
+  createdAt: Date;
+};
+
 type FakePrisma = {
   user: {
     findUnique: (args: { where: { email?: string; id?: string } }) => Promise<Record<string, unknown> | null>;
@@ -22,6 +49,15 @@ type FakePrisma = {
     create: (args: { data: Omit<TokenRecord, "id" | "createdAt" | "usedAt"> }) => Promise<TokenRecord>;
     findFirst: (args: { where: Partial<TokenRecord> }) => Promise<TokenRecord | null>;
     update: (args: { data: Record<string, unknown>; where: { id: string } }) => Promise<TokenRecord>;
+  };
+  authSession: {
+    updateMany: (args: {
+      data: { revokedAt: Date };
+      where: { userId: string; revokedAt: null };
+    }) => Promise<{ count: number }>;
+  };
+  auditLog: {
+    create: (args: { data: Omit<AuditLogRecord, "id" | "createdAt"> }) => Promise<AuditLogRecord>;
   };
   $transaction: <T>(callback: (tx: FakePrisma) => Promise<T>) => Promise<T>;
 };
@@ -43,7 +79,20 @@ function createHarness() {
         memberships: []
       }
     ],
-    tokens: [] as TokenRecord[]
+    tokens: [] as TokenRecord[],
+    sessions: [
+      {
+        id: "session_1",
+        userId: "user_1",
+        refreshHash: "refresh_hash_1",
+        userAgent: "Vitest",
+        ipAddress: "127.0.0.1",
+        expiresAt: new Date("2026-08-01T03:00:00.000Z"),
+        revokedAt: null,
+        createdAt: now
+      }
+    ] as SessionRecord[],
+    auditLogs: [] as AuditLogRecord[]
   };
   const prisma: FakePrisma = {
     user: {
@@ -87,6 +136,40 @@ function createHarness() {
         return db.tokens[index];
       }
     },
+    authSession: {
+      updateMany: async ({ data, where }) => {
+        let count = 0;
+
+        db.sessions = db.sessions.map((session) => {
+          if (
+            session.userId === where.userId &&
+            session.revokedAt === where.revokedAt
+          ) {
+            count += 1;
+            return {
+              ...session,
+              revokedAt: data.revokedAt
+            };
+          }
+
+          return session;
+        });
+
+        return { count };
+      }
+    },
+    auditLog: {
+      create: async ({ data }) => {
+        const auditLog = {
+          id: `audit_${db.auditLogs.length + 1}`,
+          ...data,
+          createdAt: now
+        };
+
+        db.auditLogs.push(auditLog);
+        return auditLog;
+      }
+    },
     $transaction: async <T>(callback: (tx: typeof prisma) => Promise<T>) =>
       callback(prisma)
   };
@@ -119,6 +202,17 @@ describe("auth action token service", () => {
     expect(result).toEqual({ ok: true });
     expect(db.users[0].passwordHash).not.toBe("old-hash");
     expect(db.tokens[0].usedAt).toBeInstanceOf(Date);
+    expect(db.sessions[0].revokedAt).toBeInstanceOf(Date);
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "auth.password_reset_confirmed",
+        targetType: "User",
+        targetId: "user_1",
+        resultStatus: "success"
+      })
+    );
   });
 
   it("creates and confirms email verification token", async () => {

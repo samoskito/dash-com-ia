@@ -423,6 +423,30 @@ export class AuthService {
       where: { id: userId },
       data: { passwordHash }
     });
+    const revokedSessions = await this.prisma.authSession.updateMany({
+      where: {
+        userId,
+        revokedAt: null
+      },
+      data: {
+        revokedAt: new Date()
+      }
+    });
+    await this.safeCreateAuditLog({
+      workspaceId: null,
+      actorUserId: userId,
+      actorType: "user",
+      action: "auth.password_reset_confirmed",
+      targetType: "User",
+      targetId: userId,
+      reason: null,
+      sourceIp: null,
+      resultStatus: "success",
+      beforeSummary: null,
+      afterSummary: {
+        revokedSessions: revokedSessions.count
+      }
+    });
 
     return { ok: true };
   }
