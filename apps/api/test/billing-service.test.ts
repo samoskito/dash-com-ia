@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BillingService } from "../src/billing/billing.service";
 import type { AsaasAdapter } from "../src/billing/asaas.adapter";
 
@@ -38,7 +38,30 @@ type FakePrisma = {
   $transaction: <T>(callback: (tx: FakePrisma) => Promise<T>) => Promise<T>;
 };
 
-function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
+function createHarness(
+  asaasAdapter?: Pick<AsaasAdapter, "createPayment">,
+  options: {
+    uazapiAdapter?: {
+      createInstance: (input: {
+        name: string;
+        localInstanceId: string;
+        workspaceId: string;
+      }) => Promise<{
+        status: "created" | "not_configured" | "error";
+        providerInstanceId: string | null;
+        instanceToken: string | null;
+        message: string | null;
+      }>;
+    };
+    tokenEncryption?: {
+      encrypt: (token: string) => {
+        encryptedAccessToken: string;
+        tokenIv: string;
+        tokenTag: string;
+      };
+    };
+  } = {}
+) {
   const db = {
     instances: [] as Array<Record<string, unknown>>,
     integrationLogs: [] as Array<Record<string, unknown>>,
@@ -183,9 +206,22 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
         return {
           ...charge,
           activation:
-            db.activations.find(
+            (() => {
+              const activation = db.activations.find(
               (activation) => activation.paymentChargeId === charge.id
-            ) ?? null
+              );
+
+              return activation
+                ? {
+                    ...activation,
+                    whatsappInstance:
+                      db.instances.find(
+                        (instance) =>
+                          instance.id === activation.whatsappInstanceId
+                      ) ?? null
+                  }
+                : null;
+            })()
         };
       },
       findMany: async (args) => {
@@ -268,6 +304,25 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
     $transaction: async <T>(callback: (tx: typeof prisma) => Promise<T>) =>
       callback(prisma)
   };
+  const uazapiAdapter =
+    options.uazapiAdapter ??
+    ({
+      createInstance: vi.fn(async () => ({
+        status: "not_configured" as const,
+        providerInstanceId: null,
+        instanceToken: null,
+        message: "Missing UAZAPI_BASE_URL or UAZAPI_ADMIN_TOKEN"
+      }))
+    } as const);
+  const tokenEncryption =
+    options.tokenEncryption ??
+    ({
+      encrypt: vi.fn((token: string) => ({
+        encryptedAccessToken: `encrypted:${token}`,
+        tokenIv: "iv",
+        tokenTag: "tag"
+      }))
+    } as const);
 
   return {
     db,
@@ -280,10 +335,14 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
           checkoutUrl: null
         })
       }) as never,
+      uazapiAdapter as never,
+      tokenEncryption as never,
       {
         WPPTRACK_WHATSAPP_INSTANCE_PRICE_CENTS: "12900"
       }
-    )
+    ),
+    tokenEncryption,
+    uazapiAdapter
   };
 }
 
@@ -584,6 +643,69 @@ describe("billing service", () => {
         resultStatus: "active"
       })
     );
+  });
+
+  it("creates the Uazapi instance after confirmed payment and stores only encrypted token material", async () => {
+    const uazapiAdapter = {
+      createInstance: vi.fn(async () => ({
+        status: "created" as const,
+        providerInstanceId: "provider_instance_1",
+        instanceToken: "instance-token-1",
+        message: null
+      }))
+    };
+    const tokenEncryption = {
+      encrypt: vi.fn((token: string) => ({
+        encryptedAccessToken: `encrypted:${token}`,
+        tokenIv: "iv-1",
+        tokenTag: "tag-1"
+      }))
+    };
+    const { db, service } = createHarness(undefined, {
+      uazapiAdapter,
+      tokenEncryption
+    });
+    const checkout = await service.createWhatsappInstanceCheckout(
+      "workspace_1",
+      {
+        instanceName: "Comercial",
+        provider: "uazapi"
+      }
+    );
+    db.charges[0].externalChargeId = "pay_asaas_1";
+
+    await service.processAsaasPaymentWebhook({
+      event: "PAYMENT_RECEIVED",
+      payment: {
+        id: "pay_asaas_1",
+        status: "RECEIVED"
+      }
+    });
+
+    expect(uazapiAdapter.createInstance).toHaveBeenCalledWith({
+      name: "Comercial",
+      localInstanceId: checkout.whatsappInstanceId,
+      workspaceId: "workspace_1"
+    });
+    expect(tokenEncryption.encrypt).toHaveBeenCalledWith("instance-token-1");
+    expect(db.instances[0]).toMatchObject({
+      status: "active",
+      providerInstanceId: "provider_instance_1",
+      providerTokenEncrypted: "encrypted:instance-token-1",
+      providerTokenIv: "iv-1",
+      providerTokenTag: "tag-1"
+    });
+    expect(db.integrationLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "uazapi",
+        operation: "uazapi.instance.create",
+        status: "success",
+        providerRequestId: "provider_instance_1",
+        jobId: checkout.whatsappInstanceId
+      })
+    );
+    expect(JSON.stringify(db)).not.toContain('"instanceToken":"instance-token-1"');
   });
 
   it("updates the workspace subscription summary after activating a paid instance", async () => {

@@ -2,6 +2,56 @@ import { describe, expect, it, vi } from "vitest";
 import { UazapiAdapter } from "../src/integrations/uazapi/uazapi.adapter";
 
 describe("uazapi adapter", () => {
+  it("creates an instance with the official admin token and returns the instance token", async () => {
+    const fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          instance: {
+            id: "provider_instance_1",
+            name: "Comercial",
+            status: "disconnected"
+          },
+          token: "instance-token-1"
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    const adapter = new UazapiAdapter(
+      {
+        UAZAPI_BASE_URL: "https://uazapi.test",
+        UAZAPI_ADMIN_TOKEN: "admin-token"
+      },
+      fetch
+    );
+
+    const result = await adapter.createInstance({
+      name: "Comercial",
+      localInstanceId: "wpp_1",
+      workspaceId: "workspace_1"
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://uazapi.test/instance/create",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          admintoken: "admin-token"
+        }),
+        body: JSON.stringify({
+          name: "Comercial",
+          adminField01: "workspace_1",
+          adminField02: "wpp_1"
+        })
+      })
+    );
+    expect(result).toEqual({
+      status: "created",
+      providerInstanceId: "provider_instance_1",
+      instanceToken: "instance-token-1",
+      message: null
+    });
+  });
+
   it("reports not_configured without calling the external API when env is missing", async () => {
     const fetch = vi.fn();
     const adapter = new UazapiAdapter({}, fetch);
@@ -13,7 +63,7 @@ describe("uazapi adapter", () => {
     expect(status.qrCode).toBeNull();
   });
 
-  it("uses server-side token when requesting QR status", async () => {
+  it("uses the per-instance token when requesting QR status", async () => {
     const fetch = vi.fn(async () =>
       new Response(
         JSON.stringify({
@@ -32,20 +82,22 @@ describe("uazapi adapter", () => {
     );
     const adapter = new UazapiAdapter(
       {
-        UAZAPI_BASE_URL: "https://uazapi.test",
-        UAZAPI_TOKEN: "secret-token"
+        UAZAPI_BASE_URL: "https://uazapi.test"
       },
       fetch
     );
 
-    const status = await adapter.getQr("provider_instance_1");
+    const status = await adapter.getQr(
+      "provider_instance_1",
+      "instance-token-1"
+    );
 
     expect(fetch).toHaveBeenCalledWith(
       "https://uazapi.test/instance/status",
       expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({
-          token: "secret-token"
+          token: "instance-token-1"
         })
       })
     );
@@ -115,14 +167,17 @@ describe("uazapi adapter", () => {
       fetch
     );
 
-    const result = await adapter.listLabels("provider_instance_1");
+    const result = await adapter.listLabels(
+      "provider_instance_1",
+      "instance-token-1"
+    );
 
     expect(fetch).toHaveBeenCalledWith(
       "https://uazapi.test/labels",
       expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({
-          token: "secret-token"
+          token: "instance-token-1"
         })
       })
     );

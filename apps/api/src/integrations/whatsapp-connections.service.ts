@@ -15,6 +15,7 @@ import {
   type UazapiConnectionResult,
   type UazapiLabelListResult
 } from "./uazapi/uazapi.adapter";
+import { MetaTokenEncryptionService } from "./meta/meta-token-encryption.service";
 
 type WhatsappInstanceRecord = {
   id: string;
@@ -23,6 +24,9 @@ type WhatsappInstanceRecord = {
   provider: "uazapi" | "cloud_api";
   status: "pending_payment" | "active" | "disconnected" | "suspended" | "error";
   providerInstanceId: string | null;
+  providerTokenEncrypted: string | null;
+  providerTokenIv: string | null;
+  providerTokenTag: string | null;
   activations?: Array<{
     paymentCharge: {
       checkoutUrl: string | null;
@@ -40,7 +44,9 @@ type UazapiOperation =
 export class WhatsappConnectionsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(UazapiAdapter) private readonly uazapiAdapter: UazapiAdapter
+    @Inject(UazapiAdapter) private readonly uazapiAdapter: UazapiAdapter,
+    @Inject(MetaTokenEncryptionService)
+    private readonly tokenEncryption: MetaTokenEncryptionService
   ) {}
 
   async listInstances(workspaceId: string): Promise<WhatsappInstanceSummaryDto[]> {
@@ -83,7 +89,8 @@ export class WhatsappConnectionsService {
       "uazapi.instance.status",
       () =>
         this.uazapiAdapter.getInstanceStatus(
-          instance.providerInstanceId ?? instance.id
+          instance.providerInstanceId ?? instance.id,
+          this.getProviderToken(instance)
         )
     );
 
@@ -101,7 +108,10 @@ export class WhatsappConnectionsService {
       instance,
       "uazapi.instance.connect",
       () =>
-        this.uazapiAdapter.connectInstance(instance.providerInstanceId ?? instance.id)
+        this.uazapiAdapter.connectInstance(
+          instance.providerInstanceId ?? instance.id,
+          this.getProviderToken(instance)
+        )
     );
 
     if (result.providerInstanceId && result.providerInstanceId !== instance.providerInstanceId) {
@@ -132,7 +142,11 @@ export class WhatsappConnectionsService {
     const result = await this.callUazapiInstance(
       instance,
       "uazapi.instance.qr",
-      () => this.uazapiAdapter.getQr(instance.providerInstanceId ?? instance.id)
+      () =>
+        this.uazapiAdapter.getQr(
+          instance.providerInstanceId ?? instance.id,
+          this.getProviderToken(instance)
+        )
     );
 
     return this.toDto(instance, result);
@@ -145,7 +159,8 @@ export class WhatsappConnectionsService {
     const instance = await this.getActiveInstance(workspaceId, whatsappInstanceId);
     const startedAt = new Date();
     const result = await this.uazapiAdapter.listLabels(
-      instance.providerInstanceId ?? instance.id
+      instance.providerInstanceId ?? instance.id,
+      this.getProviderToken(instance)
     );
     await this.recordUazapiLabelLog(instance, startedAt, result);
 
@@ -314,6 +329,22 @@ export class WhatsappConnectionsService {
 
   private hashSensitiveValue(value: string): string {
     return createHash("sha256").update(value).digest("hex");
+  }
+
+  private getProviderToken(instance: WhatsappInstanceRecord): string | undefined {
+    if (
+      !instance.providerTokenEncrypted ||
+      !instance.providerTokenIv ||
+      !instance.providerTokenTag
+    ) {
+      return undefined;
+    }
+
+    return this.tokenEncryption.decrypt({
+      encryptedAccessToken: instance.providerTokenEncrypted,
+      tokenIv: instance.providerTokenIv,
+      tokenTag: instance.providerTokenTag
+    });
   }
 
   private async getActiveInstance(

@@ -9,6 +9,11 @@ import type {
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
+import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
+import {
+  UazapiAdapter,
+  type UazapiCreateInstanceResult
+} from "../integrations/uazapi/uazapi.adapter";
 import { AsaasAdapter } from "./asaas.adapter";
 
 type AsaasPaymentWebhookPayload = Record<string, unknown>;
@@ -29,6 +34,16 @@ type PaymentChargeWithActivation = {
   activation: {
     id: string;
     whatsappInstanceId: string;
+    whatsappInstance: {
+      id: string;
+      workspaceId: string;
+      name: string;
+      provider: string;
+      providerInstanceId: string | null;
+      providerTokenEncrypted?: string | null;
+      providerTokenIv?: string | null;
+      providerTokenTag?: string | null;
+    };
   } | null;
 };
 
@@ -86,6 +101,12 @@ export class BillingService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AsaasAdapter) private readonly asaasAdapter: AsaasAdapter,
+    @Optional()
+    @Inject(UazapiAdapter)
+    private readonly uazapiAdapter?: UazapiAdapter,
+    @Optional()
+    @Inject(MetaTokenEncryptionService)
+    private readonly tokenEncryption?: MetaTokenEncryptionService,
     @Optional()
     @Inject(RUNTIME_ENV)
     private readonly env: RuntimeEnv = process.env
@@ -453,7 +474,11 @@ export class BillingService {
         ]
       },
       include: {
-        activation: true
+        activation: {
+          include: {
+            whatsappInstance: true
+          }
+        }
       }
     })) as PaymentChargeWithActivation | null;
 
@@ -498,6 +523,10 @@ export class BillingService {
       };
     }
 
+    const providerActivation = await this.prepareProviderActivation(
+      charge.activation.whatsappInstance
+    );
+
     await this.prisma.$transaction(async (tx) => {
       await tx.paymentCharge.update({
         where: { id: charge.id },
@@ -516,7 +545,8 @@ export class BillingService {
       await tx.whatsappInstance.update({
         where: { id: charge.activation!.whatsappInstanceId },
         data: {
-          status: "active"
+          status: "active",
+          ...providerActivation.updateData
         }
       });
       const activeInstances = await tx.whatsappInstance.count({
@@ -594,6 +624,116 @@ export class BillingService {
       activationId: charge.activation.id,
       whatsappInstanceId: charge.activation.whatsappInstanceId
     };
+  }
+
+  private async prepareProviderActivation(instance: {
+    id: string;
+    workspaceId: string;
+    name: string;
+    provider: string;
+    providerInstanceId: string | null;
+    providerTokenEncrypted?: string | null;
+    providerTokenIv?: string | null;
+    providerTokenTag?: string | null;
+  }): Promise<{
+    updateData: Prisma.WhatsappInstanceUpdateInput;
+  }> {
+    if (
+      instance.provider !== "uazapi" ||
+      instance.providerInstanceId ||
+      instance.providerTokenEncrypted
+    ) {
+      return { updateData: {} };
+    }
+
+    const startedAt = new Date();
+    const result = this.uazapiAdapter
+      ? await this.uazapiAdapter.createInstance({
+          name: instance.name,
+          localInstanceId: instance.id,
+          workspaceId: instance.workspaceId
+        })
+      : ({
+          status: "not_configured",
+          providerInstanceId: null,
+          instanceToken: null,
+          message: "Uazapi adapter nao configurado"
+        } satisfies UazapiCreateInstanceResult);
+    await this.recordUazapiInstanceCreateLog(instance, startedAt, result);
+
+    if (
+      result.status !== "created" ||
+      !result.providerInstanceId ||
+      !result.instanceToken ||
+      !this.tokenEncryption
+    ) {
+      return { updateData: {} };
+    }
+
+    const encrypted = this.tokenEncryption.encrypt(result.instanceToken);
+
+    return {
+      updateData: {
+        providerInstanceId: result.providerInstanceId,
+        providerTokenEncrypted: encrypted.encryptedAccessToken,
+        providerTokenIv: encrypted.tokenIv,
+        providerTokenTag: encrypted.tokenTag
+      }
+    };
+  }
+
+  private async recordUazapiInstanceCreateLog(
+    instance: {
+      id: string;
+      workspaceId: string;
+      name: string;
+    },
+    startedAt: Date,
+    result: UazapiCreateInstanceResult
+  ): Promise<void> {
+    const finishedAt = new Date();
+    const createdWithCredentials =
+      result.status === "created" &&
+      Boolean(result.providerInstanceId) &&
+      Boolean(result.instanceToken);
+    const status =
+      createdWithCredentials
+        ? "success"
+        : result.status === "not_configured"
+          ? "blocked"
+          : "error";
+
+    try {
+      await this.prisma.integrationLog.create({
+        data: {
+          workspaceId: instance.workspaceId,
+          source: "uazapi",
+          operation: "uazapi.instance.create",
+          status,
+          startedAt,
+          finishedAt,
+          durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
+          providerRequestId: result.providerInstanceId,
+          providerErrorMessage:
+            status === "success"
+              ? null
+              : result.message ?? "Uazapi nao retornou id/token da instancia",
+          jobId: instance.id,
+          requestSummary: {
+            whatsappInstanceId: instance.id,
+            instanceName: instance.name
+          } as Prisma.InputJsonValue,
+          responseSummary: {
+            status: result.status,
+            providerInstanceConfigured: Boolean(result.providerInstanceId),
+            instanceTokenReceived: Boolean(result.instanceToken),
+            message: result.message
+          } as Prisma.InputJsonValue
+        }
+      });
+    } catch {
+      return;
+    }
   }
 
   private getPricePerInstanceCents(): number {

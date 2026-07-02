@@ -30,6 +30,9 @@ function createHarness() {
         provider: "uazapi",
         status: "active",
         providerInstanceId: "provider_instance_1",
+        providerTokenEncrypted: "encrypted-instance-token",
+        providerTokenIv: "iv",
+        providerTokenTag: "tag",
         createdAt: new Date("2026-07-02T03:01:00.000Z"),
         activations: []
       }
@@ -120,9 +123,18 @@ function createHarness() {
     }))
   };
 
+  const tokenEncryption = {
+    decrypt: vi.fn(() => "instance-token-1")
+  };
+
   return {
     db,
-    service: new WhatsappConnectionsService(prisma as never, uazapiAdapter as never),
+    service: new WhatsappConnectionsService(
+      prisma as never,
+      uazapiAdapter as never,
+      tokenEncryption as never
+    ),
+    tokenEncryption,
     uazapiAdapter
   };
 }
@@ -170,7 +182,8 @@ describe("whatsapp connections service", () => {
     const status = await service.getStatus("workspace_1", "wpp_active");
 
     expect(uazapiAdapter.getInstanceStatus).toHaveBeenCalledWith(
-      "provider_instance_1"
+      "provider_instance_1",
+      "instance-token-1"
     );
     expect(status).toMatchObject({
       whatsappInstanceId: "wpp_active",
@@ -252,7 +265,10 @@ describe("whatsapp connections service", () => {
 
     const labels = await service.listLabels("workspace_1", "wpp_active");
 
-    expect(uazapiAdapter.listLabels).toHaveBeenCalledWith("provider_instance_1");
+    expect(uazapiAdapter.listLabels).toHaveBeenCalledWith(
+      "provider_instance_1",
+      "instance-token-1"
+    );
     expect(labels).toEqual([
       {
         id: "label_uuid_1",

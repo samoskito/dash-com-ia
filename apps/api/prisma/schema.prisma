@@ -154,14 +154,17 @@ model WorkspaceMember {
 }
 
 model WhatsappInstance {
-  id                 String                 @id @default(cuid())
-  workspaceId        String
-  name               String
-  provider           String
-  providerInstanceId String?
-  status             WhatsappInstanceStatus @default(pending_payment)
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
+  id                     String                 @id @default(cuid())
+  workspaceId            String
+  name                   String
+  provider               String
+  providerInstanceId     String?
+  providerTokenEncrypted String?
+  providerTokenIv        String?
+  providerTokenTag       String?
+  status                 WhatsappInstanceStatus @default(pending_payment)
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
 
   workspace   Workspace                    @relation(fields: [workspaceId], references: [id])
   activations WhatsappInstanceActivation[]

@@ -30,6 +30,19 @@ export type UazapiLabelListResult = {
   labels: WhatsappLabelDto[];
 };
 
+export type UazapiCreateInstanceInput = {
+  name: string;
+  localInstanceId: string;
+  workspaceId: string;
+};
+
+export type UazapiCreateInstanceResult = {
+  status: "created" | "not_configured" | "error";
+  providerInstanceId: string | null;
+  instanceToken: string | null;
+  message: string | null;
+};
+
 @Injectable()
 export class UazapiAdapter implements IntegrationAdapter {
   readonly provider = "uazapi" as const;
@@ -52,20 +65,110 @@ export class UazapiAdapter implements IntegrationAdapter {
     };
   }
 
-  async getInstanceStatus(instanceRef: string): Promise<UazapiConnectionResult> {
-    return this.requestInstance("GET", "/instance/status", instanceRef);
+  async createInstance(
+    input: UazapiCreateInstanceInput
+  ): Promise<UazapiCreateInstanceResult> {
+    if (!this.env.UAZAPI_BASE_URL || !this.env.UAZAPI_ADMIN_TOKEN) {
+      return {
+        status: "not_configured",
+        providerInstanceId: null,
+        instanceToken: null,
+        message: "Missing UAZAPI_BASE_URL or UAZAPI_ADMIN_TOKEN"
+      };
+    }
+
+    try {
+      const response = await this.fetchImpl(
+        `${this.env.UAZAPI_BASE_URL.replace(/\/$/, "")}/instance/create`,
+        {
+          method: "POST",
+          headers: {
+            admintoken: this.env.UAZAPI_ADMIN_TOKEN,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            name: input.name,
+            adminField01: input.workspaceId,
+            adminField02: input.localInstanceId
+          })
+        }
+      );
+      const payload = (await response.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+
+      if (!response.ok) {
+        return {
+          status: "error",
+          providerInstanceId: null,
+          instanceToken: null,
+          message: this.asString(payload.message) ?? `Uazapi HTTP ${response.status}`
+        };
+      }
+
+      const instance = this.asRecord(payload.instance);
+
+      return {
+        status: "created",
+        providerInstanceId:
+          this.asString(instance?.id) ??
+          this.asString(payload.instanceId) ??
+          this.asString(payload.instance_id),
+        instanceToken:
+          this.asString(payload.token) ??
+          this.asString(payload.instanceToken) ??
+          this.asString(payload.instance_token),
+        message: this.asString(payload.message)
+      };
+    } catch (error) {
+      return {
+        status: "error",
+        providerInstanceId: null,
+        instanceToken: null,
+        message: error instanceof Error ? error.message : "Erro ao chamar Uazapi"
+      };
+    }
   }
 
-  async connectInstance(instanceRef: string): Promise<UazapiConnectionResult> {
-    return this.requestInstance("POST", "/instance/connect", instanceRef);
+  async getInstanceStatus(
+    instanceRef: string,
+    instanceToken?: string | null
+  ): Promise<UazapiConnectionResult> {
+    return this.requestInstance(
+      "GET",
+      "/instance/status",
+      instanceRef,
+      instanceToken
+    );
   }
 
-  async getQr(instanceRef: string): Promise<UazapiConnectionResult> {
-    return this.getInstanceStatus(instanceRef);
+  async connectInstance(
+    instanceRef: string,
+    instanceToken?: string | null
+  ): Promise<UazapiConnectionResult> {
+    return this.requestInstance(
+      "POST",
+      "/instance/connect",
+      instanceRef,
+      instanceToken
+    );
   }
 
-  async listLabels(_instanceRef: string): Promise<UazapiLabelListResult> {
-    if (!this.env.UAZAPI_BASE_URL || !this.env.UAZAPI_TOKEN) {
+  async getQr(
+    instanceRef: string,
+    instanceToken?: string | null
+  ): Promise<UazapiConnectionResult> {
+    return this.getInstanceStatus(instanceRef, instanceToken);
+  }
+
+  async listLabels(
+    _instanceRef: string,
+    instanceToken?: string | null
+  ): Promise<UazapiLabelListResult> {
+    const token = this.getInstanceToken(instanceToken);
+
+    if (!this.env.UAZAPI_BASE_URL || !token) {
       return {
         status: "not_configured",
         message: "Missing UAZAPI_BASE_URL or UAZAPI_TOKEN",
@@ -79,7 +182,7 @@ export class UazapiAdapter implements IntegrationAdapter {
         {
           method: "GET",
           headers: {
-            token: this.env.UAZAPI_TOKEN,
+            token,
             "Content-Type": "application/json"
           }
         }
@@ -116,9 +219,12 @@ export class UazapiAdapter implements IntegrationAdapter {
   private async requestInstance(
     method: "GET" | "POST",
     path: string,
-    instanceRef: string
+    instanceRef: string,
+    instanceToken?: string | null
   ): Promise<UazapiConnectionResult> {
-    if (!this.env.UAZAPI_BASE_URL || !this.env.UAZAPI_TOKEN) {
+    const token = this.getInstanceToken(instanceToken);
+
+    if (!this.env.UAZAPI_BASE_URL || !token) {
       return {
         providerInstanceId: instanceRef,
         connectionStatus: "not_configured",
@@ -133,7 +239,7 @@ export class UazapiAdapter implements IntegrationAdapter {
         {
           method,
           headers: {
-            token: this.env.UAZAPI_TOKEN,
+            token,
             "Content-Type": "application/json"
           }
         }
@@ -255,6 +361,10 @@ export class UazapiAdapter implements IntegrationAdapter {
         }
       ];
     });
+  }
+
+  private getInstanceToken(instanceToken?: string | null): string | undefined {
+    return instanceToken ?? this.env.UAZAPI_TOKEN;
   }
 
   private asString(value: unknown): string | null {
