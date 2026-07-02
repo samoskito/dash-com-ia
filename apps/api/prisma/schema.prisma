@@ -91,7 +91,7 @@ model WhatsappInstance {
 model AuthSession {
   id          String    @id @default(cuid())
   userId      String
-  refreshHash String
+  refreshHash String    @unique
   userAgent   String?
   ipAddress   String?
   expiresAt   DateTime

@@ -13,9 +13,12 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - A Fase 1 cria monorepo, app web navegavel, API NestJS, contratos compartilhados, Prisma e BullMQ sem integrar provedores reais ainda.
 - Implementacao atual da Fase 1: Tasks 1-9 executadas e commitadas, cobrindo monorepo, contratos compartilhados, shell da API NestJS, shell web navegavel, rota de login, schema/service Prisma, fila diagnostica BullMQ, testes de navegacao/login do web, README e handoff do projeto.
 - Verificacao final executada: `pnpm install`, `pnpm test`, `pnpm typecheck`, `pnpm build`, `prisma generate` e `prisma validate` passaram.
-- Limitacao local conhecida: Docker Desktop/Postgres/Redis nao estao disponiveis neste ambiente ate aqui, entao migracoes reais do Prisma e verificacao dos servicos locais via `docker compose up`/`pnpm dev` ainda nao foram executadas.
+- Docker Desktop foi aberto e validado em 2026-07-02; `docker compose up -d postgres redis` subiu Postgres em `5432` e Redis em `6379`.
+- Migrations reais do Prisma foram criadas e aplicadas no Postgres local: `20260702031728_init_wpptrack_foundation` e `20260702032400_auth_refresh_hash_unique`.
+- Autenticacao propria avancou para endpoints HTTP reais no NestJS: `POST /auth/register`, `POST /auth/login`, `GET /auth/me` e `POST /auth/logout`.
+- Cadastro cria usuario por email/senha, workspace inicial com papel `owner`, sessao persistida em `AuthSession`, refresh token opaco e cookie `HttpOnly`.
 - Rodada Paralela 1 executada e revisada: visual WppTrack/Telemetria Noturna aplicado ao web, Auth/Workspaces iniciado, scaffolds de integracoes Meta/Uazapi/Asaas criados e spec de Diagnosticos/Logs adicionada.
-- Verificacao da Rodada Paralela 1: `pnpm test`, `pnpm typecheck`, `pnpm build`, `prisma generate` e `prisma validate` passaram. `docker compose up -d postgres redis` segue bloqueado pela ausencia do Docker Desktop Linux engine.
+- Verificacao da Rodada Paralela 1: `pnpm test`, `pnpm typecheck`, `pnpm build`, `prisma generate` e `prisma validate` passaram. O bloqueio anterior do Docker Desktop Linux engine foi resolvido quando o Docker Desktop foi aberto.
 - Spec e plano da Rodada Paralela 1: `docs/superpowers/specs/2026-07-02-wpptrack-parallel-wave-1-design.md` e `docs/superpowers/plans/2026-07-02-wpptrack-parallel-wave-1-implementation.md`.
 - Servidor local usado para visualizar: `http://127.0.0.1:5174/`.
 - Repositorio inicial ja possui commits da fundacao da Fase 1.
