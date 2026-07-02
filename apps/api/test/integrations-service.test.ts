@@ -54,28 +54,102 @@ describe("integrations service", () => {
 
   it("delegates Meta callback exchange to the adapter", async () => {
     const metaAdapter = new MetaAdapter({});
-    const exchangeSpy = vi.spyOn(metaAdapter, "exchangeCode").mockResolvedValue({
-      provider: "meta",
-      status: "connected",
-      tokenType: "bearer",
-      expiresInSeconds: 5183944,
-      scopes: ["ads_read"],
-      missingEnv: [],
-      message: "Meta OAuth conectado"
+    const exchangeSpy = vi.spyOn(metaAdapter, "exchangeCodeForToken").mockResolvedValue({
+      accessToken: "EAAB-secret-token",
+      publicResult: {
+        provider: "meta",
+        status: "connected",
+        tokenType: "bearer",
+        expiresInSeconds: 5183944,
+        scopes: ["ads_read"],
+        missingEnv: [],
+        message: "Meta OAuth conectado"
+      }
     });
+    const metaConnectionsService = {
+      saveOAuthConnection: vi.fn(async () => ({
+        workspaceId: "workspace_1",
+        status: "connected",
+        tokenType: "bearer",
+        scopes: ["ads_read"],
+        expiresAt: "2026-09-01T03:00:00.000Z",
+        connectedAt: "2026-07-02T03:00:00.000Z",
+        selectedBusinessId: null,
+        selectedAdAccountId: null,
+        selectedPixelId: null
+      }))
+    };
+    const env = {
+      META_TOKEN_ENCRYPTION_KEY: "state-secret"
+    };
+    const stateService = new IntegrationsService(
+      metaAdapter,
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {
+        META_APP_ID: "app_123",
+        META_APP_SECRET: "secret",
+        META_OAUTH_REDIRECT_URL: "https://api.wpptrack.com/integrations/meta/callback",
+        META_TOKEN_ENCRYPTION_KEY: "state-secret"
+      },
+      metaConnectionsService as never
+    );
+    const start = stateService.getMetaStartAction("workspace_1");
+    const state = new URL(start.href ?? "").searchParams.get("state");
     const service = new IntegrationsService(
       metaAdapter,
       new UazapiAdapter({}),
       new AsaasAdapter({}),
-      {}
+      env,
+      metaConnectionsService as never
     );
 
     await expect(
-      service.handleMetaCallback({ code: "meta-code", state: "state-token" })
+      service.handleMetaCallback({ code: "meta-code", state: state ?? "" })
     ).resolves.toMatchObject({
       provider: "meta",
-      status: "connected"
+      status: "connected",
+      connection: {
+        workspaceId: "workspace_1",
+        status: "connected"
+      }
     });
     expect(exchangeSpy).toHaveBeenCalledWith({ code: "meta-code" });
+    expect(metaConnectionsService.saveOAuthConnection).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      accessToken: "EAAB-secret-token",
+      tokenType: "bearer",
+      expiresInSeconds: 5183944,
+      scopes: ["ads_read"]
+    });
+  });
+
+  it("returns sanitized Meta connection status for a workspace", async () => {
+    const metaConnectionsService = {
+      getConnection: vi.fn(async () => ({
+        workspaceId: "workspace_1",
+        status: "connected",
+        tokenType: "bearer",
+        scopes: ["ads_read"],
+        expiresAt: null,
+        connectedAt: "2026-07-02T03:00:00.000Z",
+        selectedBusinessId: null,
+        selectedAdAccountId: null,
+        selectedPixelId: null
+      }))
+    };
+    const service = new IntegrationsService(
+      new MetaAdapter({}),
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {},
+      metaConnectionsService as never
+    );
+
+    await expect(service.getMetaConnection("workspace_1")).resolves.toMatchObject({
+      workspaceId: "workspace_1",
+      status: "connected"
+    });
+    expect(metaConnectionsService.getConnection).toHaveBeenCalledWith("workspace_1");
   });
 });

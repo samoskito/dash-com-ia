@@ -20,6 +20,11 @@ type MetaTokenResponse = {
   };
 };
 
+export type MetaOAuthTokenExchangeResult = {
+  publicResult: MetaOAuthCallbackResultDto;
+  accessToken: string | null;
+};
+
 @Injectable()
 export class MetaAdapter implements IntegrationAdapter {
   readonly provider = "meta" as const;
@@ -58,6 +63,14 @@ export class MetaAdapter implements IntegrationAdapter {
   async exchangeCode(input: {
     code: string;
   }): Promise<MetaOAuthCallbackResultDto> {
+    const result = await this.exchangeCodeForToken(input);
+
+    return result.publicResult;
+  }
+
+  async exchangeCodeForToken(input: {
+    code: string;
+  }): Promise<MetaOAuthTokenExchangeResult> {
     const missingEnv = this.missingEnv([
       "META_APP_ID",
       "META_APP_SECRET",
@@ -66,13 +79,16 @@ export class MetaAdapter implements IntegrationAdapter {
 
     if (missingEnv.length > 0) {
       return {
-        provider: "meta",
-        status: "configure_env",
-        tokenType: null,
-        expiresInSeconds: null,
-        scopes: [],
-        missingEnv,
-        message: `Missing ${missingEnv.join(", ")}`
+        accessToken: null,
+        publicResult: {
+          provider: "meta",
+          status: "configure_env",
+          tokenType: null,
+          expiresInSeconds: null,
+          scopes: [],
+          missingEnv,
+          message: `Missing ${missingEnv.join(", ")}`
+        }
       };
     }
 
@@ -91,36 +107,45 @@ export class MetaAdapter implements IntegrationAdapter {
 
       if (!response.ok || !this.asString(payload.access_token)) {
         return {
+          accessToken: null,
+          publicResult: {
+            provider: "meta",
+            status: "exchange_failed",
+            tokenType: null,
+            expiresInSeconds: null,
+            scopes: [],
+            missingEnv: [],
+            message:
+              this.asString(payload.error?.message) ??
+              `Meta OAuth HTTP ${response.status}`
+          }
+        };
+      }
+
+      return {
+        accessToken: this.asString(payload.access_token),
+        publicResult: {
+          provider: "meta",
+          status: "connected",
+          tokenType: this.asString(payload.token_type) ?? "bearer",
+          expiresInSeconds: this.asPositiveInteger(payload.expires_in),
+          scopes: this.getScopes(),
+          missingEnv: [],
+          message: "Meta OAuth conectado"
+        }
+      };
+    } catch (error) {
+      return {
+        accessToken: null,
+        publicResult: {
           provider: "meta",
           status: "exchange_failed",
           tokenType: null,
           expiresInSeconds: null,
           scopes: [],
           missingEnv: [],
-          message:
-            this.asString(payload.error?.message) ??
-            `Meta OAuth HTTP ${response.status}`
-        };
-      }
-
-      return {
-        provider: "meta",
-        status: "connected",
-        tokenType: this.asString(payload.token_type) ?? "bearer",
-        expiresInSeconds: this.asPositiveInteger(payload.expires_in),
-        scopes: this.getScopes(),
-        missingEnv: [],
-        message: "Meta OAuth conectado"
-      };
-    } catch (error) {
-      return {
-        provider: "meta",
-        status: "exchange_failed",
-        tokenType: null,
-        expiresInSeconds: null,
-        scopes: [],
-        missingEnv: [],
-        message: error instanceof Error ? error.message : "Erro ao trocar code Meta"
+          message: error instanceof Error ? error.message : "Erro ao trocar code Meta"
+        }
       };
     }
   }

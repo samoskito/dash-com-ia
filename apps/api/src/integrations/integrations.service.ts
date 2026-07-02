@@ -1,5 +1,7 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import type {
+  MetaConnectionDto,
   IntegrationHealthSummaryDto,
   IntegrationStartActionDto,
   MetaOAuthCallbackQueryDto,
@@ -9,6 +11,7 @@ import { AsaasAdapter } from "./asaas/asaas.adapter";
 import type { IntegrationEnv } from "./integration.types";
 import { INTEGRATION_ENV } from "./integration.types";
 import { MetaAdapter } from "./meta/meta.adapter";
+import { MetaConnectionsService } from "./meta/meta-connections.service";
 import { UazapiAdapter } from "./uazapi/uazapi.adapter";
 
 @Injectable()
@@ -17,7 +20,9 @@ export class IntegrationsService {
     private readonly metaAdapter: MetaAdapter,
     private readonly uazapiAdapter: UazapiAdapter,
     private readonly asaasAdapter: AsaasAdapter,
-    @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env
+    @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env,
+    @Optional()
+    private readonly metaConnectionsService?: MetaConnectionsService
   ) {}
 
   async getHealthSummary(): Promise<IntegrationHealthSummaryDto> {
@@ -31,12 +36,15 @@ export class IntegrationsService {
     };
   }
 
-  getMetaStartAction(): IntegrationStartActionDto {
-    const missingEnv = this.missingEnv([
+  getMetaStartAction(workspaceId?: string): IntegrationStartActionDto {
+    const requiredEnv = [
       "META_APP_ID",
       "META_APP_SECRET",
       "META_OAUTH_REDIRECT_URL"
-    ]);
+    ];
+    const missingEnv = this.missingEnv(
+      workspaceId ? [...requiredEnv, "META_TOKEN_ENCRYPTION_KEY"] : requiredEnv
+    );
 
     if (missingEnv.length > 0) {
       return {
@@ -51,7 +59,9 @@ export class IntegrationsService {
       provider: "meta",
       action: "oauth_redirect",
       label: "Conectar Meta via OAuth",
-      href: this.metaAdapter.getOAuthAuthorizationUrl(),
+      href: this.metaAdapter.getOAuthAuthorizationUrl(
+        workspaceId ? this.createMetaOAuthState(workspaceId) : undefined
+      ),
       missingEnv: []
     };
   }
@@ -59,7 +69,59 @@ export class IntegrationsService {
   async handleMetaCallback(
     input: MetaOAuthCallbackQueryDto
   ): Promise<MetaOAuthCallbackResultDto> {
-    return this.metaAdapter.exchangeCode({ code: input.code });
+    const exchange = await this.metaAdapter.exchangeCodeForToken({
+      code: input.code
+    });
+
+    if (
+      exchange.publicResult.status !== "connected" ||
+      !exchange.accessToken ||
+      !input.state ||
+      !this.metaConnectionsService
+    ) {
+      return exchange.publicResult;
+    }
+
+    const workspaceId = this.readMetaOAuthState(input.state);
+
+    if (!workspaceId) {
+      return {
+        ...exchange.publicResult,
+        status: "exchange_failed",
+        message: "State OAuth Meta invalido"
+      };
+    }
+
+    const connection = await this.metaConnectionsService.saveOAuthConnection({
+      workspaceId,
+      accessToken: exchange.accessToken,
+      tokenType: exchange.publicResult.tokenType,
+      expiresInSeconds: exchange.publicResult.expiresInSeconds,
+      scopes: exchange.publicResult.scopes
+    });
+
+    return {
+      ...exchange.publicResult,
+      connection
+    };
+  }
+
+  async getMetaConnection(workspaceId: string): Promise<MetaConnectionDto> {
+    if (!this.metaConnectionsService) {
+      return {
+        workspaceId,
+        status: "not_connected",
+        tokenType: null,
+        scopes: [],
+        expiresAt: null,
+        connectedAt: null,
+        selectedBusinessId: null,
+        selectedAdAccountId: null,
+        selectedPixelId: null
+      };
+    }
+
+    return this.metaConnectionsService.getConnection(workspaceId);
   }
 
   getUazapiStartAction(): IntegrationStartActionDto {
@@ -92,5 +154,58 @@ export class IntegrationsService {
 
   private missingEnv(keys: string[]): string[] {
     return keys.filter((key) => !this.env[key]);
+  }
+
+  private createMetaOAuthState(workspaceId: string): string {
+    const payload = Buffer.from(
+      JSON.stringify({
+        workspaceId,
+        nonce: randomBytes(16).toString("hex")
+      })
+    ).toString("base64url");
+    const signature = this.signStatePayload(payload);
+
+    return `${payload}.${signature}`;
+  }
+
+  private readMetaOAuthState(state: string): string | null {
+    const [payload, signature] = state.split(".");
+
+    if (!payload || !signature) {
+      return null;
+    }
+
+    const expected = this.signStatePayload(payload);
+    const expectedBuffer = Buffer.from(expected);
+    const signatureBuffer = Buffer.from(signature);
+
+    if (
+      expectedBuffer.length !== signatureBuffer.length ||
+      !timingSafeEqual(expectedBuffer, signatureBuffer)
+    ) {
+      return null;
+    }
+
+    try {
+      const decoded = JSON.parse(
+        Buffer.from(payload, "base64url").toString("utf8")
+      ) as { workspaceId?: unknown };
+
+      return typeof decoded.workspaceId === "string" && decoded.workspaceId
+        ? decoded.workspaceId
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private signStatePayload(payload: string): string {
+    const secret = this.env.META_TOKEN_ENCRYPTION_KEY;
+
+    if (!secret) {
+      throw new Error("Missing META_TOKEN_ENCRYPTION_KEY");
+    }
+
+    return createHmac("sha256", secret).update(payload).digest("base64url");
   }
 }

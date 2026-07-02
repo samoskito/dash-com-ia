@@ -72,6 +72,32 @@ describe("meta adapter oauth", () => {
     expect(JSON.stringify(result)).not.toContain("EAAB-secret-token");
   });
 
+  it("can return the access token to backend services for encrypted persistence", async () => {
+    const fetchMock = (async () =>
+      new Response(
+        JSON.stringify({
+          access_token: "EAAB-secret-token",
+          token_type: "bearer",
+          expires_in: 3600
+        }),
+        { status: 200 }
+      )) as typeof fetch;
+    const adapter = new MetaAdapter(
+      {
+        META_APP_ID: "app_123",
+        META_APP_SECRET: "secret",
+        META_OAUTH_REDIRECT_URL: "https://api.wpptrack.com/integrations/meta/callback"
+      },
+      fetchMock
+    );
+
+    const result = await adapter.exchangeCodeForToken({ code: "oauth-code" });
+
+    expect(result.accessToken).toBe("EAAB-secret-token");
+    expect(result.publicResult.status).toBe("connected");
+    expect(JSON.stringify(result.publicResult)).not.toContain("EAAB-secret-token");
+  });
+
   it("returns configure_env when callback exchange is missing required env", async () => {
     const adapter = new MetaAdapter({
       META_APP_ID: "app_123",

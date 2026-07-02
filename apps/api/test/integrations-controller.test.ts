@@ -1,8 +1,10 @@
 import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
+import { AuthService } from "../src/auth/auth.service";
 import { IntegrationsController } from "../src/integrations/integrations.controller";
 import { IntegrationsService } from "../src/integrations/integrations.service";
+import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
 const health = {
   checkedAt: "2026-07-02T03:00:00.000Z",
@@ -45,6 +47,17 @@ async function createApp() {
       scopes: ["ads_read"],
       message: "Meta OAuth conectado"
     })),
+    getMetaConnection: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      status: "connected",
+      tokenType: "bearer",
+      scopes: ["ads_read"],
+      expiresAt: null,
+      connectedAt: "2026-07-02T03:00:00.000Z",
+      selectedBusinessId: null,
+      selectedAdAccountId: null,
+      selectedPixelId: null
+    })),
     getUazapiStartAction: vi.fn(() => ({
       provider: "uazapi",
       action: "configure_env",
@@ -58,16 +71,47 @@ async function createApp() {
       missingEnv: ["ASAAS_API_KEY"]
     }))
   };
+  const authService = {
+    getSession: vi.fn(async () => ({
+      user: {
+        id: "user_1",
+        email: "owner@wpptrack.com",
+        name: "Owner",
+        authProvider: "email",
+        emailVerifiedAt: null
+      },
+      workspaces: [
+        {
+          id: "workspace_1",
+          name: "Workspace",
+          slug: "workspace",
+          role: "owner"
+        }
+      ]
+    }))
+  };
+  const workspacesService = {
+    getCurrentWorkspace: vi.fn(() => ({
+      id: "workspace_1",
+      name: "Workspace",
+      slug: "workspace",
+      role: "owner"
+    }))
+  };
 
   const moduleRef = await Test.createTestingModule({
     controllers: [IntegrationsController],
-    providers: [{ provide: IntegrationsService, useValue: service }]
+    providers: [
+      { provide: IntegrationsService, useValue: service },
+      { provide: AuthService, useValue: authService },
+      { provide: WorkspacesService, useValue: workspacesService }
+    ]
   }).compile();
 
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, service };
+  return { app, service, authService, workspacesService };
 }
 
 describe("integrations controller", () => {
@@ -95,6 +139,7 @@ describe("integrations controller", () => {
 
     await request(app.getHttpServer())
       .get("/integrations/meta/start")
+      .set("Cookie", "wpptrack_session=refresh-token")
       .expect(200)
       .expect(({ body }) => {
         expect(body.action).toBe("configure_env");
@@ -109,6 +154,7 @@ describe("integrations controller", () => {
 
     await request(app.getHttpServer())
       .get("/integrations/meta/callback?code=meta-code&state=state-token")
+      .set("Cookie", "wpptrack_session=refresh-token")
       .expect(200)
       .expect(({ body }) => {
         expect(body.provider).toBe("meta");
@@ -120,6 +166,24 @@ describe("integrations controller", () => {
       code: "meta-code",
       state: "state-token"
     });
+
+    await app.close();
+  });
+
+  it("returns sanitized Meta connection status for the current workspace", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/meta/connection")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.status).toBe("connected");
+        expect(JSON.stringify(body)).not.toContain("EAAB");
+      });
+
+    expect(service.getMetaConnection).toHaveBeenCalledWith("workspace_1");
 
     await app.close();
   });

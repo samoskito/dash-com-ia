@@ -115,6 +115,7 @@ model Workspace {
   paymentCharges     PaymentCharge[]
   whatsappInstanceActivations WhatsappInstanceActivation[]
   conversionRules    ConversionRule[]
+  metaIntegration    MetaIntegration?
 
   @@index([asaasCustomerId])
 }
@@ -485,4 +486,29 @@ model ConversionRule {
 
   @@index([workspaceId, active])
   @@index([workspaceId, triggerType, triggerValue])
+}
+
+model MetaIntegration {
+  id                   String   @id @default(cuid())
+  workspaceId          String   @unique
+  status               String   @default("connected")
+  encryptedAccessToken String
+  tokenIv              String
+  tokenTag             String
+  tokenType            String?
+  scopes               String[]
+  expiresAt            DateTime?
+  lastConnectedAt      DateTime?
+  selectedBusinessId   String?
+  selectedAdAccountId  String?
+  selectedPixelId      String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([status])
+  @@index([selectedBusinessId])
+  @@index([selectedAdAccountId])
+  @@index([selectedPixelId])
 }

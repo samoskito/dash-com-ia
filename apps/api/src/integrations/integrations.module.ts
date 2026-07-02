@@ -7,6 +7,8 @@ import { INTEGRATION_ENV } from "./integration.types";
 import { IntegrationsController } from "./integrations.controller";
 import { IntegrationsService } from "./integrations.service";
 import { MetaAdapter } from "./meta/meta.adapter";
+import { MetaConnectionsService } from "./meta/meta-connections.service";
+import { MetaTokenEncryptionService } from "./meta/meta-token-encryption.service";
 import { UazapiAdapter } from "./uazapi/uazapi.adapter";
 import { WhatsappConnectionsController } from "./whatsapp-connections.controller";
 import { WhatsappConnectionsService } from "./whatsapp-connections.service";
@@ -21,6 +23,8 @@ export { INTEGRATION_ENV } from "./integration.types";
       useValue: process.env
     },
     MetaAdapter,
+    MetaTokenEncryptionService,
+    MetaConnectionsService,
     UazapiAdapter,
     AsaasAdapter,
     IntegrationsService,
@@ -29,6 +33,7 @@ export { INTEGRATION_ENV } from "./integration.types";
   controllers: [IntegrationsController, WhatsappConnectionsController],
   exports: [
     MetaAdapter,
+    MetaConnectionsService,
     UazapiAdapter,
     AsaasAdapter,
     IntegrationsService,

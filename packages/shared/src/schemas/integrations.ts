@@ -28,6 +28,25 @@ export const metaOAuthCallbackQuerySchema = z.object({
   state: z.string().min(1).optional()
 });
 
+export const metaConnectionStatusSchema = z.enum([
+  "not_connected",
+  "connected",
+  "needs_reconnect",
+  "error"
+]);
+
+export const metaConnectionSchema = z.object({
+  workspaceId: z.string().min(1),
+  status: metaConnectionStatusSchema,
+  tokenType: z.string().min(1).nullable(),
+  scopes: z.array(z.string()),
+  expiresAt: z.string().datetime().nullable(),
+  connectedAt: z.string().datetime().nullable(),
+  selectedBusinessId: z.string().min(1).nullable(),
+  selectedAdAccountId: z.string().min(1).nullable(),
+  selectedPixelId: z.string().min(1).nullable()
+});
+
 export const metaOAuthCallbackResultSchema = z.object({
   provider: z.literal("meta"),
   status: z.enum(["configure_env", "connected", "exchange_failed"]),
@@ -35,6 +54,7 @@ export const metaOAuthCallbackResultSchema = z.object({
   expiresInSeconds: z.number().int().positive().nullable().default(null),
   scopes: z.array(z.string()).default([]),
   missingEnv: z.array(z.string()).default([]),
+  connection: metaConnectionSchema.optional(),
   message: z.string().min(1).optional()
 });
 
@@ -52,3 +72,7 @@ export type MetaOAuthCallbackQueryDto = z.infer<
 export type MetaOAuthCallbackResultDto = z.infer<
   typeof metaOAuthCallbackResultSchema
 >;
+export type MetaConnectionStatusDto = z.infer<
+  typeof metaConnectionStatusSchema
+>;
+export type MetaConnectionDto = z.infer<typeof metaConnectionSchema>;

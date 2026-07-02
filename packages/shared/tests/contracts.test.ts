@@ -24,6 +24,7 @@ import {
   diagnosticRetryResultSchema,
   integrationHealthSchema,
   integrationHealthSummarySchema,
+  metaConnectionSchema,
   metaOAuthCallbackQuerySchema,
   metaOAuthCallbackResultSchema,
   integrationStartActionSchema,
@@ -235,6 +236,23 @@ describe("shared contracts", () => {
     expect(query.code).toBe("meta-code");
     expect(result.status).toBe("connected");
     expect("accessToken" in result).toBe(false);
+  });
+
+  it("validates Meta connection status payloads without exposing tokens", () => {
+    const connection = metaConnectionSchema.parse({
+      workspaceId: "workspace_1",
+      status: "connected",
+      tokenType: "bearer",
+      scopes: ["ads_read", "business_management"],
+      expiresAt: "2026-09-01T03:00:00.000Z",
+      connectedAt: "2026-07-02T03:00:00.000Z",
+      selectedBusinessId: null,
+      selectedAdAccountId: null,
+      selectedPixelId: "pixel_1"
+    });
+
+    expect(connection.status).toBe("connected");
+    expect(JSON.stringify(connection)).not.toContain("accessToken");
   });
 
   it("validates password reset and email verification contracts", () => {

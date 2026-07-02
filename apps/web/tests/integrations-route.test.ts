@@ -47,6 +47,22 @@ describe("integrations route", () => {
           ]),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "connected",
+            tokenType: "bearer",
+            scopes: ["ads_read", "business_management"],
+            expiresAt: null,
+            connectedAt: "2026-07-02T03:00:00.000Z",
+            selectedBusinessId: null,
+            selectedAdAccountId: null,
+            selectedPixelId: "pixel_1"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
       );
 
     const element = await IntegrationsPage();
@@ -56,6 +72,12 @@ describe("integrations route", () => {
       "http://localhost:3333/integrations/whatsapp/instances",
       expect.objectContaining({ credentials: "include" })
     );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/integrations/meta/connection",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Meta conectado");
+    expect(html).toContain("pixel_1");
     expect(html).toContain("Vendas");
     expect(html).toContain("provider_instance_1");
     expect(html).toContain("Conectar WhatsApp");

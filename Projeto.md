@@ -45,7 +45,8 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - `WhatsappInstance` agora possui `providerInstanceId` para mapear a instancia local ao identificador criado/retornado pelo provider Uazapi; migration `20260702095000_whatsapp_provider_instance` adiciona esse campo e indice.
 - Verificacao da fatia Uazapi: `pnpm test`, `pnpm typecheck`, `pnpm build` e `prisma validate` passaram. `prisma migrate deploy/status` ficou pendente localmente porque o Docker Desktop/engine nao estava acessivel (`dockerDesktopLinuxEngine` indisponivel), mas a migration esta versionada.
 - Envio Meta CAPI recebeu adapter plugavel: `MetaCapiAdapter` envia eventos para `/{PIXEL_ID}/events` usando `META_CAPI_ACCESS_TOKEN` e `META_GRAPH_API_VERSION`; `ConversionEventsService.sendReadyEvent` pega logs `ready_to_send`, envia para a Meta quando possivel e atualiza `ConversionEventLog` para `sent`, `error` ou `not_configured` com resposta resumida.
-- OAuth Meta real avancou no backend: `GET /integrations/meta/start` agora monta a URL oficial de autorizacao da Meta com `META_APP_ID`, `META_OAUTH_REDIRECT_URL`, `META_GRAPH_API_VERSION` e `META_OAUTH_SCOPES`; `GET /integrations/meta/callback` valida `code/state`, troca o code no Graph `/oauth/access_token` server-side com `META_APP_SECRET` e retorna somente metadados sanitizados, sem expor access token ao frontend. Persistencia criptografada do token por workspace, escolha de BM/conta/pixel e sincronizacao de campanhas ainda ficam para a proxima onda Meta.
+- OAuth Meta real avancou no backend: `GET /integrations/meta/start` agora monta a URL oficial de autorizacao da Meta com `META_APP_ID`, `META_OAUTH_REDIRECT_URL`, `META_GRAPH_API_VERSION` e `META_OAUTH_SCOPES`; `GET /integrations/meta/callback` valida `code/state`, troca o code no Graph `/oauth/access_token` server-side com `META_APP_SECRET` e retorna somente metadados sanitizados, sem expor access token ao frontend. Escolha de BM/conta/pixel e sincronizacao de campanhas ainda ficam para a proxima onda Meta.
+- Persistencia segura do OAuth Meta por workspace implementada: `MetaIntegration` armazena access token criptografado com AES-256-GCM usando `META_TOKEN_ENCRYPTION_KEY`, scopes, expiracao, status e selecoes futuras de BM/conta/pixel. O callback OAuth usa `state` assinado para identificar o workspace, salva a conexao e retorna apenas DTO sanitizado. A aba `Integracoes` consulta `GET /integrations/meta/connection` e mostra status/escopos/pixel sem expor token.
 - Backoffice de split recebeu API inicial: `GET /backoffice/split/receivers`, `POST /backoffice/split/receivers` e `PATCH /backoffice/split/receivers/:id`, usando `SplitReceiver` para nome, wallet Asaas, email, percentual em basis points e status ativo.
 - Tela de backoffice agora consulta `/backoffice/split/receivers` e exibe recebedores, wallet Asaas, email, percentual e status com fallback visual quando a API nao responde.
 - Tela de backoffice agora exibe acao de `Reprocessar` para eventos reais da Central de Diagnostico; a acao chama o retry auditado `POST /backoffice/diagnostics/events/:id/retry` via server action e usa fallback visual quando nao ha eventos reais.
@@ -433,7 +434,7 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: persistencia segura do OAuth Meta por workspace, selecao/sincronizacao de BM/conta/pixel/campanhas, tela/redirect pos-callback Google mais polido e telas detalhadas da Central de Diagnostico.
+- Continuar a proxima rodada com: selecao/sincronizacao de BM/conta/pixel/campanhas, tela/redirect pos-callback Google mais polido e telas detalhadas da Central de Diagnostico.
 
 ## Perguntas Abertas
 

@@ -1,5 +1,6 @@
 import type {
   IntegrationHealthSummaryDto,
+  MetaConnectionDto,
   WhatsappInstanceSummaryDto
 } from "@wpptrack/shared";
 import { serverApiFetch } from "../../../lib/server-api";
@@ -19,6 +20,14 @@ async function getWhatsappInstances(): Promise<WhatsappInstanceSummaryDto[]> {
     );
   } catch {
     return [];
+  }
+}
+
+async function getMetaConnection(): Promise<MetaConnectionDto | null> {
+  try {
+    return await serverApiFetch<MetaConnectionDto>("/integrations/meta/connection");
+  } catch {
+    return null;
   }
 }
 
@@ -64,9 +73,10 @@ function statusLabel(status: string) {
 }
 
 export default async function IntegrationsPage() {
-  const [health, whatsappInstances] = await Promise.all([
+  const [health, whatsappInstances, metaConnection] = await Promise.all([
     getHealth(),
-    getWhatsappInstances()
+    getWhatsappInstances(),
+    getMetaConnection()
   ]);
   const integrations =
     health?.providers.map((item) => ({
@@ -132,6 +142,31 @@ export default async function IntegrationsPage() {
             </button>
           </article>
         ))}
+      </div>
+
+      <div className="surface-panel">
+        <span className="eyebrow">Meta OAuth</span>
+        <h2>{metaConnection?.status === "connected" ? "Meta conectado" : "Meta nao conectado"}</h2>
+        <div className="metric-grid compact">
+          <div className="metric-card">
+            <span className="micro-label">Status</span>
+            <strong>{metaConnection ? statusLabel(metaConnection.status) : "Fallback visual"}</strong>
+          </div>
+          <div className="metric-card">
+            <span className="micro-label">Pixel selecionado</span>
+            <strong>{metaConnection?.selectedPixelId ?? "aguardando selecao"}</strong>
+          </div>
+          <div className="metric-card">
+            <span className="micro-label">Escopos</span>
+            <strong>
+              {metaConnection?.scopes.length ? metaConnection.scopes.join(", ") : "sem escopos"}
+            </strong>
+          </div>
+        </div>
+        <p className="muted">
+          Tokens Meta ficam criptografados no backend. Esta tela mostra apenas estado,
+          escopos e selecoes operacionais.
+        </p>
       </div>
 
       <div className="surface-panel">
