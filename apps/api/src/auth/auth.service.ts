@@ -41,6 +41,8 @@ const passwordResetTtlMs = 1000 * 60 * 30;
 const emailVerificationTtlMs = 1000 * 60 * 60 * 24;
 const loginFailureWindowMs = 1000 * 60 * 15;
 const loginFailureLimit = 5;
+const passwordResetRequestWindowMs = 1000 * 60 * 15;
+const passwordResetRequestLimit = 3;
 
 type WorkspaceMembershipRecord = {
   role: AuthenticatedUser["workspaces"][number]["role"];
@@ -391,12 +393,39 @@ export class AuthService {
   }
 
   async requestPasswordReset(
-    input: PasswordResetRequestInputDto
+    input: PasswordResetRequestInputDto,
+    context: AuthRequestContext = {}
   ): Promise<PasswordResetRequestDto> {
     const email = this.normalizeEmail(input.email);
     const user = await this.prisma.user.findUnique({
       where: { email }
     });
+    const rateLimited = await this.isPasswordResetRequestRateLimited(
+      email,
+      context
+    );
+
+    if (rateLimited) {
+      await this.recordPasswordResetRequest(
+        email,
+        user?.id ?? null,
+        context,
+        "rate_limited"
+      );
+
+      return {
+        ok: true,
+        delivery: this.getTokenDelivery(),
+        devToken: null
+      };
+    }
+
+    await this.recordPasswordResetRequest(
+      email,
+      user?.id ?? null,
+      context,
+      "queued"
+    );
 
     if (!user) {
       return {
@@ -832,6 +861,60 @@ export class AuthService {
         HttpStatus.TOO_MANY_REQUESTS
       );
     }
+  }
+
+  private async isPasswordResetRequestRateLimited(
+    email: string,
+    context: AuthRequestContext
+  ): Promise<boolean> {
+    const filters: Array<{ targetId?: string; sourceIp?: string }> = [
+      {
+        targetId: this.hashAuthIdentity(email)
+      }
+    ];
+
+    if (context.ipAddress) {
+      filters.push({ sourceIp: context.ipAddress });
+    }
+
+    const recentRequests = await this.prisma.auditLog.count({
+      where: {
+        action: "auth.password_reset_requested",
+        createdAt: {
+          gte: new Date(Date.now() - passwordResetRequestWindowMs)
+        },
+        OR: filters
+      }
+    });
+
+    return recentRequests >= passwordResetRequestLimit;
+  }
+
+  private async recordPasswordResetRequest(
+    email: string,
+    userId: string | null,
+    context: AuthRequestContext,
+    resultStatus: "queued" | "rate_limited"
+  ): Promise<void> {
+    await this.safeCreateAuditLog({
+      workspaceId: null,
+      actorUserId: userId,
+      actorType: userId ? "user" : "anonymous",
+      action: "auth.password_reset_requested",
+      targetType: "AuthIdentity",
+      targetId: this.hashAuthIdentity(email),
+      reason:
+        resultStatus === "rate_limited"
+          ? "Limite de recuperacao de senha atingido"
+          : null,
+      sourceIp: context.ipAddress ?? null,
+      resultStatus,
+      beforeSummary: null,
+      afterSummary: {
+        delivery: this.getTokenDelivery(),
+        userAgent: context.userAgent ?? null
+      }
+    });
   }
 
   private async recordLoginFailure(

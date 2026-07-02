@@ -309,9 +309,14 @@ describe("auth controller", () => {
         expect(body.ok).toBe(true);
       });
 
-    expect(authService.requestPasswordReset).toHaveBeenCalledWith({
-      email: "samuel@wpptrack.com"
-    });
+    expect(authService.requestPasswordReset).toHaveBeenCalledWith(
+      {
+        email: "samuel@wpptrack.com"
+      },
+      expect.objectContaining({
+        ipAddress: expect.any(String)
+      })
+    );
     expect(authService.resetPassword).toHaveBeenCalledWith({
       token: "reset-token-1234567890",
       password: "new-strong-password"

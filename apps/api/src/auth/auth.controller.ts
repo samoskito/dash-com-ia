@@ -134,12 +134,18 @@ export class AuthController {
   }
 
   @Post("password/forgot")
-  async requestPasswordReset(@Body() body: unknown) {
+  async requestPasswordReset(
+    @Body() body: unknown,
+    @Req() request: AuthRequest
+  ) {
     const input = this.parseBody(
       passwordResetRequestInputSchema.safeParse(body)
     );
 
-    return this.authService.requestPasswordReset(input);
+    return this.authService.requestPasswordReset(input, {
+      userAgent: firstHeader(request.headers["user-agent"]) ?? null,
+      ipAddress: request.ip ?? null
+    });
   }
 
   @Post("password/reset")
