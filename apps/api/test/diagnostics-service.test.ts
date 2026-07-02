@@ -482,6 +482,66 @@ describe("diagnostics service", () => {
     expect(webhookFindManyCalls[0]?.take).toBe(10);
   });
 
+  it("returns sanitized webhook payload and audits operator access", async () => {
+    const { auditLogs, service, webhookLogs } = createHarness();
+    webhookLogs.push({
+      id: "webhook_1",
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      eventType: "message.received",
+      externalEventId: "evt_1",
+      status: "received",
+      receivedAt: new Date("2026-07-02T03:00:00.000Z"),
+      processedAt: null,
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: null,
+      adId: "ad_1",
+      jobId: null,
+      errorCode: null,
+      errorMessage: null,
+      summaryPayload: {
+        message: {
+          text: "Venda fechada"
+        },
+        authorization: "[redacted]"
+      }
+    });
+
+    const payload = await service.getWebhookPayload("webhook_1", {
+      actorUserId: "user_1",
+      sourceIp: "127.0.0.1"
+    });
+
+    expect(payload).toMatchObject({
+      id: "webhook_1",
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      eventType: "message.received",
+      payloadKind: "summary",
+      payloadAvailable: true,
+      payload: {
+        message: {
+          text: "Venda fechada"
+        },
+        authorization: "[redacted]"
+      }
+    });
+    expect(auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "platform_operator",
+        action: "diagnostic.webhook_payload_viewed",
+        targetType: "WebhookLog",
+        targetId: "webhook_1",
+        sourceIp: "127.0.0.1",
+        resultStatus: "success"
+      })
+    );
+  });
+
   it("lists job attempts with operational filters", async () => {
     const { jobAttemptFindManyCalls, service } = createHarness();
     await service.recordEvent({

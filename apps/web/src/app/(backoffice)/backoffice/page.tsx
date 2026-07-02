@@ -1242,6 +1242,7 @@ export default async function BackofficePage({
                 <th>Atribuicao</th>
                 <th>Recebido</th>
                 <th>Estado</th>
+                <th>Acao</th>
               </tr>
             </thead>
             <tbody>
@@ -1264,11 +1265,19 @@ export default async function BackofficePage({
                         {webhook.errorCode ?? webhook.status}
                       </span>
                     </td>
+                    <td>
+                      <a
+                        className="button ghost"
+                        href={`/backoffice/webhooks/${webhook.id}/payload`}
+                      >
+                        Payload
+                      </a>
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <strong>{webhookLogEmptyTitle}</strong>
                     <span>Webhooks Uazapi, Meta e Asaas recebidos aparecem aqui.</span>
                   </td>

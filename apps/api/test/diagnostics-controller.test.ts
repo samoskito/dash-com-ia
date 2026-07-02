@@ -46,6 +46,23 @@ const webhookLog = {
   errorMessage: null
 };
 
+const webhookPayload = {
+  id: "webhook_1",
+  workspaceId: "workspace_1",
+  source: "uazapi",
+  eventType: "message.received",
+  externalEventId: "evt_1",
+  status: "received",
+  receivedAt: "2026-07-02T03:00:00.000Z",
+  payloadKind: "summary",
+  payloadAvailable: true,
+  payload: {
+    message: {
+      text: "Venda fechada"
+    }
+  }
+};
+
 const jobAttempt = {
   id: "job_attempt_1",
   workspaceId: "workspace_1",
@@ -130,6 +147,7 @@ async function createApp() {
   const service = {
     listEvents: vi.fn(async () => [diagnosticEvent]),
     listWebhookLogs: vi.fn(async () => [webhookLog]),
+    getWebhookPayload: vi.fn(async () => webhookPayload),
     listJobAttempts: vi.fn(async () => [jobAttempt]),
     listIntegrationLogs: vi.fn(async () => [integrationLog]),
     listConversionEventLogs: vi.fn(async () => [conversionEventLog]),
@@ -232,6 +250,32 @@ describe("diagnostics controller", () => {
       adId: "ad_1",
       limit: 10
     });
+
+    await app.close();
+  });
+
+  it("returns audited webhook payload for platform admins", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/backoffice/diagnostics/webhooks/webhook_1/payload")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.id).toBe("webhook_1");
+        expect(body.payload.message.text).toBe("Venda fechada");
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(service.getWebhookPayload).toHaveBeenCalledWith(
+      "webhook_1",
+      expect.objectContaining({
+        actorUserId: "user_1",
+        sourceIp: expect.any(String)
+      })
+    );
 
     await app.close();
   });

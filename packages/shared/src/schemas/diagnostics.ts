@@ -107,6 +107,22 @@ export const diagnosticWebhookLogListSchema = z.array(
   diagnosticWebhookLogSchema
 );
 
+export const diagnosticWebhookPayloadSchema = diagnosticWebhookLogSchema
+  .pick({
+    id: true,
+    workspaceId: true,
+    source: true,
+    eventType: true,
+    externalEventId: true,
+    status: true,
+    receivedAt: true
+  })
+  .extend({
+    payloadKind: z.literal("summary"),
+    payloadAvailable: z.boolean(),
+    payload: z.record(z.unknown()).nullable()
+  });
+
 export const diagnosticJobAttemptSchema = z.object({
   id: z.string().min(1),
   workspaceId: z.string().min(1).nullable(),
@@ -307,6 +323,9 @@ export type DiagnosticWebhookLogDto = z.infer<
 >;
 export type DiagnosticWebhookLogListQueryDto = z.infer<
   typeof diagnosticWebhookLogListQuerySchema
+>;
+export type DiagnosticWebhookPayloadDto = z.infer<
+  typeof diagnosticWebhookPayloadSchema
 >;
 export type DiagnosticJobAttemptDto = z.infer<
   typeof diagnosticJobAttemptSchema

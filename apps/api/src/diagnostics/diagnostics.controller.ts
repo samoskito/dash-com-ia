@@ -6,7 +6,8 @@ import {
   Inject,
   Param,
   Post,
-  Query
+  Query,
+  Req
 } from "@nestjs/common";
 import {
   diagnosticConversionEventLogListQuerySchema,
@@ -21,6 +22,10 @@ import {
 import { AuthToken } from "../auth/auth-user.decorator";
 import { PlatformAdminService } from "../auth/platform-admin.service";
 import { DiagnosticsService } from "./diagnostics.service";
+
+type DiagnosticsRequest = {
+  ip?: string;
+};
 
 @Controller("backoffice/diagnostics")
 export class DiagnosticsController {
@@ -61,6 +66,21 @@ export class DiagnosticsController {
     }
 
     return this.diagnosticsService.listWebhookLogs(parsed.data);
+  }
+
+  @Get("webhooks/:id/payload")
+  async getWebhookPayload(
+    @AuthToken() refreshToken: string,
+    @Param("id") id: string,
+    @Req() request: DiagnosticsRequest
+  ) {
+    const operator =
+      await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    return this.diagnosticsService.getWebhookPayload(id, {
+      actorUserId: operator.id,
+      sourceIp: request.ip ?? null
+    });
   }
 
   @Get("jobs")

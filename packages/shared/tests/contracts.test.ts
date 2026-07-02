@@ -24,6 +24,7 @@ import {
   diagnosticEventListQuerySchema,
   diagnosticRetryInputSchema,
   diagnosticRetryResultSchema,
+  diagnosticWebhookPayloadSchema,
   integrationHealthSchema,
   integrationHealthSummarySchema,
   integrationPipelineOverviewSchema,
@@ -680,6 +681,30 @@ describe("shared contracts", () => {
 
     expect(input.reason).toContain("conversao");
     expect(result.status).toBe("queued");
+  });
+
+  it("validates diagnostic webhook payload contract", () => {
+    const payload = diagnosticWebhookPayloadSchema.parse({
+      id: "webhook_1",
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      eventType: "message.received",
+      externalEventId: "evt_1",
+      status: "received",
+      receivedAt: "2026-07-02T03:00:00.000Z",
+      payloadKind: "summary",
+      payloadAvailable: true,
+      payload: {
+        message: {
+          text: "Venda fechada",
+          token: "[redacted]"
+        }
+      }
+    });
+
+    expect(payload.payloadKind).toBe("summary");
+    expect(payload.payloadAvailable).toBe(true);
+    expect(JSON.stringify(payload)).not.toContain("secret-token");
   });
 
   it("validates billing quote and checkout contracts", () => {

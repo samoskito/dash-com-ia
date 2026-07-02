@@ -16,6 +16,7 @@ import type {
   DiagnosticJobAttemptListQueryDto,
   DiagnosticWebhookLogDto,
   DiagnosticWebhookLogListQueryDto,
+  DiagnosticWebhookPayloadDto,
   DiagnosticTimelineItemDto,
   DiagnosticRetryInputDto,
   DiagnosticRetryResultDto
@@ -162,6 +163,11 @@ export type WebhookLogResult = {
   webhookLogId: string;
   diagnosticEventId: string;
   status: "received" | "duplicate";
+};
+
+type DiagnosticActorContext = {
+  actorUserId: string | null;
+  sourceIp?: string | null;
 };
 
 @Injectable()
@@ -413,6 +419,44 @@ export class DiagnosticsService {
     })) as WebhookLogRecord[];
 
     return webhooks.map((webhook) => this.toWebhookLogDto(webhook));
+  }
+
+  async getWebhookPayload(
+    id: string,
+    actor: DiagnosticActorContext
+  ): Promise<DiagnosticWebhookPayloadDto> {
+    const webhook = (await this.prisma.webhookLog.findUnique({
+      where: { id }
+    })) as WebhookLogRecord | null;
+
+    if (!webhook) {
+      throw new NotFoundException("Webhook nao encontrado");
+    }
+
+    const payload = this.toWebhookPayloadDto(webhook);
+
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: webhook.workspaceId,
+        actorUserId: actor.actorUserId,
+        actorType: "platform_operator",
+        action: "diagnostic.webhook_payload_viewed",
+        targetType: "WebhookLog",
+        targetId: webhook.id,
+        sourceIp: actor.sourceIp ?? null,
+        resultStatus: "success",
+        beforeSummary: undefined,
+        afterSummary: this.redactSensitive({
+          source: webhook.source,
+          eventType: webhook.eventType,
+          externalEventId: webhook.externalEventId,
+          payloadKind: payload.payloadKind,
+          payloadAvailable: payload.payloadAvailable
+        }) as Prisma.InputJsonValue
+      }
+    });
+
+    return payload;
   }
 
   async listJobAttempts(
@@ -808,6 +852,25 @@ export class DiagnosticsService {
       jobId: webhook.jobId,
       errorCode: webhook.errorCode,
       errorMessage: webhook.errorMessage
+    };
+  }
+
+  private toWebhookPayloadDto(
+    webhook: WebhookLogRecord
+  ): DiagnosticWebhookPayloadDto {
+    const payload = this.payloadRecord(webhook.summaryPayload);
+
+    return {
+      id: webhook.id,
+      workspaceId: webhook.workspaceId,
+      source: webhook.source,
+      eventType: webhook.eventType,
+      externalEventId: webhook.externalEventId,
+      status: webhook.status,
+      receivedAt: webhook.receivedAt.toISOString(),
+      payloadKind: "summary",
+      payloadAvailable: payload !== null,
+      payload
     };
   }
 
