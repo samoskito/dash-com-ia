@@ -54,6 +54,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Estrutura Meta detalhada em relatorios implementada: `GET /reports/meta/structure` retorna campanhas com conjuntos e anuncios a partir dos snapshots `MetaCampaign`, `MetaAdSet` e `MetaAd`. A tela `Relatorios` renderiza a tabela `Estrutura Meta` com campanha, conjunto, anuncio e status, permitindo inspecionar se a sincronizacao trouxe a hierarquia usada nos relatorios.
 - Filtros de periodo iniciais em `Relatorios` implementados: a tela aceita `since` e `until` na query string, renderiza inputs de data e envia os mesmos filtros para `GET /reports/campaigns` e para o enqueue `POST /reports/meta/sync`. No backend, o range vira `rangeLabel` e filtra eventos internos (`ConversionEventLog.createdAt`) quando ambos os campos estao presentes.
 - Relatorios agora calculam `realConversations` a partir de `Lead` por campanha e periodo, com `costPerRealConversationCents`. A tela `Relatorios` deixou de injetar campanhas demo fixas e nao renderiza campanha ou metrica ficticia quando o backend nao responde.
+- Relatorios por conjunto e anuncio implementados: `GET /reports/adsets` e `GET /reports/ads` usam snapshots `MetaAdSet`/`MetaAd`, `Lead.adSetId`/`Lead.adId` e `ConversionEventLog.adSetId`/`ConversionEventLog.adId` para mostrar conversas reais, `LeadSubmitted`, `QualifiedLead` e `Purchase` por nivel. Investimento, conversas Meta e custos por conjunto/anuncio ficam zerados/nulos ate persistirmos insights Meta nesse nivel, evitando estimativas falsas.
 - Visao Geral agora consome `GET /reports/campaigns`, agrega todas as campanhas retornadas pela API para KPIs e funil, lista campanhas do recorte e troca os indicadores hardcoded de qualidade por taxas derivadas dos dados. Quando a API nao responde, mostra estado indisponivel sem KPIs/campanhas ficticias.
 - Visao Geral e Relatorios agora diferenciam estados `real`, `empty` e `error`: resposta real vazia exibe estado vazio sem dados demo; falha de API exibe estado indisponivel sem renderizar campanha ou metricas ficticias.
 - Leads agora diferencia estados `real`, `empty` e `error`: resposta real vazia exibe estado vazio; falha de API mostra `API indisponivel`; a tela nao injeta mais leads/campanhas demonstrativos como fallback.
@@ -456,6 +457,7 @@ Checkpoint atual:
 - Idempotencia inicial implementada: `WebhookLog.idempotencyKey` e `ConversionEventLog.dedupeKey` sao unicos no banco. Webhooks Uazapi duplicados retornam `duplicate` sem reavaliar regras, recriar lead ou enfileirar novo envio Meta; conversoes duplicadas retornam em `duplicates` sem novo log.
 - Central de Diagnostico recebeu filtros reais no backoffice e no endpoint `GET /backoffice/diagnostics/events`: `q`, `since`, `until`, `workspaceId`, `source`, `severity`, `status`, `eventType`, `leadId`, `phoneHash`, `campaignId`, `adSetId`, `adId` e `errorCode`.
 - Relatorios removeram as campanhas demo fixas da tabela quando ha resposta da API e agora contam conversas reais a partir de leads persistidos por campanha/periodo.
+- Relatorios agora tambem renderizam tabelas de `Performance por conjunto` e `Performance por anuncio`, consumindo `/reports/adsets` e `/reports/ads` com os mesmos filtros de periodo da tela.
 - Visao Geral foi conectada ao endpoint real de relatorios e passou a agregar os resultados do backend, mantendo fallback somente quando a API nao responde.
 - Overview/Reports agora mostram estado vazio real sem cair em mock; falha de API mostra `API indisponivel` e nao injeta dados de demonstracao. O mock web de reporting foi removido.
 - Leads agora mostra estado vazio real ou `API indisponivel` sem renderizar pessoas/campanhas ficticias quando a API retorna vazia ou falha.
@@ -465,7 +467,7 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: evoluir relatorios por conjunto/anuncio e substituir os ultimos placeholders operacionais por endpoints reais.
+- Continuar a proxima rodada com: persistir insights Meta por conjunto/anuncio para liberar investimento e custos por nivel; substituir os ultimos placeholders operacionais por endpoints reais.
 
 ## Perguntas Abertas
 
