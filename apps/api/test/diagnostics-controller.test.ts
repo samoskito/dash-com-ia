@@ -160,6 +160,13 @@ async function createApp() {
       diagnosticEventId: "diag_1",
       auditLogId: "audit_1",
       jobAttemptId: "job_attempt_1"
+    })),
+    retryConversionEvent: vi.fn(async () => ({
+      ok: true,
+      status: "queued",
+      diagnosticEventId: "diag_2",
+      auditLogId: "audit_2",
+      jobAttemptId: "job_attempt_2"
     }))
   };
   const platformAdminService = {
@@ -492,6 +499,33 @@ describe("diagnostics controller", () => {
     );
     expect(service.retryEvent).toHaveBeenCalledWith("diag_1", {
       reason: "Cliente relatou conversao ausente"
+    });
+
+    await app.close();
+  });
+
+  it("queues an audited retry for a conversion event log", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/backoffice/diagnostics/conversions/conversion_1/retry")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        reason: "Token Meta corrigido e cliente pediu reprocessamento"
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.status).toBe("queued");
+        expect(body.diagnosticEventId).toBe("diag_2");
+        expect(body.auditLogId).toBe("audit_2");
+        expect(body.jobAttemptId).toBe("job_attempt_2");
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(service.retryConversionEvent).toHaveBeenCalledWith("conversion_1", {
+      reason: "Token Meta corrigido e cliente pediu reprocessamento"
     });
 
     await app.close();

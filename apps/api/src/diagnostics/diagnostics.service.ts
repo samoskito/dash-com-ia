@@ -22,7 +22,9 @@ import type {
   DiagnosticRetryResultDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
 import { DiagnosticsQueueService } from "../common/queue/diagnostics-queue.service";
+import { CONVERSION_EVENTS_QUEUE } from "../common/queue/queue.constants";
 
 const sensitiveKeyPattern =
   /(authorization|cookie|secret|token|api.?key|refresh|password)/i;
@@ -181,7 +183,10 @@ export class DiagnosticsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Optional()
     @Inject(DiagnosticsQueueService)
-    private readonly diagnosticsQueueService?: DiagnosticsQueueService
+    private readonly diagnosticsQueueService?: DiagnosticsQueueService,
+    @Optional()
+    @Inject(ConversionEventsQueueService)
+    private readonly conversionEventsQueueService?: ConversionEventsQueueService
   ) {}
 
   async recordEvent(
@@ -823,6 +828,126 @@ export class DiagnosticsService {
       ok: true,
       status: "queued",
       diagnosticEventId: event.id,
+      auditLogId: auditLog.id,
+      jobAttemptId: jobAttempt.id
+    };
+  }
+
+  async retryConversionEvent(
+    id: string,
+    input: DiagnosticRetryInputDto
+  ): Promise<DiagnosticRetryResultDto> {
+    const conversionEvent = (await this.prisma.conversionEventLog.findUnique({
+      where: { id }
+    })) as ConversionEventLogRecord | null;
+
+    if (!conversionEvent) {
+      throw new NotFoundException("Conversao nao encontrada");
+    }
+
+    const auditLog = await this.prisma.auditLog.create({
+      data: {
+        workspaceId: conversionEvent.workspaceId,
+        actorType: "platform",
+        action: "diagnostic.conversion_retry_requested",
+        targetType: "ConversionEventLog",
+        targetId: conversionEvent.id,
+        reason: input.reason,
+        resultStatus: "queued",
+        beforeSummary: this.redactSensitive({
+          status: conversionEvent.status,
+          eventName: conversionEvent.eventName,
+          sourceTrigger: conversionEvent.sourceTrigger,
+          pixelId: conversionEvent.pixelId,
+          metaAccountId: conversionEvent.metaAccountId,
+          campaignId: conversionEvent.campaignId,
+          adSetId: conversionEvent.adSetId,
+          adId: conversionEvent.adId,
+          dedupeKey: conversionEvent.dedupeKey,
+          jobId: conversionEvent.jobId,
+          errorCode: conversionEvent.errorCode,
+          errorMessage: conversionEvent.errorMessage
+        }) as Prisma.InputJsonValue,
+        afterSummary: {
+          retryStatus: "queued"
+        }
+      }
+    });
+
+    const queued = await this.conversionEventsQueueService?.enqueueSend(
+      conversionEvent.id
+    );
+    const jobId = queued?.jobId ?? `conversion-send:${conversionEvent.id}`;
+
+    await this.prisma.conversionEventLog.update({
+      where: { id: conversionEvent.id },
+      data: {
+        status: "ready_to_send",
+        sentAt: null,
+        jobId,
+        errorCode: null,
+        errorMessage: null
+      }
+    });
+
+    const jobAttempt = await this.prisma.jobAttempt.create({
+      data: {
+        workspaceId: conversionEvent.workspaceId,
+        queueName: CONVERSION_EVENTS_QUEUE,
+        jobId,
+        jobName: "send-ready-event",
+        attemptNumber: 1,
+        status: "queued",
+        scheduledAt: new Date(),
+        source: "meta",
+        relatedEntityType: "ConversionEventLog",
+        relatedEntityId: conversionEvent.id,
+        errorCode: conversionEvent.errorCode,
+        errorMessage: conversionEvent.errorMessage,
+        summaryPayload: this.redactSensitive({
+          conversionEventLogId: conversionEvent.id,
+          originalStatus: conversionEvent.status,
+          eventName: conversionEvent.eventName,
+          sourceTrigger: conversionEvent.sourceTrigger,
+          pixelId: conversionEvent.pixelId,
+          campaignId: conversionEvent.campaignId,
+          adSetId: conversionEvent.adSetId,
+          adId: conversionEvent.adId,
+          retryReason: input.reason
+        }) as Prisma.InputJsonValue
+      }
+    });
+
+    const diagnosticEvent = (await this.prisma.diagnosticEvent.create({
+      data: {
+        workspaceId: conversionEvent.workspaceId,
+        source: "meta",
+        eventType: "conversion.retry_requested",
+        severity: "info",
+        status: "queued",
+        title: "Reenvio Meta CAPI enfileirado",
+        message: `Reenvio do evento ${conversionEvent.eventName} solicitado pelo backoffice.`,
+        leadId: conversionEvent.leadId,
+        phoneHash: conversionEvent.phoneHash,
+        campaignId: conversionEvent.campaignId,
+        adSetId: conversionEvent.adSetId,
+        adId: conversionEvent.adId,
+        jobId,
+        conversionEventLogId: conversionEvent.id,
+        jobAttemptId: jobAttempt.id,
+        summaryPayload: this.redactSensitive({
+          previousStatus: conversionEvent.status,
+          retryReason: input.reason,
+          auditLogId: auditLog.id,
+          jobAttemptId: jobAttempt.id
+        }) as Prisma.InputJsonValue
+      }
+    })) as DiagnosticEventRecord;
+
+    return {
+      ok: true,
+      status: "queued",
+      diagnosticEventId: diagnosticEvent.id,
       auditLogId: auditLog.id,
       jobAttemptId: jobAttempt.id
     };

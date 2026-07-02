@@ -131,6 +131,23 @@ export class DiagnosticsController {
     return this.diagnosticsService.listConversionEventLogs(parsed.data);
   }
 
+  @Post("conversions/:id/retry")
+  async retryConversionEvent(
+    @AuthToken() refreshToken: string,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ) {
+    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    const parsed = diagnosticRetryInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    return this.diagnosticsService.retryConversionEvent(id, parsed.data);
+  }
+
   @Get("audit")
   async listAuditLogs(
     @AuthToken() refreshToken: string,

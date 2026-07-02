@@ -21,6 +21,13 @@ function createHarness() {
       status: "queued"
     }))
   };
+  const conversionEventsQueueService = {
+    enqueueSend: vi.fn(async (conversionEventLogId: string) => ({
+      conversionEventLogId,
+      jobId: `conversion-send:${conversionEventLogId}`,
+      status: "queued" as const
+    }))
+  };
   const prisma = {
     webhookLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -162,6 +169,28 @@ function createHarness() {
         conversionEventLogs.find(
           (conversionEventLog) => conversionEventLog.id === where.id
         ) ?? null,
+      update: async ({
+        where,
+        data
+      }: {
+        where: { id: string };
+        data: Record<string, unknown>;
+      }) => {
+        const index = conversionEventLogs.findIndex(
+          (conversionEventLog) => conversionEventLog.id === where.id
+        );
+
+        if (index === -1) {
+          return null;
+        }
+
+        conversionEventLogs[index] = {
+          ...conversionEventLogs[index],
+          ...data
+        };
+
+        return conversionEventLogs[index];
+      },
       findMany: async ({
         where,
         take
@@ -226,7 +255,13 @@ function createHarness() {
       prisma as never,
       diagnosticsQueueService as never
     ),
-    diagnosticsQueueService
+    serviceWithQueues: new DiagnosticsService(
+      prisma as never,
+      diagnosticsQueueService as never,
+      conversionEventsQueueService as never
+    ),
+    diagnosticsQueueService,
+    conversionEventsQueueService
   };
 }
 
@@ -782,6 +817,89 @@ describe("diagnostics service", () => {
       ]
     });
     expect(conversionEventLogFindManyCalls[0]?.take).toBe(10);
+  });
+
+  it("queues an audited retry for a conversion event log", async () => {
+    const {
+      auditLogs,
+      conversionEventLogs,
+      conversionEventsQueueService,
+      events,
+      jobAttempts,
+      serviceWithQueues
+    } = createHarness();
+    conversionEventLogs.push({
+      id: "conversion_1",
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      sourceTrigger: "keyword",
+      eventName: "QualifiedLead",
+      status: "error",
+      pixelId: "pixel_1",
+      metaAccountId: "act_1",
+      campaignId: "cmp_1",
+      adSetId: null,
+      adId: "ad_1",
+      attributionStatus: "matched",
+      dedupeKey: "dedupe_1",
+      sentAt: null,
+      errorCode: "META_CONTEXT_MISSING",
+      errorMessage: "Contexto Meta ausente",
+      jobId: "failed_job_1",
+      createdAt: new Date("2026-07-02T03:00:00.000Z")
+    });
+
+    const retry = await serviceWithQueues.retryConversionEvent("conversion_1", {
+      reason: "Token Meta corrigido e cliente pediu reprocessamento"
+    });
+
+    expect(retry).toEqual({
+      ok: true,
+      status: "queued",
+      diagnosticEventId: "diag_1",
+      auditLogId: "audit_1",
+      jobAttemptId: "job_attempt_1"
+    });
+    expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
+      "conversion_1"
+    );
+    expect(conversionEventLogs[0]).toMatchObject({
+      status: "ready_to_send",
+      jobId: "conversion-send:conversion_1",
+      errorMessage: null
+    });
+    expect(auditLogs[0]).toMatchObject({
+      workspaceId: "workspace_1",
+      actorType: "platform",
+      action: "diagnostic.conversion_retry_requested",
+      targetType: "ConversionEventLog",
+      targetId: "conversion_1",
+      reason: "Token Meta corrigido e cliente pediu reprocessamento",
+      resultStatus: "queued"
+    });
+    expect(jobAttempts[0]).toMatchObject({
+      workspaceId: "workspace_1",
+      queueName: "conversion-events",
+      jobId: "conversion-send:conversion_1",
+      jobName: "send-ready-event",
+      attemptNumber: 1,
+      status: "queued",
+      source: "meta",
+      relatedEntityType: "ConversionEventLog",
+      relatedEntityId: "conversion_1"
+    });
+    expect(events[0]).toMatchObject({
+      workspaceId: "workspace_1",
+      source: "meta",
+      eventType: "conversion.retry_requested",
+      severity: "info",
+      status: "queued",
+      title: "Reenvio Meta CAPI enfileirado",
+      conversionEventLogId: "conversion_1",
+      jobAttemptId: "job_attempt_1",
+      jobId: "conversion-send:conversion_1"
+    });
   });
 
   it("lists audit logs with operational filters", async () => {
