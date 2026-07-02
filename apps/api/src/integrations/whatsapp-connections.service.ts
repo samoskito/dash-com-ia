@@ -7,11 +7,13 @@ import {
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import type { WhatsappInstanceConnectionDto } from "@wpptrack/shared";
+import type { WhatsappLabelDto } from "@wpptrack/shared";
 import type { WhatsappInstanceSummaryDto } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import {
   UazapiAdapter,
-  type UazapiConnectionResult
+  type UazapiConnectionResult,
+  type UazapiLabelListResult
 } from "./uazapi/uazapi.adapter";
 
 type WhatsappInstanceRecord = {
@@ -31,7 +33,8 @@ type WhatsappInstanceRecord = {
 type UazapiOperation =
   | "uazapi.instance.status"
   | "uazapi.instance.connect"
-  | "uazapi.instance.qr";
+  | "uazapi.instance.qr"
+  | "uazapi.labels.list";
 
 @Injectable()
 export class WhatsappConnectionsService {
@@ -135,6 +138,20 @@ export class WhatsappConnectionsService {
     return this.toDto(instance, result);
   }
 
+  async listLabels(
+    workspaceId: string,
+    whatsappInstanceId: string
+  ): Promise<WhatsappLabelDto[]> {
+    const instance = await this.getActiveInstance(workspaceId, whatsappInstanceId);
+    const startedAt = new Date();
+    const result = await this.uazapiAdapter.listLabels(
+      instance.providerInstanceId ?? instance.id
+    );
+    await this.recordUazapiLabelLog(instance, startedAt, result);
+
+    return result.labels;
+  }
+
   private async callUazapiInstance(
     instance: WhatsappInstanceRecord,
     operation: UazapiOperation,
@@ -195,6 +212,47 @@ export class WhatsappConnectionsService {
             connectionStatus: result.connectionStatus,
             message: result.message,
             hasQrCode: Boolean(result.qrCode)
+          } as Prisma.InputJsonValue
+        }
+      });
+    } catch {
+      return;
+    }
+  }
+
+  private async recordUazapiLabelLog(
+    instance: WhatsappInstanceRecord,
+    startedAt: Date,
+    result: UazapiLabelListResult
+  ): Promise<void> {
+    const finishedAt = new Date();
+    const status =
+      result.status === "success"
+        ? "success"
+        : result.status === "not_configured"
+          ? "blocked"
+          : "error";
+
+    try {
+      await this.prisma.integrationLog.create({
+        data: {
+          workspaceId: instance.workspaceId,
+          source: "uazapi",
+          operation: "uazapi.labels.list",
+          status,
+          startedAt,
+          finishedAt,
+          durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
+          providerRequestId: instance.providerInstanceId ?? instance.id,
+          providerErrorMessage: status === "success" ? null : result.message,
+          jobId: instance.id,
+          requestSummary: {
+            whatsappInstanceId: instance.id,
+            providerInstanceId: instance.providerInstanceId
+          } as Prisma.InputJsonValue,
+          responseSummary: {
+            labelsCount: result.labels.length,
+            message: result.message
           } as Prisma.InputJsonValue
         }
       });

@@ -68,6 +68,16 @@ export class WhatsappConnectionsController {
     return this.whatsappConnectionsService.getQr(workspaceId, instanceId);
   }
 
+  @Get(":instanceId/labels")
+  async listLabels(
+    @AuthToken() refreshToken: string,
+    @Param("instanceId") instanceId: string
+  ) {
+    const { workspaceId } = await this.getCurrentWorkspaceContext(refreshToken);
+
+    return this.whatsappConnectionsService.listLabels(workspaceId, instanceId);
+  }
+
   private async getCurrentWorkspaceContext(refreshToken: string): Promise<{
     role: "owner" | "admin" | "member";
     userId: string;

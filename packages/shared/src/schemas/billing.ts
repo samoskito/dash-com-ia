@@ -81,6 +81,15 @@ export const whatsappInstanceSummaryListSchema = z.array(
   whatsappInstanceSummarySchema
 );
 
+export const whatsappLabelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  colorHex: z.string().min(1).nullable(),
+  labelId: z.string().min(1).nullable()
+});
+
+export const whatsappLabelListSchema = z.array(whatsappLabelSchema);
+
 export const splitReceiverCreateInputSchema = z.object({
   name: z.string().trim().min(2).max(120),
   walletId: z.string().trim().min(3).max(120),
@@ -174,6 +183,8 @@ export type WhatsappInstanceSummaryDto = z.infer<
 export type WhatsappInstanceSummaryListDto = z.infer<
   typeof whatsappInstanceSummaryListSchema
 >;
+export type WhatsappLabelDto = z.infer<typeof whatsappLabelSchema>;
+export type WhatsappLabelListDto = z.infer<typeof whatsappLabelListSchema>;
 export type SplitReceiverCreateInputDto = z.infer<
   typeof splitReceiverCreateInputSchema
 >;

@@ -63,7 +63,15 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       connectionStatus: "qr_required",
       qrCode: "qr-code-text",
       message: "Escaneie o QR Code"
-    }))
+    })),
+    listLabels: vi.fn(async () => [
+      {
+        id: "label_uuid_1",
+        name: "Venda fechada",
+        colorHex: "#fed428",
+        labelId: "10"
+      }
+    ])
   };
 
   const moduleRef = await Test.createTestingModule({
@@ -165,6 +173,32 @@ describe("whatsapp connections controller", () => {
       .expect(403);
 
     expect(whatsappConnectionsService.connectInstance).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("lists labels for the current workspace instance", async () => {
+    const { app, whatsappConnectionsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/whatsapp/instances/wpp_1/labels")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual([
+          {
+            id: "label_uuid_1",
+            name: "Venda fechada",
+            colorHex: "#fed428",
+            labelId: "10"
+          }
+        ]);
+      });
+
+    expect(whatsappConnectionsService.listLabels).toHaveBeenCalledWith(
+      "workspace_1",
+      "wpp_1"
+    );
 
     await app.close();
   });

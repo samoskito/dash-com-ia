@@ -8,6 +8,7 @@ import type {
   IntegrationEnv,
   IntegrationHealthDto
 } from "../integration.types";
+import type { WhatsappLabelDto } from "@wpptrack/shared";
 import { INTEGRATION_ENV } from "../integration.types";
 
 export type UazapiConnectionResult = {
@@ -21,6 +22,12 @@ export type UazapiConnectionResult = {
     | "error";
   qrCode: string | null;
   message: string | null;
+};
+
+export type UazapiLabelListResult = {
+  status: "success" | "not_configured" | "error";
+  message: string | null;
+  labels: WhatsappLabelDto[];
 };
 
 @Injectable()
@@ -55,6 +62,55 @@ export class UazapiAdapter implements IntegrationAdapter {
 
   async getQr(instanceRef: string): Promise<UazapiConnectionResult> {
     return this.getInstanceStatus(instanceRef);
+  }
+
+  async listLabels(_instanceRef: string): Promise<UazapiLabelListResult> {
+    if (!this.env.UAZAPI_BASE_URL || !this.env.UAZAPI_TOKEN) {
+      return {
+        status: "not_configured",
+        message: "Missing UAZAPI_BASE_URL or UAZAPI_TOKEN",
+        labels: []
+      };
+    }
+
+    try {
+      const response = await this.fetchImpl(
+        `${this.env.UAZAPI_BASE_URL.replace(/\/$/, "")}/labels`,
+        {
+          method: "GET",
+          headers: {
+            token: this.env.UAZAPI_TOKEN,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      const payload = (await response.json().catch(() => [])) as unknown;
+
+      if (!response.ok) {
+        const errorPayload = this.asRecord(payload);
+
+        return {
+          status: "error",
+          message:
+            this.asString(errorPayload?.message) ??
+            this.asString(errorPayload?.error) ??
+            `Uazapi HTTP ${response.status}`,
+          labels: []
+        };
+      }
+
+      return {
+        status: "success",
+        message: null,
+        labels: this.toLabels(payload)
+      };
+    } catch (error) {
+      return {
+        status: "error",
+        message: error instanceof Error ? error.message : "Erro ao chamar Uazapi",
+        labels: []
+      };
+    }
   }
 
   private async requestInstance(
@@ -176,6 +232,29 @@ export class UazapiAdapter implements IntegrationAdapter {
     return value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private toLabels(payload: unknown): WhatsappLabelDto[] {
+    const items = Array.isArray(payload) ? payload : [];
+
+    return items.flatMap((item) => {
+      const label = this.asRecord(item);
+      const id = this.asString(label?.id) ?? this.asString(label?.labelid);
+      const name = this.asString(label?.name);
+
+      if (!id || !name) {
+        return [];
+      }
+
+      return [
+        {
+          id,
+          name,
+          colorHex: this.asString(label?.colorHex),
+          labelId: this.asString(label?.labelid)
+        }
+      ];
+    });
   }
 
   private asString(value: unknown): string | null {

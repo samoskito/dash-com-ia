@@ -91,4 +91,53 @@ describe("uazapi adapter", () => {
     expect(status.providerInstanceId).toBe("provider_instance_1");
     expect(status.connectionStatus).toBe("connected");
   });
+
+  it("lists WhatsApp labels through the official Uazapi endpoint", async () => {
+    const fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify([
+          {
+            id: "label_uuid_1",
+            name: "Venda fechada",
+            colorHex: "#fed428",
+            labelid: "10",
+            owner: "secret-owner"
+          }
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    const adapter = new UazapiAdapter(
+      {
+        UAZAPI_BASE_URL: "https://uazapi.test",
+        UAZAPI_TOKEN: "secret-token"
+      },
+      fetch
+    );
+
+    const result = await adapter.listLabels("provider_instance_1");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://uazapi.test/labels",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          token: "secret-token"
+        })
+      })
+    );
+    expect(result).toEqual({
+      status: "success",
+      message: null,
+      labels: [
+        {
+          id: "label_uuid_1",
+          name: "Venda fechada",
+          colorHex: "#fed428",
+          labelId: "10"
+        }
+      ]
+    });
+    expect(JSON.stringify(result)).not.toContain("secret-owner");
+  });
 });

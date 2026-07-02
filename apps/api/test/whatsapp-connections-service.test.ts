@@ -105,6 +105,18 @@ function createHarness() {
       connectionStatus: "qr_required",
       qrCode: "qr-code-text",
       message: "Escaneie o QR Code"
+    })),
+    listLabels: vi.fn(async () => ({
+      status: "success",
+      message: null,
+      labels: [
+        {
+          id: "label_uuid_1",
+          name: "Venda fechada",
+          colorHex: "#fed428",
+          labelId: "10"
+        }
+      ]
     }))
   };
 
@@ -233,5 +245,31 @@ describe("whatsapp connections service", () => {
     await expect(
       service.getStatus("workspace_2", "wpp_active")
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("lists WhatsApp labels for active instances with operational logging", async () => {
+    const { db, service, uazapiAdapter } = createHarness();
+
+    const labels = await service.listLabels("workspace_1", "wpp_active");
+
+    expect(uazapiAdapter.listLabels).toHaveBeenCalledWith("provider_instance_1");
+    expect(labels).toEqual([
+      {
+        id: "label_uuid_1",
+        name: "Venda fechada",
+        colorHex: "#fed428",
+        labelId: "10"
+      }
+    ]);
+    expect(db.integrationLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "uazapi",
+        operation: "uazapi.labels.list",
+        status: "success",
+        providerRequestId: "provider_instance_1",
+        jobId: "wpp_active"
+      })
+    );
   });
 });
