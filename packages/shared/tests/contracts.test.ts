@@ -79,23 +79,42 @@ describe("shared contracts", () => {
     });
   });
 
+  it("rejects short login passwords", () => {
+    expect(() =>
+      loginSchema.parse({
+        email: "owner@wpptrack.com",
+        password: "short"
+      })
+    ).toThrow();
+  });
+
   it("validates register payloads", () => {
     const parsed = registerSchema.parse({
       name: "Samuel",
       email: "SAMUEL@WPPTRACK.COM",
-      password: "strong-password"
+      password: "strong-password",
+      workspaceName: "WppTrack"
     });
 
     expect(parsed.email).toBe("samuel@wpptrack.com");
+    expect(parsed.workspaceName).toBe("WppTrack");
+  });
+
+  it("rejects register payloads without a workspace name", () => {
+    expect(() =>
+      registerSchema.parse({
+        name: "S",
+        email: "samuel@wpptrack.com",
+        password: "strong-password"
+      })
+    ).toThrow();
   });
 
   it("validates google oauth start payloads without requiring oauth wiring", () => {
     const parsed = googleOAuthStartSchema.parse({
-      redirectUri: "https://app.wpptrack.com/auth/google/callback"
+      redirectTo: "/dashboard"
     });
 
-    expect(parsed.redirectUri).toBe(
-      "https://app.wpptrack.com/auth/google/callback"
-    );
+    expect(parsed.redirectTo).toBe("/dashboard");
   });
 });

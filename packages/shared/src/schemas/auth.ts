@@ -8,17 +8,16 @@ const normalizedEmailSchema = z
 
 export const loginSchema = z.object({
   email: normalizedEmailSchema,
-  password: z.string().min(1)
-});
-
-export const registerSchema = z.object({
-  name: z.string().trim().min(1).max(120),
-  email: normalizedEmailSchema,
   password: z.string().min(8)
 });
 
+export const registerSchema = loginSchema.extend({
+  name: z.string().trim().min(2),
+  workspaceName: z.string().trim().min(2)
+});
+
 export const googleOAuthStartSchema = z.object({
-  redirectUri: z.string().trim().url().optional()
+  redirectTo: z.string().trim().min(1).optional()
 });
 
 export type LoginDto = z.infer<typeof loginSchema>;

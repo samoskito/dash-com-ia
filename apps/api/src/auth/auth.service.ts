@@ -1,15 +1,11 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
-import type { WorkspaceDto } from "@wpptrack/shared";
+import type { LoginDto } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { PasswordService } from "./password.service";
-
-export type LoginDto = {
-  email: string;
-  password: string;
-};
+import type { AuthenticatedUser } from "./session.types";
 
 type WorkspaceMembershipRecord = {
-  role: WorkspaceDto["role"];
+  role: AuthenticatedUser["workspaces"][number]["role"];
   workspace: {
     id: string;
     name: string;
@@ -26,17 +22,6 @@ type EmailLoginUserRecord = {
   googleId?: string | null;
   emailVerifiedAt?: Date | null;
   memberships: WorkspaceMembershipRecord[];
-};
-
-export type AuthenticatedUser = {
-  user: {
-    id: string;
-    email: string;
-    name: string | null;
-    authProvider: string;
-    emailVerifiedAt: Date | null;
-  };
-  workspaces: WorkspaceDto[];
 };
 
 @Injectable()

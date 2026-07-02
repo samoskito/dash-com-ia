@@ -2,6 +2,7 @@ import { UnauthorizedException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
 import { AuthService } from "../src/auth/auth.service";
 import { PasswordService } from "../src/auth/password.service";
+import type { AuthenticatedUser } from "../src/auth/session.types";
 
 describe("auth contracts", () => {
   it("hashes and verifies passwords", async () => {
@@ -80,7 +81,7 @@ describe("auth contracts", () => {
     };
     const authService = new AuthService(prisma as never, passwordService);
 
-    const result = await authService.validateEmailLogin({
+    const result: AuthenticatedUser = await authService.validateEmailLogin({
       email: " OWNER@WPPTRACK.COM ",
       password: "secret123"
     });
