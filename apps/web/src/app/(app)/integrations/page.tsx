@@ -274,7 +274,7 @@ function providerTitle(provider: string) {
     asaas: "Asaas"
   };
 
-  return titles[provider] ?? provider;
+  return titles[provider] ?? "Provedor desconhecido";
 }
 
 function statusLabel(status: string) {
@@ -291,7 +291,7 @@ function statusLabel(status: string) {
     syncing: "Sincronizando"
   };
 
-  return labels[status] ?? status;
+  return labels[status] ?? "Status desconhecido";
 }
 
 function metaConnectionTitle(status?: MetaAssetsDto["status"] | MetaConnectionDto["status"]) {
@@ -305,6 +305,10 @@ function metaConnectionTitle(status?: MetaAssetsDto["status"] | MetaConnectionDt
 
   if (status === "error") {
     return "Meta com erro";
+  }
+
+  if (status && status !== "not_connected") {
+    return "Meta com status desconhecido";
   }
 
   return "Meta nao conectado";

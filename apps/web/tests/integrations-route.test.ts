@@ -490,4 +490,138 @@ describe("integrations route", () => {
     expect(html).not.toContain("99%");
     expect(html).not.toContain("18s");
   });
+
+  it("renders unknown integration statuses as explicit unknown states", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            checkedAt: "2026-07-02T03:00:00.000Z",
+            providers: [
+              {
+                provider: "uazapi",
+                status: "rate_limited",
+                checkedAt: "2026-07-02T03:00:00.000Z"
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "wpp_1",
+              name: "Vendas",
+              provider: "uazapi",
+              billingStatus: "provisioning_hold",
+              providerInstanceId: null,
+              checkoutUrl: null,
+              createdAt: "2026-07-02T03:00:00.000Z"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "sync_paused",
+            tokenType: "bearer",
+            scopes: [],
+            expiresAt: null,
+            connectedAt: null,
+            selectedBusinessId: null,
+            selectedAdAccountId: null,
+            selectedPixelId: null
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "sync_paused",
+            businesses: [],
+            adAccounts: [],
+            pixels: [],
+            selection: {
+              businessId: null,
+              adAccountId: null,
+              pixelId: null
+            },
+            lastSyncedAt: null,
+            syncError: null
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            activeInstances: 1,
+            pricePerInstanceCents: 9900,
+            nextInstanceAmountCents: 9900,
+            currency: "BRL"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "manual_review",
+            planName: "Por instancia",
+            activeInstances: 1,
+            pricePerWhatsappInstanceCents: 9900,
+            monthlyAmountCents: 9900,
+            currentPeriodEnd: null,
+            asaasSubscriptionId: null
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            stages: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "workspace_1",
+            name: "Workspace",
+            slug: "workspace",
+            role: "owner",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await IntegrationsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Meta com status desconhecido");
+    expect(html).toContain("Status desconhecido");
+    expect(html).not.toContain("rate_limited");
+    expect(html).not.toContain("sync_paused");
+    expect(html).not.toContain("provisioning_hold");
+    expect(html).not.toContain("manual_review");
+  });
 });
