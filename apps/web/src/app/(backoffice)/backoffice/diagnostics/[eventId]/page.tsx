@@ -43,6 +43,35 @@ async function retryDiagnosticEvent(formData: FormData) {
   }
 }
 
+async function retryConversionEventLog(formData: FormData) {
+  "use server";
+
+  const conversionEventLogId = String(
+    formData.get("conversionEventLogId") ?? ""
+  );
+  const diagnosticEventId = String(formData.get("diagnosticEventId") ?? "");
+
+  if (!conversionEventLogId || !diagnosticEventId) {
+    return;
+  }
+
+  try {
+    await serverApiFetch(
+      `/backoffice/diagnostics/conversions/${conversionEventLogId}/retry`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          reason: "Retry de evento Pixel/CAPI solicitado no detalhe do diagnostico WppTrack"
+        })
+      }
+    );
+    revalidatePath("/backoffice");
+    revalidatePath(`/backoffice/diagnostics/${diagnosticEventId}`);
+  } catch {
+    return;
+  }
+}
+
 function payloadText(payload: DiagnosticEventDetailDto["summaryPayload"]) {
   if (!payload) {
     return "{}";
@@ -149,6 +178,23 @@ export default async function DiagnosticEventPage({
                 <pre className="payload-block compact">
                   {timelinePayloadText(item.summaryPayload)}
                 </pre>
+              ) : null}
+              {item.kind === "conversion_event_log" ? (
+                <form className="action-row" action={retryConversionEventLog}>
+                  <input
+                    type="hidden"
+                    name="conversionEventLogId"
+                    value={item.id}
+                  />
+                  <input
+                    type="hidden"
+                    name="diagnosticEventId"
+                    value={event.id}
+                  />
+                  <button className="button" type="submit">
+                    Reprocessar Pixel
+                  </button>
+                </form>
               ) : null}
             </article>
           ))}

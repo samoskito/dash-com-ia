@@ -21,6 +21,21 @@ describe("diagnostic detail route", () => {
     );
   });
 
+  it("revalidates diagnostic detail after retrying a linked conversion event", () => {
+    const source = readFileSync(
+      "src/app/(backoffice)/backoffice/diagnostics/[eventId]/page.tsx",
+      "utf8"
+    );
+
+    expect(source).toContain("async function retryConversionEventLog");
+    expect(source).toContain(
+      "`/backoffice/diagnostics/conversions/${conversionEventLogId}/retry`"
+    );
+    expect(source).toContain(
+      "revalidatePath(`/backoffice/diagnostics/${diagnosticEventId}`)"
+    );
+  });
+
   it("renders diagnostic event detail and retry action", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(
@@ -68,6 +83,18 @@ describe("diagnostic detail route", () => {
               summaryPayload: null
             },
             {
+              id: "conversion_1",
+              kind: "conversion_event_log",
+              label: "Conversao QualifiedLead",
+              status: "error",
+              occurredAt: "2026-07-02T03:00:30.000Z",
+              summaryPayload: {
+                pixelId: "pixel_1",
+                adId: "ad_1",
+                errorCode: "META_CONTEXT_MISSING"
+              }
+            },
+            {
               id: "job_attempt_1",
               kind: "job_attempt",
               label: "retry-diagnostic-event",
@@ -96,6 +123,10 @@ describe("diagnostic detail route", () => {
     expect(html).toContain("Missing currency");
     expect(html).toContain("Linha do tempo operacional");
     expect(html).toContain("Webhook meta recebido");
+    expect(html).toContain("Conversao QualifiedLead");
+    expect(html).toContain('name="conversionEventLogId"');
+    expect(html).toContain('name="diagnosticEventId"');
+    expect(html).toContain("Reprocessar Pixel");
     expect(html).toContain("retry-diagnostic-event");
     expect(html).toContain("Reprocessar evento");
     expect(html).toContain("diag_1");
