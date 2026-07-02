@@ -4,6 +4,7 @@ import { WhatsappConnectionsService } from "../src/integrations/whatsapp-connect
 
 function createHarness() {
   const db = {
+    integrationLogs: [] as Array<Record<string, unknown>>,
     instances: [
       {
         id: "wpp_pending",
@@ -61,6 +62,17 @@ function createHarness() {
           ...data
         };
         return db.instances[index];
+      }
+    },
+    integrationLog: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const log = {
+          id: `integration_${db.integrationLogs.length + 1}`,
+          startedAt: data.startedAt ?? new Date("2026-07-02T03:00:00.000Z"),
+          ...data
+        };
+        db.integrationLogs.push(log);
+        return log;
       }
     }
   };
@@ -130,7 +142,7 @@ describe("whatsapp connections service", () => {
   });
 
   it("returns sanitized status for active whatsapp instances", async () => {
-    const { service, uazapiAdapter } = createHarness();
+    const { db, service, uazapiAdapter } = createHarness();
 
     const status = await service.getStatus("workspace_1", "wpp_active");
 
@@ -145,6 +157,19 @@ describe("whatsapp connections service", () => {
       qrCode: null
     });
     expect(JSON.stringify(status)).not.toContain("secret");
+    expect(db.integrationLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "uazapi",
+        operation: "uazapi.instance.status",
+        status: "success",
+        providerRequestId: "provider_instance_1",
+        providerErrorMessage: null,
+        jobId: "wpp_active"
+      })
+    );
+    expect(JSON.stringify(db.integrationLogs)).not.toContain("qr-code-text");
+    expect(JSON.stringify(db.integrationLogs)).not.toContain("secret");
   });
 
   it("connects active whatsapp instances and persists provider instance id", async () => {

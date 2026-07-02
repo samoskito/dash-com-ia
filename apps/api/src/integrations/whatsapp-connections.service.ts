@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import type { WhatsappInstanceConnectionDto } from "@wpptrack/shared";
 import type { WhatsappInstanceSummaryDto } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
@@ -25,6 +26,11 @@ type WhatsappInstanceRecord = {
     };
   }>;
 };
+
+type UazapiOperation =
+  | "uazapi.instance.status"
+  | "uazapi.instance.connect"
+  | "uazapi.instance.qr";
 
 @Injectable()
 export class WhatsappConnectionsService {
@@ -68,8 +74,13 @@ export class WhatsappConnectionsService {
     whatsappInstanceId: string
   ): Promise<WhatsappInstanceConnectionDto> {
     const instance = await this.getActiveInstance(workspaceId, whatsappInstanceId);
-    const result = await this.uazapiAdapter.getInstanceStatus(
-      instance.providerInstanceId ?? instance.id
+    const result = await this.callUazapiInstance(
+      instance,
+      "uazapi.instance.status",
+      () =>
+        this.uazapiAdapter.getInstanceStatus(
+          instance.providerInstanceId ?? instance.id
+        )
     );
 
     return this.toDto(instance, result);
@@ -80,8 +91,11 @@ export class WhatsappConnectionsService {
     whatsappInstanceId: string
   ): Promise<WhatsappInstanceConnectionDto> {
     const instance = await this.getActiveInstance(workspaceId, whatsappInstanceId);
-    const result = await this.uazapiAdapter.connectInstance(
-      instance.providerInstanceId ?? instance.id
+    const result = await this.callUazapiInstance(
+      instance,
+      "uazapi.instance.connect",
+      () =>
+        this.uazapiAdapter.connectInstance(instance.providerInstanceId ?? instance.id)
     );
 
     if (result.providerInstanceId && result.providerInstanceId !== instance.providerInstanceId) {
@@ -100,11 +114,81 @@ export class WhatsappConnectionsService {
     whatsappInstanceId: string
   ): Promise<WhatsappInstanceConnectionDto> {
     const instance = await this.getActiveInstance(workspaceId, whatsappInstanceId);
-    const result = await this.uazapiAdapter.getQr(
-      instance.providerInstanceId ?? instance.id
+    const result = await this.callUazapiInstance(
+      instance,
+      "uazapi.instance.qr",
+      () => this.uazapiAdapter.getQr(instance.providerInstanceId ?? instance.id)
     );
 
     return this.toDto(instance, result);
+  }
+
+  private async callUazapiInstance(
+    instance: WhatsappInstanceRecord,
+    operation: UazapiOperation,
+    callback: () => Promise<UazapiConnectionResult>
+  ): Promise<UazapiConnectionResult> {
+    const startedAt = new Date();
+
+    try {
+      const result = await callback();
+      await this.recordUazapiIntegrationLog(instance, operation, startedAt, result);
+
+      return result;
+    } catch (error) {
+      await this.recordUazapiIntegrationLog(instance, operation, startedAt, {
+        providerInstanceId: instance.providerInstanceId ?? instance.id,
+        connectionStatus: "error",
+        qrCode: null,
+        message: error instanceof Error ? error.message : "Erro ao chamar Uazapi"
+      });
+
+      throw error;
+    }
+  }
+
+  private async recordUazapiIntegrationLog(
+    instance: WhatsappInstanceRecord,
+    operation: UazapiOperation,
+    startedAt: Date,
+    result: UazapiConnectionResult
+  ): Promise<void> {
+    const finishedAt = new Date();
+    const status =
+      result.connectionStatus === "error"
+        ? "error"
+        : result.connectionStatus === "not_configured"
+          ? "blocked"
+          : "success";
+
+    try {
+      await this.prisma.integrationLog.create({
+        data: {
+          workspaceId: instance.workspaceId,
+          source: "uazapi",
+          operation,
+          status,
+          startedAt,
+          finishedAt,
+          durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
+          providerRequestId: result.providerInstanceId,
+          providerErrorMessage:
+            status === "error" || status === "blocked" ? result.message : null,
+          jobId: instance.id,
+          requestSummary: {
+            whatsappInstanceId: instance.id,
+            providerInstanceId: instance.providerInstanceId
+          } as Prisma.InputJsonValue,
+          responseSummary: {
+            connectionStatus: result.connectionStatus,
+            message: result.message,
+            hasQrCode: Boolean(result.qrCode)
+          } as Prisma.InputJsonValue
+        }
+      });
+    } catch {
+      return;
+    }
   }
 
   private async getActiveInstance(
