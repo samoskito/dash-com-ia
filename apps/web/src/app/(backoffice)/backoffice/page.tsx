@@ -2,6 +2,7 @@ import type {
   BackofficePaymentChargeDto,
   BackofficeWhatsappInstanceDto,
   DiagnosticEventDto,
+  DiagnosticJobAttemptDto,
   DiagnosticWebhookLogDto,
   SplitReceiverDto,
   WorkspaceBillingDto
@@ -87,6 +88,24 @@ async function getWebhookLogs(
     return {
       data: webhooks,
       state: webhooks.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      data: [],
+      state: "error"
+    };
+  }
+}
+
+async function getJobAttempts(): Promise<ResourceResult<DiagnosticJobAttemptDto[]>> {
+  try {
+    const jobs = await serverApiFetch<DiagnosticJobAttemptDto[]>(
+      "/backoffice/diagnostics/jobs?limit=10"
+    );
+
+    return {
+      data: jobs,
+      state: jobs.length > 0 ? "real" : "empty"
     };
   } catch {
     return {
@@ -377,17 +396,20 @@ export default async function BackofficePage({
     splitReceiversResult,
     paymentChargesResult,
     whatsappInstancesResult,
-    webhookLogsResult
+    webhookLogsResult,
+    jobAttemptsResult
   ] = await Promise.all([
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
     getSplitReceivers(),
     getPaymentCharges(paymentChargeFilters),
     getBackofficeWhatsappInstances(),
-    getWebhookLogs(webhookLogFilters)
+    getWebhookLogs(webhookLogFilters),
+    getJobAttempts()
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
   const webhookLogs = webhookLogsResult.data;
+  const jobAttempts = jobAttemptsResult.data;
   const workspaceBilling = workspaceBillingResult.data;
   const splitReceivers = splitReceiversResult.data;
   const paymentCharges = paymentChargesResult.data;
@@ -404,7 +426,8 @@ export default async function BackofficePage({
     splitReceiversResult.state,
     paymentChargesResult.state,
     whatsappInstancesResult.state,
-    webhookLogsResult.state
+    webhookLogsResult.state,
+    jobAttemptsResult.state
   ].includes("error");
   const configuredCustomers = workspaceBilling.filter(
     (workspace) => workspace.asaasCustomerId
@@ -441,10 +464,12 @@ export default async function BackofficePage({
     ],
     [
       "Diagnosticos",
-      diagnosticEventsResult.state === "error" || webhookLogsResult.state === "error"
+      diagnosticEventsResult.state === "error" ||
+      webhookLogsResult.state === "error" ||
+      jobAttemptsResult.state === "error"
         ? "API indisponivel"
-        : `${diagnosticEvents.length} eventos / ${webhookLogs.length} webhooks`,
-      "Eventos e webhooks reais retornados pela Central de Diagnostico."
+        : `${diagnosticEvents.length} eventos / ${webhookLogs.length} webhooks / ${jobAttempts.length} jobs`,
+      "Eventos, webhooks e jobs reais retornados pela Central de Diagnostico."
     ]
   ];
   const workspaceEmptyTitle =
@@ -467,6 +492,10 @@ export default async function BackofficePage({
     webhookLogsResult.state === "error"
       ? "Nao foi possivel carregar webhooks"
       : "Nenhum webhook recebido";
+  const jobAttemptEmptyTitle =
+    jobAttemptsResult.state === "error"
+      ? "Nao foi possivel carregar jobs"
+      : "Nenhum job operacional encontrado";
   const paymentChargeEmptyTitle =
     paymentChargesResult.state === "error"
       ? "Nao foi possivel carregar cobrancas"
@@ -929,6 +958,58 @@ export default async function BackofficePage({
                   <td colSpan={6}>
                     <strong>{webhookLogEmptyTitle}</strong>
                     <span>Webhooks Uazapi, Meta e Asaas recebidos aparecem aqui.</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Jobs operacionais</th>
+                <th>Fila</th>
+                <th>Entidade</th>
+                <th>Tentativa</th>
+                <th>Proxima acao</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobAttempts.length > 0 ? (
+                jobAttempts.map((job) => (
+                  <tr key={job.id}>
+                    <td>
+                      <strong>{job.jobName}</strong>
+                      <span>{job.jobId}</span>
+                    </td>
+                    <td>
+                      <strong>{job.queueName}</strong>
+                      <span>{job.source}</span>
+                    </td>
+                    <td>
+                      {job.relatedEntityType ?? "sem entidade"}
+                      {job.relatedEntityId ? ` / ${job.relatedEntityId}` : ""}
+                    </td>
+                    <td>{job.attemptNumber}</td>
+                    <td>
+                      {job.nextRetryAt
+                        ? new Date(job.nextRetryAt).toLocaleString("pt-BR")
+                        : "sem retry agendado"}
+                    </td>
+                    <td>
+                      <span className={`event-chip${job.errorCode ? " warn" : ""}`}>
+                        {job.errorCode ?? job.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>
+                    <strong>{jobAttemptEmptyTitle}</strong>
+                    <span>Jobs de retry, conversao e sincronizacao aparecem aqui.</span>
                   </td>
                 </tr>
               )}

@@ -107,6 +107,42 @@ export const diagnosticWebhookLogListSchema = z.array(
   diagnosticWebhookLogSchema
 );
 
+export const diagnosticJobAttemptSchema = z.object({
+  id: z.string().min(1),
+  workspaceId: z.string().min(1).nullable(),
+  queueName: z.string().min(1),
+  jobId: z.string().min(1),
+  jobName: z.string().min(1),
+  attemptNumber: z.number().int().positive(),
+  status: z.string().min(1),
+  scheduledAt: z.string().datetime().nullable(),
+  startedAt: z.string().datetime().nullable(),
+  finishedAt: z.string().datetime().nullable(),
+  nextRetryAt: z.string().datetime().nullable(),
+  source: diagnosticSourceSchema,
+  relatedEntityType: z.string().nullable(),
+  relatedEntityId: z.string().nullable(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  createdAt: z.string().datetime()
+});
+
+export const diagnosticJobAttemptListQuerySchema = z.object({
+  workspaceId: z.string().min(1).optional(),
+  source: diagnosticSourceSchema.optional(),
+  status: z.string().min(1).optional(),
+  queueName: z.string().min(1).optional(),
+  jobName: z.string().min(1).optional(),
+  q: z.string().trim().min(1).optional(),
+  since: z.string().datetime().optional(),
+  until: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(10)
+});
+
+export const diagnosticJobAttemptListSchema = z.array(
+  diagnosticJobAttemptSchema
+);
+
 export const diagnosticTimelineItemSchema = z.object({
   id: z.string().min(1),
   kind: z.enum([
@@ -154,6 +190,12 @@ export type DiagnosticWebhookLogDto = z.infer<
 >;
 export type DiagnosticWebhookLogListQueryDto = z.infer<
   typeof diagnosticWebhookLogListQuerySchema
+>;
+export type DiagnosticJobAttemptDto = z.infer<
+  typeof diagnosticJobAttemptSchema
+>;
+export type DiagnosticJobAttemptListQueryDto = z.infer<
+  typeof diagnosticJobAttemptListQuerySchema
 >;
 export type DiagnosticTimelineItemDto = z.infer<
   typeof diagnosticTimelineItemSchema

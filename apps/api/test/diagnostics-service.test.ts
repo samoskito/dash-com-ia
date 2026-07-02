@@ -7,6 +7,7 @@ function createHarness() {
   const jobAttempts: Array<Record<string, unknown>> = [];
   const webhookLogs: Array<Record<string, unknown>> = [];
   const webhookFindManyCalls: Array<Record<string, unknown>> = [];
+  const jobAttemptFindManyCalls: Array<Record<string, unknown>> = [];
   const diagnosticFindManyCalls: Array<Record<string, unknown>> = [];
   const diagnosticsQueueService = {
     enqueueRetry: vi.fn(async (payload: Record<string, unknown>) => ({
@@ -102,14 +103,42 @@ function createHarness() {
       findMany: async ({ where }: { where: Record<string, unknown> }) =>
         jobAttempts.filter((jobAttempt) =>
           Object.entries(where).every(([key, value]) => jobAttempt[key] === value)
-        )
+        ),
+      findManyForList: async ({
+        where,
+        take
+      }: {
+        where: Record<string, unknown>;
+        take: number;
+      }) => {
+        jobAttemptFindManyCalls.push({ where, take });
+
+        return jobAttempts.slice(0, take);
+      }
     }
+  };
+
+  prisma.jobAttempt.findMany = async (args: {
+    where: Record<string, unknown>;
+    take?: number;
+  }) => {
+    if (typeof args.take === "number") {
+      return prisma.jobAttempt.findManyForList({
+        where: args.where,
+        take: args.take
+      });
+    }
+
+    return jobAttempts.filter((jobAttempt) =>
+      Object.entries(args.where).every(([key, value]) => jobAttempt[key] === value)
+    );
   };
 
   return {
     auditLogs,
     diagnosticFindManyCalls,
     events,
+    jobAttemptFindManyCalls,
     jobAttempts,
     webhookFindManyCalls,
     webhookLogs,
@@ -372,6 +401,63 @@ describe("diagnostics service", () => {
       ]
     });
     expect(webhookFindManyCalls[0]?.take).toBe(10);
+  });
+
+  it("lists job attempts with operational filters", async () => {
+    const { jobAttemptFindManyCalls, service } = createHarness();
+    await service.recordEvent({
+      workspaceId: "workspace_1",
+      source: "meta",
+      eventType: "pixel_event",
+      severity: "error",
+      status: "error",
+      title: "Meta recusou evento",
+      message: "Timeout Meta",
+      occurredAt: "2026-07-02T03:00:00.000Z"
+    });
+    await service.retryEvent("diag_1", {
+      reason: "Cliente relatou conversao ausente"
+    });
+
+    const result = await service.listJobAttempts({
+      workspaceId: "workspace_1",
+      source: "meta",
+      status: "queued",
+      queueName: "diagnostics.retry",
+      q: "diagnostic",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      limit: 10
+    });
+
+    expect(result[0]).toMatchObject({
+      id: "job_attempt_1",
+      workspaceId: "workspace_1",
+      queueName: "diagnostics.retry",
+      jobName: "retry-diagnostic-event",
+      attemptNumber: 1,
+      status: "queued",
+      source: "meta"
+    });
+    expect(jobAttemptFindManyCalls[0]?.where).toEqual({
+      workspaceId: "workspace_1",
+      source: "meta",
+      status: "queued",
+      queueName: "diagnostics.retry",
+      createdAt: {
+        gte: new Date("2026-07-01T00:00:00.000Z"),
+        lte: new Date("2026-07-02T23:59:59.000Z")
+      },
+      OR: [
+        { queueName: { contains: "diagnostic", mode: "insensitive" } },
+        { jobName: { contains: "diagnostic", mode: "insensitive" } },
+        { jobId: { contains: "diagnostic", mode: "insensitive" } },
+        { status: { contains: "diagnostic", mode: "insensitive" } },
+        { errorCode: { contains: "diagnostic", mode: "insensitive" } },
+        { errorMessage: { contains: "diagnostic", mode: "insensitive" } }
+      ]
+    });
+    expect(jobAttemptFindManyCalls[0]?.take).toBe(10);
   });
 
   it("returns an operational timeline for webhook, event, retry audit and job attempts", async () => {

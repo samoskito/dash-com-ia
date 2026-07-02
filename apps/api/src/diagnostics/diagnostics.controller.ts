@@ -11,6 +11,7 @@ import {
 import {
   diagnosticEventCreateSchema,
   diagnosticEventListQuerySchema,
+  diagnosticJobAttemptListQuerySchema,
   diagnosticWebhookLogListQuerySchema,
   diagnosticRetryInputSchema
 } from "@wpptrack/shared";
@@ -57,6 +58,22 @@ export class DiagnosticsController {
     }
 
     return this.diagnosticsService.listWebhookLogs(parsed.data);
+  }
+
+  @Get("jobs")
+  async listJobAttempts(
+    @AuthToken() refreshToken: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    const parsed = diagnosticJobAttemptListQuerySchema.safeParse(query);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Filtros invalidos");
+    }
+
+    return this.diagnosticsService.listJobAttempts(parsed.data);
   }
 
   @Get("events/:id")

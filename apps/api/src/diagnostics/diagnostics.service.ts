@@ -6,6 +6,8 @@ import type {
   DiagnosticEventDetailDto,
   DiagnosticEventDto,
   DiagnosticEventListQueryDto,
+  DiagnosticJobAttemptDto,
+  DiagnosticJobAttemptListQueryDto,
   DiagnosticWebhookLogDto,
   DiagnosticWebhookLogListQueryDto,
   DiagnosticTimelineItemDto,
@@ -73,11 +75,21 @@ type AuditLogRecord = {
 
 type JobAttemptRecord = {
   id: string;
+  workspaceId: string | null;
+  queueName: string;
+  jobId: string;
   jobName: string;
+  attemptNumber: number;
   status: string;
   scheduledAt: Date | null;
   startedAt: Date | null;
   finishedAt: Date | null;
+  nextRetryAt: Date | null;
+  source: DiagnosticSourceDto;
+  relatedEntityType: string | null;
+  relatedEntityId: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
   createdAt: Date;
   summaryPayload?: unknown;
 };
@@ -348,6 +360,60 @@ export class DiagnosticsService {
     return webhooks.map((webhook) => this.toWebhookLogDto(webhook));
   }
 
+  async listJobAttempts(
+    query: DiagnosticJobAttemptListQueryDto
+  ): Promise<DiagnosticJobAttemptDto[]> {
+    const where: Prisma.JobAttemptWhereInput = {};
+
+    if (query.workspaceId) {
+      where.workspaceId = query.workspaceId;
+    }
+
+    if (query.source) {
+      where.source = query.source;
+    }
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    if (query.queueName) {
+      where.queueName = query.queueName;
+    }
+
+    if (query.jobName) {
+      where.jobName = query.jobName;
+    }
+
+    if (query.since || query.until) {
+      where.createdAt = {
+        ...(query.since ? { gte: new Date(query.since) } : {}),
+        ...(query.until ? { lte: new Date(query.until) } : {})
+      };
+    }
+
+    if (query.q) {
+      where.OR = [
+        { queueName: { contains: query.q, mode: "insensitive" } },
+        { jobName: { contains: query.q, mode: "insensitive" } },
+        { jobId: { contains: query.q, mode: "insensitive" } },
+        { status: { contains: query.q, mode: "insensitive" } },
+        { errorCode: { contains: query.q, mode: "insensitive" } },
+        { errorMessage: { contains: query.q, mode: "insensitive" } }
+      ];
+    }
+
+    const attempts = (await this.prisma.jobAttempt.findMany({
+      where,
+      orderBy: {
+        createdAt: "desc"
+      },
+      take: query.limit
+    })) as JobAttemptRecord[];
+
+    return attempts.map((attempt) => this.toJobAttemptDto(attempt));
+  }
+
   async getEvent(id: string): Promise<DiagnosticEventDetailDto> {
     const event = (await this.prisma.diagnosticEvent.findUnique({
       where: { id }
@@ -475,6 +541,28 @@ export class DiagnosticsService {
       jobId: webhook.jobId,
       errorCode: webhook.errorCode,
       errorMessage: webhook.errorMessage
+    };
+  }
+
+  private toJobAttemptDto(attempt: JobAttemptRecord): DiagnosticJobAttemptDto {
+    return {
+      id: attempt.id,
+      workspaceId: attempt.workspaceId,
+      queueName: attempt.queueName,
+      jobId: attempt.jobId,
+      jobName: attempt.jobName,
+      attemptNumber: attempt.attemptNumber,
+      status: attempt.status,
+      scheduledAt: attempt.scheduledAt?.toISOString() ?? null,
+      startedAt: attempt.startedAt?.toISOString() ?? null,
+      finishedAt: attempt.finishedAt?.toISOString() ?? null,
+      nextRetryAt: attempt.nextRetryAt?.toISOString() ?? null,
+      source: attempt.source,
+      relatedEntityType: attempt.relatedEntityType,
+      relatedEntityId: attempt.relatedEntityId,
+      errorCode: attempt.errorCode,
+      errorMessage: attempt.errorMessage,
+      createdAt: attempt.createdAt.toISOString()
     };
   }
 

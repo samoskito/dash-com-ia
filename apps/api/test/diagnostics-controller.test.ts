@@ -46,10 +46,31 @@ const webhookLog = {
   errorMessage: null
 };
 
+const jobAttempt = {
+  id: "job_attempt_1",
+  workspaceId: "workspace_1",
+  queueName: "conversion-events",
+  jobId: "bull_job_1",
+  jobName: "send-conversion-event",
+  attemptNumber: 2,
+  status: "failed",
+  scheduledAt: "2026-07-02T03:00:00.000Z",
+  startedAt: "2026-07-02T03:01:00.000Z",
+  finishedAt: "2026-07-02T03:01:10.000Z",
+  nextRetryAt: "2026-07-02T03:05:00.000Z",
+  source: "meta",
+  relatedEntityType: "ConversionEventLog",
+  relatedEntityId: "conversion_1",
+  errorCode: "META_TIMEOUT",
+  errorMessage: "Timeout Meta",
+  createdAt: "2026-07-02T03:00:00.000Z"
+};
+
 async function createApp() {
   const service = {
     listEvents: vi.fn(async () => [diagnosticEvent]),
     listWebhookLogs: vi.fn(async () => [webhookLog]),
+    listJobAttempts: vi.fn(async () => [jobAttempt]),
     getEvent: vi.fn(async () => diagnosticEvent),
     recordEvent: vi.fn(async () => diagnosticEvent),
     retryEvent: vi.fn(async () => ({
@@ -146,6 +167,37 @@ describe("diagnostics controller", () => {
       phoneHash: "phone_hash_1",
       campaignId: "cmp_1",
       adId: "ad_1",
+      limit: 10
+    });
+
+    await app.close();
+  });
+
+  it("lists backoffice job attempts", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/diagnostics/jobs?workspaceId=workspace_1&source=meta&status=failed&queueName=conversion-events&q=timeout&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&limit=10"
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body[0].id).toBe("job_attempt_1");
+        expect(body[0].errorCode).toBe("META_TIMEOUT");
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(service.listJobAttempts).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      source: "meta",
+      status: "failed",
+      queueName: "conversion-events",
+      q: "timeout",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
       limit: 10
     });
 

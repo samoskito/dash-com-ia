@@ -177,6 +177,84 @@ describe("backoffice route", () => {
     expect(html).toContain("lead_1");
   });
 
+  it("renders diagnostic job attempts returned by the diagnostics endpoint", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "job_attempt_1",
+              workspaceId: "workspace_1",
+              queueName: "conversion-events",
+              jobId: "bull_job_1",
+              jobName: "send-conversion-event",
+              attemptNumber: 2,
+              status: "failed",
+              scheduledAt: "2026-07-02T03:00:00.000Z",
+              startedAt: "2026-07-02T03:01:00.000Z",
+              finishedAt: "2026-07-02T03:01:10.000Z",
+              nextRetryAt: "2026-07-02T03:05:00.000Z",
+              source: "meta",
+              relatedEntityType: "ConversionEventLog",
+              relatedEntityId: "conversion_1",
+              errorCode: "META_TIMEOUT",
+              errorMessage: "Timeout Meta",
+              createdAt: "2026-07-02T03:00:00.000Z"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await BackofficePage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/diagnostics/jobs?limit=10",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Jobs operacionais");
+    expect(html).toContain("send-conversion-event");
+    expect(html).toContain("META_TIMEOUT");
+    expect(html).toContain("conversion_1");
+  });
+
   it("renders workspace billing configuration with editable Asaas customer ids", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
