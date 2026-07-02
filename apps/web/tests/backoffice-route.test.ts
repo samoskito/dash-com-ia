@@ -716,6 +716,100 @@ describe("backoffice route", () => {
     expect(html).toContain("paid");
   });
 
+  it("renders subscription plans returned by the backoffice billing endpoint", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "plan_1",
+              name: "Plano Growth",
+              slug: "growth",
+              pricePerWhatsappInstanceCents: 12900,
+              active: true,
+              createdAt: "2026-07-02T03:00:00.000Z",
+              updatedAt: "2026-07-02T03:00:00.000Z"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await BackofficePage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/billing/plans",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Planos de assinatura");
+    expect(html).toContain("Plano Growth");
+    expect(html).toContain("growth");
+    expect(html).toContain("R$ 129,00");
+    expect(html).toContain("Novo plano");
+    expect(html).toContain('name="planId"');
+  });
+
   it("renders whatsapp instances returned by the backoffice endpoint", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(

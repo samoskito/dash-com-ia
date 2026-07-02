@@ -1,5 +1,6 @@
 import type {
   BackofficePaymentChargeDto,
+  BackofficeSubscriptionPlanDto,
   BackofficeWhatsappInstanceDto,
   DiagnosticAuditLogDto,
   DiagnosticConversionEventLogDto,
@@ -314,6 +315,26 @@ async function getPaymentCharges(
   }
 }
 
+async function getSubscriptionPlans(): Promise<
+  ResourceResult<BackofficeSubscriptionPlanDto[]>
+> {
+  try {
+    const plans = await serverApiFetch<BackofficeSubscriptionPlanDto[]>(
+      "/backoffice/billing/plans"
+    );
+
+    return {
+      data: plans,
+      state: plans.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      data: [],
+      state: "error"
+    };
+  }
+}
+
 async function getBackofficeWhatsappInstances(): Promise<ResourceResult<BackofficeWhatsappInstanceDto[]>> {
   try {
     const instances = await serverApiFetch<BackofficeWhatsappInstanceDto[]>(
@@ -427,6 +448,61 @@ async function updateWorkspaceOperationalStatus(formData: FormData) {
         })
       }
     );
+    revalidatePath("/backoffice");
+  } catch {
+    return;
+  }
+}
+
+async function createSubscriptionPlan(formData: FormData) {
+  "use server";
+
+  const name = String(formData.get("name") ?? "").trim();
+  const slug = String(formData.get("slug") ?? "").trim();
+  const price = Number(String(formData.get("price") ?? "0").replace(",", "."));
+
+  if (!name || !slug || !Number.isFinite(price) || price <= 0) {
+    return;
+  }
+
+  try {
+    await serverApiFetch("/backoffice/billing/plans", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        slug,
+        pricePerWhatsappInstanceCents: Math.round(price * 100),
+        active: String(formData.get("active") ?? "true") === "true"
+      })
+    });
+    revalidatePath("/backoffice");
+  } catch {
+    return;
+  }
+}
+
+async function updateSubscriptionPlan(formData: FormData) {
+  "use server";
+
+  const planId = String(formData.get("planId") ?? "").trim();
+  const name = String(formData.get("name") ?? "").trim();
+  const slug = String(formData.get("slug") ?? "").trim();
+  const price = Number(String(formData.get("price") ?? "0").replace(",", "."));
+
+  if (!planId || !name || !slug || !Number.isFinite(price) || price <= 0) {
+    return;
+  }
+
+  try {
+    await serverApiFetch(`/backoffice/billing/plans/${planId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name,
+        slug,
+        pricePerWhatsappInstanceCents: Math.round(price * 100),
+        active: String(formData.get("active") ?? "true") === "true"
+      })
+    });
     revalidatePath("/backoffice");
   } catch {
     return;
@@ -645,7 +721,8 @@ export default async function BackofficePage({
     jobAttemptsResult,
     integrationLogsResult,
     conversionEventLogsResult,
-    auditLogsResult
+    auditLogsResult,
+    subscriptionPlansResult
   ] = await Promise.all([
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
@@ -656,7 +733,8 @@ export default async function BackofficePage({
     getJobAttempts(jobAttemptFilters),
     getIntegrationLogs(integrationLogFilters),
     getConversionEventLogs(conversionEventLogFilters),
-    getAuditLogs(auditLogFilters)
+    getAuditLogs(auditLogFilters),
+    getSubscriptionPlans()
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
   const webhookLogs = webhookLogsResult.data;
@@ -668,6 +746,7 @@ export default async function BackofficePage({
   const splitReceivers = splitReceiversResult.data;
   const paymentCharges = paymentChargesResult.data;
   const whatsappInstances = whatsappInstancesResult.data;
+  const subscriptionPlans = subscriptionPlansResult.data;
   const activeDiagnosticFilterCount = Object.values({
     ...diagnosticFilters,
     jobName: jobAttemptFilters.jobName,
@@ -685,9 +764,10 @@ export default async function BackofficePage({
     diagnosticEventsResult.state,
     workspaceBillingResult.state,
     splitReceiversResult.state,
-    paymentChargesResult.state,
-    whatsappInstancesResult.state,
-    webhookLogsResult.state,
+     paymentChargesResult.state,
+     whatsappInstancesResult.state,
+     subscriptionPlansResult.state,
+     webhookLogsResult.state,
     jobAttemptsResult.state,
     integrationLogsResult.state,
     conversionEventLogsResult.state,
@@ -779,6 +859,10 @@ export default async function BackofficePage({
     paymentChargesResult.state === "error"
       ? "Nao foi possivel carregar cobrancas"
       : "Nenhuma cobranca encontrada";
+  const subscriptionPlanEmptyTitle =
+    subscriptionPlansResult.state === "error"
+      ? "Nao foi possivel carregar planos"
+      : "Nenhum plano configurado";
   const whatsappInstanceEmptyTitle =
     whatsappInstancesResult.state === "error"
       ? "Nao foi possivel carregar instancias WhatsApp"
@@ -936,6 +1020,107 @@ export default async function BackofficePage({
                   <td colSpan={6}>
                     <strong>{paymentChargeEmptyTitle}</strong>
                     <span>As cobrancas criadas no checkout de instancia aparecem aqui.</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="surface-panel">
+        <span className="eyebrow">Planos de assinatura</span>
+        <h2>Preco por instancia WhatsApp</h2>
+        <form className="inline-form" action={createSubscriptionPlan}>
+          <input
+            aria-label="Novo plano"
+            name="name"
+            placeholder="Novo plano"
+          />
+          <input
+            aria-label="Slug do plano"
+            name="slug"
+            placeholder="slug-do-plano"
+          />
+          <input
+            aria-label="Preco por instancia"
+            inputMode="decimal"
+            name="price"
+            placeholder="Valor por instancia"
+          />
+          <select name="active" aria-label="Estado do plano">
+            <option value="true">ativo</option>
+            <option value="false">pausado</option>
+          </select>
+          <button className="button primary" type="submit">Adicionar plano</button>
+        </form>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Plano</th>
+                <th>Slug</th>
+                <th>Valor por instancia</th>
+                <th>Estado</th>
+                <th>Acao</th>
+              </tr>
+            </thead>
+            <tbody>
+              {subscriptionPlans.length > 0 ? (
+                subscriptionPlans.map((plan) => (
+                  <tr key={plan.id}>
+                    <td>
+                      <strong>{plan.name}</strong>
+                      <span>{plan.id}</span>
+                    </td>
+                    <td>{plan.slug}</td>
+                    <td>{moneyFromCents(plan.pricePerWhatsappInstanceCents)}</td>
+                    <td>
+                      <span className={`event-chip${plan.active ? "" : " warn"}`}>
+                        {plan.active ? "ativo" : "pausado"}
+                      </span>
+                    </td>
+                    <td>
+                      <form className="inline-form" action={updateSubscriptionPlan}>
+                        <input type="hidden" name="planId" value={plan.id} />
+                        <input
+                          aria-label={`Nome do plano ${plan.name}`}
+                          className="input-field compact-input"
+                          defaultValue={plan.name}
+                          name="name"
+                        />
+                        <input
+                          aria-label={`Slug do plano ${plan.name}`}
+                          className="input-field compact-input"
+                          defaultValue={plan.slug}
+                          name="slug"
+                        />
+                        <input
+                          aria-label={`Valor do plano ${plan.name}`}
+                          className="input-field compact-input"
+                          defaultValue={(
+                            plan.pricePerWhatsappInstanceCents / 100
+                          ).toFixed(2)}
+                          inputMode="decimal"
+                          name="price"
+                        />
+                        <input
+                          type="hidden"
+                          name="active"
+                          value={plan.active ? "false" : "true"}
+                        />
+                        <button className="button" type="submit">
+                          {plan.active ? "Pausar" : "Ativar"}
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5}>
+                    <strong>{subscriptionPlanEmptyTitle}</strong>
+                    <span>Planos criados pela plataforma aparecem aqui.</span>
                   </td>
                 </tr>
               )}
