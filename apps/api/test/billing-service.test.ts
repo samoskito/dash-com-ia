@@ -171,6 +171,12 @@ describe("billing service", () => {
     );
 
     expect(checkout.status).toBe("pending_payment");
+    expect(checkout).toMatchObject({
+      paymentProvider: "asaas",
+      paymentProviderStatus: "not_configured",
+      externalChargeId: null,
+      checkoutUrl: null
+    });
     expect(db.instances[0]).toMatchObject({
       workspaceId: "workspace_1",
       name: "Comercial",
@@ -179,8 +185,11 @@ describe("billing service", () => {
     });
     expect(db.charges[0]).toMatchObject({
       workspaceId: "workspace_1",
+      provider: "asaas",
       status: "pending",
-      amountCents: 12900
+      amountCents: 12900,
+      externalChargeId: null,
+      checkoutUrl: null
     });
     expect(db.activations[0]).toMatchObject({
       status: "pending_payment",

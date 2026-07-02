@@ -376,12 +376,16 @@ describe("shared contracts", () => {
       chargeId: "charge_1",
       status: "pending_payment",
       amountCents: 9900,
-      checkoutUrl: null
+      checkoutUrl: null,
+      paymentProvider: "asaas",
+      paymentProviderStatus: "not_configured",
+      externalChargeId: null
     });
 
     expect(quote.currency).toBe("BRL");
     expect(input.provider).toBe("uazapi");
     expect(checkout.status).toBe("pending_payment");
+    expect(checkout.paymentProviderStatus).toBe("not_configured");
   });
 
   it("validates split receiver contracts for platform backoffice", () => {

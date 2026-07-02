@@ -72,7 +72,9 @@ export class BillingService {
       const charge = await tx.paymentCharge.create({
         data: {
           workspaceId,
+          provider: "asaas",
           status: "pending",
+          externalChargeId: null,
           amountCents,
           description: `Ativacao da instancia WhatsApp ${input.instanceName}`,
           checkoutUrl: null
@@ -95,7 +97,10 @@ export class BillingService {
         chargeId: charge.id,
         status: "pending_payment",
         amountCents,
-        checkoutUrl: charge.checkoutUrl
+        checkoutUrl: charge.checkoutUrl,
+        paymentProvider: "asaas",
+        paymentProviderStatus: "not_configured",
+        externalChargeId: charge.externalChargeId
       };
     });
   }

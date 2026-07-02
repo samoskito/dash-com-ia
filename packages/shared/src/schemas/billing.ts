@@ -20,7 +20,10 @@ export const whatsappInstanceCheckoutSchema = z.object({
   chargeId: z.string().min(1),
   status: z.literal("pending_payment"),
   amountCents: z.number().int().positive(),
-  checkoutUrl: z.string().min(1).nullable()
+  checkoutUrl: z.string().min(1).nullable(),
+  paymentProvider: z.literal("asaas"),
+  paymentProviderStatus: z.enum(["not_configured", "created"]),
+  externalChargeId: z.string().min(1).nullable()
 });
 
 export const splitReceiverCreateInputSchema = z.object({
