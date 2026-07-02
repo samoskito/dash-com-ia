@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
 
 function createHarness() {
@@ -6,6 +6,13 @@ function createHarness() {
   const auditLogs: Array<Record<string, unknown>> = [];
   const jobAttempts: Array<Record<string, unknown>> = [];
   const webhookLogs: Array<Record<string, unknown>> = [];
+  const diagnosticsQueueService = {
+    enqueueRetry: vi.fn(async (payload: Record<string, unknown>) => ({
+      diagnosticEventId: payload.diagnosticEventId,
+      jobId: "bull_job_1",
+      status: "queued"
+    }))
+  };
   const prisma = {
     webhookLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -77,7 +84,12 @@ function createHarness() {
     events,
     jobAttempts,
     webhookLogs,
-    service: new DiagnosticsService(prisma as never)
+    service: new DiagnosticsService(prisma as never),
+    serviceWithQueue: new DiagnosticsService(
+      prisma as never,
+      diagnosticsQueueService as never
+    ),
+    diagnosticsQueueService
   };
 }
 
@@ -166,6 +178,38 @@ describe("diagnostics service", () => {
       originalStatus: "error"
     });
     expect(events).toHaveLength(1);
+  });
+
+  it("enqueues diagnostic retry jobs with conversion event context when available", async () => {
+    const { diagnosticsQueueService, events, serviceWithQueue } = createHarness();
+    await serviceWithQueue.recordEvent({
+      workspaceId: "workspace_1",
+      source: "meta",
+      eventType: "pixel_event",
+      severity: "error",
+      status: "error",
+      title: "Meta recusou evento",
+      message: "Parametro currency ausente",
+      occurredAt: "2026-07-02T03:00:00.000Z"
+    });
+    events[0] = {
+      ...events[0],
+      conversionEventLogId: "conversion_1"
+    };
+
+    await serviceWithQueue.retryEvent("diag_1", {
+      reason: "Cliente relatou conversao ausente"
+    });
+
+    expect(diagnosticsQueueService.enqueueRetry).toHaveBeenCalledWith({
+      diagnosticEventId: "diag_1",
+      workspaceId: "workspace_1",
+      source: "meta",
+      message: "Parametro currency ausente",
+      occurredAt: "2026-07-02T03:00:00.000Z",
+      conversionEventLogId: "conversion_1",
+      retryReason: "Cliente relatou conversao ausente"
+    });
   });
 
   it("lists events using normalized filters", async () => {

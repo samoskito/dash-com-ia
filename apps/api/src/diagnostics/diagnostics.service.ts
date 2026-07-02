@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
   DiagnosticSourceDto,
@@ -11,6 +11,7 @@ import type {
   DiagnosticRetryResultDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { DiagnosticsQueueService } from "../common/queue/diagnostics-queue.service";
 
 const sensitiveKeyPattern =
   /(authorization|cookie|secret|token|api.?key|refresh|password)/i;
@@ -85,7 +86,12 @@ export type WebhookLogResult = {
 
 @Injectable()
 export class DiagnosticsService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Optional()
+    @Inject(DiagnosticsQueueService)
+    private readonly diagnosticsQueueService?: DiagnosticsQueueService
+  ) {}
 
   async recordEvent(
     input: DiagnosticEventCreateDto
@@ -262,6 +268,16 @@ export class DiagnosticsService {
           retryReason: input.reason
         }) as Prisma.InputJsonValue
       }
+    });
+
+    await this.diagnosticsQueueService?.enqueueRetry({
+      diagnosticEventId: event.id,
+      workspaceId: event.workspaceId ?? "platform",
+      source: event.source,
+      message: event.message,
+      occurredAt: event.occurredAt.toISOString(),
+      conversionEventLogId: event.conversionEventLogId ?? undefined,
+      retryReason: input.reason
     });
 
     return {

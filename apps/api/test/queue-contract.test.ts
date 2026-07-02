@@ -15,13 +15,17 @@ describe("diagnostic queue contract", () => {
 
   it("accepts the expected diagnostic payload source", () => {
     const payload: DiagnosticJobPayload = {
+      diagnosticEventId: "diag_1",
       workspaceId: "workspace_123",
       source: "meta",
       message: "Lead attribution captured",
-      occurredAt: "2026-07-01T12:00:00.000Z"
+      occurredAt: "2026-07-01T12:00:00.000Z",
+      conversionEventLogId: "conversion_1",
+      retryReason: "Cliente relatou conversao ausente"
     };
 
     expect(payload.source).toBe("meta");
+    expect(payload.conversionEventLogId).toBe("conversion_1");
   });
 
   it("uses the conversion events queue contract", () => {

@@ -4,6 +4,7 @@ import { ConversionEventsModule } from "../../conversion-events/conversion-event
 import { ConversionEventProcessor } from "./conversion-event.processor";
 import { ConversionEventsQueueService } from "./conversion-events-queue.service";
 import { DiagnosticProcessor } from "./diagnostic.processor";
+import { DiagnosticsQueueService } from "./diagnostics-queue.service";
 import { CONVERSION_EVENTS_QUEUE, DIAGNOSTIC_QUEUE } from "./queue.constants";
 
 @Module({
@@ -24,8 +25,9 @@ import { CONVERSION_EVENTS_QUEUE, DIAGNOSTIC_QUEUE } from "./queue.constants";
   providers: [
     DiagnosticProcessor,
     ConversionEventProcessor,
-    ConversionEventsQueueService
+    ConversionEventsQueueService,
+    DiagnosticsQueueService
   ],
-  exports: [BullModule, ConversionEventsQueueService]
+  exports: [BullModule, ConversionEventsQueueService, DiagnosticsQueueService]
 })
 export class QueueModule {}
