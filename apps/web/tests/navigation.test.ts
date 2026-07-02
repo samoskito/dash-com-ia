@@ -31,17 +31,37 @@ describe("navigation", () => {
     expect(html).not.toContain("Clientes");
   });
 
-  it("renders workspace context and telemetry health chips", () => {
+  it("renders real workspace context without static health placeholders", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, null, createElement("p", null, "Panel content"))
+      createElement(
+        AppShell,
+        {
+          workspace: {
+            id: "workspace_1",
+            name: "Comunidade NOD",
+            slug: "comunidade-nod",
+            role: "owner",
+            operationalStatus: "active",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true
+            }
+          },
+          children: createElement("p", null, "Panel content")
+        },
+      )
     );
 
     expect(html).toContain("Workspace");
-    expect(html).toContain("Operacao principal");
-
-    for (const label of ["API", "Meta", "WhatsApp", "Pixel"]) {
-      expect(html).toContain(label);
-    }
+    expect(html).toContain("Comunidade NOD");
+    expect(html).toContain("comunidade-nod");
+    expect(html).toContain("owner");
+    expect(html).not.toContain("Operacao principal");
+    expect(html).not.toContain("Meta v21");
+    expect(html).not.toContain("WhatsApp fila");
+    expect(html).not.toContain("Pixel ativo");
   });
 
   it("keeps internal backoffice separate", () => {

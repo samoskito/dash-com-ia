@@ -7,11 +7,11 @@ import {
 } from "../../lib/server-api";
 
 export default async function ProductLayout({ children }: { children: ReactNode }) {
-  const blocked = await isWorkspaceBlocked();
+  const workspaceAccess = await getWorkspaceAccessState();
 
-  if (blocked) {
+  if (workspaceAccess.state === "blocked") {
     return (
-      <AppShell>
+      <AppShell workspace={workspaceAccess.workspace}>
         <section className="page-stack">
           <header className="page-header">
             <div>
@@ -31,20 +31,30 @@ export default async function ProductLayout({ children }: { children: ReactNode 
     );
   }
 
-  return <AppShell>{children}</AppShell>;
+  return <AppShell workspace={workspaceAccess.workspace}>{children}</AppShell>;
 }
 
-async function isWorkspaceBlocked(): Promise<boolean> {
+async function getWorkspaceAccessState(): Promise<
+  | { state: "active"; workspace: CurrentWorkspaceDto | null }
+  | { state: "blocked"; workspace: CurrentWorkspaceDto | null }
+> {
   try {
     const workspace =
       await serverApiFetch<CurrentWorkspaceDto>("/workspaces/current");
 
-    return workspace.operationalStatus === "blocked";
+    return {
+      state: workspace.operationalStatus === "blocked" ? "blocked" : "active",
+      workspace
+    };
   } catch (error) {
-    return (
+    const blocked =
       isApiRequestError(error) &&
       error.status === 403 &&
-      error.message.toLowerCase().includes("workspace bloqueado")
-    );
+      error.message.toLowerCase().includes("workspace bloqueado");
+
+    return {
+      state: blocked ? "blocked" : "active",
+      workspace: null
+    };
   }
 }

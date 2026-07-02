@@ -1,16 +1,16 @@
 import { clientNavigation } from "@wpptrack/shared";
+import type { CurrentWorkspaceDto } from "@wpptrack/shared";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { LogoutButton } from "./logout-button";
 
-export function AppShell({ children }: { children: ReactNode }) {
-  const health = [
-    { label: "API", state: "ok", detail: "online" },
-    { label: "Meta", state: "ok", detail: "v21" },
-    { label: "WhatsApp", state: "warn", detail: "fila 02" },
-    { label: "Pixel", state: "ok", detail: "ativo" }
-  ];
-
+export function AppShell({
+  children,
+  workspace
+}: {
+  children: ReactNode;
+  workspace?: CurrentWorkspaceDto | null;
+}) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -24,8 +24,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <section className="workspace-strip" aria-label="Workspace atual">
           <span>Workspace</span>
-          <strong>Operacao principal</strong>
-          <small>1 conta Meta, 1 pixel, 3 usuarios</small>
+          <strong>{workspace?.name ?? "Workspace indisponivel"}</strong>
+          <small>
+            {workspace
+              ? `${workspace.slug} · ${workspace.role}`
+              : "Sessao autenticada"}
+          </small>
         </section>
 
         <nav className="sidebar-nav" aria-label="Navegacao principal">
@@ -37,17 +41,17 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <section className="health-panel" aria-label="Saude das conexoes">
-          <p className="nav-label">Health</p>
-          {health.map((item) => (
+        <section className="health-panel" aria-label="Conta">
+          <p className="nav-label">Conta</p>
+          {workspace ? (
             <span
-              className={`status-chip${item.state === "warn" ? " warn" : ""}`}
-              key={item.label}
-              title={item.detail}
+              className={`status-chip${
+                workspace.operationalStatus === "blocked" ? " warn" : ""
+              }`}
             >
-              {item.label} {item.detail}
+              {workspace.operationalStatus === "blocked" ? "bloqueado" : "ativo"}
             </span>
-          ))}
+          ) : null}
           <LogoutButton />
         </section>
       </aside>
