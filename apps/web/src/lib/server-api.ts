@@ -1,6 +1,20 @@
 import { cookies } from "next/headers";
 import { apiBaseUrl } from "./api";
 
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
+export function isApiRequestError(error: unknown): error is ApiRequestError {
+  return error instanceof ApiRequestError;
+}
+
 export async function serverApiFetch<T>(
   path: string,
   init: RequestInit = {}
@@ -22,10 +36,24 @@ export async function serverApiFetch<T>(
   });
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status}`);
+    throw new ApiRequestError(await responseErrorMessage(response), response.status);
   }
 
   return (await response.json()) as T;
+}
+
+async function responseErrorMessage(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { message?: unknown };
+
+    if (typeof body.message === "string" && body.message.trim()) {
+      return body.message;
+    }
+  } catch {
+    return `API request failed: ${response.status}`;
+  }
+
+  return `API request failed: ${response.status}`;
 }
 
 async function getCookieHeader(): Promise<string | undefined> {
