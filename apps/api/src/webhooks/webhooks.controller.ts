@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   Body,
   Controller,
+  Get,
   Headers,
   HttpCode,
   Inject,
@@ -38,6 +39,26 @@ export class WebhooksController {
     @Inject(PrismaService)
     private readonly prisma: PrismaService
   ) {}
+
+  @Get("meta")
+  verifyMetaWebhook(
+    @Query("hub.mode") mode?: string,
+    @Query("hub.verify_token") verifyToken?: string,
+    @Query("hub.challenge") challenge?: string
+  ) {
+    const expectedToken = process.env.META_WEBHOOK_VERIFY_TOKEN;
+
+    if (
+      !expectedToken ||
+      mode !== "subscribe" ||
+      verifyToken !== expectedToken ||
+      !challenge
+    ) {
+      throw new UnauthorizedException("Meta webhook token invalido");
+    }
+
+    return challenge;
+  }
 
   @Post("uazapi")
   @HttpCode(202)

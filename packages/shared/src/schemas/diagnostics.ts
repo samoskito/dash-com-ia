@@ -67,6 +67,36 @@ export const diagnosticEventListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50)
 });
 
+export const diagnosticSummaryQuerySchema = z.object({
+  workspaceId: z.string().min(1).optional(),
+  since: z.string().datetime().optional(),
+  until: z.string().datetime().optional()
+});
+
+export const diagnosticSummarySchema = z.object({
+  generatedAt: z.string().datetime(),
+  range: z.object({
+    since: z.string().datetime(),
+    until: z.string().datetime()
+  }),
+  workspaceId: z.string().min(1).nullable(),
+  status: z.enum(["healthy", "warning", "critical"]),
+  totals: z.object({
+    diagnosticEvents: z.number().int().nonnegative(),
+    criticalEvents: z.number().int().nonnegative(),
+    errorEvents: z.number().int().nonnegative(),
+    webhooks: z.number().int().nonnegative(),
+    failedWebhooks: z.number().int().nonnegative(),
+    jobs: z.number().int().nonnegative(),
+    failedJobs: z.number().int().nonnegative(),
+    integrationCalls: z.number().int().nonnegative(),
+    failedIntegrationCalls: z.number().int().nonnegative(),
+    conversionEvents: z.number().int().nonnegative(),
+    failedConversionEvents: z.number().int().nonnegative(),
+    auditLogs: z.number().int().nonnegative()
+  })
+});
+
 export const diagnosticWebhookLogSchema = z.object({
   id: z.string().min(1),
   workspaceId: z.string().min(1).nullable(),
@@ -318,6 +348,10 @@ export type DiagnosticEventCreateDto = z.infer<
 export type DiagnosticEventListQueryDto = z.infer<
   typeof diagnosticEventListQuerySchema
 >;
+export type DiagnosticSummaryQueryDto = z.infer<
+  typeof diagnosticSummaryQuerySchema
+>;
+export type DiagnosticSummaryDto = z.infer<typeof diagnosticSummarySchema>;
 export type DiagnosticWebhookLogDto = z.infer<
   typeof diagnosticWebhookLogSchema
 >;

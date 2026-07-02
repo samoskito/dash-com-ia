@@ -28,6 +28,59 @@ function createHarness() {
       status: "queued" as const
     }))
   };
+  const matchesWhere = (
+    record: Record<string, unknown>,
+    where: Record<string, unknown>
+  ): boolean =>
+    Object.entries(where).every(([key, value]): boolean => {
+      if (value === undefined) {
+        return true;
+      }
+
+      if (key === "OR" && Array.isArray(value)) {
+        return value.some((condition): boolean =>
+          matchesWhere(record, condition as Record<string, unknown>)
+        );
+      }
+
+      if (
+        value &&
+        typeof value === "object" &&
+        !(value instanceof Date) &&
+        !Array.isArray(value)
+      ) {
+        const operators = value as Record<string, unknown>;
+        const recordValue = record[key];
+
+        if (Array.isArray(operators.in)) {
+          return operators.in.includes(recordValue);
+        }
+
+        if (operators.gte || operators.lte) {
+          const recordDate = new Date(recordValue as string | Date).getTime();
+          const minDate = operators.gte
+            ? new Date(operators.gte as string | Date).getTime()
+            : Number.NEGATIVE_INFINITY;
+          const maxDate = operators.lte
+            ? new Date(operators.lte as string | Date).getTime()
+            : Number.POSITIVE_INFINITY;
+
+          return recordDate >= minDate && recordDate <= maxDate;
+        }
+
+        if (typeof operators.contains === "string") {
+          return String(recordValue ?? "")
+            .toLowerCase()
+            .includes(operators.contains.toLowerCase());
+        }
+      }
+
+      return record[key] === value;
+    });
+  const countRecords = (
+    records: Array<Record<string, unknown>>,
+    where: Record<string, unknown>
+  ) => records.filter((record) => matchesWhere(record, where)).length;
   const prisma = {
     webhookLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -56,7 +109,9 @@ function createHarness() {
         webhookFindManyCalls.push({ where, take });
 
         return webhookLogs.slice(0, take);
-      }
+      },
+      count: async ({ where }: { where: Record<string, unknown> }) =>
+        countRecords(webhookLogs, where)
     },
     diagnosticEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -85,7 +140,9 @@ function createHarness() {
           .slice(0, take);
       },
       findUnique: async ({ where }: { where: { id: string } }) =>
-        events.find((event) => event.id === where.id) ?? null
+        events.find((event) => event.id === where.id) ?? null,
+      count: async ({ where }: { where: Record<string, unknown> }) =>
+        countRecords(events, where)
     },
     auditLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -111,7 +168,9 @@ function createHarness() {
         auditLogFindManyCalls.push({ where, take });
 
         return auditLogs.slice(0, take);
-      }
+      },
+      count: async ({ where }: { where: Record<string, unknown> }) =>
+        countRecords(auditLogs, where)
     },
     jobAttempt: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -137,7 +196,9 @@ function createHarness() {
         jobAttemptFindManyCalls.push({ where, take });
 
         return jobAttempts.slice(0, take);
-      }
+      },
+      count: async ({ where }: { where: Record<string, unknown> }) =>
+        countRecords(jobAttempts, where)
     },
     integrationLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -162,7 +223,9 @@ function createHarness() {
         integrationLogFindManyCalls.push({ where, take });
 
         return integrationLogs.slice(0, take);
-      }
+      },
+      count: async ({ where }: { where: Record<string, unknown> }) =>
+        countRecords(integrationLogs, where)
     },
     conversionEventLog: {
       findUnique: async ({ where }: { where: { id: string } }) =>
@@ -201,7 +264,9 @@ function createHarness() {
         conversionEventLogFindManyCalls.push({ where, take });
 
         return conversionEventLogs.slice(0, take);
-      }
+      },
+      count: async ({ where }: { where: Record<string, unknown> }) =>
+        countRecords(conversionEventLogs, where)
     }
   };
 
@@ -266,6 +331,118 @@ function createHarness() {
 }
 
 describe("diagnostics service", () => {
+  it("summarizes operational health across diagnostic sources", async () => {
+    const {
+      auditLogs,
+      conversionEventLogs,
+      events,
+      integrationLogs,
+      jobAttempts,
+      service,
+      webhookLogs
+    } = createHarness();
+
+    events.push(
+      {
+        id: "diag_1",
+        workspaceId: "workspace_1",
+        source: "meta",
+        eventType: "pixel_event",
+        severity: "critical",
+        status: "error",
+        occurredAt: new Date("2026-07-02T03:00:00.000Z")
+      },
+      {
+        id: "diag_2",
+        workspaceId: "workspace_1",
+        source: "uazapi",
+        eventType: "message.received",
+        severity: "error",
+        status: "error",
+        occurredAt: new Date("2026-07-02T03:10:00.000Z")
+      }
+    );
+    webhookLogs.push(
+      {
+        id: "webhook_1",
+        workspaceId: "workspace_1",
+        status: "received",
+        receivedAt: new Date("2026-07-02T03:00:00.000Z")
+      },
+      {
+        id: "webhook_2",
+        workspaceId: "workspace_1",
+        status: "failed",
+        receivedAt: new Date("2026-07-02T03:05:00.000Z")
+      }
+    );
+    jobAttempts.push(
+      {
+        id: "job_attempt_1",
+        workspaceId: "workspace_1",
+        status: "completed",
+        createdAt: new Date("2026-07-02T03:00:00.000Z")
+      },
+      {
+        id: "job_attempt_2",
+        workspaceId: "workspace_1",
+        status: "failed",
+        createdAt: new Date("2026-07-02T03:06:00.000Z")
+      }
+    );
+    integrationLogs.push({
+      id: "integration_1",
+      workspaceId: "workspace_1",
+      status: "error",
+      startedAt: new Date("2026-07-02T03:07:00.000Z")
+    });
+    conversionEventLogs.push(
+      {
+        id: "conversion_1",
+        workspaceId: "workspace_1",
+        status: "sent",
+        createdAt: new Date("2026-07-02T03:00:00.000Z")
+      },
+      {
+        id: "conversion_2",
+        workspaceId: "workspace_1",
+        status: "error",
+        createdAt: new Date("2026-07-02T03:08:00.000Z")
+      }
+    );
+    auditLogs.push({
+      id: "audit_1",
+      workspaceId: "workspace_1",
+      createdAt: new Date("2026-07-02T03:09:00.000Z")
+    });
+
+    const summary = await service.getSummary({
+      workspaceId: "workspace_1",
+      since: "2026-07-02T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z"
+    });
+
+    expect(summary.status).toBe("critical");
+    expect(summary.range).toEqual({
+      since: "2026-07-02T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z"
+    });
+    expect(summary.totals).toMatchObject({
+      diagnosticEvents: 2,
+      criticalEvents: 1,
+      errorEvents: 2,
+      webhooks: 2,
+      failedWebhooks: 1,
+      jobs: 2,
+      failedJobs: 1,
+      integrationCalls: 1,
+      failedIntegrationCalls: 1,
+      conversionEvents: 2,
+      failedConversionEvents: 1,
+      auditLogs: 1
+    });
+  });
+
   it("records diagnostic events with sensitive payload fields redacted", async () => {
     const { events, service } = createHarness();
 

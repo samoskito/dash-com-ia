@@ -143,8 +143,33 @@ const auditLog = {
   }
 };
 
+const diagnosticSummary = {
+  generatedAt: "2026-07-02T04:00:00.000Z",
+  range: {
+    since: "2026-07-02T00:00:00.000Z",
+    until: "2026-07-02T23:59:59.000Z"
+  },
+  workspaceId: "workspace_1",
+  status: "critical",
+  totals: {
+    diagnosticEvents: 12,
+    criticalEvents: 1,
+    errorEvents: 3,
+    webhooks: 20,
+    failedWebhooks: 2,
+    jobs: 8,
+    failedJobs: 1,
+    integrationCalls: 6,
+    failedIntegrationCalls: 1,
+    conversionEvents: 9,
+    failedConversionEvents: 2,
+    auditLogs: 4
+  }
+};
+
 async function createApp() {
   const service = {
+    getSummary: vi.fn(async () => diagnosticSummary),
     listEvents: vi.fn(async () => [diagnosticEvent]),
     listWebhookLogs: vi.fn(async () => [webhookLog]),
     getWebhookPayload: vi.fn(async () => webhookPayload),
@@ -191,6 +216,32 @@ async function createApp() {
 }
 
 describe("diagnostics controller", () => {
+  it("returns backoffice diagnostic health summary", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/diagnostics/summary?workspaceId=workspace_1&since=2026-07-02T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z"
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.status).toBe("critical");
+        expect(body.totals.failedConversionEvents).toBe(2);
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(service.getSummary).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-02T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z"
+    });
+
+    await app.close();
+  });
+
   it("lists backoffice diagnostic events", async () => {
     const { app, platformAdminService, service } = await createApp();
 

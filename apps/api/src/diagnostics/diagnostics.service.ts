@@ -19,7 +19,9 @@ import type {
   DiagnosticWebhookPayloadDto,
   DiagnosticTimelineItemDto,
   DiagnosticRetryInputDto,
-  DiagnosticRetryResultDto
+  DiagnosticRetryResultDto,
+  DiagnosticSummaryDto,
+  DiagnosticSummaryQueryDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
@@ -177,6 +179,8 @@ type DiagnosticActorContext = {
   sourceIp?: string | null;
 };
 
+const failedStatuses = ["error", "failed"];
+
 @Injectable()
 export class DiagnosticsService {
   constructor(
@@ -288,6 +292,163 @@ export class DiagnosticsService {
       webhookLogId: webhook.id,
       diagnosticEventId: event.id,
       status: "received"
+    };
+  }
+
+  async getSummary(
+    query: DiagnosticSummaryQueryDto
+  ): Promise<DiagnosticSummaryDto> {
+    const until = query.until ? new Date(query.until) : new Date();
+    const since = query.since
+      ? new Date(query.since)
+      : new Date(until.getTime() - 24 * 60 * 60 * 1000);
+    const workspaceFilter = query.workspaceId
+      ? { workspaceId: query.workspaceId }
+      : {};
+
+    const diagnosticEventWhere: Prisma.DiagnosticEventWhereInput = {
+      ...workspaceFilter,
+      occurredAt: {
+        gte: since,
+        lte: until
+      }
+    };
+    const webhookWhere: Prisma.WebhookLogWhereInput = {
+      ...workspaceFilter,
+      receivedAt: {
+        gte: since,
+        lte: until
+      }
+    };
+    const jobWhere: Prisma.JobAttemptWhereInput = {
+      ...workspaceFilter,
+      createdAt: {
+        gte: since,
+        lte: until
+      }
+    };
+    const integrationWhere: Prisma.IntegrationLogWhereInput = {
+      ...workspaceFilter,
+      startedAt: {
+        gte: since,
+        lte: until
+      }
+    };
+    const conversionWhere: Prisma.ConversionEventLogWhereInput = {
+      ...workspaceFilter,
+      createdAt: {
+        gte: since,
+        lte: until
+      }
+    };
+    const auditWhere: Prisma.AuditLogWhereInput = {
+      ...workspaceFilter,
+      createdAt: {
+        gte: since,
+        lte: until
+      }
+    };
+
+    const [
+      diagnosticEvents,
+      criticalEvents,
+      errorEvents,
+      webhooks,
+      failedWebhooks,
+      jobs,
+      failedJobs,
+      integrationCalls,
+      failedIntegrationCalls,
+      conversionEvents,
+      failedConversionEvents,
+      auditLogs
+    ] = await Promise.all([
+      this.prisma.diagnosticEvent.count({ where: diagnosticEventWhere }),
+      this.prisma.diagnosticEvent.count({
+        where: {
+          ...diagnosticEventWhere,
+          severity: "critical"
+        }
+      }),
+      this.prisma.diagnosticEvent.count({
+        where: {
+          ...diagnosticEventWhere,
+          severity: {
+            in: ["error", "critical"]
+          }
+        }
+      }),
+      this.prisma.webhookLog.count({ where: webhookWhere }),
+      this.prisma.webhookLog.count({
+        where: {
+          ...webhookWhere,
+          status: {
+            in: failedStatuses
+          }
+        }
+      }),
+      this.prisma.jobAttempt.count({ where: jobWhere }),
+      this.prisma.jobAttempt.count({
+        where: {
+          ...jobWhere,
+          status: {
+            in: failedStatuses
+          }
+        }
+      }),
+      this.prisma.integrationLog.count({ where: integrationWhere }),
+      this.prisma.integrationLog.count({
+        where: {
+          ...integrationWhere,
+          status: {
+            in: failedStatuses
+          }
+        }
+      }),
+      this.prisma.conversionEventLog.count({ where: conversionWhere }),
+      this.prisma.conversionEventLog.count({
+        where: {
+          ...conversionWhere,
+          status: {
+            in: failedStatuses
+          }
+        }
+      }),
+      this.prisma.auditLog.count({ where: auditWhere })
+    ]);
+
+    const status =
+      criticalEvents > 0 ||
+      failedJobs > 0 ||
+      failedIntegrationCalls > 0 ||
+      failedConversionEvents > 0
+        ? "critical"
+        : errorEvents > 0 || failedWebhooks > 0
+          ? "warning"
+          : "healthy";
+
+    return {
+      generatedAt: new Date().toISOString(),
+      range: {
+        since: since.toISOString(),
+        until: until.toISOString()
+      },
+      workspaceId: query.workspaceId ?? null,
+      status,
+      totals: {
+        diagnosticEvents,
+        criticalEvents,
+        errorEvents,
+        webhooks,
+        failedWebhooks,
+        jobs,
+        failedJobs,
+        integrationCalls,
+        failedIntegrationCalls,
+        conversionEvents,
+        failedConversionEvents,
+        auditLogs
+      }
     };
   }
 

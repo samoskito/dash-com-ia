@@ -7,6 +7,7 @@ import type {
   DiagnosticEventDto,
   DiagnosticIntegrationLogDto,
   DiagnosticJobAttemptDto,
+  DiagnosticSummaryDto,
   DiagnosticWebhookLogDto,
   SplitReceiverDto,
   WorkspaceBillingDto
@@ -66,6 +67,11 @@ type ConversionEventLogFilters = Omit<
   pixelId?: string;
 };
 
+type DiagnosticSummaryFilters = Pick<
+  DiagnosticFilters,
+  "since" | "until" | "workspaceId"
+>;
+
 type AuditLogFilters = Pick<
   DiagnosticFilters,
   "q" | "since" | "status" | "until" | "workspaceId"
@@ -104,6 +110,34 @@ async function getDiagnosticEvents(
     return {
       data: [],
       state: "error"
+    };
+  }
+}
+
+async function getDiagnosticSummary(
+  filters: DiagnosticSummaryFilters
+): Promise<ResourceResult<DiagnosticSummaryDto | null>> {
+  try {
+    const params = new URLSearchParams();
+
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) {
+        params.set(key, value);
+      }
+    }
+
+    const summary = await serverApiFetch<DiagnosticSummaryDto>(
+      `/backoffice/diagnostics/summary?${params.toString()}`
+    );
+
+    return {
+      data: summary,
+      state: "real"
+    };
+  } catch {
+    return {
+      data: null,
+      state: "empty"
     };
   }
 }
@@ -701,6 +735,11 @@ export default async function BackofficePage({
     adId: diagnosticFilters.adId,
     errorCode: diagnosticFilters.errorCode
   };
+  const diagnosticSummaryFilters: DiagnosticSummaryFilters = {
+    workspaceId: diagnosticFilters.workspaceId,
+    since: diagnosticFilters.since,
+    until: diagnosticFilters.until
+  };
   const auditLogFilters: AuditLogFilters = {
     workspaceId: diagnosticFilters.workspaceId,
     status: diagnosticFilters.status,
@@ -722,7 +761,8 @@ export default async function BackofficePage({
     integrationLogsResult,
     conversionEventLogsResult,
     auditLogsResult,
-    subscriptionPlansResult
+    subscriptionPlansResult,
+    diagnosticSummaryResult
   ] = await Promise.all([
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
@@ -734,7 +774,8 @@ export default async function BackofficePage({
     getIntegrationLogs(integrationLogFilters),
     getConversionEventLogs(conversionEventLogFilters),
     getAuditLogs(auditLogFilters),
-    getSubscriptionPlans()
+    getSubscriptionPlans(),
+    getDiagnosticSummary(diagnosticSummaryFilters)
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
   const webhookLogs = webhookLogsResult.data;
@@ -747,6 +788,7 @@ export default async function BackofficePage({
   const paymentCharges = paymentChargesResult.data;
   const whatsappInstances = whatsappInstancesResult.data;
   const subscriptionPlans = subscriptionPlansResult.data;
+  const diagnosticSummary = diagnosticSummaryResult.data;
   const activeDiagnosticFilterCount = Object.values({
     ...diagnosticFilters,
     jobName: jobAttemptFilters.jobName,
@@ -777,6 +819,26 @@ export default async function BackofficePage({
     (workspace) => workspace.asaasCustomerId
   ).length;
   const activeReceivers = splitReceivers.filter((receiver) => receiver.active).length;
+  const diagnosticFailureTotal = diagnosticSummary
+    ? diagnosticSummary.totals.failedWebhooks +
+      diagnosticSummary.totals.failedJobs +
+      diagnosticSummary.totals.failedIntegrationCalls +
+      diagnosticSummary.totals.failedConversionEvents
+    : 0;
+  const diagnosticStatusLabel =
+    diagnosticSummary?.status === "critical"
+      ? "Saude critica"
+      : diagnosticSummary?.status === "warning"
+        ? "Atencao"
+        : diagnosticSummary?.status === "healthy"
+          ? "Saudavel"
+          : null;
+  const diagnosticPanelValue = diagnosticSummary
+    ? `${diagnosticSummary.totals.diagnosticEvents} eventos / ${diagnosticSummary.totals.webhooks} webhooks / ${diagnosticSummary.totals.jobs} jobs / ${diagnosticSummary.totals.integrationCalls} chamadas / ${diagnosticSummary.totals.conversionEvents} CAPI / ${diagnosticSummary.totals.auditLogs} auditorias`
+    : `${diagnosticEvents.length} eventos / ${webhookLogs.length} webhooks / ${jobAttempts.length} jobs / ${integrationLogs.length} chamadas / ${conversionEventLogs.length} CAPI / ${auditLogs.length} auditorias`;
+  const diagnosticPanelDescription = diagnosticSummary
+    ? `${diagnosticStatusLabel}; ${diagnosticFailureTotal} falhas no periodo.`
+    : "Eventos, webhooks, jobs, chamadas externas, conversoes e auditorias reais retornados pela Central de Diagnostico.";
   const panels = [
     [
       "Billing",
@@ -815,8 +877,8 @@ export default async function BackofficePage({
       conversionEventLogsResult.state === "error" ||
       auditLogsResult.state === "error"
         ? "API indisponivel"
-        : `${diagnosticEvents.length} eventos / ${webhookLogs.length} webhooks / ${jobAttempts.length} jobs / ${integrationLogs.length} chamadas / ${conversionEventLogs.length} CAPI / ${auditLogs.length} auditorias`,
-      "Eventos, webhooks, jobs, chamadas externas, conversoes e auditorias reais retornados pela Central de Diagnostico."
+        : diagnosticPanelValue,
+      diagnosticPanelDescription
     ]
   ];
   const workspaceEmptyTitle =

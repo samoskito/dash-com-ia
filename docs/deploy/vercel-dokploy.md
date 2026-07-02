@@ -55,6 +55,7 @@ META_OAUTH_REDIRECT_URL=https://api.seudominio.com/integrations/meta/callback
 META_GRAPH_API_VERSION=v21.0
 META_OAUTH_SCOPES=ads_read,business_management,read_insights
 META_TOKEN_ENCRYPTION_KEY=troque-por-chave-forte-de-32-bytes-ou-mais
+META_WEBHOOK_VERIFY_TOKEN=troque-por-token-forte-do-webhook-meta
 ```
 
 Uazapi:

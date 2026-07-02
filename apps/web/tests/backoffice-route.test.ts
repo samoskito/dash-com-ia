@@ -34,6 +34,68 @@ describe("backoffice route", () => {
     expect(source).toContain('revalidatePath("/backoffice")');
   });
 
+  it("renders diagnostic health summary from the backoffice endpoint", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (
+        url ===
+        "http://localhost:3333/backoffice/diagnostics/summary?workspaceId=workspace_1&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z"
+      ) {
+        return new Response(
+          JSON.stringify({
+            generatedAt: "2026-07-02T04:00:00.000Z",
+            range: {
+              since: "2026-07-01T00:00:00.000Z",
+              until: "2026-07-02T23:59:59.000Z"
+            },
+            workspaceId: "workspace_1",
+            status: "critical",
+            totals: {
+              diagnosticEvents: 42,
+              criticalEvents: 1,
+              errorEvents: 5,
+              webhooks: 12,
+              failedWebhooks: 2,
+              jobs: 3,
+              failedJobs: 1,
+              integrationCalls: 4,
+              failedIntegrationCalls: 1,
+              conversionEvents: 7,
+              failedConversionEvents: 5,
+              auditLogs: 5
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    });
+
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        workspaceId: "workspace_1",
+        since: "2026-07-01",
+        until: "2026-07-02"
+      })
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/diagnostics/summary?workspaceId=workspace_1&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Saude critica");
+    expect(html).toContain(
+      "42 eventos / 12 webhooks / 3 jobs / 4 chamadas / 7 CAPI / 5 auditorias"
+    );
+    expect(html).toContain("9 falhas no periodo");
+  });
+
   it("renders split receivers returned by the backend", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(

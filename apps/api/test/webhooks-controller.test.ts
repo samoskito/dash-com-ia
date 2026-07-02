@@ -13,6 +13,7 @@ import { WebhooksController } from "../src/webhooks/webhooks.controller";
 
 afterEach(() => {
   delete process.env.ASAAS_WEBHOOK_AUTH_TOKEN;
+  delete process.env.META_WEBHOOK_VERIFY_TOKEN;
   delete process.env.UAZAPI_WEBHOOK_AUTH_TOKEN;
 });
 
@@ -110,6 +111,42 @@ async function createApp() {
 }
 
 describe("webhooks controller", () => {
+  it("returns Meta webhook challenge when verify token matches", async () => {
+    process.env.META_WEBHOOK_VERIFY_TOKEN = "secure-meta-verify-token";
+    const { app, diagnosticsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/webhooks/meta")
+      .query({
+        "hub.mode": "subscribe",
+        "hub.verify_token": "secure-meta-verify-token",
+        "hub.challenge": "challenge_123"
+      })
+      .expect(200, "challenge_123");
+
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects Meta webhook challenge when verify token is invalid", async () => {
+    process.env.META_WEBHOOK_VERIFY_TOKEN = "secure-meta-verify-token";
+    const { app, diagnosticsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/webhooks/meta")
+      .query({
+        "hub.mode": "subscribe",
+        "hub.verify_token": "wrong-token",
+        "hub.challenge": "challenge_123"
+      })
+      .expect(401);
+
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it("records Uazapi webhooks", async () => {
     const expectedPhoneHash = createHash("sha256")
       .update("5511988441020")

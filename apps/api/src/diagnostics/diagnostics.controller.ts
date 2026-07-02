@@ -16,6 +16,7 @@ import {
   diagnosticEventListQuerySchema,
   diagnosticIntegrationLogListQuerySchema,
   diagnosticJobAttemptListQuerySchema,
+  diagnosticSummaryQuerySchema,
   diagnosticWebhookLogListQuerySchema,
   diagnosticRetryInputSchema
 } from "@wpptrack/shared";
@@ -35,6 +36,22 @@ export class DiagnosticsController {
     @Inject(DiagnosticsService)
     private readonly diagnosticsService: DiagnosticsService
   ) {}
+
+  @Get("summary")
+  async getSummary(
+    @AuthToken() refreshToken: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    const parsed = diagnosticSummaryQuerySchema.safeParse(query);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Filtros invalidos");
+    }
+
+    return this.diagnosticsService.getSummary(parsed.data);
+  }
 
   @Get("events")
   async listEvents(

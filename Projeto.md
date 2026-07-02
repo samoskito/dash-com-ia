@@ -554,10 +554,12 @@ Checkpoint atual:
 - Aba `Integracoes` agora removeu `aguardando API`/`sem dados` genericos dos estados indisponiveis de ativos Meta e instancias WhatsApp, mostrando `Leitura de ativos indisponivel`, `Tente novamente apos a API responder` e chips `indisponivel` quando a falha vem da API.
 - Aba `Integracoes` agora removeu os ultimos estados genericos do pipeline/WhatsApp: instancia sem `providerInstanceId` mostra `ID Uazapi ainda nao emitido` e pipeline vazio mostra `Aguardando eventos reais`.
 - Backoffice de workspaces agora removeu `sem dados` no estado vazio da tabela de customers Asaas, exibindo `Customer Asaas ausente` ou `indisponivel` conforme vazio real ou falha de API.
+- Central de Diagnostico agora possui resumo operacional agregado em `GET /backoffice/diagnostics/summary`, com contadores por periodo/workspace para eventos, webhooks, jobs, chamadas externas, eventos Pixel/CAPI, auditorias e falhas. O backoffice usa esse resumo no cartao `Diagnosticos` para mostrar `Saude critica`/`Atencao`/`Saudavel` e quantidade de falhas no periodo sem depender de terminal ou consulta direta ao banco.
+- Webhook Meta agora suporta o challenge oficial de inscricao: `GET /webhooks/meta` valida `hub.mode=subscribe`, `hub.verify_token` contra `META_WEBHOOK_VERIFY_TOKEN` e retorna `hub.challenge` sem gravar payload nem acionar efeitos colaterais. Token invalido ou ausente retorna `401`.
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: substituir os ultimos placeholders operacionais por endpoints reais, validar a sincronizacao em uma conta Meta real, testar envio CAPI com token por workspace em ambiente real e preparar os proximos conectores operacionais que ainda estao somente documentados.
+- Continuar a proxima rodada com: observabilidade real do job de sincronizacao Meta, challenge/validacao do webhook Meta, parser mais robusto de Uazapi/CTWA/etiquetas, preparar adapter minimo para WhatsApp Cloud API e validar sincronizacao/envio CAPI em contas reais quando as credenciais estiverem disponiveis.
 
 ## Perguntas Abertas
 
