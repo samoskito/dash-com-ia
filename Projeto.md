@@ -11,8 +11,9 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Spec formal aprovada em fluxo de brainstorming: `docs/superpowers/specs/2026-07-01-wpptrack-saas-design.md`.
 - Plano de implementacao da Fase 1: `docs/superpowers/plans/2026-07-01-wpptrack-foundation-shell-implementation.md`.
 - A Fase 1 cria monorepo, app web navegavel, API NestJS, contratos compartilhados, Prisma e BullMQ sem integrar provedores reais ainda.
-- Implementacao atual da Fase 1: Tasks 1-7 implementadas e commitadas, cobrindo monorepo, contratos compartilhados, shell da API NestJS, shell web navegavel, schema/service Prisma, fila diagnostica BullMQ e testes de navegacao do web.
-- Limitacao local conhecida: Docker Desktop/Postgres/Redis nao estao disponiveis neste ambiente ate aqui, entao migracoes reais do Prisma e verificacao dos servicos locais ainda nao foram executadas.
+- Implementacao atual da Fase 1: Tasks 1-9 executadas e commitadas, cobrindo monorepo, contratos compartilhados, shell da API NestJS, shell web navegavel, schema/service Prisma, fila diagnostica BullMQ, testes de navegacao do web, README e handoff do projeto.
+- Verificacao final executada: `pnpm install`, `pnpm test`, `pnpm typecheck`, `pnpm build`, `prisma generate` e `prisma validate` passaram.
+- Limitacao local conhecida: Docker Desktop/Postgres/Redis nao estao disponiveis neste ambiente ate aqui, entao migracoes reais do Prisma e verificacao dos servicos locais via `docker compose up`/`pnpm dev` ainda nao foram executadas.
 - Servidor local usado para visualizar: `http://127.0.0.1:5174/`.
 - Repositorio inicial ja possui commits da fundacao da Fase 1.
 
@@ -378,11 +379,11 @@ Checkpoint atual:
 - Alternativa estavel criada: `wpptrack-saas-visual.html` servida por `http://127.0.0.1:5174/wpptrack-saas-visual.html`.
 - Usuario selecionou a opcao B: relatorios fortes desde o inicio.
 - Estrategia de execucao da Fase 1 selecionada: subagent-driven development.
-- Tasks 1-7 da Fase 1 implementadas e commitadas.
+- Tasks 1-9 da Fase 1 implementadas, verificadas no que nao depende de Docker local e commitadas.
 
 Proximo passo operacional:
 
-- Concluir Task 8/9 da fundacao ou abrir planos de follow-up futuros a partir do estado ja implementado.
+- Abrir planos de follow-up futuros a partir da fundacao implementada, priorizando auth/workspaces, Meta OAuth, Uazapi, Asaas e diagnosticos reais.
 
 ## Perguntas Abertas
 
