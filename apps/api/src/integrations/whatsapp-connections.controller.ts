@@ -16,7 +16,7 @@ export class WhatsappConnectionsController {
 
   @Get()
   async listInstances(@AuthToken() refreshToken: string) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const { workspaceId } = await this.getCurrentWorkspaceContext(refreshToken);
 
     return this.whatsappConnectionsService.listInstances(workspaceId);
   }
@@ -26,7 +26,7 @@ export class WhatsappConnectionsController {
     @AuthToken() refreshToken: string,
     @Param("instanceId") instanceId: string
   ) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const { workspaceId } = await this.getCurrentWorkspaceContext(refreshToken);
 
     return this.whatsappConnectionsService.getStatus(workspaceId, instanceId);
   }
@@ -36,11 +36,13 @@ export class WhatsappConnectionsController {
     @AuthToken() refreshToken: string,
     @Param("instanceId") instanceId: string
   ) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const { userId, workspaceId } =
+      await this.getCurrentWorkspaceContext(refreshToken);
 
     return this.whatsappConnectionsService.connectInstance(
       workspaceId,
-      instanceId
+      instanceId,
+      userId
     );
   }
 
@@ -49,15 +51,21 @@ export class WhatsappConnectionsController {
     @AuthToken() refreshToken: string,
     @Param("instanceId") instanceId: string
   ) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const { workspaceId } = await this.getCurrentWorkspaceContext(refreshToken);
 
     return this.whatsappConnectionsService.getQr(workspaceId, instanceId);
   }
 
-  private async getCurrentWorkspaceId(refreshToken: string): Promise<string> {
+  private async getCurrentWorkspaceContext(refreshToken: string): Promise<{
+    userId: string;
+    workspaceId: string;
+  }> {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
 
-    return workspace.id;
+    return {
+      userId: authenticated.user.id,
+      workspaceId: workspace.id
+    };
   }
 }

@@ -4,6 +4,7 @@ import { WhatsappConnectionsService } from "../src/integrations/whatsapp-connect
 
 function createHarness() {
   const db = {
+    auditLogs: [] as Array<Record<string, unknown>>,
     integrationLogs: [] as Array<Record<string, unknown>>,
     instances: [
       {
@@ -72,6 +73,16 @@ function createHarness() {
           ...data
         };
         db.integrationLogs.push(log);
+        return log;
+      }
+    },
+    auditLog: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const log = {
+          id: `audit_${db.auditLogs.length + 1}`,
+          ...data
+        };
+        db.auditLogs.push(log);
         return log;
       }
     }
@@ -181,6 +192,39 @@ describe("whatsapp connections service", () => {
     expect(result.connectionStatus).toBe("qr_required");
     expect(result.qrCode).toBe("qr-code-text");
     expect(db.instances[1].providerInstanceId).toBe("provider_instance_1");
+  });
+
+  it("audits whatsapp connect requests without exposing provider id or QR", async () => {
+    const { db, service } = createHarness();
+    db.instances[1].providerInstanceId = null;
+
+    await service.connectInstance("workspace_1", "wpp_active", "user_1");
+
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "whatsapp_instance.connect_requested",
+        targetType: "WhatsappInstance",
+        targetId: "wpp_active",
+        resultStatus: "qr_required",
+        beforeSummary: expect.objectContaining({
+          provider: "uazapi",
+          providerInstanceConfigured: false,
+          providerInstanceIdHash: null
+        }),
+        afterSummary: expect.objectContaining({
+          provider: "uazapi",
+          providerInstanceConfigured: true,
+          providerInstanceIdHash: expect.any(String),
+          connectionStatus: "qr_required",
+          hasQrCode: true
+        })
+      })
+    );
+    expect(JSON.stringify(db.auditLogs)).not.toContain("provider_instance_1");
+    expect(JSON.stringify(db.auditLogs)).not.toContain("qr-code-text");
   });
 
   it("does not expose instances from another workspace", async () => {

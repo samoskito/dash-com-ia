@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import type { WhatsappInstanceConnectionDto } from "@wpptrack/shared";
 import type { WhatsappInstanceSummaryDto } from "@wpptrack/shared";
@@ -88,9 +89,11 @@ export class WhatsappConnectionsService {
 
   async connectInstance(
     workspaceId: string,
-    whatsappInstanceId: string
+    whatsappInstanceId: string,
+    actorUserId?: string
   ): Promise<WhatsappInstanceConnectionDto> {
     const instance = await this.getActiveInstance(workspaceId, whatsappInstanceId);
+    const beforeProviderInstanceId = instance.providerInstanceId;
     const result = await this.callUazapiInstance(
       instance,
       "uazapi.instance.connect",
@@ -104,6 +107,15 @@ export class WhatsappConnectionsService {
         data: { providerInstanceId: result.providerInstanceId }
       });
       instance.providerInstanceId = result.providerInstanceId;
+    }
+
+    if (actorUserId) {
+      await this.recordConnectAudit({
+        instance,
+        actorUserId,
+        result,
+        beforeProviderInstanceId
+      });
     }
 
     return this.toDto(instance, result);
@@ -189,6 +201,61 @@ export class WhatsappConnectionsService {
     } catch {
       return;
     }
+  }
+
+  private async recordConnectAudit(input: {
+    instance: WhatsappInstanceRecord;
+    actorUserId: string;
+    result: UazapiConnectionResult;
+    beforeProviderInstanceId: string | null;
+  }): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId: input.instance.workspaceId,
+          actorUserId: input.actorUserId,
+          actorType: "user",
+          action: "whatsapp_instance.connect_requested",
+          targetType: "WhatsappInstance",
+          targetId: input.instance.id,
+          reason: null,
+          sourceIp: null,
+          resultStatus: input.result.connectionStatus,
+          beforeSummary: this.connectionAuditSummary({
+            instance: input.instance,
+            providerInstanceId: input.beforeProviderInstanceId
+          }),
+          afterSummary: {
+            ...(this.connectionAuditSummary({
+              instance: input.instance,
+              providerInstanceId: input.instance.providerInstanceId
+            }) as Record<string, unknown>),
+            connectionStatus: input.result.connectionStatus,
+            hasQrCode: Boolean(input.result.qrCode)
+          } as Prisma.InputJsonValue
+        }
+      });
+    } catch {
+      return;
+    }
+  }
+
+  private connectionAuditSummary(input: {
+    instance: WhatsappInstanceRecord;
+    providerInstanceId: string | null;
+  }): Prisma.InputJsonValue {
+    return {
+      provider: input.instance.provider,
+      billingStatus: input.instance.status,
+      providerInstanceConfigured: Boolean(input.providerInstanceId),
+      providerInstanceIdHash: input.providerInstanceId
+        ? this.hashSensitiveValue(input.providerInstanceId)
+        : null
+    } as Prisma.InputJsonValue;
+  }
+
+  private hashSensitiveValue(value: string): string {
+    return createHash("sha256").update(value).digest("hex");
   }
 
   private async getActiveInstance(

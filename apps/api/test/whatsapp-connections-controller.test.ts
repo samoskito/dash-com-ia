@@ -145,7 +145,8 @@ describe("whatsapp connections controller", () => {
 
     expect(whatsappConnectionsService.connectInstance).toHaveBeenCalledWith(
       "workspace_1",
-      "wpp_1"
+      "wpp_1",
+      "user_1"
     );
     expect(whatsappConnectionsService.getQr).toHaveBeenCalledWith(
       "workspace_1",
