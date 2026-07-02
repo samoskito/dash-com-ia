@@ -33,6 +33,8 @@ type PaymentChargeFilters = {
   workspaceId?: string;
 };
 
+type WebhookLogFilters = Omit<DiagnosticFilters, "severity">;
+
 type ResourceResult<T> = {
   data: T;
   state: "real" | "empty" | "error";
@@ -66,10 +68,20 @@ async function getDiagnosticEvents(
   }
 }
 
-async function getWebhookLogs(): Promise<ResourceResult<DiagnosticWebhookLogDto[]>> {
+async function getWebhookLogs(
+  filters: WebhookLogFilters
+): Promise<ResourceResult<DiagnosticWebhookLogDto[]>> {
   try {
+    const params = new URLSearchParams({ limit: "10" });
+
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) {
+        params.set(key, value);
+      }
+    }
+
     const webhooks = await serverApiFetch<DiagnosticWebhookLogDto[]>(
-      "/backoffice/diagnostics/webhooks?limit=10"
+      `/backoffice/diagnostics/webhooks?${params.toString()}`
     );
 
     return {
@@ -344,6 +356,21 @@ export default async function BackofficePage({
     status: asStringParam(resolvedSearchParams.chargeStatus),
     workspaceId: asStringParam(resolvedSearchParams.chargeWorkspaceId)
   };
+  const webhookLogFilters: WebhookLogFilters = {
+    workspaceId: diagnosticFilters.workspaceId,
+    source: diagnosticFilters.source,
+    status: diagnosticFilters.status,
+    eventType: diagnosticFilters.eventType,
+    q: diagnosticFilters.q,
+    since: diagnosticFilters.since,
+    until: diagnosticFilters.until,
+    leadId: diagnosticFilters.leadId,
+    phoneHash: diagnosticFilters.phoneHash,
+    campaignId: diagnosticFilters.campaignId,
+    adSetId: diagnosticFilters.adSetId,
+    adId: diagnosticFilters.adId,
+    errorCode: diagnosticFilters.errorCode
+  };
   const [
     diagnosticEventsResult,
     workspaceBillingResult,
@@ -357,7 +384,7 @@ export default async function BackofficePage({
     getSplitReceivers(),
     getPaymentCharges(paymentChargeFilters),
     getBackofficeWhatsappInstances(),
-    getWebhookLogs()
+    getWebhookLogs(webhookLogFilters)
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
   const webhookLogs = webhookLogsResult.data;
