@@ -1,4 +1,11 @@
-import { BadRequestException, Controller, Get, Inject, Query } from "@nestjs/common";
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  Query
+} from "@nestjs/common";
 import { leadListQuerySchema } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
@@ -26,5 +33,16 @@ export class LeadsController {
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
 
     return this.leadsService.listLeads(workspace.id, parsed.data);
+  }
+
+  @Get(":leadId")
+  async detail(
+    @AuthToken() refreshToken: string,
+    @Param("leadId") leadId: string
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+
+    return this.leadsService.getLeadDetail(workspace.id, leadId);
   }
 }

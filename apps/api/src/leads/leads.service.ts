@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type {
+  LeadDetailDto,
   LeadListItemDto,
   LeadListQueryDto,
   LeadStatusDto
@@ -25,14 +26,46 @@ type LeadRecord = {
 };
 
 type ConversionLogRecord = {
+  id?: string;
   leadId: string | null;
+  phoneHash?: string | null;
+  sourceTrigger?: string;
   eventName: string;
+  status?: string;
+  pixelId?: string | null;
+  campaignId?: string | null;
+  adSetId?: string | null;
+  adId?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  sentAt?: Date | null;
   createdAt: Date;
 };
 
 type CampaignRecord = {
   campaignId: string;
   name: string;
+};
+
+type AdSetRecord = {
+  adSetId: string;
+  name: string;
+};
+
+type AdRecord = {
+  adId: string;
+  name: string;
+};
+
+type WebhookLogRecord = {
+  id: string;
+  source: string;
+  eventType: string;
+  status: string;
+  errorCode: string | null;
+  errorMessage: string | null;
+  receivedAt: Date;
+  processedAt: Date | null;
 };
 
 export type UpsertWhatsappLeadInput = {
@@ -146,6 +179,137 @@ export class LeadsService {
           lead.campaignId ? campaignNameById.get(lead.campaignId) ?? null : null
         )
       );
+  }
+
+  async getLeadDetail(
+    workspaceId: string,
+    leadId: string
+  ): Promise<LeadDetailDto> {
+    const lead = (await this.prisma.lead.findFirst({
+      where: {
+        id: leadId,
+        workspaceId
+      }
+    })) as LeadRecord | null;
+
+    if (!lead) {
+      throw new NotFoundException("Lead nao encontrado");
+    }
+
+    const [conversionLogs, webhookLogs, campaigns, adSets, ads] =
+      await Promise.all([
+        this.prisma.conversionEventLog.findMany({
+          where: {
+            workspaceId,
+            OR: [{ leadId: lead.id }, { phoneHash: lead.phoneHash }]
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            leadId: true,
+            phoneHash: true,
+            sourceTrigger: true,
+            eventName: true,
+            status: true,
+            pixelId: true,
+            campaignId: true,
+            adSetId: true,
+            adId: true,
+            errorCode: true,
+            errorMessage: true,
+            sentAt: true,
+            createdAt: true
+          }
+        }) as Promise<ConversionLogRecord[]>,
+        this.prisma.webhookLog.findMany({
+          where: {
+            workspaceId,
+            OR: [{ leadId: lead.id }, { phoneHash: lead.phoneHash }]
+          },
+          orderBy: { receivedAt: "desc" },
+          select: {
+            id: true,
+            source: true,
+            eventType: true,
+            status: true,
+            errorCode: true,
+            errorMessage: true,
+            receivedAt: true,
+            processedAt: true
+          }
+        }) as Promise<WebhookLogRecord[]>,
+        lead.campaignId
+          ? (this.prisma.metaCampaign.findMany({
+              where: {
+                workspaceId,
+                campaignId: { in: [lead.campaignId] }
+              },
+              select: {
+                campaignId: true,
+                name: true
+              }
+            }) as Promise<CampaignRecord[]>)
+          : Promise.resolve([]),
+        lead.adSetId
+          ? (this.prisma.metaAdSet.findMany({
+              where: {
+                workspaceId,
+                adSetId: { in: [lead.adSetId] }
+              },
+              select: {
+                adSetId: true,
+                name: true
+              }
+            }) as Promise<AdSetRecord[]>)
+          : Promise.resolve([]),
+        lead.adId
+          ? (this.prisma.metaAd.findMany({
+              where: {
+                workspaceId,
+                adId: { in: [lead.adId] }
+              },
+              select: {
+                adId: true,
+                name: true
+              }
+            }) as Promise<AdRecord[]>)
+          : Promise.resolve([])
+      ]);
+    const campaignName = campaigns[0]?.name ?? null;
+    const latestEventName = conversionLogs[0]?.eventName ?? null;
+
+    return {
+      lead: this.toDto(lead, latestEventName, campaignName),
+      attribution: {
+        campaignName,
+        adSetName: adSets[0]?.name ?? null,
+        adName: ads[0]?.name ?? null
+      },
+      conversionEvents: conversionLogs.map((event) => ({
+        id: event.id ?? "",
+        eventName: event.eventName,
+        status: event.status ?? "unknown",
+        sourceTrigger: event.sourceTrigger ?? "unknown",
+        pixelId: event.pixelId ?? null,
+        campaignId: event.campaignId ?? null,
+        adSetId: event.adSetId ?? null,
+        adId: event.adId ?? null,
+        errorCode: event.errorCode ?? null,
+        errorMessage: event.errorMessage ?? null,
+        sentAt: event.sentAt?.toISOString() ?? null,
+        createdAt: event.createdAt.toISOString()
+      })),
+      webhookEvents: webhookLogs.map((event) => ({
+        id: event.id,
+        source: event.source,
+        eventType: event.eventType,
+        status: event.status,
+        errorCode: event.errorCode,
+        errorMessage: event.errorMessage,
+        receivedAt: event.receivedAt.toISOString(),
+        processedAt: event.processedAt?.toISOString() ?? null
+      }))
+    };
   }
 
   async upsertFromWhatsappWebhook(

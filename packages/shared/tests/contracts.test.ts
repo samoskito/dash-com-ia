@@ -31,6 +31,7 @@ import {
   metaAssetsSchema,
   metaStructureReportSchema,
   leadListItemSchema,
+  leadDetailSchema,
   leadListQuerySchema,
   metaConnectionSchema,
   metaOAuthCallbackQuerySchema,
@@ -724,6 +725,67 @@ describe("shared contracts", () => {
       limit: 25
     });
     expect(lead.lastEventName).toBe("QualifiedLead");
+  });
+
+  it("validates lead detail contracts with conversion and webhook timeline", () => {
+    const detail = leadDetailSchema.parse({
+      lead: {
+        id: "lead_1",
+        workspaceId: "workspace_1",
+        name: "Mariana Alves",
+        phoneDisplay: "+55 11 *****-1020",
+        phoneHash: "phone_hash_1",
+        status: "qualified",
+        source: "uazapi",
+        campaignId: "cmp_1",
+        campaignName: "Black Friday WhatsApp",
+        adSetId: "adset_1",
+        adId: "ad_1",
+        lastEventName: "QualifiedLead",
+        score: 86,
+        firstMessageAt: "2026-07-02T03:00:00.000Z",
+        lastMessageAt: "2026-07-02T03:10:00.000Z",
+        createdAt: "2026-07-02T03:00:00.000Z",
+        updatedAt: "2026-07-02T03:10:00.000Z"
+      },
+      attribution: {
+        campaignName: "Black Friday WhatsApp",
+        adSetName: "Publico quente",
+        adName: "Criativo WhatsApp"
+      },
+      conversionEvents: [
+        {
+          id: "conversion_1",
+          eventName: "QualifiedLead",
+          status: "sent",
+          sourceTrigger: "keyword",
+          pixelId: "pixel_1",
+          campaignId: "cmp_1",
+          adSetId: "adset_1",
+          adId: "ad_1",
+          errorCode: null,
+          errorMessage: null,
+          sentAt: "2026-07-02T03:13:00.000Z",
+          createdAt: "2026-07-02T03:12:00.000Z"
+        }
+      ],
+      webhookEvents: [
+        {
+          id: "webhook_1",
+          source: "uazapi",
+          eventType: "message",
+          status: "processed",
+          errorCode: null,
+          errorMessage: null,
+          receivedAt: "2026-07-02T03:01:00.000Z",
+          processedAt: "2026-07-02T03:01:01.000Z"
+        }
+      ]
+    });
+
+    expect(detail.attribution.adName).toBe("Criativo WhatsApp");
+    expect(detail.conversionEvents[0]?.status).toBe("sent");
+    expect(detail.webhookEvents[0]?.source).toBe("uazapi");
   });
 
   it("validates whatsapp instance connection status contracts", () => {

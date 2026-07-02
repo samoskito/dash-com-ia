@@ -23,9 +23,34 @@ function createHarness() {
     ],
     conversionLogs: [
       {
+        id: "conversion_1",
         leadId: "lead_1",
+        phoneHash: "phone_hash_1",
+        sourceTrigger: "keyword",
         eventName: "QualifiedLead",
+        status: "sent",
+        pixelId: "pixel_1",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
+        errorCode: null,
+        errorMessage: null,
+        sentAt: new Date("2026-07-02T03:13:00.000Z"),
         createdAt: new Date("2026-07-02T03:12:00.000Z")
+      }
+    ],
+    webhookLogs: [
+      {
+        id: "webhook_1",
+        source: "uazapi",
+        eventType: "message",
+        status: "processed",
+        leadId: "lead_1",
+        phoneHash: "phone_hash_1",
+        errorCode: null,
+        errorMessage: null,
+        receivedAt: new Date("2026-07-02T03:01:00.000Z"),
+        processedAt: new Date("2026-07-02T03:01:01.000Z")
       }
     ],
     campaigns: [
@@ -33,11 +58,28 @@ function createHarness() {
         campaignId: "cmp_1",
         name: "Black Friday WhatsApp"
       }
+    ],
+    adSets: [
+      {
+        adSetId: "adset_1",
+        name: "Publico quente"
+      }
+    ],
+    ads: [
+      {
+        adId: "ad_1",
+        name: "Criativo WhatsApp"
+      }
     ]
   };
   const prisma = {
     lead: {
       findMany: vi.fn(async () => db.leads),
+      findFirst: vi.fn(async ({ where }: { where: { id: string; workspaceId: string } }) =>
+        db.leads.find(
+          (lead) => lead.id === where.id && lead.workspaceId === where.workspaceId
+        ) ?? null
+      ),
       upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => ({
         id: "lead_2",
         createdAt: new Date("2026-07-02T04:00:00.000Z"),
@@ -49,8 +91,17 @@ function createHarness() {
     conversionEventLog: {
       findMany: vi.fn(async () => db.conversionLogs)
     },
+    webhookLog: {
+      findMany: vi.fn(async () => db.webhookLogs)
+    },
     metaCampaign: {
       findMany: vi.fn(async () => db.campaigns)
+    },
+    metaAdSet: {
+      findMany: vi.fn(async () => db.adSets)
+    },
+    metaAd: {
+      findMany: vi.fn(async () => db.ads)
     }
   };
 
@@ -126,5 +177,45 @@ describe("leads service", () => {
         })
       })
     );
+  });
+
+  it("returns lead detail with attribution, conversions and webhook timeline", async () => {
+    const { prisma, service } = createHarness();
+
+    const detail = await service.getLeadDetail("workspace_1", "lead_1");
+
+    expect(prisma.lead.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "lead_1",
+        workspaceId: "workspace_1"
+      }
+    });
+    expect(detail).toMatchObject({
+      lead: {
+        id: "lead_1",
+        campaignName: "Black Friday WhatsApp",
+        lastEventName: "QualifiedLead"
+      },
+      attribution: {
+        campaignName: "Black Friday WhatsApp",
+        adSetName: "Publico quente",
+        adName: "Criativo WhatsApp"
+      },
+      conversionEvents: [
+        {
+          id: "conversion_1",
+          eventName: "QualifiedLead",
+          status: "sent",
+          sentAt: "2026-07-02T03:13:00.000Z"
+        }
+      ],
+      webhookEvents: [
+        {
+          id: "webhook_1",
+          source: "uazapi",
+          status: "processed"
+        }
+      ]
+    });
   });
 });

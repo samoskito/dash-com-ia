@@ -49,6 +49,7 @@ describe("leads route", () => {
       expect.objectContaining({ credentials: "include" })
     );
     expect(html).toContain("Mariana Alves");
+    expect(html).toContain('href="/leads/lead_1"');
     expect(html).toContain("Black Friday WhatsApp");
     expect(html).toContain("QualifiedLead");
     expect(html).toContain("+55 11 *****-1020");

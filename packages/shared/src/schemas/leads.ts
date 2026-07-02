@@ -38,6 +38,50 @@ export const leadListItemSchema = z.object({
 
 export const leadListSchema = z.array(leadListItemSchema);
 
+export const leadDetailConversionEventSchema = z.object({
+  id: z.string().min(1),
+  eventName: z.string().min(1),
+  status: z.string().min(1),
+  sourceTrigger: z.string().min(1),
+  pixelId: z.string().min(1).nullable(),
+  campaignId: z.string().min(1).nullable(),
+  adSetId: z.string().min(1).nullable(),
+  adId: z.string().min(1).nullable(),
+  errorCode: z.string().min(1).nullable(),
+  errorMessage: z.string().min(1).nullable(),
+  sentAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime()
+});
+
+export const leadDetailWebhookEventSchema = z.object({
+  id: z.string().min(1),
+  source: z.string().min(1),
+  eventType: z.string().min(1),
+  status: z.string().min(1),
+  errorCode: z.string().min(1).nullable(),
+  errorMessage: z.string().min(1).nullable(),
+  receivedAt: z.string().datetime(),
+  processedAt: z.string().datetime().nullable()
+});
+
+export const leadDetailSchema = z.object({
+  lead: leadListItemSchema,
+  attribution: z.object({
+    campaignName: z.string().min(1).nullable(),
+    adSetName: z.string().min(1).nullable(),
+    adName: z.string().min(1).nullable()
+  }),
+  conversionEvents: z.array(leadDetailConversionEventSchema),
+  webhookEvents: z.array(leadDetailWebhookEventSchema)
+});
+
 export type LeadStatusDto = z.infer<typeof leadListItemSchema>["status"];
 export type LeadListQueryDto = z.infer<typeof leadListQuerySchema>;
 export type LeadListItemDto = z.infer<typeof leadListItemSchema>;
+export type LeadDetailConversionEventDto = z.infer<
+  typeof leadDetailConversionEventSchema
+>;
+export type LeadDetailWebhookEventDto = z.infer<
+  typeof leadDetailWebhookEventSchema
+>;
+export type LeadDetailDto = z.infer<typeof leadDetailSchema>;

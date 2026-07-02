@@ -1,4 +1,5 @@
 import type { LeadListItemDto } from "@wpptrack/shared";
+import Link from "next/link";
 import { serverApiFetch } from "../../../lib/server-api";
 
 type LeadsSearchParams = Record<string, string | string[] | undefined>;
@@ -149,7 +150,11 @@ export default async function LeadsPage({
               leads.map((lead) => (
                 <tr key={lead.id}>
                   <td>
-                    <strong>{lead.name ?? "Lead sem nome"}</strong>
+                    <strong>
+                      <Link href={`/leads/${lead.id}`}>
+                        {lead.name ?? "Lead sem nome"}
+                      </Link>
+                    </strong>
                     <span>{lead.phoneDisplay ?? lead.phoneHash}</span>
                   </td>
                   <td>

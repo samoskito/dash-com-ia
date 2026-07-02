@@ -60,7 +60,61 @@ async function createApp() {
         createdAt: "2026-07-02T03:00:00.000Z",
         updatedAt: "2026-07-02T03:10:00.000Z"
       }
-    ])
+    ]),
+    getLeadDetail: vi.fn(async () => ({
+      lead: {
+        id: "lead_1",
+        workspaceId: "workspace_1",
+        name: "Mariana Alves",
+        phoneDisplay: "+55 11 *****-1020",
+        phoneHash: "phone_hash_1",
+        status: "qualified",
+        source: "uazapi",
+        campaignId: "cmp_1",
+        campaignName: "Black Friday WhatsApp",
+        adSetId: "adset_1",
+        adId: "ad_1",
+        lastEventName: "QualifiedLead",
+        score: 86,
+        firstMessageAt: "2026-07-02T03:00:00.000Z",
+        lastMessageAt: "2026-07-02T03:10:00.000Z",
+        createdAt: "2026-07-02T03:00:00.000Z",
+        updatedAt: "2026-07-02T03:10:00.000Z"
+      },
+      attribution: {
+        campaignName: "Black Friday WhatsApp",
+        adSetName: "Publico quente",
+        adName: "Criativo WhatsApp"
+      },
+      conversionEvents: [
+        {
+          id: "conversion_1",
+          eventName: "QualifiedLead",
+          status: "sent",
+          sourceTrigger: "keyword",
+          pixelId: "pixel_1",
+          campaignId: "cmp_1",
+          adSetId: "adset_1",
+          adId: "ad_1",
+          errorCode: null,
+          errorMessage: null,
+          sentAt: "2026-07-02T03:13:00.000Z",
+          createdAt: "2026-07-02T03:12:00.000Z"
+        }
+      ],
+      webhookEvents: [
+        {
+          id: "webhook_1",
+          source: "uazapi",
+          eventType: "message",
+          status: "processed",
+          errorCode: null,
+          errorMessage: null,
+          receivedAt: "2026-07-02T03:01:00.000Z",
+          processedAt: "2026-07-02T03:01:01.000Z"
+        }
+      ]
+    }))
   };
 
   const moduleRef = await Test.createTestingModule({
@@ -96,6 +150,28 @@ describe("leads controller", () => {
       status: "qualified",
       limit: 25
     });
+
+    await app.close();
+  });
+
+  it("returns lead detail for the current workspace", async () => {
+    const { app, leadsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/leads/lead_1")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.lead.name).toBe("Mariana Alves");
+        expect(body.attribution.adName).toBe("Criativo WhatsApp");
+        expect(body.conversionEvents[0].eventName).toBe("QualifiedLead");
+        expect(body.webhookEvents[0].eventType).toBe("message");
+      });
+
+    expect(leadsService.getLeadDetail).toHaveBeenCalledWith(
+      "workspace_1",
+      "lead_1"
+    );
 
     await app.close();
   });
