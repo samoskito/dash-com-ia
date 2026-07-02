@@ -6,6 +6,8 @@ import type {
   DiagnosticEventDetailDto,
   DiagnosticEventDto,
   DiagnosticEventListQueryDto,
+  DiagnosticWebhookLogDto,
+  DiagnosticWebhookLogListQueryDto,
   DiagnosticTimelineItemDto,
   DiagnosticRetryInputDto,
   DiagnosticRetryResultDto
@@ -42,10 +44,21 @@ type DiagnosticEventRecord = {
 
 type WebhookLogRecord = {
   id: string;
+  workspaceId: string | null;
   source: DiagnosticSourceDto;
   eventType: string;
+  externalEventId: string | null;
   status: string;
   receivedAt: Date;
+  processedAt: Date | null;
+  leadId: string | null;
+  phoneHash: string | null;
+  campaignId: string | null;
+  adSetId: string | null;
+  adId: string | null;
+  jobId: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
   summaryPayload?: unknown;
 };
 
@@ -262,6 +275,79 @@ export class DiagnosticsService {
     return events.map((event) => this.toDto(event));
   }
 
+  async listWebhookLogs(
+    query: DiagnosticWebhookLogListQueryDto
+  ): Promise<DiagnosticWebhookLogDto[]> {
+    const where: Prisma.WebhookLogWhereInput = {};
+
+    if (query.workspaceId) {
+      where.workspaceId = query.workspaceId;
+    }
+
+    if (query.source) {
+      where.source = query.source;
+    }
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    if (query.eventType) {
+      where.eventType = query.eventType;
+    }
+
+    if (query.since || query.until) {
+      where.receivedAt = {
+        ...(query.since ? { gte: new Date(query.since) } : {}),
+        ...(query.until ? { lte: new Date(query.until) } : {})
+      };
+    }
+
+    if (query.leadId) {
+      where.leadId = query.leadId;
+    }
+
+    if (query.phoneHash) {
+      where.phoneHash = query.phoneHash;
+    }
+
+    if (query.campaignId) {
+      where.campaignId = query.campaignId;
+    }
+
+    if (query.adSetId) {
+      where.adSetId = query.adSetId;
+    }
+
+    if (query.adId) {
+      where.adId = query.adId;
+    }
+
+    if (query.errorCode) {
+      where.errorCode = query.errorCode;
+    }
+
+    if (query.q) {
+      where.OR = [
+        { eventType: { contains: query.q, mode: "insensitive" } },
+        { status: { contains: query.q, mode: "insensitive" } },
+        { externalEventId: { contains: query.q, mode: "insensitive" } },
+        { errorCode: { contains: query.q, mode: "insensitive" } },
+        { errorMessage: { contains: query.q, mode: "insensitive" } }
+      ];
+    }
+
+    const webhooks = (await this.prisma.webhookLog.findMany({
+      where,
+      orderBy: {
+        receivedAt: "desc"
+      },
+      take: query.limit
+    })) as WebhookLogRecord[];
+
+    return webhooks.map((webhook) => this.toWebhookLogDto(webhook));
+  }
+
   async getEvent(id: string): Promise<DiagnosticEventDetailDto> {
     const event = (await this.prisma.diagnosticEvent.findUnique({
       where: { id }
@@ -368,6 +454,27 @@ export class DiagnosticsService {
       adId: event.adId,
       jobId: event.jobId,
       errorCode: event.errorCode
+    };
+  }
+
+  private toWebhookLogDto(webhook: WebhookLogRecord): DiagnosticWebhookLogDto {
+    return {
+      id: webhook.id,
+      workspaceId: webhook.workspaceId,
+      source: webhook.source,
+      eventType: webhook.eventType,
+      externalEventId: webhook.externalEventId,
+      status: webhook.status,
+      receivedAt: webhook.receivedAt.toISOString(),
+      processedAt: webhook.processedAt?.toISOString() ?? null,
+      leadId: webhook.leadId,
+      phoneHash: webhook.phoneHash,
+      campaignId: webhook.campaignId,
+      adSetId: webhook.adSetId,
+      adId: webhook.adId,
+      jobId: webhook.jobId,
+      errorCode: webhook.errorCode,
+      errorMessage: webhook.errorMessage
     };
   }
 

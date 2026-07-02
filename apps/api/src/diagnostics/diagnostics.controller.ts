@@ -11,6 +11,7 @@ import {
 import {
   diagnosticEventCreateSchema,
   diagnosticEventListQuerySchema,
+  diagnosticWebhookLogListQuerySchema,
   diagnosticRetryInputSchema
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
@@ -40,6 +41,22 @@ export class DiagnosticsController {
     }
 
     return this.diagnosticsService.listEvents(parsed.data);
+  }
+
+  @Get("webhooks")
+  async listWebhookLogs(
+    @AuthToken() refreshToken: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    const parsed = diagnosticWebhookLogListQuerySchema.safeParse(query);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Filtros invalidos");
+    }
+
+    return this.diagnosticsService.listWebhookLogs(parsed.data);
   }
 
   @Get("events/:id")

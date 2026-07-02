@@ -2,6 +2,7 @@ import type {
   BackofficePaymentChargeDto,
   BackofficeWhatsappInstanceDto,
   DiagnosticEventDto,
+  DiagnosticWebhookLogDto,
   SplitReceiverDto,
   WorkspaceBillingDto
 } from "@wpptrack/shared";
@@ -56,6 +57,24 @@ async function getDiagnosticEvents(
     return {
       data: events,
       state: events.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      data: [],
+      state: "error"
+    };
+  }
+}
+
+async function getWebhookLogs(): Promise<ResourceResult<DiagnosticWebhookLogDto[]>> {
+  try {
+    const webhooks = await serverApiFetch<DiagnosticWebhookLogDto[]>(
+      "/backoffice/diagnostics/webhooks?limit=10"
+    );
+
+    return {
+      data: webhooks,
+      state: webhooks.length > 0 ? "real" : "empty"
     };
   } catch {
     return {
@@ -330,15 +349,18 @@ export default async function BackofficePage({
     workspaceBillingResult,
     splitReceiversResult,
     paymentChargesResult,
-    whatsappInstancesResult
+    whatsappInstancesResult,
+    webhookLogsResult
   ] = await Promise.all([
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
     getSplitReceivers(),
     getPaymentCharges(paymentChargeFilters),
-    getBackofficeWhatsappInstances()
+    getBackofficeWhatsappInstances(),
+    getWebhookLogs()
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
+  const webhookLogs = webhookLogsResult.data;
   const workspaceBilling = workspaceBillingResult.data;
   const splitReceivers = splitReceiversResult.data;
   const paymentCharges = paymentChargesResult.data;
@@ -354,7 +376,8 @@ export default async function BackofficePage({
     workspaceBillingResult.state,
     splitReceiversResult.state,
     paymentChargesResult.state,
-    whatsappInstancesResult.state
+    whatsappInstancesResult.state,
+    webhookLogsResult.state
   ].includes("error");
   const configuredCustomers = workspaceBilling.filter(
     (workspace) => workspace.asaasCustomerId
@@ -391,10 +414,10 @@ export default async function BackofficePage({
     ],
     [
       "Diagnosticos",
-      diagnosticEventsResult.state === "error"
+      diagnosticEventsResult.state === "error" || webhookLogsResult.state === "error"
         ? "API indisponivel"
-        : `${diagnosticEvents.length} eventos`,
-      "Eventos reais retornados pela Central de Diagnostico."
+        : `${diagnosticEvents.length} eventos / ${webhookLogs.length} webhooks`,
+      "Eventos e webhooks reais retornados pela Central de Diagnostico."
     ]
   ];
   const workspaceEmptyTitle =
@@ -413,6 +436,10 @@ export default async function BackofficePage({
     diagnosticEventsResult.state === "error"
       ? "Confira permissao de backoffice ou disponibilidade da API."
       : "Quando webhooks, jobs ou integracoes gerarem eventos, eles aparecem aqui.";
+  const webhookLogEmptyTitle =
+    webhookLogsResult.state === "error"
+      ? "Nao foi possivel carregar webhooks"
+      : "Nenhum webhook recebido";
   const paymentChargeEmptyTitle =
     paymentChargesResult.state === "error"
       ? "Nao foi possivel carregar cobrancas"
@@ -836,6 +863,51 @@ export default async function BackofficePage({
             ? `${activeDiagnosticFilterCount} filtros ativos`
             : "Mostrando os ultimos eventos recebidos pela plataforma."}
         </p>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Webhooks recebidos</th>
+                <th>Evento externo</th>
+                <th>Lead</th>
+                <th>Atribuicao</th>
+                <th>Recebido</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {webhookLogs.length > 0 ? (
+                webhookLogs.map((webhook) => (
+                  <tr key={webhook.id}>
+                    <td>
+                      <strong>{webhook.source}</strong>
+                      <span>{webhook.eventType}</span>
+                    </td>
+                    <td>{webhook.externalEventId ?? webhook.id}</td>
+                    <td>{webhook.leadId ?? webhook.phoneHash ?? "sem lead"}</td>
+                    <td>
+                      {webhook.campaignId ?? "sem campanha"}
+                      {webhook.adId ? ` / ${webhook.adId}` : ""}
+                    </td>
+                    <td>{new Date(webhook.receivedAt).toLocaleString("pt-BR")}</td>
+                    <td>
+                      <span className={`event-chip${webhook.errorCode ? " warn" : ""}`}>
+                        {webhook.errorCode ?? webhook.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>
+                    <strong>{webhookLogEmptyTitle}</strong>
+                    <span>Webhooks Uazapi, Meta e Asaas recebidos aparecem aqui.</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>

@@ -27,9 +27,29 @@ const diagnosticEvent = {
   }
 };
 
+const webhookLog = {
+  id: "webhook_1",
+  workspaceId: "workspace_1",
+  source: "uazapi",
+  eventType: "message.received",
+  externalEventId: "evt_1",
+  status: "received",
+  receivedAt: "2026-07-02T03:00:00.000Z",
+  processedAt: null,
+  leadId: "lead_1",
+  phoneHash: "phone_hash_1",
+  campaignId: "cmp_1",
+  adSetId: null,
+  adId: "ad_1",
+  jobId: null,
+  errorCode: null,
+  errorMessage: null
+};
+
 async function createApp() {
   const service = {
     listEvents: vi.fn(async () => [diagnosticEvent]),
+    listWebhookLogs: vi.fn(async () => [webhookLog]),
     getEvent: vi.fn(async () => diagnosticEvent),
     recordEvent: vi.fn(async () => diagnosticEvent),
     retryEvent: vi.fn(async () => ({
@@ -92,6 +112,40 @@ describe("diagnostics controller", () => {
       adSetId: "adset_1",
       adId: "ad_1",
       errorCode: "MISSING_CURRENCY",
+      limit: 10
+    });
+
+    await app.close();
+  });
+
+  it("lists backoffice webhook logs", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/diagnostics/webhooks?workspaceId=workspace_1&source=uazapi&status=received&q=message&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&leadId=lead_1&phoneHash=phone_hash_1&campaignId=cmp_1&adId=ad_1&limit=10"
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body[0].id).toBe("webhook_1");
+        expect(body[0].source).toBe("uazapi");
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(service.listWebhookLogs).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      status: "received",
+      q: "message",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adId: "ad_1",
       limit: 10
     });
 

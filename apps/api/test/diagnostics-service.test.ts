@@ -6,6 +6,7 @@ function createHarness() {
   const auditLogs: Array<Record<string, unknown>> = [];
   const jobAttempts: Array<Record<string, unknown>> = [];
   const webhookLogs: Array<Record<string, unknown>> = [];
+  const webhookFindManyCalls: Array<Record<string, unknown>> = [];
   const diagnosticFindManyCalls: Array<Record<string, unknown>> = [];
   const diagnosticsQueueService = {
     enqueueRetry: vi.fn(async (payload: Record<string, unknown>) => ({
@@ -31,7 +32,18 @@ function createHarness() {
             (where.id !== undefined && webhookLog.id === where.id) ||
             (where.idempotencyKey !== undefined &&
               webhookLog.idempotencyKey === where.idempotencyKey)
-        ) ?? null
+        ) ?? null,
+      findMany: async ({
+        where,
+        take
+      }: {
+        where: Record<string, unknown>;
+        take: number;
+      }) => {
+        webhookFindManyCalls.push({ where, take });
+
+        return webhookLogs.slice(0, take);
+      }
     },
     diagnosticEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -99,6 +111,7 @@ function createHarness() {
     diagnosticFindManyCalls,
     events,
     jobAttempts,
+    webhookFindManyCalls,
     webhookLogs,
     service: new DiagnosticsService(prisma as never),
     serviceWithQueue: new DiagnosticsService(
@@ -301,6 +314,64 @@ describe("diagnostics service", () => {
       ]
     });
     expect(diagnosticFindManyCalls[0]?.take).toBe(25);
+  });
+
+  it("lists webhook logs with operational filters", async () => {
+    const { service, webhookFindManyCalls } = createHarness();
+    await service.recordWebhookLog({
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      eventType: "message.received",
+      externalEventId: "evt_1",
+      summaryPayload: {
+        text: "oi"
+      }
+    });
+
+    const result = await service.listWebhookLogs({
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      status: "received",
+      q: "message",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adId: "ad_1",
+      limit: 10
+    });
+
+    expect(result[0]).toMatchObject({
+      id: "webhook_1",
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      eventType: "message.received",
+      externalEventId: "evt_1",
+      status: "received",
+      processedAt: null
+    });
+    expect(webhookFindManyCalls[0]?.where).toEqual({
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      status: "received",
+      receivedAt: {
+        gte: new Date("2026-07-01T00:00:00.000Z"),
+        lte: new Date("2026-07-02T23:59:59.000Z")
+      },
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adId: "ad_1",
+      OR: [
+        { eventType: { contains: "message", mode: "insensitive" } },
+        { status: { contains: "message", mode: "insensitive" } },
+        { externalEventId: { contains: "message", mode: "insensitive" } },
+        { errorCode: { contains: "message", mode: "insensitive" } },
+        { errorMessage: { contains: "message", mode: "insensitive" } }
+      ]
+    });
+    expect(webhookFindManyCalls[0]?.take).toBe(10);
   });
 
   it("returns an operational timeline for webhook, event, retry audit and job attempts", async () => {

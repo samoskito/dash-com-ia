@@ -67,6 +67,46 @@ export const diagnosticEventListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50)
 });
 
+export const diagnosticWebhookLogSchema = z.object({
+  id: z.string().min(1),
+  workspaceId: z.string().min(1).nullable(),
+  source: diagnosticSourceSchema,
+  eventType: z.string().min(1),
+  externalEventId: z.string().nullable(),
+  status: z.string().min(1),
+  receivedAt: z.string().datetime(),
+  processedAt: z.string().datetime().nullable(),
+  leadId: z.string().nullable(),
+  phoneHash: z.string().nullable(),
+  campaignId: z.string().nullable(),
+  adSetId: z.string().nullable(),
+  adId: z.string().nullable(),
+  jobId: z.string().nullable(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable()
+});
+
+export const diagnosticWebhookLogListQuerySchema = z.object({
+  workspaceId: z.string().min(1).optional(),
+  source: diagnosticSourceSchema.optional(),
+  status: z.string().min(1).optional(),
+  eventType: z.string().min(1).optional(),
+  q: z.string().trim().min(1).optional(),
+  since: z.string().datetime().optional(),
+  until: z.string().datetime().optional(),
+  leadId: z.string().min(1).optional(),
+  phoneHash: z.string().min(1).optional(),
+  campaignId: z.string().min(1).optional(),
+  adSetId: z.string().min(1).optional(),
+  adId: z.string().min(1).optional(),
+  errorCode: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25)
+});
+
+export const diagnosticWebhookLogListSchema = z.array(
+  diagnosticWebhookLogSchema
+);
+
 export const diagnosticTimelineItemSchema = z.object({
   id: z.string().min(1),
   kind: z.enum([
@@ -108,6 +148,12 @@ export type DiagnosticEventCreateDto = z.infer<
 >;
 export type DiagnosticEventListQueryDto = z.infer<
   typeof diagnosticEventListQuerySchema
+>;
+export type DiagnosticWebhookLogDto = z.infer<
+  typeof diagnosticWebhookLogSchema
+>;
+export type DiagnosticWebhookLogListQueryDto = z.infer<
+  typeof diagnosticWebhookLogListQuerySchema
 >;
 export type DiagnosticTimelineItemDto = z.infer<
   typeof diagnosticTimelineItemSchema

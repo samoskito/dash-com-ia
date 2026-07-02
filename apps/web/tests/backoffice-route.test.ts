@@ -106,6 +106,77 @@ describe("backoffice route", () => {
     expect(html).toContain("diag_1");
   });
 
+  it("renders webhook logs returned by the diagnostics endpoint", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "webhook_1",
+              workspaceId: "workspace_1",
+              source: "uazapi",
+              eventType: "message.received",
+              externalEventId: "evt_1",
+              status: "received",
+              receivedAt: "2026-07-02T03:00:00.000Z",
+              processedAt: null,
+              leadId: "lead_1",
+              phoneHash: "phone_hash_1",
+              campaignId: "cmp_1",
+              adSetId: null,
+              adId: "ad_1",
+              jobId: null,
+              errorCode: null,
+              errorMessage: null
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await BackofficePage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/diagnostics/webhooks?limit=10",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Webhooks recebidos");
+    expect(html).toContain("message.received");
+    expect(html).toContain("evt_1");
+    expect(html).toContain("lead_1");
+  });
+
   it("renders workspace billing configuration with editable Asaas customer ids", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
