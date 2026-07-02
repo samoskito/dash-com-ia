@@ -26,6 +26,41 @@ export const reportOverviewSchema = z.object({
   campaigns: z.array(campaignReportRowSchema)
 });
 
+const reportMetricShape = campaignReportRowSchema.omit({
+  id: true,
+  name: true
+}).shape;
+
+export const adSetReportRowSchema = z.object({
+  id: z.string().min(1),
+  campaignId: z.string().min(1),
+  campaignName: z.string().min(1),
+  name: z.string().min(1),
+  ...reportMetricShape
+});
+
+export const adSetReportOverviewSchema = z.object({
+  workspaceId: z.string().min(1),
+  rangeLabel: z.string().min(1),
+  adSets: z.array(adSetReportRowSchema)
+});
+
+export const adReportRowSchema = z.object({
+  id: z.string().min(1),
+  campaignId: z.string().min(1),
+  campaignName: z.string().min(1),
+  adSetId: z.string().min(1),
+  adSetName: z.string().min(1),
+  name: z.string().min(1),
+  ...reportMetricShape
+});
+
+export const adReportOverviewSchema = z.object({
+  workspaceId: z.string().min(1),
+  rangeLabel: z.string().min(1),
+  ads: z.array(adReportRowSchema)
+});
+
 export const metaAdReportSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -57,6 +92,12 @@ export const metaStructureReportSchema = z.object({
 
 export type CampaignReportRowDto = z.infer<typeof campaignReportRowSchema>;
 export type ReportOverviewDto = z.infer<typeof reportOverviewSchema>;
+export type AdSetReportRowDto = z.infer<typeof adSetReportRowSchema>;
+export type AdSetReportOverviewDto = z.infer<
+  typeof adSetReportOverviewSchema
+>;
+export type AdReportRowDto = z.infer<typeof adReportRowSchema>;
+export type AdReportOverviewDto = z.infer<typeof adReportOverviewSchema>;
 export type MetaAdReportDto = z.infer<typeof metaAdReportSchema>;
 export type MetaAdSetReportDto = z.infer<typeof metaAdSetReportSchema>;
 export type MetaCampaignStructureDto = z.infer<

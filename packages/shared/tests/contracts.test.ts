@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  adReportOverviewSchema,
+  adSetReportOverviewSchema,
   canManageIntegrations,
   canManageWorkspaceBilling,
   canViewReports,
@@ -89,6 +91,64 @@ describe("shared contracts", () => {
     });
 
     expect(parsed.purchase).toBe(3);
+  });
+
+  it("validates ad set and ad performance report overviews", () => {
+    const adSets = adSetReportOverviewSchema.parse({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      adSets: [
+        {
+          id: "adset_1",
+          campaignId: "cmp_1",
+          campaignName: "Black Friday WhatsApp",
+          name: "Publico quente",
+          status: "active",
+          spendCents: 0,
+          metaConversationsStarted: 0,
+          costPerMetaConversationCents: null,
+          realConversations: 2,
+          costPerRealConversationCents: null,
+          leadSubmitted: 1,
+          costPerLeadSubmittedCents: null,
+          qualifiedLead: 1,
+          costPerQualifiedLeadCents: null,
+          purchase: 1,
+          costPerPurchaseCents: null,
+          roas: null
+        }
+      ]
+    });
+    const ads = adReportOverviewSchema.parse({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      ads: [
+        {
+          id: "ad_1",
+          campaignId: "cmp_1",
+          campaignName: "Black Friday WhatsApp",
+          adSetId: "adset_1",
+          adSetName: "Publico quente",
+          name: "Criativo WhatsApp",
+          status: "active",
+          spendCents: 0,
+          metaConversationsStarted: 0,
+          costPerMetaConversationCents: null,
+          realConversations: 2,
+          costPerRealConversationCents: null,
+          leadSubmitted: 1,
+          costPerLeadSubmittedCents: null,
+          qualifiedLead: 1,
+          costPerQualifiedLeadCents: null,
+          purchase: 1,
+          costPerPurchaseCents: null,
+          roas: null
+        }
+      ]
+    });
+
+    expect(adSets.adSets[0]?.campaignName).toBe("Black Friday WhatsApp");
+    expect(ads.ads[0]?.adSetName).toBe("Publico quente");
   });
 
   it("validates Meta campaign/adset/ad structure reports", () => {
