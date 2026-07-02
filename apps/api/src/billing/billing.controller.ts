@@ -23,13 +23,13 @@ export class BillingController {
 
   @Get("whatsapp-instance/quote")
   async quote(@AuthToken() refreshToken: string) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const { workspaceId } = await this.getCurrentWorkspaceContext(refreshToken);
     return this.billingService.getWhatsappInstanceQuote(workspaceId);
   }
 
   @Get("subscription")
   async subscription(@AuthToken() refreshToken: string) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const { workspaceId } = await this.getCurrentWorkspaceContext(refreshToken);
     return this.billingService.getWorkspaceSubscriptionSummary(workspaceId);
   }
 
@@ -41,17 +41,25 @@ export class BillingController {
       throw new BadRequestException("Payload invalido");
     }
 
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const { userId, workspaceId } =
+      await this.getCurrentWorkspaceContext(refreshToken);
     return this.billingService.createWhatsappInstanceCheckout(
       workspaceId,
-      parsed.data
+      parsed.data,
+      userId
     );
   }
 
-  private async getCurrentWorkspaceId(refreshToken: string): Promise<string> {
+  private async getCurrentWorkspaceContext(refreshToken: string): Promise<{
+    userId: string;
+    workspaceId: string;
+  }> {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
 
-    return workspace.id;
+    return {
+      userId: authenticated.user.id,
+      workspaceId: workspace.id
+    };
   }
 }

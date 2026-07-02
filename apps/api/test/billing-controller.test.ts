@@ -143,7 +143,8 @@ describe("billing controller", () => {
       {
         instanceName: "Comercial",
         provider: "uazapi"
-      }
+      },
+      "user_1"
     );
 
     await app.close();

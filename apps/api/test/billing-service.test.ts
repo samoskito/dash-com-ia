@@ -442,6 +442,52 @@ describe("billing service", () => {
     });
   });
 
+  it("audits whatsapp instance checkout creation without exposing Asaas charge details", async () => {
+    const adapter = {
+      createPayment: async () => ({
+        status: "created" as const,
+        externalChargeId: "pay_asaas_secret_1",
+        checkoutUrl: "https://sandbox.asaas.com/i/pay_asaas_secret_1"
+      })
+    };
+    const { db, service } = createHarness(adapter);
+    db.workspaces[0].asaasCustomerId = "cus_asaas_1";
+
+    const checkout = await service.createWhatsappInstanceCheckout(
+      "workspace_1",
+      {
+        instanceName: "Comercial",
+        provider: "uazapi"
+      },
+      "user_1"
+    );
+
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "billing.whatsapp_instance_checkout_created",
+        targetType: "PaymentCharge",
+        targetId: checkout.chargeId,
+        resultStatus: "pending_payment",
+        afterSummary: expect.objectContaining({
+          whatsappInstanceId: checkout.whatsappInstanceId,
+          activationId: checkout.activationId,
+          amountCents: 12900,
+          paymentProvider: "asaas",
+          paymentProviderStatus: "created",
+          externalChargeConfigured: true,
+          hasCheckoutUrl: true
+        })
+      })
+    );
+    expect(JSON.stringify(db.auditLogs)).not.toContain("pay_asaas_secret_1");
+    expect(JSON.stringify(db.auditLogs)).not.toContain(
+      "https://sandbox.asaas.com/i/pay_asaas_secret_1"
+    );
+  });
+
   it("creates an Asaas payment when credentials and customer are ready", async () => {
     const adapter = {
       createPayment: async () => ({

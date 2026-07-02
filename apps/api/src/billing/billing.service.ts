@@ -210,7 +210,8 @@ export class BillingService {
 
   async createWhatsappInstanceCheckout(
     workspaceId: string,
-    input: WhatsappInstanceCheckoutInputDto
+    input: WhatsappInstanceCheckoutInputDto,
+    actorUserId?: string
   ): Promise<WhatsappInstanceCheckoutDto> {
     const amountCents = this.getPricePerInstanceCents();
     const description = `Ativacao da instancia WhatsApp ${input.instanceName}`;
@@ -297,6 +298,28 @@ export class BillingService {
       });
     }
 
+    if (actorUserId) {
+      await this.recordBillingAudit({
+        workspaceId,
+        actorUserId,
+        actorType: "user",
+        action: "billing.whatsapp_instance_checkout_created",
+        targetType: "PaymentCharge",
+        targetId: records.charge.id,
+        resultStatus: "pending_payment",
+        reason: "Usuario solicitou ativacao paga de uma instancia WhatsApp.",
+        afterSummary: {
+          whatsappInstanceId: records.whatsappInstance.id,
+          activationId: records.activation.id,
+          amountCents,
+          paymentProvider: "asaas",
+          paymentProviderStatus: asaasPayment.status,
+          externalChargeConfigured: Boolean(asaasPayment.externalChargeId),
+          hasCheckoutUrl: Boolean(asaasPayment.checkoutUrl)
+        } as Prisma.InputJsonValue
+      });
+    }
+
     return {
       workspaceId,
       whatsappInstanceId: records.whatsappInstance.id,
@@ -366,6 +389,8 @@ export class BillingService {
 
   private async recordBillingAudit(input: {
     workspaceId: string;
+    actorUserId?: string | null;
+    actorType?: string;
     action: string;
     targetType: string;
     targetId: string;
@@ -378,8 +403,8 @@ export class BillingService {
       await this.prisma.auditLog.create({
         data: {
           workspaceId: input.workspaceId,
-          actorUserId: null,
-          actorType: "system",
+          actorUserId: input.actorUserId ?? null,
+          actorType: input.actorType ?? "system",
           action: input.action,
           targetType: input.targetType,
           targetId: input.targetId,
