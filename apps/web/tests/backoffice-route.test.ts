@@ -21,6 +21,19 @@ describe("backoffice route", () => {
     );
   });
 
+  it("revalidates backoffice after retrying a conversion event log", () => {
+    const source = readFileSync(
+      "src/app/(backoffice)/backoffice/page.tsx",
+      "utf8"
+    );
+
+    expect(source).toContain("async function retryConversionEventLog");
+    expect(source).toContain(
+      "`/backoffice/diagnostics/conversions/${conversionEventLogId}/retry`"
+    );
+    expect(source).toContain('revalidatePath("/backoffice")');
+  });
+
   it("renders split receivers returned by the backend", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
@@ -475,6 +488,8 @@ describe("backoffice route", () => {
     expect(html).toContain("QualifiedLead");
     expect(html).toContain("META_CONTEXT_MISSING");
     expect(html).toContain("pixel_1");
+    expect(html).toContain('name="conversionEventLogId"');
+    expect(html).toContain("Reprocessar Pixel");
   });
 
   it("renders audit logs returned by the diagnostics endpoint", async () => {

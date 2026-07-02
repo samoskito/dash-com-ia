@@ -355,6 +355,33 @@ async function retryDiagnosticEvent(formData: FormData) {
   }
 }
 
+async function retryConversionEventLog(formData: FormData) {
+  "use server";
+
+  const conversionEventLogId = String(
+    formData.get("conversionEventLogId") ?? ""
+  );
+
+  if (!conversionEventLogId) {
+    return;
+  }
+
+  try {
+    await serverApiFetch(
+      `/backoffice/diagnostics/conversions/${conversionEventLogId}/retry`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          reason: "Retry de evento Pixel/CAPI solicitado pelo backoffice WppTrack"
+        })
+      }
+    );
+    revalidatePath("/backoffice");
+  } catch {
+    return;
+  }
+}
+
 async function updateWorkspaceBilling(formData: FormData) {
   "use server";
 
@@ -1366,6 +1393,7 @@ export default async function BackofficePage({
                 <th>Atribuicao</th>
                 <th>Enviado</th>
                 <th>Estado</th>
+                <th>Acao</th>
               </tr>
             </thead>
             <tbody>
@@ -1392,11 +1420,23 @@ export default async function BackofficePage({
                         {event.errorCode ?? event.status}
                       </span>
                     </td>
+                    <td>
+                      <form action={retryConversionEventLog}>
+                        <input
+                          type="hidden"
+                          name="conversionEventLogId"
+                          value={event.id}
+                        />
+                        <button className="button" type="submit">
+                          Reprocessar Pixel
+                        </button>
+                      </form>
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <strong>{conversionEventLogEmptyTitle}</strong>
                     <span>Conversoes geradas por regras aparecem aqui.</span>
                   </td>
