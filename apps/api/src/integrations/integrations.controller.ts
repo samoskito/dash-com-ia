@@ -2,12 +2,14 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Inject,
   Put,
   Query
 } from "@nestjs/common";
 import {
+  canManageIntegrations,
   metaAssetSelectionInputSchema,
   metaOAuthCallbackQuerySchema
 } from "@wpptrack/shared";
@@ -41,9 +43,13 @@ export class IntegrationsController {
 
   @Get("meta/start")
   async startMeta(@AuthToken() refreshToken: string) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const workspace = await this.getCurrentWorkspace(refreshToken);
 
-    return this.integrationsService.getMetaStartAction(workspaceId);
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.getMetaStartAction(workspace.id);
   }
 
   @Get("meta/callback")
@@ -79,6 +85,10 @@ export class IntegrationsController {
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
     const input = this.parseBody(metaAssetSelectionInputSchema.safeParse(body));
 
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
     return this.integrationsService.saveMetaAssetSelection(
       workspace.id,
       input,
@@ -105,9 +115,13 @@ export class IntegrationsController {
   }
 
   private async getCurrentWorkspaceId(refreshToken: string): Promise<string> {
-    const authenticated = await this.authService.getSession(refreshToken);
-    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const workspace = await this.getCurrentWorkspace(refreshToken);
 
     return workspace.id;
+  }
+
+  private async getCurrentWorkspace(refreshToken: string) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    return this.workspacesService.getCurrentWorkspace(authenticated);
   }
 }

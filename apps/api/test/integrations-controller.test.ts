@@ -30,7 +30,7 @@ const health = {
   ]
 };
 
-async function createApp() {
+async function createApp(role: "owner" | "admin" | "member" = "owner") {
   const service = {
     getHealthSummary: vi.fn(async () => health),
     getMetaStartAction: vi.fn(() => ({
@@ -142,7 +142,7 @@ async function createApp() {
           id: "workspace_1",
           name: "Workspace",
           slug: "workspace",
-          role: "owner"
+          role
         }
       ]
     }))
@@ -152,7 +152,7 @@ async function createApp() {
       id: "workspace_1",
       name: "Workspace",
       slug: "workspace",
-      role: "owner"
+      role
     }))
   };
 
@@ -202,6 +202,19 @@ describe("integrations controller", () => {
         expect(body.action).toBe("configure_env");
         expect(body.missingEnv).toContain("META_APP_ID");
       });
+
+    await app.close();
+  });
+
+  it("rejects Meta OAuth start for workspace members", async () => {
+    const { app, service } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .get("/integrations/meta/start")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(403);
+
+    expect(service.getMetaStartAction).not.toHaveBeenCalled();
 
     await app.close();
   });
@@ -292,6 +305,24 @@ describe("integrations controller", () => {
       },
       "user_1"
     );
+
+    await app.close();
+  });
+
+  it("rejects selected Meta asset changes for workspace members", async () => {
+    const { app, service } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .put("/integrations/meta/assets/selection")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        businessId: "business_1",
+        adAccountId: "act_123",
+        pixelId: "pixel_1"
+      })
+      .expect(403);
+
+    expect(service.saveMetaAssetSelection).not.toHaveBeenCalled();
 
     await app.close();
   });

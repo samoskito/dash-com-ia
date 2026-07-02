@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Inject,
   Param,
@@ -9,6 +10,7 @@ import {
   Post
 } from "@nestjs/common";
 import {
+  canManageIntegrations,
   conversionRuleCreateInputSchema,
   conversionRuleUpdateInputSchema,
   conversionTriggerEvaluationInputSchema
@@ -44,6 +46,11 @@ export class ConversionRulesController {
 
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
     return this.conversionRulesService.createRule(
       workspace.id,
       parsed.data,
@@ -65,6 +72,11 @@ export class ConversionRulesController {
 
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
     return this.conversionRulesService.updateRule(
       workspace.id,
       ruleId,

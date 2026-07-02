@@ -6,7 +6,7 @@ import { WhatsappConnectionsController } from "../src/integrations/whatsapp-conn
 import { WhatsappConnectionsService } from "../src/integrations/whatsapp-connections.service";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
-async function createApp() {
+async function createApp(role: "owner" | "admin" | "member" = "owner") {
   const authService = {
     getSession: vi.fn(async () => ({
       user: {
@@ -21,7 +21,7 @@ async function createApp() {
           id: "workspace_1",
           name: "Cliente",
           slug: "cliente",
-          role: "owner"
+          role
         }
       ]
     }))
@@ -152,6 +152,19 @@ describe("whatsapp connections controller", () => {
       "workspace_1",
       "wpp_1"
     );
+
+    await app.close();
+  });
+
+  it("rejects whatsapp connection requests for workspace members", async () => {
+    const { app, whatsappConnectionsService } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .post("/integrations/whatsapp/instances/wpp_1/connect")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(403);
+
+    expect(whatsappConnectionsService.connectInstance).not.toHaveBeenCalled();
 
     await app.close();
   });

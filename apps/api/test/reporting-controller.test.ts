@@ -7,7 +7,7 @@ import { MetaReportingService } from "../src/reporting/meta-reporting.service";
 import { ReportingController } from "../src/reporting/reporting.controller";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
-async function createApp() {
+async function createApp(role: "owner" | "admin" | "member" = "owner") {
   const reportingService = {
     getCampaignReportOverview: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -143,7 +143,7 @@ async function createApp() {
           id: "workspace_1",
           name: "Workspace",
           slug: "workspace",
-          role: "owner"
+          role
         }
       ]
     }))
@@ -153,7 +153,7 @@ async function createApp() {
       id: "workspace_1",
       name: "Workspace",
       slug: "workspace",
-      role: "owner"
+      role
     }))
   };
   const moduleRef = await Test.createTestingModule({
@@ -228,6 +228,19 @@ describe("reporting controller", () => {
       until: "2026-07-02"
     });
     expect(reportingService.syncWorkspaceMetaStructure).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects Meta reporting sync for workspace members", async () => {
+    const { app, queueService } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .post("/reports/meta/sync?since=2026-07-01&until=2026-07-02")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(403);
+
+    expect(queueService.enqueueSync).not.toHaveBeenCalled();
 
     await app.close();
   });

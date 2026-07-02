@@ -1,4 +1,12 @@
-import { Controller, Get, Inject, Post, Query } from "@nestjs/common";
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  Inject,
+  Post,
+  Query
+} from "@nestjs/common";
+import { canManageIntegrations } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
@@ -72,10 +80,14 @@ export class ReportingController {
     @Query("since") since = this.defaultSince(),
     @Query("until") until = this.defaultUntil()
   ) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const workspace = await this.getCurrentWorkspace(refreshToken);
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para sincronizar relatorios");
+    }
 
     return this.metaReportSyncQueueService.enqueueSync({
-      workspaceId,
+      workspaceId: workspace.id,
       since,
       until
     });
@@ -89,10 +101,14 @@ export class ReportingController {
   }
 
   private async getCurrentWorkspaceId(refreshToken: string): Promise<string> {
-    const authenticated = await this.authService.getSession(refreshToken);
-    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const workspace = await this.getCurrentWorkspace(refreshToken);
 
     return workspace.id;
+  }
+
+  private async getCurrentWorkspace(refreshToken: string) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    return this.workspacesService.getCurrentWorkspace(authenticated);
   }
 
   private defaultSince(): string {

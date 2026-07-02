@@ -1,4 +1,12 @@
-import { Controller, Get, Inject, Param, Post } from "@nestjs/common";
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  Inject,
+  Param,
+  Post
+} from "@nestjs/common";
+import { canManageIntegrations } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
@@ -36,8 +44,12 @@ export class WhatsappConnectionsController {
     @AuthToken() refreshToken: string,
     @Param("instanceId") instanceId: string
   ) {
-    const { userId, workspaceId } =
+    const { role, userId, workspaceId } =
       await this.getCurrentWorkspaceContext(refreshToken);
+
+    if (!canManageIntegrations(role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
 
     return this.whatsappConnectionsService.connectInstance(
       workspaceId,
@@ -57,6 +69,7 @@ export class WhatsappConnectionsController {
   }
 
   private async getCurrentWorkspaceContext(refreshToken: string): Promise<{
+    role: "owner" | "admin" | "member";
     userId: string;
     workspaceId: string;
   }> {
@@ -64,6 +77,7 @@ export class WhatsappConnectionsController {
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
 
     return {
+      role: workspace.role,
       userId: authenticated.user.id,
       workspaceId: workspace.id
     };

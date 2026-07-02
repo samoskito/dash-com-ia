@@ -24,17 +24,26 @@ const session = {
   ]
 };
 
-async function createApp() {
+async function createApp(role: "owner" | "admin" | "member" = "owner") {
   const authService = {
-    getSession: vi.fn(async () => session)
+    getSession: vi.fn(async () => ({
+      ...session,
+      workspaces: [
+        {
+          ...session.workspaces[0],
+          role
+        }
+      ]
+    }))
   };
   const workspacesService = {
     getCurrentWorkspace: vi.fn(() => ({
       ...session.workspaces[0],
+      role,
       permissions: {
-        canInviteMembers: true,
-        canManageBilling: true,
-        canManageIntegrations: true,
+        canInviteMembers: role === "owner" || role === "admin",
+        canManageBilling: role === "owner",
+        canManageIntegrations: role === "owner" || role === "admin",
         canViewReports: true
       }
     }))
@@ -118,6 +127,43 @@ describe("conversion rules controller", () => {
       },
       "user_1"
     );
+
+    await app.close();
+  });
+
+  it("rejects rule creation for workspace members", async () => {
+    const { app, conversionRulesService } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .post("/conversion-rules")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        name: "Lead qualificado",
+        triggerType: "keyword",
+        triggerValue: "quero comprar",
+        matchMode: "contains",
+        eventName: "QualifiedLead",
+        active: true
+      })
+      .expect(403);
+
+    expect(conversionRulesService.createRule).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects rule updates for workspace members", async () => {
+    const { app, conversionRulesService } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .patch("/conversion-rules/rule_1")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        active: false
+      })
+      .expect(403);
+
+    expect(conversionRulesService.updateRule).not.toHaveBeenCalled();
 
     await app.close();
   });
