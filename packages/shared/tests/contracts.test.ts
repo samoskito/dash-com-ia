@@ -27,6 +27,8 @@ import {
   metaAssetSelectionInputSchema,
   metaAssetsSchema,
   metaStructureReportSchema,
+  leadListItemSchema,
+  leadListQuerySchema,
   metaConnectionSchema,
   metaOAuthCallbackQuerySchema,
   metaOAuthCallbackResultSchema,
@@ -588,6 +590,40 @@ describe("shared contracts", () => {
     expect(input.provider).toBe("uazapi");
     expect(checkout.status).toBe("pending_payment");
     expect(checkout.paymentProviderStatus).toBe("not_configured");
+  });
+
+  it("validates lead list contracts", () => {
+    const query = leadListQuerySchema.parse({
+      search: "  mariana  ",
+      status: "qualified",
+      limit: "25"
+    });
+    const lead = leadListItemSchema.parse({
+      id: "lead_1",
+      workspaceId: "workspace_1",
+      name: "Mariana Alves",
+      phoneDisplay: "+55 11 *****-1020",
+      phoneHash: "phone_hash_1",
+      status: "qualified",
+      source: "uazapi",
+      campaignId: "cmp_1",
+      campaignName: "Black Friday WhatsApp",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      lastEventName: "QualifiedLead",
+      score: 86,
+      firstMessageAt: "2026-07-02T03:00:00.000Z",
+      lastMessageAt: "2026-07-02T03:10:00.000Z",
+      createdAt: "2026-07-02T03:00:00.000Z",
+      updatedAt: "2026-07-02T03:10:00.000Z"
+    });
+
+    expect(query).toMatchObject({
+      search: "mariana",
+      status: "qualified",
+      limit: 25
+    });
+    expect(lead.lastEventName).toBe("QualifiedLead");
   });
 
   it("validates whatsapp instance connection status contracts", () => {

@@ -6,6 +6,7 @@ import { ConversionEventsQueueService } from "../src/common/queue/conversion-eve
 import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
 import { ConversionRulesService } from "../src/conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
+import { LeadsService } from "../src/leads/leads.service";
 import { WebhooksController } from "../src/webhooks/webhooks.controller";
 
 afterEach(() => {
@@ -57,6 +58,11 @@ async function createApp() {
       status: "queued"
     }))
   };
+  const leadsService = {
+    upsertFromWhatsappWebhook: vi.fn(async () => ({
+      id: "lead_1"
+    }))
+  };
 
   const moduleRef = await Test.createTestingModule({
     controllers: [WebhooksController],
@@ -68,7 +74,8 @@ async function createApp() {
       {
         provide: ConversionEventsQueueService,
         useValue: conversionEventsQueueService
-      }
+      },
+      { provide: LeadsService, useValue: leadsService }
     ]
   }).compile();
 
@@ -81,7 +88,8 @@ async function createApp() {
     billingService,
     conversionRulesService,
     conversionEventsService,
-    conversionEventsQueueService
+    conversionEventsQueueService,
+    leadsService
   };
 }
 
@@ -92,7 +100,8 @@ describe("webhooks controller", () => {
       diagnosticsService,
       conversionRulesService,
       conversionEventsService,
-      conversionEventsQueueService
+      conversionEventsQueueService,
+      leadsService
     } = await createApp();
 
     await request(app.getHttpServer())
@@ -105,7 +114,11 @@ describe("webhooks controller", () => {
         message: {
           text: "Oi, quero comprar"
         },
-        labels: ["Venda fechada"]
+        labels: ["Venda fechada"],
+        phone: "+55 11 98844-1020",
+        name: "Mariana Alves",
+        campaignId: "cmp_1",
+        adId: "ad_1"
       })
       .expect(202)
       .expect(({ body }) => {
@@ -139,9 +152,19 @@ describe("webhooks controller", () => {
     expect(conversionEventsService.recordRuleMatches).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
+        leadId: "lead_1",
         rules: expect.arrayContaining([
           expect.objectContaining({ eventName: "QualifiedLead" })
         ])
+      })
+    );
+    expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        name: "Mariana Alves",
+        phone: "+55 11 98844-1020",
+        campaignId: "cmp_1",
+        adId: "ad_1"
       })
     );
     expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(

@@ -439,10 +439,13 @@ Checkpoint atual:
 - Estrategia de execucao da Fase 1 selecionada: subagent-driven development.
 - Tasks 1-9 da Fase 1 implementadas, verificadas no que nao depende de Docker local e commitadas.
 - Rodada Paralela 1 aprovada e executada com agentes em trilhas separadas: Visual, Auth/Workspaces, Integracoes e Diagnosticos/Logs.
+- Docker Desktop validado localmente com PostgreSQL e Redis ativos. Migrations aplicadas ate `20260702123000_leads`.
+- API agora possui readiness real em `/health/ready`, script de start de producao e modulo global de runtime para `process.env`/`fetch`.
+- Leads persistentes iniciados: modelo `Lead`, contratos compartilhados, `GET /leads`, upsert via webhook Uazapi e tela `Leads` consumindo backend com fallback visual.
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: Leads persistentes, fluxo de adicionar instancia WhatsApp pela UI, CRUD visual de regras de conversao e idempotencia de webhooks/conversoes.
+- Continuar a proxima rodada com: fluxo de adicionar instancia WhatsApp pela UI, CRUD visual de regras de conversao e idempotencia de webhooks/conversoes.
 
 ## Perguntas Abertas
 

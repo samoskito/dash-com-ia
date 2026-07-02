@@ -72,6 +72,14 @@ enum ConversionMatchMode {
   exact
 }
 
+enum LeadStatus {
+  new
+  active
+  qualified
+  converted
+  lost
+}
+
 enum AuthActionTokenType {
   password_reset
   email_verification
@@ -115,6 +123,7 @@ model Workspace {
   paymentCharges     PaymentCharge[]
   whatsappInstanceActivations WhatsappInstanceActivation[]
   conversionRules    ConversionRule[]
+  leads              Lead[]
   metaIntegration    MetaIntegration?
   metaCampaigns      MetaCampaign[]
   metaAdSets         MetaAdSet[]
@@ -149,6 +158,7 @@ model WhatsappInstance {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
   activations WhatsappInstanceActivation[]
+  leads Lead[]
 
   @@index([workspaceId])
   @@index([providerInstanceId])
@@ -489,6 +499,33 @@ model ConversionRule {
 
   @@index([workspaceId, active])
   @@index([workspaceId, triggerType, triggerValue])
+}
+
+model Lead {
+  id              String     @id @default(cuid())
+  workspaceId     String
+  whatsappInstanceId String?
+  name            String?
+  phoneDisplay    String?
+  phoneHash       String
+  status          LeadStatus @default(active)
+  source          String?
+  campaignId      String?
+  adSetId         String?
+  adId            String?
+  firstMessageAt  DateTime?
+  lastMessageAt   DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  whatsappInstance WhatsappInstance? @relation(fields: [whatsappInstanceId], references: [id])
+
+  @@unique([workspaceId, phoneHash])
+  @@index([workspaceId, status, lastMessageAt])
+  @@index([workspaceId, campaignId])
+  @@index([workspaceId, adSetId])
+  @@index([workspaceId, adId])
 }
 
 model MetaIntegration {

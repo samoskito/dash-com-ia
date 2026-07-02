@@ -14,6 +14,7 @@ import { ConversionEventsQueueService } from "../common/queue/conversion-events-
 import { ConversionEventsService } from "../conversion-events/conversion-events.service";
 import { ConversionRulesService } from "../conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../diagnostics/diagnostics.service";
+import { LeadsService } from "../leads/leads.service";
 
 type WebhookBody = Record<string, unknown>;
 
@@ -29,7 +30,9 @@ export class WebhooksController {
     @Inject(ConversionEventsService)
     private readonly conversionEventsService: ConversionEventsService,
     @Inject(ConversionEventsQueueService)
-    private readonly conversionEventsQueueService: ConversionEventsQueueService
+    private readonly conversionEventsQueueService: ConversionEventsQueueService,
+    @Inject(LeadsService)
+    private readonly leadsService: LeadsService
   ) {}
 
   @Post("uazapi")
@@ -132,10 +135,22 @@ export class WebhooksController {
       workspaceId,
       triggerInput
     );
+    const lead = await this.leadsService.upsertFromWhatsappWebhook({
+      workspaceId,
+      whatsappInstanceId: this.firstString(body.whatsappInstanceId),
+      name: this.getContactName(body),
+      phone: this.getPhone(body),
+      phoneHash: this.firstString(body.phoneHash),
+      source: "uazapi",
+      campaignId: this.firstString(body.campaignId),
+      adSetId: this.firstString(body.adSetId),
+      adId: this.firstString(body.adId),
+      occurredAt: new Date()
+    });
     const conversion = await this.conversionEventsService.recordRuleMatches({
       workspaceId,
       rules,
-      leadId: this.firstString(body.leadId),
+      leadId: lead?.id ?? this.firstString(body.leadId),
       phoneHash: this.firstString(body.phoneHash),
       campaignId: this.firstString(body.campaignId),
       adSetId: this.firstString(body.adSetId),
@@ -215,6 +230,36 @@ export class WebhooksController {
     return list
       .map((label) => this.labelToString(label))
       .filter((label): label is string => Boolean(label));
+  }
+
+  private getPhone(body: WebhookBody): string | undefined {
+    const contact = body.contact;
+    const chat = body.chat;
+
+    return (
+      this.firstString(body.phone) ??
+      this.firstString(body.from) ??
+      this.firstString(body.sender) ??
+      (contact && typeof contact === "object" && !Array.isArray(contact)
+        ? this.firstString((contact as Record<string, unknown>).phone)
+        : undefined) ??
+      (chat && typeof chat === "object" && !Array.isArray(chat)
+        ? this.firstString((chat as Record<string, unknown>).phone)
+        : undefined)
+    );
+  }
+
+  private getContactName(body: WebhookBody): string | undefined {
+    const contact = body.contact;
+
+    return (
+      this.firstString(body.name) ??
+      this.firstString(body.contactName) ??
+      this.firstString(body.pushName) ??
+      (contact && typeof contact === "object" && !Array.isArray(contact)
+        ? this.firstString((contact as Record<string, unknown>).name)
+        : undefined)
+    );
   }
 
   private labelToString(label: unknown): string | undefined {
