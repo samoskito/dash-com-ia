@@ -27,7 +27,15 @@ export const workspaceBillingSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   slug: z.string().min(1),
-  asaasCustomerId: z.string().min(1).nullable()
+  asaasCustomerId: z.string().min(1).nullable(),
+  subscriptionStatus: z.enum([
+    "not_configured",
+    "active",
+    "pending",
+    "overdue",
+    "cancelled"
+  ]),
+  activeInstances: z.number().int().nonnegative()
 });
 
 export const workspaceBillingListSchema = z.array(workspaceBillingSchema);

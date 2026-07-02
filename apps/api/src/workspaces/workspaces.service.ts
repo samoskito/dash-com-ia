@@ -36,6 +36,13 @@ type WorkspaceBillingRecord = {
   name: string;
   slug: string;
   asaasCustomerId: string | null;
+  subscriptions?: Array<{
+    status: string;
+    activeInstances: number;
+  }>;
+  whatsappInstances?: Array<{
+    id: string;
+  }>;
 };
 
 @Injectable()
@@ -140,7 +147,25 @@ export class WorkspacesService {
         id: true,
         name: true,
         slug: true,
-        asaasCustomerId: true
+        asaasCustomerId: true,
+        subscriptions: {
+          orderBy: {
+            updatedAt: "desc"
+          },
+          take: 1,
+          select: {
+            status: true,
+            activeInstances: true
+          }
+        },
+        whatsappInstances: {
+          where: {
+            status: "active"
+          },
+          select: {
+            id: true
+          }
+        }
       }
     })) as WorkspaceBillingRecord | null;
 
@@ -148,7 +173,7 @@ export class WorkspacesService {
       throw new NotFoundException("Workspace nao encontrado");
     }
 
-    return workspace;
+    return this.toWorkspaceBillingDto(workspace);
   }
 
   async listBillingConfigurations(): Promise<WorkspaceBillingDto[]> {
@@ -157,14 +182,32 @@ export class WorkspacesService {
         id: true,
         name: true,
         slug: true,
-        asaasCustomerId: true
+        asaasCustomerId: true,
+        subscriptions: {
+          orderBy: {
+            updatedAt: "desc"
+          },
+          take: 1,
+          select: {
+            status: true,
+            activeInstances: true
+          }
+        },
+        whatsappInstances: {
+          where: {
+            status: "active"
+          },
+          select: {
+            id: true
+          }
+        }
       },
       orderBy: {
         name: "asc"
       }
     })) as WorkspaceBillingRecord[];
 
-    return workspaces;
+    return workspaces.map((workspace) => this.toWorkspaceBillingDto(workspace));
   }
 
   async updateBillingConfiguration(
@@ -180,11 +223,29 @@ export class WorkspacesService {
         id: true,
         name: true,
         slug: true,
-        asaasCustomerId: true
+        asaasCustomerId: true,
+        subscriptions: {
+          orderBy: {
+            updatedAt: "desc"
+          },
+          take: 1,
+          select: {
+            status: true,
+            activeInstances: true
+          }
+        },
+        whatsappInstances: {
+          where: {
+            status: "active"
+          },
+          select: {
+            id: true
+          }
+        }
       }
     })) as WorkspaceBillingRecord;
 
-    return workspace;
+    return this.toWorkspaceBillingDto(workspace);
   }
 
   async createInvite(
@@ -275,5 +336,36 @@ export class WorkspacesService {
 
   private hashInviteToken(token: string): string {
     return createHash("sha256").update(token).digest("hex");
+  }
+
+  private toWorkspaceBillingDto(
+    workspace: WorkspaceBillingRecord
+  ): WorkspaceBillingDto {
+    const subscription = workspace.subscriptions?.[0];
+
+    return {
+      id: workspace.id,
+      name: workspace.name,
+      slug: workspace.slug,
+      asaasCustomerId: workspace.asaasCustomerId,
+      subscriptionStatus: this.toWorkspaceBillingStatus(subscription?.status),
+      activeInstances:
+        subscription?.activeInstances ?? workspace.whatsappInstances?.length ?? 0
+    };
+  }
+
+  private toWorkspaceBillingStatus(
+    status: string | undefined
+  ): WorkspaceBillingDto["subscriptionStatus"] {
+    if (
+      status === "active" ||
+      status === "pending" ||
+      status === "overdue" ||
+      status === "cancelled"
+    ) {
+      return status;
+    }
+
+    return "not_configured";
   }
 }

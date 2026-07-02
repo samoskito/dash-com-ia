@@ -8,7 +8,9 @@ function createHarness() {
         id: "workspace_1",
         name: "Comunidade NOD",
         slug: "comunidade-nod",
-        asaasCustomerId: null
+        asaasCustomerId: null,
+        subscriptions: [],
+        whatsappInstances: []
       }
     ] as Array<Record<string, unknown>>
   };
@@ -57,7 +59,9 @@ describe("workspace billing service", () => {
       id: "workspace_1",
       name: "Comunidade NOD",
       slug: "comunidade-nod",
-      asaasCustomerId: "cus_asaas_1"
+      asaasCustomerId: "cus_asaas_1",
+      subscriptionStatus: "not_configured",
+      activeInstances: 0
     });
     expect(db.workspaces[0].asaasCustomerId).toBe("cus_asaas_1");
   });
@@ -68,7 +72,14 @@ describe("workspace billing service", () => {
       id: "workspace_2",
       name: "Clinica Norte",
       slug: "clinica-norte",
-      asaasCustomerId: null
+      asaasCustomerId: null,
+      subscriptions: [
+        {
+          status: "active",
+          activeInstances: 3
+        }
+      ],
+      whatsappInstances: []
     });
 
     const result = await service.listBillingConfigurations();
@@ -78,13 +89,17 @@ describe("workspace billing service", () => {
         id: "workspace_2",
         name: "Clinica Norte",
         slug: "clinica-norte",
-        asaasCustomerId: null
+        asaasCustomerId: null,
+        subscriptionStatus: "active",
+        activeInstances: 3
       },
       {
         id: "workspace_1",
         name: "Comunidade NOD",
         slug: "comunidade-nod",
-        asaasCustomerId: null
+        asaasCustomerId: null,
+        subscriptionStatus: "not_configured",
+        activeInstances: 0
       }
     ]);
   });

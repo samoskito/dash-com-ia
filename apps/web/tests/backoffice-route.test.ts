@@ -121,13 +121,17 @@ describe("backoffice route", () => {
               id: "workspace_1",
               name: "Comunidade NOD",
               slug: "comunidade-nod",
-              asaasCustomerId: "cus_asaas_1"
+              asaasCustomerId: "cus_asaas_1",
+              subscriptionStatus: "active",
+              activeInstances: 2
             },
             {
               id: "workspace_2",
               name: "Clinica Norte",
               slug: "clinica-norte",
-              asaasCustomerId: null
+              asaasCustomerId: null,
+              subscriptionStatus: "not_configured",
+              activeInstances: 0
             }
           ]),
           { status: 200, headers: { "Content-Type": "application/json" } }
@@ -151,6 +155,9 @@ describe("backoffice route", () => {
     expect(html).toContain("cus_asaas_1");
     expect(html).toContain("Clinica Norte");
     expect(html).toContain("Configurar customer");
+    expect(html).toContain("active");
+    expect(html).toContain("2 instancias");
+    expect(html).toContain("not_configured");
   });
 
   it("sends diagnostic filters to the backoffice diagnostics endpoint", async () => {

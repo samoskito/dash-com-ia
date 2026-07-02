@@ -538,12 +538,16 @@ describe("shared contracts", () => {
       id: "workspace_1",
       name: "Comunidade NOD",
       slug: "comunidade-nod",
-      asaasCustomerId: "cus_asaas_1"
+      asaasCustomerId: "cus_asaas_1",
+      subscriptionStatus: "active",
+      activeInstances: 2
     });
 
     expect(input.asaasCustomerId).toBe("cus_asaas_1");
     expect(cleared.asaasCustomerId).toBeNull();
     expect(billing.asaasCustomerId).toBe("cus_asaas_1");
+    expect(billing.subscriptionStatus).toBe("active");
+    expect(billing.activeInstances).toBe(2);
   });
 
   it("validates workspace billing list for platform backoffice", () => {
@@ -552,13 +556,17 @@ describe("shared contracts", () => {
         id: "workspace_1",
         name: "Comunidade NOD",
         slug: "comunidade-nod",
-        asaasCustomerId: "cus_asaas_1"
+        asaasCustomerId: "cus_asaas_1",
+        subscriptionStatus: "active",
+        activeInstances: 1
       },
       {
         id: "workspace_2",
         name: "Clinica Norte",
         slug: "clinica-norte",
-        asaasCustomerId: null
+        asaasCustomerId: null,
+        subscriptionStatus: "not_configured",
+        activeInstances: 0
       }
     ]);
 

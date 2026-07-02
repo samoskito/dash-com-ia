@@ -364,6 +364,8 @@ export default async function BackofficePage({
                 <th>Workspace</th>
                 <th>Slug</th>
                 <th>Customer Asaas</th>
+                <th>Assinatura</th>
+                <th>Instancias</th>
                 <th>Acao</th>
               </tr>
             </thead>
@@ -390,6 +392,14 @@ export default async function BackofficePage({
                       </form>
                     </td>
                     <td>
+                      <span className={`event-chip${workspace.subscriptionStatus === "active" ? "" : " warn"}`}>
+                        {workspace.subscriptionStatus}
+                      </span>
+                    </td>
+                    <td>
+                      {workspace.activeInstances} instancia{workspace.activeInstances === 1 ? "" : "s"}
+                    </td>
+                    <td>
                       <span className={`event-chip${workspace.asaasCustomerId ? "" : " warn"}`}>
                         {workspace.asaasCustomerId ? "configurado" : "pendente"}
                       </span>
@@ -401,6 +411,8 @@ export default async function BackofficePage({
                   <td><strong>{workspaceEmptyTitle}</strong><span>Confira permissao de backoffice</span></td>
                   <td>-</td>
                   <td><span className="muted">Configurar customer</span></td>
+                  <td><span className="event-chip warn">sem assinatura</span></td>
+                  <td>0 instancias</td>
                   <td><span className="event-chip warn">sem dados</span></td>
                 </tr>
               )}
