@@ -7,6 +7,7 @@ import { HealthController } from "./health/health.controller";
 import { IntegrationsModule } from "./integrations/integrations.module";
 import { MockController } from "./mock/mock.controller";
 import { MockService } from "./mock/mock.service";
+import { WebhooksModule } from "./webhooks/webhooks.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
 
 @Module({
@@ -16,7 +17,8 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     WorkspacesModule,
     DiagnosticsModule,
     IntegrationsModule,
-    BillingModule
+    BillingModule,
+    WebhooksModule
   ],
   controllers: [HealthController, MockController],
   providers: [MockService]

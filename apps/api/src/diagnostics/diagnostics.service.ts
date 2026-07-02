@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
+  DiagnosticSourceDto,
   DiagnosticEventCreateDto,
   DiagnosticEventDetailDto,
   DiagnosticEventDto,
@@ -29,6 +30,21 @@ type DiagnosticEventRecord = {
   jobId: string | null;
   errorCode: string | null;
   summaryPayload?: unknown;
+};
+
+export type WebhookLogInput = {
+  workspaceId?: string;
+  source: DiagnosticSourceDto;
+  eventType: string;
+  externalEventId?: string;
+  idempotencyKey?: string;
+  summaryPayload?: Record<string, unknown>;
+};
+
+export type WebhookLogResult = {
+  webhookLogId: string;
+  diagnosticEventId: string;
+  status: "received";
 };
 
 @Injectable()
@@ -64,6 +80,47 @@ export class DiagnosticsService {
     })) as DiagnosticEventRecord;
 
     return this.toDetailDto(event);
+  }
+
+  async recordWebhookLog(input: WebhookLogInput): Promise<WebhookLogResult> {
+    const webhook = await this.prisma.webhookLog.create({
+      data: {
+        workspaceId: input.workspaceId ?? null,
+        source: input.source,
+        eventType: input.eventType,
+        externalEventId: input.externalEventId ?? null,
+        status: "received",
+        idempotencyKey: input.idempotencyKey ?? null,
+        summaryPayload: input.summaryPayload
+          ? (this.redactSensitive(
+              input.summaryPayload
+            ) as Prisma.InputJsonValue)
+          : undefined
+      }
+    });
+    const event = await this.prisma.diagnosticEvent.create({
+      data: {
+        workspaceId: input.workspaceId ?? null,
+        source: input.source,
+        eventType: input.eventType,
+        severity: "info",
+        status: "received",
+        title: `Webhook ${input.source} recebido`,
+        message: `Evento ${input.eventType} recebido para processamento`,
+        webhookLogId: webhook.id,
+        summaryPayload: input.summaryPayload
+          ? (this.redactSensitive(
+              input.summaryPayload
+            ) as Prisma.InputJsonValue)
+          : undefined
+      }
+    });
+
+    return {
+      webhookLogId: webhook.id,
+      diagnosticEventId: event.id,
+      status: "received"
+    };
   }
 
   async listEvents(
