@@ -515,6 +515,7 @@ model Lead {
   phoneHash          String
   status             LeadStatus @default(active)
   source             String?
+  labels             String[]   @default([])
   campaignId         String?
   adSetId            String?
   adId               String?

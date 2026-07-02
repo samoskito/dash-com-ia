@@ -163,6 +163,7 @@ describe("webhooks controller", () => {
         workspaceId: "workspace_1",
         name: "Mariana Alves",
         phone: "+55 11 98844-1020",
+        labels: ["Venda fechada"],
         campaignId: "cmp_1",
         adId: "ad_1"
       })

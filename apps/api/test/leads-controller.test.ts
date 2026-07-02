@@ -49,6 +49,7 @@ async function createApp() {
         phoneHash: "phone_hash_1",
         status: "qualified",
         source: "uazapi",
+        labels: ["Venda fechada"],
         campaignId: "cmp_1",
         campaignName: "Black Friday WhatsApp",
         adSetId: "adset_1",
@@ -70,6 +71,7 @@ async function createApp() {
         phoneHash: "phone_hash_1",
         status: "qualified",
         source: "uazapi",
+        labels: ["Venda fechada"],
         campaignId: "cmp_1",
         campaignName: "Black Friday WhatsApp",
         adSetId: "adset_1",
@@ -143,12 +145,29 @@ describe("leads controller", () => {
       .expect(({ body }) => {
         expect(body[0].name).toBe("Mariana Alves");
         expect(body[0].lastEventName).toBe("QualifiedLead");
+        expect(body[0].labels).toEqual(["Venda fechada"]);
       });
 
     expect(leadsService.listLeads).toHaveBeenCalledWith("workspace_1", {
       search: "mariana",
       status: "qualified",
       limit: 25
+    });
+
+    await app.close();
+  });
+
+  it("forwards WhatsApp label filters to the leads service", async () => {
+    const { app, leadsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/leads?label=Venda%20fechada")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200);
+
+    expect(leadsService.listLeads).toHaveBeenCalledWith("workspace_1", {
+      label: "Venda fechada",
+      limit: 50
     });
 
     await app.close();

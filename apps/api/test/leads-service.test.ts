@@ -12,6 +12,7 @@ function createHarness() {
         phoneHash: "phone_hash_1",
         status: "active",
         source: "uazapi",
+        labels: ["Venda fechada", "VIP"],
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
@@ -119,6 +120,7 @@ describe("leads service", () => {
     const leads = await service.listLeads("workspace_1", {
       search: "Mariana",
       status: "active",
+      label: "Venda fechada",
       limit: 25
     });
 
@@ -126,7 +128,8 @@ describe("leads service", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           workspaceId: "workspace_1",
-          status: "active"
+          status: "active",
+          labels: { has: "Venda fechada" }
         }),
         take: 25
       })
@@ -136,6 +139,7 @@ describe("leads service", () => {
         id: "lead_1",
         campaignName: "Black Friday WhatsApp",
         lastEventName: "QualifiedLead",
+        labels: ["Venda fechada", "VIP"],
         score: 86
       })
     ]);
@@ -177,6 +181,7 @@ describe("leads service", () => {
       name: "Rafael Costa",
       phone: "+55 (31) 97710-4300",
       source: "uazapi",
+      labels: ["Venda fechada"],
       campaignId: "cmp_2",
       adSetId: "adset_2",
       adId: "ad_2",
@@ -196,11 +201,13 @@ describe("leads service", () => {
           workspaceId: "workspace_1",
           name: "Rafael Costa",
           phoneDisplay: "+55 31 *****-4300",
+          labels: ["Venda fechada"],
           campaignId: "cmp_2",
           adId: "ad_2"
         }),
         update: expect.objectContaining({
           name: "Rafael Costa",
+          labels: ["Venda fechada"],
           lastMessageAt: new Date("2026-07-02T04:00:00.000Z")
         })
       })
@@ -222,7 +229,8 @@ describe("leads service", () => {
       lead: {
         id: "lead_1",
         campaignName: "Black Friday WhatsApp",
-        lastEventName: "QualifiedLead"
+        lastEventName: "QualifiedLead",
+        labels: ["Venda fechada", "VIP"]
       },
       attribution: {
         campaignName: "Black Friday WhatsApp",

@@ -13,6 +13,7 @@ async function getLeads(filters: {
   search?: string;
   status?: string;
   eventName?: string;
+  label?: string;
   campaignId?: string;
   adSetId?: string;
   adId?: string;
@@ -32,6 +33,10 @@ async function getLeads(filters: {
 
     if (filters.eventName) {
       params.set("eventName", filters.eventName);
+    }
+
+    if (filters.label) {
+      params.set("label", filters.label);
     }
 
     if (filters.campaignId) {
@@ -112,6 +117,7 @@ export default async function LeadsPage({
   const search = asStringParam(resolvedSearchParams.search);
   const status = asStringParam(resolvedSearchParams.status);
   const eventName = asStringParam(resolvedSearchParams.eventName);
+  const label = asStringParam(resolvedSearchParams.label);
   const campaignId = asStringParam(resolvedSearchParams.campaignId);
   const adSetId = asStringParam(resolvedSearchParams.adSetId);
   const adId = asStringParam(resolvedSearchParams.adId);
@@ -122,6 +128,7 @@ export default async function LeadsPage({
     search,
     status,
     eventName,
+    label,
     campaignId,
     adSetId,
     adId,
@@ -170,6 +177,7 @@ export default async function LeadsPage({
           <option value="QualifiedLead">QualifiedLead</option>
           <option value="Purchase">Purchase</option>
         </select>
+        <input className="filter-control" name="label" placeholder="Etiqueta" defaultValue={label} />
         <input type="hidden" name="campaignId" value={campaignId ?? ""} />
         <input type="hidden" name="adSetId" value={adSetId ?? ""} />
         <input type="hidden" name="adId" value={adId ?? ""} />
@@ -211,6 +219,9 @@ export default async function LeadsPage({
                   <td>
                     {lead.campaignName ?? "Campanha nao resolvida"}
                     <span>{lead.source ?? lead.adId ?? "origem parcial"}</span>
+                    {lead.labels.length > 0 ? (
+                      <span>{lead.labels.join(", ")}</span>
+                    ) : null}
                   </td>
                   <td>
                     <span className={`event-chip${lead.lastEventName ? "" : " warn"}`}>

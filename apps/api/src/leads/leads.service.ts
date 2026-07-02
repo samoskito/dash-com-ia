@@ -16,6 +16,7 @@ type LeadRecord = {
   phoneHash: string;
   status: LeadStatusDto;
   source: string | null;
+  labels: string[];
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
@@ -75,6 +76,7 @@ export type UpsertWhatsappLeadInput = {
   phone?: string;
   phoneHash?: string;
   source?: string;
+  labels?: string[];
   campaignId?: string;
   adSetId?: string;
   adId?: string;
@@ -94,6 +96,7 @@ export class LeadsService {
       where: {
         workspaceId,
         ...(query.status ? { status: query.status } : {}),
+        ...(query.label ? { labels: { has: query.label } } : {}),
         ...(query.campaignId ? { campaignId: query.campaignId } : {}),
         ...(query.adSetId ? { adSetId: query.adSetId } : {}),
         ...(query.adId ? { adId: query.adId } : {}),
@@ -326,6 +329,7 @@ export class LeadsService {
     }
 
     const occurredAt = input.occurredAt ?? new Date();
+    const labels = this.normalizeLabels(input.labels);
     const lead = await this.prisma.lead.upsert({
       where: {
         workspaceId_phoneHash: {
@@ -341,6 +345,7 @@ export class LeadsService {
         phoneHash,
         status: "active",
         source: input.source ?? "uazapi",
+        labels: labels ?? [],
         campaignId: input.campaignId ?? null,
         adSetId: input.adSetId ?? null,
         adId: input.adId ?? null,
@@ -352,6 +357,7 @@ export class LeadsService {
         name: input.name ?? undefined,
         phoneDisplay: this.maskPhone(input.phone) ?? undefined,
         source: input.source ?? undefined,
+        labels: labels ?? undefined,
         campaignId: input.campaignId ?? undefined,
         adSetId: input.adSetId ?? undefined,
         adId: input.adId ?? undefined,
@@ -378,6 +384,7 @@ export class LeadsService {
       phoneHash: lead.phoneHash,
       status: this.statusFromEvent(lead.status, lastEventName),
       source: lead.source,
+      labels: lead.labels,
       campaignId: lead.campaignId,
       campaignName,
       adSetId: lead.adSetId,
@@ -476,5 +483,17 @@ export class LeadsService {
     const digits = phone?.replace(/\D/g, "");
 
     return digits || undefined;
+  }
+
+  private normalizeLabels(labels?: string[]): string[] | undefined {
+    if (!labels) {
+      return undefined;
+    }
+
+    const normalized = labels
+      .map((label) => label.trim())
+      .filter(Boolean);
+
+    return Array.from(new Set(normalized));
   }
 }

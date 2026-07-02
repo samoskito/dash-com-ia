@@ -257,6 +257,7 @@ export class WebhooksController {
       phone: this.getPhone(body),
       phoneHash: this.firstString(body.phoneHash),
       source: "uazapi",
+      labels: triggerInput.labels,
       campaignId: this.firstString(body.campaignId),
       adSetId: this.firstString(body.adSetId),
       adId: this.firstString(body.adId),

@@ -20,6 +20,7 @@ describe("leads route", () => {
             phoneHash: "phone_hash_1",
             status: "qualified",
             source: "uazapi",
+            labels: ["Venda fechada", "VIP"],
             campaignId: "cmp_1",
             campaignName: "Black Friday WhatsApp",
             adSetId: "adset_1",
@@ -39,19 +40,22 @@ describe("leads route", () => {
     const element = await LeadsPage({
       searchParams: Promise.resolve({
         search: "mariana",
-        status: "qualified"
+        status: "qualified",
+        label: "Venda fechada"
       })
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/leads?search=mariana&status=qualified",
+      "http://localhost:3333/leads?search=mariana&status=qualified&label=Venda+fechada",
       expect.objectContaining({ credentials: "include" })
     );
     expect(html).toContain("Mariana Alves");
     expect(html).toContain('href="/leads/lead_1"');
     expect(html).toContain("Black Friday WhatsApp");
     expect(html).toContain("QualifiedLead");
+    expect(html).toContain("Venda fechada");
+    expect(html).toContain('name="label"');
     expect(html).toContain("+55 11 *****-1020");
   });
 

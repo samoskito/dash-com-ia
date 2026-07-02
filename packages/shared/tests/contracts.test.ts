@@ -789,6 +789,7 @@ describe("shared contracts", () => {
     const query = leadListQuerySchema.parse({
       search: "  mariana  ",
       status: "qualified",
+      label: " Venda fechada ",
       campaignId: "cmp_1",
       adSetId: "adset_1",
       adId: "ad_1",
@@ -804,6 +805,7 @@ describe("shared contracts", () => {
       phoneHash: "phone_hash_1",
       status: "qualified",
       source: "uazapi",
+      labels: ["Venda fechada", "VIP"],
       campaignId: "cmp_1",
       campaignName: "Black Friday WhatsApp",
       adSetId: "adset_1",
@@ -819,6 +821,7 @@ describe("shared contracts", () => {
     expect(query).toMatchObject({
       search: "mariana",
       status: "qualified",
+      label: "Venda fechada",
       campaignId: "cmp_1",
       adSetId: "adset_1",
       adId: "ad_1",
@@ -827,6 +830,7 @@ describe("shared contracts", () => {
       limit: 25
     });
     expect(lead.lastEventName).toBe("QualifiedLead");
+    expect(lead.labels).toEqual(["Venda fechada", "VIP"]);
   });
 
   it("validates lead detail contracts with conversion and webhook timeline", () => {
@@ -839,6 +843,7 @@ describe("shared contracts", () => {
         phoneHash: "phone_hash_1",
         status: "qualified",
         source: "uazapi",
+        labels: ["Venda fechada"],
         campaignId: "cmp_1",
         campaignName: "Black Friday WhatsApp",
         adSetId: "adset_1",
