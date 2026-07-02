@@ -19,6 +19,9 @@ import {
   integrationStartActionSchema,
   loginSchema,
   registerSchema,
+  splitReceiverCreateInputSchema,
+  splitReceiverSchema,
+  splitReceiverUpdateInputSchema,
   workspaceInviteInputSchema,
   workspaceInviteSchema,
   workspaceMemberSchema,
@@ -275,6 +278,33 @@ describe("shared contracts", () => {
     expect(quote.currency).toBe("BRL");
     expect(input.provider).toBe("uazapi");
     expect(checkout.status).toBe("pending_payment");
+  });
+
+  it("validates split receiver contracts for platform backoffice", () => {
+    const create = splitReceiverCreateInputSchema.parse({
+      name: "Socio Operacional",
+      walletId: "wallet_asaas_1",
+      email: "socio@wpptrack.com",
+      percentageBps: 2500
+    });
+    const update = splitReceiverUpdateInputSchema.parse({
+      active: false,
+      percentageBps: 1500
+    });
+    const receiver = splitReceiverSchema.parse({
+      id: "receiver_1",
+      name: "Socio Operacional",
+      walletId: "wallet_asaas_1",
+      email: "socio@wpptrack.com",
+      percentageBps: 2500,
+      active: true,
+      createdAt: "2026-07-02T03:00:00.000Z",
+      updatedAt: "2026-07-02T03:00:00.000Z"
+    });
+
+    expect(create.percentageBps).toBe(2500);
+    expect(update.active).toBe(false);
+    expect(receiver.walletId).toBe("wallet_asaas_1");
   });
 
   it("validates conversion rule contracts for keyword and WhatsApp labels", () => {

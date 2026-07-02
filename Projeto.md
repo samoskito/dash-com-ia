@@ -32,6 +32,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Processamento inicial de webhook Asaas implementado: `PAYMENT_RECEIVED`/`PAYMENT_CONFIRMED` ou status `RECEIVED`/`CONFIRMED` busca a cobranca por `externalChargeId` ou `chargeId` local, marca `PaymentCharge` como `paid`, ativa `WhatsappInstanceActivation` e muda a `WhatsappInstance` para `active`.
 - A criacao real da cobranca no Asaas ainda depende das credenciais/contrato final; o fluxo interno de ativacao pos-pagamento ja esta preparado e testado.
 - Webhook Uazapi agora avalia regras de conversao quando recebe `x-workspace-id`: extrai texto de mensagem e etiquetas comuns do payload, executa `/conversion-rules` internamente e cria `ConversionEventLog` para regras encontradas, com status `ready_to_send` quando ha `pixelId` e `adId`, ou `pending_meta_context` quando falta contexto Meta.
+- Backoffice de split recebeu API inicial: `GET /backoffice/split/receivers`, `POST /backoffice/split/receivers` e `PATCH /backoffice/split/receivers/:id`, usando `SplitReceiver` para nome, wallet Asaas, email, percentual em basis points e status ativo.
 - Rodada Paralela 1 executada e revisada: visual WppTrack/Telemetria Noturna aplicado ao web, Auth/Workspaces iniciado, scaffolds de integracoes Meta/Uazapi/Asaas criados e spec de Diagnosticos/Logs adicionada.
 - Verificacao da Rodada Paralela 1: `pnpm test`, `pnpm typecheck`, `pnpm build`, `prisma generate` e `prisma validate` passaram. O bloqueio anterior do Docker Desktop Linux engine foi resolvido quando o Docker Desktop foi aberto.
 - Spec e plano da Rodada Paralela 1: `docs/superpowers/specs/2026-07-02-wpptrack-parallel-wave-1-design.md` e `docs/superpowers/plans/2026-07-02-wpptrack-parallel-wave-1-implementation.md`.
@@ -85,6 +86,7 @@ O foco principal e dar clareza operacional e performance para campanhas de Whats
 - Deve existir uma area interna/backoffice para os donos do SaaS, invisivel para usuarios finais.
 - No backoffice interno, os donos do SaaS poderao configurar as contas recebedoras do split Asaas e seus percentuais.
 - O backoffice de split deve permitir adicionar/remover socios/recebedores e ajustar percentuais quando houver mudanca societaria.
+- Implementacao atual ja possui API para listar, criar e atualizar recebedores de split; falta ligar isso em tela backoffice visual e, depois, aplicar os recebedores na criacao real das cobrancas Asaas.
 - Backoffice interno aprovado: modelo **B+**, com financeiro/split, gestao de clientes/workspaces e uma **Central de Diagnostico** operacional.
 - A Central de Diagnostico deve permitir que o dono da plataforma, mesmo sem abrir banco/terminal, investigue problemas de webhooks, conversoes, Meta, Uazapi e Asaas.
 - Hospedagem/deploy escolhido: **Vercel para Next.js** e **VPS/Dokploy para NestJS, PostgreSQL, Redis/BullMQ e workers**.
