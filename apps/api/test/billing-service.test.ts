@@ -156,8 +156,18 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
             ) ?? null
         };
       },
-      findMany: async () =>
-        db.charges.map((charge) => ({
+      findMany: async (args) => {
+        const { where } = (args ?? {}) as {
+          where?: { status?: string; workspaceId?: string };
+        };
+
+        return db.charges
+          .filter(
+            (charge) =>
+              (!where?.status || charge.status === where.status) &&
+              (!where?.workspaceId || charge.workspaceId === where.workspaceId)
+          )
+          .map((charge) => ({
           ...charge,
           createdAt: charge.createdAt ?? new Date("2026-07-02T11:00:00.000Z"),
           workspace:
@@ -175,7 +185,8 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
                       instance.id === activation.whatsappInstanceId
                   ) ?? null
               }))[0] ?? null
-        })),
+          }));
+      },
       update: async (args) => {
         const { data, where } = args as {
           data: Record<string, unknown>;
@@ -324,6 +335,41 @@ describe("billing service", () => {
         whatsappInstanceName: "Comercial"
       }
     ]);
+  });
+
+  it("filters payment charges for platform backoffice by status and workspace", async () => {
+    const { db, service } = createHarness();
+    await service.createWhatsappInstanceCheckout("workspace_1", {
+      instanceName: "Comercial",
+      provider: "uazapi"
+    });
+    db.workspaces.push({
+      id: "workspace_2",
+      name: "Clinica Norte",
+      asaasCustomerId: null
+    });
+    db.charges.push({
+      id: "charge_2",
+      workspaceId: "workspace_2",
+      provider: "asaas",
+      status: "failed",
+      amountCents: 12900,
+      description: "Ativacao da instancia WhatsApp Suporte",
+      externalChargeId: "pay_failed",
+      checkoutUrl: null
+    });
+
+    const charges = await service.listBackofficePaymentCharges({
+      status: "failed",
+      workspaceId: "workspace_2"
+    });
+
+    expect(charges).toHaveLength(1);
+    expect(charges[0]).toMatchObject({
+      id: "charge_2",
+      workspaceId: "workspace_2",
+      status: "failed"
+    });
   });
 
   it("creates checkout records without activating the WhatsApp instance", async () => {

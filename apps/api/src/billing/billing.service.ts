@@ -75,6 +75,11 @@ type WorkspaceSubscriptionRecord = {
   } | null;
 };
 
+type BackofficePaymentChargeFilters = {
+  status?: string;
+  workspaceId?: string;
+};
+
 @Injectable()
 export class BillingService {
   constructor(
@@ -150,8 +155,17 @@ export class BillingService {
     };
   }
 
-  async listBackofficePaymentCharges(): Promise<BackofficePaymentChargeDto[]> {
+  async listBackofficePaymentCharges(
+    filters: BackofficePaymentChargeFilters = {}
+  ): Promise<BackofficePaymentChargeDto[]> {
+    const where = {
+      ...(this.isPaymentChargeStatus(filters.status)
+        ? { status: filters.status }
+        : {}),
+      ...(filters.workspaceId ? { workspaceId: filters.workspaceId } : {})
+    };
     const charges = (await this.prisma.paymentCharge.findMany({
+      where,
       include: {
         workspace: {
           select: {
@@ -450,6 +464,18 @@ export class BillingService {
     }
 
     return "pending";
+  }
+
+  private isPaymentChargeStatus(
+    status: string | undefined
+  ): status is BackofficePaymentChargeDto["status"] {
+    return (
+      status === "pending" ||
+      status === "paid" ||
+      status === "failed" ||
+      status === "canceled" ||
+      status === "expired"
+    );
   }
 
   private getAsaasPaymentStatus(

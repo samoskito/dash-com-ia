@@ -219,6 +219,49 @@ describe("backoffice route", () => {
     expect(html).toContain("paid");
   });
 
+  it("sends payment charge filters to the backoffice billing endpoint", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      );
+
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        chargeStatus: "failed",
+        chargeWorkspaceId: "workspace_2"
+      })
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/billing/charges?status=failed&workspaceId=workspace_2",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("failed");
+    expect(html).toContain("workspace_2");
+  });
+
   it("sends diagnostic filters to the backoffice diagnostics endpoint", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(

@@ -50,7 +50,7 @@ describe("backoffice billing controller", () => {
     const { app, billingService, platformAdminService } = await createApp();
 
     await request(app.getHttpServer())
-      .get("/backoffice/billing/charges")
+      .get("/backoffice/billing/charges?status=paid&workspaceId=workspace_1")
       .set("Authorization", "Bearer refresh-token")
       .expect(200)
       .expect(({ body }) => {
@@ -62,7 +62,10 @@ describe("backoffice billing controller", () => {
     expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
       "refresh-token"
     );
-    expect(billingService.listBackofficePaymentCharges).toHaveBeenCalled();
+    expect(billingService.listBackofficePaymentCharges).toHaveBeenCalledWith({
+      status: "paid",
+      workspaceId: "workspace_1"
+    });
 
     await app.close();
   });

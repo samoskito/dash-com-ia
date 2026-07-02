@@ -26,6 +26,11 @@ type DiagnosticFilters = {
   workspaceId?: string;
 };
 
+type PaymentChargeFilters = {
+  status?: string;
+  workspaceId?: string;
+};
+
 type ResourceResult<T> = {
   data: T;
   state: "real" | "empty" | "error";
@@ -91,9 +96,24 @@ async function getWorkspaceBilling(): Promise<ResourceResult<WorkspaceBillingDto
   }
 }
 
-async function getPaymentCharges(): Promise<ResourceResult<BackofficePaymentChargeDto[]>> {
+async function getPaymentCharges(
+  filters: PaymentChargeFilters
+): Promise<ResourceResult<BackofficePaymentChargeDto[]>> {
   try {
-    const charges = await serverApiFetch<BackofficePaymentChargeDto[]>("/backoffice/billing/charges");
+    const params = new URLSearchParams();
+
+    if (filters.status) {
+      params.set("status", filters.status);
+    }
+
+    if (filters.workspaceId) {
+      params.set("workspaceId", filters.workspaceId);
+    }
+
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const charges = await serverApiFetch<BackofficePaymentChargeDto[]>(
+      `/backoffice/billing/charges${suffix}`
+    );
 
     return {
       data: charges,
@@ -282,6 +302,10 @@ export default async function BackofficePage({
     adId: asStringParam(resolvedSearchParams.adId),
     errorCode: asStringParam(resolvedSearchParams.errorCode)
   };
+  const paymentChargeFilters: PaymentChargeFilters = {
+    status: asStringParam(resolvedSearchParams.chargeStatus),
+    workspaceId: asStringParam(resolvedSearchParams.chargeWorkspaceId)
+  };
   const [
     diagnosticEventsResult,
     workspaceBillingResult,
@@ -291,13 +315,16 @@ export default async function BackofficePage({
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
     getSplitReceivers(),
-    getPaymentCharges()
+    getPaymentCharges(paymentChargeFilters)
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
   const workspaceBilling = workspaceBillingResult.data;
   const splitReceivers = splitReceiversResult.data;
   const paymentCharges = paymentChargesResult.data;
   const activeDiagnosticFilterCount = Object.values(diagnosticFilters).filter(
+    Boolean
+  ).length;
+  const activePaymentChargeFilterCount = Object.values(paymentChargeFilters).filter(
     Boolean
   ).length;
   const hasBackofficeError = [
@@ -389,6 +416,33 @@ export default async function BackofficePage({
       <div className="surface-panel">
         <span className="eyebrow">Cobrancas Asaas</span>
         <h2>Cobrancas de instancias WhatsApp</h2>
+        <form className="filter-bar" aria-label="Filtros de cobrancas" action="/backoffice">
+          <select
+            className="filter-control"
+            name="chargeStatus"
+            defaultValue={paymentChargeFilters.status ?? ""}
+          >
+            <option value="">Todos status</option>
+            <option value="pending">pending</option>
+            <option value="paid">paid</option>
+            <option value="failed">failed</option>
+            <option value="canceled">canceled</option>
+            <option value="expired">expired</option>
+          </select>
+          <input
+            className="filter-control"
+            name="chargeWorkspaceId"
+            placeholder="Workspace da cobranca"
+            defaultValue={paymentChargeFilters.workspaceId}
+          />
+          <button className="button" type="submit">Filtrar cobrancas</button>
+          <a className="button ghost" href="/backoffice">Limpar</a>
+        </form>
+        <p className="muted">
+          {activePaymentChargeFilterCount > 0
+            ? `${activePaymentChargeFilterCount} filtros de cobranca ativos`
+            : "Mostrando as ultimas cobrancas criadas pela plataforma."}
+        </p>
         <div className="table-wrap">
           <table>
             <thead>

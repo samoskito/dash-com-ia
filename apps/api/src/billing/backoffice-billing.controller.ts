@@ -1,4 +1,4 @@
-import { Controller, Get, Inject } from "@nestjs/common";
+import { Controller, Get, Inject, Query } from "@nestjs/common";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { PlatformAdminService } from "../auth/platform-admin.service";
 import { BillingService } from "./billing.service";
@@ -12,9 +12,20 @@ export class BackofficeBillingController {
   ) {}
 
   @Get("charges")
-  async listCharges(@AuthToken() refreshToken: string) {
+  async listCharges(
+    @AuthToken() refreshToken: string,
+    @Query("status") status?: string,
+    @Query("workspaceId") workspaceId?: string
+  ) {
     await this.platformAdminService.assertPlatformAdmin(refreshToken);
 
-    return this.billingService.listBackofficePaymentCharges();
+    return this.billingService.listBackofficePaymentCharges({
+      status: this.cleanQueryParam(status),
+      workspaceId: this.cleanQueryParam(workspaceId)
+    });
+  }
+
+  private cleanQueryParam(value: string | undefined): string | undefined {
+    return value?.trim() || undefined;
   }
 }
