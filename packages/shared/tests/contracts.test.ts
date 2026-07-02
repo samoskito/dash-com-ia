@@ -11,6 +11,8 @@ import {
   diagnosticEventDetailSchema,
   diagnosticEventListQuerySchema,
   integrationHealthSchema,
+  integrationHealthSummarySchema,
+  integrationStartActionSchema,
   loginSchema,
   registerSchema,
   workspaceInviteInputSchema,
@@ -72,6 +74,29 @@ describe("shared contracts", () => {
         checkedAt: "not-a-date"
       })
     ).toThrow();
+  });
+
+  it("validates integration health summaries and start actions", () => {
+    const summary = integrationHealthSummarySchema.parse({
+      checkedAt: "2026-07-02T03:00:00.000Z",
+      providers: [
+        {
+          provider: "meta",
+          status: "disconnected",
+          checkedAt: "2026-07-02T03:00:00.000Z",
+          message: "Missing META_APP_ID or META_APP_SECRET"
+        }
+      ]
+    });
+    const action = integrationStartActionSchema.parse({
+      provider: "meta",
+      action: "configure_env",
+      label: "Configurar app Meta",
+      missingEnv: ["META_APP_ID", "META_APP_SECRET"]
+    });
+
+    expect(summary.providers[0]?.provider).toBe("meta");
+    expect(action.missingEnv).toEqual(["META_APP_ID", "META_APP_SECRET"]);
   });
 
   it("validates login payloads and normalizes email", () => {

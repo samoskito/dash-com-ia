@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { AsaasAdapter } from "./asaas/asaas.adapter";
 import { INTEGRATION_ENV } from "./integration.types";
+import { IntegrationsController } from "./integrations.controller";
+import { IntegrationsService } from "./integrations.service";
 import { MetaAdapter } from "./meta/meta.adapter";
 import { UazapiAdapter } from "./uazapi/uazapi.adapter";
 
@@ -14,8 +16,10 @@ export { INTEGRATION_ENV } from "./integration.types";
     },
     MetaAdapter,
     UazapiAdapter,
-    AsaasAdapter
+    AsaasAdapter,
+    IntegrationsService
   ],
-  exports: [MetaAdapter, UazapiAdapter, AsaasAdapter]
+  controllers: [IntegrationsController],
+  exports: [MetaAdapter, UazapiAdapter, AsaasAdapter, IntegrationsService]
 })
 export class IntegrationsModule {}
