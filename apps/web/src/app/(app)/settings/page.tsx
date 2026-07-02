@@ -1,6 +1,8 @@
 import type {
   ConversionRuleDto,
   CurrentWorkspaceDto,
+  WhatsappInstanceSummaryDto,
+  WhatsappLabelDto,
   WorkspaceInviteDto,
   WorkspaceMemberDto
 } from "@wpptrack/shared";
@@ -29,6 +31,11 @@ type WorkspaceSettingsResult = {
   workspace: CurrentWorkspaceDto | null;
   members: WorkspaceMemberDto[];
   invites: WorkspaceInviteDto[];
+  state: "real" | "empty" | "error";
+};
+
+type WhatsappLabelSuggestionsResult = {
+  labels: string[];
   state: "real" | "empty" | "error";
 };
 
@@ -83,6 +90,47 @@ async function getWorkspaceSettings(): Promise<WorkspaceSettingsResult> {
       workspace: null,
       members: [],
       invites: [],
+      state: "error"
+    };
+  }
+}
+
+async function getWhatsappLabelSuggestions(): Promise<WhatsappLabelSuggestionsResult> {
+  try {
+    const instances = await serverApiFetch<WhatsappInstanceSummaryDto[]>(
+      "/integrations/whatsapp/instances"
+    );
+    const activeUazapiInstances = instances.filter(
+      (instance) =>
+        instance.provider === "uazapi" && instance.billingStatus === "active"
+    );
+    const labelLists = await Promise.all(
+      activeUazapiInstances.map(async (instance) => {
+        try {
+          return await serverApiFetch<WhatsappLabelDto[]>(
+            `/integrations/whatsapp/instances/${instance.id}/labels`
+          );
+        } catch {
+          return [];
+        }
+      })
+    );
+    const labels = Array.from(
+      new Set(
+        labelLists
+          .flat()
+          .map((label) => label.name.trim())
+          .filter(Boolean)
+      )
+    ).sort((left, right) => left.localeCompare(right, "pt-BR"));
+
+    return {
+      labels,
+      state: labels.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      labels: [],
       state: "error"
     };
   }
@@ -214,14 +262,21 @@ async function requestEmailVerification() {
 }
 
 export default async function SettingsPage() {
-  const [workspaceSettings, conversionRules, accountSettings] = await Promise.all([
+  const [
+    workspaceSettings,
+    conversionRules,
+    accountSettings,
+    whatsappLabelSuggestions
+  ] = await Promise.all([
     getWorkspaceSettings(),
     getConversionRules(),
-    getAccountSettings()
+    getAccountSettings(),
+    getWhatsappLabelSuggestions()
   ]);
   const { rules } = conversionRules;
   const { workspace, members, invites } = workspaceSettings;
   const accountUser = accountSettings.user;
+  const whatsappLabels = whatsappLabelSuggestions.labels;
   const canManageConversionRules = Boolean(
     workspace?.permissions.canManageIntegrations
   );
@@ -406,7 +461,19 @@ export default async function SettingsPage() {
                 <option value="keyword">Palavra-chave</option>
                 <option value="whatsapp_label">Etiqueta WhatsApp</option>
               </select>
-              <input name="triggerValue" placeholder="Gatilho" aria-label="Gatilho da regra" />
+              <input
+                name="triggerValue"
+                placeholder="Gatilho"
+                aria-label="Gatilho da regra"
+                list={whatsappLabels.length ? "whatsapp-label-options" : undefined}
+              />
+              {whatsappLabels.length ? (
+                <datalist id="whatsapp-label-options">
+                  {whatsappLabels.map((label) => (
+                    <option key={label} value={label} />
+                  ))}
+                </datalist>
+              ) : null}
               <select name="matchMode" defaultValue="contains" aria-label="Modo de comparacao">
                 <option value="contains">Contem</option>
                 <option value="exact">Igual a</option>
@@ -422,6 +489,13 @@ export default async function SettingsPage() {
               <button className="button primary" type="submit">Criar regra</button>
             </form>
             <p className="muted">Nova regra de conversao</p>
+            <p className="muted">
+              {whatsappLabels.length
+                ? `Etiquetas Uazapi disponiveis: ${whatsappLabels.join(", ")}`
+                : whatsappLabelSuggestions.state === "error"
+                  ? "Etiquetas Uazapi indisponiveis agora; ainda e possivel digitar o gatilho manualmente."
+                  : "Nenhuma etiqueta Uazapi carregada para instancias ativas."}
+            </p>
           </>
         ) : (
           <p className="muted">Sem permissao para editar regras</p>

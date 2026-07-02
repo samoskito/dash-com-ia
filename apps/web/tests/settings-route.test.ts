@@ -265,6 +265,119 @@ describe("settings route", () => {
     expect(html).toContain("Pausar");
   });
 
+  it("renders WhatsApp label suggestions from active Uazapi instances", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url.endsWith("/conversion-rules")) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (url.endsWith("/auth/me")) {
+        return new Response(
+          JSON.stringify({
+            user: {
+              id: "user_1",
+              email: "samuel@example.com",
+              name: "Samuel",
+              authProvider: "email",
+              emailVerifiedAt: null
+            },
+            workspaces: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (url.endsWith("/workspaces/current")) {
+        return new Response(
+          JSON.stringify({
+            id: "workspace_1",
+            name: "Loja Samuel",
+            slug: "loja-samuel",
+            role: "owner",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (url.endsWith("/workspaces/current/members")) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (url.endsWith("/workspaces/current/invites")) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (url.endsWith("/integrations/whatsapp/instances")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "wpp_active",
+              name: "Vendas",
+              provider: "uazapi",
+              billingStatus: "active",
+              providerInstanceId: "provider_instance_1",
+              checkoutUrl: null,
+              createdAt: "2026-07-02T03:00:00.000Z"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (url.endsWith("/integrations/whatsapp/instances/wpp_active/labels")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "label_uuid_1",
+              name: "Venda fechada",
+              colorHex: "#fed428",
+              labelId: "10"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      return new Response(JSON.stringify({ message: "not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" }
+      });
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/integrations/whatsapp/instances",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/integrations/whatsapp/instances/wpp_active/labels",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Etiquetas Uazapi disponiveis");
+    expect(html).toContain("Venda fechada");
+    expect(html).toContain('list="whatsapp-label-options"');
+    expect(html).toContain('<option value="Venda fechada"></option>');
+  });
+
   it("hides conversion rule mutation controls for workspace members", async () => {
     mockSettingsFetch({
       workspaceRole: "member",
