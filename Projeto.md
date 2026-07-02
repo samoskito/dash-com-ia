@@ -11,7 +11,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Spec formal aprovada em fluxo de brainstorming: `docs/superpowers/specs/2026-07-01-wpptrack-saas-design.md`.
 - Plano de implementacao da Fase 1: `docs/superpowers/plans/2026-07-01-wpptrack-foundation-shell-implementation.md`.
 - A Fase 1 cria monorepo, app web navegavel, API NestJS, contratos compartilhados, Prisma e BullMQ sem integrar provedores reais ainda.
-- Implementacao atual da Fase 1: Tasks 1-9 executadas e commitadas, cobrindo monorepo, contratos compartilhados, shell da API NestJS, shell web navegavel, schema/service Prisma, fila diagnostica BullMQ, testes de navegacao do web, README e handoff do projeto.
+- Implementacao atual da Fase 1: Tasks 1-9 executadas e commitadas, cobrindo monorepo, contratos compartilhados, shell da API NestJS, shell web navegavel, rota de login, schema/service Prisma, fila diagnostica BullMQ, testes de navegacao/login do web, README e handoff do projeto.
 - Verificacao final executada: `pnpm install`, `pnpm test`, `pnpm typecheck`, `pnpm build`, `prisma generate` e `prisma validate` passaram.
 - Limitacao local conhecida: Docker Desktop/Postgres/Redis nao estao disponiveis neste ambiente ate aqui, entao migracoes reais do Prisma e verificacao dos servicos locais via `docker compose up`/`pnpm dev` ainda nao foram executadas.
 - Servidor local usado para visualizar: `http://127.0.0.1:5174/`.
