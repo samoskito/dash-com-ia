@@ -1,4 +1,5 @@
 import type { ConversionRuleDto } from "@wpptrack/shared";
+import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
 
 async function getConversionRules(): Promise<ConversionRuleDto[] | null> {
@@ -16,6 +17,60 @@ function triggerLabel(rule: Pick<ConversionRuleDto, "triggerType">): string {
 function matchLabel(rule: Pick<ConversionRuleDto, "matchMode" | "triggerValue">): string {
   const mode = rule.matchMode === "exact" ? "igual a" : "contem";
   return `${mode}: ${rule.triggerValue}`;
+}
+
+async function createConversionRule(formData: FormData) {
+  "use server";
+
+  const name = String(formData.get("name") ?? "").trim();
+  const triggerType = String(formData.get("triggerType") ?? "keyword");
+  const triggerValue = String(formData.get("triggerValue") ?? "").trim();
+  const matchMode = String(formData.get("matchMode") ?? "contains");
+  const eventName = String(formData.get("eventName") ?? "LeadSubmitted");
+  const pixelId = String(formData.get("pixelId") ?? "").trim();
+
+  if (!name || !triggerValue) {
+    return;
+  }
+
+  try {
+    await serverApiFetch("/conversion-rules", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        triggerType,
+        triggerValue,
+        matchMode,
+        eventName,
+        pixelId: pixelId || null,
+        active: true
+      })
+    });
+    revalidatePath("/settings");
+  } catch {
+    return;
+  }
+}
+
+async function updateConversionRuleStatus(formData: FormData) {
+  "use server";
+
+  const ruleId = String(formData.get("ruleId") ?? "");
+  const active = String(formData.get("active") ?? "") === "true";
+
+  if (!ruleId) {
+    return;
+  }
+
+  try {
+    await serverApiFetch(`/conversion-rules/${ruleId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ active })
+    });
+    revalidatePath("/settings");
+  } catch {
+    return;
+  }
 }
 
 const fallbackRules: ConversionRuleDto[] = [
@@ -129,6 +184,28 @@ export default async function SettingsPage() {
       <div className="surface-panel">
         <span className="eyebrow">Mapeamento de eventos</span>
         <h2>Etiquetas do WhatsApp viram eventos do Pixel</h2>
+        <form className="inline-form" action={createConversionRule}>
+          <input name="name" placeholder="Nome da regra" aria-label="Nome da regra" />
+          <select name="triggerType" defaultValue="keyword" aria-label="Origem do gatilho">
+            <option value="keyword">Palavra-chave</option>
+            <option value="whatsapp_label">Etiqueta WhatsApp</option>
+          </select>
+          <input name="triggerValue" placeholder="Gatilho" aria-label="Gatilho da regra" />
+          <select name="matchMode" defaultValue="contains" aria-label="Modo de comparacao">
+            <option value="contains">Contem</option>
+            <option value="exact">Igual a</option>
+          </select>
+          <select name="eventName" defaultValue="LeadSubmitted" aria-label="Evento Meta">
+            <option value="LeadSubmitted">LeadSubmitted</option>
+            <option value="QualifiedLead">QualifiedLead</option>
+            <option value="Purchase">Purchase</option>
+            <option value="Contact">Contact</option>
+            <option value="CompleteRegistration">CompleteRegistration</option>
+          </select>
+          <input name="pixelId" placeholder="Pixel opcional" aria-label="Pixel opcional" />
+          <button className="button primary" type="submit">Criar regra</button>
+        </form>
+        <p className="muted">Nova regra de conversao</p>
         <div className="table-wrap">
           <table>
             <thead>
@@ -138,6 +215,7 @@ export default async function SettingsPage() {
                 <th>Evento Meta</th>
                 <th>Gatilho</th>
                 <th>Saude</th>
+                <th>Acao</th>
               </tr>
             </thead>
             <tbody>
@@ -151,6 +229,15 @@ export default async function SettingsPage() {
                     <span className={`event-chip${rule.active ? "" : " warn"}`}>
                       {rule.active ? "ativo" : "pausado"}
                     </span>
+                  </td>
+                  <td>
+                    <form action={updateConversionRuleStatus}>
+                      <input type="hidden" name="ruleId" value={rule.id} />
+                      <input type="hidden" name="active" value={String(!rule.active)} />
+                      <button className="button" type="submit">
+                        {rule.active ? "Pausar" : "Ativar"}
+                      </button>
+                    </form>
                   </td>
                 </tr>
               ))}

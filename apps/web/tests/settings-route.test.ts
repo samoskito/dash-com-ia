@@ -41,5 +41,10 @@ describe("settings route", () => {
     expect(html).toContain("Palavra-chave");
     expect(html).toContain("quero comprar");
     expect(html).toContain("QualifiedLead");
+    expect(html).toContain("Nova regra de conversao");
+    expect(html).toContain("Criar regra");
+    expect(html).toContain("Nome da regra");
+    expect(html).toContain("Etiqueta WhatsApp");
+    expect(html).toContain("Pausar");
   });
 });
