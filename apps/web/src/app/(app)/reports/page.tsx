@@ -94,43 +94,7 @@ export default async function ReportsPage({
     getCampaignReports({ since, until }),
     getMetaStructureReport()
   ]);
-  const rows = [
-    ...report.campaigns,
-    {
-      id: "cmp_remarketing",
-      name: "Remarketing 7 dias",
-      status: "unknown",
-      spendCents: 84200,
-      metaConversationsStarted: 121,
-      costPerMetaConversationCents: 696,
-      realConversations: 103,
-      costPerRealConversationCents: 817,
-      leadSubmitted: 46,
-      costPerLeadSubmittedCents: 1830,
-      qualifiedLead: 23,
-      costPerQualifiedLeadCents: 3660,
-      purchase: 7,
-      costPerPurchaseCents: 12028,
-      roas: 6.8
-    },
-    {
-      id: "cmp_video_frio",
-      name: "Publico frio - videos",
-      status: "paused",
-      spendCents: 67500,
-      metaConversationsStarted: 88,
-      costPerMetaConversationCents: 767,
-      realConversations: 64,
-      costPerRealConversationCents: 1054,
-      leadSubmitted: 18,
-      costPerLeadSubmittedCents: 3750,
-      qualifiedLead: 6,
-      costPerQualifiedLeadCents: 11250,
-      purchase: 1,
-      costPerPurchaseCents: 67500,
-      roas: 1.7
-    }
-  ];
+  const rows = report.campaigns;
 
   return (
     <section className="page-stack">
@@ -151,7 +115,7 @@ export default async function ReportsPage({
             <input type="hidden" name="until" value={until ?? ""} />
             <button className="button" type="submit">Sincronizar Meta</button>
           </form>
-          <span className="tag">Atualizacao enfileirada</span>
+          <span className="tag">{report.rangeLabel}</span>
         </div>
       </header>
 

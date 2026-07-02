@@ -69,6 +69,10 @@ type ConversionEventRecord = {
   status: string;
 };
 
+type LeadRecord = {
+  campaignId: string | null;
+};
+
 @Injectable()
 export class MetaReportingService {
   constructor(
@@ -172,12 +176,28 @@ export class MetaReportingService {
         status: true
       }
     })) as ConversionEventRecord[];
+    const leads = (await this.prisma.lead.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        ...(input.since && input.until
+          ? {
+              createdAt: {
+                gte: new Date(`${input.since}T00:00:00.000Z`),
+                lte: new Date(`${input.until}T23:59:59.999Z`)
+              }
+            }
+          : {})
+      },
+      select: {
+        campaignId: true
+      }
+    })) as LeadRecord[];
 
     return {
       workspaceId: input.workspaceId,
       rangeLabel: input.rangeLabel,
       campaigns: campaigns.map((campaign) =>
-        this.toReportRow(campaign, conversionLogs)
+        this.toReportRow(campaign, conversionLogs, leads)
       )
     };
   }
@@ -339,11 +359,15 @@ export class MetaReportingService {
 
   private toReportRow(
     campaign: MetaCampaignRecord,
-    conversionLogs: ConversionEventRecord[]
+    conversionLogs: ConversionEventRecord[],
+    leads: LeadRecord[]
   ): CampaignReportRowDto {
     const campaignEvents = conversionLogs.filter(
       (item) => item.campaignId === campaign.campaignId
     );
+    const realConversations = leads.filter(
+      (item) => item.campaignId === campaign.campaignId
+    ).length;
     const leadSubmitted = this.countEvents(campaignEvents, "LeadSubmitted");
     const qualifiedLead = this.countEvents(campaignEvents, "QualifiedLead");
     const purchase = this.countEvents(campaignEvents, "Purchase");
@@ -358,8 +382,11 @@ export class MetaReportingService {
         campaign.spendCents,
         campaign.metaConversationsStarted
       ),
-      realConversations: 0,
-      costPerRealConversationCents: null,
+      realConversations,
+      costPerRealConversationCents: this.costPer(
+        campaign.spendCents,
+        realConversations
+      ),
       leadSubmitted,
       costPerLeadSubmittedCents: this.costPer(campaign.spendCents, leadSubmitted),
       qualifiedLead,

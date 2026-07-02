@@ -51,6 +51,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Primeira camada de reporting Meta persistente implementada: novos snapshots `MetaCampaign`, `MetaAdSet` e `MetaAd` guardam campanhas, conjuntos e anuncios por workspace/conta selecionada. `POST /reports/meta/sync` agora enfileira a sincronizacao na fila BullMQ `meta-report-sync`; o worker `MetaReportSyncProcessor` busca campanhas/adsets/ads/insights no Graph API usando o token OAuth somente no backend e persiste investimento, impressoes, cliques e conversas Meta por campanha. `GET /reports/campaigns` monta `ReportOverviewDto` cruzando snapshots Meta com `ConversionEventLog` interno para `LeadSubmitted`, `QualifiedLead` e `Purchase`. A tela `Relatorios` passa a tentar ler esse endpoint real com fallback visual e botao `Sincronizar Meta`.
 - Estrutura Meta detalhada em relatorios implementada: `GET /reports/meta/structure` retorna campanhas com conjuntos e anuncios a partir dos snapshots `MetaCampaign`, `MetaAdSet` e `MetaAd`. A tela `Relatorios` renderiza a tabela `Estrutura Meta` com campanha, conjunto, anuncio e status, permitindo inspecionar se a sincronizacao trouxe a hierarquia usada nos relatorios.
 - Filtros de periodo iniciais em `Relatorios` implementados: a tela aceita `since` e `until` na query string, renderiza inputs de data e envia os mesmos filtros para `GET /reports/campaigns` e para o enqueue `POST /reports/meta/sync`. No backend, o range vira `rangeLabel` e filtra eventos internos (`ConversionEventLog.createdAt`) quando ambos os campos estao presentes.
+- Relatorios agora calculam `realConversations` a partir de `Lead` por campanha e periodo, com `costPerRealConversationCents`. A tela `Relatorios` deixou de injetar campanhas demo fixas quando a API responde; o fallback visual permanece centralizado apenas em `mockReportOverview` quando o backend nao responde.
 - Backoffice de split recebeu API inicial: `GET /backoffice/split/receivers`, `POST /backoffice/split/receivers` e `PATCH /backoffice/split/receivers/:id`, usando `SplitReceiver` para nome, wallet Asaas, email, percentual em basis points e status ativo.
 - Tela de backoffice agora consulta `/backoffice/split/receivers` e exibe recebedores, wallet Asaas, email, percentual e status com fallback visual quando a API nao responde.
 - Tela de backoffice agora exibe acao de `Reprocessar` para eventos reais da Central de Diagnostico; a acao chama o retry auditado `POST /backoffice/diagnostics/events/:id/retry` via server action e usa fallback visual quando nao ha eventos reais.
@@ -447,10 +448,11 @@ Checkpoint atual:
 - Tela de `Configuracoes` agora possui CRUD visual inicial para regras de conversao: cria regras por palavra-chave/etiqueta via `POST /conversion-rules` e pausa/ativa regras via `PATCH /conversion-rules/:id`.
 - Idempotencia inicial implementada: `WebhookLog.idempotencyKey` e `ConversionEventLog.dedupeKey` sao unicos no banco. Webhooks Uazapi duplicados retornam `duplicate` sem reavaliar regras, recriar lead ou enfileirar novo envio Meta; conversoes duplicadas retornam em `duplicates` sem novo log.
 - Central de Diagnostico recebeu filtros reais no backoffice e no endpoint `GET /backoffice/diagnostics/events`: `q`, `since`, `until`, `workspaceId`, `source`, `severity`, `status`, `eventType`, `leadId`, `phoneHash`, `campaignId`, `adSetId`, `adId` e `errorCode`.
+- Relatorios removeram as campanhas demo fixas da tabela quando ha resposta da API e agora contam conversas reais a partir de leads persistidos por campanha/periodo.
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: remocao gradual de mocks restantes em Overview/Reports, implementacao de conversa real nos relatorios a partir de `Lead` e polimento de selecao Meta BM/conta/pixel.
+- Continuar a proxima rodada com: conectar `Overview` ao endpoint real de relatorios, reduzir o fallback visual restante de `Reports` e polir selecao Meta BM/conta/pixel.
 
 ## Perguntas Abertas
 

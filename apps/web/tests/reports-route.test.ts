@@ -23,8 +23,8 @@ describe("reports route", () => {
                 spendCents: 120000,
                 metaConversationsStarted: 176,
                 costPerMetaConversationCents: 681,
-                realConversations: 0,
-                costPerRealConversationCents: null,
+                realConversations: 2,
+                costPerRealConversationCents: 60000,
                 leadSubmitted: 1,
                 costPerLeadSubmittedCents: 120000,
                 qualifiedLead: 1,
@@ -89,14 +89,16 @@ describe("reports route", () => {
       expect.objectContaining({ credentials: "include" })
     );
     expect(html).toContain("Black Friday WhatsApp");
+    expect(html).not.toContain("Remarketing 7 dias");
+    expect(html).not.toContain("Publico frio - videos");
     expect(html).toContain("Publico quente");
     expect(html).toContain("Criativo WhatsApp");
     expect(html).toContain("Sincronizar Meta");
     expect(html).toContain("2026-07-01");
     expect(html).toContain("2026-07-02");
-    expect(html).toContain("Atualizacao enfileirada");
     expect(html).toContain("1.200,00");
     expect(html).toContain("176");
+    expect(html).toContain("2");
     expect(html).toContain("LeadSubmitted");
   });
 });

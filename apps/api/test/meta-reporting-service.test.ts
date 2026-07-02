@@ -14,6 +14,23 @@ function createHarness() {
     campaigns: [] as Array<Record<string, unknown>>,
     adSets: [] as Array<Record<string, unknown>>,
     ads: [] as Array<Record<string, unknown>>,
+    leads: [
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_1",
+        createdAt: new Date("2026-07-01T12:00:00.000Z")
+      },
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_1",
+        createdAt: new Date("2026-07-02T12:00:00.000Z")
+      },
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_other",
+        createdAt: new Date("2026-07-02T12:00:00.000Z")
+      }
+    ],
     conversionLogs: [
       {
         workspaceId: "workspace_1",
@@ -65,6 +82,9 @@ function createHarness() {
     },
     conversionEventLog: {
       findMany: vi.fn(async () => db.conversionLogs)
+    },
+    lead: {
+      findMany: vi.fn(async () => db.leads)
     }
   };
   const encryption = {
@@ -182,8 +202,8 @@ describe("meta reporting service", () => {
           spendCents: 120000,
           metaConversationsStarted: 176,
           costPerMetaConversationCents: 681,
-          realConversations: 0,
-          costPerRealConversationCents: null,
+          realConversations: 2,
+          costPerRealConversationCents: 60000,
           leadSubmitted: 1,
           costPerLeadSubmittedCents: 120000,
           qualifiedLead: 1,
@@ -213,6 +233,16 @@ describe("meta reporting service", () => {
     });
 
     expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          createdAt: {
+            gte: new Date("2026-07-01T00:00:00.000Z"),
+            lte: new Date("2026-07-02T23:59:59.999Z")
+          }
+        })
+      })
+    );
+    expect(prisma.lead.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           createdAt: {
