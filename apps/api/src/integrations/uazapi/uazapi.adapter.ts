@@ -55,13 +55,18 @@ export class UazapiAdapter implements IntegrationAdapter {
   ) {}
 
   async getHealth(): Promise<IntegrationHealthDto> {
-    const hasCredentials = Boolean(this.env.UAZAPI_BASE_URL && this.env.UAZAPI_TOKEN);
+    const hasCredentials = Boolean(
+      this.env.UAZAPI_BASE_URL &&
+        (this.env.UAZAPI_ADMIN_TOKEN || this.env.UAZAPI_TOKEN)
+    );
 
     return {
       provider: this.provider,
       status: hasCredentials ? "connected" : "disconnected",
       checkedAt: new Date().toISOString(),
-      message: hasCredentials ? undefined : "Missing UAZAPI_BASE_URL or UAZAPI_TOKEN"
+      message: hasCredentials
+        ? undefined
+        : "Missing UAZAPI_BASE_URL or UAZAPI_ADMIN_TOKEN"
     };
   }
 

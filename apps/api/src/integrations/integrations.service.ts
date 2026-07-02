@@ -192,7 +192,12 @@ export class IntegrationsService {
   }
 
   getUazapiStartAction(): IntegrationStartActionDto {
-    const missingEnv = this.missingEnv(["UAZAPI_BASE_URL", "UAZAPI_TOKEN"]);
+    const missingEnv = [
+      ...this.missingEnv(["UAZAPI_BASE_URL"]),
+      ...(!this.env.UAZAPI_ADMIN_TOKEN && !this.env.UAZAPI_TOKEN
+        ? ["UAZAPI_ADMIN_TOKEN"]
+        : [])
+    ];
 
     return {
       provider: "uazapi",

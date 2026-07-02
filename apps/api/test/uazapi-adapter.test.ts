@@ -2,6 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 import { UazapiAdapter } from "../src/integrations/uazapi/uazapi.adapter";
 
 describe("uazapi adapter", () => {
+  it("reports connected when admin token is configured for per-instance provisioning", async () => {
+    const adapter = new UazapiAdapter({
+      UAZAPI_BASE_URL: "https://uazapi.test",
+      UAZAPI_ADMIN_TOKEN: "admin-token"
+    });
+
+    await expect(adapter.getHealth()).resolves.toMatchObject({
+      provider: "uazapi",
+      status: "connected",
+      message: undefined
+    });
+  });
+
   it("creates an instance with the official admin token and returns the instance token", async () => {
     const fetch = vi.fn(async () =>
       new Response(

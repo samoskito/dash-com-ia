@@ -153,6 +153,27 @@ describe("integrations service", () => {
     expect(metaConnectionsService.getConnection).toHaveBeenCalledWith("workspace_1");
   });
 
+  it("treats Uazapi admin credentials as ready for provisioning", () => {
+    const service = new IntegrationsService(
+      new MetaAdapter({}),
+      new UazapiAdapter({
+        UAZAPI_BASE_URL: "https://uazapi.test",
+        UAZAPI_ADMIN_TOKEN: "admin-token"
+      }),
+      new AsaasAdapter({}),
+      {
+        UAZAPI_BASE_URL: "https://uazapi.test",
+        UAZAPI_ADMIN_TOKEN: "admin-token"
+      }
+    );
+
+    expect(service.getUazapiStartAction()).toMatchObject({
+      provider: "uazapi",
+      action: "wait_webhook",
+      missingEnv: []
+    });
+  });
+
   it("returns selectable Meta assets for a workspace", async () => {
     const metaAdapter = new MetaAdapter({});
     const metaConnectionsService = {
