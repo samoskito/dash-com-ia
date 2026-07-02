@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { ConversionRuleDto } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
 import { MetaCapiAdapter } from "./meta-capi.adapter";
 
 export type RecordRuleMatchesInput = {
@@ -33,6 +34,12 @@ type ConversionEventLogRecord = {
   dedupeKey: string | null;
 };
 
+type MetaIntegrationCapiTokenRecord = {
+  capiAccessTokenEncrypted: string | null;
+  capiTokenIv: string | null;
+  capiTokenTag: string | null;
+};
+
 export type SendReadyEventResult = {
   conversionEventLogId: string;
   workspaceId: string | null;
@@ -43,7 +50,8 @@ export type SendReadyEventResult = {
 export class ConversionEventsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(MetaCapiAdapter) private readonly metaCapiAdapter: MetaCapiAdapter
+    @Inject(MetaCapiAdapter) private readonly metaCapiAdapter: MetaCapiAdapter,
+    private readonly metaTokenEncryption: MetaTokenEncryptionService
   ) {}
 
   async recordRuleMatches(
@@ -101,7 +109,9 @@ export class ConversionEventsService {
     }
 
     const startedAt = new Date();
+    const accessToken = await this.getWorkspaceCapiAccessToken(log.workspaceId);
     const result = await this.metaCapiAdapter.sendEvent({
+      accessToken,
       pixelId: log.pixelId,
       eventName: log.eventName,
       dedupeKey: log.dedupeKey,
@@ -131,6 +141,41 @@ export class ConversionEventsService {
       workspaceId: log.workspaceId,
       status: result.status
     };
+  }
+
+  private async getWorkspaceCapiAccessToken(
+    workspaceId: string | null
+  ): Promise<string | null> {
+    if (!workspaceId) {
+      return null;
+    }
+
+    const connection = (await this.prisma.metaIntegration.findUnique({
+      where: { workspaceId },
+      select: {
+        capiAccessTokenEncrypted: true,
+        capiTokenIv: true,
+        capiTokenTag: true
+      }
+    })) as MetaIntegrationCapiTokenRecord | null;
+
+    if (
+      !connection?.capiAccessTokenEncrypted ||
+      !connection.capiTokenIv ||
+      !connection.capiTokenTag
+    ) {
+      return null;
+    }
+
+    try {
+      return this.metaTokenEncryption.decrypt({
+        encryptedAccessToken: connection.capiAccessTokenEncrypted,
+        tokenIv: connection.capiTokenIv,
+        tokenTag: connection.capiTokenTag
+      });
+    } catch {
+      return null;
+    }
   }
 
   private async recordMetaCapiIntegrationLog(

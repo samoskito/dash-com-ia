@@ -101,39 +101,39 @@ model User {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
-  memberships WorkspaceMember[]
-  sessions    AuthSession[]
+  memberships  WorkspaceMember[]
+  sessions     AuthSession[]
   actionTokens AuthActionToken[]
-  auditLogs   AuditLog[]
+  auditLogs    AuditLog[]
 }
 
 model Workspace {
-  id              String   @id @default(cuid())
-  name            String
-  slug            String   @unique
-  asaasCustomerId String?
+  id                String                     @id @default(cuid())
+  name              String
+  slug              String                     @unique
+  asaasCustomerId   String?
   operationalStatus WorkspaceOperationalStatus @default(active)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
 
-  members            WorkspaceMember[]
-  invites            WorkspaceInvite[]
-  whatsappInstances WhatsappInstance[]
-  diagnosticEvents   DiagnosticEvent[]
-  webhookLogs        WebhookLog[]
-  integrationLogs    IntegrationLog[]
-  conversionEventLogs ConversionEventLog[]
-  jobAttempts        JobAttempt[]
-  auditLogs          AuditLog[]
-  subscriptions      WorkspaceSubscription[]
-  paymentCharges     PaymentCharge[]
+  members                     WorkspaceMember[]
+  invites                     WorkspaceInvite[]
+  whatsappInstances           WhatsappInstance[]
+  diagnosticEvents            DiagnosticEvent[]
+  webhookLogs                 WebhookLog[]
+  integrationLogs             IntegrationLog[]
+  conversionEventLogs         ConversionEventLog[]
+  jobAttempts                 JobAttempt[]
+  auditLogs                   AuditLog[]
+  subscriptions               WorkspaceSubscription[]
+  paymentCharges              PaymentCharge[]
   whatsappInstanceActivations WhatsappInstanceActivation[]
-  conversionRules    ConversionRule[]
-  leads              Lead[]
-  metaIntegration    MetaIntegration?
-  metaCampaigns      MetaCampaign[]
-  metaAdSets         MetaAdSet[]
-  metaAds            MetaAd[]
+  conversionRules             ConversionRule[]
+  leads                       Lead[]
+  metaIntegration             MetaIntegration?
+  metaCampaigns               MetaCampaign[]
+  metaAdSets                  MetaAdSet[]
+  metaAds                     MetaAd[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
@@ -154,18 +154,18 @@ model WorkspaceMember {
 }
 
 model WhatsappInstance {
-  id          String                 @id @default(cuid())
-  workspaceId String
-  name        String
-  provider    String
+  id                 String                 @id @default(cuid())
+  workspaceId        String
+  name               String
+  provider           String
   providerInstanceId String?
-  status      WhatsappInstanceStatus @default(pending_payment)
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
+  status             WhatsappInstanceStatus @default(pending_payment)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace   Workspace                    @relation(fields: [workspaceId], references: [id])
   activations WhatsappInstanceActivation[]
-  leads Lead[]
+  leads       Lead[]
 
   @@index([workspaceId])
   @@index([providerInstanceId])
@@ -218,27 +218,27 @@ model WorkspaceInvite {
 }
 
 model WebhookLog {
-  id             String           @id @default(cuid())
-  workspaceId    String?
-  source         DiagnosticSource
-  eventType      String
+  id              String           @id @default(cuid())
+  workspaceId     String?
+  source          DiagnosticSource
+  eventType       String
   externalEventId String?
-  status         String
-  receivedAt     DateTime         @default(now())
-  processedAt    DateTime?
-  leadId         String?
-  phoneHash      String?
-  campaignId     String?
-  adSetId        String?
-  adId           String?
-  jobId          String?
-  errorCode      String?
-  errorMessage   String?
-  summaryPayload Json?
-  rawPayloadRef  String?
-  idempotencyKey String? @unique
+  status          String
+  receivedAt      DateTime         @default(now())
+  processedAt     DateTime?
+  leadId          String?
+  phoneHash       String?
+  campaignId      String?
+  adSetId         String?
+  adId            String?
+  jobId           String?
+  errorCode       String?
+  errorMessage    String?
+  summaryPayload  Json?
+  rawPayloadRef   String?
+  idempotencyKey  String?          @unique
 
-  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  workspace        Workspace?        @relation(fields: [workspaceId], references: [id])
   diagnosticEvents DiagnosticEvent[]
 
   @@index([workspaceId, source, status, receivedAt])
@@ -265,7 +265,7 @@ model IntegrationLog {
   adId                 String?
   jobId                String?
 
-  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  workspace        Workspace?        @relation(fields: [workspaceId], references: [id])
   diagnosticEvents DiagnosticEvent[]
 
   @@index([workspaceId, source, status, startedAt])
@@ -273,7 +273,7 @@ model IntegrationLog {
 }
 
 model ConversionEventLog {
-  id                      String           @id @default(cuid())
+  id                      String    @id @default(cuid())
   workspaceId             String?
   leadId                  String?
   phoneHash               String?
@@ -286,15 +286,15 @@ model ConversionEventLog {
   adSetId                 String?
   adId                    String?
   attributionStatus       String?
-  dedupeKey               String? @unique
+  dedupeKey               String?   @unique
   sentAt                  DateTime?
   providerResponseSummary Json?
   errorCode               String?
   errorMessage            String?
   jobId                   String?
-  createdAt               DateTime         @default(now())
+  createdAt               DateTime  @default(now())
 
-  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  workspace        Workspace?        @relation(fields: [workspaceId], references: [id])
   diagnosticEvents DiagnosticEvent[]
 
   @@index([workspaceId, status, createdAt])
@@ -321,7 +321,7 @@ model JobAttempt {
   summaryPayload    Json?
   createdAt         DateTime         @default(now())
 
-  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  workspace        Workspace?        @relation(fields: [workspaceId], references: [id])
   diagnosticEvents DiagnosticEvent[]
 
   @@index([workspaceId, source, status, createdAt])
@@ -352,11 +352,11 @@ model DiagnosticEvent {
   jobAttemptId         String?
   createdAt            DateTime           @default(now())
 
-  workspace Workspace? @relation(fields: [workspaceId], references: [id])
-  webhookLog WebhookLog? @relation(fields: [webhookLogId], references: [id])
-  integrationLog IntegrationLog? @relation(fields: [integrationLogId], references: [id])
+  workspace          Workspace?          @relation(fields: [workspaceId], references: [id])
+  webhookLog         WebhookLog?         @relation(fields: [webhookLogId], references: [id])
+  integrationLog     IntegrationLog?     @relation(fields: [integrationLogId], references: [id])
   conversionEventLog ConversionEventLog? @relation(fields: [conversionEventLogId], references: [id])
-  jobAttempt JobAttempt? @relation(fields: [jobAttemptId], references: [id])
+  jobAttempt         JobAttempt?         @relation(fields: [jobAttemptId], references: [id])
 
   @@index([workspaceId, source, status, occurredAt])
   @@index([workspaceId, severity, occurredAt])
@@ -385,7 +385,7 @@ model AuditLog {
   createdAt     DateTime @default(now())
 
   workspace Workspace? @relation(fields: [workspaceId], references: [id])
-  actorUser User? @relation(fields: [actorUserId], references: [id])
+  actorUser User?      @relation(fields: [actorUserId], references: [id])
 
   @@index([workspaceId, createdAt])
   @@index([actorUserId])
@@ -393,30 +393,30 @@ model AuditLog {
 }
 
 model SubscriptionPlan {
-  id                             String   @id @default(cuid())
-  name                           String
-  slug                           String   @unique
-  pricePerWhatsappInstanceCents  Int
-  active                         Boolean  @default(true)
-  createdAt                      DateTime @default(now())
-  updatedAt                      DateTime @updatedAt
+  id                            String   @id @default(cuid())
+  name                          String
+  slug                          String   @unique
+  pricePerWhatsappInstanceCents Int
+  active                        Boolean  @default(true)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
 
   subscriptions WorkspaceSubscription[]
 }
 
 model WorkspaceSubscription {
-  id                  String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   workspaceId         String
   planId              String?
   status              String
-  activeInstances     Int      @default(0)
+  activeInstances     Int       @default(0)
   asaasSubscriptionId String?
   currentPeriodEnd    DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
-  plan SubscriptionPlan? @relation(fields: [planId], references: [id])
+  workspace Workspace         @relation(fields: [workspaceId], references: [id])
+  plan      SubscriptionPlan? @relation(fields: [planId], references: [id])
 
   @@index([workspaceId, status])
   @@index([asaasSubscriptionId])
@@ -436,7 +436,7 @@ model PaymentCharge {
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace  Workspace                   @relation(fields: [workspaceId], references: [id])
   activation WhatsappInstanceActivation?
 
   @@index([workspaceId, status])
@@ -470,18 +470,18 @@ model SplitRule {
 }
 
 model WhatsappInstanceActivation {
-  id                 String                            @id @default(cuid())
+  id                 String                           @id @default(cuid())
   workspaceId        String
   whatsappInstanceId String
-  paymentChargeId    String                            @unique
-  status             WhatsappInstanceActivationStatus  @default(pending_payment)
+  paymentChargeId    String                           @unique
+  status             WhatsappInstanceActivationStatus @default(pending_payment)
   amountCents        Int
-  createdAt          DateTime                          @default(now())
+  createdAt          DateTime                         @default(now())
   activatedAt        DateTime?
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id])
   whatsappInstance WhatsappInstance @relation(fields: [whatsappInstanceId], references: [id])
-  paymentCharge PaymentCharge @relation(fields: [paymentChargeId], references: [id])
+  paymentCharge    PaymentCharge    @relation(fields: [paymentChargeId], references: [id])
 
   @@index([workspaceId, status])
   @@index([whatsappInstanceId])
@@ -507,23 +507,23 @@ model ConversionRule {
 }
 
 model Lead {
-  id              String     @id @default(cuid())
-  workspaceId     String
+  id                 String     @id @default(cuid())
+  workspaceId        String
   whatsappInstanceId String?
-  name            String?
-  phoneDisplay    String?
-  phoneHash       String
-  status          LeadStatus @default(active)
-  source          String?
-  campaignId      String?
-  adSetId         String?
-  adId            String?
-  firstMessageAt  DateTime?
-  lastMessageAt   DateTime?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  name               String?
+  phoneDisplay       String?
+  phoneHash          String
+  status             LeadStatus @default(active)
+  source             String?
+  campaignId         String?
+  adSetId            String?
+  adId               String?
+  firstMessageAt     DateTime?
+  lastMessageAt      DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id])
   whatsappInstance WhatsappInstance? @relation(fields: [whatsappInstanceId], references: [id])
 
   @@unique([workspaceId, phoneHash])
@@ -534,21 +534,24 @@ model Lead {
 }
 
 model MetaIntegration {
-  id                   String   @id @default(cuid())
-  workspaceId          String   @unique
-  status               String   @default("connected")
-  encryptedAccessToken String
-  tokenIv              String
-  tokenTag             String
-  tokenType            String?
-  scopes               String[]
-  expiresAt            DateTime?
-  lastConnectedAt      DateTime?
-  selectedBusinessId   String?
-  selectedAdAccountId  String?
-  selectedPixelId      String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                       String    @id @default(cuid())
+  workspaceId              String    @unique
+  status                   String    @default("connected")
+  encryptedAccessToken     String
+  tokenIv                  String
+  tokenTag                 String
+  tokenType                String?
+  scopes                   String[]
+  expiresAt                DateTime?
+  lastConnectedAt          DateTime?
+  selectedBusinessId       String?
+  selectedAdAccountId      String?
+  selectedPixelId          String?
+  capiAccessTokenEncrypted String?
+  capiTokenIv              String?
+  capiTokenTag             String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 
@@ -559,7 +562,7 @@ model MetaIntegration {
 }
 
 model MetaCampaign {
-  id                       String   @id @default(cuid())
+  id                       String    @id @default(cuid())
   workspaceId              String
   adAccountId              String
   campaignId               String
@@ -567,13 +570,13 @@ model MetaCampaign {
   status                   String?
   effectiveStatus          String?
   objective                String?
-  spendCents               Int      @default(0)
-  impressions              Int      @default(0)
-  clicks                   Int      @default(0)
-  metaConversationsStarted Int      @default(0)
+  spendCents               Int       @default(0)
+  impressions              Int       @default(0)
+  clicks                   Int       @default(0)
+  metaConversationsStarted Int       @default(0)
   lastSyncedAt             DateTime?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 
@@ -583,20 +586,20 @@ model MetaCampaign {
 }
 
 model MetaAdSet {
-  id                       String   @id @default(cuid())
+  id                       String    @id @default(cuid())
   workspaceId              String
   campaignId               String
   adSetId                  String
   name                     String
   status                   String?
   effectiveStatus          String?
-  spendCents               Int      @default(0)
-  impressions              Int      @default(0)
-  clicks                   Int      @default(0)
-  metaConversationsStarted Int      @default(0)
+  spendCents               Int       @default(0)
+  impressions              Int       @default(0)
+  clicks                   Int       @default(0)
+  metaConversationsStarted Int       @default(0)
   lastSyncedAt             DateTime?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 
@@ -605,7 +608,7 @@ model MetaAdSet {
 }
 
 model MetaAd {
-  id                       String   @id @default(cuid())
+  id                       String    @id @default(cuid())
   workspaceId              String
   campaignId               String
   adSetId                  String
@@ -613,13 +616,13 @@ model MetaAd {
   name                     String
   status                   String?
   effectiveStatus          String?
-  spendCents               Int      @default(0)
-  impressions              Int      @default(0)
-  clicks                   Int      @default(0)
-  metaConversationsStarted Int      @default(0)
+  spendCents               Int       @default(0)
+  impressions              Int       @default(0)
+  clicks                   Int       @default(0)
+  metaConversationsStarted Int       @default(0)
   lastSyncedAt             DateTime?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 

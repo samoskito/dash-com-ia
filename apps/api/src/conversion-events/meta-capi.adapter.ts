@@ -2,6 +2,7 @@ type MetaCapiEnv = Record<string, string | undefined>;
 type Fetcher = typeof fetch;
 
 export type MetaCapiSendEventInput = {
+  accessToken?: string | null;
   pixelId: string | null;
   eventName: string;
   dedupeKey: string;
@@ -24,7 +25,7 @@ export class MetaCapiAdapter {
   async sendEvent(
     input: MetaCapiSendEventInput
   ): Promise<MetaCapiSendEventResult> {
-    const accessToken = this.env.META_CAPI_ACCESS_TOKEN;
+    const accessToken = input.accessToken ?? this.env.META_CAPI_ACCESS_TOKEN;
 
     if (!accessToken || !input.pixelId) {
       return {

@@ -9,6 +9,17 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
     logs: [] as Array<Record<string, unknown>>
   };
   const prisma = {
+    metaIntegration: {
+      findUnique: async ({ where }: { where: { workspaceId: string } }) =>
+        db.logs.find((log) => log.workspaceId === where.workspaceId)
+          ? {
+              workspaceId: where.workspaceId,
+              capiAccessTokenEncrypted: "workspace-capi-token",
+              capiTokenIv: "test-iv",
+              capiTokenTag: "test-tag"
+            }
+          : null
+    },
     conversionEventLog: {
       findUnique: async ({ where }: { where: { id?: string; dedupeKey?: string } }) =>
         db.logs.find(
@@ -73,7 +84,10 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
           responseSummary: null,
           errorMessage: "Meta CAPI token or pixel id not configured"
         })
-      }) as never
+      }) as never,
+      {
+        decrypt: () => "workspace-capi-token"
+      } as never
     )
   };
 }
@@ -136,13 +150,18 @@ describe("conversion events service", () => {
 
   it("sends ready conversion logs to Meta CAPI and stores provider response", async () => {
     const adapter = {
-      sendEvent: async () => ({
-        status: "sent" as const,
-        responseSummary: {
-          events_received: 1
-        },
-        errorMessage: null
-      })
+      calls: [] as Array<Record<string, unknown>>,
+      sendEvent: async (input: Record<string, unknown>) => {
+        adapter.calls.push(input);
+
+        return {
+          status: "sent" as const,
+          responseSummary: {
+            events_received: 1
+          },
+          errorMessage: null
+        };
+      }
     };
     const { db, service } = createHarness(adapter);
     await service.recordRuleMatches({
@@ -182,6 +201,10 @@ describe("conversion events service", () => {
       errorMessage: null
     });
     expect(db.logs[0].sentAt).toBeInstanceOf(Date);
+    expect(adapter.calls[0]).toMatchObject({
+      accessToken: "workspace-capi-token",
+      pixelId: "pixel_1"
+    });
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({
         workspaceId: "workspace_1",
@@ -194,7 +217,7 @@ describe("conversion events service", () => {
         jobId: "conversion_1"
       })
     );
-    expect(JSON.stringify(db.integrationLogs)).not.toContain("secret");
+    expect(JSON.stringify(db.integrationLogs)).not.toContain("workspace-capi-token");
   });
 
   it("records diagnostics when Meta CAPI send is blocked by missing configuration", async () => {
