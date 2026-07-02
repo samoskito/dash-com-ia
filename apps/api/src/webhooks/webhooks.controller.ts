@@ -88,6 +88,17 @@ export class WebhooksController {
 
   private async recordAsaasWebhook(body: WebhookBody, workspaceId?: string) {
     const diagnostic = await this.record("asaas", body, workspaceId);
+
+    if (diagnostic.status === "duplicate") {
+      return {
+        ...diagnostic,
+        billing: {
+          processed: false,
+          status: "ignored"
+        }
+      };
+    }
+
     const billing = await this.billingService.processAsaasPaymentWebhook(body);
 
     return {

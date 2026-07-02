@@ -264,6 +264,38 @@ describe("webhooks controller", () => {
     await app.close();
   });
 
+  it("does not run billing side effects for duplicate Asaas webhooks", async () => {
+    const { app, diagnosticsService, billingService } = await createApp();
+    diagnosticsService.recordWebhookLog.mockResolvedValueOnce({
+      webhookLogId: "webhook_1",
+      diagnosticEventId: "diag_1",
+      status: "duplicate"
+    });
+
+    await request(app.getHttpServer())
+      .post("/webhooks/asaas")
+      .send({
+        event: "PAYMENT_RECEIVED",
+        id: "evt_asaas_1",
+        payment: {
+          id: "pay_asaas_1",
+          status: "RECEIVED"
+        }
+      })
+      .expect(202)
+      .expect(({ body }) => {
+        expect(body.status).toBe("duplicate");
+        expect(body.billing).toEqual({
+          processed: false,
+          status: "ignored"
+        });
+      });
+
+    expect(billingService.processAsaasPaymentWebhook).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it("rejects Asaas webhooks with invalid auth token when configured", async () => {
     process.env.ASAAS_WEBHOOK_AUTH_TOKEN = "secure-webhook-token-123456789012345";
     const { app, billingService, diagnosticsService } = await createApp();
