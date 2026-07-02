@@ -57,6 +57,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Central de Diagnostico ganhou pagina de detalhe em `/backoffice/diagnostics/:eventId`, consumindo `GET /backoffice/diagnostics/events/:id`, exibindo metadados, payload sanitizado e acao auditada de `Reprocessar evento`. A listagem do backoffice agora aponta cada evento para essa pagina.
 - Detalhe da Central de Diagnostico agora retorna e renderiza `timeline` operacional com o proprio evento, webhook relacionado, auditorias de retry e tentativas de job vinculadas ao diagnostico. A meta e permitir investigacao pelo frontend interno sem abrir banco, preservando payloads sanitizados.
 - Reprocessamento da Central de Diagnostico ganhou primeiro caminho real por worker: `POST /backoffice/diagnostics/events/:id/retry` continua criando `AuditLog` e `JobAttempt`, mas agora tambem enfileira `retry-diagnostic-event` na fila `diagnostic-events`. O `DiagnosticProcessor` reenvia conversoes vinculadas a `ConversionEventLog` via `ConversionEventsService.sendReadyEvent`; diagnosticos sem alvo reprocessavel sao pulados com motivo seguro, sem chamar provedores externos cegamente.
+- Central de Diagnostico agora possui filtros reais de investigacao no contrato, API e backoffice: busca textual (`q`), periodo (`since`/`until`), workspace, origem, severidade, status, tipo de evento, lead, telefone hash, campanha, conjunto, anuncio e codigo de erro.
 - Docker Desktop foi reiniciado pelo Codex em 2026-07-02 quando a distro WSL `docker-desktop` estava parada e o pipe `dockerDesktopLinuxEngine` ausente. Apos iniciar o Desktop, `docker compose ps` mostrou Postgres/Redis `Up` com portas `5432` e `6379` publicadas; `prisma migrate deploy` aplicou as migrations pendentes `20260702095000_whatsapp_provider_instance`, `20260702103000_meta_integration` e `20260702110000_meta_reporting_snapshots`; `prisma migrate status` confirmou banco atualizado.
 - Base de deploy Vercel + Dokploy documentada em `docs/deploy/vercel-dokploy.md`: topologia, variaveis, healthchecks, ordem de deploy, callbacks e validacao pos-deploy. A API tambem ganhou `GET /health/ready`, que valida PostgreSQL e Redis e retorna `503` quando alguma dependencia essencial falha, alem do script `pnpm --filter @wpptrack/api start` para runtime em producao.
 - Endpoints internos de backoffice agora exigem sessao valida e allowlist `WPPTRACK_PLATFORM_ADMIN_EMAILS`; usuarios autenticados fora da allowlist recebem acesso negado. As paginas server-side usam `serverApiFetch` para repassar cookie ao backend.
@@ -445,10 +446,11 @@ Checkpoint atual:
 - Tela de `Integracoes` agora consulta `GET /billing/whatsapp-instance/quote` e possui formulario real para adicionar instancia WhatsApp via `POST /billing/whatsapp-instance/checkout`; a liberacao continua dependente do pagamento confirmado pelo webhook Asaas.
 - Tela de `Configuracoes` agora possui CRUD visual inicial para regras de conversao: cria regras por palavra-chave/etiqueta via `POST /conversion-rules` e pausa/ativa regras via `PATCH /conversion-rules/:id`.
 - Idempotencia inicial implementada: `WebhookLog.idempotencyKey` e `ConversionEventLog.dedupeKey` sao unicos no banco. Webhooks Uazapi duplicados retornam `duplicate` sem reavaliar regras, recriar lead ou enfileirar novo envio Meta; conversoes duplicadas retornam em `duplicates` sem novo log.
+- Central de Diagnostico recebeu filtros reais no backoffice e no endpoint `GET /backoffice/diagnostics/events`: `q`, `since`, `until`, `workspaceId`, `source`, `severity`, `status`, `eventType`, `leadId`, `phoneHash`, `campaignId`, `adSetId`, `adId` e `errorCode`.
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: filtros reais no Centro de Diagnosticos, remocao gradual de mocks restantes em Overview/Reports e polimento de selecao Meta BM/conta/pixel.
+- Continuar a proxima rodada com: remocao gradual de mocks restantes em Overview/Reports, implementacao de conversa real nos relatorios a partir de `Lead` e polimento de selecao Meta BM/conta/pixel.
 
 ## Perguntas Abertas
 

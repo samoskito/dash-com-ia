@@ -55,6 +55,15 @@ export const diagnosticEventListQuerySchema = z.object({
   status: z.string().min(1).optional(),
   severity: diagnosticSeveritySchema.optional(),
   eventType: z.string().min(1).optional(),
+  q: z.string().trim().min(1).optional(),
+  since: z.string().datetime().optional(),
+  until: z.string().datetime().optional(),
+  leadId: z.string().min(1).optional(),
+  phoneHash: z.string().min(1).optional(),
+  campaignId: z.string().min(1).optional(),
+  adSetId: z.string().min(1).optional(),
+  adId: z.string().min(1).optional(),
+  errorCode: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50)
 });
 

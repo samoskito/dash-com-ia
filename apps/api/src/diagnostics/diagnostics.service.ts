@@ -188,7 +188,7 @@ export class DiagnosticsService {
   async listEvents(
     query: DiagnosticEventListQueryDto
   ): Promise<DiagnosticEventDto[]> {
-    const where: Record<string, unknown> = {};
+    const where: Prisma.DiagnosticEventWhereInput = {};
 
     if (query.workspaceId) {
       where.workspaceId = query.workspaceId;
@@ -208,6 +208,47 @@ export class DiagnosticsService {
 
     if (query.eventType) {
       where.eventType = query.eventType;
+    }
+
+    if (query.since || query.until) {
+      where.occurredAt = {
+        ...(query.since ? { gte: new Date(query.since) } : {}),
+        ...(query.until ? { lte: new Date(query.until) } : {})
+      };
+    }
+
+    if (query.leadId) {
+      where.leadId = query.leadId;
+    }
+
+    if (query.phoneHash) {
+      where.phoneHash = query.phoneHash;
+    }
+
+    if (query.campaignId) {
+      where.campaignId = query.campaignId;
+    }
+
+    if (query.adSetId) {
+      where.adSetId = query.adSetId;
+    }
+
+    if (query.adId) {
+      where.adId = query.adId;
+    }
+
+    if (query.errorCode) {
+      where.errorCode = query.errorCode;
+    }
+
+    if (query.q) {
+      where.OR = [
+        { title: { contains: query.q, mode: "insensitive" } },
+        { message: { contains: query.q, mode: "insensitive" } },
+        { eventType: { contains: query.q, mode: "insensitive" } },
+        { status: { contains: query.q, mode: "insensitive" } },
+        { errorCode: { contains: query.q, mode: "insensitive" } }
+      ];
     }
 
     const events = (await this.prisma.diagnosticEvent.findMany({

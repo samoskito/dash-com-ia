@@ -495,6 +495,12 @@ describe("shared contracts", () => {
     });
     const query = diagnosticEventListQuerySchema.parse({
       source: "meta",
+      q: "currency",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      errorCode: "MISSING_CURRENCY",
       limit: "25"
     });
     const detail = diagnosticEventDetailSchema.parse({
@@ -540,7 +546,16 @@ describe("shared contracts", () => {
     });
 
     expect(create.source).toBe("meta");
-    expect(query.limit).toBe(25);
+    expect(query).toMatchObject({
+      source: "meta",
+      q: "currency",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      errorCode: "MISSING_CURRENCY",
+      limit: 25
+    });
     expect(detail.errorCode).toBe("MISSING_CURRENCY");
     expect(detail.timeline[1]?.kind).toBe("job_attempt");
   });

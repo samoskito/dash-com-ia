@@ -6,6 +6,7 @@ function createHarness() {
   const auditLogs: Array<Record<string, unknown>> = [];
   const jobAttempts: Array<Record<string, unknown>> = [];
   const webhookLogs: Array<Record<string, unknown>> = [];
+  const diagnosticFindManyCalls: Array<Record<string, unknown>> = [];
   const diagnosticsQueueService = {
     enqueueRetry: vi.fn(async (payload: Record<string, unknown>) => ({
       diagnosticEventId: payload.diagnosticEventId,
@@ -43,12 +44,21 @@ function createHarness() {
         events.push(event);
         return event;
       },
-      findMany: async ({ where, take }: { where: Record<string, unknown>; take: number }) =>
-        events
+      findMany: async ({
+        where,
+        take
+      }: {
+        where: Record<string, unknown>;
+        take: number;
+      }) => {
+        diagnosticFindManyCalls.push({ where, take });
+
+        return events
           .filter((event) =>
             Object.entries(where).every(([key, value]) => event[key] === value)
           )
-          .slice(0, take),
+          .slice(0, take);
+      },
       findUnique: async ({ where }: { where: { id: string } }) =>
         events.find((event) => event.id === where.id) ?? null
     },
@@ -86,6 +96,7 @@ function createHarness() {
 
   return {
     auditLogs,
+    diagnosticFindManyCalls,
     events,
     jobAttempts,
     webhookLogs,
@@ -246,6 +257,50 @@ describe("diagnostics service", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]?.source).toBe("meta");
+  });
+
+  it("builds operational filters for diagnostic investigations", async () => {
+    const { diagnosticFindManyCalls, service } = createHarness();
+
+    await service.listEvents({
+      workspaceId: "workspace_1",
+      source: "meta",
+      status: "error",
+      q: "currency",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      errorCode: "MISSING_CURRENCY",
+      limit: 25
+    });
+
+    expect(diagnosticFindManyCalls[0]?.where).toEqual({
+      workspaceId: "workspace_1",
+      source: "meta",
+      status: "error",
+      occurredAt: {
+        gte: new Date("2026-07-01T00:00:00.000Z"),
+        lte: new Date("2026-07-02T23:59:59.000Z")
+      },
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      errorCode: "MISSING_CURRENCY",
+      OR: [
+        { title: { contains: "currency", mode: "insensitive" } },
+        { message: { contains: "currency", mode: "insensitive" } },
+        { eventType: { contains: "currency", mode: "insensitive" } },
+        { status: { contains: "currency", mode: "insensitive" } },
+        { errorCode: { contains: "currency", mode: "insensitive" } }
+      ]
+    });
+    expect(diagnosticFindManyCalls[0]?.take).toBe(25);
   });
 
   it("returns an operational timeline for webhook, event, retry audit and job attempts", async () => {

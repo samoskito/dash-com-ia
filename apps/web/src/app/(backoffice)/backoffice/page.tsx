@@ -5,9 +5,40 @@ import type {
 } from "@wpptrack/shared";
 import { serverApiFetch } from "../../../lib/server-api";
 
-async function getDiagnosticEvents(): Promise<DiagnosticEventDto[]> {
+type BackofficeSearchParams = Record<string, string | string[] | undefined>;
+
+type DiagnosticFilters = {
+  adId?: string;
+  adSetId?: string;
+  campaignId?: string;
+  errorCode?: string;
+  eventType?: string;
+  leadId?: string;
+  phoneHash?: string;
+  q?: string;
+  severity?: string;
+  since?: string;
+  source?: string;
+  status?: string;
+  until?: string;
+  workspaceId?: string;
+};
+
+async function getDiagnosticEvents(
+  filters: DiagnosticFilters
+): Promise<DiagnosticEventDto[]> {
   try {
-    return await serverApiFetch<DiagnosticEventDto[]>("/backoffice/diagnostics/events?limit=5");
+    const params = new URLSearchParams({ limit: "25" });
+
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) {
+        params.set(key, value);
+      }
+    }
+
+    return await serverApiFetch<DiagnosticEventDto[]>(
+      `/backoffice/diagnostics/events?${params.toString()}`
+    );
   } catch {
     return [];
   }
@@ -76,12 +107,68 @@ function percentFromBps(value: number): string {
   return `${(value / 100).toFixed(2)}%`;
 }
 
-export default async function BackofficePage() {
+function asStringParam(
+  value: string | string[] | undefined
+): string | undefined {
+  const resolved = Array.isArray(value) ? value[0] : value;
+
+  return resolved?.trim() || undefined;
+}
+
+function normalizeDateFilter(
+  value: string | undefined,
+  boundary: "start" | "end"
+): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (value.includes("T")) {
+    return value;
+  }
+
+  return boundary === "start"
+    ? `${value}T00:00:00.000Z`
+    : `${value}T23:59:59.000Z`;
+}
+
+function dateInputValue(value: string | undefined): string | undefined {
+  return value?.slice(0, 10);
+}
+
+export default async function BackofficePage({
+  searchParams
+}: {
+  searchParams?: Promise<BackofficeSearchParams>;
+}) {
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const diagnosticFilters: DiagnosticFilters = {
+    workspaceId: asStringParam(resolvedSearchParams.workspaceId),
+    source: asStringParam(resolvedSearchParams.source),
+    status: asStringParam(resolvedSearchParams.status),
+    severity: asStringParam(resolvedSearchParams.severity),
+    eventType: asStringParam(resolvedSearchParams.eventType),
+    q: asStringParam(resolvedSearchParams.q),
+    since: normalizeDateFilter(
+      asStringParam(resolvedSearchParams.since),
+      "start"
+    ),
+    until: normalizeDateFilter(asStringParam(resolvedSearchParams.until), "end"),
+    leadId: asStringParam(resolvedSearchParams.leadId),
+    phoneHash: asStringParam(resolvedSearchParams.phoneHash),
+    campaignId: asStringParam(resolvedSearchParams.campaignId),
+    adSetId: asStringParam(resolvedSearchParams.adSetId),
+    adId: asStringParam(resolvedSearchParams.adId),
+    errorCode: asStringParam(resolvedSearchParams.errorCode)
+  };
   const [diagnosticEvents, workspaceBilling, splitReceivers] = await Promise.all([
-    getDiagnosticEvents(),
+    getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
     getSplitReceivers()
   ]);
+  const activeDiagnosticFilterCount = Object.values(diagnosticFilters).filter(
+    Boolean
+  ).length;
   const panels = [
     ["Billing", "R$ 18.420", "MRR consolidado, inadimplencia e notas pendentes."],
     ["Split", "94.2%", "Repasse capturado por workspace com divergencias sinalizadas."],
@@ -219,6 +306,101 @@ export default async function BackofficePage() {
       <div className="surface-panel">
         <span className="eyebrow">Central de diagnostico</span>
         <h2>Saude operacional por camada</h2>
+        <form className="filter-bar" aria-label="Filtros de diagnostico" action="/backoffice">
+          <input
+            className="filter-control"
+            name="q"
+            placeholder="Buscar erro, evento ou texto"
+            defaultValue={diagnosticFilters.q}
+          />
+          <input
+            className="filter-control"
+            name="workspaceId"
+            placeholder="Workspace"
+            defaultValue={diagnosticFilters.workspaceId}
+          />
+          <select className="filter-control" name="source" defaultValue={diagnosticFilters.source ?? ""}>
+            <option value="">Todas as origens</option>
+            <option value="meta">Meta</option>
+            <option value="uazapi">Uazapi</option>
+            <option value="asaas">Asaas</option>
+            <option value="internal">Interno</option>
+          </select>
+          <select className="filter-control" name="severity" defaultValue={diagnosticFilters.severity ?? ""}>
+            <option value="">Todas severidades</option>
+            <option value="info">Info</option>
+            <option value="warning">Warning</option>
+            <option value="error">Error</option>
+            <option value="critical">Critical</option>
+          </select>
+          <input
+            className="filter-control"
+            name="status"
+            placeholder="Status"
+            defaultValue={diagnosticFilters.status}
+          />
+          <input
+            className="filter-control"
+            name="eventType"
+            placeholder="Tipo de evento"
+            defaultValue={diagnosticFilters.eventType}
+          />
+          <input
+            className="filter-control"
+            name="since"
+            type="date"
+            defaultValue={dateInputValue(diagnosticFilters.since)}
+          />
+          <input
+            className="filter-control"
+            name="until"
+            type="date"
+            defaultValue={dateInputValue(diagnosticFilters.until)}
+          />
+          <input
+            className="filter-control"
+            name="leadId"
+            placeholder="Lead"
+            defaultValue={diagnosticFilters.leadId}
+          />
+          <input
+            className="filter-control"
+            name="phoneHash"
+            placeholder="Telefone hash"
+            defaultValue={diagnosticFilters.phoneHash}
+          />
+          <input
+            className="filter-control"
+            name="campaignId"
+            placeholder="Campanha"
+            defaultValue={diagnosticFilters.campaignId}
+          />
+          <input
+            className="filter-control"
+            name="adSetId"
+            placeholder="Conjunto"
+            defaultValue={diagnosticFilters.adSetId}
+          />
+          <input
+            className="filter-control"
+            name="adId"
+            placeholder="Anuncio"
+            defaultValue={diagnosticFilters.adId}
+          />
+          <input
+            className="filter-control"
+            name="errorCode"
+            placeholder="Codigo do erro"
+            defaultValue={diagnosticFilters.errorCode}
+          />
+          <button className="button" type="submit">Filtrar</button>
+          <a className="button ghost" href="/backoffice">Limpar</a>
+        </form>
+        <p className="muted">
+          {activeDiagnosticFilterCount > 0
+            ? `${activeDiagnosticFilterCount} filtros ativos`
+            : "Mostrando os ultimos eventos recebidos pela plataforma."}
+        </p>
         <div className="table-wrap">
           <table>
             <thead>

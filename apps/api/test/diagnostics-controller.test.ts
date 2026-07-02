@@ -66,7 +66,9 @@ describe("diagnostics controller", () => {
     const { app, platformAdminService, service } = await createApp();
 
     await request(app.getHttpServer())
-      .get("/backoffice/diagnostics/events?workspaceId=workspace_1&source=meta&limit=10")
+      .get(
+        "/backoffice/diagnostics/events?workspaceId=workspace_1&source=meta&status=error&q=currency&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&leadId=lead_1&phoneHash=phone_hash_1&campaignId=cmp_1&adSetId=adset_1&adId=ad_1&errorCode=MISSING_CURRENCY&limit=10"
+      )
       .set("Authorization", "Bearer refresh-token")
       .expect(200)
       .expect(({ body }) => {
@@ -80,6 +82,16 @@ describe("diagnostics controller", () => {
     expect(service.listEvents).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       source: "meta",
+      status: "error",
+      q: "currency",
+      since: "2026-07-01T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      errorCode: "MISSING_CURRENCY",
       limit: 10
     });
 

@@ -40,7 +40,7 @@ describe("backoffice route", () => {
         )
       );
 
-    const element = await BackofficePage();
+    const element = await BackofficePage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -92,7 +92,7 @@ describe("backoffice route", () => {
         })
       );
 
-    const element = await BackofficePage();
+    const element = await BackofficePage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("Conversao nao enviada");
@@ -135,7 +135,7 @@ describe("backoffice route", () => {
         })
       );
 
-    const element = await BackofficePage();
+    const element = await BackofficePage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -146,5 +146,46 @@ describe("backoffice route", () => {
     expect(html).toContain("cus_asaas_1");
     expect(html).toContain("Clinica Norte");
     expect(html).toContain("Configurar customer");
+  });
+
+  it("sends diagnostic filters to the backoffice diagnostics endpoint", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      );
+
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        q: "currency",
+        source: "meta",
+        since: "2026-07-01",
+        until: "2026-07-02",
+        campaignId: "cmp_1",
+        adId: "ad_1"
+      })
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/diagnostics/events?limit=25&source=meta&q=currency&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&campaignId=cmp_1&adId=ad_1",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("6 filtros ativos");
+    expect(html).toContain("currency");
   });
 });
