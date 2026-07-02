@@ -22,6 +22,7 @@ The platform connects WhatsApp, Meta Ads and Pixel data to show:
 
 ```bash
 pnpm install
+Copy-Item .env.example .env
 docker compose up -d postgres redis
 pnpm dev
 ```

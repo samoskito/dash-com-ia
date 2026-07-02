@@ -312,7 +312,7 @@ Entidades provaveis:
 - TentativaJob.
 - DiagnosticoEvento.
 
-Pendente de definicao: stack tecnica e modelo fisico do banco.
+Stack tecnica definida: Next.js, NestJS, PostgreSQL, Prisma e BullMQ/Redis. O modelo fisico ja tem fundacao inicial no schema Prisma; o detalhamento do modelo continua evoluindo nas proximas fases conforme integracoes e regras reais forem implementadas.
 
 ## Arquitetura Pretendida
 
@@ -367,9 +367,9 @@ Caracteristicas importantes:
 - O Markdown de metricas solicita marca d'agua fixa no painel: "desenvolvido por Comunidade NOD - PalmUP - Dericson Calari e Samuel Choairy".
 - Essa marca d'agua deve ser tratada como ponto a confirmar antes da implementacao visual final, porque afeta a experiencia do cliente final e possivelmente planos white-label.
 
-## Brainstorming Atual
+## Brainstorming e Execucao Atual
 
-Estamos usando a skill `superpowers:brainstorming`.
+O brainstorming inicial ja definiu a direcao de produto, arquitetura e implementacao da Fase 1.
 
 Checkpoint atual:
 
@@ -377,11 +377,12 @@ Checkpoint atual:
 - Visual companion tentou rodar em `52341`, mas caiu por timeout no Windows.
 - Alternativa estavel criada: `wpptrack-saas-visual.html` servida por `http://127.0.0.1:5174/wpptrack-saas-visual.html`.
 - Usuario selecionou a opcao B: relatorios fortes desde o inicio.
+- Estrategia de execucao da Fase 1 selecionada: subagent-driven development.
+- Tasks 1-7 da Fase 1 implementadas e commitadas.
 
-Proximo passo do brainstorming:
+Proximo passo operacional:
 
-- Usuario escolher a estrategia de execucao do plano da Fase 1.
-- Opcoes: subagent-driven development ou execucao inline neste chat.
+- Concluir Task 8/9 da fundacao ou abrir planos de follow-up futuros a partir do estado ja implementado.
 
 ## Perguntas Abertas
 
