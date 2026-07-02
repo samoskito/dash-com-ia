@@ -17,7 +17,7 @@ type WhatsappInstanceRecord = {
   workspaceId: string;
   name: string;
   provider: "uazapi" | "cloud_api";
-  status: "pending_payment" | "active" | "suspended" | "cancelled";
+  status: "pending_payment" | "active" | "disconnected" | "suspended" | "error";
   providerInstanceId: string | null;
   activations?: Array<{
     paymentCharge: {

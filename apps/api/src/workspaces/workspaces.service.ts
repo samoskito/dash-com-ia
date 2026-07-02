@@ -11,6 +11,7 @@ import {
   canManageWorkspaceBilling,
   canViewReports,
   type CurrentWorkspaceDto,
+  type BackofficeWhatsappInstanceDto,
   type WorkspaceBillingDto,
   type WorkspaceBillingUpdateInputDto,
   type WorkspaceInviteDto,
@@ -43,6 +44,20 @@ type WorkspaceBillingRecord = {
   whatsappInstances?: Array<{
     id: string;
   }>;
+};
+
+type BackofficeWhatsappInstanceRecord = {
+  id: string;
+  name: string;
+  provider: string;
+  status: string;
+  providerInstanceId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  workspaceId: string;
+  workspace: {
+    name: string;
+  };
 };
 
 @Injectable()
@@ -210,6 +225,40 @@ export class WorkspacesService {
     return workspaces.map((workspace) => this.toWorkspaceBillingDto(workspace));
   }
 
+  async listBackofficeWhatsappInstances(): Promise<BackofficeWhatsappInstanceDto[]> {
+    const instances = (await this.prisma.whatsappInstance.findMany({
+      include: {
+        workspace: {
+          select: {
+            name: true
+          }
+        }
+      },
+      orderBy: [
+        {
+          workspace: {
+            name: "asc"
+          }
+        },
+        {
+          createdAt: "desc"
+        }
+      ]
+    })) as BackofficeWhatsappInstanceRecord[];
+
+    return instances.map((instance) => ({
+      id: instance.id,
+      workspaceId: instance.workspaceId,
+      workspaceName: instance.workspace.name,
+      name: instance.name,
+      provider: this.toWhatsappProvider(instance.provider),
+      billingStatus: this.toWhatsappBillingStatus(instance.status),
+      providerInstanceId: instance.providerInstanceId,
+      createdAt: instance.createdAt.toISOString(),
+      updatedAt: instance.updatedAt.toISOString()
+    }));
+  }
+
   async updateBillingConfiguration(
     workspaceId: string,
     input: WorkspaceBillingUpdateInputDto
@@ -367,5 +416,24 @@ export class WorkspacesService {
     }
 
     return "not_configured";
+  }
+
+  private toWhatsappProvider(provider: string): BackofficeWhatsappInstanceDto["provider"] {
+    return provider === "cloud_api" ? "cloud_api" : "uazapi";
+  }
+
+  private toWhatsappBillingStatus(
+    status: string
+  ): BackofficeWhatsappInstanceDto["billingStatus"] {
+    if (
+      status === "active" ||
+      status === "disconnected" ||
+      status === "suspended" ||
+      status === "error"
+    ) {
+      return status;
+    }
+
+    return "pending_payment";
   }
 }

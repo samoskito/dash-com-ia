@@ -37,8 +37,21 @@ async function createApp() {
       id: "workspace_1",
       name: "Comunidade NOD",
       slug: "comunidade-nod",
-      asaasCustomerId: "cus_asaas_2"
-    }))
+        asaasCustomerId: "cus_asaas_2"
+    })),
+    listBackofficeWhatsappInstances: vi.fn(async () => [
+      {
+        id: "wpp_1",
+        workspaceId: "workspace_1",
+        workspaceName: "Comunidade NOD",
+        name: "Comercial",
+        provider: "uazapi",
+        billingStatus: "active",
+        providerInstanceId: "uazapi_1",
+        createdAt: "2026-07-02T03:00:00.000Z",
+        updatedAt: "2026-07-02T03:10:00.000Z"
+      }
+    ])
   };
   const moduleRef = await Test.createTestingModule({
     controllers: [BackofficeWorkspacesController],
@@ -91,6 +104,27 @@ describe("backoffice workspaces controller", () => {
       "refresh-token"
     );
     expect(workspacesService.listBillingConfigurations).toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("lists whatsapp instances across workspaces for platform admins", async () => {
+    const { app, platformAdminService, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/backoffice/workspaces/whatsapp-instances")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toHaveLength(1);
+        expect(body[0].workspaceName).toBe("Comunidade NOD");
+        expect(body[0].providerInstanceId).toBe("uazapi_1");
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(workspacesService.listBackofficeWhatsappInstances).toHaveBeenCalled();
 
     await app.close();
   });

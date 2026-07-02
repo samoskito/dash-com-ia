@@ -1,5 +1,6 @@
 import type {
   BackofficePaymentChargeDto,
+  BackofficeWhatsappInstanceDto,
   DiagnosticEventDto,
   SplitReceiverDto,
   WorkspaceBillingDto
@@ -118,6 +119,24 @@ async function getPaymentCharges(
     return {
       data: charges,
       state: charges.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      data: [],
+      state: "error"
+    };
+  }
+}
+
+async function getBackofficeWhatsappInstances(): Promise<ResourceResult<BackofficeWhatsappInstanceDto[]>> {
+  try {
+    const instances = await serverApiFetch<BackofficeWhatsappInstanceDto[]>(
+      "/backoffice/workspaces/whatsapp-instances"
+    );
+
+    return {
+      data: instances,
+      state: instances.length > 0 ? "real" : "empty"
     };
   } catch {
     return {
@@ -310,17 +329,20 @@ export default async function BackofficePage({
     diagnosticEventsResult,
     workspaceBillingResult,
     splitReceiversResult,
-    paymentChargesResult
+    paymentChargesResult,
+    whatsappInstancesResult
   ] = await Promise.all([
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
     getSplitReceivers(),
-    getPaymentCharges(paymentChargeFilters)
+    getPaymentCharges(paymentChargeFilters),
+    getBackofficeWhatsappInstances()
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
   const workspaceBilling = workspaceBillingResult.data;
   const splitReceivers = splitReceiversResult.data;
   const paymentCharges = paymentChargesResult.data;
+  const whatsappInstances = whatsappInstancesResult.data;
   const activeDiagnosticFilterCount = Object.values(diagnosticFilters).filter(
     Boolean
   ).length;
@@ -331,7 +353,8 @@ export default async function BackofficePage({
     diagnosticEventsResult.state,
     workspaceBillingResult.state,
     splitReceiversResult.state,
-    paymentChargesResult.state
+    paymentChargesResult.state,
+    whatsappInstancesResult.state
   ].includes("error");
   const configuredCustomers = workspaceBilling.filter(
     (workspace) => workspace.asaasCustomerId
@@ -351,6 +374,13 @@ export default async function BackofficePage({
         ? "API indisponivel"
         : `${activeReceivers}/${splitReceivers.length}`,
       "Recebedores ativos entre os recebedores carregados."
+    ],
+    [
+      "Instancias",
+      whatsappInstancesResult.state === "error"
+        ? "API indisponivel"
+        : String(whatsappInstances.length),
+      "Instancias WhatsApp reais cadastradas nos workspaces."
     ],
     [
       "Workspaces",
@@ -387,6 +417,10 @@ export default async function BackofficePage({
     paymentChargesResult.state === "error"
       ? "Nao foi possivel carregar cobrancas"
       : "Nenhuma cobranca encontrada";
+  const whatsappInstanceEmptyTitle =
+    whatsappInstancesResult.state === "error"
+      ? "Nao foi possivel carregar instancias WhatsApp"
+      : "Nenhuma instancia WhatsApp encontrada";
 
   return (
     <section className="page-stack standalone-page">
@@ -411,6 +445,56 @@ export default async function BackofficePage({
             <p className="muted">{description}</p>
           </article>
         ))}
+      </div>
+
+      <div className="surface-panel">
+        <span className="eyebrow">Instancias WhatsApp</span>
+        <h2>Conexoes por workspace</h2>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Workspace</th>
+                <th>Instancia</th>
+                <th>Provider</th>
+                <th>Status</th>
+                <th>ID provider</th>
+                <th>Atualizada</th>
+              </tr>
+            </thead>
+            <tbody>
+              {whatsappInstances.length > 0 ? (
+                whatsappInstances.map((instance) => (
+                  <tr key={instance.id}>
+                    <td>
+                      <strong>{instance.workspaceName}</strong>
+                      <span>{instance.workspaceId}</span>
+                    </td>
+                    <td>
+                      <strong>{instance.name}</strong>
+                      <span>{instance.id}</span>
+                    </td>
+                    <td>{instance.provider}</td>
+                    <td>
+                      <span className={`event-chip${instance.billingStatus === "active" ? "" : " warn"}`}>
+                        {instance.billingStatus}
+                      </span>
+                    </td>
+                    <td>{instance.providerInstanceId ?? "nao conectado"}</td>
+                    <td>{new Date(instance.updatedAt).toLocaleString("pt-BR")}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>
+                    <strong>{whatsappInstanceEmptyTitle}</strong>
+                    <span>Instancias criadas no checkout aparecem aqui para suporte interno.</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="surface-panel">

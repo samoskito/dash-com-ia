@@ -49,7 +49,13 @@ export const whatsappConnectionStatuses = [
 export const whatsappInstanceConnectionSchema = z.object({
   whatsappInstanceId: z.string().min(1),
   provider: z.enum(["uazapi", "cloud_api"]),
-  billingStatus: z.enum(["pending_payment", "active", "suspended", "cancelled"]),
+  billingStatus: z.enum([
+    "pending_payment",
+    "active",
+    "disconnected",
+    "suspended",
+    "error"
+  ]),
   connectionStatus: z.enum(whatsappConnectionStatuses),
   qrCode: z.string().min(1).nullable(),
   message: z.string().min(1).nullable()
@@ -59,7 +65,13 @@ export const whatsappInstanceSummarySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   provider: z.enum(["uazapi", "cloud_api"]),
-  billingStatus: z.enum(["pending_payment", "active", "suspended", "cancelled"]),
+  billingStatus: z.enum([
+    "pending_payment",
+    "active",
+    "disconnected",
+    "suspended",
+    "error"
+  ]),
   providerInstanceId: z.string().min(1).nullable(),
   checkoutUrl: z.string().min(1).nullable(),
   createdAt: z.string().datetime()
@@ -119,6 +131,28 @@ export const backofficePaymentChargeListSchema = z.array(
   backofficePaymentChargeSchema
 );
 
+export const backofficeWhatsappInstanceSchema = z.object({
+  id: z.string().min(1),
+  workspaceId: z.string().min(1),
+  workspaceName: z.string().min(1),
+  name: z.string().min(1),
+  provider: z.enum(["uazapi", "cloud_api"]),
+  billingStatus: z.enum([
+    "pending_payment",
+    "active",
+    "disconnected",
+    "suspended",
+    "error"
+  ]),
+  providerInstanceId: z.string().min(1).nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime()
+});
+
+export const backofficeWhatsappInstanceListSchema = z.array(
+  backofficeWhatsappInstanceSchema
+);
+
 export type WhatsappInstanceQuoteDto = z.infer<
   typeof whatsappInstanceQuoteSchema
 >;
@@ -149,4 +183,7 @@ export type SplitReceiverUpdateInputDto = z.infer<
 export type SplitReceiverDto = z.infer<typeof splitReceiverSchema>;
 export type BackofficePaymentChargeDto = z.infer<
   typeof backofficePaymentChargeSchema
+>;
+export type BackofficeWhatsappInstanceDto = z.infer<
+  typeof backofficeWhatsappInstanceSchema
 >;

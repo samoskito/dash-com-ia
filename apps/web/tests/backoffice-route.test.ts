@@ -219,6 +219,65 @@ describe("backoffice route", () => {
     expect(html).toContain("paid");
   });
 
+  it("renders whatsapp instances returned by the backoffice endpoint", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "wpp_1",
+              workspaceId: "workspace_1",
+              workspaceName: "Comunidade NOD",
+              name: "Comercial",
+              provider: "uazapi",
+              billingStatus: "active",
+              providerInstanceId: "uazapi_1",
+              createdAt: "2026-07-02T03:00:00.000Z",
+              updatedAt: "2026-07-02T03:10:00.000Z"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await BackofficePage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/workspaces/whatsapp-instances",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Instancias WhatsApp");
+    expect(html).toContain("Comunidade NOD");
+    expect(html).toContain("Comercial");
+    expect(html).toContain("uazapi_1");
+    expect(html).toContain("active");
+  });
+
   it("sends payment charge filters to the backoffice billing endpoint", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(

@@ -28,6 +28,13 @@ export class BackofficeWorkspacesController {
     return this.workspacesService.listBillingConfigurations();
   }
 
+  @Get("whatsapp-instances")
+  async listWhatsappInstances(@AuthToken() refreshToken: string) {
+    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    return this.workspacesService.listBackofficeWhatsappInstances();
+  }
+
   @Get(":workspaceId/billing")
   async getBilling(
     @AuthToken() refreshToken: string,
