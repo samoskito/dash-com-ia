@@ -47,4 +47,39 @@ describe("settings route", () => {
     expect(html).toContain("Etiqueta WhatsApp");
     expect(html).toContain("Pausar");
   });
+
+  it("renders an unavailable state without demo rules when conversion rules fail", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ message: "unavailable" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("API indisponivel");
+    expect(html).toContain("Nao foi possivel carregar regras");
+    expect(html).not.toContain("Novo lead");
+    expect(html).not.toContain("Compra confirmada");
+    expect(html).not.toContain("Venda fechada");
+  });
+
+  it("renders an empty state without demo rules when no conversion rules exist", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Nenhuma regra configurada");
+    expect(html).not.toContain("Novo lead");
+    expect(html).not.toContain("Compra confirmada");
+    expect(html).not.toContain("Venda fechada");
+  });
 });
