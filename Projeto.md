@@ -24,6 +24,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Billing/ativacao de instancia WhatsApp scaffoldado: `GET /billing/whatsapp-instance/quote` e `POST /billing/whatsapp-instance/checkout`; checkout cria instancia `pending_payment`, cobranca pendente e ativacao pendente, sem liberar uso antes de webhook/pagamento futuro.
 - Migrations reais adicionais aplicadas no Postgres local: `20260702034254_diagnostics_logs` e `20260702034847_billing_activation`.
 - Frontend parcialmente conectado ao backend: tela de login/cadastro chama `/auth/login` e `/auth/register`; pagina de integracoes tenta ler `/integrations/health`; backoffice tenta ler eventos diagnosticos reais com fallback visual.
+- Frontend agora possui middleware de protecao para `/overview`, `/leads`, `/reports`, `/integrations`, `/settings` e `/backoffice`, exigindo cookie `wpptrack_session`; o shell possui acao de logout chamando `/auth/logout`.
 - Rodada Paralela 1 executada e revisada: visual WppTrack/Telemetria Noturna aplicado ao web, Auth/Workspaces iniciado, scaffolds de integracoes Meta/Uazapi/Asaas criados e spec de Diagnosticos/Logs adicionada.
 - Verificacao da Rodada Paralela 1: `pnpm test`, `pnpm typecheck`, `pnpm build`, `prisma generate` e `prisma validate` passaram. O bloqueio anterior do Docker Desktop Linux engine foi resolvido quando o Docker Desktop foi aberto.
 - Spec e plano da Rodada Paralela 1: `docs/superpowers/specs/2026-07-02-wpptrack-parallel-wave-1-design.md` e `docs/superpowers/plans/2026-07-02-wpptrack-parallel-wave-1-implementation.md`.
@@ -398,7 +399,7 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: protecao real de rotas no frontend, Google OAuth, recuperacao/verificacao de email, convites com aceite, webhooks Uazapi/Asaas, OAuth Meta real, envio Pixel/CAPI e telas detalhadas de diagnostico/retry.
+- Continuar a proxima rodada com: Google OAuth, recuperacao/verificacao de email, convites com aceite, webhooks Uazapi/Asaas, OAuth Meta real, envio Pixel/CAPI e telas detalhadas de diagnostico/retry.
 
 ## Perguntas Abertas
 
