@@ -11,6 +11,8 @@ import {
   canManageWorkspaceBilling,
   canViewReports,
   type CurrentWorkspaceDto,
+  type WorkspaceBillingDto,
+  type WorkspaceBillingUpdateInputDto,
   type WorkspaceInviteDto,
   type WorkspaceInviteAcceptDto,
   type WorkspaceInviteAcceptInputDto,
@@ -26,6 +28,13 @@ export type WorkspacePermissions = {
   canManageBilling: boolean;
   canManageIntegrations: boolean;
   canViewReports: boolean;
+};
+
+type WorkspaceBillingRecord = {
+  id: string;
+  name: string;
+  slug: string;
+  asaasCustomerId: string | null;
 };
 
 @Injectable()
@@ -73,6 +82,46 @@ export class WorkspacesService {
       role: member.role,
       joinedAt: member.createdAt.toISOString()
     }));
+  }
+
+  async getBillingConfiguration(
+    workspaceId: string
+  ): Promise<WorkspaceBillingDto> {
+    const workspace = (await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        asaasCustomerId: true
+      }
+    })) as WorkspaceBillingRecord | null;
+
+    if (!workspace) {
+      throw new NotFoundException("Workspace nao encontrado");
+    }
+
+    return workspace;
+  }
+
+  async updateBillingConfiguration(
+    workspaceId: string,
+    input: WorkspaceBillingUpdateInputDto
+  ): Promise<WorkspaceBillingDto> {
+    const workspace = (await this.prisma.workspace.update({
+      where: { id: workspaceId },
+      data: {
+        asaasCustomerId: input.asaasCustomerId?.trim() || null
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        asaasCustomerId: true
+      }
+    })) as WorkspaceBillingRecord;
+
+    return workspace;
   }
 
   async createInvite(

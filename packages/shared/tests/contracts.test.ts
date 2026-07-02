@@ -35,6 +35,8 @@ import {
   splitReceiverSchema,
   splitReceiverUpdateInputSchema,
   workspaceInviteInputSchema,
+  workspaceBillingSchema,
+  workspaceBillingUpdateInputSchema,
   workspaceInviteAcceptInputSchema,
   workspaceInviteAcceptSchema,
   workspaceInviteSchema,
@@ -285,6 +287,25 @@ describe("shared contracts", () => {
     expect(invite.acceptToken).toBe("invite-token-1234567890");
     expect(acceptInput.token).toBe("invite-token-1234567890");
     expect(accepted.memberId).toBe("member_2");
+  });
+
+  it("validates workspace billing configuration for platform backoffice", () => {
+    const input = workspaceBillingUpdateInputSchema.parse({
+      asaasCustomerId: "cus_asaas_1"
+    });
+    const cleared = workspaceBillingUpdateInputSchema.parse({
+      asaasCustomerId: null
+    });
+    const billing = workspaceBillingSchema.parse({
+      id: "workspace_1",
+      name: "Comunidade NOD",
+      slug: "comunidade-nod",
+      asaasCustomerId: "cus_asaas_1"
+    });
+
+    expect(input.asaasCustomerId).toBe("cus_asaas_1");
+    expect(cleared.asaasCustomerId).toBeNull();
+    expect(billing.asaasCustomerId).toBe("cus_asaas_1");
   });
 
   it("rejects owner invites from client-facing workspace API", () => {
