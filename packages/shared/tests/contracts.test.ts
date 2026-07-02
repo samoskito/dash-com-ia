@@ -7,6 +7,9 @@ import {
   clientNavigation,
   googleOAuthStartSchema,
   currentWorkspaceSchema,
+  diagnosticEventCreateSchema,
+  diagnosticEventDetailSchema,
+  diagnosticEventListQuerySchema,
   integrationHealthSchema,
   loginSchema,
   registerSchema,
@@ -168,5 +171,50 @@ describe("shared contracts", () => {
         role: "owner"
       })
     ).toThrow();
+  });
+
+  it("validates diagnostic event contracts", () => {
+    const create = diagnosticEventCreateSchema.parse({
+      workspaceId: "workspace_1",
+      source: "meta",
+      eventType: "pixel_event",
+      status: "error",
+      severity: "error",
+      title: "Meta recusou evento",
+      message: "Parametro currency ausente",
+      summaryPayload: {
+        authorization: "secret-token",
+        currency: null
+      }
+    });
+    const query = diagnosticEventListQuerySchema.parse({
+      source: "meta",
+      limit: "25"
+    });
+    const detail = diagnosticEventDetailSchema.parse({
+      id: "diag_1",
+      workspaceId: "workspace_1",
+      source: "meta",
+      eventType: "pixel_event",
+      severity: "error",
+      status: "error",
+      occurredAt: "2026-07-02T03:00:00.000Z",
+      title: "Meta recusou evento",
+      message: "Parametro currency ausente",
+      leadId: null,
+      phoneHash: null,
+      campaignId: null,
+      adSetId: null,
+      adId: null,
+      jobId: null,
+      errorCode: "MISSING_CURRENCY",
+      summaryPayload: {
+        currency: null
+      }
+    });
+
+    expect(create.source).toBe("meta");
+    expect(query.limit).toBe(25);
+    expect(detail.errorCode).toBe("MISSING_CURRENCY");
   });
 });

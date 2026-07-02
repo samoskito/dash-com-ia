@@ -6,3 +6,4 @@ export * from "./schemas/workspace";
 export * from "./schemas/reporting";
 export * from "./schemas/integrations";
 export * from "./schemas/auth";
+export * from "./schemas/diagnostics";

@@ -33,6 +33,20 @@ enum WhatsappInstanceStatus {
   error
 }
 
+enum DiagnosticSource {
+  meta
+  uazapi
+  asaas
+  internal
+}
+
+enum DiagnosticSeverity {
+  info
+  warning
+  error
+  critical
+}
+
 model User {
   id              String       @id @default(cuid())
   email           String       @unique
@@ -46,6 +60,7 @@ model User {
 
   memberships WorkspaceMember[]
   sessions    AuthSession[]
+  auditLogs   AuditLog[]
 }
 
 model Workspace {
@@ -58,6 +73,12 @@ model Workspace {
   members            WorkspaceMember[]
   invites            WorkspaceInvite[]
   whatsappInstances WhatsappInstance[]
+  diagnosticEvents   DiagnosticEvent[]
+  webhookLogs        WebhookLog[]
+  integrationLogs    IntegrationLog[]
+  conversionEventLogs ConversionEventLog[]
+  jobAttempts        JobAttempt[]
+  auditLogs          AuditLog[]
 }
 
 model WorkspaceMember {
@@ -117,4 +138,181 @@ model WorkspaceInvite {
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 
   @@index([workspaceId, email])
+}
+
+model WebhookLog {
+  id             String           @id @default(cuid())
+  workspaceId    String?
+  source         DiagnosticSource
+  eventType      String
+  externalEventId String?
+  status         String
+  receivedAt     DateTime         @default(now())
+  processedAt    DateTime?
+  leadId         String?
+  phoneHash      String?
+  campaignId     String?
+  adSetId        String?
+  adId           String?
+  jobId          String?
+  errorCode      String?
+  errorMessage   String?
+  summaryPayload Json?
+  rawPayloadRef  String?
+  idempotencyKey String?
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  diagnosticEvents DiagnosticEvent[]
+
+  @@index([workspaceId, source, status, receivedAt])
+  @@index([idempotencyKey])
+}
+
+model IntegrationLog {
+  id                   String           @id @default(cuid())
+  workspaceId          String?
+  source               DiagnosticSource
+  operation            String
+  status               String
+  startedAt            DateTime         @default(now())
+  finishedAt           DateTime?
+  durationMs           Int?
+  requestSummary       Json?
+  responseSummary      Json?
+  httpStatus           Int?
+  providerRequestId    String?
+  providerErrorCode    String?
+  providerErrorMessage String?
+  leadId               String?
+  campaignId           String?
+  adSetId              String?
+  adId                 String?
+  jobId                String?
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  diagnosticEvents DiagnosticEvent[]
+
+  @@index([workspaceId, source, status, startedAt])
+  @@index([providerRequestId])
+}
+
+model ConversionEventLog {
+  id                      String           @id @default(cuid())
+  workspaceId             String?
+  leadId                  String?
+  phoneHash               String?
+  sourceTrigger           String
+  eventName               String
+  status                  String
+  pixelId                 String?
+  metaAccountId           String?
+  campaignId              String?
+  adSetId                 String?
+  adId                    String?
+  attributionStatus       String?
+  dedupeKey               String?
+  sentAt                  DateTime?
+  providerResponseSummary Json?
+  errorCode               String?
+  errorMessage            String?
+  jobId                   String?
+  createdAt               DateTime         @default(now())
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  diagnosticEvents DiagnosticEvent[]
+
+  @@index([workspaceId, status, createdAt])
+  @@index([dedupeKey])
+  @@index([leadId])
+}
+
+model JobAttempt {
+  id                String           @id @default(cuid())
+  workspaceId       String?
+  queueName         String
+  jobId             String
+  jobName           String
+  attemptNumber     Int
+  status            String
+  scheduledAt       DateTime?
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  nextRetryAt       DateTime?
+  source            DiagnosticSource
+  relatedEntityType String?
+  relatedEntityId   String?
+  errorCode         String?
+  errorMessage      String?
+  summaryPayload    Json?
+  createdAt         DateTime         @default(now())
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  diagnosticEvents DiagnosticEvent[]
+
+  @@index([workspaceId, source, status, createdAt])
+  @@index([jobId])
+}
+
+model DiagnosticEvent {
+  id                   String             @id @default(cuid())
+  workspaceId          String?
+  source               DiagnosticSource
+  eventType            String
+  severity             DiagnosticSeverity
+  status               String
+  occurredAt           DateTime           @default(now())
+  title                String
+  message              String
+  leadId               String?
+  phoneHash            String?
+  campaignId           String?
+  adSetId              String?
+  adId                 String?
+  jobId                String?
+  errorCode            String?
+  summaryPayload       Json?
+  webhookLogId         String?
+  integrationLogId     String?
+  conversionEventLogId String?
+  jobAttemptId         String?
+  createdAt            DateTime           @default(now())
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  webhookLog WebhookLog? @relation(fields: [webhookLogId], references: [id])
+  integrationLog IntegrationLog? @relation(fields: [integrationLogId], references: [id])
+  conversionEventLog ConversionEventLog? @relation(fields: [conversionEventLogId], references: [id])
+  jobAttempt JobAttempt? @relation(fields: [jobAttemptId], references: [id])
+
+  @@index([workspaceId, source, status, occurredAt])
+  @@index([workspaceId, severity, occurredAt])
+  @@index([eventType])
+  @@index([leadId])
+  @@index([phoneHash])
+  @@index([campaignId])
+  @@index([adSetId])
+  @@index([adId])
+  @@index([jobId])
+}
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  workspaceId   String?
+  actorUserId   String?
+  actorType     String
+  action        String
+  targetType    String
+  targetId      String
+  reason        String?
+  sourceIp      String?
+  resultStatus  String
+  beforeSummary Json?
+  afterSummary  Json?
+  createdAt     DateTime @default(now())
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  actorUser User? @relation(fields: [actorUserId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([actorUserId])
+  @@index([targetType, targetId])
 }

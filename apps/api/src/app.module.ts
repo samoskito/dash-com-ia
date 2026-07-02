@@ -1,13 +1,14 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "./auth/auth.module";
 import { QueueModule } from "./common/queue/queue.module";
+import { DiagnosticsModule } from "./diagnostics/diagnostics.module";
 import { HealthController } from "./health/health.controller";
 import { MockController } from "./mock/mock.controller";
 import { MockService } from "./mock/mock.service";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
 
 @Module({
-  imports: [QueueModule, AuthModule, WorkspacesModule],
+  imports: [QueueModule, AuthModule, WorkspacesModule, DiagnosticsModule],
   controllers: [HealthController, MockController],
   providers: [MockService]
 })
