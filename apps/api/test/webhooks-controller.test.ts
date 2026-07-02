@@ -8,6 +8,7 @@ import { ConversionEventsService } from "../src/conversion-events/conversion-eve
 import { ConversionRulesService } from "../src/conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
 import { LeadsService } from "../src/leads/leads.service";
+import { PrismaService } from "../src/common/prisma/prisma.service";
 import { WebhooksController } from "../src/webhooks/webhooks.controller";
 
 afterEach(() => {
@@ -64,6 +65,17 @@ async function createApp() {
       id: "lead_1"
     }))
   };
+  const prismaService = {
+    whatsappInstance: {
+      findFirst: vi.fn(
+        async (): Promise<{
+          id: string;
+          workspaceId: string;
+          providerInstanceId?: string;
+        } | null> => null
+      )
+    }
+  };
 
   const moduleRef = await Test.createTestingModule({
     controllers: [WebhooksController],
@@ -76,7 +88,8 @@ async function createApp() {
         provide: ConversionEventsQueueService,
         useValue: conversionEventsQueueService
       },
-      { provide: LeadsService, useValue: leadsService }
+      { provide: LeadsService, useValue: leadsService },
+      { provide: PrismaService, useValue: prismaService }
     ]
   }).compile();
 
@@ -90,7 +103,8 @@ async function createApp() {
     conversionRulesService,
     conversionEventsService,
     conversionEventsQueueService,
-    leadsService
+    leadsService,
+    prismaService
   };
 }
 
@@ -226,6 +240,68 @@ describe("webhooks controller", () => {
     expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
     expect(conversionEventsService.recordRuleMatches).not.toHaveBeenCalled();
     expect(conversionEventsQueueService.enqueueSend).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("resolves Uazapi webhooks to workspace and local instance by provider instance id", async () => {
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      leadsService,
+      prismaService
+    } = await createApp();
+    prismaService.whatsappInstance.findFirst.mockResolvedValueOnce({
+      id: "wpp_1",
+      workspaceId: "workspace_1",
+      providerInstanceId: "provider_instance_1"
+    });
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_2",
+        instance: {
+          id: "provider_instance_1"
+        },
+        message: {
+          text: "Oi, quero comprar"
+        },
+        phone: "+55 11 98844-1020"
+      })
+      .expect(202);
+
+    expect(prismaService.whatsappInstance.findFirst).toHaveBeenCalledWith({
+      where: {
+        provider: "uazapi",
+        providerInstanceId: "provider_instance_1"
+      },
+      select: {
+        id: true,
+        workspaceId: true
+      }
+    });
+    expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "uazapi",
+        externalEventId: "evt_uazapi_2"
+      })
+    );
+    expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
+      "workspace_1",
+      expect.objectContaining({
+        messageText: "Oi, quero comprar"
+      })
+    );
+    expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        whatsappInstanceId: "wpp_1"
+      })
+    );
 
     await app.close();
   });

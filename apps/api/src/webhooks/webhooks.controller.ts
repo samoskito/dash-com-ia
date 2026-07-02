@@ -11,6 +11,7 @@ import {
 import type { DiagnosticSourceDto } from "@wpptrack/shared";
 import { BillingService } from "../billing/billing.service";
 import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
+import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsService } from "../conversion-events/conversion-events.service";
 import { ConversionRulesService } from "../conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../diagnostics/diagnostics.service";
@@ -32,7 +33,9 @@ export class WebhooksController {
     @Inject(ConversionEventsQueueService)
     private readonly conversionEventsQueueService: ConversionEventsQueueService,
     @Inject(LeadsService)
-    private readonly leadsService: LeadsService
+    private readonly leadsService: LeadsService,
+    @Inject(PrismaService)
+    private readonly prisma: PrismaService
   ) {}
 
   @Post("uazapi")
@@ -219,8 +222,13 @@ export class WebhooksController {
 
   private async recordUazapiWebhook(body: WebhookBody, workspaceId?: string) {
     const metadata = this.getUazapiWebhookMetadata(body);
+    const resolvedContext = await this.resolveUazapiContext(body);
+    const resolvedWorkspaceId = workspaceId ?? resolvedContext?.workspaceId;
+    const resolvedWhatsappInstanceId =
+      this.firstString(body.whatsappInstanceId) ??
+      resolvedContext?.whatsappInstanceId;
     const diagnostic = await this.diagnosticsService.recordWebhookLog({
-      workspaceId,
+      workspaceId: resolvedWorkspaceId,
       source: "uazapi",
       eventType: metadata.eventType,
       externalEventId: metadata.externalEventId,
@@ -246,7 +254,7 @@ export class WebhooksController {
       };
     }
 
-    if (!workspaceId) {
+    if (!resolvedWorkspaceId) {
       return {
         ...diagnostic,
         conversion: {
@@ -262,12 +270,12 @@ export class WebhooksController {
       labels: this.getLabels(body)
     };
     const rules = await this.conversionRulesService.evaluateTriggers(
-      workspaceId,
+      resolvedWorkspaceId,
       triggerInput
     );
     const lead = await this.leadsService.upsertFromWhatsappWebhook({
-      workspaceId,
-      whatsappInstanceId: this.firstString(body.whatsappInstanceId),
+      workspaceId: resolvedWorkspaceId,
+      whatsappInstanceId: resolvedWhatsappInstanceId,
       name: this.getContactName(body),
       phone: this.getPhone(body),
       phoneHash: this.firstString(body.phoneHash),
@@ -279,7 +287,7 @@ export class WebhooksController {
       occurredAt: new Date()
     });
     const conversion = await this.conversionEventsService.recordRuleMatches({
-      workspaceId,
+      workspaceId: resolvedWorkspaceId,
       rules,
       leadId: lead?.id ?? this.firstString(body.leadId),
       phoneHash: metadata.phoneHash,
@@ -428,6 +436,58 @@ export class WebhooksController {
     const digits = phone?.replace(/\D/g, "");
 
     return digits || undefined;
+  }
+
+  private async resolveUazapiContext(
+    body: WebhookBody
+  ): Promise<{ workspaceId: string; whatsappInstanceId: string } | null> {
+    const providerInstanceId = this.getUazapiProviderInstanceId(body);
+
+    if (!providerInstanceId) {
+      return null;
+    }
+
+    const instance = await this.prisma.whatsappInstance.findFirst({
+      where: {
+        provider: "uazapi",
+        providerInstanceId
+      },
+      select: {
+        id: true,
+        workspaceId: true
+      }
+    });
+
+    return instance
+      ? {
+          workspaceId: instance.workspaceId,
+          whatsappInstanceId: instance.id
+        }
+      : null;
+  }
+
+  private getUazapiProviderInstanceId(body: WebhookBody): string | undefined {
+    const instance = body.instance;
+    const whatsappInstance = body.whatsappInstance;
+
+    return (
+      this.firstString(body.providerInstanceId) ??
+      this.firstString(body.instanceId) ??
+      this.firstString(body.instance_id) ??
+      (instance && typeof instance === "object" && !Array.isArray(instance)
+        ? this.firstString((instance as Record<string, unknown>).id) ??
+          this.firstString((instance as Record<string, unknown>).instanceId) ??
+          this.firstString((instance as Record<string, unknown>).instance_id)
+        : undefined) ??
+      (whatsappInstance &&
+      typeof whatsappInstance === "object" &&
+      !Array.isArray(whatsappInstance)
+        ? this.firstString(
+            (whatsappInstance as Record<string, unknown>).providerInstanceId
+          ) ??
+          this.firstString((whatsappInstance as Record<string, unknown>).id)
+        : undefined)
+    );
   }
 
   private labelToString(label: unknown): string | undefined {

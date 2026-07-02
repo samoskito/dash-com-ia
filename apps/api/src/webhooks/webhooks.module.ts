@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { BillingModule } from "../billing/billing.module";
+import { PrismaModule } from "../common/prisma/prisma.module";
 import { QueueModule } from "../common/queue/queue.module";
 import { ConversionEventsModule } from "../conversion-events/conversion-events.module";
 import { ConversionRulesModule } from "../conversion-rules/conversion-rules.module";
@@ -10,6 +11,7 @@ import { WebhooksController } from "./webhooks.controller";
 @Module({
   imports: [
     DiagnosticsModule,
+    PrismaModule,
     BillingModule,
     ConversionRulesModule,
     LeadsModule,
