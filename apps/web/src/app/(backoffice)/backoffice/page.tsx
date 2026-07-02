@@ -1,4 +1,5 @@
 import type {
+  BackofficePaymentChargeDto,
   DiagnosticEventDto,
   SplitReceiverDto,
   WorkspaceBillingDto
@@ -81,6 +82,22 @@ async function getWorkspaceBilling(): Promise<ResourceResult<WorkspaceBillingDto
     return {
       data: workspaces,
       state: workspaces.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      data: [],
+      state: "error"
+    };
+  }
+}
+
+async function getPaymentCharges(): Promise<ResourceResult<BackofficePaymentChargeDto[]>> {
+  try {
+    const charges = await serverApiFetch<BackofficePaymentChargeDto[]>("/backoffice/billing/charges");
+
+    return {
+      data: charges,
+      state: charges.length > 0 ? "real" : "empty"
     };
   } catch {
     return {
@@ -194,6 +211,13 @@ function percentFromBps(value: number): string {
   return `${(value / 100).toFixed(2)}%`;
 }
 
+function moneyFromCents(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    currency: "BRL",
+    style: "currency"
+  }).format(value / 100).replace(/\u00a0/g, " ");
+}
+
 function percentageInputToBps(value: FormDataEntryValue | null): number {
   const parsed = Number(String(value ?? "0").replace(",", "."));
 
@@ -261,22 +285,26 @@ export default async function BackofficePage({
   const [
     diagnosticEventsResult,
     workspaceBillingResult,
-    splitReceiversResult
+    splitReceiversResult,
+    paymentChargesResult
   ] = await Promise.all([
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
-    getSplitReceivers()
+    getSplitReceivers(),
+    getPaymentCharges()
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
   const workspaceBilling = workspaceBillingResult.data;
   const splitReceivers = splitReceiversResult.data;
+  const paymentCharges = paymentChargesResult.data;
   const activeDiagnosticFilterCount = Object.values(diagnosticFilters).filter(
     Boolean
   ).length;
   const hasBackofficeError = [
     diagnosticEventsResult.state,
     workspaceBillingResult.state,
-    splitReceiversResult.state
+    splitReceiversResult.state,
+    paymentChargesResult.state
   ].includes("error");
   const configuredCustomers = workspaceBilling.filter(
     (workspace) => workspace.asaasCustomerId
@@ -285,10 +313,10 @@ export default async function BackofficePage({
   const panels = [
     [
       "Billing",
-      workspaceBillingResult.state === "error"
+      workspaceBillingResult.state === "error" || paymentChargesResult.state === "error"
         ? "API indisponivel"
-        : `${configuredCustomers}/${workspaceBilling.length}`,
-      "Customers Asaas configurados nos workspaces carregados."
+        : `${paymentCharges.length} cobrancas`,
+      "Cobrancas Asaas e locais retornadas pela API operacional."
     ],
     [
       "Split",
@@ -328,6 +356,10 @@ export default async function BackofficePage({
     diagnosticEventsResult.state === "error"
       ? "Confira permissao de backoffice ou disponibilidade da API."
       : "Quando webhooks, jobs ou integracoes gerarem eventos, eles aparecem aqui.";
+  const paymentChargeEmptyTitle =
+    paymentChargesResult.state === "error"
+      ? "Nao foi possivel carregar cobrancas"
+      : "Nenhuma cobranca encontrada";
 
   return (
     <section className="page-stack standalone-page">
@@ -352,6 +384,64 @@ export default async function BackofficePage({
             <p className="muted">{description}</p>
           </article>
         ))}
+      </div>
+
+      <div className="surface-panel">
+        <span className="eyebrow">Cobrancas Asaas</span>
+        <h2>Cobrancas de instancias WhatsApp</h2>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Workspace</th>
+                <th>Cobranca</th>
+                <th>Instancia</th>
+                <th>Valor</th>
+                <th>Estado</th>
+                <th>Pagamento</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paymentCharges.length > 0 ? (
+                paymentCharges.map((charge) => (
+                  <tr key={charge.id}>
+                    <td>
+                      <strong>{charge.workspaceName}</strong>
+                      <span>{charge.workspaceId}</span>
+                    </td>
+                    <td>
+                      <strong>{charge.externalChargeId ?? charge.id}</strong>
+                      <span>{charge.description}</span>
+                    </td>
+                    <td>{charge.whatsappInstanceName ?? "sem instancia"}</td>
+                    <td>{moneyFromCents(charge.amountCents)}</td>
+                    <td>
+                      <span className={`event-chip${charge.status === "paid" ? "" : " warn"}`}>
+                        {charge.status}
+                      </span>
+                    </td>
+                    <td>
+                      {charge.checkoutUrl ? (
+                        <a className="button ghost" href={charge.checkoutUrl}>
+                          Abrir cobranca
+                        </a>
+                      ) : (
+                        <span className="muted">sem link</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>
+                    <strong>{paymentChargeEmptyTitle}</strong>
+                    <span>As cobrancas criadas no checkout de instancia aparecem aqui.</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="surface-panel">

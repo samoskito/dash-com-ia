@@ -43,6 +43,8 @@ import {
   passwordResetRequestInputSchema,
   passwordResetRequestSchema,
   registerSchema,
+  backofficePaymentChargeListSchema,
+  backofficePaymentChargeSchema,
   splitReceiverCreateInputSchema,
   splitReceiverSchema,
   splitReceiverUpdateInputSchema,
@@ -876,6 +878,30 @@ describe("shared contracts", () => {
     expect(create.percentageBps).toBe(2500);
     expect(update.active).toBe(false);
     expect(receiver.walletId).toBe("wallet_asaas_1");
+  });
+
+  it("validates backoffice payment charge contracts", () => {
+    const charge = backofficePaymentChargeSchema.parse({
+      id: "charge_1",
+      workspaceId: "workspace_1",
+      workspaceName: "Comunidade NOD",
+      provider: "asaas",
+      externalChargeId: "pay_asaas_1",
+      status: "paid",
+      amountCents: 12900,
+      description: "Ativacao da instancia WhatsApp Comercial",
+      checkoutUrl: "https://sandbox.asaas.com/i/pay_asaas_1",
+      dueAt: null,
+      paidAt: "2026-07-02T12:00:00.000Z",
+      createdAt: "2026-07-02T11:00:00.000Z",
+      whatsappInstanceId: "wpp_1",
+      whatsappInstanceName: "Comercial"
+    });
+    const charges = backofficePaymentChargeListSchema.parse([charge]);
+
+    expect(charges[0]?.status).toBe("paid");
+    expect(charges[0]?.amountCents).toBe(12900);
+    expect(charges[0]?.workspaceName).toBe("Comunidade NOD");
   });
 
   it("validates conversion rule contracts for keyword and WhatsApp labels", () => {

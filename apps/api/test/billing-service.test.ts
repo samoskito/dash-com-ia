@@ -15,6 +15,7 @@ type FakePrisma = {
   paymentCharge: {
     create: (args: unknown) => Promise<Record<string, unknown>>;
     findFirst: (args: unknown) => Promise<Record<string, unknown> | null>;
+    findMany: (args: unknown) => Promise<Array<Record<string, unknown>>>;
     update: (args: unknown) => Promise<Record<string, unknown>>;
   };
   splitReceiver: {
@@ -155,6 +156,26 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
             ) ?? null
         };
       },
+      findMany: async () =>
+        db.charges.map((charge) => ({
+          ...charge,
+          createdAt: charge.createdAt ?? new Date("2026-07-02T11:00:00.000Z"),
+          workspace:
+            db.workspaces.find(
+              (workspace) => workspace.id === charge.workspaceId
+            ) ?? null,
+          activation:
+            db.activations
+              .filter((activation) => activation.paymentChargeId === charge.id)
+              .map((activation) => ({
+                ...activation,
+                whatsappInstance:
+                  db.instances.find(
+                    (instance) =>
+                      instance.id === activation.whatsappInstanceId
+                  ) ?? null
+              }))[0] ?? null
+        })),
       update: async (args) => {
         const { data, where } = args as {
           data: Record<string, unknown>;
@@ -267,6 +288,42 @@ describe("billing service", () => {
       currentPeriodEnd: "2026-08-02T03:00:00.000Z",
       asaasSubscriptionId: "sub_asaas_1"
     });
+  });
+
+  it("lists payment charges for platform backoffice", async () => {
+    const { db, service } = createHarness();
+    db.workspaces[0].name = "Comunidade NOD";
+    const checkout = await service.createWhatsappInstanceCheckout(
+      "workspace_1",
+      {
+        instanceName: "Comercial",
+        provider: "uazapi"
+      }
+    );
+    db.charges[0].externalChargeId = "pay_asaas_1";
+    db.charges[0].checkoutUrl = "https://sandbox.asaas.com/i/pay_asaas_1";
+    db.charges[0].paidAt = new Date("2026-07-02T12:00:00.000Z");
+
+    const charges = await service.listBackofficePaymentCharges();
+
+    expect(charges).toEqual([
+      {
+        id: checkout.chargeId,
+        workspaceId: "workspace_1",
+        workspaceName: "Comunidade NOD",
+        provider: "asaas",
+        externalChargeId: "pay_asaas_1",
+        status: "pending",
+        amountCents: 12900,
+        description: "Ativacao da instancia WhatsApp Comercial",
+        checkoutUrl: "https://sandbox.asaas.com/i/pay_asaas_1",
+        dueAt: null,
+        paidAt: "2026-07-02T12:00:00.000Z",
+        createdAt: expect.any(String),
+        whatsappInstanceId: "wpp_1",
+        whatsappInstanceName: "Comercial"
+      }
+    ]);
   });
 
   it("creates checkout records without activating the WhatsApp instance", async () => {

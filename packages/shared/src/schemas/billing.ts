@@ -98,6 +98,27 @@ export const splitReceiverSchema = z.object({
 
 export const splitReceiverListSchema = z.array(splitReceiverSchema);
 
+export const backofficePaymentChargeSchema = z.object({
+  id: z.string().min(1),
+  workspaceId: z.string().min(1),
+  workspaceName: z.string().min(1),
+  provider: z.string().min(1),
+  externalChargeId: z.string().min(1).nullable(),
+  status: z.enum(["pending", "paid", "failed", "canceled", "expired"]),
+  amountCents: z.number().int().nonnegative(),
+  description: z.string().min(1),
+  checkoutUrl: z.string().min(1).nullable(),
+  dueAt: z.string().datetime().nullable(),
+  paidAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  whatsappInstanceId: z.string().min(1).nullable(),
+  whatsappInstanceName: z.string().min(1).nullable()
+});
+
+export const backofficePaymentChargeListSchema = z.array(
+  backofficePaymentChargeSchema
+);
+
 export type WhatsappInstanceQuoteDto = z.infer<
   typeof whatsappInstanceQuoteSchema
 >;
@@ -126,3 +147,6 @@ export type SplitReceiverUpdateInputDto = z.infer<
   typeof splitReceiverUpdateInputSchema
 >;
 export type SplitReceiverDto = z.infer<typeof splitReceiverSchema>;
+export type BackofficePaymentChargeDto = z.infer<
+  typeof backofficePaymentChargeSchema
+>;

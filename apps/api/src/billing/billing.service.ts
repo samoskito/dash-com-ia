@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import type {
+  BackofficePaymentChargeDto,
   WhatsappInstanceCheckoutDto,
   WhatsappInstanceCheckoutInputDto,
   WhatsappInstanceQuoteDto,
@@ -27,6 +28,29 @@ type PaymentChargeWithActivation = {
   activation: {
     id: string;
     whatsappInstanceId: string;
+  } | null;
+};
+
+type BackofficePaymentChargeRecord = {
+  id: string;
+  workspaceId: string;
+  provider: string;
+  externalChargeId: string | null;
+  status: string;
+  amountCents: number;
+  description: string;
+  checkoutUrl: string | null;
+  dueAt: Date | null;
+  paidAt: Date | null;
+  createdAt: Date;
+  workspace: {
+    name: string;
+  };
+  activation: {
+    whatsappInstance: {
+      id: string;
+      name: string;
+    };
   } | null;
 };
 
@@ -124,6 +148,49 @@ export class BillingService {
       currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
       asaasSubscriptionId: subscription.asaasSubscriptionId
     };
+  }
+
+  async listBackofficePaymentCharges(): Promise<BackofficePaymentChargeDto[]> {
+    const charges = (await this.prisma.paymentCharge.findMany({
+      include: {
+        workspace: {
+          select: {
+            name: true
+          }
+        },
+        activation: {
+          include: {
+            whatsappInstance: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        createdAt: "desc"
+      },
+      take: 100
+    })) as BackofficePaymentChargeRecord[];
+
+    return charges.map((charge) => ({
+      id: charge.id,
+      workspaceId: charge.workspaceId,
+      workspaceName: charge.workspace.name,
+      provider: charge.provider,
+      externalChargeId: charge.externalChargeId,
+      status: this.toPaymentChargeStatus(charge.status),
+      amountCents: charge.amountCents,
+      description: charge.description,
+      checkoutUrl: charge.checkoutUrl,
+      dueAt: charge.dueAt?.toISOString() ?? null,
+      paidAt: charge.paidAt?.toISOString() ?? null,
+      createdAt: charge.createdAt?.toISOString() ?? new Date(0).toISOString(),
+      whatsappInstanceId: charge.activation?.whatsappInstance.id ?? null,
+      whatsappInstanceName: charge.activation?.whatsappInstance.name ?? null
+    }));
   }
 
   async createWhatsappInstanceCheckout(
@@ -362,6 +429,22 @@ export class BillingService {
       status === "pending" ||
       status === "overdue" ||
       status === "cancelled"
+    ) {
+      return status;
+    }
+
+    return "pending";
+  }
+
+  private toPaymentChargeStatus(
+    status: string
+  ): BackofficePaymentChargeDto["status"] {
+    if (
+      status === "pending" ||
+      status === "paid" ||
+      status === "failed" ||
+      status === "canceled" ||
+      status === "expired"
     ) {
       return status;
     }

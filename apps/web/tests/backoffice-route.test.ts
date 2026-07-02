@@ -160,6 +160,65 @@ describe("backoffice route", () => {
     expect(html).toContain("not_configured");
   });
 
+  it("renders payment charges returned by the backend", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "charge_1",
+              workspaceId: "workspace_1",
+              workspaceName: "Comunidade NOD",
+              provider: "asaas",
+              externalChargeId: "pay_asaas_1",
+              status: "paid",
+              amountCents: 12900,
+              description: "Ativacao da instancia WhatsApp Comercial",
+              checkoutUrl: "https://sandbox.asaas.com/i/pay_asaas_1",
+              dueAt: null,
+              paidAt: "2026-07-02T12:00:00.000Z",
+              createdAt: "2026-07-02T11:00:00.000Z",
+              whatsappInstanceId: "wpp_1",
+              whatsappInstanceName: "Comercial"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await BackofficePage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/billing/charges",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(html).toContain("Cobrancas Asaas");
+    expect(html).toContain("Comunidade NOD");
+    expect(html).toContain("pay_asaas_1");
+    expect(html).toContain("R$ 129,00");
+    expect(html).toContain("Comercial");
+    expect(html).toContain("paid");
+  });
+
   it("sends diagnostic filters to the backoffice diagnostics endpoint", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
