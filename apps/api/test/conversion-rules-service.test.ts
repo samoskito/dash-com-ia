@@ -21,6 +21,9 @@ type FakePrisma = {
     create: (args: unknown) => Promise<Rule>;
     update: (args: unknown) => Promise<Rule>;
   };
+  auditLog: {
+    create: (args: unknown) => Promise<Record<string, unknown>>;
+  };
 };
 
 function createHarness() {
@@ -66,7 +69,8 @@ function createHarness() {
         createdAt: now,
         updatedAt: now
       }
-    ] as Rule[]
+    ] as Rule[],
+    auditLogs: [] as Array<Record<string, unknown>>
   };
   const prisma: FakePrisma = {
     conversionRule: {
@@ -99,6 +103,17 @@ function createHarness() {
         };
         return db.rules[index];
       }
+    },
+    auditLog: {
+      create: async (args) => {
+        const { data } = args as { data: Record<string, unknown> };
+        const log = {
+          id: `audit_${db.auditLogs.length + 1}`,
+          ...data
+        };
+        db.auditLogs.push(log);
+        return log;
+      }
     }
   };
 
@@ -112,15 +127,19 @@ describe("conversion rules service", () => {
   it("creates conversion rules scoped to the workspace", async () => {
     const { db, service } = createHarness();
 
-    const created = await service.createRule("workspace_1", {
-      name: "Etiqueta VIP",
-      triggerType: "whatsapp_label",
-      triggerValue: "VIP",
-      matchMode: "exact",
-      eventName: "Purchase",
-      pixelId: "pixel_2",
-      active: true
-    });
+    const created = await service.createRule(
+      "workspace_1",
+      {
+        name: "Etiqueta VIP",
+        triggerType: "whatsapp_label",
+        triggerValue: "VIP",
+        matchMode: "exact",
+        eventName: "Purchase",
+        pixelId: "pixel_2",
+        active: true
+      },
+      "user_1"
+    );
 
     expect(created).toMatchObject({
       workspaceId: "workspace_1",
@@ -129,6 +148,17 @@ describe("conversion rules service", () => {
       active: true
     });
     expect(db.rules).toHaveLength(4);
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "conversion_rule.created",
+        targetType: "ConversionRule",
+        targetId: created.id,
+        resultStatus: "active"
+      })
+    );
   });
 
   it("matches active keyword and WhatsApp label rules without triggering inactive rules", async () => {
@@ -144,12 +174,28 @@ describe("conversion rules service", () => {
   });
 
   it("updates only the requested workspace rule", async () => {
-    const { service } = createHarness();
+    const { db, service } = createHarness();
 
-    const updated = await service.updateRule("workspace_1", "rule_1", {
-      active: false
-    });
+    const updated = await service.updateRule(
+      "workspace_1",
+      "rule_1",
+      {
+        active: false
+      },
+      "user_1"
+    );
 
     expect(updated.active).toBe(false);
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "conversion_rule.updated",
+        targetType: "ConversionRule",
+        targetId: "rule_1",
+        resultStatus: "inactive"
+      })
+    );
   });
 });

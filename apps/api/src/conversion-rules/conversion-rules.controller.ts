@@ -42,8 +42,13 @@ export class ConversionRulesController {
       throw new BadRequestException("Payload invalido");
     }
 
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
-    return this.conversionRulesService.createRule(workspaceId, parsed.data);
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    return this.conversionRulesService.createRule(
+      workspace.id,
+      parsed.data,
+      authenticated.user.id
+    );
   }
 
   @Patch(":id")
@@ -58,11 +63,13 @@ export class ConversionRulesController {
       throw new BadRequestException("Payload invalido");
     }
 
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
     return this.conversionRulesService.updateRule(
-      workspaceId,
+      workspace.id,
       ruleId,
-      parsed.data
+      parsed.data,
+      authenticated.user.id
     );
   }
 

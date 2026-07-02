@@ -106,14 +106,18 @@ describe("conversion rules controller", () => {
         expect(body.triggerType).toBe("keyword");
       });
 
-    expect(conversionRulesService.createRule).toHaveBeenCalledWith("workspace_1", {
-      name: "Lead qualificado",
-      triggerType: "keyword",
-      triggerValue: "quero comprar",
-      matchMode: "contains",
-      eventName: "QualifiedLead",
-      active: true
-    });
+    expect(conversionRulesService.createRule).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        name: "Lead qualificado",
+        triggerType: "keyword",
+        triggerValue: "quero comprar",
+        matchMode: "contains",
+        eventName: "QualifiedLead",
+        active: true
+      },
+      "user_1"
+    );
 
     await app.close();
   });

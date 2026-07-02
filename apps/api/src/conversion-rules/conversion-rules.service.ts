@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import type {
   ConversionRuleCreateInputDto,
   ConversionRuleDto,
@@ -36,7 +37,8 @@ export class ConversionRulesService {
 
   async createRule(
     workspaceId: string,
-    input: ConversionRuleCreateInputDto
+    input: ConversionRuleCreateInputDto,
+    actorUserId?: string | null
   ): Promise<ConversionRuleDto> {
     const rule = await this.prisma.conversionRule.create({
       data: {
@@ -50,6 +52,14 @@ export class ConversionRulesService {
         active: input.active
       }
     });
+    await this.recordRuleAudit({
+      workspaceId,
+      actorUserId: actorUserId ?? null,
+      action: "conversion_rule.created",
+      targetId: rule.id,
+      resultStatus: rule.active ? "active" : "inactive",
+      afterSummary: this.ruleAuditSummary(rule)
+    });
 
     return this.toDto(rule);
   }
@@ -57,7 +67,8 @@ export class ConversionRulesService {
   async updateRule(
     workspaceId: string,
     ruleId: string,
-    input: ConversionRuleUpdateInputDto
+    input: ConversionRuleUpdateInputDto,
+    actorUserId?: string | null
   ): Promise<ConversionRuleDto> {
     const rule = await this.prisma.conversionRule.update({
       where: {
@@ -69,8 +80,56 @@ export class ConversionRulesService {
         pixelId: input.pixelId === undefined ? undefined : input.pixelId
       }
     });
+    await this.recordRuleAudit({
+      workspaceId,
+      actorUserId: actorUserId ?? null,
+      action: "conversion_rule.updated",
+      targetId: rule.id,
+      resultStatus: rule.active ? "active" : "inactive",
+      afterSummary: this.ruleAuditSummary(rule)
+    });
 
     return this.toDto(rule);
+  }
+
+  private async recordRuleAudit(input: {
+    workspaceId: string;
+    actorUserId: string | null;
+    action: string;
+    targetId: string;
+    resultStatus: string;
+    afterSummary: Prisma.InputJsonValue;
+  }): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId: input.workspaceId,
+          actorUserId: input.actorUserId,
+          actorType: input.actorUserId ? "user" : "system",
+          action: input.action,
+          targetType: "ConversionRule",
+          targetId: input.targetId,
+          reason: null,
+          sourceIp: null,
+          resultStatus: input.resultStatus,
+          beforeSummary: undefined,
+          afterSummary: input.afterSummary
+        }
+      });
+    } catch {
+      return;
+    }
+  }
+
+  private ruleAuditSummary(rule: PersistedConversionRule): Prisma.InputJsonValue {
+    return {
+      name: rule.name,
+      triggerType: rule.triggerType,
+      matchMode: rule.matchMode,
+      eventName: rule.eventName,
+      pixelConfigured: Boolean(rule.pixelId),
+      active: rule.active
+    } as Prisma.InputJsonValue;
   }
 
   async evaluateTriggers(
