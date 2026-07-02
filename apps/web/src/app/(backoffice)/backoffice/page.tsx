@@ -24,9 +24,14 @@ type DiagnosticFilters = {
   workspaceId?: string;
 };
 
+type ResourceResult<T> = {
+  data: T;
+  state: "real" | "empty" | "error";
+};
+
 async function getDiagnosticEvents(
   filters: DiagnosticFilters
-): Promise<DiagnosticEventDto[]> {
+): Promise<ResourceResult<DiagnosticEventDto[]>> {
   try {
     const params = new URLSearchParams({ limit: "25" });
 
@@ -36,27 +41,51 @@ async function getDiagnosticEvents(
       }
     }
 
-    return await serverApiFetch<DiagnosticEventDto[]>(
+    const events = await serverApiFetch<DiagnosticEventDto[]>(
       `/backoffice/diagnostics/events?${params.toString()}`
     );
+
+    return {
+      data: events,
+      state: events.length > 0 ? "real" : "empty"
+    };
   } catch {
-    return [];
+    return {
+      data: [],
+      state: "error"
+    };
   }
 }
 
-async function getSplitReceivers(): Promise<SplitReceiverDto[]> {
+async function getSplitReceivers(): Promise<ResourceResult<SplitReceiverDto[]>> {
   try {
-    return await serverApiFetch<SplitReceiverDto[]>("/backoffice/split/receivers");
+    const receivers = await serverApiFetch<SplitReceiverDto[]>("/backoffice/split/receivers");
+
+    return {
+      data: receivers,
+      state: receivers.length > 0 ? "real" : "empty"
+    };
   } catch {
-    return [];
+    return {
+      data: [],
+      state: "error"
+    };
   }
 }
 
-async function getWorkspaceBilling(): Promise<WorkspaceBillingDto[]> {
+async function getWorkspaceBilling(): Promise<ResourceResult<WorkspaceBillingDto[]>> {
   try {
-    return await serverApiFetch<WorkspaceBillingDto[]>("/backoffice/workspaces/billing");
+    const workspaces = await serverApiFetch<WorkspaceBillingDto[]>("/backoffice/workspaces/billing");
+
+    return {
+      data: workspaces,
+      state: workspaces.length > 0 ? "real" : "empty"
+    };
   } catch {
-    return [];
+    return {
+      data: [],
+      state: "error"
+    };
   }
 }
 
@@ -161,35 +190,76 @@ export default async function BackofficePage({
     adId: asStringParam(resolvedSearchParams.adId),
     errorCode: asStringParam(resolvedSearchParams.errorCode)
   };
-  const [diagnosticEvents, workspaceBilling, splitReceivers] = await Promise.all([
+  const [
+    diagnosticEventsResult,
+    workspaceBillingResult,
+    splitReceiversResult
+  ] = await Promise.all([
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
     getSplitReceivers()
   ]);
+  const diagnosticEvents = diagnosticEventsResult.data;
+  const workspaceBilling = workspaceBillingResult.data;
+  const splitReceivers = splitReceiversResult.data;
   const activeDiagnosticFilterCount = Object.values(diagnosticFilters).filter(
     Boolean
   ).length;
+  const hasBackofficeError = [
+    diagnosticEventsResult.state,
+    workspaceBillingResult.state,
+    splitReceiversResult.state
+  ].includes("error");
+  const configuredCustomers = workspaceBilling.filter(
+    (workspace) => workspace.asaasCustomerId
+  ).length;
+  const activeReceivers = splitReceivers.filter((receiver) => receiver.active).length;
   const panels = [
-    ["Billing", "R$ 18.420", "MRR consolidado, inadimplencia e notas pendentes."],
-    ["Split", "94.2%", "Repasse capturado por workspace com divergencias sinalizadas."],
-    ["Workspaces", "128", "Operacoes ativas, suspensas e em trial monitoradas."],
-    ["Diagnosticos", "7 alertas", "Webhooks, Meta tokens, filas e entregas CAPI."]
+    [
+      "Billing",
+      workspaceBillingResult.state === "error"
+        ? "API indisponivel"
+        : `${configuredCustomers}/${workspaceBilling.length}`,
+      "Customers Asaas configurados nos workspaces carregados."
+    ],
+    [
+      "Split",
+      splitReceiversResult.state === "error"
+        ? "API indisponivel"
+        : `${activeReceivers}/${splitReceivers.length}`,
+      "Recebedores ativos entre os recebedores carregados."
+    ],
+    [
+      "Workspaces",
+      workspaceBillingResult.state === "error"
+        ? "API indisponivel"
+        : String(workspaceBilling.length),
+      "Workspaces retornados pela API de billing operacional."
+    ],
+    [
+      "Diagnosticos",
+      diagnosticEventsResult.state === "error"
+        ? "API indisponivel"
+        : `${diagnosticEvents.length} eventos`,
+      "Eventos reais retornados pela Central de Diagnostico."
+    ]
   ];
-  const receivers =
-    splitReceivers.length > 0
-      ? splitReceivers
-      : [
-          {
-            id: "fallback_receiver_1",
-            name: "Recebedor principal",
-            walletId: "wallet_asaas_preview",
-            email: "financeiro@wpptrack.local",
-            percentageBps: 10000,
-            active: true,
-            createdAt: "2026-07-02T03:00:00.000Z",
-            updatedAt: "2026-07-02T03:00:00.000Z"
-          }
-        ];
+  const workspaceEmptyTitle =
+    workspaceBillingResult.state === "error"
+      ? "Nao foi possivel carregar workspaces"
+      : "Nenhum workspace carregado";
+  const splitEmptyTitle =
+    splitReceiversResult.state === "error"
+      ? "Nao foi possivel carregar recebedores"
+      : "Nenhum recebedor configurado";
+  const diagnosticEmptyTitle =
+    diagnosticEventsResult.state === "error"
+      ? "Nao foi possivel carregar eventos diagnosticos"
+      : "Nenhum evento diagnostico encontrado";
+  const diagnosticEmptyDescription =
+    diagnosticEventsResult.state === "error"
+      ? "Confira permissao de backoffice ou disponibilidade da API."
+      : "Quando webhooks, jobs ou integracoes gerarem eventos, eles aparecem aqui.";
 
   return (
     <section className="page-stack standalone-page">
@@ -200,8 +270,9 @@ export default async function BackofficePage({
           <p>Financeiro, split, workspaces e Central de Diagnostico operacional.</p>
         </div>
         <div className="header-actions">
-          <span className="status-chip">Jobs online</span>
-          <span className="status-chip warn">3 tokens a vencer</span>
+          <span className={`status-chip${hasBackofficeError ? " warn" : ""}`}>
+            {hasBackofficeError ? "API indisponivel" : "Backoffice conectado"}
+          </span>
         </div>
       </header>
 
@@ -259,7 +330,7 @@ export default async function BackofficePage({
                 ))
               ) : (
                 <tr>
-                  <td><strong>Nenhum workspace carregado</strong><span>Confira permissao de backoffice</span></td>
+                  <td><strong>{workspaceEmptyTitle}</strong><span>Confira permissao de backoffice</span></td>
                   <td>-</td>
                   <td><span className="muted">Configurar customer</span></td>
                   <td><span className="event-chip warn">sem dados</span></td>
@@ -285,19 +356,28 @@ export default async function BackofficePage({
               </tr>
             </thead>
             <tbody>
-              {receivers.map((receiver) => (
-                <tr key={receiver.id}>
-                  <td><strong>{receiver.name}</strong><span>{receiver.id}</span></td>
-                  <td>{receiver.walletId}</td>
-                  <td>{receiver.email ?? "sem email"}</td>
-                  <td>{percentFromBps(receiver.percentageBps)}</td>
-                  <td>
-                    <span className={`event-chip${receiver.active ? "" : " warn"}`}>
-                      {receiver.active ? "ativo" : "pausado"}
-                    </span>
+              {splitReceivers.length > 0 ? (
+                splitReceivers.map((receiver) => (
+                  <tr key={receiver.id}>
+                    <td><strong>{receiver.name}</strong><span>{receiver.id}</span></td>
+                    <td>{receiver.walletId}</td>
+                    <td>{receiver.email ?? "sem email"}</td>
+                    <td>{percentFromBps(receiver.percentageBps)}</td>
+                    <td>
+                      <span className={`event-chip${receiver.active ? "" : " warn"}`}>
+                        {receiver.active ? "ativo" : "pausado"}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5}>
+                    <strong>{splitEmptyTitle}</strong>
+                    <span>Cadastre recebedores reais antes de validar split de pagamentos.</span>
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
@@ -438,32 +518,12 @@ export default async function BackofficePage({
                   </tr>
                 ))
               ) : (
-                <>
-                  <tr>
-                    <td><strong>WhatsApp sessions</strong><span>Uazapi e reconexao QR</span></td>
-                    <td>4</td>
-                    <td>ha 9 min</td>
-                    <td>99.1%</td>
-                    <td><span className="event-chip warn">observacao</span></td>
-                    <td><span className="muted">aguardando evento</span></td>
-                  </tr>
-                  <tr>
-                    <td><strong>Meta CAPI</strong><span>Envio e acceptance rate</span></td>
-                    <td>1</td>
-                    <td>ha 42 min</td>
-                    <td>99.7%</td>
-                    <td><span className="event-chip">normal</span></td>
-                    <td><span className="muted">aguardando evento</span></td>
-                  </tr>
-                  <tr>
-                    <td><strong>Billing split</strong><span>Webhook pagamento e repasse</span></td>
-                    <td>2</td>
-                    <td>ha 2 h</td>
-                    <td>98.8%</td>
-                    <td><span className="event-chip">normal</span></td>
-                    <td><span className="muted">aguardando evento</span></td>
-                  </tr>
-                </>
+                <tr>
+                  <td colSpan={6}>
+                    <strong>{diagnosticEmptyTitle}</strong>
+                    <span>{diagnosticEmptyDescription}</span>
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>

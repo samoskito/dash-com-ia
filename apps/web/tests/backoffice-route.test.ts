@@ -188,4 +188,77 @@ describe("backoffice route", () => {
     expect(html).toContain("6 filtros ativos");
     expect(html).toContain("currency");
   });
+
+  it("does not render demo backoffice numbers or fallback rows when APIs fail", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        })
+      );
+
+    const element = await BackofficePage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("API indisponivel");
+    expect(html).toContain("Nao foi possivel carregar recebedores");
+    expect(html).toContain("Nao foi possivel carregar eventos diagnosticos");
+    expect(html).not.toContain("R$ 18.420");
+    expect(html).not.toContain("94.2%");
+    expect(html).not.toContain("128");
+    expect(html).not.toContain("7 alertas");
+    expect(html).not.toContain("Jobs online");
+    expect(html).not.toContain("3 tokens a vencer");
+    expect(html).not.toContain("Recebedor principal");
+    expect(html).not.toContain("wallet_asaas_preview");
+    expect(html).not.toContain("WhatsApp sessions");
+    expect(html).not.toContain("Meta CAPI");
+    expect(html).not.toContain("Billing split");
+  });
+
+  it("renders empty backoffice states without demo fallback rows", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      );
+
+    const element = await BackofficePage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Nenhum recebedor configurado");
+    expect(html).toContain("Nenhum evento diagnostico encontrado");
+    expect(html).not.toContain("Recebedor principal");
+    expect(html).not.toContain("wallet_asaas_preview");
+    expect(html).not.toContain("WhatsApp sessions");
+    expect(html).not.toContain("Meta CAPI");
+    expect(html).not.toContain("Billing split");
+  });
 });
