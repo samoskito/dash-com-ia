@@ -11,6 +11,7 @@ function mockSettingsFetch(options: {
   rulesBody: unknown;
   rulesStatus?: number;
   workspaceStatus?: number;
+  workspaceRole?: "owner" | "admin" | "member";
   membersStatus?: number;
   authStatus?: number;
 }) {
@@ -44,16 +45,17 @@ function mockSettingsFetch(options: {
     }
 
     if (url.endsWith("/workspaces/current")) {
+      const role = options.workspaceRole ?? "owner";
       return new Response(
         JSON.stringify({
           id: "workspace_1",
           name: "Loja Samuel",
           slug: "loja-samuel",
-          role: "owner",
+          role,
           permissions: {
-            canInviteMembers: true,
-            canManageBilling: true,
-            canManageIntegrations: true,
+            canInviteMembers: role === "owner" || role === "admin",
+            canManageBilling: role === "owner",
+            canManageIntegrations: role === "owner" || role === "admin",
             canViewReports: true
           }
         }),
@@ -261,6 +263,35 @@ describe("settings route", () => {
     expect(html).toContain("Nome da regra");
     expect(html).toContain("Etiqueta WhatsApp");
     expect(html).toContain("Pausar");
+  });
+
+  it("hides conversion rule mutation controls for workspace members", async () => {
+    mockSettingsFetch({
+      workspaceRole: "member",
+      rulesBody: [
+        {
+          id: "rule_1",
+          workspaceId: "workspace_1",
+          name: "Lead qualificado por palavra",
+          triggerType: "keyword",
+          triggerValue: "quero comprar",
+          matchMode: "contains",
+          eventName: "QualifiedLead",
+          pixelId: null,
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        }
+      ]
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Lead qualificado por palavra");
+    expect(html).toContain("Sem permissao para editar regras");
+    expect(html).not.toContain("Criar regra");
+    expect(html).not.toContain("Pausar");
   });
 
   it("renders an unavailable state without demo rules when conversion rules fail", async () => {

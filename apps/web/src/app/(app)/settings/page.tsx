@@ -222,6 +222,9 @@ export default async function SettingsPage() {
   const { rules } = conversionRules;
   const { workspace, members, invites } = workspaceSettings;
   const accountUser = accountSettings.user;
+  const canManageConversionRules = Boolean(
+    workspace?.permissions.canManageIntegrations
+  );
   const emptyTitle =
     conversionRules.state === "error"
       ? "Nao foi possivel carregar regras"
@@ -395,28 +398,34 @@ export default async function SettingsPage() {
       <div className="surface-panel">
         <span className="eyebrow">Mapeamento de eventos</span>
         <h2>Etiquetas do WhatsApp viram eventos do Pixel</h2>
-        <form className="inline-form" action={createConversionRule}>
-          <input name="name" placeholder="Nome da regra" aria-label="Nome da regra" />
-          <select name="triggerType" defaultValue="keyword" aria-label="Origem do gatilho">
-            <option value="keyword">Palavra-chave</option>
-            <option value="whatsapp_label">Etiqueta WhatsApp</option>
-          </select>
-          <input name="triggerValue" placeholder="Gatilho" aria-label="Gatilho da regra" />
-          <select name="matchMode" defaultValue="contains" aria-label="Modo de comparacao">
-            <option value="contains">Contem</option>
-            <option value="exact">Igual a</option>
-          </select>
-          <select name="eventName" defaultValue="LeadSubmitted" aria-label="Evento Meta">
-            <option value="LeadSubmitted">LeadSubmitted</option>
-            <option value="QualifiedLead">QualifiedLead</option>
-            <option value="Purchase">Purchase</option>
-            <option value="Contact">Contact</option>
-            <option value="CompleteRegistration">CompleteRegistration</option>
-          </select>
-          <input name="pixelId" placeholder="Pixel opcional" aria-label="Pixel opcional" />
-          <button className="button primary" type="submit">Criar regra</button>
-        </form>
-        <p className="muted">Nova regra de conversao</p>
+        {canManageConversionRules ? (
+          <>
+            <form className="inline-form" action={createConversionRule}>
+              <input name="name" placeholder="Nome da regra" aria-label="Nome da regra" />
+              <select name="triggerType" defaultValue="keyword" aria-label="Origem do gatilho">
+                <option value="keyword">Palavra-chave</option>
+                <option value="whatsapp_label">Etiqueta WhatsApp</option>
+              </select>
+              <input name="triggerValue" placeholder="Gatilho" aria-label="Gatilho da regra" />
+              <select name="matchMode" defaultValue="contains" aria-label="Modo de comparacao">
+                <option value="contains">Contem</option>
+                <option value="exact">Igual a</option>
+              </select>
+              <select name="eventName" defaultValue="LeadSubmitted" aria-label="Evento Meta">
+                <option value="LeadSubmitted">LeadSubmitted</option>
+                <option value="QualifiedLead">QualifiedLead</option>
+                <option value="Purchase">Purchase</option>
+                <option value="Contact">Contact</option>
+                <option value="CompleteRegistration">CompleteRegistration</option>
+              </select>
+              <input name="pixelId" placeholder="Pixel opcional" aria-label="Pixel opcional" />
+              <button className="button primary" type="submit">Criar regra</button>
+            </form>
+            <p className="muted">Nova regra de conversao</p>
+          </>
+        ) : (
+          <p className="muted">Sem permissao para editar regras</p>
+        )}
         <div className="table-wrap">
           <table>
             <thead>
@@ -443,13 +452,17 @@ export default async function SettingsPage() {
                       </span>
                     </td>
                     <td>
-                      <form action={updateConversionRuleStatus}>
-                        <input type="hidden" name="ruleId" value={rule.id} />
-                        <input type="hidden" name="active" value={String(!rule.active)} />
-                        <button className="button" type="submit">
-                          {rule.active ? "Pausar" : "Ativar"}
-                        </button>
-                      </form>
+                      {canManageConversionRules ? (
+                        <form action={updateConversionRuleStatus}>
+                          <input type="hidden" name="ruleId" value={rule.id} />
+                          <input type="hidden" name="active" value={String(!rule.active)} />
+                          <button className="button" type="submit">
+                            {rule.active ? "Pausar" : "Ativar"}
+                          </button>
+                        </form>
+                      ) : (
+                        <span className="event-chip warn">sem permissao</span>
+                      )}
                     </td>
                   </tr>
                 ))

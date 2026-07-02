@@ -132,6 +132,23 @@ describe("reports route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "workspace_1",
+            name: "Workspace",
+            slug: "workspace",
+            role: "owner",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
       );
 
     const element = await ReportsPage({
@@ -156,6 +173,10 @@ describe("reports route", () => {
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/reports/ads?since=2026-07-01&until=2026-07-02",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/workspaces/current",
       expect.objectContaining({ credentials: "include" })
     );
     expect(html).toContain("Black Friday WhatsApp");
@@ -219,6 +240,23 @@ describe("reports route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "workspace_1",
+            name: "Workspace",
+            slug: "workspace",
+            role: "owner",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
       );
 
     const element = await ReportsPage({});
@@ -237,6 +275,7 @@ describe("reports route", () => {
       .mockResolvedValueOnce(new Response("offline", { status: 503 }))
       .mockResolvedValueOnce(new Response("offline", { status: 503 }))
       .mockResolvedValueOnce(new Response("offline", { status: 503 }))
+      .mockResolvedValueOnce(new Response("offline", { status: 503 }))
       .mockResolvedValueOnce(new Response("offline", { status: 503 }));
 
     const element = await ReportsPage({});
@@ -247,5 +286,71 @@ describe("reports route", () => {
     expect(html).toContain("Nao foi possivel carregar conjuntos");
     expect(html).toContain("Nao foi possivel carregar anuncios");
     expect(html).not.toContain("Black Friday WhatsApp");
+  });
+
+  it("hides Meta sync action for workspace members", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            campaigns: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            campaigns: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            adSets: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            ads: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "workspace_1",
+            name: "Workspace",
+            slug: "workspace",
+            role: "member",
+            permissions: {
+              canInviteMembers: false,
+              canManageBilling: false,
+              canManageIntegrations: false,
+              canViewReports: true
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await ReportsPage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Sem permissao para sincronizar Meta");
+    expect(html).not.toContain("Sincronizar Meta");
   });
 });

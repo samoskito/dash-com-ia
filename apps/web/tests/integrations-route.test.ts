@@ -176,6 +176,23 @@ describe("integrations route", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
+            id: "workspace_1",
+            name: "Workspace",
+            slug: "workspace",
+            role: "owner",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
             whatsappInstanceId: "wpp_1",
             provider: "uazapi",
             billingStatus: "active",
@@ -212,6 +229,10 @@ describe("integrations route", () => {
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/pipeline",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/workspaces/current",
       expect.objectContaining({ credentials: "include" })
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -254,8 +275,162 @@ describe("integrations route", () => {
     expect(html).not.toContain("aguardando dados");
   });
 
+  it("hides integration mutation actions for workspace members", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            checkedAt: "2026-07-02T03:00:00.000Z",
+            providers: [
+              {
+                provider: "uazapi",
+                status: "connected",
+                checkedAt: "2026-07-02T03:00:00.000Z"
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "wpp_1",
+              name: "Vendas",
+              provider: "uazapi",
+              billingStatus: "active",
+              providerInstanceId: "provider_instance_1",
+              checkoutUrl: null,
+              createdAt: "2026-07-02T03:00:00.000Z"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "connected",
+            tokenType: "bearer",
+            scopes: ["ads_read"],
+            expiresAt: null,
+            connectedAt: "2026-07-02T03:00:00.000Z",
+            selectedBusinessId: "business_1",
+            selectedAdAccountId: "act_1",
+            selectedPixelId: "pixel_1"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "connected",
+            businesses: [{ id: "business_1", name: "BM Principal" }],
+            adAccounts: [{ id: "act_1", name: "Conta WhatsApp" }],
+            pixels: [{ id: "pixel_1", name: "Pixel Loja", code: "123456789" }],
+            selection: {
+              businessId: "business_1",
+              adAccountId: "act_1",
+              pixelId: "pixel_1"
+            },
+            lastSyncedAt: "2026-07-02T03:00:00.000Z",
+            syncError: null
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            activeInstances: 1,
+            pricePerInstanceCents: 9900,
+            nextInstanceAmountCents: 9900,
+            currency: "BRL"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "active",
+            planName: "Por instancia",
+            activeInstances: 1,
+            pricePerWhatsappInstanceCents: 9900,
+            monthlyAmountCents: 9900,
+            currentPeriodEnd: null,
+            asaasSubscriptionId: null
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            stages: []
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "workspace_1",
+            name: "Workspace",
+            slug: "workspace",
+            role: "member",
+            permissions: {
+              canInviteMembers: false,
+              canManageBilling: false,
+              canManageIntegrations: false,
+              canViewReports: true
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            whatsappInstanceId: "wpp_1",
+            provider: "uazapi",
+            billingStatus: "active",
+            connectionStatus: "connected",
+            qrCode: null,
+            message: "WhatsApp conectado"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const element = await IntegrationsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("BM Principal");
+    expect(html).toContain("Vendas");
+    expect(html).toContain("Sem permissao para alterar Meta");
+    expect(html).toContain("Sem permissao para adicionar instancias");
+    expect(html).not.toContain("Salvar selecao Meta");
+    expect(html).not.toContain("Adicionar instancia");
+    expect(html).not.toContain("Conectar WhatsApp");
+  });
+
   it("renders unavailable states without visual fallback providers or fake pipeline metrics", async () => {
     vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,

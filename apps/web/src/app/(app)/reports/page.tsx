@@ -4,6 +4,7 @@ import type {
   AdSetReportOverviewDto,
   AdSetReportRowDto,
   CampaignReportRowDto,
+  CurrentWorkspaceDto,
   MetaStructureReportDto,
   ReportOverviewDto
 } from "@wpptrack/shared";
@@ -127,6 +128,14 @@ async function getMetaStructureReport(): Promise<MetaStructureReportDto | null> 
   }
 }
 
+async function getCurrentWorkspace(): Promise<CurrentWorkspaceDto | null> {
+  try {
+    return await serverApiFetch<CurrentWorkspaceDto>("/workspaces/current");
+  } catch {
+    return null;
+  }
+}
+
 function reportQuery(filters: { since?: string; until?: string }) {
   const params = new URLSearchParams();
 
@@ -233,16 +242,38 @@ export default async function ReportsPage({
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const since = asStringParam(resolvedSearchParams.since);
   const until = asStringParam(resolvedSearchParams.until);
-  const [campaignReports, metaStructure, adSetReports, adReports] = await Promise.all([
+  const [
+    campaignReports,
+    metaStructure,
+    adSetReports,
+    adReports,
+    currentWorkspace
+  ] = await Promise.all([
     getCampaignReports({ since, until }),
     getMetaStructureReport(),
     getAdSetReports({ since, until }),
-    getAdReports({ since, until })
+    getAdReports({ since, until }),
+    getCurrentWorkspace()
   ]);
   const { report, state: reportState } = campaignReports;
   const rows = report.campaigns;
   const adSetRows = adSetReports.report.adSets;
   const adRows = adReports.report.ads;
+  const canSyncMetaReports = Boolean(
+    currentWorkspace?.permissions.canManageIntegrations
+  );
+  const syncCampaignHint = canSyncMetaReports
+    ? "Use Sincronizar Meta para carregar campanhas reais."
+    : "A sincronizacao Meta depende de owner ou admin.";
+  const syncAdSetHint = canSyncMetaReports
+    ? "Use Sincronizar Meta para carregar conjuntos reais."
+    : "A sincronizacao Meta depende de owner ou admin.";
+  const syncAdHint = canSyncMetaReports
+    ? "Use Sincronizar Meta para carregar anuncios reais."
+    : "A sincronizacao Meta depende de owner ou admin.";
+  const syncStructureHint = canSyncMetaReports
+    ? "Use o botao Sincronizar Meta para enfileirar a leitura."
+    : "A leitura da estrutura Meta depende de owner ou admin.";
 
   return (
     <section className="page-stack">
@@ -258,11 +289,15 @@ export default async function ReportsPage({
             <input type="date" name="until" defaultValue={until} aria-label="Data final" />
             <button className="button" type="submit">Filtrar periodo</button>
           </form>
-          <form action={syncMetaReports}>
-            <input type="hidden" name="since" value={since ?? ""} />
-            <input type="hidden" name="until" value={until ?? ""} />
-            <button className="button" type="submit">Sincronizar Meta</button>
-          </form>
+          {canSyncMetaReports ? (
+            <form action={syncMetaReports}>
+              <input type="hidden" name="since" value={since ?? ""} />
+              <input type="hidden" name="until" value={until ?? ""} />
+              <button className="button" type="submit">Sincronizar Meta</button>
+            </form>
+          ) : (
+            <span className="tag">Sem permissao para sincronizar Meta</span>
+          )}
           <span className="tag">{report.rangeLabel}</span>
           {reportState === "error" ? (
             <span className="tag">API indisponivel</span>
@@ -306,7 +341,7 @@ export default async function ReportsPage({
                   <span>
                     {reportState === "error"
                       ? "Confira a API antes de analisar performance."
-                      : "Use Sincronizar Meta para carregar campanhas reais."}
+                      : syncCampaignHint}
                   </span>
                 </td>
                 <EmptyPerformanceCells />
@@ -357,7 +392,7 @@ export default async function ReportsPage({
                     <span>
                       {adSetReports.state === "error"
                         ? "Confira a API antes de analisar conjuntos."
-                        : "Use Sincronizar Meta para carregar conjuntos reais."}
+                        : syncAdSetHint}
                     </span>
                   </td>
                   <EmptyPerformanceCells />
@@ -409,7 +444,7 @@ export default async function ReportsPage({
                     <span>
                       {adReports.state === "error"
                         ? "Confira a API antes de analisar anuncios."
-                        : "Use Sincronizar Meta para carregar anuncios reais."}
+                        : syncAdHint}
                     </span>
                   </td>
                   <EmptyPerformanceCells />
@@ -483,7 +518,7 @@ export default async function ReportsPage({
                 <tr>
                   <td>
                     <strong>Nenhuma estrutura Meta sincronizada</strong>
-                    <span>Use o botao Sincronizar Meta para enfileirar a leitura.</span>
+                    <span>{syncStructureHint}</span>
                   </td>
                   <td>sem conjunto</td>
                   <td>sem anuncio</td>

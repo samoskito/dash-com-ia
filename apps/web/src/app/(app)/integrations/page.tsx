@@ -3,6 +3,7 @@ import type {
   IntegrationPipelineOverviewDto,
   MetaAssetsDto,
   MetaConnectionDto,
+  CurrentWorkspaceDto,
   WhatsappInstanceCheckoutDto,
   WhatsappInstanceConnectionDto,
   WhatsappInstanceQuoteDto,
@@ -126,6 +127,20 @@ async function getIntegrationPipeline(): Promise<ResourceResult<IntegrationPipel
     return {
       data: pipeline,
       state: pipeline.stages.length > 0 ? "real" : "empty"
+    };
+  } catch {
+    return {
+      data: null,
+      state: "error"
+    };
+  }
+}
+
+async function getCurrentWorkspace(): Promise<ResourceResult<CurrentWorkspaceDto | null>> {
+  try {
+    return {
+      data: await serverApiFetch<CurrentWorkspaceDto>("/workspaces/current"),
+      state: "real"
     };
   } catch {
     return {
@@ -352,7 +367,8 @@ export default async function IntegrationsPage() {
     metaAssetsResult,
     whatsappQuoteResult,
     billingSubscriptionResult,
-    pipelineResult
+    pipelineResult,
+    workspaceResult
   ] = await Promise.all([
     getHealth(),
     getWhatsappInstances(),
@@ -360,7 +376,8 @@ export default async function IntegrationsPage() {
     getMetaAssets(),
     getWhatsappQuote(),
     getBillingSubscription(),
-    getIntegrationPipeline()
+    getIntegrationPipeline(),
+    getCurrentWorkspace()
   ]);
   const health = healthResult.data;
   const whatsappInstances = whatsappInstancesResult.data;
@@ -372,6 +389,11 @@ export default async function IntegrationsPage() {
   const whatsappQuote = whatsappQuoteResult.data;
   const billingSubscription = billingSubscriptionResult.data;
   const pipeline = pipelineResult.data;
+  const workspace = workspaceResult.data;
+  const canManageIntegrations = Boolean(
+    workspace?.permissions.canManageIntegrations
+  );
+  const canManageBilling = Boolean(workspace?.permissions.canManageBilling);
   const maxPipelineValue = Math.max(
     ...((pipeline?.stages ?? []).map((stage) => stage.value)),
     0
@@ -383,7 +405,8 @@ export default async function IntegrationsPage() {
     metaAssetsResult.state,
     whatsappQuoteResult.state,
     billingSubscriptionResult.state,
-    pipelineResult.state
+    pipelineResult.state,
+    workspaceResult.state
   ].includes("error");
   const metaStatus = metaAssets?.status ?? metaConnection?.status;
   const selectedBusinessName = selectedMetaAssetName(
@@ -504,7 +527,7 @@ export default async function IntegrationsPage() {
         <p className="muted">
           {metaAssetsDetail(metaAssets, metaAssetsResult.state)}
         </p>
-        {metaAssets ? (
+        {metaAssets && canManageIntegrations ? (
           <form className="filter-bar" action={saveMetaAssetSelection}>
             <select
               className="filter-control"
@@ -547,6 +570,8 @@ export default async function IntegrationsPage() {
             </select>
             <button className="button" type="submit">Salvar selecao Meta</button>
           </form>
+        ) : metaAssets ? (
+          <p className="muted">Sem permissao para alterar Meta</p>
         ) : null}
         <div className="table-wrap">
           <table>
@@ -661,19 +686,25 @@ export default async function IntegrationsPage() {
             <strong>{billingSubscription?.asaasSubscriptionId ?? "pendente"}</strong>
           </div>
         </div>
-        <form className="inline-form" action={createWhatsappCheckout}>
-          <input
-            name="instanceName"
-            placeholder="Nome da instancia"
-            aria-label="Nome da instancia WhatsApp"
-          />
-          <button className="button" type="submit">
-            Adicionar instancia
-          </button>
-        </form>
-        <p className="muted">
-          Ao adicionar uma instancia, o backend gera a cobranca no Asaas antes de liberar a conexao.
-        </p>
+        {canManageBilling ? (
+          <>
+            <form className="inline-form" action={createWhatsappCheckout}>
+              <input
+                name="instanceName"
+                placeholder="Nome da instancia"
+                aria-label="Nome da instancia WhatsApp"
+              />
+              <button className="button" type="submit">
+                Adicionar instancia
+              </button>
+            </form>
+            <p className="muted">
+              Ao adicionar uma instancia, o backend gera a cobranca no Asaas antes de liberar a conexao.
+            </p>
+          </>
+        ) : (
+          <p className="muted">Sem permissao para adicionar instancias</p>
+        )}
         <div className="table-wrap">
           <table>
             <thead>
@@ -717,13 +748,15 @@ export default async function IntegrationsPage() {
                     </td>
                     <td>{instance.providerInstanceId ?? "aguardando conexao"}</td>
                     <td>
-                      {instance.billingStatus === "active" ? (
+                      {instance.billingStatus === "active" && canManageIntegrations ? (
                         <form action={connectWhatsappInstance}>
                           <input type="hidden" name="instanceId" value={instance.id} />
                           <button className="button" type="submit">
                             Conectar WhatsApp
                           </button>
                         </form>
+                      ) : instance.billingStatus === "active" ? (
+                        <span className="event-chip warn">sem permissao</span>
                       ) : instance.checkoutUrl ? (
                         <a
                           className="button primary"
