@@ -1,27 +1,74 @@
-export default function IntegrationsPage() {
-  const integrations = [
-    {
-      title: "WhatsApp / Uazapi",
-      status: "Conectado",
-      tone: "",
-      description: "Sessao principal com QR valido, webhooks ativos e fila de mensagens monitorada.",
-      detail: "Ultimo evento recebido ha 38s"
-    },
-    {
-      title: "Meta OAuth",
-      status: "Token saudavel",
-      tone: "",
-      description: "Business Manager, conta de anuncio e permissoes de conversoes sincronizadas.",
-      detail: "Expira em 42 dias"
-    },
-    {
-      title: "Pixel + CAPI",
-      status: "Ajustar eventos",
-      tone: "warn",
-      description: "LeadSubmitted e Purchase online; QualifiedLead precisa confirmar correspondencia.",
-      detail: "Match quality 8.4/10"
-    }
-  ];
+import type { IntegrationHealthSummaryDto } from "@wpptrack/shared";
+import { apiFetch } from "../../../lib/api";
+
+async function getHealth(): Promise<IntegrationHealthSummaryDto | null> {
+  try {
+    return await apiFetch<IntegrationHealthSummaryDto>("/integrations/health");
+  } catch {
+    return null;
+  }
+}
+
+function providerTitle(provider: string) {
+  const titles: Record<string, string> = {
+    uazapi: "WhatsApp / Uazapi",
+    meta: "Meta OAuth",
+    asaas: "Asaas"
+  };
+
+  return titles[provider] ?? provider;
+}
+
+function statusLabel(status: string) {
+  const labels: Record<string, string> = {
+    connected: "Configurado",
+    disconnected: "Configurar",
+    error: "Erro",
+    pending_payment: "Pagamento pendente",
+    needs_reconnect: "Reconectar",
+    syncing: "Sincronizando"
+  };
+
+  return labels[status] ?? status;
+}
+
+export default async function IntegrationsPage() {
+  const health = await getHealth();
+  const integrations =
+    health?.providers.map((item) => ({
+      title: providerTitle(item.provider),
+      status: statusLabel(item.status),
+      tone: item.status === "connected" ? "" : "warn",
+      description:
+        item.message ??
+        "Credenciais encontradas. Proxima etapa depende do fluxo operacional do provedor.",
+      detail: `Verificado em ${new Date(item.checkedAt).toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit"
+      })}`
+    })) ?? [
+      {
+        title: "WhatsApp / Uazapi",
+        status: "Aguardando API",
+        tone: "warn",
+        description: "Nao foi possivel ler o backend agora; exibindo fallback visual.",
+        detail: "Fallback local"
+      },
+      {
+        title: "Meta OAuth",
+        status: "Aguardando API",
+        tone: "warn",
+        description: "O endpoint real sera usado quando a API estiver acessivel.",
+        detail: "Fallback local"
+      },
+      {
+        title: "Asaas",
+        status: "Aguardando API",
+        tone: "warn",
+        description: "Status de cobranca e webhooks entra pelo backend.",
+        detail: "Fallback local"
+      }
+    ];
 
   return (
     <section className="page-stack">
@@ -32,8 +79,8 @@ export default function IntegrationsPage() {
           <p>Uazapi primeiro, Meta OAuth desde o inicio e Cloud API preparada para futuro.</p>
         </div>
         <div className="header-actions">
-          <span className="status-chip">Webhooks online</span>
-          <span className="status-chip warn">1 mapeamento pendente</span>
+          <span className="status-chip">{health ? "API conectada" : "Fallback visual"}</span>
+          <span className="status-chip warn">Sem credenciais reais</span>
         </div>
       </header>
 

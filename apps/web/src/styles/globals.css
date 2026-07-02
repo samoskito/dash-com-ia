@@ -633,6 +633,21 @@ td span {
   color: var(--ink);
 }
 
+.login-form .link-button {
+  border: 0;
+  background: transparent;
+  color: var(--mint);
+  padding: 4px 0;
+  text-align: left;
+}
+
+.form-error {
+  margin: 0;
+  color: var(--coral);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .login-form a {
   color: var(--mint);
   font-weight: 850;

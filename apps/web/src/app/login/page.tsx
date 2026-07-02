@@ -1,3 +1,5 @@
+import { LoginForm } from "./login-form";
+
 export default function LoginPage() {
   return (
     <main className="standalone-page login-page">
@@ -33,21 +35,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <form className="login-form">
-          <label>
-            Email
-            <input type="email" name="email" autoComplete="email" />
-          </label>
-          <label>
-            Senha
-            <input type="password" name="password" autoComplete="current-password" />
-          </label>
-          <button type="submit">Entrar</button>
-          <button type="button" className="secondary-button">
-            Entrar com Google
-          </button>
-          <a href="/login">Esqueci minha senha</a>
-        </form>
+        <LoginForm />
       </section>
     </main>
   );
