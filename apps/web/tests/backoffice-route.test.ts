@@ -45,4 +45,46 @@ describe("backoffice route", () => {
     expect(html).toContain("wallet_asaas_1");
     expect(html).toContain("25.00%");
   });
+
+  it("renders diagnostic retry action when backend returns events", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "diag_1",
+              workspaceId: "workspace_1",
+              source: "uazapi",
+              eventType: "conversion_trigger",
+              severity: "error",
+              status: "error",
+              occurredAt: "2026-07-02T03:00:00.000Z",
+              title: "Conversao nao enviada",
+              message: "Regra por etiqueta sem contexto Meta",
+              leadId: null,
+              phoneHash: null,
+              campaignId: null,
+              adSetId: null,
+              adId: null,
+              jobId: null,
+              errorCode: "MISSING_META_CONTEXT"
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      );
+
+    const element = await BackofficePage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Conversao nao enviada");
+    expect(html).toContain("Reprocessar");
+    expect(html).toContain("diag_1");
+  });
 });

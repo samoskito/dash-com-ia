@@ -17,6 +17,27 @@ async function getSplitReceivers(): Promise<SplitReceiverDto[]> {
   }
 }
 
+async function retryDiagnosticEvent(formData: FormData) {
+  "use server";
+
+  const eventId = String(formData.get("eventId") ?? "");
+
+  if (!eventId) {
+    return;
+  }
+
+  try {
+    await apiFetch(`/backoffice/diagnostics/events/${eventId}/retry`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Retry solicitado pelo backoffice WppTrack"
+      })
+    });
+  } catch {
+    return;
+  }
+}
+
 function percentFromBps(value: number): string {
   return `${(value / 100).toFixed(2)}%`;
 }
@@ -117,6 +138,7 @@ export default async function BackofficePage() {
                 <th>Ultima falha</th>
                 <th>SLA</th>
                 <th>Estado</th>
+                <th>Acao</th>
               </tr>
             </thead>
             <tbody>
@@ -132,6 +154,12 @@ export default async function BackofficePage() {
                         {event.status}
                       </span>
                     </td>
+                    <td>
+                      <form action={retryDiagnosticEvent}>
+                        <input type="hidden" name="eventId" value={event.id} />
+                        <button className="button" type="submit">Reprocessar</button>
+                      </form>
+                    </td>
                   </tr>
                 ))
               ) : (
@@ -142,6 +170,7 @@ export default async function BackofficePage() {
                     <td>ha 9 min</td>
                     <td>99.1%</td>
                     <td><span className="event-chip warn">observacao</span></td>
+                    <td><span className="muted">aguardando evento</span></td>
                   </tr>
                   <tr>
                     <td><strong>Meta CAPI</strong><span>Envio e acceptance rate</span></td>
@@ -149,6 +178,7 @@ export default async function BackofficePage() {
                     <td>ha 42 min</td>
                     <td>99.7%</td>
                     <td><span className="event-chip">normal</span></td>
+                    <td><span className="muted">aguardando evento</span></td>
                   </tr>
                   <tr>
                     <td><strong>Billing split</strong><span>Webhook pagamento e repasse</span></td>
@@ -156,6 +186,7 @@ export default async function BackofficePage() {
                     <td>ha 2 h</td>
                     <td>98.8%</td>
                     <td><span className="event-chip">normal</span></td>
+                    <td><span className="muted">aguardando evento</span></td>
                   </tr>
                 </>
               )}

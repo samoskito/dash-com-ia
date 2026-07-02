@@ -40,12 +40,13 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Webhook Uazapi agora avalia regras de conversao quando recebe `x-workspace-id`: extrai texto de mensagem e etiquetas comuns do payload, executa `/conversion-rules` internamente e cria `ConversionEventLog` para regras encontradas, com status `ready_to_send` quando ha `pixelId` e `adId`, ou `pending_meta_context` quando falta contexto Meta.
 - Backoffice de split recebeu API inicial: `GET /backoffice/split/receivers`, `POST /backoffice/split/receivers` e `PATCH /backoffice/split/receivers/:id`, usando `SplitReceiver` para nome, wallet Asaas, email, percentual em basis points e status ativo.
 - Tela de backoffice agora consulta `/backoffice/split/receivers` e exibe recebedores, wallet Asaas, email, percentual e status com fallback visual quando a API nao responde.
+- Tela de backoffice agora exibe acao de `Reprocessar` para eventos reais da Central de Diagnostico; a acao chama o retry auditado `POST /backoffice/diagnostics/events/:id/retry` via server action e usa fallback visual quando nao ha eventos reais.
 - Rodada Paralela 1 executada e revisada: visual WppTrack/Telemetria Noturna aplicado ao web, Auth/Workspaces iniciado, scaffolds de integracoes Meta/Uazapi/Asaas criados e spec de Diagnosticos/Logs adicionada.
 - Verificacao da Rodada Paralela 1: `pnpm test`, `pnpm typecheck`, `pnpm build`, `prisma generate` e `prisma validate` passaram. O bloqueio anterior do Docker Desktop Linux engine foi resolvido quando o Docker Desktop foi aberto.
 - Spec e plano da Rodada Paralela 1: `docs/superpowers/specs/2026-07-02-wpptrack-parallel-wave-1-design.md` e `docs/superpowers/plans/2026-07-02-wpptrack-parallel-wave-1-implementation.md`.
 - Servidor local usado para visualizar: `http://127.0.0.1:5174/`.
 - Repositorio inicial ja possui commits da fundacao da Fase 1.
-- Diagnosticos/logs operacionais possuem spec dedicada em `docs/superpowers/specs/2026-07-02-wpptrack-diagnostics-logs-design.md`; a implementacao Prisma/API ja existe com retry auditado seguro. Raw payload autorizado, telas detalhadas e reprocessamento real por worker ficam para ondas posteriores.
+- Diagnosticos/logs operacionais possuem spec dedicada em `docs/superpowers/specs/2026-07-02-wpptrack-diagnostics-logs-design.md`; a implementacao Prisma/API ja existe com retry auditado seguro e primeira acao no backoffice. Raw payload autorizado, telas detalhadas e reprocessamento real por worker ficam para ondas posteriores.
 
 ## Objetivo do Produto
 
@@ -178,7 +179,7 @@ Central de Diagnostico:
 - Ver execucoes de automacao/extracao Meta com status de sucesso e erro.
 - Ver mudancas em campanhas, conjuntos e anuncios com status de sucesso e erro.
 - Mostrar tentativas, status, payload resumido, resposta externa e proximo retry.
-- Permitir acao de reenfileirar/tentar novamente quando for seguro. A API de retry auditado ja existe; ainda falta tela detalhada e worker real para reprocessar integracoes externas.
+- Permitir acao de reenfileirar/tentar novamente quando for seguro. A API de retry auditado e o primeiro botao no backoffice ja existem; ainda falta tela detalhada e worker real para reprocessar integracoes externas.
 - Objetivo: permitir debug operacional pelo frontend interno sem exigir que o dono da plataforma abra banco de dados ou terminal.
 
 ## Funcionalidades Removidas do Prototipo Atual
