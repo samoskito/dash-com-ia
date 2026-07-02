@@ -6,9 +6,9 @@ import { apiFetch } from "../../lib/api";
 
 type Mode = "login" | "register";
 
-export function LoginForm() {
+export function LoginForm({ initialError = null }: { initialError?: string | null }) {
   const [mode, setMode] = useState<Mode>("login");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {

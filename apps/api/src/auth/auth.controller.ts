@@ -47,6 +47,10 @@ type CookieResponse = {
   clearCookie: (name: string, options: { path: string }) => void;
 };
 
+type OAuthCallbackResponse = CookieResponse & {
+  redirect: (status: number, url: string) => void;
+};
+
 @Controller("auth")
 export class AuthController {
   constructor(@Inject(AuthService) private readonly authService: AuthService) {}
@@ -114,7 +118,7 @@ export class AuthController {
   async handleGoogleOAuthCallback(
     @Query() query: Record<string, unknown>,
     @Req() request: AuthRequest,
-    @Res({ passthrough: true }) response: CookieResponse
+    @Res() response: OAuthCallbackResponse
   ) {
     const input = this.parseBody(googleOAuthCallbackQuerySchema.safeParse(query));
     const result = await this.authService.handleGoogleOAuthCallback(input, {
@@ -126,7 +130,7 @@ export class AuthController {
       this.setSessionCookie(response, result.session);
     }
 
-    return result;
+    response.redirect(302, this.googleCallbackRedirectUrl(result));
   }
 
   @Post("password/forgot")
@@ -182,4 +186,34 @@ export class AuthController {
     });
   }
 
+  private googleCallbackRedirectUrl(result: {
+    action: string;
+    redirectTo: string;
+  }): string {
+    const webOrigin = (process.env.WEB_ORIGIN ?? "http://localhost:3000").replace(
+      /\/$/,
+      ""
+    );
+
+    if (result.action === "authenticated") {
+      return new URL(this.safeAppPath(result.redirectTo), webOrigin).toString();
+    }
+
+    const error =
+      result.action === "configure_env"
+        ? "google_env"
+        : result.action === "exchange_failed"
+          ? "google_exchange"
+          : "google_pending";
+
+    return new URL(`/login?error=${error}`, webOrigin).toString();
+  }
+
+  private safeAppPath(path: string): string {
+    if (!path.startsWith("/") || path.startsWith("//")) {
+      return "/overview";
+    }
+
+    return path;
+  }
 }

@@ -1,6 +1,37 @@
 import { LoginForm } from "./login-form";
 
-export default function LoginPage() {
+type LoginSearchParams = Record<string, string | string[] | undefined>;
+
+function asStringParam(
+  value: string | string[] | undefined
+): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function loginErrorMessage(error: string | undefined): string | null {
+  if (!error) {
+    return null;
+  }
+
+  if (error === "google_env") {
+    return "Login com Google ainda nao esta configurado.";
+  }
+
+  if (error === "google_exchange" || error === "google_pending") {
+    return "Nao foi possivel concluir o login com Google.";
+  }
+
+  return "Nao foi possivel autenticar. Tente novamente.";
+}
+
+export default async function LoginPage({
+  searchParams
+}: {
+  searchParams?: Promise<LoginSearchParams>;
+}) {
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const initialError = loginErrorMessage(asStringParam(resolvedSearchParams.error));
+
   return (
     <main className="standalone-page login-page">
       <section className="login-panel" aria-labelledby="login-title">
@@ -35,7 +66,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <LoginForm />
+        <LoginForm initialError={initialError} />
       </section>
     </main>
   );

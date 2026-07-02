@@ -4,6 +4,10 @@ import request from "supertest";
 import { AuthController } from "../src/auth/auth.controller";
 import { AuthService } from "../src/auth/auth.service";
 
+type GoogleCallbackResult = Awaited<
+  ReturnType<AuthService["handleGoogleOAuthCallback"]>
+>;
+
 const authPayload = {
   user: {
     id: "user_1",
@@ -25,6 +29,16 @@ const authPayload = {
 };
 
 async function createApp() {
+  const handleGoogleOAuthCallback = vi.fn<
+    AuthService["handleGoogleOAuthCallback"]
+  >(async () => ({
+    provider: "google",
+    action: "exchange_pending",
+    missingEnv: [],
+    codeReceived: true,
+    redirectTo: "/overview"
+  }));
+
   const authService = {
     register: vi.fn(async () => authPayload),
     login: vi.fn(async () => authPayload),
@@ -40,13 +54,7 @@ async function createApp() {
       missingEnv: [],
       state: "state-token"
     })),
-    handleGoogleOAuthCallback: vi.fn(async () => ({
-      provider: "google",
-      action: "exchange_pending",
-      missingEnv: [],
-      codeReceived: true,
-      redirectTo: "/overview"
-    })),
+    handleGoogleOAuthCallback,
     requestPasswordReset: vi.fn(async () => ({
       ok: true,
       delivery: "not_configured",
@@ -200,16 +208,69 @@ describe("auth controller", () => {
     await app.close();
   });
 
-  it("handles Google OAuth callback through the backend service", async () => {
+  it("redirects authenticated Google OAuth callbacks back to the web app", async () => {
+    const { app, authService } = await createApp();
+    authService.handleGoogleOAuthCallback.mockResolvedValueOnce({
+      provider: "google",
+      action: "authenticated",
+      missingEnv: [],
+      codeReceived: true,
+      redirectTo: "/reports",
+      session: authPayload
+    } as GoogleCallbackResult);
+
+    await request(app.getHttpServer())
+      .get("/auth/google/callback?code=oauth-code&state=state-token")
+      .expect(302)
+      .expect(({ headers }) => {
+        expect(headers.location).toBe("http://localhost:3000/reports");
+        expect(headers["set-cookie"]?.[0]).toContain("wpptrack_session=");
+      });
+
+    expect(authService.handleGoogleOAuthCallback).toHaveBeenCalledWith(
+      {
+        code: "oauth-code",
+        state: "state-token"
+      },
+      expect.objectContaining({
+        ipAddress: expect.any(String)
+      })
+    );
+
+    await app.close();
+  });
+
+  it("sanitizes Google OAuth callback redirects before returning to the web app", async () => {
+    const { app, authService } = await createApp();
+    authService.handleGoogleOAuthCallback.mockResolvedValueOnce({
+      provider: "google",
+      action: "authenticated",
+      missingEnv: [],
+      codeReceived: true,
+      redirectTo: "https://example.com/phishing",
+      session: authPayload
+    } as GoogleCallbackResult);
+
+    await request(app.getHttpServer())
+      .get("/auth/google/callback?code=oauth-code&state=state-token")
+      .expect(302)
+      .expect(({ headers }) => {
+        expect(headers.location).toBe("http://localhost:3000/overview");
+      });
+
+    await app.close();
+  });
+
+  it("redirects Google OAuth callback failures to the login screen", async () => {
     const { app, authService } = await createApp();
 
     await request(app.getHttpServer())
       .get("/auth/google/callback?code=oauth-code&state=state-token")
-      .expect(200)
-      .expect(({ body }) => {
-        expect(body.provider).toBe("google");
-        expect(body.action).toBe("exchange_pending");
-        expect(body.codeReceived).toBe(true);
+      .expect(302)
+      .expect(({ headers }) => {
+        expect(headers.location).toBe(
+          "http://localhost:3000/login?error=google_pending"
+        );
       });
 
     expect(authService.handleGoogleOAuthCallback).toHaveBeenCalledWith(
