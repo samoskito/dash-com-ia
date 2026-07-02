@@ -55,6 +55,7 @@ import {
   workspaceInviteAcceptSchema,
   workspaceInviteSchema,
   workspaceMemberSchema,
+  workspaceSubscriptionSummarySchema,
   whatsappInstanceCheckoutInputSchema,
   whatsappInstanceCheckoutSchema,
   whatsappInstanceConnectionSchema,
@@ -700,6 +701,21 @@ describe("shared contracts", () => {
     expect(input.provider).toBe("uazapi");
     expect(checkout.status).toBe("pending_payment");
     expect(checkout.paymentProviderStatus).toBe("not_configured");
+  });
+
+  it("validates workspace subscription summary contract", () => {
+    const subscription = workspaceSubscriptionSummarySchema.parse({
+      workspaceId: "workspace_1",
+      status: "active",
+      planName: "Por instancia",
+      activeInstances: 3,
+      pricePerWhatsappInstanceCents: 9900,
+      monthlyAmountCents: 29700,
+      currentPeriodEnd: "2026-08-02T03:00:00.000Z",
+      asaasSubscriptionId: "sub_asaas_1"
+    });
+
+    expect(subscription.monthlyAmountCents).toBe(29700);
   });
 
   it("validates lead list contracts", () => {

@@ -47,6 +47,16 @@ async function createApp() {
       nextInstanceAmountCents: 9900,
       currency: "BRL"
     })),
+    getWorkspaceSubscriptionSummary: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      status: "active",
+      planName: "Por instancia",
+      activeInstances: 2,
+      pricePerWhatsappInstanceCents: 9900,
+      monthlyAmountCents: 19800,
+      currentPeriodEnd: "2026-08-02T03:00:00.000Z",
+      asaasSubscriptionId: "sub_asaas_1"
+    })),
     createWhatsappInstanceCheckout: vi.fn(async () => ({
       workspaceId: "workspace_1",
       whatsappInstanceId: "wpp_1",
@@ -87,6 +97,25 @@ describe("billing controller", () => {
       });
 
     expect(billingService.getWhatsappInstanceQuote).toHaveBeenCalledWith(
+      "workspace_1"
+    );
+
+    await app.close();
+  });
+
+  it("returns subscription summary for the current workspace", async () => {
+    const { app, billingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/billing/subscription")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.status).toBe("active");
+        expect(body.monthlyAmountCents).toBe(19800);
+      });
+
+    expect(billingService.getWorkspaceSubscriptionSummary).toHaveBeenCalledWith(
       "workspace_1"
     );
 

@@ -23,6 +23,9 @@ type FakePrisma = {
   workspace: {
     findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
   };
+  workspaceSubscription: {
+    findFirst: (args: unknown) => Promise<Record<string, unknown> | null>;
+  };
   $transaction: <T>(callback: (tx: FakePrisma) => Promise<T>) => Promise<T>;
 };
 
@@ -32,6 +35,7 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
     charges: [] as Array<Record<string, unknown>>,
     activations: [] as Array<Record<string, unknown>>,
     splitReceivers: [] as Array<Record<string, unknown>>,
+    subscriptions: [] as Array<Record<string, unknown>>,
     workspaces: [
       {
         id: "workspace_1",
@@ -45,6 +49,16 @@ function createHarness(asaasAdapter?: Pick<AsaasAdapter, "createPayment">) {
         const { where } = args as { where: { id: string } };
         return (
           db.workspaces.find((workspace) => workspace.id === where.id) ?? null
+        );
+      }
+    },
+    workspaceSubscription: {
+      findFirst: async (args) => {
+        const { where } = args as { where: { workspaceId: string } };
+        return (
+          db.subscriptions.find(
+            (subscription) => subscription.workspaceId === where.workspaceId
+          ) ?? null
         );
       }
     },
@@ -196,6 +210,37 @@ describe("billing service", () => {
       pricePerInstanceCents: 12900,
       nextInstanceAmountCents: 12900,
       currency: "BRL"
+    });
+  });
+
+  it("returns current workspace subscription summary", async () => {
+    const { db, service } = createHarness();
+    db.subscriptions.push({
+      id: "subscription_1",
+      workspaceId: "workspace_1",
+      status: "active",
+      activeInstances: 2,
+      asaasSubscriptionId: "sub_asaas_1",
+      currentPeriodEnd: new Date("2026-08-02T03:00:00.000Z"),
+      plan: {
+        name: "Por instancia",
+        pricePerWhatsappInstanceCents: 12900
+      }
+    });
+
+    const subscription = await service.getWorkspaceSubscriptionSummary(
+      "workspace_1"
+    );
+
+    expect(subscription).toEqual({
+      workspaceId: "workspace_1",
+      status: "active",
+      planName: "Por instancia",
+      activeInstances: 2,
+      pricePerWhatsappInstanceCents: 12900,
+      monthlyAmountCents: 25800,
+      currentPeriodEnd: "2026-08-02T03:00:00.000Z",
+      asaasSubscriptionId: "sub_asaas_1"
     });
   });
 

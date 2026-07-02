@@ -2,7 +2,8 @@ import { Inject, Injectable, Optional } from "@nestjs/common";
 import type {
   WhatsappInstanceCheckoutDto,
   WhatsappInstanceCheckoutInputDto,
-  WhatsappInstanceQuoteDto
+  WhatsappInstanceQuoteDto,
+  WorkspaceSubscriptionSummaryDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
@@ -37,6 +38,18 @@ type SplitReceiverRecord = {
   percentageBps: number;
 };
 
+type WorkspaceSubscriptionRecord = {
+  workspaceId: string;
+  status: string;
+  activeInstances: number;
+  asaasSubscriptionId: string | null;
+  currentPeriodEnd: Date | null;
+  plan: {
+    name: string;
+    pricePerWhatsappInstanceCents: number;
+  } | null;
+};
+
 @Injectable()
 export class BillingService {
   constructor(
@@ -64,6 +77,51 @@ export class BillingService {
       pricePerInstanceCents,
       nextInstanceAmountCents: pricePerInstanceCents,
       currency: "BRL"
+    };
+  }
+
+  async getWorkspaceSubscriptionSummary(
+    workspaceId: string
+  ): Promise<WorkspaceSubscriptionSummaryDto> {
+    const subscription = (await this.prisma.workspaceSubscription.findFirst({
+      where: { workspaceId },
+      include: {
+        plan: true
+      },
+      orderBy: {
+        updatedAt: "desc"
+      }
+    })) as WorkspaceSubscriptionRecord | null;
+
+    if (!subscription) {
+      const quote = await this.getWhatsappInstanceQuote(workspaceId);
+
+      return {
+        workspaceId,
+        status: "not_configured",
+        planName: null,
+        activeInstances: quote.activeInstances,
+        pricePerWhatsappInstanceCents: quote.pricePerInstanceCents,
+        monthlyAmountCents: quote.activeInstances * quote.pricePerInstanceCents,
+        currentPeriodEnd: null,
+        asaasSubscriptionId: null
+      };
+    }
+
+    const pricePerWhatsappInstanceCents =
+      subscription.plan?.pricePerWhatsappInstanceCents ??
+      this.getPricePerInstanceCents();
+
+    return {
+      workspaceId,
+      status: this.toSubscriptionStatus(subscription.status),
+      planName: subscription.plan?.name ?? null,
+      activeInstances: subscription.activeInstances,
+      pricePerWhatsappInstanceCents,
+      monthlyAmountCents:
+        subscription.activeInstances * pricePerWhatsappInstanceCents,
+      currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,
+      asaasSubscriptionId: subscription.asaasSubscriptionId
     };
   }
 
@@ -242,6 +300,21 @@ export class BillingService {
     }
 
     return configured;
+  }
+
+  private toSubscriptionStatus(
+    status: string
+  ): WorkspaceSubscriptionSummaryDto["status"] {
+    if (
+      status === "active" ||
+      status === "pending" ||
+      status === "overdue" ||
+      status === "cancelled"
+    ) {
+      return status;
+    }
+
+    return "pending";
   }
 
   private isPaidAsaasPayload(payload: AsaasPaymentWebhookPayload): boolean {

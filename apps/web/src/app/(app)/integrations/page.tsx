@@ -6,7 +6,8 @@ import type {
   WhatsappInstanceCheckoutDto,
   WhatsappInstanceConnectionDto,
   WhatsappInstanceQuoteDto,
-  WhatsappInstanceSummaryDto
+  WhatsappInstanceSummaryDto,
+  WorkspaceSubscriptionSummaryDto
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -89,6 +90,22 @@ async function getWhatsappQuote(): Promise<ResourceResult<WhatsappInstanceQuoteD
     return {
       data: await serverApiFetch<WhatsappInstanceQuoteDto>(
         "/billing/whatsapp-instance/quote"
+      ),
+      state: "real"
+    };
+  } catch {
+    return {
+      data: null,
+      state: "error"
+    };
+  }
+}
+
+async function getBillingSubscription(): Promise<ResourceResult<WorkspaceSubscriptionSummaryDto | null>> {
+  try {
+    return {
+      data: await serverApiFetch<WorkspaceSubscriptionSummaryDto>(
+        "/billing/subscription"
       ),
       state: "real"
     };
@@ -334,6 +351,7 @@ export default async function IntegrationsPage() {
     metaConnectionResult,
     metaAssetsResult,
     whatsappQuoteResult,
+    billingSubscriptionResult,
     pipelineResult
   ] = await Promise.all([
     getHealth(),
@@ -341,6 +359,7 @@ export default async function IntegrationsPage() {
     getMetaConnection(),
     getMetaAssets(),
     getWhatsappQuote(),
+    getBillingSubscription(),
     getIntegrationPipeline()
   ]);
   const health = healthResult.data;
@@ -351,6 +370,7 @@ export default async function IntegrationsPage() {
   const metaConnection = metaConnectionResult.data;
   const metaAssets = metaAssetsResult.data;
   const whatsappQuote = whatsappQuoteResult.data;
+  const billingSubscription = billingSubscriptionResult.data;
   const pipeline = pipelineResult.data;
   const maxPipelineValue = Math.max(
     ...((pipeline?.stages ?? []).map((stage) => stage.value)),
@@ -362,6 +382,7 @@ export default async function IntegrationsPage() {
     metaConnectionResult.state,
     metaAssetsResult.state,
     whatsappQuoteResult.state,
+    billingSubscriptionResult.state,
     pipelineResult.state
   ].includes("error");
   const metaStatus = metaAssets?.status ?? metaConnection?.status;
@@ -614,6 +635,30 @@ export default async function IntegrationsPage() {
           <div className="metric-card">
             <span className="micro-label">Cobranca</span>
             <strong>Antecipada via Asaas</strong>
+          </div>
+        </div>
+        <div className="metric-grid compact">
+          <div className="metric-card">
+            <span className="micro-label">Assinatura</span>
+            <strong>
+              {billingSubscription
+                ? statusLabel(billingSubscription.status)
+                : billingSubscriptionResult.state === "error"
+                  ? "API indisponivel"
+                  : "sem assinatura"}
+            </strong>
+          </div>
+          <div className="metric-card">
+            <span className="micro-label">Plano</span>
+            <strong>{billingSubscription?.planName ?? "Por instancia"}</strong>
+          </div>
+          <div className="metric-card">
+            <span className="micro-label">Mensal estimado</span>
+            <strong>{money(billingSubscription?.monthlyAmountCents)}</strong>
+          </div>
+          <div className="metric-card">
+            <span className="micro-label">Asaas</span>
+            <strong>{billingSubscription?.asaasSubscriptionId ?? "pendente"}</strong>
           </div>
         </div>
         <form className="inline-form" action={createWhatsappCheckout}>

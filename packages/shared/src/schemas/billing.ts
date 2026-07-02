@@ -8,6 +8,17 @@ export const whatsappInstanceQuoteSchema = z.object({
   currency: z.literal("BRL")
 });
 
+export const workspaceSubscriptionSummarySchema = z.object({
+  workspaceId: z.string().min(1),
+  status: z.enum(["not_configured", "active", "pending", "overdue", "cancelled"]),
+  planName: z.string().min(1).nullable(),
+  activeInstances: z.number().int().nonnegative(),
+  pricePerWhatsappInstanceCents: z.number().int().positive(),
+  monthlyAmountCents: z.number().int().nonnegative(),
+  currentPeriodEnd: z.string().datetime().nullable(),
+  asaasSubscriptionId: z.string().min(1).nullable()
+});
+
 export const whatsappInstanceCheckoutInputSchema = z.object({
   instanceName: z.string().trim().min(2),
   provider: z.enum(["uazapi", "cloud_api"]).default("uazapi")
@@ -89,6 +100,9 @@ export const splitReceiverListSchema = z.array(splitReceiverSchema);
 
 export type WhatsappInstanceQuoteDto = z.infer<
   typeof whatsappInstanceQuoteSchema
+>;
+export type WorkspaceSubscriptionSummaryDto = z.infer<
+  typeof workspaceSubscriptionSummarySchema
 >;
 export type WhatsappInstanceCheckoutInputDto = z.infer<
   typeof whatsappInstanceCheckoutInputSchema

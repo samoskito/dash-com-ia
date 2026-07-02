@@ -27,6 +27,12 @@ export class BillingController {
     return this.billingService.getWhatsappInstanceQuote(workspaceId);
   }
 
+  @Get("subscription")
+  async subscription(@AuthToken() refreshToken: string) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    return this.billingService.getWorkspaceSubscriptionSummary(workspaceId);
+  }
+
   @Post("whatsapp-instance/checkout")
   async checkout(@AuthToken() refreshToken: string, @Body() body: unknown) {
     const parsed = whatsappInstanceCheckoutInputSchema.safeParse(body);

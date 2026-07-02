@@ -121,6 +121,21 @@ describe("integrations route", () => {
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
+            status: "active",
+            planName: "Por instancia",
+            activeInstances: 2,
+            pricePerWhatsappInstanceCents: 9900,
+            monthlyAmountCents: 19800,
+            currentPeriodEnd: "2026-08-02T03:00:00.000Z",
+            asaasSubscriptionId: "sub_asaas_1"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
             rangeLabel: "Ultimos 7 dias",
             stages: [
               {
@@ -192,6 +207,10 @@ describe("integrations route", () => {
       expect.objectContaining({ credentials: "include" })
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/billing/subscription",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/pipeline",
       expect.objectContaining({ credentials: "include" })
     );
@@ -221,6 +240,10 @@ describe("integrations route", () => {
     expect(html).toContain('href="https://sandbox.asaas.com/i/pay_2"');
     expect(html).toContain("Adicionar instancia");
     expect(html).toContain("99,00");
+    expect(html).toContain("Assinatura");
+    expect(html).toContain("Por instancia");
+    expect(html).toContain("198,00");
+    expect(html).toContain("sub_asaas_1");
     expect(html).toContain("Antecipada via Asaas");
     expect(html).toContain("Leads com origem de campanha Meta");
     expect(html).toContain("Webhooks Uazapi recebidos");
@@ -233,6 +256,12 @@ describe("integrations route", () => {
 
   it("renders unavailable states without visual fallback providers or fake pipeline metrics", async () => {
     vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
