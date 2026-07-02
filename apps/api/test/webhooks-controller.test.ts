@@ -1,6 +1,7 @@
 import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
+import { BillingService } from "../src/billing/billing.service";
 import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
 import { WebhooksController } from "../src/webhooks/webhooks.controller";
 
@@ -12,16 +13,27 @@ async function createApp() {
       status: "received"
     }))
   };
+  const billingService = {
+    processAsaasPaymentWebhook: vi.fn(async () => ({
+      processed: true,
+      status: "paid",
+      chargeId: "charge_1",
+      activationId: "activation_1"
+    }))
+  };
 
   const moduleRef = await Test.createTestingModule({
     controllers: [WebhooksController],
-    providers: [{ provide: DiagnosticsService, useValue: diagnosticsService }]
+    providers: [
+      { provide: DiagnosticsService, useValue: diagnosticsService },
+      { provide: BillingService, useValue: billingService }
+    ]
   }).compile();
 
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, diagnosticsService };
+  return { app, diagnosticsService, billingService };
 }
 
 describe("webhooks controller", () => {
@@ -55,13 +67,17 @@ describe("webhooks controller", () => {
   });
 
   it("records Asaas and Meta webhooks", async () => {
-    const { app, diagnosticsService } = await createApp();
+    const { app, diagnosticsService, billingService } = await createApp();
 
     await request(app.getHttpServer())
       .post("/webhooks/asaas")
       .send({
         event: "PAYMENT_RECEIVED",
-        id: "evt_asaas_1"
+        id: "evt_asaas_1",
+        payment: {
+          id: "pay_asaas_1",
+          status: "RECEIVED"
+        }
       })
       .expect(202);
 
@@ -79,6 +95,14 @@ describe("webhooks controller", () => {
         eventType: "PAYMENT_RECEIVED"
       })
     );
+    expect(billingService.processAsaasPaymentWebhook).toHaveBeenCalledWith({
+      event: "PAYMENT_RECEIVED",
+      id: "evt_asaas_1",
+      payment: {
+        id: "pay_asaas_1",
+        status: "RECEIVED"
+      }
+    });
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
       expect.objectContaining({
         source: "meta",

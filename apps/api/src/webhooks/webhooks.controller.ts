@@ -7,6 +7,7 @@ import {
   Post
 } from "@nestjs/common";
 import type { DiagnosticSourceDto } from "@wpptrack/shared";
+import { BillingService } from "../billing/billing.service";
 import { DiagnosticsService } from "../diagnostics/diagnostics.service";
 
 type WebhookBody = Record<string, unknown>;
@@ -15,7 +16,9 @@ type WebhookBody = Record<string, unknown>;
 export class WebhooksController {
   constructor(
     @Inject(DiagnosticsService)
-    private readonly diagnosticsService: DiagnosticsService
+    private readonly diagnosticsService: DiagnosticsService,
+    @Inject(BillingService)
+    private readonly billingService: BillingService
   ) {}
 
   @Post("uazapi")
@@ -33,7 +36,7 @@ export class WebhooksController {
     @Body() body: WebhookBody,
     @Headers("x-workspace-id") workspaceId?: string
   ) {
-    return this.record("asaas", body, workspaceId);
+    return this.recordAsaasWebhook(body, workspaceId);
   }
 
   @Post("meta")
@@ -64,6 +67,16 @@ export class WebhooksController {
       idempotencyKey: externalEventId ? `${source}:${externalEventId}` : undefined,
       summaryPayload: body
     });
+  }
+
+  private async recordAsaasWebhook(body: WebhookBody, workspaceId?: string) {
+    const diagnostic = await this.record("asaas", body, workspaceId);
+    const billing = await this.billingService.processAsaasPaymentWebhook(body);
+
+    return {
+      ...diagnostic,
+      billing
+    };
   }
 
   private getEventType(source: DiagnosticSourceDto, body: WebhookBody): string {
