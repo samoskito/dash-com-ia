@@ -97,6 +97,7 @@ describe("backoffice route", () => {
 
     expect(html).toContain("Conversao nao enviada");
     expect(html).toContain("Reprocessar");
+    expect(html).toContain("/backoffice/diagnostics/diag_1");
     expect(html).toContain("diag_1");
   });
 

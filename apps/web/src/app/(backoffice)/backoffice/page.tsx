@@ -245,6 +245,9 @@ export default async function BackofficePage() {
                       </span>
                     </td>
                     <td>
+                      <a className="button ghost" href={`/backoffice/diagnostics/${event.id}`}>
+                        Detalhes
+                      </a>
                       <form action={retryDiagnosticEvent}>
                         <input type="hidden" name="eventId" value={event.id} />
                         <button className="button" type="submit">Reprocessar</button>

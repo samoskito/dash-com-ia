@@ -328,6 +328,10 @@ button {
   color: #03110d;
 }
 
+.button.ghost {
+  background: transparent;
+}
+
 .inline-form {
   display: flex;
   align-items: center;
@@ -581,6 +585,30 @@ td span {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.diagnostic-detail-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.payload-block {
+  overflow-x: auto;
+  margin: 16px 0 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.action-row {
+  display: flex;
+  margin-top: 16px;
+}
+
 .integration-card,
 .config-card {
   display: grid;
@@ -705,7 +733,8 @@ td span {
   .metric-grid,
   .integration-grid,
   .config-grid,
-  .backoffice-grid {
+  .backoffice-grid,
+  .diagnostic-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -787,6 +816,7 @@ td span {
   .integration-grid,
   .config-grid,
   .backoffice-grid,
+  .diagnostic-detail-grid,
   .login-status-grid,
   .funnel-row {
     grid-template-columns: 1fr;
