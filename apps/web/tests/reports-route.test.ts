@@ -83,17 +83,17 @@ describe("reports route", () => {
                 campaignName: "Black Friday WhatsApp",
                 name: "Publico quente",
                 status: "active",
-                spendCents: 0,
-                metaConversationsStarted: 0,
-                costPerMetaConversationCents: null,
+                spendCents: 60000,
+                metaConversationsStarted: 80,
+                costPerMetaConversationCents: 750,
                 realConversations: 2,
-                costPerRealConversationCents: null,
+                costPerRealConversationCents: 30000,
                 leadSubmitted: 1,
-                costPerLeadSubmittedCents: null,
+                costPerLeadSubmittedCents: 60000,
                 qualifiedLead: 1,
-                costPerQualifiedLeadCents: null,
+                costPerQualifiedLeadCents: 60000,
                 purchase: 1,
-                costPerPurchaseCents: null,
+                costPerPurchaseCents: 60000,
                 roas: null
               }
             ]
@@ -115,17 +115,17 @@ describe("reports route", () => {
                 adSetName: "Publico quente",
                 name: "Criativo WhatsApp",
                 status: "active",
-                spendCents: 0,
-                metaConversationsStarted: 0,
-                costPerMetaConversationCents: null,
+                spendCents: 30000,
+                metaConversationsStarted: 40,
+                costPerMetaConversationCents: 750,
                 realConversations: 2,
-                costPerRealConversationCents: null,
+                costPerRealConversationCents: 15000,
                 leadSubmitted: 1,
-                costPerLeadSubmittedCents: null,
+                costPerLeadSubmittedCents: 30000,
                 qualifiedLead: 1,
-                costPerQualifiedLeadCents: null,
+                costPerQualifiedLeadCents: 30000,
                 purchase: 1,
-                costPerPurchaseCents: null,
+                costPerPurchaseCents: 30000,
                 roas: null
               }
             ]
@@ -172,8 +172,11 @@ describe("reports route", () => {
     expect(html).toContain("LeadSubmitted");
     expect(html).toContain("Performance por conjunto");
     expect(html).toContain("Performance por anuncio");
-    expect(html).toContain("Conjunto nao tem investimento proprio persistido");
-    expect(html).toContain("Anuncio nao tem investimento proprio persistido");
+    expect(html).toContain("Insights Meta por conjunto sincronizados");
+    expect(html).toContain("Insights Meta por anuncio sincronizados");
+    expect(html).toContain("600,00");
+    expect(html).toContain("300,00");
+    expect(html).not.toContain("nao tem investimento proprio persistido");
   });
 
   it("renders an empty campaign state without demo rows when backend returns no campaigns", async () => {

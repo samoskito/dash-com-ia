@@ -265,6 +265,53 @@ describe("meta adapter oauth", () => {
         );
       }
 
+      if (url.includes("level=adset")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                adset_id: "adset_1",
+                campaign_id: "cmp_1",
+                spend: "600.10",
+                impressions: "5000",
+                clicks: "210",
+                actions: [
+                  {
+                    action_type: "onsite_conversion.messaging_conversation_started_7d",
+                    value: "80"
+                  }
+                ]
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.includes("level=ad")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                ad_id: "ad_1",
+                adset_id: "adset_1",
+                campaign_id: "cmp_1",
+                spend: "300.05",
+                impressions: "2500",
+                clicks: "105",
+                actions: [
+                  {
+                    action_type: "onsite_conversion.messaging_conversation_started_7d",
+                    value: "40"
+                  }
+                ]
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
       return new Response(
         JSON.stringify({
           data: [
@@ -349,6 +396,41 @@ describe("meta adapter oauth", () => {
         impressions: 10000,
         clicks: 420,
         metaConversationsStarted: 176
+      }
+    ]);
+    await expect(
+      adapter.listAdSetInsights({
+        accessToken: "EAAB-secret-token",
+        adAccountId: "act_123",
+        since: "2026-07-01",
+        until: "2026-07-02"
+      })
+    ).resolves.toEqual([
+      {
+        adSetId: "adset_1",
+        campaignId: "cmp_1",
+        spendCents: 60010,
+        impressions: 5000,
+        clicks: 210,
+        metaConversationsStarted: 80
+      }
+    ]);
+    await expect(
+      adapter.listAdInsights({
+        accessToken: "EAAB-secret-token",
+        adAccountId: "act_123",
+        since: "2026-07-01",
+        until: "2026-07-02"
+      })
+    ).resolves.toEqual([
+      {
+        adId: "ad_1",
+        adSetId: "adset_1",
+        campaignId: "cmp_1",
+        spendCents: 30005,
+        impressions: 2500,
+        clicks: 105,
+        metaConversationsStarted: 40
       }
     ]);
   });

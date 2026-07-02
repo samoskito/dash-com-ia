@@ -139,6 +139,27 @@ function createHarness() {
         clicks: 420,
         metaConversationsStarted: 176
       }
+    ]),
+    listAdSetInsights: vi.fn(async () => [
+      {
+        adSetId: "adset_1",
+        campaignId: "cmp_1",
+        spendCents: 60000,
+        impressions: 5000,
+        clicks: 210,
+        metaConversationsStarted: 80
+      }
+    ]),
+    listAdInsights: vi.fn(async () => [
+      {
+        adId: "ad_1",
+        adSetId: "adset_1",
+        campaignId: "cmp_1",
+        spendCents: 30000,
+        impressions: 2500,
+        clicks: 105,
+        metaConversationsStarted: 40
+      }
     ])
   };
   const service = new MetaReportingService(
@@ -179,6 +200,18 @@ describe("meta reporting service", () => {
       since: "2026-07-01",
       until: "2026-07-02"
     });
+    expect(metaAdapter.listAdSetInsights).toHaveBeenCalledWith({
+      accessToken: "EAAB-secret-token",
+      adAccountId: "act_123",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    });
+    expect(metaAdapter.listAdInsights).toHaveBeenCalledWith({
+      accessToken: "EAAB-secret-token",
+      adAccountId: "act_123",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    });
     expect(prisma.metaCampaign.upsert).toHaveBeenCalled();
     expect(db.campaigns[0]).toMatchObject({
       workspaceId: "workspace_1",
@@ -186,6 +219,16 @@ describe("meta reporting service", () => {
       name: "Black Friday WhatsApp",
       spendCents: 120000,
       metaConversationsStarted: 176
+    });
+    expect(db.adSets[0]).toMatchObject({
+      adSetId: "adset_1",
+      spendCents: 60000,
+      metaConversationsStarted: 80
+    });
+    expect(db.ads[0]).toMatchObject({
+      adId: "ad_1",
+      spendCents: 30000,
+      metaConversationsStarted: 40
     });
   });
 
@@ -331,17 +374,17 @@ describe("meta reporting service", () => {
           campaignName: "Black Friday WhatsApp",
           name: "Publico quente",
           status: "active",
-          spendCents: 0,
-          metaConversationsStarted: 0,
-          costPerMetaConversationCents: null,
+          spendCents: 60000,
+          metaConversationsStarted: 80,
+          costPerMetaConversationCents: 750,
           realConversations: 2,
-          costPerRealConversationCents: null,
+          costPerRealConversationCents: 30000,
           leadSubmitted: 1,
-          costPerLeadSubmittedCents: null,
+          costPerLeadSubmittedCents: 60000,
           qualifiedLead: 1,
-          costPerQualifiedLeadCents: null,
+          costPerQualifiedLeadCents: 60000,
           purchase: 1,
-          costPerPurchaseCents: null,
+          costPerPurchaseCents: 60000,
           roas: null
         }
       ]
@@ -374,17 +417,17 @@ describe("meta reporting service", () => {
           adSetName: "Publico quente",
           name: "Criativo WhatsApp",
           status: "active",
-          spendCents: 0,
-          metaConversationsStarted: 0,
-          costPerMetaConversationCents: null,
+          spendCents: 30000,
+          metaConversationsStarted: 40,
+          costPerMetaConversationCents: 750,
           realConversations: 2,
-          costPerRealConversationCents: null,
+          costPerRealConversationCents: 15000,
           leadSubmitted: 1,
-          costPerLeadSubmittedCents: null,
+          costPerLeadSubmittedCents: 30000,
           qualifiedLead: 1,
-          costPerQualifiedLeadCents: null,
+          costPerQualifiedLeadCents: 30000,
           purchase: 1,
-          costPerPurchaseCents: null,
+          costPerPurchaseCents: 30000,
           roas: null
         }
       ]

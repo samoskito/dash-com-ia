@@ -576,16 +576,20 @@ model MetaCampaign {
 }
 
 model MetaAdSet {
-  id              String   @id @default(cuid())
-  workspaceId     String
-  campaignId      String
-  adSetId         String
-  name            String
-  status          String?
-  effectiveStatus String?
-  lastSyncedAt    DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                       String   @id @default(cuid())
+  workspaceId              String
+  campaignId               String
+  adSetId                  String
+  name                     String
+  status                   String?
+  effectiveStatus          String?
+  spendCents               Int      @default(0)
+  impressions              Int      @default(0)
+  clicks                   Int      @default(0)
+  metaConversationsStarted Int      @default(0)
+  lastSyncedAt             DateTime?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 
@@ -594,17 +598,21 @@ model MetaAdSet {
 }
 
 model MetaAd {
-  id              String   @id @default(cuid())
-  workspaceId     String
-  campaignId      String
-  adSetId         String
-  adId            String
-  name            String
-  status          String?
-  effectiveStatus String?
-  lastSyncedAt    DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                       String   @id @default(cuid())
+  workspaceId              String
+  campaignId               String
+  adSetId                  String
+  adId                     String
+  name                     String
+  status                   String?
+  effectiveStatus          String?
+  spendCents               Int      @default(0)
+  impressions              Int      @default(0)
+  clicks                   Int      @default(0)
+  metaConversationsStarted Int      @default(0)
+  lastSyncedAt             DateTime?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 

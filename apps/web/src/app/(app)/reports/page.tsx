@@ -319,7 +319,7 @@ export default async function ReportsPage({
       <div className="surface-panel">
         <span className="eyebrow">Conjuntos</span>
         <h2>Performance por conjunto</h2>
-        <p className="muted">Conjunto nao tem investimento proprio persistido nesta etapa; custos ficam em branco ate sincronizarmos insights por conjunto.</p>
+        <p className="muted">Insights Meta por conjunto sincronizados com leads reais e eventos de conversao.</p>
         <div className="table-wrap">
           <table>
             <thead>
@@ -371,7 +371,7 @@ export default async function ReportsPage({
       <div className="surface-panel">
         <span className="eyebrow">Anuncios</span>
         <h2>Performance por anuncio</h2>
-        <p className="muted">Anuncio nao tem investimento proprio persistido nesta etapa; custos ficam em branco ate sincronizarmos insights por anuncio.</p>
+        <p className="muted">Insights Meta por anuncio sincronizados com leads reais e eventos de conversao.</p>
         <div className="table-wrap">
           <table>
             <thead>

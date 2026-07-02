@@ -12,7 +12,9 @@ import { PrismaService } from "../common/prisma/prisma.service";
 import {
   MetaAdapter,
   type MetaAdAsset,
+  type MetaAdInsight,
   type MetaAdSetAsset,
+  type MetaAdSetInsight,
   type MetaCampaignAsset,
   type MetaCampaignInsight
 } from "../integrations/meta/meta.adapter";
@@ -56,6 +58,8 @@ type MetaAdSetRecord = {
   name: string;
   status: string | null;
   effectiveStatus: string | null;
+  spendCents: number;
+  metaConversationsStarted: number;
 };
 
 type MetaAdRecord = {
@@ -65,6 +69,8 @@ type MetaAdRecord = {
   name: string;
   status: string | null;
   effectiveStatus: string | null;
+  spendCents: number;
+  metaConversationsStarted: number;
 };
 
 type ConversionEventRecord = {
@@ -104,7 +110,7 @@ export class MetaReportingService {
       throw new NotFoundException("Conta de anuncio Meta nao selecionada");
     }
 
-    const [campaigns, adSets, ads, insights] = await Promise.all([
+    const [campaigns, adSets, ads, campaignInsights, adSetInsights, adInsights] = await Promise.all([
       this.metaAdapter.listCampaigns({ accessToken, adAccountId }),
       this.metaAdapter.listAdSets({ accessToken, adAccountId }),
       this.metaAdapter.listAds({ accessToken, adAccountId }),
@@ -113,10 +119,28 @@ export class MetaReportingService {
         adAccountId,
         since: input.since,
         until: input.until
+      }),
+      this.metaAdapter.listAdSetInsights({
+        accessToken,
+        adAccountId,
+        since: input.since,
+        until: input.until
+      }),
+      this.metaAdapter.listAdInsights({
+        accessToken,
+        adAccountId,
+        since: input.since,
+        until: input.until
       })
     ]);
     const insightByCampaign = new Map(
-      insights.map((item) => [item.campaignId, item])
+      campaignInsights.map((item) => [item.campaignId, item])
+    );
+    const insightByAdSet = new Map(
+      adSetInsights.map((item) => [item.adSetId, item])
+    );
+    const insightByAd = new Map(
+      adInsights.map((item) => [item.adId, item])
     );
     const syncedAt = new Date();
 
@@ -134,6 +158,7 @@ export class MetaReportingService {
         this.upsertAdSet({
           workspaceId: input.workspaceId,
           adSet,
+          insight: insightByAdSet.get(adSet.id),
           syncedAt
         })
       ),
@@ -141,6 +166,7 @@ export class MetaReportingService {
         this.upsertAd({
           workspaceId: input.workspaceId,
           ad,
+          insight: insightByAd.get(ad.id),
           syncedAt
         })
       )
@@ -393,6 +419,7 @@ export class MetaReportingService {
   private upsertAdSet(input: {
     workspaceId: string;
     adSet: MetaAdSetAsset;
+    insight?: MetaAdSetInsight;
     syncedAt: Date;
   }) {
     const data = {
@@ -400,6 +427,10 @@ export class MetaReportingService {
       name: input.adSet.name,
       status: input.adSet.status,
       effectiveStatus: input.adSet.effectiveStatus,
+      spendCents: input.insight?.spendCents ?? 0,
+      impressions: input.insight?.impressions ?? 0,
+      clicks: input.insight?.clicks ?? 0,
+      metaConversationsStarted: input.insight?.metaConversationsStarted ?? 0,
       lastSyncedAt: input.syncedAt
     };
 
@@ -422,6 +453,7 @@ export class MetaReportingService {
   private upsertAd(input: {
     workspaceId: string;
     ad: MetaAdAsset;
+    insight?: MetaAdInsight;
     syncedAt: Date;
   }) {
     const data = {
@@ -430,6 +462,10 @@ export class MetaReportingService {
       name: input.ad.name,
       status: input.ad.status,
       effectiveStatus: input.ad.effectiveStatus,
+      spendCents: input.insight?.spendCents ?? 0,
+      impressions: input.insight?.impressions ?? 0,
+      clicks: input.insight?.clicks ?? 0,
+      metaConversationsStarted: input.insight?.metaConversationsStarted ?? 0,
       lastSyncedAt: input.syncedAt
     };
 
@@ -504,7 +540,12 @@ export class MetaReportingService {
     const realConversations = input.leads.filter(
       (item) => item.adSetId === input.adSet.adSetId
     ).length;
-    const metrics = this.toZeroSpendMetrics(events, realConversations);
+    const metrics = this.toMetrics({
+      spendCents: input.adSet.spendCents,
+      metaConversationsStarted: input.adSet.metaConversationsStarted,
+      events,
+      realConversations
+    });
 
     return {
       id: input.adSet.adSetId,
@@ -529,7 +570,12 @@ export class MetaReportingService {
     const realConversations = input.leads.filter(
       (item) => item.adId === input.ad.adId
     ).length;
-    const metrics = this.toZeroSpendMetrics(events, realConversations);
+    const metrics = this.toMetrics({
+      spendCents: input.ad.spendCents,
+      metaConversationsStarted: input.ad.metaConversationsStarted,
+      events,
+      realConversations
+    });
 
     return {
       id: input.ad.adId,
@@ -543,32 +589,41 @@ export class MetaReportingService {
     };
   }
 
-  private toZeroSpendMetrics(
-    events: ConversionEventRecord[],
-    realConversations: number
-  ): Omit<
+  private toMetrics(input: {
+    spendCents: number;
+    metaConversationsStarted: number;
+    events: ConversionEventRecord[];
+    realConversations: number;
+  }): Omit<
     CampaignReportRowDto,
     "id" | "name" | "status" | "spendCents" | "metaConversationsStarted"
   > &
     Pick<CampaignReportRowDto, "spendCents" | "metaConversationsStarted"> {
-    const spendCents = 0;
-    const metaConversationsStarted = 0;
-    const leadSubmitted = this.countEvents(events, "LeadSubmitted");
-    const qualifiedLead = this.countEvents(events, "QualifiedLead");
-    const purchase = this.countEvents(events, "Purchase");
+    const leadSubmitted = this.countEvents(input.events, "LeadSubmitted");
+    const qualifiedLead = this.countEvents(input.events, "QualifiedLead");
+    const purchase = this.countEvents(input.events, "Purchase");
 
     return {
-      spendCents,
-      metaConversationsStarted,
-      costPerMetaConversationCents: null,
-      realConversations,
-      costPerRealConversationCents: null,
+      spendCents: input.spendCents,
+      metaConversationsStarted: input.metaConversationsStarted,
+      costPerMetaConversationCents: this.costPer(
+        input.spendCents,
+        input.metaConversationsStarted
+      ),
+      realConversations: input.realConversations,
+      costPerRealConversationCents: this.costPer(
+        input.spendCents,
+        input.realConversations
+      ),
       leadSubmitted,
-      costPerLeadSubmittedCents: null,
+      costPerLeadSubmittedCents: this.costPer(input.spendCents, leadSubmitted),
       qualifiedLead,
-      costPerQualifiedLeadCents: null,
+      costPerQualifiedLeadCents: this.costPer(
+        input.spendCents,
+        qualifiedLead
+      ),
       purchase,
-      costPerPurchaseCents: null,
+      costPerPurchaseCents: this.costPer(input.spendCents, purchase),
       roas: null
     };
   }

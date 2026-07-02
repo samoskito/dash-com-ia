@@ -94,6 +94,25 @@ export type MetaCampaignInsight = {
   metaConversationsStarted: number;
 };
 
+export type MetaAdSetInsight = {
+  adSetId: string;
+  campaignId: string;
+  spendCents: number;
+  impressions: number;
+  clicks: number;
+  metaConversationsStarted: number;
+};
+
+export type MetaAdInsight = {
+  adId: string;
+  adSetId: string;
+  campaignId: string;
+  spendCents: number;
+  impressions: number;
+  clicks: number;
+  metaConversationsStarted: number;
+};
+
 type MetaCampaignGraphNode = {
   id?: unknown;
   name?: unknown;
@@ -121,6 +140,8 @@ type MetaAdGraphNode = {
 
 type MetaInsightGraphNode = {
   campaign_id?: unknown;
+  adset_id?: unknown;
+  ad_id?: unknown;
   spend?: unknown;
   impressions?: unknown;
   clicks?: unknown;
@@ -432,6 +453,67 @@ export class MetaAdapter implements IntegrationAdapter {
       );
   }
 
+  async listAdSetInsights(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+  }): Promise<MetaAdSetInsight[]> {
+    const payload = await this.listInsights({
+      ...input,
+      fields: "campaign_id,adset_id,spend,impressions,clicks,actions",
+      level: "adset"
+    });
+
+    return payload
+      .map((item) => ({
+        adSetId: this.asString(item.adset_id),
+        campaignId: this.asString(item.campaign_id),
+        spendCents: this.asMoneyCents(item.spend),
+        impressions: this.asInteger(item.impressions),
+        clicks: this.asInteger(item.clicks),
+        metaConversationsStarted: this.actionValue(
+          item.actions,
+          "onsite_conversion.messaging_conversation_started_7d"
+        )
+      }))
+      .filter(
+        (item): item is MetaAdSetInsight =>
+          Boolean(item.adSetId && item.campaignId)
+      );
+  }
+
+  async listAdInsights(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+  }): Promise<MetaAdInsight[]> {
+    const payload = await this.listInsights({
+      ...input,
+      fields: "campaign_id,adset_id,ad_id,spend,impressions,clicks,actions",
+      level: "ad"
+    });
+
+    return payload
+      .map((item) => ({
+        adId: this.asString(item.ad_id),
+        adSetId: this.asString(item.adset_id),
+        campaignId: this.asString(item.campaign_id),
+        spendCents: this.asMoneyCents(item.spend),
+        impressions: this.asInteger(item.impressions),
+        clicks: this.asInteger(item.clicks),
+        metaConversationsStarted: this.actionValue(
+          item.actions,
+          "onsite_conversion.messaging_conversation_started_7d"
+        )
+      }))
+      .filter(
+        (item): item is MetaAdInsight =>
+          Boolean(item.adId && item.adSetId && item.campaignId)
+      );
+  }
+
   private getGraphApiVersion(): string {
     return this.env.META_GRAPH_API_VERSION ?? "v21.0";
   }
@@ -496,6 +578,38 @@ export class MetaAdapter implements IntegrationAdapter {
     );
 
     return this.asInteger(action?.value);
+  }
+
+  private async listInsights(input: {
+    accessToken: string;
+    adAccountId: string;
+    fields: string;
+    level: "campaign" | "adset" | "ad";
+    since: string;
+    until: string;
+  }): Promise<MetaInsightGraphNode[]> {
+    const params = new URLSearchParams({
+      fields: input.fields,
+      level: input.level,
+      time_range: JSON.stringify({
+        since: input.since,
+        until: input.until
+      }),
+      access_token: input.accessToken
+    });
+    const response = await this.fetchImpl(
+      `https://graph.facebook.com/${this.getGraphApiVersion()}/${input.adAccountId}/insights?${params.toString()}`
+    );
+    const payload = (await response.json().catch(() => ({}))) as MetaGraphListResponse<MetaInsightGraphNode>;
+
+    if (!response.ok) {
+      throw new Error(
+        this.asString(payload.error?.message) ??
+          `Meta Graph HTTP ${response.status}`
+      );
+    }
+
+    return Array.isArray(payload.data) ? payload.data : [];
   }
 
   private async getGraphList<T>(
