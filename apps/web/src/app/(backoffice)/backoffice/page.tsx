@@ -1011,7 +1011,13 @@ export default async function BackofficePage({
                   <td><span className="event-chip warn">sem status</span></td>
                   <td><span className="event-chip warn">sem assinatura</span></td>
                   <td>0 instancias</td>
-                  <td><span className="event-chip warn">sem dados</span></td>
+                  <td>
+                    <span className="event-chip warn">
+                      {workspaceBillingResult.state === "error"
+                        ? "indisponivel"
+                        : "Customer Asaas ausente"}
+                    </span>
+                  </td>
                 </tr>
               )}
             </tbody>

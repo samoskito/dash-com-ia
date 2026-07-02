@@ -914,6 +914,8 @@ describe("backoffice route", () => {
 
     expect(html).toContain("Nenhum recebedor configurado");
     expect(html).toContain("Nenhum evento diagnostico encontrado");
+    expect(html).toContain("Customer Asaas ausente");
+    expect(html).not.toContain("sem dados");
     expect(html).not.toContain("Recebedor principal");
     expect(html).not.toContain("wallet_asaas_preview");
     expect(html).not.toContain("WhatsApp sessions");
