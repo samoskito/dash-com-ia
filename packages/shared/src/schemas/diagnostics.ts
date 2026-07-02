@@ -58,8 +58,25 @@ export const diagnosticEventListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50)
 });
 
-export const diagnosticEventDetailSchema = diagnosticEventSchema.extend({
+export const diagnosticTimelineItemSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum([
+    "diagnostic_event",
+    "webhook_log",
+    "integration_log",
+    "conversion_event_log",
+    "job_attempt",
+    "audit_log"
+  ]),
+  label: z.string().min(1),
+  status: z.string().min(1),
+  occurredAt: z.string().datetime(),
   summaryPayload: z.record(z.unknown()).nullable()
+});
+
+export const diagnosticEventDetailSchema = diagnosticEventSchema.extend({
+  summaryPayload: z.record(z.unknown()).nullable(),
+  timeline: z.array(diagnosticTimelineItemSchema)
 });
 
 export const diagnosticRetryInputSchema = z.object({
@@ -82,6 +99,9 @@ export type DiagnosticEventCreateDto = z.infer<
 >;
 export type DiagnosticEventListQueryDto = z.infer<
   typeof diagnosticEventListQuerySchema
+>;
+export type DiagnosticTimelineItemDto = z.infer<
+  typeof diagnosticTimelineItemSchema
 >;
 export type DiagnosticEventDetailDto = z.infer<
   typeof diagnosticEventDetailSchema

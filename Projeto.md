@@ -55,6 +55,7 @@ Este documento e a memoria persistente do projeto. Sempre que uma nova conversa 
 - Tela de backoffice agora consulta `/backoffice/split/receivers` e exibe recebedores, wallet Asaas, email, percentual e status com fallback visual quando a API nao responde.
 - Tela de backoffice agora exibe acao de `Reprocessar` para eventos reais da Central de Diagnostico; a acao chama o retry auditado `POST /backoffice/diagnostics/events/:id/retry` via server action e usa fallback visual quando nao ha eventos reais.
 - Central de Diagnostico ganhou pagina de detalhe em `/backoffice/diagnostics/:eventId`, consumindo `GET /backoffice/diagnostics/events/:id`, exibindo metadados, payload sanitizado e acao auditada de `Reprocessar evento`. A listagem do backoffice agora aponta cada evento para essa pagina.
+- Detalhe da Central de Diagnostico agora retorna e renderiza `timeline` operacional com o proprio evento, webhook relacionado, auditorias de retry e tentativas de job vinculadas ao diagnostico. A meta e permitir investigacao pelo frontend interno sem abrir banco, preservando payloads sanitizados.
 - Endpoints internos de backoffice agora exigem sessao valida e allowlist `WPPTRACK_PLATFORM_ADMIN_EMAILS`; usuarios autenticados fora da allowlist recebem acesso negado. As paginas server-side usam `serverApiFetch` para repassar cookie ao backend.
 - Backoffice de workspaces ganhou configuracao operacional de billing: `GET /backoffice/workspaces/billing` lista workspaces com `asaasCustomerId`; `GET/PATCH /backoffice/workspaces/:workspaceId/billing` permite visualizar/atualizar o customer Asaas, necessario para criar cobrancas reais no Asaas sem abrir o banco. A tela interna de backoffice ja renderiza essa lista e salva alteracoes por server action.
 - Rodada Paralela 1 executada e revisada: visual WppTrack/Telemetria Noturna aplicado ao web, Auth/Workspaces iniciado, scaffolds de integracoes Meta/Uazapi/Asaas criados e spec de Diagnosticos/Logs adicionada.
@@ -438,7 +439,7 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: telas detalhadas da Central de Diagnostico.
+- Continuar a proxima rodada com: reprocessamento real por worker na Central de Diagnostico e detalhamento de ambientes/deploy.
 
 ## Perguntas Abertas
 

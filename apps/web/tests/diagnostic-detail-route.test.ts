@@ -34,7 +34,35 @@ describe("diagnostic detail route", () => {
               status: 400,
               message: "Missing currency"
             }
-          }
+          },
+          timeline: [
+            {
+              id: "webhook_1",
+              kind: "webhook_log",
+              label: "Webhook meta recebido",
+              status: "received",
+              occurredAt: "2026-07-02T02:59:00.000Z",
+              summaryPayload: {
+                event: "LeadSubmitted"
+              }
+            },
+            {
+              id: "diag_1",
+              kind: "diagnostic_event",
+              label: "Meta recusou evento",
+              status: "error",
+              occurredAt: "2026-07-02T03:00:00.000Z",
+              summaryPayload: null
+            },
+            {
+              id: "job_attempt_1",
+              kind: "job_attempt",
+              label: "retry-diagnostic-event",
+              status: "queued",
+              occurredAt: "2026-07-02T03:01:00.000Z",
+              summaryPayload: null
+            }
+          ]
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       )
@@ -53,6 +81,9 @@ describe("diagnostic detail route", () => {
     expect(html).toContain("MISSING_CURRENCY");
     expect(html).toContain("campaign_1");
     expect(html).toContain("Missing currency");
+    expect(html).toContain("Linha do tempo operacional");
+    expect(html).toContain("Webhook meta recebido");
+    expect(html).toContain("retry-diagnostic-event");
     expect(html).toContain("Reprocessar evento");
     expect(html).toContain("diag_1");
   });

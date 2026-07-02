@@ -5,7 +5,21 @@ function createHarness() {
   const events: Array<Record<string, unknown>> = [];
   const auditLogs: Array<Record<string, unknown>> = [];
   const jobAttempts: Array<Record<string, unknown>> = [];
+  const webhookLogs: Array<Record<string, unknown>> = [];
   const prisma = {
+    webhookLog: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const webhookLog = {
+          id: `webhook_${webhookLogs.length + 1}`,
+          receivedAt: new Date("2026-07-02T02:59:00.000Z"),
+          ...data
+        };
+        webhookLogs.push(webhookLog);
+        return webhookLog;
+      },
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        webhookLogs.find((webhookLog) => webhookLog.id === where.id) ?? null
+    },
     diagnosticEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const event = {
@@ -35,7 +49,11 @@ function createHarness() {
         };
         auditLogs.push(auditLog);
         return auditLog;
-      }
+      },
+      findMany: async ({ where }: { where: Record<string, unknown> }) =>
+        auditLogs.filter((auditLog) =>
+          Object.entries(where).every(([key, value]) => auditLog[key] === value)
+        )
     },
     jobAttempt: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -46,7 +64,11 @@ function createHarness() {
         };
         jobAttempts.push(jobAttempt);
         return jobAttempt;
-      }
+      },
+      findMany: async ({ where }: { where: Record<string, unknown> }) =>
+        jobAttempts.filter((jobAttempt) =>
+          Object.entries(where).every(([key, value]) => jobAttempt[key] === value)
+        )
     }
   };
 
@@ -54,6 +76,7 @@ function createHarness() {
     auditLogs,
     events,
     jobAttempts,
+    webhookLogs,
     service: new DiagnosticsService(prisma as never)
   };
 }
@@ -174,5 +197,41 @@ describe("diagnostics service", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]?.source).toBe("meta");
+  });
+
+  it("returns an operational timeline for webhook, event, retry audit and job attempts", async () => {
+    const { service } = createHarness();
+
+    const webhook = await service.recordWebhookLog({
+      workspaceId: "workspace_1",
+      source: "uazapi",
+      eventType: "message.label_added",
+      externalEventId: "uazapi_event_1",
+      summaryPayload: {
+        label: "Venda fechada"
+      }
+    });
+
+    await service.retryEvent(webhook.diagnosticEventId, {
+      reason: "Cliente relatou conversao ausente"
+    });
+
+    const detail = await service.getEvent(webhook.diagnosticEventId);
+
+    expect(detail.timeline.map((item) => item.kind)).toEqual([
+      "webhook_log",
+      "diagnostic_event",
+      "audit_log",
+      "job_attempt"
+    ]);
+    expect(detail.timeline[0]).toMatchObject({
+      id: webhook.webhookLogId,
+      label: "Webhook uazapi recebido",
+      status: "received"
+    });
+    expect(detail.timeline[2]).toMatchObject({
+      label: "diagnostic.retry_requested",
+      status: "queued"
+    });
   });
 });

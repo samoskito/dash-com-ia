@@ -605,6 +605,29 @@ td span {
   line-height: 1.65;
 }
 
+.payload-block.compact {
+  grid-column: 1 / -1;
+  margin-top: 0;
+  padding: 12px;
+}
+
+.timeline-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
 .action-row {
   display: flex;
   margin-top: 16px;

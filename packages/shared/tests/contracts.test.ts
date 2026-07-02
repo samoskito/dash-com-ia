@@ -514,12 +514,33 @@ describe("shared contracts", () => {
       errorCode: "MISSING_CURRENCY",
       summaryPayload: {
         currency: null
-      }
+      },
+      timeline: [
+        {
+          id: "diag_1",
+          kind: "diagnostic_event",
+          label: "Meta recusou evento",
+          status: "error",
+          occurredAt: "2026-07-02T03:00:00.000Z",
+          summaryPayload: {
+            currency: null
+          }
+        },
+        {
+          id: "job_attempt_1",
+          kind: "job_attempt",
+          label: "retry-diagnostic-event",
+          status: "queued",
+          occurredAt: "2026-07-02T03:01:00.000Z",
+          summaryPayload: null
+        }
+      ]
     });
 
     expect(create.source).toBe("meta");
     expect(query.limit).toBe(25);
     expect(detail.errorCode).toBe("MISSING_CURRENCY");
+    expect(detail.timeline[1]?.kind).toBe("job_attempt");
   });
 
   it("validates diagnostic retry contracts", () => {

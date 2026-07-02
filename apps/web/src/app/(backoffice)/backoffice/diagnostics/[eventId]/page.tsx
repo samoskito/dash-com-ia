@@ -48,6 +48,16 @@ function payloadText(payload: DiagnosticEventDetailDto["summaryPayload"]) {
   return JSON.stringify(payload, null, 2);
 }
 
+function timelinePayloadText(
+  payload: DiagnosticEventDetailDto["timeline"][number]["summaryPayload"]
+) {
+  if (!payload) {
+    return null;
+  }
+
+  return JSON.stringify(payload, null, 2);
+}
+
 export default async function DiagnosticEventPage({
   params
 }: DiagnosticEventPageProps) {
@@ -118,6 +128,28 @@ export default async function DiagnosticEventPage({
         <span className="eyebrow">Payload sanitizado</span>
         <h2>Resposta e contexto tecnico</h2>
         <pre className="payload-block">{payloadText(event.summaryPayload)}</pre>
+      </div>
+
+      <div className="surface-panel">
+        <span className="eyebrow">Investigacao</span>
+        <h2>Linha do tempo operacional</h2>
+        <div className="timeline-list">
+          {event.timeline.map((item) => (
+            <article className="timeline-item" key={`${item.kind}-${item.id}`}>
+              <div>
+                <span className="micro-label">{item.kind}</span>
+                <strong>{item.label}</strong>
+                <p className="muted">{item.occurredAt}</p>
+              </div>
+              <span className="event-chip">{item.status}</span>
+              {timelinePayloadText(item.summaryPayload) ? (
+                <pre className="payload-block compact">
+                  {timelinePayloadText(item.summaryPayload)}
+                </pre>
+              ) : null}
+            </article>
+          ))}
+        </div>
       </div>
 
       <div className="surface-panel">

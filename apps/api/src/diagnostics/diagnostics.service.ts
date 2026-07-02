@@ -6,6 +6,7 @@ import type {
   DiagnosticEventDetailDto,
   DiagnosticEventDto,
   DiagnosticEventListQueryDto,
+  DiagnosticTimelineItemDto,
   DiagnosticRetryInputDto,
   DiagnosticRetryResultDto
 } from "@wpptrack/shared";
@@ -31,6 +32,39 @@ type DiagnosticEventRecord = {
   adId: string | null;
   jobId: string | null;
   errorCode: string | null;
+  summaryPayload?: unknown;
+  webhookLogId?: string | null;
+  integrationLogId?: string | null;
+  conversionEventLogId?: string | null;
+  jobAttemptId?: string | null;
+};
+
+type WebhookLogRecord = {
+  id: string;
+  source: DiagnosticSourceDto;
+  eventType: string;
+  status: string;
+  receivedAt: Date;
+  summaryPayload?: unknown;
+};
+
+type AuditLogRecord = {
+  id: string;
+  action: string;
+  resultStatus: string;
+  createdAt: Date;
+  beforeSummary?: unknown;
+  afterSummary?: unknown;
+};
+
+type JobAttemptRecord = {
+  id: string;
+  jobName: string;
+  status: string;
+  scheduledAt: Date | null;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+  createdAt: Date;
   summaryPayload?: unknown;
 };
 
@@ -81,7 +115,7 @@ export class DiagnosticsService {
       }
     })) as DiagnosticEventRecord;
 
-    return this.toDetailDto(event);
+    return this.toDetailDto(event, [this.eventTimelineItem(event)]);
   }
 
   async recordWebhookLog(input: WebhookLogInput): Promise<WebhookLogResult> {
@@ -170,7 +204,7 @@ export class DiagnosticsService {
       throw new NotFoundException("Evento diagnostico nao encontrado");
     }
 
-    return this.toDetailDto(event);
+    return this.toDetailDto(event, await this.buildTimeline(event));
   }
 
   async retryEvent(
@@ -260,7 +294,10 @@ export class DiagnosticsService {
     };
   }
 
-  private toDetailDto(event: DiagnosticEventRecord): DiagnosticEventDetailDto {
+  private toDetailDto(
+    event: DiagnosticEventRecord,
+    timeline: DiagnosticTimelineItemDto[]
+  ): DiagnosticEventDetailDto {
     return {
       ...this.toDto(event),
       summaryPayload:
@@ -268,8 +305,109 @@ export class DiagnosticsService {
         typeof event.summaryPayload === "object" &&
         !Array.isArray(event.summaryPayload)
           ? (event.summaryPayload as Record<string, unknown>)
-          : null
+          : null,
+      timeline
     };
+  }
+
+  private async buildTimeline(
+    event: DiagnosticEventRecord
+  ): Promise<DiagnosticTimelineItemDto[]> {
+    const items: DiagnosticTimelineItemDto[] = [this.eventTimelineItem(event)];
+
+    if (event.webhookLogId) {
+      const webhook = (await this.prisma.webhookLog.findUnique({
+        where: { id: event.webhookLogId }
+      })) as WebhookLogRecord | null;
+
+      if (webhook) {
+        items.push({
+          id: webhook.id,
+          kind: "webhook_log",
+          label: `Webhook ${webhook.source} recebido`,
+          status: webhook.status,
+          occurredAt: webhook.receivedAt.toISOString(),
+          summaryPayload: this.payloadRecord(webhook.summaryPayload)
+        });
+      }
+    }
+
+    const [auditLogs, jobAttempts] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where: {
+          targetType: "DiagnosticEvent",
+          targetId: event.id
+        },
+        orderBy: {
+          createdAt: "asc"
+        },
+        take: 20
+      }) as Promise<AuditLogRecord[]>,
+      this.prisma.jobAttempt.findMany({
+        where: {
+          relatedEntityType: "DiagnosticEvent",
+          relatedEntityId: event.id
+        },
+        orderBy: {
+          createdAt: "asc"
+        },
+        take: 20
+      }) as Promise<JobAttemptRecord[]>
+    ]);
+
+    for (const auditLog of auditLogs) {
+      items.push({
+        id: auditLog.id,
+        kind: "audit_log",
+        label: auditLog.action,
+        status: auditLog.resultStatus,
+        occurredAt: auditLog.createdAt.toISOString(),
+        summaryPayload: this.payloadRecord({
+          before: auditLog.beforeSummary,
+          after: auditLog.afterSummary
+        })
+      });
+    }
+
+    for (const jobAttempt of jobAttempts) {
+      items.push({
+        id: jobAttempt.id,
+        kind: "job_attempt",
+        label: jobAttempt.jobName,
+        status: jobAttempt.status,
+        occurredAt: (
+          jobAttempt.finishedAt ??
+          jobAttempt.startedAt ??
+          jobAttempt.scheduledAt ??
+          jobAttempt.createdAt
+        ).toISOString(),
+        summaryPayload: this.payloadRecord(jobAttempt.summaryPayload)
+      });
+    }
+
+    return items.sort(
+      (left, right) =>
+        new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime()
+    );
+  }
+
+  private eventTimelineItem(
+    event: DiagnosticEventRecord
+  ): DiagnosticTimelineItemDto {
+    return {
+      id: event.id,
+      kind: "diagnostic_event",
+      label: event.title,
+      status: event.status,
+      occurredAt: event.occurredAt.toISOString(),
+      summaryPayload: this.payloadRecord(event.summaryPayload)
+    };
+  }
+
+  private payloadRecord(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
   }
 
   private redactSensitive(value: unknown): unknown {
