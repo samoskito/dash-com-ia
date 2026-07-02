@@ -2,6 +2,8 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import type {
   MetaConnectionDto,
+  MetaCapiTokenInputDto,
+  MetaCapiTokenStatusDto,
   MetaAssetSelectionInputDto,
   MetaAssetsDto,
   IntegrationHealthSummaryDto,
@@ -124,7 +126,8 @@ export class IntegrationsService {
         connectedAt: null,
         selectedBusinessId: null,
         selectedAdAccountId: null,
-        selectedPixelId: null
+        selectedPixelId: null,
+        capiTokenConfigured: false
       };
     }
 
@@ -162,6 +165,26 @@ export class IntegrationsService {
     }
 
     return this.metaConnectionsService.saveAssetSelection(
+      workspaceId,
+      input,
+      actorUserId
+    );
+  }
+
+  async saveMetaCapiToken(
+    workspaceId: string,
+    input: MetaCapiTokenInputDto,
+    actorUserId?: string | null
+  ): Promise<MetaCapiTokenStatusDto> {
+    if (!this.metaConnectionsService) {
+      return {
+        workspaceId,
+        configured: false,
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    return this.metaConnectionsService.saveCapiToken(
       workspaceId,
       input,
       actorUserId

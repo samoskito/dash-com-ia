@@ -256,6 +256,33 @@ async function saveMetaAssetSelection(formData: FormData) {
   }
 }
 
+async function saveMetaCapiToken(formData: FormData) {
+  "use server";
+
+  const accessToken = String(formData.get("accessToken") ?? "").trim();
+  const clear = String(formData.get("clear") ?? "") === "true";
+
+  if (!accessToken && !clear) {
+    return;
+  }
+
+  try {
+    await serverApiFetch("/integrations/meta/capi-token", {
+      method: "PUT",
+      body: JSON.stringify(
+        clear
+          ? { clear: true }
+          : {
+              accessToken
+            }
+      )
+    });
+    revalidatePath("/integrations");
+  } catch {
+    return;
+  }
+}
+
 function money(cents: number | null | undefined) {
   if (!cents) {
     return "Aguardando preco";
@@ -550,6 +577,14 @@ export default async function IntegrationsPage() {
               {metaConnection?.scopes.length ? metaConnection.scopes.join(", ") : "sem escopos"}
             </strong>
           </div>
+          <div className="metric-card">
+            <span className="micro-label">Token CAPI</span>
+            <strong>
+              {metaConnection?.capiTokenConfigured
+                ? "Token CAPI configurado"
+                : "Token CAPI ausente"}
+            </strong>
+          </div>
         </div>
         <p className="muted">
           {metaAssetsDetail(metaAssets, metaAssetsResult.state)}
@@ -599,6 +634,36 @@ export default async function IntegrationsPage() {
           </form>
         ) : metaAssets ? (
           <p className="muted">Sem permissao para alterar Meta</p>
+        ) : null}
+        {metaConnection && canManageIntegrations ? (
+          <div className="inline-form">
+            <form className="inline-form" action={saveMetaCapiToken}>
+              <input
+                autoComplete="off"
+                name="accessToken"
+                placeholder="Token CAPI do Pixel"
+                type="password"
+                aria-label="Token CAPI Meta"
+              />
+              <button className="button" type="submit">
+                Salvar token CAPI
+              </button>
+            </form>
+            {metaConnection.capiTokenConfigured ? (
+              <form action={saveMetaCapiToken}>
+                <input type="hidden" name="clear" value="true" />
+                <button className="button" type="submit">
+                  Remover token CAPI
+                </button>
+              </form>
+            ) : null}
+          </div>
+        ) : metaConnection ? (
+          <p className="muted">
+            {metaConnection.capiTokenConfigured
+              ? "Token CAPI configurado"
+              : "Token CAPI ausente"}
+          </p>
         ) : null}
         <div className="table-wrap">
           <table>

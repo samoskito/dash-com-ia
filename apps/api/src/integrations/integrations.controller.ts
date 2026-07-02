@@ -11,6 +11,7 @@ import {
 import {
   canManageIntegrations,
   metaAssetSelectionInputSchema,
+  metaCapiTokenInputSchema,
   metaOAuthCallbackQuerySchema
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
@@ -90,6 +91,26 @@ export class IntegrationsController {
     }
 
     return this.integrationsService.saveMetaAssetSelection(
+      workspace.id,
+      input,
+      authenticated.user.id
+    );
+  }
+
+  @Put("meta/capi-token")
+  async saveMetaCapiToken(
+    @AuthToken() refreshToken: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(metaCapiTokenInputSchema.safeParse(body));
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.saveMetaCapiToken(
       workspace.id,
       input,
       authenticated.user.id

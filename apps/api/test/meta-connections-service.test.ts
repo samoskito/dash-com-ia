@@ -152,7 +152,8 @@ describe("meta connections service", () => {
       connectedAt: null,
       selectedBusinessId: null,
       selectedAdAccountId: null,
-      selectedPixelId: null
+      selectedPixelId: null,
+      capiTokenConfigured: false
     });
   });
 
@@ -259,6 +260,66 @@ describe("meta connections service", () => {
       businessId: "business_1",
       adAccountId: "act_123",
       pixelId: "pixel_1"
+    });
+  });
+
+  it("stores and clears a workspace Meta CAPI token without exposing the secret", async () => {
+    const { db, encryption, service } = createHarness();
+
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_1",
+      accessToken: "EAAB-oauth-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read"]
+    });
+
+    await expect(
+      service.saveCapiToken(
+        "workspace_1",
+        { accessToken: "EAAB-capi-token-secret", clear: false },
+        "user_1"
+      )
+    ).resolves.toEqual({
+      workspaceId: "workspace_1",
+      configured: true,
+      updatedAt: "2026-07-02T04:00:00.000Z"
+    });
+
+    expect(db.records[0]?.capiAccessTokenEncrypted).not.toBe(
+      "EAAB-capi-token-secret"
+    );
+    expect(
+      encryption.decrypt({
+        encryptedAccessToken: String(db.records[0]?.capiAccessTokenEncrypted),
+        tokenIv: String(db.records[0]?.capiTokenIv),
+        tokenTag: String(db.records[0]?.capiTokenTag)
+      })
+    ).toBe("EAAB-capi-token-secret");
+    expect(JSON.stringify(db.auditLogs)).not.toContain("EAAB-capi-token-secret");
+    expect(db.auditLogs.at(-1)).toMatchObject({
+      workspaceId: "workspace_1",
+      actorUserId: "user_1",
+      action: "meta.capi_token.updated",
+      resultStatus: "configured"
+    });
+
+    await expect(
+      service.saveCapiToken("workspace_1", { clear: true }, "user_1")
+    ).resolves.toEqual({
+      workspaceId: "workspace_1",
+      configured: false,
+      updatedAt: "2026-07-02T04:00:00.000Z"
+    });
+
+    expect(db.records[0]).toMatchObject({
+      capiAccessTokenEncrypted: null,
+      capiTokenIv: null,
+      capiTokenTag: null
+    });
+    expect(db.auditLogs.at(-1)).toMatchObject({
+      action: "meta.capi_token.updated",
+      resultStatus: "cleared"
     });
   });
 });

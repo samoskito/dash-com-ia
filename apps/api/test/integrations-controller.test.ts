@@ -103,6 +103,11 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       selectedAdAccountId: "act_123",
       selectedPixelId: "pixel_1"
     })),
+    saveMetaCapiToken: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      configured: true,
+      updatedAt: "2026-07-02T04:00:00.000Z"
+    })),
     getUazapiStartAction: vi.fn(() => ({
       provider: "uazapi",
       action: "configure_env",
@@ -323,6 +328,53 @@ describe("integrations controller", () => {
       .expect(403);
 
     expect(service.saveMetaAssetSelection).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("saves Meta CAPI token configuration for integration managers without echoing the token", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .put("/integrations/meta/capi-token")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        accessToken: "EAAB-capi-token-secret"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          workspaceId: "workspace_1",
+          configured: true,
+          updatedAt: "2026-07-02T04:00:00.000Z"
+        });
+        expect(JSON.stringify(body)).not.toContain("EAAB-capi-token-secret");
+      });
+
+    expect(service.saveMetaCapiToken).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        accessToken: "EAAB-capi-token-secret",
+        clear: false
+      },
+      "user_1"
+    );
+
+    await app.close();
+  });
+
+  it("rejects Meta CAPI token changes for workspace members", async () => {
+    const { app, service } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .put("/integrations/meta/capi-token")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        accessToken: "EAAB-capi-token-secret"
+      })
+      .expect(403);
+
+    expect(service.saveMetaCapiToken).not.toHaveBeenCalled();
 
     await app.close();
   });

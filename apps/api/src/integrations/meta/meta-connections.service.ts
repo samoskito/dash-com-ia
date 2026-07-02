@@ -3,6 +3,8 @@ import type { Prisma } from "@prisma/client";
 import type {
   MetaAssetSelectionInputDto,
   MetaAssetsDto,
+  MetaCapiTokenInputDto,
+  MetaCapiTokenStatusDto,
   MetaConnectionDto,
   MetaConnectionStatusDto
 } from "@wpptrack/shared";
@@ -32,6 +34,10 @@ type MetaIntegrationRecord = {
   selectedBusinessId: string | null;
   selectedAdAccountId: string | null;
   selectedPixelId: string | null;
+  capiAccessTokenEncrypted: string | null;
+  capiTokenIv: string | null;
+  capiTokenTag: string | null;
+  updatedAt: Date;
 };
 
 @Injectable()
@@ -56,7 +62,8 @@ export class MetaConnectionsService {
         connectedAt: null,
         selectedBusinessId: null,
         selectedAdAccountId: null,
-        selectedPixelId: null
+        selectedPixelId: null,
+        capiTokenConfigured: false
       };
     }
 
@@ -194,6 +201,51 @@ export class MetaConnectionsService {
     return this.toDto(connection);
   }
 
+  async saveCapiToken(
+    workspaceId: string,
+    input: MetaCapiTokenInputDto,
+    actorUserId?: string | null
+  ): Promise<MetaCapiTokenStatusDto> {
+    const encrypted = input.clear
+      ? null
+      : this.encryption.encrypt(input.accessToken ?? "");
+    const connection = (await this.prisma.metaIntegration.update({
+      where: { workspaceId },
+      data: input.clear
+        ? {
+            capiAccessTokenEncrypted: null,
+            capiTokenIv: null,
+            capiTokenTag: null
+          }
+        : {
+            capiAccessTokenEncrypted: encrypted?.encryptedAccessToken,
+            capiTokenIv: encrypted?.tokenIv,
+            capiTokenTag: encrypted?.tokenTag
+          }
+    })) as MetaIntegrationRecord;
+    const configured = Boolean(connection.capiAccessTokenEncrypted);
+
+    await this.recordMetaAudit({
+      workspaceId,
+      actorUserId: actorUserId ?? null,
+      action: "meta.capi_token.updated",
+      resultStatus: configured ? "configured" : "cleared",
+      afterSummary: {
+        configured,
+        tokenLast4:
+          !input.clear && input.accessToken
+            ? input.accessToken.slice(-4)
+            : null
+      } as Prisma.InputJsonValue
+    });
+
+    return {
+      workspaceId: connection.workspaceId,
+      configured,
+      updatedAt: connection.updatedAt.toISOString()
+    };
+  }
+
   private async recordMetaAudit(input: {
     workspaceId: string;
     actorUserId: string | null;
@@ -253,7 +305,8 @@ export class MetaConnectionsService {
       connectedAt: record.lastConnectedAt?.toISOString() ?? null,
       selectedBusinessId: record.selectedBusinessId,
       selectedAdAccountId: record.selectedAdAccountId,
-      selectedPixelId: record.selectedPixelId
+      selectedPixelId: record.selectedPixelId,
+      capiTokenConfigured: Boolean(record.capiAccessTokenEncrypted)
     };
   }
 

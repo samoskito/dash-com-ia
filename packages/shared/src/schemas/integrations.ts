@@ -57,7 +57,24 @@ export const metaConnectionSchema = z.object({
   connectedAt: z.string().datetime().nullable(),
   selectedBusinessId: z.string().min(1).nullable(),
   selectedAdAccountId: z.string().min(1).nullable(),
-  selectedPixelId: z.string().min(1).nullable()
+  selectedPixelId: z.string().min(1).nullable(),
+  capiTokenConfigured: z.boolean().default(false)
+});
+
+export const metaCapiTokenInputSchema = z
+  .object({
+    accessToken: z.string().trim().min(10).optional(),
+    clear: z.boolean().optional().default(false)
+  })
+  .refine(
+    (value) => value.clear || Boolean(value.accessToken),
+    "Informe um token CAPI ou solicite limpar a configuracao"
+  );
+
+export const metaCapiTokenStatusSchema = z.object({
+  workspaceId: z.string().min(1),
+  configured: z.boolean(),
+  updatedAt: z.string().datetime()
 });
 
 export const metaBusinessAssetSchema = z.object({
@@ -137,6 +154,8 @@ export type MetaConnectionStatusDto = z.infer<
   typeof metaConnectionStatusSchema
 >;
 export type MetaConnectionDto = z.infer<typeof metaConnectionSchema>;
+export type MetaCapiTokenInputDto = z.infer<typeof metaCapiTokenInputSchema>;
+export type MetaCapiTokenStatusDto = z.infer<typeof metaCapiTokenStatusSchema>;
 export type MetaBusinessAssetDto = z.infer<typeof metaBusinessAssetSchema>;
 export type MetaAdAccountAssetDto = z.infer<typeof metaAdAccountAssetSchema>;
 export type MetaPixelAssetDto = z.infer<typeof metaPixelAssetSchema>;

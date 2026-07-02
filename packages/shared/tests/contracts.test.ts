@@ -28,6 +28,8 @@ import {
   integrationHealthSchema,
   integrationHealthSummarySchema,
   integrationPipelineOverviewSchema,
+  metaCapiTokenInputSchema,
+  metaCapiTokenStatusSchema,
   metaAssetSelectionInputSchema,
   metaAssetsSchema,
   metaStructureReportSchema,
@@ -433,6 +435,25 @@ describe("shared contracts", () => {
     expect(assets.pixels[0]?.name).toBe("Pixel Loja");
     expect(input.pixelId).toBe("pixel_1");
     expect(JSON.stringify(assets)).not.toContain("accessToken");
+  });
+
+  it("validates Meta CAPI token configuration contracts without echoing secrets", () => {
+    const saveInput = metaCapiTokenInputSchema.parse({
+      accessToken: "EAAB-capi-token-secret"
+    });
+    const clearInput = metaCapiTokenInputSchema.parse({
+      clear: true
+    });
+    const status = metaCapiTokenStatusSchema.parse({
+      workspaceId: "workspace_1",
+      configured: true,
+      updatedAt: "2026-07-02T03:00:00.000Z"
+    });
+
+    expect(saveInput.accessToken).toBe("EAAB-capi-token-secret");
+    expect(clearInput.clear).toBe(true);
+    expect(status.configured).toBe(true);
+    expect(JSON.stringify(status)).not.toContain("EAAB-capi-token-secret");
   });
 
   it("validates password reset and email verification contracts", () => {

@@ -61,7 +61,8 @@ describe("integrations route", () => {
             connectedAt: "2026-07-02T03:00:00.000Z",
             selectedBusinessId: null,
             selectedAdAccountId: null,
-            selectedPixelId: "pixel_1"
+            selectedPixelId: "pixel_1",
+            capiTokenConfigured: true
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
@@ -244,6 +245,11 @@ describe("integrations route", () => {
     expect(html).toContain("BM Principal");
     expect(html).toContain("Conta WhatsApp");
     expect(html).toContain("Pixel Loja");
+    expect(html).toContain("Token CAPI configurado");
+    expect(html).toContain('name="accessToken"');
+    expect(html).toContain("Salvar token CAPI");
+    expect(html).toContain("Remover token CAPI");
+    expect(html).not.toContain("EAAB-capi-token-secret");
     expect(html).toContain('name="businessId"');
     expect(html).toContain('name="adAccountId"');
     expect(html).toContain('name="pixelId"');
@@ -320,7 +326,8 @@ describe("integrations route", () => {
             connectedAt: "2026-07-02T03:00:00.000Z",
             selectedBusinessId: "business_1",
             selectedAdAccountId: "act_1",
-            selectedPixelId: "pixel_1"
+            selectedPixelId: "pixel_1",
+            capiTokenConfigured: true
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
@@ -420,6 +427,9 @@ describe("integrations route", () => {
     expect(html).toContain("Ativa");
     expect(html).toContain("Nao vinculada");
     expect(html).toContain("Sem permissao para alterar Meta");
+    expect(html).toContain("Token CAPI configurado");
+    expect(html).not.toContain("Salvar token CAPI");
+    expect(html).not.toContain("Remover token CAPI");
     expect(html).toContain("Sem permissao para adicionar instancias");
     expect(html).toContain("Aguardando eventos reais");
     expect(html).not.toContain("pendente");
