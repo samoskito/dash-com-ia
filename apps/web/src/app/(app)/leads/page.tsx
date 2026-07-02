@@ -3,52 +3,16 @@ import { serverApiFetch } from "../../../lib/server-api";
 
 type LeadsSearchParams = Record<string, string | string[] | undefined>;
 
-const fallbackLeads: LeadListItemDto[] = [
-  {
-    id: "fallback_1",
-    workspaceId: "workspace_fallback",
-    name: "Mariana Alves",
-    phoneDisplay: "+55 11 *****-1020",
-    phoneHash: "fallback_phone_1",
-    campaignName: "Black Friday WhatsApp",
-    campaignId: "cmp_black_friday",
-    adSetId: "adset_1",
-    adId: "ad_2389",
-    source: "ctwa / ad 2389",
-    lastEventName: "QualifiedLead",
-    status: "qualified",
-    score: 86,
-    firstMessageAt: "2026-07-02T03:00:00.000Z",
-    lastMessageAt: "2026-07-02T03:10:00.000Z",
-    createdAt: "2026-07-02T03:00:00.000Z",
-    updatedAt: "2026-07-02T03:10:00.000Z"
-  },
-  {
-    id: "fallback_2",
-    workspaceId: "workspace_fallback",
-    name: "Rafael Costa",
-    phoneDisplay: "+55 31 *****-4300",
-    phoneHash: "fallback_phone_2",
-    campaignName: "Remarketing 7 dias",
-    campaignId: "cmp_remarketing",
-    adSetId: null,
-    adId: null,
-    source: "pixel / publico quente",
-    lastEventName: "LeadSubmitted",
-    status: "active",
-    score: 71,
-    firstMessageAt: "2026-07-02T03:00:00.000Z",
-    lastMessageAt: "2026-07-02T03:08:00.000Z",
-    createdAt: "2026-07-02T03:00:00.000Z",
-    updatedAt: "2026-07-02T03:08:00.000Z"
-  }
-];
+type LeadsResult = {
+  leads: LeadListItemDto[];
+  state: "real" | "empty" | "error";
+};
 
 async function getLeads(filters: {
   search?: string;
   status?: string;
   eventName?: string;
-}): Promise<LeadListItemDto[]> {
+}): Promise<LeadsResult> {
   try {
     const params = new URLSearchParams();
 
@@ -66,11 +30,19 @@ async function getLeads(filters: {
 
     const query = params.toString();
 
-    return await serverApiFetch<LeadListItemDto[]>(
+    const leads = await serverApiFetch<LeadListItemDto[]>(
       query ? `/leads?${query}` : "/leads"
     );
+
+    return {
+      leads,
+      state: leads.length > 0 ? "real" : "empty"
+    };
   } catch {
-    return fallbackLeads;
+    return {
+      leads: [],
+      state: "error"
+    };
   }
 }
 
@@ -114,8 +86,17 @@ export default async function LeadsPage({
   const search = asStringParam(resolvedSearchParams.search);
   const status = asStringParam(resolvedSearchParams.status);
   const eventName = asStringParam(resolvedSearchParams.eventName);
-  const leads = await getLeads({ search, status, eventName });
+  const result = await getLeads({ search, status, eventName });
+  const { leads } = result;
   const pendingCount = leads.filter((lead) => !lead.lastEventName).length;
+  const emptyTitle =
+    result.state === "error"
+      ? "Nao foi possivel carregar leads"
+      : "Nenhum lead encontrado";
+  const emptyDescription =
+    result.state === "error"
+      ? "Confira a API antes de analisar conversas."
+      : "Quando o webhook Uazapi receber conversas, elas aparecem aqui.";
 
   return (
     <section className="page-stack">
@@ -126,6 +107,9 @@ export default async function LeadsPage({
           <p>Busca por nome ou telefone, filtros por campanha, etiquetas e eventos enviados.</p>
         </div>
         <div className="header-actions">
+          {result.state === "error" ? (
+            <span className="status-chip warn">API indisponivel</span>
+          ) : null}
           <span className="status-chip">{leads.length} conversas reais</span>
           <span className="status-chip warn">{pendingCount} pendencias</span>
         </div>
@@ -161,26 +145,35 @@ export default async function LeadsPage({
             </tr>
           </thead>
           <tbody>
-            {leads.map((lead) => (
-              <tr key={lead.id}>
-                <td>
-                  <strong>{lead.name ?? "Lead sem nome"}</strong>
-                  <span>{lead.phoneDisplay ?? lead.phoneHash}</span>
+            {leads.length > 0 ? (
+              leads.map((lead) => (
+                <tr key={lead.id}>
+                  <td>
+                    <strong>{lead.name ?? "Lead sem nome"}</strong>
+                    <span>{lead.phoneDisplay ?? lead.phoneHash}</span>
+                  </td>
+                  <td>
+                    {lead.campaignName ?? "Campanha nao resolvida"}
+                    <span>{lead.source ?? lead.adId ?? "origem parcial"}</span>
+                  </td>
+                  <td>
+                    <span className={`event-chip${lead.lastEventName ? "" : " warn"}`}>
+                      {lead.lastEventName ?? "Sem evento"}
+                    </span>
+                  </td>
+                  <td>{statusLabel(lead.status)}</td>
+                  <td>{lead.score}</td>
+                  <td>{lastTouchLabel(lead.lastMessageAt)}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={6}>
+                  <strong>{emptyTitle}</strong>
+                  <span>{emptyDescription}</span>
                 </td>
-                <td>
-                  {lead.campaignName ?? "Campanha nao resolvida"}
-                  <span>{lead.source ?? lead.adId ?? "origem parcial"}</span>
-                </td>
-                <td>
-                  <span className={`event-chip${lead.lastEventName ? "" : " warn"}`}>
-                    {lead.lastEventName ?? "Sem evento"}
-                  </span>
-                </td>
-                <td>{statusLabel(lead.status)}</td>
-                <td>{lead.score}</td>
-                <td>{lastTouchLabel(lead.lastMessageAt)}</td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>

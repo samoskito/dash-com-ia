@@ -53,4 +53,45 @@ describe("leads route", () => {
     expect(html).toContain("QualifiedLead");
     expect(html).toContain("+55 11 *****-1020");
   });
+
+  it("renders an unavailable state without demo leads when the backend fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ message: "unavailable" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({})
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("API indisponivel");
+    expect(html).toContain("Nao foi possivel carregar leads");
+    expect(html).not.toContain("Mariana Alves");
+    expect(html).not.toContain("Rafael Costa");
+    expect(html).not.toContain("Black Friday WhatsApp");
+    expect(html).not.toContain("Remarketing 7 dias");
+  });
+
+  it("renders an empty state without demo leads when there are no backend leads", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({})
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Nenhum lead encontrado");
+    expect(html).not.toContain("Mariana Alves");
+    expect(html).not.toContain("Rafael Costa");
+    expect(html).not.toContain("Black Friday WhatsApp");
+    expect(html).not.toContain("Remarketing 7 dias");
+  });
 });
