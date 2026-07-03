@@ -333,9 +333,9 @@ export class WebhooksController {
       phoneHash: this.firstString(body.phoneHash),
       source: "uazapi",
       labels: triggerInput.labels,
-      campaignId: this.firstString(body.campaignId),
-      adSetId: this.firstString(body.adSetId),
-      adId: this.firstString(body.adId),
+      campaignId: metadata.campaignId,
+      adSetId: metadata.adSetId,
+      adId: metadata.adId,
       occurredAt: new Date()
     });
     const conversion = await this.conversionEventsService.recordRuleMatches({
@@ -343,9 +343,9 @@ export class WebhooksController {
       rules,
       leadId: lead?.id ?? this.firstString(body.leadId),
       phoneHash: metadata.phoneHash,
-      campaignId: this.firstString(body.campaignId),
-      adSetId: this.firstString(body.adSetId),
-      adId: this.firstString(body.adId)
+      campaignId: metadata.campaignId,
+      adSetId: metadata.adSetId,
+      adId: metadata.adId
     });
     const queued = await Promise.all(
       conversion.created.map((logId) =>
@@ -383,6 +383,8 @@ export class WebhooksController {
     adSetId?: string;
     adId?: string;
   } {
+    const attribution = this.getUazapiAttribution(body);
+
     return {
       eventType: this.getEventType("uazapi", body),
       externalEventId:
@@ -391,14 +393,74 @@ export class WebhooksController {
         this.firstString(body.externalEventId),
       leadId: this.firstString(body.leadId),
       phoneHash: this.firstString(body.phoneHash) ?? this.hashPhone(this.getPhone(body)),
-      campaignId: this.firstString(body.campaignId),
-      adSetId: this.firstString(body.adSetId),
-      adId: this.firstString(body.adId)
+      campaignId: attribution.campaignId,
+      adSetId: attribution.adSetId,
+      adId: attribution.adId
+    };
+  }
+
+  private getUazapiAttribution(body: WebhookBody): {
+    campaignId?: string;
+    adSetId?: string;
+    adId?: string;
+  } {
+    const message = this.recordValue(body.message);
+    const context = this.recordValue(body.context);
+    const referral =
+      this.recordValue(body.referral) ??
+      this.recordValue(message?.referral) ??
+      this.recordValue(context?.referral);
+    const adsContext =
+      this.recordValue(body.ads_context_data) ??
+      this.recordValue(body.adsContextData) ??
+      this.recordValue(referral?.ads_context_data) ??
+      this.recordValue(referral?.adsContextData);
+
+    return {
+      campaignId:
+        this.firstString(body.campaignId) ??
+        this.firstString(body.campaign_id) ??
+        this.firstString(body.utm_campaign) ??
+        this.firstString(referral?.campaignId) ??
+        this.firstString(referral?.campaign_id) ??
+        this.firstString(adsContext?.campaignId) ??
+        this.firstString(adsContext?.campaign_id),
+      adSetId:
+        this.firstString(body.adSetId) ??
+        this.firstString(body.adsetId) ??
+        this.firstString(body.ad_set_id) ??
+        this.firstString(body.adset_id) ??
+        this.firstString(body.utm_adset) ??
+        this.firstString(referral?.adSetId) ??
+        this.firstString(referral?.adsetId) ??
+        this.firstString(referral?.ad_set_id) ??
+        this.firstString(referral?.adset_id) ??
+        this.firstString(adsContext?.adSetId) ??
+        this.firstString(adsContext?.adsetId) ??
+        this.firstString(adsContext?.ad_set_id) ??
+        this.firstString(adsContext?.adset_id),
+      adId:
+        this.firstString(body.adId) ??
+        this.firstString(body.ad_id) ??
+        this.firstString(body.sourceId) ??
+        this.firstString(body.source_id) ??
+        this.firstString(referral?.adId) ??
+        this.firstString(referral?.ad_id) ??
+        this.firstString(referral?.sourceId) ??
+        this.firstString(referral?.source_id) ??
+        this.firstString(adsContext?.adId) ??
+        this.firstString(adsContext?.ad_id)
     };
   }
 
   private firstString(value: unknown): string | undefined {
     return typeof value === "string" && value.trim() ? value : undefined;
+  }
+
+  private recordValue(value: unknown): Record<string, unknown> | undefined {
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
   }
 
   private getMessageText(body: WebhookBody): string | undefined {

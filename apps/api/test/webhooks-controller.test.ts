@@ -239,6 +239,86 @@ describe("webhooks controller", () => {
     await app.close();
   });
 
+  it("extracts Uazapi CTWA referral attribution and object labels", async () => {
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      conversionEventsService,
+      leadsService
+    } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .set("x-workspace-id", "workspace_1")
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_referral_1",
+        message: {
+          text: "fechei",
+          referral: {
+            source_id: "ad_ref_1",
+            ctwa_clid: "ctwa_click_1",
+            ads_context_data: {
+              campaign_id: "cmp_ref_1",
+              adset_id: "adset_ref_1",
+              ad_id: "ad_ref_1"
+            }
+          }
+        },
+        chat: {
+          labels: [
+            {
+              name: "Venda fechada"
+            },
+            {
+              label: "Cliente VIP"
+            }
+          ]
+        },
+        phone: "+55 11 98844-1020",
+        name: "Mariana Alves"
+      })
+      .expect(202);
+
+    expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "uazapi",
+        eventType: "message.received",
+        externalEventId: "evt_uazapi_referral_1",
+        campaignId: "cmp_ref_1",
+        adSetId: "adset_ref_1",
+        adId: "ad_ref_1"
+      })
+    );
+    expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        messageText: "fechei",
+        labels: ["Venda fechada", "Cliente VIP"]
+      }
+    );
+    expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        labels: ["Venda fechada", "Cliente VIP"],
+        campaignId: "cmp_ref_1",
+        adSetId: "adset_ref_1",
+        adId: "ad_ref_1"
+      })
+    );
+    expect(conversionEventsService.recordRuleMatches).toHaveBeenCalledWith(
+      expect.objectContaining({
+        campaignId: "cmp_ref_1",
+        adSetId: "adset_ref_1",
+        adId: "ad_ref_1"
+      })
+    );
+
+    await app.close();
+  });
+
   it("does not run conversion side effects for duplicate Uazapi webhooks", async () => {
     const {
       app,
