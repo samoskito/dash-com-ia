@@ -216,6 +216,32 @@ describe("reporting controller", () => {
     await app.close();
   });
 
+  it("rejects invalid report period filters", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/campaigns?since=ontem&until=2026-07-02")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(400);
+
+    expect(reportingService.getCampaignReportOverview).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects inverted report periods before queueing sync", async () => {
+    const { app, queueService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/reports/meta/sync?since=2026-07-03&until=2026-07-02")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(400);
+
+    expect(queueService.enqueueSync).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it("exports campaign reports as CSV for the current workspace", async () => {
     const { app, reportingService } = await createApp();
 

@@ -559,10 +559,11 @@ Checkpoint atual:
 - Worker de sincronizacao de relatorios Meta (`meta-report-sync`) agora registra `JobAttempt` real em sucesso e falha, com workspace, periodo, job BullMQ, tentativa, status, erro e resumo de campanhas/conjuntos/anuncios sincronizados. Assim a tabela `Jobs operacionais` mostra a execucao do sync Meta e nao apenas o enqueue.
 - Instancias WhatsApp com provider `cloud_api` agora possuem caminho operacional explicito: status/conectar/QR/etiquetas retornam `not_configured` seguro enquanto a Cloud API oficial nao estiver configurada, registram `IntegrationLog` com `source: meta` e nao chamam Uazapi nem descriptografam tokens. Isso deixa o adapter oficial preparado para evolucao sem quebrar a operacao atual em Uazapi.
 - Parser de webhooks Uazapi/CTWA agora extrai atribuicao de formatos top-level e aninhados: `campaignId/campaign_id/utm_campaign`, `adSetId/adset_id/ad_set_id/utm_adset`, `adId/ad_id/source_id`, `message.referral`, `context.referral` e `ads_context_data`. A atribuicao normalizada alimenta `WebhookLog`, `Lead` e `ConversionEventLog`; etiquetas como objetos (`name`, `title`, `label`) continuam virando gatilhos legiveis.
+- Endpoints de relatorios agora validam periodo antes de consultar ou enfileirar sync: `since` e `until` precisam estar juntos no formato `YYYY-MM-DD`, datas invalidas retornam `400` e periodos invertidos (`since > until`) tambem retornam `400`. A regra vale para campanhas, export CSV, conjuntos, anuncios e `POST /reports/meta/sync`.
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: endurecer contrato de datas/formulas dos relatorios e validar sincronizacao/envio CAPI em contas reais quando as credenciais estiverem disponiveis.
+- Continuar a proxima rodada com: confirmar formulas finais de ROAS/receita e validar sincronizacao/envio CAPI em contas reais quando as credenciais estiverem disponiveis.
 
 ## Perguntas Abertas
 

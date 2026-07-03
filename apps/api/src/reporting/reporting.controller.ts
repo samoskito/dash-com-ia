@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   ForbiddenException,
   Get,
@@ -16,6 +17,12 @@ import { MetaReportingService } from "./meta-reporting.service";
 
 type HeaderResponse = {
   setHeader(name: string, value: string): void;
+};
+
+type ReportPeriod = {
+  since?: string;
+  until?: string;
+  rangeLabel: string;
 };
 
 @Controller("reports")
@@ -38,12 +45,13 @@ export class ReportingController {
     @Query("until") until?: string
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const period = this.parseReportPeriod(since, until);
 
     return this.metaReportingService.getCampaignReportOverview({
       workspaceId,
-      since,
-      until,
-      rangeLabel: this.rangeLabel(since, until)
+      since: period.since,
+      until: period.until,
+      rangeLabel: period.rangeLabel
     });
   }
 
@@ -55,11 +63,12 @@ export class ReportingController {
     @Query("until") until?: string
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const period = this.parseReportPeriod(since, until);
     const csv = await this.metaReportingService.getCampaignReportCsv({
       workspaceId,
-      since,
-      until,
-      rangeLabel: this.rangeLabel(since, until)
+      since: period.since,
+      until: period.until,
+      rangeLabel: period.rangeLabel
     });
 
     response.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -78,12 +87,13 @@ export class ReportingController {
     @Query("until") until?: string
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const period = this.parseReportPeriod(since, until);
 
     return this.metaReportingService.getAdSetReportOverview({
       workspaceId,
-      since,
-      until,
-      rangeLabel: this.rangeLabel(since, until)
+      since: period.since,
+      until: period.until,
+      rangeLabel: period.rangeLabel
     });
   }
 
@@ -94,12 +104,13 @@ export class ReportingController {
     @Query("until") until?: string
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const period = this.parseReportPeriod(since, until);
 
     return this.metaReportingService.getAdReportOverview({
       workspaceId,
-      since,
-      until,
-      rangeLabel: this.rangeLabel(since, until)
+      since: period.since,
+      until: period.until,
+      rangeLabel: period.rangeLabel
     });
   }
 
@@ -110,6 +121,7 @@ export class ReportingController {
     @Query("until") until = this.defaultUntil()
   ) {
     const workspace = await this.getCurrentWorkspace(refreshToken);
+    const period = this.parseReportPeriod(since, until);
 
     if (!canManageIntegrations(workspace.role)) {
       throw new ForbiddenException("Sem permissao para sincronizar relatorios");
@@ -117,8 +129,8 @@ export class ReportingController {
 
     return this.metaReportSyncQueueService.enqueueSync({
       workspaceId: workspace.id,
-      since,
-      until
+      since: period.since as string,
+      until: period.until as string
     });
   }
 
@@ -151,7 +163,35 @@ export class ReportingController {
     return new Date().toISOString().slice(0, 10);
   }
 
-  private rangeLabel(since?: string, until?: string): string {
-    return since && until ? `${since} a ${until}` : "Ultimos 7 dias";
+  private parseReportPeriod(since?: string, until?: string): ReportPeriod {
+    if (!since && !until) {
+      return {
+        rangeLabel: "Ultimos 7 dias"
+      };
+    }
+
+    if (!this.isDateOnly(since) || !this.isDateOnly(until)) {
+      throw new BadRequestException("Periodo invalido");
+    }
+
+    if (since > until) {
+      throw new BadRequestException("Periodo invalido");
+    }
+
+    return {
+      since,
+      until,
+      rangeLabel: `${since} a ${until}`
+    };
+  }
+
+  private isDateOnly(value?: string): value is string {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return false;
+    }
+
+    const date = new Date(`${value}T00:00:00.000Z`);
+
+    return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
   }
 }
