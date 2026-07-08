@@ -1,0 +1,66 @@
+<!-- @dsCard group="Dashboard" viewport="900x720" name="Conexão WhatsApp (página pública)" subtitle="Tela white-label que o cliente abre para escanear o QR" -->
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>WppTrack — Conectar WhatsApp</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="icon" href="../../assets/logo-avatar.svg">
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+       background:radial-gradient(120% 120% at 50% 0%, var(--teal-900), var(--gray-950));font-family:var(--font-body)}
+  .card{width:100%;max-width:440px;background:var(--bg-surface);border-radius:var(--radius-2xl);
+        box-shadow:var(--shadow-lg);overflow:hidden;border:1px solid var(--border)}
+  .top{padding:22px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--divider)}
+  .brand{height:24px}
+  .by{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);letter-spacing:.04em}
+  .body{padding:30px 28px;text-align:center}
+  .eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-brand);margin:0 0 6px}
+  h1{font-family:var(--font-display);font-size:24px;font-weight:600;letter-spacing:-.02em;color:var(--text-primary);margin:0 0 6px}
+  .sub{font-size:14px;color:var(--text-secondary);margin:0 0 22px;line-height:1.5}
+  .qrwrap{display:inline-flex;padding:16px;background:#fff;border-radius:var(--radius-xl);box-shadow:var(--shadow-md);border:1px solid var(--border)}
+  ol{text-align:left;max-width:300px;margin:24px auto 0;padding-left:20px;color:var(--text-secondary);font-size:14px;line-height:1.9}
+  ol b{color:var(--text-primary)}
+  .status{margin-top:22px;display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;
+          background:var(--warning-subtle);color:var(--amber-500);font-size:13px;font-weight:600}
+  .pulse{width:8px;height:8px;border-radius:50%;background:var(--amber-500);animation:p 1.4s var(--ease-in-out) infinite}
+  @keyframes p{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+  .foot{padding:16px 28px;border-top:1px solid var(--divider);background:var(--bg-inset);text-align:center;
+        font-size:12px;color:var(--text-muted)}
+  .agency{display:inline-flex;align-items:center;gap:8px;margin-bottom:2px}
+  .ag-tile{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,var(--teal-500),var(--teal-700));color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:10px}
+</style></head><body>
+  <div class="card">
+    <div class="top">
+      <img class="brand" src="../../assets/logo-horizontal.svg" alt="WppTrack">
+      <span class="by">conexão segura</span>
+    </div>
+    <div class="body">
+      <p class="eyebrow">Agência Norte</p>
+      <h1>Conecte seu WhatsApp</h1>
+      <p class="sub">Escaneie o código abaixo para vincular seu número e começar a rastrear os leads das suas campanhas.</p>
+      <div class="qrwrap"><div id="qr"></div></div>
+      <ol>
+        <li>Abra o <b>WhatsApp</b> no seu celular</li>
+        <li>Toque em <b>Configurações → Aparelhos conectados</b></li>
+        <li>Toque em <b>Conectar aparelho</b> e aponte para o código</li>
+      </ol>
+      <div class="status"><span class="pulse"></span> Aguardando leitura do código…</div>
+    </div>
+    <div class="foot">
+      <div class="agency"><span class="ag-tile">WT</span> Powered by WppTrack</div>
+      <div>Este link é exclusivo e expira em 30 minutos.</div>
+    </div>
+  </div>
+<script>
+  // Lightweight deterministic QR-style placeholder (not a scannable code).
+  (function(){
+    const n=25,size=200,cell=size/n;let h=99;const seed='wpptrack-wa';
+    for(let i=0;i<seed.length;i++)h=(h*31+seed.charCodeAt(i))>>>0;
+    const rand=i=>{const x=Math.sin(h+i*12.9898)*43758.5453;return x-Math.floor(x);};
+    const isF=(x,y)=>(x<7&&y<7)||(x>n-8&&y<7)||(x<7&&y>n-8);
+    let r=`<rect width="${size}" height="${size}" fill="#fff"/>`;
+    for(let y=0;y<n;y++)for(let x=0;x<n;x++){if(isF(x,y))continue;if(rand(y*n+x)>0.52)r+=`<rect x="${x*cell}" y="${y*cell}" width="${cell}" height="${cell}" fill="#0D1413"/>`;}
+    function finder(cx,cy){let s='';for(let y=0;y<7;y++)for(let x=0;x<7;x++){const on=x===0||x===6||y===0||y===6||(x>=2&&x<=4&&y>=2&&y<=4);if(on)s+=`<rect x="${(cx+x)*cell}" y="${(cy+y)*cell}" width="${cell}" height="${cell}" fill="#0D1413"/>`;}return s;}
+    r+=finder(0,0)+finder(n-7,0)+finder(0,n-7);
+    document.getElementById('qr').innerHTML=`<svg width="${size}" height="${size}" style="display:block">${r}</svg>`;
+  })();
+</script>
+</body></html>

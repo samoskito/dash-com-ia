@@ -1,0 +1,38 @@
+<!-- @dsCard group="Dashboard" viewport="1320x860" name="Tracking dashboard — agência" subtitle="Visão geral, clientes, lead (com conversa), relatórios/BI — claro + dark" -->
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>WppTrack — Operação</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="icon" href="../../assets/logo-avatar.svg">
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<script src="data.js"></script>
+<style>body{margin:0}</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel" src="shared.jsx" data-presets="react"></script>
+<script type="text/babel" src="AppShell.jsx" data-presets="react"></script>
+<script type="text/babel" src="modals.jsx" data-presets="react"></script>
+<script type="text/babel" src="screens/Overview.jsx" data-presets="react"></script>
+<script type="text/babel" src="screens/Clientes.jsx" data-presets="react"></script>
+<script type="text/babel" src="screens/ClienteDetalhe.jsx" data-presets="react"></script>
+<script type="text/babel" src="screens/ClienteConfig.jsx" data-presets="react"></script>
+<script type="text/babel" src="screens/LeadDetalhe.jsx" data-presets="react"></script>
+<script type="text/babel" src="screens/Relatorios.jsx" data-presets="react"></script>
+<script type="text/babel" src="screens/Configuracoes.jsx" data-presets="react"></script>
+<script type="text/babel" src="screens/Sistema.jsx" data-presets="react"></script>
+<script type="text/babel" src="screens/RelatorioCliente.jsx" data-presets="react"></script>
+<script type="text/babel" src="App.jsx" data-presets="react"></script>
+<script type="text/babel" data-presets="react">
+  (function mount(){
+    const W = window;
+    const ready = W.WppApp && W.WT && W.WppTrackDesignSystem_851504
+      && W.Overview && W.Clientes && W.ClienteDetalhe && W.ClienteConfig && W.LeadDetalhe
+      && W.Relatorios && W.Integracoes && W.Configuracoes && W.Sistema && W.RelatorioCliente && W.AppShell
+      && W.PeriodFilter && W.ConectarPixelModal && W.ConectarWhatsAppModal && W.NovoClienteModal && W.ProvedorConfigModal && W.ConectarBMModal && W.Modal;
+    if (ready) {
+      ReactDOM.createRoot(document.getElementById('root')).render(<W.WppApp/>);
+    } else { setTimeout(mount, 60); }
+  })();
+</script>
+</body></html>

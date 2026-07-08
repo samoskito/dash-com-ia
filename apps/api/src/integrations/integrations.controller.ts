@@ -4,9 +4,11 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Headers,
   Inject,
   Put,
-  Query
+  Query,
+  Res
 } from "@nestjs/common";
 import {
   canManageIntegrations,
@@ -18,6 +20,11 @@ import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { IntegrationsService } from "./integrations.service";
+
+type HtmlResponse = {
+  status(code: number): HtmlResponse;
+  type(value: string): HtmlResponse;
+};
 
 @Controller("integrations")
 export class IntegrationsController {
@@ -54,13 +61,65 @@ export class IntegrationsController {
   }
 
   @Get("meta/callback")
-  handleMetaCallback(
-    @AuthToken() _refreshToken: string,
-    @Query() query: Record<string, unknown>
+  async handleMetaCallback(
+    @Query() query: Record<string, unknown>,
+    @Headers("accept") accept: string | undefined,
+    @Res({ passthrough: true }) response: HtmlResponse
   ) {
-    const input = this.parseBody(metaOAuthCallbackQuerySchema.safeParse(query));
+    const wantsHtml = this.wantsHtml(accept);
+    const providerError = typeof query.error === "string" ? query.error : null;
 
-    return this.integrationsService.handleMetaCallback(input);
+    if (providerError) {
+      const message =
+        typeof query.error_description === "string"
+          ? query.error_description
+          : `Meta retornou erro: ${providerError}`;
+
+      if (wantsHtml) {
+        return this.renderMetaOAuthPopupResult(response, false, message);
+      }
+
+      throw new BadRequestException(message);
+    }
+
+    const parsed = metaOAuthCallbackQuerySchema.safeParse(query);
+
+    if (!parsed.success) {
+      const message = "Retorno OAuth Meta invalido.";
+
+      if (wantsHtml) {
+        return this.renderMetaOAuthPopupResult(response, false, message);
+      }
+
+      throw new BadRequestException("Payload invalido");
+    }
+
+    try {
+      const result = await this.integrationsService.handleMetaCallback(parsed.data);
+
+      if (wantsHtml) {
+        return this.renderMetaOAuthPopupResult(
+          response,
+          result.status === "connected",
+          result.message ??
+            (result.status === "connected"
+              ? "Conexao Meta realizada com sucesso."
+              : "Falha ao conectar com Meta.")
+        );
+      }
+
+      return result;
+    } catch (error) {
+      if (wantsHtml) {
+        return this.renderMetaOAuthPopupResult(
+          response,
+          false,
+          error instanceof Error ? error.message : "Falha ao conectar com Meta."
+        );
+      }
+
+      throw error;
+    }
   }
 
   @Get("meta/connection")
@@ -144,5 +203,84 @@ export class IntegrationsController {
   private async getCurrentWorkspace(refreshToken: string) {
     const authenticated = await this.authService.getSession(refreshToken);
     return this.workspacesService.getCurrentWorkspace(authenticated);
+  }
+
+  private wantsHtml(accept?: string): boolean {
+    return typeof accept === "string" && accept.includes("text/html");
+  }
+
+  private renderMetaOAuthPopupResult(
+    response: HtmlResponse,
+    ok: boolean,
+    message: string
+  ): string {
+    const targetOrigin = this.webOrigin();
+    const payload = this.safeScriptJson({
+      type: "meta_oauth",
+      status: ok ? "success" : "error",
+      message
+    });
+    const redirectUrl = this.safeScriptJson(
+      `${targetOrigin}/integrations?meta=${ok ? "connected" : "error"}`
+    );
+
+    response.status(ok ? 200 : 400).type("text/html; charset=utf-8");
+
+    return `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <title>Meta OAuth</title>
+  </head>
+  <body style="margin:0;font-family:Arial,sans-serif;background:#f3f4f6;color:#111827;">
+    <main style="min-height:100vh;display:grid;place-items:center;padding:24px;">
+      <div style="max-width:420px;border:1px solid #d1d5db;border-radius:12px;background:#fff;padding:24px;text-align:center;">
+        <strong>${ok ? "Conexao Meta concluida." : "Falha ao conectar com Meta."}</strong>
+        <p>${this.escapeHtml(message)}</p>
+      </div>
+    </main>
+    <script>
+      (function () {
+        var payload = ${payload};
+        var targetOrigin = ${this.safeScriptJson(targetOrigin)};
+        try {
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage(payload, targetOrigin);
+          }
+        } catch (error) {}
+        setTimeout(function () {
+          try { window.close(); } catch (error) {}
+          window.location.href = ${redirectUrl};
+        }, 160);
+      })();
+    </script>
+  </body>
+</html>`;
+  }
+
+  private webOrigin(): string {
+    try {
+      return new URL(this.envOrDefault("WEB_ORIGIN", "http://localhost:3000")).origin;
+    } catch {
+      return "http://localhost:3000";
+    }
+  }
+
+  private envOrDefault(key: string, fallback: string): string {
+    const value = process.env[key];
+    return typeof value === "string" && value.trim() ? value : fallback;
+  }
+
+  private safeScriptJson(value: unknown): string {
+    return (JSON.stringify(value) ?? "null").replace(/</g, "\\u003c");
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 }

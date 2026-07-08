@@ -76,6 +76,49 @@ describe("uazapi adapter", () => {
     expect(status.qrCode).toBeNull();
   });
 
+  it("configures an instance webhook with messages and label events", async () => {
+    const fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ response: "webhook updated" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+    const adapter = new UazapiAdapter(
+      {
+        UAZAPI_BASE_URL: "https://uazapi.test"
+      },
+      fetch
+    );
+
+    const result = await adapter.configureInstanceWebhook({
+      instanceToken: "instance-token-1",
+      webhookUrl:
+        "https://api.wpptrack.test/webhooks/uazapi/instances/wpp_1?token=secret"
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://uazapi.test/webhook",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          token: "instance-token-1"
+        }),
+        body: JSON.stringify({
+          enabled: true,
+          url: "https://api.wpptrack.test/webhooks/uazapi/instances/wpp_1?token=secret",
+          events: ["messages", "messages_update", "labels", "chat_labels", "connection"],
+          excludeMessages: ["wasSentByApi"],
+          addUrlEvents: false,
+          addUrlTypesMessages: false
+        })
+      })
+    );
+    expect(result).toEqual({
+      status: "configured",
+      message: null
+    });
+  });
+
   it("uses the per-instance token when requesting QR status", async () => {
     const fetch = vi.fn(async () =>
       new Response(

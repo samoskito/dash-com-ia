@@ -3,6 +3,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import IntegrationsPage from "../src/app/(app)/integrations/page";
 
+vi.mock("next/navigation", () => ({
+  redirect: () => undefined,
+  useRouter: () => ({
+    refresh: () => undefined
+  })
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
 });

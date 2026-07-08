@@ -30,6 +30,11 @@ export type UazapiLabelListResult = {
   labels: WhatsappLabelDto[];
 };
 
+export type UazapiWebhookConfigurationResult = {
+  status: "configured" | "not_configured" | "error";
+  message: string | null;
+};
+
 export type UazapiCreateInstanceInput = {
   name: string;
   localInstanceId: string;
@@ -165,6 +170,69 @@ export class UazapiAdapter implements IntegrationAdapter {
     instanceToken?: string | null
   ): Promise<UazapiConnectionResult> {
     return this.getInstanceStatus(instanceRef, instanceToken);
+  }
+
+  async configureInstanceWebhook(input: {
+    instanceToken: string | null;
+    webhookUrl: string | null;
+  }): Promise<UazapiWebhookConfigurationResult> {
+    if (!this.env.UAZAPI_BASE_URL || !input.instanceToken || !input.webhookUrl) {
+      return {
+        status: "not_configured",
+        message: "Missing UAZAPI_BASE_URL, instance token or webhook URL"
+      };
+    }
+
+    try {
+      const response = await this.fetchImpl(
+        `${this.env.UAZAPI_BASE_URL.replace(/\/$/, "")}/webhook`,
+        {
+          method: "POST",
+          headers: {
+            token: input.instanceToken,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            enabled: true,
+            url: input.webhookUrl,
+            events: [
+              "messages",
+              "messages_update",
+              "labels",
+              "chat_labels",
+              "connection"
+            ],
+            excludeMessages: ["wasSentByApi"],
+            addUrlEvents: false,
+            addUrlTypesMessages: false
+          })
+        }
+      );
+      const payload = (await response.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+
+      if (!response.ok) {
+        return {
+          status: "error",
+          message:
+            this.asString(payload.message) ??
+            this.asString(payload.error) ??
+            `Uazapi HTTP ${response.status}`
+        };
+      }
+
+      return {
+        status: "configured",
+        message: this.asString(payload.message)
+      };
+    } catch (error) {
+      return {
+        status: "error",
+        message: error instanceof Error ? error.message : "Erro ao chamar Uazapi"
+      };
+    }
   }
 
   async listLabels(

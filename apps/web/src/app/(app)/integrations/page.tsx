@@ -13,6 +13,7 @@ import type {
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { serverApiFetch } from "../../../lib/server-api";
+import { MetaOAuthButton } from "./meta-oauth-button";
 
 type ResourceResult<T> = {
   data: T;
@@ -554,6 +555,25 @@ export default async function IntegrationsPage() {
       <div className="surface-panel">
         <span className="eyebrow">Meta OAuth</span>
         <h2>{metaConnectionTitle(metaStatus)}</h2>
+        <div className="connection-callout">
+          <div>
+            <span className="micro-label">Login social Facebook</span>
+            <strong>
+              {metaStatus === "connected"
+                ? "Conta Meta conectada"
+                : "Conectar conta Meta"}
+            </strong>
+            <p className="muted">
+              Use o OAuth oficial para autorizar BM, contas de anuncio e Pixels.
+              O token nasce no backend e fica criptografado.
+            </p>
+          </div>
+          {canManageIntegrations ? (
+            <MetaOAuthButton connected={metaStatus === "connected"} />
+          ) : (
+            <span className="event-chip warn">sem permissao</span>
+          )}
+        </div>
         <div className="metric-grid compact">
           <div className="metric-card">
             <span className="micro-label">Status</span>
@@ -804,14 +824,20 @@ export default async function IntegrationsPage() {
           <>
             <form className="inline-form" action={createWhatsappCheckout}>
               <input
+                minLength={2}
                 name="instanceName"
                 placeholder="Nome da instancia"
+                required
                 aria-label="Nome da instancia WhatsApp"
               />
               <button className="button" type="submit">
                 Adicionar instancia
               </button>
             </form>
+            <span className="action-note">
+              Preencha o nome para gerar a cobranca. A conexao do WhatsApp so
+              libera depois do pagamento confirmado.
+            </span>
             <p className="muted">
               Ao continuar, o backend vai gerar uma cobranca de{" "}
               {money(whatsappQuote?.nextInstanceAmountCents)} no Asaas antes

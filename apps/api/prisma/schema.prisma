@@ -162,6 +162,7 @@ model WhatsappInstance {
   providerTokenEncrypted String?
   providerTokenIv        String?
   providerTokenTag       String?
+  webhookTokenHash       String?
   status                 WhatsappInstanceStatus @default(pending_payment)
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt

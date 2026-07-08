@@ -1,0 +1,70 @@
+<!-- @dsCard group="Components" viewport="700x440" name="Core primitives" subtitle="Button · Badge · Tag · StatCard · Input · Card" -->
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  body{margin:0;background:var(--bg-app);font-family:var(--font-body);padding:24px}
+  .sec{margin-bottom:22px}
+  .h{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin:0 0 10px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+</style></head><body>
+<div id="root"></div>
+<script type="text/babel">
+  const { Button, Badge, Tag, StatCard, Input, Card } = window.WppTrackDesignSystem_851504;
+  function Demo(){
+    return (
+      <div>
+        <div className="sec"><p className="h">Buttons</p>
+          <div className="row">
+            <Button variant="primary" iconLeft="send">Enviar conversão</Button>
+            <Button variant="signal">Evento ao Pixel</Button>
+            <Button variant="secondary" iconLeft="filter">Filtrar</Button>
+            <Button variant="ghost">Cancelar</Button>
+            <Button variant="danger">Excluir</Button>
+            <Button variant="primary" size="sm">sm</Button>
+            <Button variant="primary" disabled>Disabled</Button>
+          </div>
+        </div>
+        <div className="sec"><p className="h">Badges</p>
+          <div className="row">
+            <Badge tone="success" dot>Meta conectado</Badge>
+            <Badge tone="signal" dot>Conversão enviada</Badge>
+            <Badge tone="warning">Pendente</Badge>
+            <Badge tone="danger" dot>Falha no evento</Badge>
+            <Badge tone="brand">Novo lead</Badge>
+            <Badge tone="info" solid>Beta</Badge>
+          </div>
+        </div>
+        <div className="sec"><p className="h">Tags · filtros</p>
+          <div className="row">
+            <Tag prefix="campanha:" active>black-friday</Tag>
+            <Tag prefix="conjunto:">lookalike-2%</Tag>
+            <Tag prefix="ad_id:" onRemove={()=>{}}>23859441</Tag>
+          </div>
+        </div>
+        <div className="sec"><p className="h">StatCards</p>
+          <div className="grid">
+            <StatCard label="Leads no WhatsApp" value="1.284" delta="+18%" hint="vs. 7 dias" />
+            <StatCard label="Cliques rastreados" value="9.7k" delta="+12%" />
+            <StatCard label="Conversões enviadas" value="492" delta="+9%" accent />
+          </div>
+        </div>
+        <div className="sec"><p className="h">Input</p>
+          <div style={{maxWidth:320}}>
+            <Input label="Nome da campanha" placeholder="black-friday" hint="Usado no rastreamento" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+  (function mount(){
+    if(window.WppTrackDesignSystem_851504){
+      ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+    } else { setTimeout(mount, 60); }
+  })();
+</script>
+</body></html>

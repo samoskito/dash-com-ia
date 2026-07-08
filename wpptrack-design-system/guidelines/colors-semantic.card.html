@@ -1,0 +1,26 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Signal & semantic" subtitle="Mint signal for events/conversions + status colors" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  body{margin:0;background:var(--bg-surface);font-family:var(--font-mono);padding:20px}
+  .grid{display:flex;gap:14px}
+  .col{flex:1}
+  .ttl{font-family:var(--font-body);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin:0 0 8px}
+  .pair{display:flex;gap:6px}
+  .sw{flex:1;height:56px;border-radius:8px;display:flex;align-items:flex-end;padding:7px;font-size:9px;color:#fff}
+  .sub{color:var(--text-secondary)!important}
+  .lbl{font-size:9px;color:var(--text-muted);margin-top:5px}
+</style></head><body>
+  <div class="grid">
+    <div class="col"><p class="ttl">Signal · events</p>
+      <div class="pair"><div class="sw" style="background:var(--signal-400)">400</div><div class="sw" style="background:var(--signal-500)">500</div><div class="sw" style="background:var(--signal-subtle)"><span class="sub">subtle</span></div></div>
+      <div class="lbl">conversões enviadas · pulso de tracking</div></div>
+    <div class="col"><p class="ttl">Status</p>
+      <div class="pair">
+        <div class="sw" style="background:var(--success)">ok</div>
+        <div class="sw" style="background:var(--warning)">alert</div>
+        <div class="sw" style="background:var(--danger)">erro</div>
+        <div class="sw" style="background:var(--info)">info</div>
+      </div>
+      <div class="lbl">success · warning · danger · info</div></div>
+  </div>
+</body></html>

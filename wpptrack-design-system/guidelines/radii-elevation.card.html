@@ -1,0 +1,25 @@
+<!-- @dsCard group="Spacing" viewport="700x170" name="Radii & elevation" subtitle="Corner radii + soft cool shadow system" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  body{margin:0;background:var(--bg-app);font-family:var(--font-mono);padding:24px;display:flex;gap:30px;align-items:center}
+  .group{display:flex;gap:14px;align-items:flex-end}
+  .box{width:64px;height:64px;background:var(--bg-surface);border:1px solid var(--border);display:flex;align-items:flex-end;justify-content:center;font-size:9px;color:var(--text-muted);padding-bottom:5px}
+  .sep{width:1px;height:80px;background:var(--divider)}
+  .el{width:72px;height:64px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;display:flex;align-items:flex-end;justify-content:center;font-size:9px;color:var(--text-muted);padding-bottom:5px}
+</style></head><body>
+  <div class="group">
+    <div class="box" style="border-radius:4px">xs</div>
+    <div class="box" style="border-radius:6px">sm</div>
+    <div class="box" style="border-radius:10px">md</div>
+    <div class="box" style="border-radius:14px">lg</div>
+    <div class="box" style="border-radius:999px;width:64px">pill</div>
+  </div>
+  <div class="sep"></div>
+  <div class="group">
+    <div class="el" style="box-shadow:var(--shadow-xs)">xs</div>
+    <div class="el" style="box-shadow:var(--shadow-sm)">sm</div>
+    <div class="el" style="box-shadow:var(--shadow-md)">md</div>
+    <div class="el" style="box-shadow:var(--shadow-lg)">lg</div>
+    <div class="el" style="box-shadow:var(--shadow-brand);border-color:var(--brand-border)">brand</div>
+  </div>
+</body></html>

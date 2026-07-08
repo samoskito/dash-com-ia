@@ -1,4 +1,5 @@
 import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { createHash, randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import type {
   BackofficeSubscriptionPlanCreateInputDto,
@@ -15,7 +16,8 @@ import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
 import {
   UazapiAdapter,
-  type UazapiCreateInstanceResult
+  type UazapiCreateInstanceResult,
+  type UazapiWebhookConfigurationResult
 } from "../integrations/uazapi/uazapi.adapter";
 import { AsaasAdapter } from "./asaas.adapter";
 
@@ -46,6 +48,7 @@ type PaymentChargeWithActivation = {
       providerTokenEncrypted?: string | null;
       providerTokenIv?: string | null;
       providerTokenTag?: string | null;
+      webhookTokenHash?: string | null;
     };
   } | null;
 };
@@ -789,6 +792,7 @@ export class BillingService {
     providerTokenEncrypted?: string | null;
     providerTokenIv?: string | null;
     providerTokenTag?: string | null;
+    webhookTokenHash?: string | null;
   }): Promise<{
     updateData: Prisma.WhatsappInstanceUpdateInput;
   }> {
@@ -825,13 +829,36 @@ export class BillingService {
     }
 
     const encrypted = this.tokenEncryption.encrypt(result.instanceToken);
+    const webhookToken = this.createWebhookToken();
+    const webhookUrl = this.buildUazapiInstanceWebhookUrl(instance.id, webhookToken);
+    const webhookStartedAt = new Date();
+    const webhookResult = this.uazapiAdapter
+      ? await this.uazapiAdapter.configureInstanceWebhook({
+          instanceToken: result.instanceToken,
+          webhookUrl
+        })
+      : ({
+          status: "not_configured",
+          message: "Uazapi adapter nao configurado"
+        } satisfies UazapiWebhookConfigurationResult);
+    await this.recordUazapiWebhookConfigureLog(
+      instance,
+      webhookStartedAt,
+      webhookResult,
+      Boolean(webhookUrl)
+    );
+    const webhookTokenHash =
+      webhookResult.status === "configured"
+        ? this.hashToken(webhookToken)
+        : undefined;
 
     return {
       updateData: {
         providerInstanceId: result.providerInstanceId,
         providerTokenEncrypted: encrypted.encryptedAccessToken,
         providerTokenIv: encrypted.tokenIv,
-        providerTokenTag: encrypted.tokenTag
+        providerTokenTag: encrypted.tokenTag,
+        ...(webhookTokenHash ? { webhookTokenHash } : {})
       }
     };
   }
@@ -888,6 +915,75 @@ export class BillingService {
     } catch {
       return;
     }
+  }
+
+  private async recordUazapiWebhookConfigureLog(
+    instance: {
+      id: string;
+      workspaceId: string;
+      name: string;
+    },
+    startedAt: Date,
+    result: UazapiWebhookConfigurationResult,
+    hasWebhookUrl: boolean
+  ): Promise<void> {
+    const finishedAt = new Date();
+    const status =
+      result.status === "configured"
+        ? "success"
+        : result.status === "not_configured"
+          ? "blocked"
+          : "error";
+
+    try {
+      await this.prisma.integrationLog.create({
+        data: {
+          workspaceId: instance.workspaceId,
+          source: "uazapi",
+          operation: "uazapi.webhook.configure",
+          status,
+          startedAt,
+          finishedAt,
+          durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
+          providerErrorMessage: status === "success" ? null : result.message,
+          jobId: instance.id,
+          requestSummary: {
+            whatsappInstanceId: instance.id,
+            instanceName: instance.name,
+            hasWebhookUrl
+          } as Prisma.InputJsonValue,
+          responseSummary: {
+            status: result.status,
+            message: result.message
+          } as Prisma.InputJsonValue
+        }
+      });
+    } catch {
+      return;
+    }
+  }
+
+  private buildUazapiInstanceWebhookUrl(
+    whatsappInstanceId: string,
+    webhookToken: string
+  ): string | null {
+    const publicApiUrl = this.env.API_PUBLIC_URL?.replace(/\/$/, "");
+
+    if (!publicApiUrl) {
+      return null;
+    }
+
+    return `${publicApiUrl}/webhooks/uazapi/instances/${encodeURIComponent(
+      whatsappInstanceId
+    )}?token=${encodeURIComponent(webhookToken)}`;
+  }
+
+  private createWebhookToken(): string {
+    return randomBytes(32).toString("base64url");
+  }
+
+  private hashToken(token: string): string {
+    return createHash("sha256").update(token).digest("hex");
   }
 
   private async getActiveSubscriptionPlan(): Promise<ActiveSubscriptionPlan | null> {

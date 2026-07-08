@@ -519,7 +519,10 @@ export class MetaAdapter implements IntegrationAdapter {
   }
 
   private getScopes(): string[] {
-    return (this.env.META_OAUTH_SCOPES ?? "ads_read,business_management,read_insights")
+    return (
+      this.env.META_OAUTH_SCOPES ??
+      "ads_read,ads_management,business_management,pages_show_list,pages_read_engagement"
+    )
       .split(",")
       .map((scope) => scope.trim())
       .filter(Boolean);

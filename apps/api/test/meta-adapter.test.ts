@@ -8,7 +8,8 @@ describe("meta adapter oauth", () => {
       META_APP_SECRET: "secret",
       META_OAUTH_REDIRECT_URL: "https://api.wpptrack.com/integrations/meta/callback",
       META_GRAPH_API_VERSION: "v25.0",
-      META_OAUTH_SCOPES: "ads_read,business_management,read_insights"
+      META_OAUTH_SCOPES:
+        "ads_read,ads_management,business_management,pages_show_list,pages_read_engagement"
     });
 
     const url = new URL(adapter.getOAuthAuthorizationUrl("state-token"));
@@ -18,7 +19,10 @@ describe("meta adapter oauth", () => {
     expect(url.searchParams.get("redirect_uri")).toBe(
       "https://api.wpptrack.com/integrations/meta/callback"
     );
-    expect(url.searchParams.get("scope")).toBe("ads_read,business_management,read_insights");
+    expect(url.searchParams.get("scope")).toBe(
+      "ads_read,ads_management,business_management,pages_show_list,pages_read_engagement"
+    );
+    expect(url.searchParams.get("scope")).not.toContain("read_insights");
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("state")).toBe("state-token");
   });

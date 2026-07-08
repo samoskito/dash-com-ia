@@ -1,0 +1,32 @@
+/* ============================================================
+   WppTrack — light base resets & helpers (safe for consumers)
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background: var(--bg-app);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* utility text roles */
+.wt-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-brand);
+}
+.wt-mono { font-family: var(--font-mono); font-feature-settings: "tnum" 1; }
+
+/* numbers / metrics use tabular figures everywhere */
+.wt-num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+::selection { background: var(--brand-subtle); color: var(--text-brand); }

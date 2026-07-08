@@ -1,0 +1,128 @@
+/* ============================================================
+   WppTrack — Color tokens
+   Brand teal/petroleum (tech + message + trust, NOT WhatsApp green)
+   + cool graphite neutrals + a bright "signal" accent for events.
+   ============================================================ */
+
+:root {
+  /* ---- Brand: teal / petroleum green ---- */
+  --teal-50:  #E6F4F1;
+  --teal-100: #C3E6DF;
+  --teal-200: #93D2C6;
+  --teal-300: #59B9A7;
+  --teal-400: #259E89;
+  --teal-500: #0E8C7A;   /* PRIMARY */
+  --teal-600: #0B7567;
+  --teal-700: #0A5E53;
+  --teal-800: #0A4942;
+  --teal-900: #093A35;
+  --teal-950: #06231F;
+
+  /* ---- Signal: bright spring-mint for events, pulses, tracking ---- */
+  --signal-300: #5CE6BE;
+  --signal-400: #20CF98;
+  --signal-500: #12B884;
+
+  /* ---- Neutrals: cool, faintly teal-tinted graphite ---- */
+  --gray-50:  #F6F8F7;
+  --gray-100: #ECF0EF;
+  --gray-200: #DCE3E1;
+  --gray-300: #C2CCC9;
+  --gray-400: #97A4A1;
+  --gray-500: #6B7775;
+  --gray-600: #4E5755;
+  --gray-700: #3A4341;
+  --gray-800: #262E2C;
+  --gray-900: #18211F;
+  --gray-950: #0D1413;
+  --white: #FFFFFF;
+
+  /* ---- Semantic raw ---- */
+  --green-500: #16A34A;  --green-100: #DCFCE7;
+  --amber-500: #E29410;  --amber-100: #FCEFC7;
+  --red-500:   #E5484D;  --red-100:   #FCE3E3;
+  --blue-500:  #2F73E8;  --blue-100:  #DCE9FD;
+
+  /* ============================================================
+     LIGHT THEME — semantic aliases (default)
+     ============================================================ */
+  --bg-app:       var(--gray-50);
+  --bg-surface:   var(--white);
+  --bg-elevated:  var(--white);
+  --bg-subtle:    var(--gray-100);
+  --bg-inset:     var(--gray-100);
+  --bg-hover:     var(--gray-100);
+
+  --border:       var(--gray-200);
+  --border-strong:var(--gray-300);
+  --divider:      var(--gray-200);
+
+  --text-primary:   var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-muted:     var(--gray-500);
+  --text-inverse:   var(--white);
+  --text-brand:     var(--teal-600);
+
+  --brand:         var(--teal-500);
+  --brand-hover:   var(--teal-600);
+  --brand-active:  var(--teal-700);
+  --brand-subtle:  var(--teal-50);
+  --brand-border:  var(--teal-200);
+  --on-brand:      var(--white);
+
+  --signal:        var(--signal-500);
+  --signal-subtle: #E2FBF1;
+
+  --success:   var(--green-500); --success-subtle: var(--green-100);
+  --warning:   var(--amber-500); --warning-subtle: var(--amber-100);
+  --danger:    var(--red-500);   --danger-subtle:  var(--red-100);
+  --info:      var(--blue-500);  --info-subtle:    var(--blue-100);
+
+  --ring: color-mix(in srgb, var(--teal-500) 45%, transparent);
+
+  /* chart series (data viz) */
+  --chart-1: var(--teal-500);
+  --chart-2: var(--signal-400);
+  --chart-3: var(--blue-500);
+  --chart-4: var(--amber-500);
+  --chart-5: var(--teal-300);
+}
+
+/* ============================================================
+   DARK THEME — grafite, focus on data. Brand brightens to teal-400.
+   ============================================================ */
+[data-theme="dark"] {
+  --bg-app:       #0B1211;
+  --bg-surface:   #121B19;
+  --bg-elevated:  #172220;
+  --bg-subtle:    #1A2523;
+  --bg-inset:     #0E1716;
+  --bg-hover:     #1E2A28;
+
+  --border:       #243230;
+  --border-strong:#33433F;
+  --divider:      #1F2C2A;
+
+  --text-primary:   #ECF1EF;
+  --text-secondary: #9FACA9;
+  --text-muted:     #74817E;
+  --text-inverse:   var(--gray-950);
+  --text-brand:     var(--teal-300);
+
+  --brand:         var(--teal-400);
+  --brand-hover:   var(--teal-300);
+  --brand-active:  var(--teal-200);
+  --brand-subtle:  rgba(37,158,137,0.14);
+  --brand-border:  rgba(37,158,137,0.34);
+  --on-brand:      #06231F;
+
+  --signal:        var(--signal-400);
+  --signal-subtle: rgba(32,207,152,0.14);
+
+  --success-subtle: rgba(22,163,74,0.18);
+  --warning-subtle: rgba(226,148,16,0.18);
+  --danger-subtle:  rgba(229,72,77,0.18);
+  --info-subtle:    rgba(47,115,232,0.18);
+
+  --ring: color-mix(in srgb, var(--teal-400) 55%, transparent);
+}

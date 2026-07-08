@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WppTrack - Visualizacao do Design System</title>
+  <link rel="icon" href="wpptrack-design-system/assets/logo-avatar.svg">
+  <link rel="stylesheet" href="wpptrack-design-system/styles.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg-app);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+    }
+
+    .preview-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 304px minmax(0, 1fr);
+    }
+
+    .preview-rail {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 22px;
+      border-right: 1px solid var(--border);
+      background:
+        linear-gradient(180deg, rgba(14, 140, 122, 0.07), rgba(14, 140, 122, 0) 34%),
+        var(--bg-surface);
+      overflow: auto;
+    }
+
+    .brand-line {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+
+    .brand-line img {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .brand-line strong {
+      display: block;
+      font-family: var(--font-display);
+      font-size: 20px;
+      line-height: 1.05;
+      letter-spacing: var(--tracking-tight);
+    }
+
+    .brand-line span {
+      display: block;
+      margin-top: 3px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .section-label {
+      margin: 26px 0 9px;
+      color: var(--text-brand);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: var(--tracking-caps);
+      text-transform: uppercase;
+    }
+
+    .view-list {
+      display: grid;
+      gap: 7px;
+    }
+
+    .view-button {
+      width: 100%;
+      min-height: 40px;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
+      padding: 9px 11px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-md);
+      background: transparent;
+      color: var(--text-secondary);
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: background var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
+    }
+
+    .view-button svg {
+      width: 18px;
+      height: 18px;
+      stroke-width: 2;
+    }
+
+    .view-button:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .view-button.is-active {
+      border-color: var(--brand-border);
+      background: var(--brand-subtle);
+      color: var(--text-brand);
+      font-weight: 700;
+    }
+
+    .asset-strip {
+      display: grid;
+      gap: 10px;
+      padding: 13px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--bg-elevated);
+      box-shadow: var(--shadow-xs);
+    }
+
+    .asset-strip img {
+      max-width: 100%;
+      height: auto;
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+
+    .swatch {
+      min-height: 44px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+
+    .swatch.teal { background: #0E8C7A; }
+    .swatch.signal { background: #12B884; }
+    .swatch.graphite { background: #18211F; }
+
+    .fact-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .fact-list code {
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .preview-main {
+      min-width: 0;
+      padding: 18px;
+    }
+
+    .stage {
+      min-height: calc(100vh - 36px);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--bg-surface);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+
+    .stage-bar {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px 14px 12px 18px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(12px);
+    }
+
+    .stage-title {
+      min-width: 0;
+    }
+
+    .stage-title p {
+      margin: 0 0 3px;
+      color: var(--text-brand);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: var(--tracking-caps);
+      text-transform: uppercase;
+    }
+
+    .stage-title h1 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 22px;
+      line-height: 1.1;
+      letter-spacing: var(--tracking-tight);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .stage-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .action-link {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      box-shadow: var(--shadow-xs);
+    }
+
+    .action-link.primary {
+      border-color: var(--brand);
+      background: var(--brand);
+      color: var(--on-brand);
+      box-shadow: var(--shadow-brand);
+    }
+
+    .action-link svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .frame-wrap {
+      min-height: 0;
+      background:
+        linear-gradient(90deg, rgba(14, 140, 122, 0.05) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(14, 140, 122, 0.05) 1px, transparent 1px),
+        var(--gray-100);
+      background-size: 28px 28px;
+      padding: 12px;
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      min-height: calc(100vh - 118px);
+      display: block;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg-surface);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .specimen-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .specimen {
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--bg-surface);
+      box-shadow: var(--shadow-xs);
+    }
+
+    .specimen span {
+      display: block;
+      color: var(--text-brand);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: var(--tracking-caps);
+      text-transform: uppercase;
+    }
+
+    .specimen strong {
+      display: block;
+      margin-top: 9px;
+      font-family: var(--font-display);
+      font-size: 22px;
+      line-height: 1.05;
+      letter-spacing: var(--tracking-tight);
+    }
+
+    .specimen p {
+      margin: 8px 0 0;
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 1040px) {
+      .preview-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .preview-rail {
+        position: static;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .view-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .specimen-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 680px) {
+      .preview-main {
+        padding: 10px;
+      }
+
+      .stage-bar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .stage-actions {
+        width: 100%;
+      }
+
+      .action-link {
+        justify-content: center;
+        flex: 1;
+      }
+
+      .view-list,
+      .specimen-strip {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="preview-shell">
+    <aside class="preview-rail">
+      <div class="brand-line">
+        <img src="wpptrack-design-system/assets/logo-avatar.svg" alt="WppTrack">
+        <div>
+          <strong>WppTrack</strong>
+          <span>Design system copiado</span>
+        </div>
+      </div>
+
+      <div class="section-label">Visualizacoes</div>
+      <div class="view-list" id="viewList">
+        <button class="view-button is-active" type="button" data-title="Tracking dashboard - agencia" data-kind="Dashboard completo" data-src="wpptrack-design-system/ui_kits/dashboard/index.html">
+          <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
+        </button>
+        <button class="view-button" type="button" data-title="Conexao WhatsApp - pagina publica" data-kind="Fluxo white-label" data-src="wpptrack-design-system/ui_kits/dashboard/qr.html">
+          <i data-lucide="qr-code"></i><span>QR publico</span>
+        </button>
+        <button class="view-button" type="button" data-title="Core primitives" data-kind="Componentes" data-src="wpptrack-design-system/components/core/core.card.html">
+          <i data-lucide="blocks"></i><span>Componentes</span>
+        </button>
+        <button class="view-button" type="button" data-title="Logo - lockups & avatar" data-kind="Marca" data-src="wpptrack-design-system/guidelines/logo-lockups.card.html">
+          <i data-lucide="badge-check"></i><span>Logo</span>
+        </button>
+        <button class="view-button" type="button" data-title="Brand - teal / petroleum" data-kind="Cores" data-src="wpptrack-design-system/guidelines/colors-brand.card.html">
+          <i data-lucide="palette"></i><span>Cores</span>
+        </button>
+        <button class="view-button" type="button" data-title="Display - Space Grotesk" data-kind="Tipografia" data-src="wpptrack-design-system/guidelines/type-display.card.html">
+          <i data-lucide="type"></i><span>Tipografia</span>
+        </button>
+      </div>
+
+      <div class="section-label">Assets</div>
+      <div class="asset-strip">
+        <img src="wpptrack-design-system/assets/logo-horizontal.svg" alt="WppTrack wordmark">
+        <div class="mini-grid" aria-label="Paleta principal">
+          <div class="swatch teal" title="#0E8C7A"></div>
+          <div class="swatch signal" title="#12B884"></div>
+          <div class="swatch graphite" title="#18211F"></div>
+        </div>
+      </div>
+
+      <div class="section-label">Arquivos</div>
+      <ul class="fact-list">
+        <li><code>wpptrack-design-system/styles.css</code> e a entrada global.</li>
+        <li><code>tokens/</code> guarda cores, tipos, espacamento e efeitos.</li>
+        <li><code>components/core/</code> tem primitivas React reutilizaveis.</li>
+        <li><code>ui_kits/dashboard/</code> tem o prototipo navegavel.</li>
+      </ul>
+    </aside>
+
+    <main class="preview-main">
+      <section class="stage" aria-label="Visualizacao WppTrack">
+        <header class="stage-bar">
+          <div class="stage-title">
+            <p id="stageKind">Dashboard completo</p>
+            <h1 id="stageTitle">Tracking dashboard - agencia</h1>
+          </div>
+          <div class="stage-actions">
+            <a class="action-link" id="sourceLink" href="wpptrack-design-system/ui_kits/dashboard/index.html" target="_blank" rel="noreferrer">
+              <i data-lucide="external-link"></i><span>Abrir</span>
+            </a>
+            <a class="action-link primary" href="wpptrack-design-system/readme.md" target="_blank" rel="noreferrer">
+              <i data-lucide="file-text"></i><span>Readme</span>
+            </a>
+          </div>
+        </header>
+        <div class="frame-wrap">
+          <iframe id="stageFrame" title="WppTrack Design System" src="wpptrack-design-system/ui_kits/dashboard/index.html"></iframe>
+        </div>
+      </section>
+
+      <section class="specimen-strip" aria-label="Resumo do design system">
+        <div class="specimen">
+          <span>Marca</span>
+          <strong>Teal, dados e controle</strong>
+          <p>Identidade B2B SaaS para rastrear leads de WhatsApp vindos de Meta Ads.</p>
+        </div>
+        <div class="specimen">
+          <span>Produto</span>
+          <strong>Dashboard de agencia</strong>
+          <p>Fluxos de clientes, pixels, leads, relatorios, configuracoes e conexoes.</p>
+        </div>
+        <div class="specimen">
+          <span>Fundacao</span>
+          <strong>Tokens prontos</strong>
+          <p>Cores, dark mode, tipografia, grid de 4px, raios, sombras e estados.</p>
+        </div>
+        <div class="specimen">
+          <span>Componentes</span>
+          <strong>React primitives</strong>
+          <p>Button, Badge, Tag, Card, StatCard e Input com prompts e tipos.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const buttons = Array.from(document.querySelectorAll(".view-button"));
+    const frame = document.getElementById("stageFrame");
+    const title = document.getElementById("stageTitle");
+    const kind = document.getElementById("stageKind");
+    const sourceLink = document.getElementById("sourceLink");
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        buttons.forEach((item) => item.classList.remove("is-active"));
+        button.classList.add("is-active");
+        frame.src = button.dataset.src;
+        sourceLink.href = button.dataset.src;
+        title.textContent = button.dataset.title;
+        kind.textContent = button.dataset.kind;
+      });
+    });
+
+    if (window.lucide) {
+      window.lucide.createIcons();
+    }
+  </script>
+</body>
+</html>

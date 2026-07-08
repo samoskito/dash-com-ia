@@ -74,6 +74,7 @@ async function createApp() {
           id: string;
           workspaceId: string;
           providerInstanceId?: string;
+          webhookTokenHash?: string;
         } | null> => null
       )
     }
@@ -479,6 +480,99 @@ describe("webhooks controller", () => {
         whatsappInstanceId: "wpp_1"
       })
     );
+
+    await app.close();
+  });
+
+  it("accepts Uazapi webhooks on a per-instance URL when the instance token matches", async () => {
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      leadsService,
+      prismaService
+    } = await createApp();
+    prismaService.whatsappInstance.findFirst.mockResolvedValueOnce({
+      id: "wpp_1",
+      workspaceId: "workspace_1",
+      webhookTokenHash: createHash("sha256")
+        .update("instance-webhook-secret")
+        .digest("hex")
+    });
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi/instances/wpp_1?token=instance-webhook-secret")
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_instance_1",
+        message: {
+          text: "Oi, quero comprar"
+        },
+        phone: "+55 11 98844-1020"
+      })
+      .expect(202);
+
+    expect(prismaService.whatsappInstance.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "wpp_1",
+        provider: "uazapi"
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        webhookTokenHash: true
+      }
+    });
+    expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "uazapi",
+        externalEventId: "evt_uazapi_instance_1"
+      })
+    );
+    expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
+      "workspace_1",
+      expect.objectContaining({
+        messageText: "Oi, quero comprar"
+      })
+    );
+    expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        whatsappInstanceId: "wpp_1"
+      })
+    );
+
+    await app.close();
+  });
+
+  it("rejects Uazapi per-instance webhooks when the instance token is invalid", async () => {
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      leadsService,
+      prismaService
+    } = await createApp();
+    prismaService.whatsappInstance.findFirst.mockResolvedValueOnce({
+      id: "wpp_1",
+      workspaceId: "workspace_1",
+      webhookTokenHash: createHash("sha256")
+        .update("instance-webhook-secret")
+        .digest("hex")
+    });
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi/instances/wpp_1?token=wrong-secret")
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_instance_2"
+      })
+      .expect(401);
+
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+    expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
+    expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
 
     await app.close();
   });

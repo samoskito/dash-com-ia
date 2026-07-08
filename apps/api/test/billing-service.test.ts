@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { BillingService } from "../src/billing/billing.service";
 import type { AsaasAdapter } from "../src/billing/asaas.adapter";
 
@@ -58,6 +59,13 @@ function createHarness(
         status: "created" | "not_configured" | "error";
         providerInstanceId: string | null;
         instanceToken: string | null;
+        message: string | null;
+      }>;
+      configureInstanceWebhook?: (input: {
+        instanceToken: string | null;
+        webhookUrl: string | null;
+      }) => Promise<{
+        status: "configured" | "not_configured" | "error";
         message: string | null;
       }>;
     };
@@ -389,7 +397,13 @@ function createHarness(
         providerInstanceId: null,
         instanceToken: null,
         message: "Missing UAZAPI_BASE_URL or UAZAPI_ADMIN_TOKEN"
-      }))
+      })),
+      configureInstanceWebhook: vi.fn(
+        async (_input: { instanceToken: string | null; webhookUrl: string | null }) => ({
+        status: "not_configured" as const,
+        message: "Missing UAZAPI_BASE_URL, instance token or webhook URL"
+        })
+      )
     } as const);
   const tokenEncryption =
     options.tokenEncryption ??
@@ -415,6 +429,7 @@ function createHarness(
       uazapiAdapter as never,
       tokenEncryption as never,
       {
+        API_PUBLIC_URL: "https://api.wpptrack.test",
         WPPTRACK_WHATSAPP_INSTANCE_PRICE_CENTS: "12900"
       }
     ),
@@ -880,7 +895,13 @@ describe("billing service", () => {
         providerInstanceId: "provider_instance_1",
         instanceToken: "instance-token-1",
         message: null
-      }))
+      })),
+      configureInstanceWebhook: vi.fn(
+        async (_input: { instanceToken: string | null; webhookUrl: string | null }) => ({
+        status: "configured" as const,
+        message: null
+        })
+      )
     };
     const tokenEncryption = {
       encrypt: vi.fn((token: string) => ({
@@ -915,13 +936,31 @@ describe("billing service", () => {
       localInstanceId: checkout.whatsappInstanceId,
       workspaceId: "workspace_1"
     });
+    expect(uazapiAdapter.configureInstanceWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instanceToken: "instance-token-1",
+        webhookUrl: expect.stringMatching(
+          /^https:\/\/api\.wpptrack\.test\/webhooks\/uazapi\/instances\/wpp_1\?token=/
+        )
+      })
+    );
+    const configuredWebhook =
+      uazapiAdapter.configureInstanceWebhook.mock.calls.at(0)?.[0];
+    expect(configuredWebhook).toBeDefined();
+    expect(typeof configuredWebhook?.webhookUrl).toBe("string");
+    const webhookUrl = configuredWebhook?.webhookUrl as string;
+    const webhookToken = new URL(webhookUrl).searchParams.get("token");
+
     expect(tokenEncryption.encrypt).toHaveBeenCalledWith("instance-token-1");
     expect(db.instances[0]).toMatchObject({
       status: "active",
       providerInstanceId: "provider_instance_1",
       providerTokenEncrypted: "encrypted:instance-token-1",
       providerTokenIv: "iv-1",
-      providerTokenTag: "tag-1"
+      providerTokenTag: "tag-1",
+      webhookTokenHash: createHash("sha256")
+        .update(webhookToken ?? "")
+        .digest("hex")
     });
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({

@@ -229,7 +229,6 @@ describe("integrations controller", () => {
 
     await request(app.getHttpServer())
       .get("/integrations/meta/callback?code=meta-code&state=state-token")
-      .set("Cookie", "wpptrack_session=refresh-token")
       .expect(200)
       .expect(({ body }) => {
         expect(body.provider).toBe("meta");
@@ -241,6 +240,54 @@ describe("integrations controller", () => {
       code: "meta-code",
       state: "state-token"
     });
+
+    await app.close();
+  });
+
+  it("renders Meta OAuth popup result for browser callbacks without requiring app cookies", async () => {
+    const { app, service } = await createApp();
+    const previousWebOrigin = process.env.WEB_ORIGIN;
+    process.env.WEB_ORIGIN = "http://localhost:3000";
+
+    await request(app.getHttpServer())
+      .get("/integrations/meta/callback?code=meta-code&state=state-token")
+      .set("Accept", "text/html")
+      .expect(200)
+      .expect("Content-Type", /html/)
+      .expect(({ text }) => {
+        expect(text).toContain("postMessage");
+        expect(text).toContain("meta_oauth");
+        expect(text).toContain("http://localhost:3000");
+        expect(text).toContain("Conexao Meta concluida.");
+        expect(text).not.toContain("access_token");
+      });
+
+    expect(service.handleMetaCallback).toHaveBeenCalledWith({
+      code: "meta-code",
+      state: "state-token"
+    });
+
+    process.env.WEB_ORIGIN = previousWebOrigin;
+    await app.close();
+  });
+
+  it("renders provider errors inside the Meta OAuth popup", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/integrations/meta/callback?error=invalid_scope&error_description=Invalid%20Scopes"
+      )
+      .set("Accept", "text/html")
+      .expect(400)
+      .expect("Content-Type", /html/)
+      .expect(({ text }) => {
+        expect(text).toContain("Falha ao conectar com Meta.");
+        expect(text).toContain("Invalid Scopes");
+        expect(text).toContain("meta_oauth");
+      });
+
+    expect(service.handleMetaCallback).not.toHaveBeenCalled();
 
     await app.close();
   });

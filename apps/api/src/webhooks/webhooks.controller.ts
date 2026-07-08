@@ -6,6 +6,7 @@ import {
   Headers,
   HttpCode,
   Inject,
+  Param,
   Post,
   Query,
   UnauthorizedException
@@ -74,6 +75,40 @@ export class WebhooksController {
     );
 
     return this.recordUazapiWebhook(body, workspaceId);
+  }
+
+  @Post("uazapi/instances/:instanceId")
+  @HttpCode(202)
+  async recordUazapiInstance(
+    @Param("instanceId") instanceId: string,
+    @Body() body: WebhookBody,
+    @Headers("x-wpptrack-webhook-token") webhookToken?: string,
+    @Headers("authorization") authorization?: string,
+    @Query("token") queryToken?: string
+  ) {
+    const instance = await this.prisma.whatsappInstance.findFirst({
+      where: {
+        id: instanceId,
+        provider: "uazapi"
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        webhookTokenHash: true
+      }
+    });
+    const receivedToken =
+      webhookToken ?? this.getBearerToken(authorization) ?? queryToken;
+
+    if (
+      !instance?.webhookTokenHash ||
+      !receivedToken ||
+      this.hashToken(receivedToken) !== instance.webhookTokenHash
+    ) {
+      throw new UnauthorizedException("Webhook Uazapi nao autorizado");
+    }
+
+    return this.recordUazapiWebhook(body, instance.workspaceId, instance.id);
   }
 
   @Post("asaas")
@@ -272,11 +307,16 @@ export class WebhooksController {
     return createHash("sha256").update(token).digest("hex");
   }
 
-  private async recordUazapiWebhook(body: WebhookBody, workspaceId?: string) {
+  private async recordUazapiWebhook(
+    body: WebhookBody,
+    workspaceId?: string,
+    whatsappInstanceId?: string
+  ) {
     const metadata = this.getUazapiWebhookMetadata(body);
     const resolvedContext = await this.resolveUazapiContext(body);
     const resolvedWorkspaceId = workspaceId ?? resolvedContext?.workspaceId;
     const resolvedWhatsappInstanceId =
+      whatsappInstanceId ??
       this.firstString(body.whatsappInstanceId) ??
       resolvedContext?.whatsappInstanceId;
     const diagnostic = await this.diagnosticsService.recordWebhookLog({

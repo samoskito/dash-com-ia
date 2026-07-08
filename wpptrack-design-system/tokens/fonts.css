@@ -1,0 +1,7 @@
+/* WppTrack typefaces — loaded from Google Fonts.
+   Space Grotesk  → display / headings (technological, distinct character)
+   Hanken Grotesk → body / UI (clean, warm, legible)
+   JetBrains Mono → data, metrics, IDs, tracking codes
+   NOTE: served via Google Fonts CDN, not bundled binaries. Swap for self-hosted
+   .woff2 files before shipping to production if offline use is required. */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');

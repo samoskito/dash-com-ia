@@ -1,0 +1,42 @@
+/* ============================================================
+   WppTrack — Effects: radii, borders, shadows, motion
+   ============================================================ */
+
+:root {
+  /* radii */
+  --radius-xs:  4px;
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  18px;
+  --radius-2xl: 24px;
+  --radius-pill:999px;
+  --radius-circle:50%;
+
+  /* borders */
+  --border-w: 1px;
+  --border-w-strong: 1.5px;
+
+  /* shadows — soft, cool, low-spread (premium SaaS, not heavy) */
+  --shadow-xs: 0 1px 2px rgba(13,20,19,0.06);
+  --shadow-sm: 0 1px 2px rgba(13,20,19,0.06), 0 2px 6px rgba(13,20,19,0.05);
+  --shadow-md: 0 2px 4px rgba(13,20,19,0.05), 0 8px 20px rgba(13,20,19,0.08);
+  --shadow-lg: 0 8px 16px rgba(13,20,19,0.08), 0 20px 40px rgba(13,20,19,0.10);
+  --shadow-brand: 0 6px 18px rgba(14,140,122,0.28);
+  --shadow-focus: 0 0 0 3px var(--ring);
+
+  /* motion — quick, confident, no bounce */
+  --ease-out:   cubic-bezier(0.22, 1, 0.36, 1);   /* @kind other */
+  --ease-in-out:cubic-bezier(0.65, 0, 0.35, 1);   /* @kind other */
+  --dur-fast:   120ms;   /* @kind other */
+  --dur-base:   180ms;   /* @kind other */
+  --dur-slow:   280ms;   /* @kind other */
+}
+
+[data-theme="dark"] {
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4), 0 2px 6px rgba(0,0,0,0.3);
+  --shadow-md: 0 2px 4px rgba(0,0,0,0.4), 0 8px 20px rgba(0,0,0,0.45);
+  --shadow-lg: 0 8px 16px rgba(0,0,0,0.5), 0 20px 40px rgba(0,0,0,0.55);
+  --shadow-brand: 0 6px 20px rgba(32,207,152,0.22);
+}

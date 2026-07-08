@@ -1,0 +1,19 @@
+<!-- @dsCard group="Brand" viewport="700x180" name="Logo — lockups & avatar" subtitle="Horizontal wordmark on light / dark + app tile" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  body{margin:0;background:var(--bg-app);font-family:var(--font-body);padding:0}
+  .wrap{display:flex;height:100%}
+  .half{flex:1;display:flex;align-items:center;justify-content:center;gap:0;padding:34px}
+  .light{background:var(--bg-surface)}
+  .dark{background:#0B1211}
+  .half img{height:30px}
+  .tile{display:flex;align-items:center;justify-content:center;padding:34px 28px;background:var(--bg-subtle);gap:16px}
+  .tile img{width:60px;height:60px;border-radius:14px;box-shadow:var(--shadow-md)}
+  .tile .sm{width:30px;height:30px;border-radius:8px;box-shadow:var(--shadow-sm)}
+</style></head><body>
+  <div class="wrap">
+    <div class="half light"><img src="../assets/logo-horizontal.svg"></div>
+    <div class="half dark"><img src="../assets/logo-horizontal-light.svg"></div>
+    <div class="tile"><img src="../assets/logo-avatar.svg"><img class="sm" src="../assets/logo-avatar.svg"></div>
+  </div>
+</body></html>

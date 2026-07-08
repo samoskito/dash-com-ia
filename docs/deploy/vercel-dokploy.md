@@ -28,6 +28,7 @@ Obrigatorias para subir a API:
 ```env
 NODE_ENV=production
 WEB_ORIGIN=https://app.seudominio.com
+API_PUBLIC_URL=https://api.seudominio.com
 API_PORT=3333
 DATABASE_URL=postgresql://usuario:senha@host:5432/wpptrack
 REDIS_URL=redis://host:6379
@@ -53,7 +54,7 @@ META_APP_SECRET=
 META_CAPI_ACCESS_TOKEN=
 META_OAUTH_REDIRECT_URL=https://api.seudominio.com/integrations/meta/callback
 META_GRAPH_API_VERSION=v21.0
-META_OAUTH_SCOPES=ads_read,business_management,read_insights
+META_OAUTH_SCOPES=ads_read,ads_management,business_management,pages_show_list,pages_read_engagement
 META_TOKEN_ENCRYPTION_KEY=troque-por-chave-forte-de-32-bytes-ou-mais
 META_WEBHOOK_VERIFY_TOKEN=troque-por-token-forte-do-webhook-meta
 ```
@@ -62,7 +63,9 @@ Uazapi:
 
 ```env
 UAZAPI_BASE_URL=
+UAZAPI_ADMIN_TOKEN=
 UAZAPI_TOKEN=
+UAZAPI_WEBHOOK_AUTH_TOKEN=
 ```
 
 Asaas:
@@ -112,8 +115,27 @@ pnpm --filter @wpptrack/api start
    - Google: `https://api.seudominio.com/auth/google/callback`
    - Meta OAuth: `https://api.seudominio.com/integrations/meta/callback`
    - Asaas webhook: `https://api.seudominio.com/webhooks/asaas`
-   - Uazapi webhook: `https://api.seudominio.com/webhooks/uazapi`
+   - Uazapi webhook por instancia: o backend configura automaticamente URLs no formato `https://api.seudominio.com/webhooks/uazapi/instances/{whatsappInstanceId}?token={token-gerado}` quando a instancia e criada na Uazapi.
    - Meta webhook: `https://api.seudominio.com/webhooks/meta`
+
+## Acoes Manuais de Dominio e Meta
+
+1. Escolha um subdominio novo para a API deste projeto. Nao reutilize callback de outro SaaS.
+   - Exemplo de app: `app.wpptrack.seudominio.com`.
+   - Exemplo de API: `api.wpptrack.seudominio.com`.
+2. No DNS do dominio, crie o apontamento do subdominio da API para o servidor/Dokploy.
+3. Depois que a API estiver publicada, valide no navegador:
+   - `https://api.wpptrack.seudominio.com/health`
+   - `https://api.wpptrack.seudominio.com/health/ready`
+4. No `.env` da API, configure:
+   - `WEB_ORIGIN=https://app.wpptrack.seudominio.com`
+   - `API_PUBLIC_URL=https://api.wpptrack.seudominio.com`
+   - `META_OAUTH_REDIRECT_URL=https://api.wpptrack.seudominio.com/integrations/meta/callback`
+5. No painel da Meta, em URIs validas de redirecionamento OAuth, adicione exatamente:
+   - `https://api.wpptrack.seudominio.com/integrations/meta/callback`
+6. No produto de Webhooks da Meta, use:
+   - Callback URL: `https://api.wpptrack.seudominio.com/webhooks/meta`
+   - Verify token: o mesmo valor de `META_WEBHOOK_VERIFY_TOKEN`.
 
 ## Validacao Pos-Deploy
 
