@@ -93,21 +93,22 @@ pnpm install --frozen-lockfile
 pnpm build
 ```
 
-Para a API em Dokploy, o processo deve executar:
+Para a API em Dokploy, use **Build Type: Dockerfile** com o `Dockerfile` da raiz do repositorio. O container executa automaticamente:
 
 ```bash
-pnpm --filter @wpptrack/api build
 pnpm --dir apps/api exec prisma migrate deploy --schema prisma/schema.prisma
 pnpm --filter @wpptrack/api start
 ```
+
+O build da imagem instala dependencias com pnpm, compila `packages/shared`, compila `apps/api` e roda `prisma generate`. O caminho Nixpacks foi abandonado para este projeto porque apresentou instabilidade com pnpm/Corepack no build remoto do Dokploy.
 
 ## Ordem de Deploy
 
 1. Provisionar PostgreSQL.
 2. Provisionar Redis.
 3. Configurar variaveis da API no Dokploy.
-4. Rodar `prisma migrate deploy`.
-5. Subir API.
+4. Configurar Build Type como `Dockerfile`.
+5. Subir API; o container roda `prisma migrate deploy` ao iniciar.
 6. Validar `GET /health/ready`.
 7. Configurar variaveis do Web na Vercel.
 8. Subir Web.

@@ -493,6 +493,7 @@ Direcao de deploy confirmada:
 - Redis/BullMQ em VPS/Dokploy ou servico gerenciado a decidir na implementacao.
 - Workers NestJS/BullMQ no mesmo ambiente do backend.
 - Webhooks externos devem apontar para a API publica do backend.
+- Deploy da API no Dokploy deve usar `Build Type: Dockerfile`, apontando para o `Dockerfile` da raiz. Nixpacks foi descartado neste projeto apos travamentos/falhas com pnpm/Corepack no build remoto.
 - A API deste projeto deve usar um subdominio proprio, diferente dos callbacks de outros SaaS ja existentes do usuario. Exemplo: `api.wpptrack.seudominio.com`.
 - `API_PUBLIC_URL` e a URL publica da API usada pelo backend para montar callbacks/webhooks externos.
 - Para Meta OAuth, cadastrar exatamente `API_PUBLIC_URL/integrations/meta/callback` no painel da Meta e no `.env` em `META_OAUTH_REDIRECT_URL`.
