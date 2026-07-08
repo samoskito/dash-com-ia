@@ -498,6 +498,7 @@ Direcao de deploy confirmada:
 - `API_PUBLIC_URL` e a URL publica da API usada pelo backend para montar callbacks/webhooks externos.
 - Para Meta OAuth, cadastrar exatamente `API_PUBLIC_URL/integrations/meta/callback` no painel da Meta e no `.env` em `META_OAUTH_REDIRECT_URL`.
 - Para Meta Webhook, usar `API_PUBLIC_URL/webhooks/meta` e `META_WEBHOOK_VERIFY_TOKEN`.
+- O popup de Meta OAuth pode voltar por uma origem diferente da API usada pelo frontend em desenvolvimento local. O front deve aceitar a origem do `redirect_uri` extraida da URL OAuth, mas a conexao so aparece como conectada quando frontend e backend leem o mesmo ambiente/banco. Para teste real, preferir frontend publicado apontando `NEXT_PUBLIC_API_URL` para a API publicada.
 
 ## Design System
 

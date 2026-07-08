@@ -16,12 +16,41 @@ type MetaOAuthMessage = {
   message?: string;
 };
 
-function apiOrigin(): string | null {
+export function originFromUrl(value: string): string | null {
   try {
-    return new URL(apiBaseUrl).origin;
+    return new URL(value).origin;
   } catch {
     return null;
   }
+}
+
+export function metaOAuthCallbackOrigin(authorizationUrl: string): string | null {
+  try {
+    const redirectUri = new URL(authorizationUrl).searchParams.get("redirect_uri");
+
+    return redirectUri ? originFromUrl(redirectUri) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function metaOAuthAllowedOrigins(input: {
+  apiUrl: string;
+  currentOrigin: string;
+  callbackOrigin?: string | null;
+}): Set<string> {
+  const origins = new Set([input.currentOrigin]);
+  const apiOrigin = originFromUrl(input.apiUrl);
+
+  if (apiOrigin) {
+    origins.add(apiOrigin);
+  }
+
+  if (input.callbackOrigin) {
+    origins.add(input.callbackOrigin);
+  }
+
+  return origins;
 }
 
 export function MetaOAuthButton({
@@ -33,6 +62,7 @@ export function MetaOAuthButton({
   const [message, setMessage] = useState<string | null>(null);
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const popupCheckRef = useRef<number | null>(null);
+  const allowedOriginsRef = useRef<Set<string> | null>(null);
 
   const clearPopupChecker = () => {
     if (popupCheckRef.current !== null) {
@@ -43,12 +73,12 @@ export function MetaOAuthButton({
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<MetaOAuthMessage>) => {
-      const allowedOrigins = new Set([window.location.origin]);
-      const origin = apiOrigin();
-
-      if (origin) {
-        allowedOrigins.add(origin);
-      }
+      const allowedOrigins =
+        allowedOriginsRef.current ??
+        metaOAuthAllowedOrigins({
+          apiUrl: apiBaseUrl,
+          currentOrigin: window.location.origin
+        });
 
       if (!allowedOrigins.has(event.origin)) {
         return;
@@ -61,6 +91,7 @@ export function MetaOAuthButton({
       }
 
       clearPopupChecker();
+      allowedOriginsRef.current = null;
       setLoading(false);
       setMessageTone(payload.status === "success" ? "success" : "error");
       setMessage(
@@ -94,6 +125,7 @@ export function MetaOAuthButton({
       );
 
       if (!action.href) {
+        allowedOriginsRef.current = null;
         setLoading(false);
         setMessageTone("error");
         setMessage(
@@ -103,6 +135,12 @@ export function MetaOAuthButton({
         );
         return;
       }
+
+      allowedOriginsRef.current = metaOAuthAllowedOrigins({
+        apiUrl: apiBaseUrl,
+        currentOrigin: window.location.origin,
+        callbackOrigin: metaOAuthCallbackOrigin(action.href)
+      });
 
       const width = 560;
       const height = 760;
@@ -137,11 +175,17 @@ export function MetaOAuthButton({
       popupCheckRef.current = window.setInterval(() => {
         if (popup.closed) {
           clearPopupChecker();
+          allowedOriginsRef.current = null;
           setLoading(false);
+          setMessageTone("error");
+          setMessage(
+            "Janela da Meta fechada. Se a conexao nao aparecer, recarregue a pagina e confira se app e API estao no mesmo ambiente."
+          );
           router.refresh();
         }
       }, 700);
     } catch {
+      allowedOriginsRef.current = null;
       setLoading(false);
       setMessageTone("error");
       setMessage("Erro ao iniciar conexao com Meta.");
