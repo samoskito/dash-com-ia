@@ -605,7 +605,8 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Continuar a proxima rodada com: confirmar formulas finais de ROAS/receita e validar sincronizacao/envio CAPI em contas reais quando as credenciais estiverem disponiveis.
+- Spec CAPI criada em 2026-07-09: `docs/superpowers/specs/2026-07-09-wpptrack-capi-conversion-events-design.md`. A proxima rodada deve implementar o modulo CAPI robusto antes de fechar formulas finais: parser Uazapi/CTWA com `ctwa_clid`, `LeadSubmitted` automatico para leads CTWA elegiveis, eventos por palavra-chave/etiqueta, payload Meta Business Messaging com `messaging_channel="whatsapp"`, Pixel/Pagina principal do workspace, diagnosticos de bloqueio e endpoint/backoffice de teste com `test_event_code`.
+- Depois de validar o CAPI em ambiente real, continuar com formulas finais de ROAS/receita e custos por etapa.
 
 ## Perguntas Abertas
 
