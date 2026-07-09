@@ -310,7 +310,9 @@ async function saveMetaReportingAccount(formData: FormData) {
   }
 
   try {
-    const assets = await serverApiFetch<MetaAssetsDto>("/integrations/meta/assets");
+    const assets = await serverApiFetch<MetaAssetsDto>(
+      `/integrations/meta/assets?businessId=${encodeURIComponent(businessId)}`
+    );
     const business = assets.businesses.find((item) => item.id === businessId);
     const adAccount = assets.adAccounts.find(
       (item) => item.id === adAccountId && item.businessId === businessId
@@ -334,6 +336,30 @@ async function saveMetaReportingAccount(formData: FormData) {
     revalidatePath("/integrations");
   } catch {
     return;
+  }
+}
+
+async function loadMetaBusinessReportingAssets(
+  businessId: string
+): Promise<Pick<MetaAssetsDto, "adAccounts">> {
+  "use server";
+
+  const normalizedBusinessId = businessId.trim();
+
+  if (!normalizedBusinessId) {
+    return { adAccounts: [] };
+  }
+
+  try {
+    const assets = await serverApiFetch<MetaAssetsDto>(
+      `/integrations/meta/assets?businessId=${encodeURIComponent(normalizedBusinessId)}`
+    );
+
+    return {
+      adAccounts: assets.adAccounts
+    };
+  } catch {
+    return { adAccounts: [] };
   }
 }
 
@@ -670,6 +696,7 @@ export default async function IntegrationsPage() {
                 <MetaReportingAccountsForm
                   assets={metaAssets}
                   action={saveMetaReportingAccount}
+                  loadBusinessAssetsAction={loadMetaBusinessReportingAssets}
                   statusAction={setMetaReportingAccountStatus}
                 />
               ) : (

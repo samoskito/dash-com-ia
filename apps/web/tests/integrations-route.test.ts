@@ -6,6 +6,7 @@ import {
   metaAdAccountsForBusiness,
   metaPixelsForBusiness
 } from "../src/app/(app)/integrations/meta-assets-form";
+import { metaReportingAccountsForBusiness } from "../src/app/(app)/integrations/meta-reporting-accounts-form";
 
 vi.mock("next/navigation", () => ({
   redirect: () => undefined,
@@ -425,6 +426,48 @@ describe("integrations route", () => {
     ]);
     expect(metaPixelsForBusiness(assets, "business_2")).toEqual([
       expect.objectContaining({ id: "pixel_2", name: "Pixel Secundario" })
+    ]);
+  });
+
+  it("filters Meta reporting accounts by selected business", () => {
+    const assets = {
+      workspaceId: "workspace_1",
+      status: "connected" as const,
+      businesses: [
+        { id: "business_1", name: "BM Principal", verificationStatus: null },
+        { id: "business_2", name: "BM Secundario", verificationStatus: null }
+      ],
+      adAccounts: [
+        {
+          id: "act_1",
+          businessId: "business_1",
+          name: "Conta Principal",
+          accountStatus: null,
+          currency: "BRL",
+          timezoneName: null
+        },
+        {
+          id: "act_2",
+          businessId: "business_2",
+          name: "Conta Secundaria",
+          accountStatus: null,
+          currency: "USD",
+          timezoneName: null
+        }
+      ],
+      pixels: [],
+      pages: [],
+      selection: {
+        businessId: "business_1",
+        adAccountId: "act_1",
+        pixelId: null
+      },
+      lastSyncedAt: "2026-07-02T03:00:00.000Z",
+      syncError: null
+    };
+
+    expect(metaReportingAccountsForBusiness(assets, "business_2")).toEqual([
+      expect.objectContaining({ id: "act_2", name: "Conta Secundaria" })
     ]);
   });
 

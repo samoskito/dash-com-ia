@@ -1,16 +1,20 @@
 "use client";
 
 import type { MetaAssetsDto } from "@wpptrack/shared";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type SaveMetaReportingAccountAction = (formData: FormData) => void | Promise<void>;
 type SetMetaReportingAccountStatusAction = (
   formData: FormData
 ) => void | Promise<void>;
+type LoadMetaBusinessReportingAssetsAction = (
+  businessId: string
+) => Promise<Pick<MetaAssetsDto, "adAccounts">>;
 
 type MetaReportingAccountsFormProps = {
   action: SaveMetaReportingAccountAction;
   assets: MetaAssetsDto;
+  loadBusinessAssetsAction: LoadMetaBusinessReportingAssetsAction;
   statusAction: SetMetaReportingAccountStatusAction;
 };
 
@@ -18,12 +22,28 @@ function firstId<T extends { id: string }>(items: T[]): string {
   return items[0]?.id ?? "";
 }
 
-function accountsForBusiness(assets: MetaAssetsDto, businessId: string) {
+export function metaReportingAccountsForBusiness(
+  assets: MetaAssetsDto,
+  businessId: string
+) {
   if (!businessId) {
     return [];
   }
 
   return assets.adAccounts.filter((account) => account.businessId === businessId);
+}
+
+function initialBusinessId(assets: MetaAssetsDto): string {
+  return assets.selection.businessId ?? firstId(assets.businesses);
+}
+
+function initialAdAccountId(assets: MetaAssetsDto, businessId: string): string {
+  const selected = assets.selection.adAccountId;
+  const accounts = metaReportingAccountsForBusiness(assets, businessId);
+
+  return selected && accounts.some((account) => account.id === selected)
+    ? selected
+    : firstId(accounts);
 }
 
 function syncStatusLabel(status: string) {
@@ -40,24 +60,70 @@ function syncStatusLabel(status: string) {
 export function MetaReportingAccountsForm({
   action,
   assets,
+  loadBusinessAssetsAction,
   statusAction
 }: MetaReportingAccountsFormProps) {
-  const [businessId, setBusinessId] = useState(
-    () => assets.selection.businessId ?? firstId(assets.businesses)
+  const [businessId, setBusinessId] = useState(() => initialBusinessId(assets));
+  const [availableAdAccounts, setAvailableAdAccounts] = useState(
+    () => assets.adAccounts
   );
+  const [isLoadingBusinessAssets, setIsLoadingBusinessAssets] = useState(false);
+  const loadSequence = useRef(0);
   const availableAccounts = useMemo(
-    () => accountsForBusiness(assets, businessId),
-    [assets, businessId]
+    () =>
+      metaReportingAccountsForBusiness(
+        { ...assets, adAccounts: availableAdAccounts },
+        businessId
+      ),
+    [assets, availableAdAccounts, businessId]
   );
-  const [adAccountId, setAdAccountId] = useState(
-    () => assets.selection.adAccountId ?? firstId(availableAccounts)
+  const [adAccountId, setAdAccountId] = useState(() =>
+    initialAdAccountId(assets, initialBusinessId(assets))
   );
 
-  function handleBusinessChange(nextBusinessId: string) {
-    const nextAccounts = accountsForBusiness(assets, nextBusinessId);
+  useEffect(() => {
+    const nextBusinessId = initialBusinessId(assets);
 
     setBusinessId(nextBusinessId);
-    setAdAccountId(firstId(nextAccounts));
+    setAvailableAdAccounts(assets.adAccounts);
+    setAdAccountId(initialAdAccountId(assets, nextBusinessId));
+  }, [assets]);
+
+  async function handleBusinessChange(nextBusinessId: string) {
+    const sequence = loadSequence.current + 1;
+
+    loadSequence.current = sequence;
+    setBusinessId(nextBusinessId);
+    setAdAccountId("");
+
+    if (!nextBusinessId) {
+      setAvailableAdAccounts([]);
+      setIsLoadingBusinessAssets(false);
+      return;
+    }
+
+    setIsLoadingBusinessAssets(true);
+
+    try {
+      const nextAssets = await loadBusinessAssetsAction(nextBusinessId);
+
+      if (loadSequence.current !== sequence) {
+        return;
+      }
+
+      setAvailableAdAccounts(nextAssets.adAccounts);
+      setAdAccountId(firstId(nextAssets.adAccounts));
+    } catch {
+      if (loadSequence.current !== sequence) {
+        return;
+      }
+
+      setAvailableAdAccounts([]);
+    } finally {
+      if (loadSequence.current === sequence) {
+        setIsLoadingBusinessAssets(false);
+      }
+    }
   }
 
   return (
@@ -69,6 +135,7 @@ export function MetaReportingAccountsForm({
           value={businessId}
           onChange={(event) => handleBusinessChange(event.currentTarget.value)}
           aria-label="Business Manager para relatorios"
+          disabled={isLoadingBusinessAssets}
         >
           <option value="">Sem BM</option>
           {assets.businesses.map((business) => (
@@ -83,6 +150,7 @@ export function MetaReportingAccountsForm({
           value={adAccountId}
           onChange={(event) => setAdAccountId(event.currentTarget.value)}
           aria-label="Conta de anuncio para relatorios"
+          disabled={isLoadingBusinessAssets}
         >
           <option value="">Sem conta</option>
           {availableAccounts.map((account) => (
@@ -92,7 +160,7 @@ export function MetaReportingAccountsForm({
           ))}
         </select>
         <button className="button" type="submit">
-          Adicionar conta
+          {isLoadingBusinessAssets ? "Carregando contas" : "Adicionar conta"}
         </button>
       </form>
       <div className="table-wrap">
