@@ -672,31 +672,36 @@ td span {
   padding: 9px 10px;
 }
 
-.password-field {
-  position: relative;
-  display: block;
+.login-form .password-field {
+  display: grid;
+  align-items: center;
+  width: 100%;
 }
 
-.password-field input {
+.login-form .password-field input {
+  grid-area: 1 / 1;
   width: 100%;
+  min-height: 40px;
+  line-height: 1.2;
   padding-right: 48px;
 }
 
 .login-form .password-toggle {
-  position: absolute;
-  top: 50%;
-  right: 7px;
+  grid-area: 1 / 1;
   display: inline-flex;
-  width: 32px;
+  justify-self: end;
+  width: 30px;
+  min-width: 30px;
   min-height: 28px;
   height: 28px;
   align-items: center;
   justify-content: center;
+  margin-right: 6px;
   padding: 0;
   border: 1px solid rgba(66, 240, 168, 0.2);
   border-radius: 8px;
   background: rgba(66, 240, 168, 0.08);
-  transform: translateY(-50%);
+  color: var(--mint);
 }
 
 .password-toggle-icon {
