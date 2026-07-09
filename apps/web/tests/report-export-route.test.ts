@@ -26,13 +26,13 @@ describe("report export route", () => {
 
     const response = await GET(
       new Request(
-        "http://localhost/reports/export?since=2026-07-01&until=2026-07-02"
+        "http://localhost/reports/export?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappClassification=whatsapp&compareSince=2026-06-24&compareUntil=2026-06-30"
       )
     );
     const body = await response.text();
 
     expect(global.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/campaigns/export.csv?since=2026-07-01&until=2026-07-02",
+      "http://localhost:3333/reports/campaigns/export.csv?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappClassification=whatsapp",
       expect.objectContaining({
         credentials: "include"
       })

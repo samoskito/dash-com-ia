@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ReportsPage from "../src/app/(app)/reports/page";
+import { MetaReportFilters } from "../src/app/(app)/reports/meta-report-filters";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -149,18 +150,72 @@ describe("reports route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "connected",
+            businesses: [
+              {
+                id: "business_1",
+                name: "BM Principal",
+                verificationStatus: "verified"
+              }
+            ],
+            adAccounts: [
+              {
+                id: "act_1",
+                businessId: "business_1",
+                name: "Conta WhatsApp",
+                accountStatus: "active",
+                currency: "BRL",
+                timezoneName: "America/Sao_Paulo"
+              }
+            ],
+            pixels: [],
+            pages: [],
+            reportingAccounts: [
+              {
+                id: "reporting_1",
+                workspaceId: "workspace_1",
+                businessId: "business_1",
+                businessName: "BM Principal",
+                adAccountId: "act_1",
+                adAccountName: "Conta WhatsApp",
+                currency: "BRL",
+                timezoneName: "America/Sao_Paulo",
+                active: true,
+                syncStatus: "synced",
+                lastSyncedAt: "2026-07-02T03:00:00.000Z",
+                syncError: null
+              }
+            ],
+            selection: {
+              businessId: "business_1",
+              adAccountId: "act_1",
+              pixelId: null
+            },
+            lastSyncedAt: "2026-07-02T03:00:00.000Z",
+            syncError: null
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
       );
 
     const element = await ReportsPage({
       searchParams: Promise.resolve({
         since: "2026-07-01",
-        until: "2026-07-02"
+        until: "2026-07-02",
+        businessId: "business_1",
+        adAccountId: "act_1",
+        whatsappClassification: "whatsapp"
       })
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/campaigns?since=2026-07-01&until=2026-07-02",
+      "http://localhost:3333/reports/campaigns?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappClassification=whatsapp",
       expect.objectContaining({ credentials: "include" })
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -168,25 +223,36 @@ describe("reports route", () => {
       expect.objectContaining({ credentials: "include" })
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/adsets?since=2026-07-01&until=2026-07-02",
+      "http://localhost:3333/reports/adsets?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappClassification=whatsapp",
       expect.objectContaining({ credentials: "include" })
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/ads?since=2026-07-01&until=2026-07-02",
+      "http://localhost:3333/reports/ads?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappClassification=whatsapp",
       expect.objectContaining({ credentials: "include" })
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/workspaces/current",
       expect.objectContaining({ credentials: "include" })
     );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/integrations/meta/assets",
+      expect.objectContaining({ credentials: "include" })
+    );
     expect(html).toContain("Black Friday WhatsApp");
+    expect(html).toContain("Todas as contas");
+    expect(html).toContain("Campanhas WhatsApp");
+    expect(html).toContain("BM Principal");
+    expect(html).toContain("Conta WhatsApp");
     expect(html).not.toContain("Remarketing 7 dias");
     expect(html).not.toContain("Publico frio - videos");
     expect(html).toContain("Publico quente");
     expect(html).toContain("Criativo WhatsApp");
     expect(html).toContain("Sincronizar Meta");
+    expect(html.match(/name="businessId"/g)).toHaveLength(2);
+    expect(html.match(/name="adAccountId"/g)).toHaveLength(2);
+    expect(html.match(/name="whatsappClassification"/g)).toHaveLength(2);
     expect(html).toContain(
-      'href="/reports/export?since=2026-07-01&amp;until=2026-07-02"'
+      'href="/reports/export?since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"'
     );
     expect(html).toContain("2026-07-01");
     expect(html).toContain("2026-07-02");
@@ -201,13 +267,13 @@ describe("reports route", () => {
     expect(html).toContain("600,00");
     expect(html).toContain("300,00");
     expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;since=2026-07-01&amp;until=2026-07-02"'
+      'href="/leads?campaignId=cmp_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"'
     );
     expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;since=2026-07-01&amp;until=2026-07-02"'
+      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"'
     );
     expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-01&amp;until=2026-07-02"'
+      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"'
     );
     expect(html).not.toContain("nao tem investimento proprio persistido");
   });
@@ -326,7 +392,27 @@ describe("reports route", () => {
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "08/07/2026 a 14/07/2026",
-            adSets: []
+            adSets: [
+              {
+                id: "adset_1",
+                campaignId: "cmp_1",
+                campaignName: "Semana atual",
+                name: "Publico atual",
+                status: "active",
+                spendCents: 75000,
+                metaConversationsStarted: 45,
+                costPerMetaConversationCents: 1666,
+                realConversations: 15,
+                costPerRealConversationCents: 5000,
+                leadSubmitted: 6,
+                costPerLeadSubmittedCents: 12500,
+                qualifiedLead: 3,
+                costPerQualifiedLeadCents: 25000,
+                purchase: 1,
+                costPerPurchaseCents: 75000,
+                roas: null
+              }
+            ]
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
@@ -336,7 +422,29 @@ describe("reports route", () => {
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "08/07/2026 a 14/07/2026",
-            ads: []
+            ads: [
+              {
+                id: "ad_1",
+                campaignId: "cmp_1",
+                campaignName: "Semana atual",
+                adSetId: "adset_1",
+                adSetName: "Publico atual",
+                name: "Criativo atual",
+                status: "active",
+                spendCents: 25000,
+                metaConversationsStarted: 15,
+                costPerMetaConversationCents: 1666,
+                realConversations: 5,
+                costPerRealConversationCents: 5000,
+                leadSubmitted: 2,
+                costPerLeadSubmittedCents: 12500,
+                qualifiedLead: 1,
+                costPerQualifiedLeadCents: 25000,
+                purchase: 1,
+                costPerPurchaseCents: 25000,
+                roas: null
+              }
+            ]
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
@@ -385,6 +493,27 @@ describe("reports route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "connected",
+            businesses: [],
+            adAccounts: [],
+            pixels: [],
+            pages: [],
+            reportingAccounts: [],
+            selection: {
+              businessId: null,
+              adAccountId: null,
+              pixelId: null
+            },
+            lastSyncedAt: "2026-07-02T03:00:00.000Z",
+            syncError: null
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
       );
 
     const element = await ReportsPage({
@@ -405,6 +534,88 @@ describe("reports route", () => {
     expect(html).toContain("01/07/2026 a 07/07/2026");
     expect(html).toContain("+50%");
     expect(html).toContain("+20%");
+    expect(html).toContain(
+      'href="/reports/export?since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"'
+    );
+    expect(html).toContain(
+      'href="/leads?campaignId=cmp_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"'
+    );
+    expect(html).toContain(
+      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"'
+    );
+    expect(html).toContain(
+      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"'
+    );
+    expect(html.match(/name="compareSince"/g)).toHaveLength(2);
+    expect(html.match(/name="compareUntil"/g)).toHaveLength(2);
+  });
+
+  it("renders Meta filters without keeping an account from another BM", () => {
+    const html = renderToStaticMarkup(
+      createElement(MetaReportFilters, {
+        assets: {
+          workspaceId: "workspace_1",
+          status: "connected",
+          businesses: [
+            { id: "business_1", name: "BM Principal", verificationStatus: null },
+            { id: "business_2", name: "BM Secundario", verificationStatus: null }
+          ],
+          adAccounts: [],
+          pixels: [],
+          pages: [],
+          reportingAccounts: [
+            {
+              id: "reporting_1",
+              workspaceId: "workspace_1",
+              businessId: "business_1",
+              businessName: "BM Principal",
+              adAccountId: "act_1",
+              adAccountName: "Conta Principal",
+              currency: "BRL",
+              timezoneName: "America/Sao_Paulo",
+              active: true,
+              syncStatus: "synced",
+              lastSyncedAt: null,
+              syncError: null
+            },
+            {
+              id: "reporting_2",
+              workspaceId: "workspace_1",
+              businessId: "business_2",
+              businessName: "BM Secundario",
+              adAccountId: "act_2",
+              adAccountName: "Conta Secundaria",
+              currency: "BRL",
+              timezoneName: "America/Sao_Paulo",
+              active: true,
+              syncStatus: "synced",
+              lastSyncedAt: null,
+              syncError: null
+            }
+          ],
+          selection: {
+            businessId: null,
+            adAccountId: null,
+            pixelId: null
+          },
+          lastSyncedAt: null,
+          syncError: null
+        },
+        businessId: "business_2",
+        adAccountId: "act_1",
+        since: "2026-07-08",
+        until: "2026-07-14",
+        compareSince: "2026-07-01",
+        compareUntil: "2026-07-07",
+        whatsappClassification: "whatsapp"
+      })
+    );
+
+    expect(html).toContain("Conta Secundaria");
+    expect(html).not.toContain("Conta Principal");
+    expect(html).not.toContain('option value="act_1" selected=""');
+    expect(html).toContain('name="compareSince" value="2026-07-01"');
+    expect(html).toContain('name="compareUntil" value="2026-07-07"');
   });
 
   it("renders an unavailable state without demo rows when backend is unavailable", async () => {

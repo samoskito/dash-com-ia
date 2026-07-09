@@ -2,19 +2,25 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { apiBaseUrl } from "../../../../lib/api";
 
+const exportQueryParams = [
+  "since",
+  "until",
+  "businessId",
+  "adAccountId",
+  "whatsappClassification"
+] as const;
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const params = new URLSearchParams();
-  const since = url.searchParams.get("since");
-  const until = url.searchParams.get("until");
 
-  if (since) {
-    params.set("since", since);
-  }
+  exportQueryParams.forEach((param) => {
+    const value = url.searchParams.get(param);
 
-  if (until) {
-    params.set("until", until);
-  }
+    if (value) {
+      params.set(param, value);
+    }
+  });
 
   const query = params.toString();
   const response = await fetch(

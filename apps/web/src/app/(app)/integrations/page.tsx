@@ -14,7 +14,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { serverApiFetch } from "../../../lib/server-api";
 import { MetaAssetsForm } from "./meta-assets-form";
+import { MetaConversionDestinationForm } from "./meta-conversion-destination-form";
 import { MetaOAuthButton } from "./meta-oauth-button";
+import { MetaReportingAccountsForm } from "./meta-reporting-accounts-form";
 
 type ResourceResult<T> = {
   data: T;
@@ -289,6 +291,99 @@ async function saveMetaAssetSelection(formData: FormData) {
   }
 }
 
+async function saveMetaConversionDestination(formData: FormData) {
+  "use server";
+
+  const pixelId = String(formData.get("pixelId") ?? "").trim();
+  const pageId = String(formData.get("pageId") ?? "").trim();
+
+  if (!pixelId || !pageId) {
+    return;
+  }
+
+  try {
+    const assets = await serverApiFetch<MetaAssetsDto>("/integrations/meta/assets");
+    const pixel = assets.pixels.find((item) => item.id === pixelId);
+    const page = (assets.pages ?? []).find((item) => item.id === pageId);
+
+    if (!pixel || !page) {
+      return;
+    }
+
+    await serverApiFetch("/integrations/meta/conversion-destination", {
+      method: "PUT",
+      body: JSON.stringify({
+        pixelId,
+        pixelName: pixel.name,
+        pageId,
+        pageName: page.name
+      })
+    });
+    revalidatePath("/integrations");
+  } catch {
+    return;
+  }
+}
+
+async function saveMetaReportingAccount(formData: FormData) {
+  "use server";
+
+  const businessId = String(formData.get("businessId") ?? "").trim();
+  const adAccountId = String(formData.get("adAccountId") ?? "").trim();
+
+  if (!businessId || !adAccountId) {
+    return;
+  }
+
+  try {
+    const assets = await serverApiFetch<MetaAssetsDto>("/integrations/meta/assets");
+    const business = assets.businesses.find((item) => item.id === businessId);
+    const adAccount = assets.adAccounts.find(
+      (item) => item.id === adAccountId && item.businessId === businessId
+    );
+
+    if (!business || !adAccount) {
+      return;
+    }
+
+    await serverApiFetch("/integrations/meta/reporting-accounts", {
+      method: "POST",
+      body: JSON.stringify({
+        businessId,
+        businessName: business.name,
+        adAccountId,
+        adAccountName: adAccount.name,
+        currency: adAccount.currency,
+        timezoneName: adAccount.timezoneName
+      })
+    });
+    revalidatePath("/integrations");
+  } catch {
+    return;
+  }
+}
+
+async function setMetaReportingAccountStatus(formData: FormData) {
+  "use server";
+
+  const id = String(formData.get("id") ?? "").trim();
+  const active = String(formData.get("active") ?? "") === "true";
+
+  if (!id) {
+    return;
+  }
+
+  try {
+    await serverApiFetch(`/integrations/meta/reporting-accounts/${encodeURIComponent(id)}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ active })
+    });
+    revalidatePath("/integrations");
+  } catch {
+    return;
+  }
+}
+
 function money(cents: number | null | undefined) {
   if (!cents) {
     return "Aguardando preco";
@@ -322,7 +417,9 @@ function statusLabel(status: string) {
     not_configured: "Nao configurado",
     pending: "Aguardando",
     qr_required: "QR pendente",
-    syncing: "Sincronizando"
+    syncing: "Sincronizando",
+    configured: "Configurado",
+    needs_configuration: "Configurar"
   };
 
   return labels[status] ?? "Status desconhecido";
@@ -608,6 +705,50 @@ export default async function IntegrationsPage() {
           />
         ) : metaAssets ? (
           <p className="muted">Sem permissao para alterar Meta</p>
+        ) : null}
+        {metaAssets ? (
+          <>
+            <span className="eyebrow">Destino de conversao</span>
+            <h2>Pixel e Pagina Facebook principal</h2>
+            <div className="metric-grid compact">
+              <div className="metric-card">
+                <span className="micro-label">Pixel CAPI</span>
+                <strong>{metaAssets.conversionDestination?.pixelName ?? "Sem Pixel"}</strong>
+              </div>
+              <div className="metric-card">
+                <span className="micro-label">Pagina Facebook principal</span>
+                <strong>{metaAssets.conversionDestination?.pageName ?? "Sem Pagina"}</strong>
+              </div>
+              <div className="metric-card">
+                <span className="micro-label">Status destino</span>
+                <strong>
+                  {metaAssets.conversionDestination
+                    ? statusLabel(metaAssets.conversionDestination.status)
+                    : "Nao configurado"}
+                </strong>
+              </div>
+            </div>
+            {canManageIntegrations ? (
+              <MetaConversionDestinationForm
+                assets={metaAssets}
+                action={saveMetaConversionDestination}
+              />
+            ) : (
+              <p className="muted">Sem permissao para alterar destino Meta</p>
+            )}
+
+            <span className="eyebrow">Contas para relatorios</span>
+            <h2>Contas Meta sincronizadas nos relatorios</h2>
+            {canManageIntegrations ? (
+              <MetaReportingAccountsForm
+                assets={metaAssets}
+                action={saveMetaReportingAccount}
+                statusAction={setMetaReportingAccountStatus}
+              />
+            ) : (
+              <p className="muted">Sem permissao para alterar contas de relatorio</p>
+            )}
+          </>
         ) : null}
         <div className="table-wrap">
           <table>

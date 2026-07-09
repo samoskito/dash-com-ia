@@ -5,12 +5,14 @@ import type {
   AdSetReportRowDto,
   CampaignReportRowDto,
   CurrentWorkspaceDto,
+  MetaAssetsDto,
   MetaStructureReportDto,
   ReportOverviewDto
 } from "@wpptrack/shared";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
+import { MetaReportFilters } from "./meta-report-filters";
 
 type ReportsSearchParams = Record<string, string | string[] | undefined>;
 type ReportFetchState = "real" | "empty" | "error";
@@ -37,6 +39,15 @@ type ReportTotals = {
   leadSubmitted: number;
   qualifiedLead: number;
   purchase: number;
+};
+type ReportFilters = {
+  adAccountId?: string;
+  businessId?: string;
+  compareSince?: string;
+  compareUntil?: string;
+  since?: string;
+  until?: string;
+  whatsappClassification?: string;
 };
 
 function money(cents: number | null) {
@@ -70,8 +81,11 @@ function metaStatusLabel(status: string | null | undefined) {
 }
 
 async function getCampaignReports(filters: {
+  adAccountId?: string;
+  businessId?: string;
   since?: string;
   until?: string;
+  whatsappClassification?: string;
 }): Promise<CampaignReportsResult> {
   try {
     const query = reportQuery(filters);
@@ -97,8 +111,11 @@ async function getCampaignReports(filters: {
 }
 
 async function getAdSetReports(filters: {
+  adAccountId?: string;
+  businessId?: string;
   since?: string;
   until?: string;
+  whatsappClassification?: string;
 }): Promise<AdSetReportsResult> {
   try {
     const query = reportQuery(filters);
@@ -123,8 +140,11 @@ async function getAdSetReports(filters: {
 }
 
 async function getAdReports(filters: {
+  adAccountId?: string;
+  businessId?: string;
   since?: string;
   until?: string;
+  whatsappClassification?: string;
 }): Promise<AdReportsResult> {
   try {
     const query = reportQuery(filters);
@@ -164,7 +184,15 @@ async function getCurrentWorkspace(): Promise<CurrentWorkspaceDto | null> {
   }
 }
 
-function reportQuery(filters: { since?: string; until?: string }) {
+async function getMetaAssets(): Promise<MetaAssetsDto | null> {
+  try {
+    return await serverApiFetch<MetaAssetsDto>("/integrations/meta/assets");
+  } catch {
+    return null;
+  }
+}
+
+function reportQuery(filters: ReportFilters, includeComparison = false) {
   const params = new URLSearchParams();
 
   if (filters.since) {
@@ -173,6 +201,26 @@ function reportQuery(filters: { since?: string; until?: string }) {
 
   if (filters.until) {
     params.set("until", filters.until);
+  }
+
+  if (includeComparison && filters.compareSince) {
+    params.set("compareSince", filters.compareSince);
+  }
+
+  if (includeComparison && filters.compareUntil) {
+    params.set("compareUntil", filters.compareUntil);
+  }
+
+  if (filters.businessId) {
+    params.set("businessId", filters.businessId);
+  }
+
+  if (filters.adAccountId) {
+    params.set("adAccountId", filters.adAccountId);
+  }
+
+  if (filters.whatsappClassification) {
+    params.set("whatsappClassification", filters.whatsappClassification);
   }
 
   return params.toString();
@@ -212,11 +260,16 @@ function asStringParam(
 }
 
 function leadsHref(filters: {
+  adAccountId?: string;
   campaignId?: string | null;
+  businessId?: string;
+  compareSince?: string;
+  compareUntil?: string;
   adSetId?: string | null;
   adId?: string | null;
   since?: string;
   until?: string;
+  whatsappClassification?: string;
 }): string {
   const params = new URLSearchParams();
 
@@ -240,23 +293,33 @@ function leadsHref(filters: {
     params.set("until", filters.until);
   }
 
+  if (filters.compareSince) {
+    params.set("compareSince", filters.compareSince);
+  }
+
+  if (filters.compareUntil) {
+    params.set("compareUntil", filters.compareUntil);
+  }
+
+  if (filters.businessId) {
+    params.set("businessId", filters.businessId);
+  }
+
+  if (filters.adAccountId) {
+    params.set("adAccountId", filters.adAccountId);
+  }
+
+  if (filters.whatsappClassification) {
+    params.set("whatsappClassification", filters.whatsappClassification);
+  }
+
   const query = params.toString();
 
   return query ? `/leads?${query}` : "/leads";
 }
 
-function reportExportHref(filters: { since?: string; until?: string }): string {
-  const params = new URLSearchParams();
-
-  if (filters.since) {
-    params.set("since", filters.since);
-  }
-
-  if (filters.until) {
-    params.set("until", filters.until);
-  }
-
-  const query = params.toString();
+function reportExportHref(filters: ReportFilters): string {
+  const query = reportQuery(filters, true);
 
   return query ? `/reports/export?${query}` : "/reports/export";
 }
@@ -377,6 +440,20 @@ export default async function ReportsPage({
   const until = asStringParam(resolvedSearchParams.until);
   const compareSince = asStringParam(resolvedSearchParams.compareSince);
   const compareUntil = asStringParam(resolvedSearchParams.compareUntil);
+  const businessId = asStringParam(resolvedSearchParams.businessId);
+  const adAccountId = asStringParam(resolvedSearchParams.adAccountId);
+  const whatsappClassification = asStringParam(
+    resolvedSearchParams.whatsappClassification
+  );
+  const reportFilters = {
+    since,
+    until,
+    compareSince,
+    compareUntil,
+    businessId,
+    adAccountId,
+    whatsappClassification
+  };
   const hasComparison = Boolean(compareSince && compareUntil);
   const [
     campaignReports,
@@ -384,16 +461,22 @@ export default async function ReportsPage({
     adSetReports,
     adReports,
     currentWorkspace,
-    comparisonReports
+    comparisonReports,
+    metaAssets
   ] = await Promise.all([
-    getCampaignReports({ since, until }),
+    getCampaignReports(reportFilters),
     getMetaStructureReport(),
-    getAdSetReports({ since, until }),
-    getAdReports({ since, until }),
+    getAdSetReports(reportFilters),
+    getAdReports(reportFilters),
     getCurrentWorkspace(),
     hasComparison
-      ? getCampaignReports({ since: compareSince, until: compareUntil })
-      : Promise.resolve(null)
+      ? getCampaignReports({
+          ...reportFilters,
+          since: compareSince,
+          until: compareUntil
+        })
+      : Promise.resolve(null),
+    getMetaAssets()
   ]);
   const { report, state: reportState } = campaignReports;
   const rows = report.campaigns;
@@ -429,6 +512,13 @@ export default async function ReportsPage({
         </div>
         <div className="header-actions">
           <form className="inline-form" action="/reports">
+            <input type="hidden" name="businessId" value={businessId ?? ""} />
+            <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
+            <input
+              type="hidden"
+              name="whatsappClassification"
+              value={whatsappClassification ?? ""}
+            />
             <input type="date" name="since" defaultValue={since} aria-label="Data inicial" />
             <input type="date" name="until" defaultValue={until} aria-label="Data final" />
             <input
@@ -447,7 +537,7 @@ export default async function ReportsPage({
           </form>
           <Link
             className="button"
-            href={reportExportHref({ since, until })}
+            href={reportExportHref(reportFilters)}
           >
             Exportar CSV
           </Link>
@@ -466,6 +556,17 @@ export default async function ReportsPage({
           ) : null}
         </div>
       </header>
+
+      <MetaReportFilters
+        assets={metaAssets}
+        businessId={businessId}
+        adAccountId={adAccountId}
+        whatsappClassification={whatsappClassification}
+        since={since}
+        until={until}
+        compareSince={compareSince}
+        compareUntil={compareUntil}
+      />
 
       {comparisonReports && comparisonTotals ? (
         <div className="surface-panel">
@@ -531,7 +632,12 @@ export default async function ReportsPage({
                           href={leadsHref({
                             campaignId: row.id,
                             since,
-                            until
+                            until,
+                            compareSince,
+                            compareUntil,
+                            businessId,
+                            adAccountId,
+                            whatsappClassification
                           })}
                         >
                           {row.name}
@@ -592,7 +698,12 @@ export default async function ReportsPage({
                             campaignId: row.campaignId,
                             adSetId: row.id,
                             since,
-                            until
+                            until,
+                            compareSince,
+                            compareUntil,
+                            businessId,
+                            adAccountId,
+                            whatsappClassification
                           })}
                         >
                           {row.name}
@@ -656,7 +767,12 @@ export default async function ReportsPage({
                             adSetId: row.adSetId,
                             adId: row.id,
                             since,
-                            until
+                            until,
+                            compareSince,
+                            compareUntil,
+                            businessId,
+                            adAccountId,
+                            whatsappClassification
                           })}
                         >
                           {row.name}

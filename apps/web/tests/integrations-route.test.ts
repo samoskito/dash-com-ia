@@ -128,6 +128,38 @@ describe("integrations route", () => {
                 code: "987654321"
               }
             ],
+            pages: [
+              {
+                id: "page_1",
+                name: "Pagina Facebook principal"
+              }
+            ],
+            conversionDestination: {
+              workspaceId: "workspace_1",
+              pixelId: "pixel_1",
+              pixelName: "Pixel Loja",
+              pageId: "page_1",
+              pageName: "Pagina Facebook principal",
+              status: "configured",
+              lastValidatedAt: "2026-07-02T03:00:00.000Z",
+              validationError: null
+            },
+            reportingAccounts: [
+              {
+                id: "reporting_1",
+                workspaceId: "workspace_1",
+                businessId: "business_1",
+                businessName: "BM Principal",
+                adAccountId: "act_1",
+                adAccountName: "Conta WhatsApp",
+                currency: "BRL",
+                timezoneName: "America/Sao_Paulo",
+                active: true,
+                syncStatus: "synced",
+                lastSyncedAt: "2026-07-02T03:00:00.000Z",
+                syncError: null
+              }
+            ],
             selection: {
               businessId: "business_1",
               adAccountId: "act_1",
@@ -280,6 +312,11 @@ describe("integrations route", () => {
     expect(html).toContain("BM Principal");
     expect(html).toContain("Conta WhatsApp");
     expect(html).toContain("Pixel Loja");
+    expect(html).toContain("Destino de conversao");
+    expect(html).toContain("Pagina Facebook principal");
+    expect(html).toContain("Contas para relatorios");
+    expect(html).toContain("America/Sao_Paulo");
+    expect(html).toContain("Desativar");
     expect(html).not.toContain("Facebook Pixel Code");
     expect(html).not.toContain("connect.facebook.net");
     expect(html).not.toContain("fbq(&#x27;init&#x27;");
