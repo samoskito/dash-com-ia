@@ -25,6 +25,7 @@ type ConversionEventLogRecord = {
   workspaceId: string | null;
   leadId: string | null;
   pixelId: string | null;
+  pageId: string | null;
   eventName: string;
   status: string;
   phoneHash: string | null;
@@ -41,6 +42,16 @@ type MetaIntegrationCapiTokenRecord = {
   capiAccessTokenEncrypted: string | null;
   capiTokenIv: string | null;
   capiTokenTag: string | null;
+};
+
+type MetaConversionDestinationRecord = {
+  pixelId: string;
+  pageId: string;
+};
+
+type ResolvedConversionDestination = {
+  pixelId: string | null;
+  pageId: string | null;
 };
 
 export type SendReadyEventResult = {
@@ -64,7 +75,7 @@ export class ConversionEventsService {
     const duplicates: string[] = [];
 
     for (const rule of input.rules) {
-      const status = rule.pixelId && input.adId ? "ready_to_send" : "pending_meta_context";
+      const status = input.adId ? "ready_to_send" : "pending_meta_context";
       const dedupeKey = this.buildDedupeKey(input, rule);
       const existing = (await this.prisma.conversionEventLog.findUnique({
         where: { dedupeKey }
@@ -113,9 +124,15 @@ export class ConversionEventsService {
 
     const startedAt = new Date();
     const accessToken = await this.getWorkspaceCapiAccessToken(log.workspaceId);
+    const destination = await this.getWorkspaceConversionDestination(log.workspaceId);
+    const resolvedDestination = {
+      pixelId: destination?.pixelId ?? log.pixelId,
+      pageId: destination?.pageId ?? null
+    };
     const result = await this.metaCapiAdapter.sendEvent({
       accessToken,
-      pixelId: log.pixelId,
+      pixelId: resolvedDestination.pixelId,
+      pageId: resolvedDestination.pageId,
       eventName: log.eventName,
       dedupeKey: log.dedupeKey,
       phoneHash: log.phoneHash,
@@ -124,7 +141,8 @@ export class ConversionEventsService {
     const integrationLogId = await this.recordMetaCapiIntegrationLog(
       log,
       startedAt,
-      result
+      result,
+      resolvedDestination
     );
 
     await this.prisma.conversionEventLog.update({
@@ -132,12 +150,19 @@ export class ConversionEventsService {
       data: {
         status: result.status,
         sentAt: result.status === "sent" ? new Date() : null,
+        pixelId: resolvedDestination.pixelId,
+        pageId: resolvedDestination.pageId,
         providerResponseSummary:
           result.responseSummary ? result.responseSummary as Prisma.InputJsonValue : Prisma.JsonNull,
         errorMessage: result.errorMessage
       }
     });
-    await this.recordMetaCapiDiagnosticEvent(log, result, integrationLogId);
+    await this.recordMetaCapiDiagnosticEvent(
+      log,
+      result,
+      integrationLogId,
+      resolvedDestination
+    );
 
     return {
       conversionEventLogId: log.id,
@@ -189,6 +214,22 @@ export class ConversionEventsService {
     }
   }
 
+  private async getWorkspaceConversionDestination(
+    workspaceId: string | null
+  ): Promise<MetaConversionDestinationRecord | null> {
+    if (!workspaceId) {
+      return null;
+    }
+
+    return (await this.prisma.metaConversionDestination.findUnique({
+      where: { workspaceId },
+      select: {
+        pixelId: true,
+        pageId: true
+      }
+    })) as MetaConversionDestinationRecord | null;
+  }
+
   private async recordMetaCapiIntegrationLog(
     log: ConversionEventLogRecord,
     startedAt: Date,
@@ -196,7 +237,8 @@ export class ConversionEventsService {
       status: SendReadyEventResult["status"];
       responseSummary: unknown;
       errorMessage: string | null;
-    }
+    },
+    destination: ResolvedConversionDestination
   ): Promise<string | null> {
     const finishedAt = new Date();
     const status =
@@ -226,7 +268,8 @@ export class ConversionEventsService {
           requestSummary: {
             conversionEventLogId: log.id,
             eventName: log.eventName,
-            pixelId: log.pixelId,
+            pixelId: destination.pixelId,
+            pageId: destination.pageId,
             dedupeKey: log.dedupeKey,
             phoneHash: log.phoneHash,
             adId: log.adId
@@ -249,7 +292,8 @@ export class ConversionEventsService {
       status: SendReadyEventResult["status"];
       errorMessage: string | null;
     },
-    integrationLogId: string | null
+    integrationLogId: string | null,
+    destination: ResolvedConversionDestination
   ): Promise<void> {
     if (result.status === "sent" || result.status === "skipped") {
       return;
@@ -285,7 +329,8 @@ export class ConversionEventsService {
           summaryPayload: {
             conversionEventLogId: log.id,
             eventName: log.eventName,
-            pixelId: log.pixelId,
+            pixelId: destination.pixelId,
+            pageId: destination.pageId,
             status: result.status,
             errorMessage: result.errorMessage
           } as Prisma.InputJsonValue

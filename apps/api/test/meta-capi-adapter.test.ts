@@ -2,11 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 import { MetaCapiAdapter } from "../src/conversion-events/meta-capi.adapter";
 
 describe("meta capi adapter", () => {
-  it("reports not_configured without access token or pixel id", async () => {
-    const adapter = new MetaCapiAdapter({}, fetch);
+  it("reports not_configured without access token, pixel id, or page id", async () => {
+    const adapter = new MetaCapiAdapter(
+      {
+        META_CAPI_ACCESS_TOKEN: "meta-token"
+      },
+      fetch
+    );
 
     const result = await adapter.sendEvent({
-      pixelId: null,
+      pixelId: "pixel_1",
+      pageId: null,
       eventName: "QualifiedLead",
       dedupeKey: "dedupe_1",
       phoneHash: "phone_hash",
@@ -16,7 +22,7 @@ describe("meta capi adapter", () => {
     expect(result).toEqual({
       status: "not_configured",
       responseSummary: null,
-      errorMessage: "Meta CAPI token or pixel id not configured"
+      errorMessage: "Meta CAPI token, pixel id or page id not configured"
     });
   });
 
@@ -45,6 +51,7 @@ describe("meta capi adapter", () => {
 
     const result = await adapter.sendEvent({
       pixelId: "pixel_1",
+      pageId: "page_1",
       eventName: "QualifiedLead",
       dedupeKey: "workspace_1:lead_1:rule_1:QualifiedLead:ad_1",
       phoneHash: "phone_hash",
@@ -61,11 +68,48 @@ describe("meta capi adapter", () => {
       event_id: "workspace_1:lead_1:rule_1:QualifiedLead:ad_1",
       action_source: "business_messaging",
       user_data: {
-        ph: ["phone_hash"]
+        ph: ["phone_hash"],
+        page_id: "page_1"
       },
       custom_data: {
         ad_id: "ad_1"
       }
+    });
+  });
+
+  it("sends page_id for business messaging events", async () => {
+    let requestedInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      requestedInit = init;
+
+      return new Response(
+        JSON.stringify({
+          events_received: 1,
+          messages: []
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+    const adapter = new MetaCapiAdapter(
+      {
+        META_CAPI_ACCESS_TOKEN: "meta-token"
+      },
+      fetchMock as never
+    );
+
+    const result = await adapter.sendEvent({
+      pixelId: "pixel_1",
+      pageId: "page_1",
+      eventName: "QualifiedLead",
+      dedupeKey: "dedupe_1",
+      phoneHash: null,
+      adId: "ad_1"
+    });
+
+    expect(result.status).toBe("sent");
+    const body = JSON.parse(String(requestedInit?.body));
+    expect(body.data[0].user_data).toEqual({
+      page_id: "page_1"
     });
   });
 });

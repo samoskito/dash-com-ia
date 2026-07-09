@@ -6,9 +6,15 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
   const db = {
     integrationLogs: [] as Array<Record<string, unknown>>,
     diagnosticEvents: [] as Array<Record<string, unknown>>,
-    logs: [] as Array<Record<string, unknown>>
+    logs: [] as Array<Record<string, unknown>>,
+    destinations: [] as Array<Record<string, unknown>>
   };
   const prisma = {
+    metaConversionDestination: {
+      findUnique: async ({ where }: { where: { workspaceId: string } }) =>
+        db.destinations.find((destination) => destination.workspaceId === where.workspaceId) ??
+        null
+    },
     metaIntegration: {
       findUnique: async ({ where }: { where: { workspaceId: string } }) =>
         db.logs.find((log) => log.workspaceId === where.workspaceId)
@@ -85,7 +91,7 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
         sendEvent: async () => ({
           status: "not_configured" as const,
           responseSummary: null,
-          errorMessage: "Meta CAPI token or pixel id not configured"
+          errorMessage: "Meta CAPI token, pixel id or page id not configured"
         })
       }) as never,
       {
@@ -148,7 +154,9 @@ describe("conversion events service", () => {
     expect(db.logs[1]).toMatchObject({
       sourceTrigger: "whatsapp_label",
       eventName: "Purchase",
-      status: "pending_meta_context"
+      status: "ready_to_send",
+      pixelId: null,
+      adId: "ad_1"
     });
   });
 
@@ -207,7 +215,8 @@ describe("conversion events service", () => {
     expect(db.logs[0].sentAt).toBeInstanceOf(Date);
     expect(adapter.calls[0]).toMatchObject({
       accessToken: "workspace-oauth-token",
-      pixelId: "pixel_1"
+      pixelId: "pixel_1",
+      pageId: null
     });
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({
@@ -222,6 +231,65 @@ describe("conversion events service", () => {
       })
     );
     expect(JSON.stringify(db.integrationLogs)).not.toContain("workspace-oauth-token");
+  });
+
+  it("uses workspace conversion destination instead of rule pixel when sending CAPI", async () => {
+    const adapter = {
+      calls: [] as Array<Record<string, unknown>>,
+      sendEvent: async (input: Record<string, unknown>) => {
+        adapter.calls.push(input);
+
+        return {
+          status: "sent" as const,
+          responseSummary: {
+            events_received: 1
+          },
+          errorMessage: null
+        };
+      }
+    };
+    const { db, service } = createHarness(adapter);
+    db.destinations.push({
+      workspaceId: "workspace_1",
+      pixelId: "workspace_pixel_1",
+      pageId: "page_1"
+    });
+    await service.recordRuleMatches({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      rules: [
+        {
+          id: "rule_1",
+          workspaceId: "workspace_1",
+          name: "Lead qualificado",
+          triggerType: "keyword",
+          triggerValue: "quero comprar",
+          matchMode: "contains",
+          eventName: "QualifiedLead",
+          pixelId: "legacy_rule_pixel_1",
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        }
+      ]
+    });
+
+    await service.sendReadyEvent("conversion_1");
+
+    expect(adapter.calls[0]).toMatchObject({
+      accessToken: "workspace-oauth-token",
+      pixelId: "workspace_pixel_1",
+      pageId: "page_1"
+    });
+    expect(db.integrationLogs[0].requestSummary).toMatchObject({
+      conversionEventLogId: "conversion_1",
+      eventName: "QualifiedLead",
+      pixelId: "workspace_pixel_1",
+      pageId: "page_1",
+      adId: "ad_1"
+    });
   });
 
   it("records diagnostics when Meta CAPI send is blocked by missing configuration", async () => {
@@ -264,12 +332,16 @@ describe("conversion events service", () => {
         source: "meta",
         operation: "meta.capi.send_event",
         status: "blocked",
-        providerErrorMessage: "Meta CAPI token or pixel id not configured",
+        providerErrorMessage: "Meta CAPI token, pixel id or page id not configured",
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1"
       })
     );
+    expect(db.integrationLogs[0].requestSummary).toMatchObject({
+      pixelId: "pixel_1",
+      pageId: null
+    });
     expect(db.diagnosticEvents).toContainEqual(
       expect.objectContaining({
         workspaceId: "workspace_1",
@@ -285,6 +357,11 @@ describe("conversion events service", () => {
         errorCode: "MetaCapiNotConfigured"
       })
     );
+    expect(db.diagnosticEvents[0].summaryPayload).toMatchObject({
+      pixelId: "pixel_1",
+      pageId: null,
+      errorMessage: "Meta CAPI token, pixel id or page id not configured"
+    });
     expect(JSON.stringify(db.diagnosticEvents)).not.toContain("secret");
   });
 

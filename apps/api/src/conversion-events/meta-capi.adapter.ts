@@ -4,6 +4,7 @@ type Fetcher = typeof fetch;
 export type MetaCapiSendEventInput = {
   accessToken?: string | null;
   pixelId: string | null;
+  pageId: string | null;
   eventName: string;
   dedupeKey: string;
   phoneHash: string | null;
@@ -27,11 +28,11 @@ export class MetaCapiAdapter {
   ): Promise<MetaCapiSendEventResult> {
     const accessToken = input.accessToken ?? this.env.META_CAPI_ACCESS_TOKEN;
 
-    if (!accessToken || !input.pixelId) {
+    if (!accessToken || !input.pixelId || !input.pageId) {
       return {
         status: "not_configured",
         responseSummary: null,
-        errorMessage: "Meta CAPI token or pixel id not configured"
+        errorMessage: "Meta CAPI token, pixel id or page id not configured"
       };
     }
 
@@ -82,10 +83,9 @@ export class MetaCapiAdapter {
   }
 
   private buildUserData(input: MetaCapiSendEventInput): Record<string, unknown> {
-    return input.phoneHash
-      ? {
-          ph: [input.phoneHash]
-        }
-      : {};
+    return {
+      ...(input.phoneHash ? { ph: [input.phoneHash] } : {}),
+      ...(input.pageId ? { page_id: input.pageId } : {})
+    };
   }
 }
