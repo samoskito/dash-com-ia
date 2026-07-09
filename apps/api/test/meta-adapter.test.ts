@@ -27,16 +27,27 @@ describe("meta adapter oauth", () => {
     expect(url.searchParams.get("state")).toBe("state-token");
   });
 
-  it("exchanges a callback code server-side and never exposes the access token", async () => {
+  it("exchanges a callback code server-side, extends the Meta token and never exposes it", async () => {
     const fetchCalls: string[] = [];
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       fetchCalls.push(String(input));
+
+      if (String(input).includes("grant_type=fb_exchange_token")) {
+        return new Response(
+          JSON.stringify({
+            access_token: "EAAB-long-lived-token",
+            token_type: "bearer",
+            expires_in: 5183944
+          }),
+          { status: 200 }
+        );
+      }
 
       return new Response(
         JSON.stringify({
           access_token: "EAAB-secret-token",
           token_type: "bearer",
-          expires_in: 5183944
+          expires_in: 3600
         }),
         { status: 200 }
       );
@@ -64,6 +75,13 @@ describe("meta adapter oauth", () => {
     );
     expect(requestUrl.searchParams.get("client_secret")).toBe("secret");
     expect(requestUrl.searchParams.get("code")).toBe("oauth-code");
+    const longLivedRequestUrl = new URL(fetchCalls[1] ?? "");
+    expect(longLivedRequestUrl.searchParams.get("grant_type")).toBe(
+      "fb_exchange_token"
+    );
+    expect(longLivedRequestUrl.searchParams.get("fb_exchange_token")).toBe(
+      "EAAB-secret-token"
+    );
     expect(result).toEqual({
       provider: "meta",
       status: "connected",
@@ -74,18 +92,29 @@ describe("meta adapter oauth", () => {
       message: "Meta OAuth conectado"
     });
     expect(JSON.stringify(result)).not.toContain("EAAB-secret-token");
+    expect(JSON.stringify(result)).not.toContain("EAAB-long-lived-token");
   });
 
   it("can return the access token to backend services for encrypted persistence", async () => {
-    const fetchMock = (async () =>
-      new Response(
-        JSON.stringify({
-          access_token: "EAAB-secret-token",
-          token_type: "bearer",
-          expires_in: 3600
-        }),
-        { status: 200 }
-      )) as typeof fetch;
+    const fetchMock = vi.fn(async (input: string | URL | Request) =>
+      String(input).includes("grant_type=fb_exchange_token")
+        ? new Response(
+            JSON.stringify({
+              access_token: "EAAB-long-lived-token",
+              token_type: "bearer",
+              expires_in: 5183944
+            }),
+            { status: 200 }
+          )
+        : new Response(
+            JSON.stringify({
+              access_token: "EAAB-secret-token",
+              token_type: "bearer",
+              expires_in: 3600
+            }),
+            { status: 200 }
+          )
+    ) as unknown as typeof fetch;
     const adapter = new MetaAdapter(
       {
         META_APP_ID: "app_123",
@@ -97,9 +126,13 @@ describe("meta adapter oauth", () => {
 
     const result = await adapter.exchangeCodeForToken({ code: "oauth-code" });
 
-    expect(result.accessToken).toBe("EAAB-secret-token");
+    expect(result.accessToken).toBe("EAAB-long-lived-token");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.publicResult.status).toBe("connected");
     expect(JSON.stringify(result.publicResult)).not.toContain("EAAB-secret-token");
+    expect(JSON.stringify(result.publicResult)).not.toContain(
+      "EAAB-long-lived-token"
+    );
   });
 
   it("returns configure_env when callback exchange is missing required env", async () => {

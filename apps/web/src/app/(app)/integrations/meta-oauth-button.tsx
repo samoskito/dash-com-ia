@@ -203,7 +203,7 @@ export function MetaOAuthButton({
         {loading
           ? "Abrindo Facebook..."
           : connected
-            ? "Reconectar Meta"
+            ? "Trocar conta Meta"
             : "Conectar com Facebook/Meta"}
       </button>
       {message ? (

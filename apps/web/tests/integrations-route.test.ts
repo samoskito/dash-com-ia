@@ -273,6 +273,8 @@ describe("integrations route", () => {
       expect.objectContaining({ credentials: "include" })
     );
     expect(html).toContain("Meta conectado");
+    expect(html).toContain("Trocar conta Meta");
+    expect(html).not.toContain("Reconectar Meta");
     expect(html).toContain("pixel_1");
     expect(html).toContain("BM Principal");
     expect(html).toContain("Conta WhatsApp");

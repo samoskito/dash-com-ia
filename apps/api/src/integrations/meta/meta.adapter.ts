@@ -235,8 +235,9 @@ export class MetaAdapter implements IntegrationAdapter {
         `https://graph.facebook.com/${this.getGraphApiVersion()}/oauth/access_token?${params.toString()}`
       );
       const payload = (await response.json().catch(() => ({}))) as MetaTokenResponse;
+      const shortLivedAccessToken = this.asString(payload.access_token);
 
-      if (!response.ok || !this.asString(payload.access_token)) {
+      if (!response.ok || !shortLivedAccessToken) {
         return {
           accessToken: null,
           publicResult: {
@@ -253,13 +254,20 @@ export class MetaAdapter implements IntegrationAdapter {
         };
       }
 
+      const extendedToken = await this.exchangeForLongLivedToken(
+        shortLivedAccessToken
+      );
+
       return {
-        accessToken: this.asString(payload.access_token),
+        accessToken: extendedToken.accessToken,
         publicResult: {
           provider: "meta",
           status: "connected",
-          tokenType: this.asString(payload.token_type) ?? "bearer",
-          expiresInSeconds: this.asPositiveInteger(payload.expires_in),
+          tokenType:
+            extendedToken.tokenType ?? this.asString(payload.token_type) ?? "bearer",
+          expiresInSeconds:
+            extendedToken.expiresInSeconds ??
+            this.asPositiveInteger(payload.expires_in),
           scopes: this.getScopes(),
           missingEnv: [],
           message: "Meta OAuth conectado"
@@ -279,6 +287,39 @@ export class MetaAdapter implements IntegrationAdapter {
         }
       };
     }
+  }
+
+  private async exchangeForLongLivedToken(
+    shortLivedAccessToken: string
+  ): Promise<{
+    accessToken: string;
+    tokenType: string | null;
+    expiresInSeconds: number | null;
+  }> {
+    const params = new URLSearchParams({
+      grant_type: "fb_exchange_token",
+      client_id: this.env.META_APP_ID ?? "",
+      client_secret: this.env.META_APP_SECRET ?? "",
+      fb_exchange_token: shortLivedAccessToken
+    });
+    const response = await this.fetchImpl(
+      `https://graph.facebook.com/${this.getGraphApiVersion()}/oauth/access_token?${params.toString()}`
+    );
+    const payload = (await response.json().catch(() => ({}))) as MetaTokenResponse;
+    const accessToken = this.asString(payload.access_token);
+
+    if (!response.ok || !accessToken) {
+      throw new Error(
+        this.asString(payload.error?.message) ??
+          `Meta long-lived token HTTP ${response.status}`
+      );
+    }
+
+    return {
+      accessToken,
+      tokenType: this.asString(payload.token_type),
+      expiresInSeconds: this.asPositiveInteger(payload.expires_in)
+    };
   }
 
   async listBusinesses(input: {
