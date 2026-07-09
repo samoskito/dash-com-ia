@@ -10,6 +10,10 @@ type Rule = {
   matchMode: "contains" | "exact";
   eventName: string;
   pixelId: string | null;
+  defaultValueCents: number | null;
+  defaultCurrency: string | null;
+  defaultContentName: string | null;
+  defaultItems: Array<{ id: string; quantity?: number; item_price?: number }> | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -39,6 +43,10 @@ function createHarness() {
         matchMode: "contains",
         eventName: "QualifiedLead",
         pixelId: null,
+        defaultValueCents: 9900,
+        defaultCurrency: "BRL",
+        defaultContentName: "Consulta inicial",
+        defaultItems: [{ id: "consulta", quantity: 1, item_price: 99 }],
         active: true,
         createdAt: now,
         updatedAt: now
@@ -52,6 +60,10 @@ function createHarness() {
         matchMode: "exact",
         eventName: "Purchase",
         pixelId: "pixel_1",
+        defaultValueCents: 19900,
+        defaultCurrency: "BRL",
+        defaultContentName: "Plano mensal",
+        defaultItems: [{ id: "plano_mensal", quantity: 1, item_price: 199 }],
         active: true,
         createdAt: now,
         updatedAt: now
@@ -65,6 +77,10 @@ function createHarness() {
         matchMode: "contains",
         eventName: "LeadSubmitted",
         pixelId: null,
+        defaultValueCents: null,
+        defaultCurrency: null,
+        defaultContentName: null,
+        defaultItems: null,
         active: false,
         createdAt: now,
         updatedAt: now
@@ -136,6 +152,10 @@ describe("conversion rules service", () => {
         matchMode: "exact",
         eventName: "Purchase",
         pixelId: "pixel_2",
+        defaultValueCents: 29900,
+        defaultCurrency: "BRL",
+        defaultContentName: "Pacote VIP",
+        defaultItems: [{ id: "vip", quantity: 1, item_price: 299 }],
         active: true
       },
       "user_1"
@@ -145,7 +165,17 @@ describe("conversion rules service", () => {
       workspaceId: "workspace_1",
       triggerType: "whatsapp_label",
       eventName: "Purchase",
+      defaultValueCents: 29900,
+      defaultCurrency: "BRL",
+      defaultContentName: "Pacote VIP",
+      defaultItems: [{ id: "vip", quantity: 1, item_price: 299 }],
       active: true
+    });
+    expect(db.rules[3]).toMatchObject({
+      defaultValueCents: 29900,
+      defaultCurrency: "BRL",
+      defaultContentName: "Pacote VIP",
+      defaultItems: [{ id: "vip", quantity: 1, item_price: 299 }]
     });
     expect(db.rules).toHaveLength(4);
     expect(db.auditLogs).toContainEqual(
@@ -156,8 +186,30 @@ describe("conversion rules service", () => {
         action: "conversion_rule.created",
         targetType: "ConversionRule",
         targetId: created.id,
-        resultStatus: "active"
+        resultStatus: "active",
+        afterSummary: expect.objectContaining({
+          valueConfigured: true,
+          currency: "BRL"
+        })
       })
+    );
+  });
+
+  it("lists conversion rules with default value metadata", async () => {
+    const { service } = createHarness();
+
+    const rules = await service.listRules("workspace_1");
+
+    expect(rules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "rule_1",
+          defaultValueCents: 9900,
+          defaultCurrency: "BRL",
+          defaultContentName: "Consulta inicial",
+          defaultItems: [{ id: "consulta", quantity: 1, item_price: 99 }]
+        })
+      ])
     );
   });
 
@@ -171,6 +223,20 @@ describe("conversion rules service", () => {
 
     expect(matches.map((rule) => rule.id)).toEqual(["rule_1", "rule_2"]);
     expect(matches.map((rule) => rule.eventName)).toEqual(["QualifiedLead", "Purchase"]);
+    expect(matches).toEqual([
+      expect.objectContaining({
+        defaultValueCents: 9900,
+        defaultCurrency: "BRL",
+        defaultContentName: "Consulta inicial",
+        defaultItems: [{ id: "consulta", quantity: 1, item_price: 99 }]
+      }),
+      expect.objectContaining({
+        defaultValueCents: 19900,
+        defaultCurrency: "BRL",
+        defaultContentName: "Plano mensal",
+        defaultItems: [{ id: "plano_mensal", quantity: 1, item_price: 199 }]
+      })
+    ]);
   });
 
   it("updates only the requested workspace rule", async () => {
@@ -180,12 +246,22 @@ describe("conversion rules service", () => {
       "workspace_1",
       "rule_1",
       {
-        active: false
+        active: false,
+        defaultValueCents: null,
+        defaultCurrency: null,
+        defaultContentName: null,
+        defaultItems: null
       },
       "user_1"
     );
 
     expect(updated.active).toBe(false);
+    expect(updated).toMatchObject({
+      defaultValueCents: null,
+      defaultCurrency: null,
+      defaultContentName: null,
+      defaultItems: null
+    });
     expect(db.auditLogs).toContainEqual(
       expect.objectContaining({
         workspaceId: "workspace_1",
@@ -194,7 +270,11 @@ describe("conversion rules service", () => {
         action: "conversion_rule.updated",
         targetType: "ConversionRule",
         targetId: "rule_1",
-        resultStatus: "inactive"
+        resultStatus: "inactive",
+        afterSummary: expect.objectContaining({
+          valueConfigured: false,
+          currency: null
+        })
       })
     );
   });

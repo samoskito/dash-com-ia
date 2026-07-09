@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type {
   ConversionRuleCreateInputDto,
   ConversionRuleDto,
@@ -17,6 +17,10 @@ type PersistedConversionRule = {
   matchMode: "contains" | "exact";
   eventName: string;
   pixelId: string | null;
+  defaultValueCents: number | null;
+  defaultCurrency: string | null;
+  defaultContentName: string | null;
+  defaultItems: Prisma.JsonValue | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -49,6 +53,11 @@ export class ConversionRulesService {
         matchMode: input.matchMode,
         eventName: input.eventName,
         pixelId: input.pixelId ?? null,
+        defaultValueCents: input.defaultValueCents ?? null,
+        defaultCurrency: input.defaultCurrency ?? null,
+        defaultContentName: input.defaultContentName ?? null,
+        defaultItems:
+          this.toNullableJsonInput(input.defaultItems) ?? Prisma.JsonNull,
         active: input.active
       }
     });
@@ -77,7 +86,8 @@ export class ConversionRulesService {
       },
       data: {
         ...input,
-        pixelId: input.pixelId === undefined ? undefined : input.pixelId
+        pixelId: input.pixelId === undefined ? undefined : input.pixelId,
+        defaultItems: this.toNullableJsonInput(input.defaultItems)
       }
     });
     await this.recordRuleAudit({
@@ -128,6 +138,8 @@ export class ConversionRulesService {
       matchMode: rule.matchMode,
       eventName: rule.eventName,
       pixelConfigured: Boolean(rule.pixelId),
+      valueConfigured: Boolean(rule.defaultValueCents),
+      currency: rule.defaultCurrency,
       active: rule.active
     } as Prisma.InputJsonValue;
   }
@@ -181,9 +193,39 @@ export class ConversionRulesService {
       matchMode: rule.matchMode,
       eventName: rule.eventName as ConversionRuleDto["eventName"],
       pixelId: rule.pixelId,
+      defaultValueCents: rule.defaultValueCents,
+      defaultCurrency: rule.defaultCurrency,
+      defaultContentName: rule.defaultContentName,
+      defaultItems: this.toDefaultItemsDto(rule.defaultItems),
       active: rule.active,
       createdAt: rule.createdAt.toISOString(),
       updatedAt: rule.updatedAt.toISOString()
     };
+  }
+
+  private toNullableJsonInput(
+    value:
+      | ConversionRuleCreateInputDto["defaultItems"]
+      | ConversionRuleUpdateInputDto["defaultItems"]
+  ): Prisma.InputJsonValue | typeof Prisma.JsonNull | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+
+    if (value === null) {
+      return Prisma.JsonNull;
+    }
+
+    return value as Prisma.InputJsonValue;
+  }
+
+  private toDefaultItemsDto(
+    value: Prisma.JsonValue | null
+  ): ConversionRuleDto["defaultItems"] {
+    if (!Array.isArray(value)) {
+      return null;
+    }
+
+    return value as ConversionRuleDto["defaultItems"];
   }
 }

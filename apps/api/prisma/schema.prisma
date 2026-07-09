@@ -312,14 +312,20 @@ model ConversionEventLog {
   status                  String
   pixelId                 String?
   pageId                  String?
+  eventId                 String?
   metaAccountId           String?
   campaignId              String?
   adSetId                 String?
   adId                    String?
+  ctwaClid                String?
   attributionStatus       String?
   dedupeKey               String?   @unique
   sentAt                  DateTime?
   providerResponseSummary Json?
+  customData              Json?
+  valueCents              Int?
+  currency                String?
+  contentName             String?
   errorCode               String?
   errorMessage            String?
   jobId                   String?
@@ -519,17 +525,21 @@ model WhatsappInstanceActivation {
 }
 
 model ConversionRule {
-  id           String                @id @default(cuid())
-  workspaceId  String
-  name         String
-  triggerType  ConversionTriggerType
-  triggerValue String
-  matchMode    ConversionMatchMode   @default(contains)
-  eventName    String
-  pixelId      String?
-  active       Boolean               @default(true)
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
+  id                 String                @id @default(cuid())
+  workspaceId        String
+  name               String
+  triggerType        ConversionTriggerType
+  triggerValue       String
+  matchMode          ConversionMatchMode   @default(contains)
+  eventName          String
+  pixelId            String?
+  defaultValueCents  Int?
+  defaultCurrency    String?
+  defaultContentName String?
+  defaultItems       Json?
+  active             Boolean               @default(true)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 
@@ -550,6 +560,8 @@ model Lead {
   campaignId         String?
   adSetId            String?
   adId               String?
+  ctwaClid           String?
+  ctwaSourceUrl      String?
   firstMessageAt     DateTime?
   lastMessageAt      DateTime?
   createdAt          DateTime   @default(now())
@@ -563,6 +575,7 @@ model Lead {
   @@index([workspaceId, campaignId])
   @@index([workspaceId, adSetId])
   @@index([workspaceId, adId])
+  @@index([workspaceId, ctwaClid])
 }
 
 model MetaIntegration {
