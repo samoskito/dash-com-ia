@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { conversionEventTestInputSchema } from "./conversion-events";
 
 export const diagnosticSources = ["meta", "uazapi", "asaas", "internal"] as const;
 export const diagnosticSeverities = [
@@ -343,6 +344,9 @@ export const diagnosticRetryResultSchema = z.object({
   jobAttemptId: z.string().min(1)
 });
 
+export const diagnosticConversionEventTestInputSchema =
+  conversionEventTestInputSchema;
+
 export type DiagnosticSourceDto = z.infer<typeof diagnosticSourceSchema>;
 export type DiagnosticSeverityDto = z.infer<typeof diagnosticSeveritySchema>;
 export type DiagnosticEventDto = z.infer<typeof diagnosticEventSchema>;
@@ -396,4 +400,7 @@ export type DiagnosticEventDetailDto = z.infer<
 export type DiagnosticRetryInputDto = z.infer<typeof diagnosticRetryInputSchema>;
 export type DiagnosticRetryResultDto = z.infer<
   typeof diagnosticRetryResultSchema
+>;
+export type DiagnosticConversionEventTestInputDto = z.infer<
+  typeof diagnosticConversionEventTestInputSchema
 >;

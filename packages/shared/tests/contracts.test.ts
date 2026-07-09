@@ -7,6 +7,10 @@ import {
   canViewReports,
   campaignReportRowSchema,
   clientNavigation,
+  conversionEventErrorCodeSchema,
+  conversionEventLogStatusSchema,
+  conversionEventNameSchema,
+  conversionEventTestInputSchema,
   conversionRuleCreateInputSchema,
   conversionRuleSchema,
   conversionRuleUpdateInputSchema,
@@ -1216,6 +1220,65 @@ describe("shared contracts", () => {
     expect(create.slug).toBe("growth");
     expect(update.active).toBe(false);
     expect(plan.pricePerWhatsappInstanceCents).toBe(12900);
+  });
+
+  it("validates supported Meta CAPI WhatsApp event names", () => {
+    expect(conversionEventNameSchema.parse("LeadSubmitted")).toBe(
+      "LeadSubmitted"
+    );
+    expect(conversionEventNameSchema.parse("QualifiedLead")).toBe(
+      "QualifiedLead"
+    );
+    expect(conversionEventNameSchema.parse("Purchase")).toBe("Purchase");
+    expect(conversionEventNameSchema.parse("OrderDelivered")).toBe(
+      "OrderDelivered"
+    );
+    expect(() => conversionEventNameSchema.parse("Contact")).toThrow();
+  });
+
+  it("validates conversion event statuses and error codes", () => {
+    expect(conversionEventLogStatusSchema.parse("pending_meta_context")).toBe(
+      "pending_meta_context"
+    );
+    expect(conversionEventLogStatusSchema.parse("pending_value")).toBe(
+      "pending_value"
+    );
+    expect(conversionEventErrorCodeSchema.parse("MissingCtwaClid")).toBe(
+      "MissingCtwaClid"
+    );
+    expect(conversionEventErrorCodeSchema.parse("MetaCapiRejected")).toBe(
+      "MetaCapiRejected"
+    );
+  });
+
+  it("validates conversion rules with value defaults for Purchase", () => {
+    const input = conversionRuleCreateInputSchema.parse({
+      name: "Compra por etiqueta",
+      triggerType: "whatsapp_label",
+      triggerValue: "Venda fechada",
+      matchMode: "exact",
+      eventName: "Purchase",
+      defaultValueCents: 19900,
+      defaultCurrency: "BRL",
+      defaultContentName: "Plano mensal",
+      defaultItems: [{ id: "plan_1", quantity: 1, item_price: 199 }]
+    });
+
+    expect(input.defaultValueCents).toBe(19900);
+    expect(input.defaultCurrency).toBe("BRL");
+  });
+
+  it("validates a controlled Meta CAPI test input", () => {
+    const input = conversionEventTestInputSchema.parse({
+      workspaceId: "workspace_1",
+      eventName: "QualifiedLead",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      testEventCode: "TEST12345"
+    });
+
+    expect(input.testEventCode).toBe("TEST12345");
   });
 
   it("validates conversion rule contracts for keyword and WhatsApp labels", () => {

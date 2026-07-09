@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  conversionEventItemSchema,
+  conversionEventNameSchema
+} from "./conversion-events";
 
 export const conversionTriggerTypeSchema = z.enum([
   "keyword",
@@ -6,15 +10,6 @@ export const conversionTriggerTypeSchema = z.enum([
 ]);
 
 export const conversionMatchModeSchema = z.enum(["contains", "exact"]);
-
-export const conversionEventNameSchema = z.enum([
-  "LeadSubmitted",
-  "QualifiedLead",
-  "Purchase",
-  "Contact",
-  "CompleteRegistration",
-  "Custom"
-]);
 
 export const conversionRuleCreateInputSchema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -24,6 +19,10 @@ export const conversionRuleCreateInputSchema = z.object({
   eventName: conversionEventNameSchema,
   // Legacy field. New conversion sending uses the workspace MetaConversionDestination.
   pixelId: z.string().trim().min(1).max(80).nullable().optional(),
+  defaultValueCents: z.number().int().positive().nullable().optional(),
+  defaultCurrency: z.string().trim().min(3).max(3).nullable().optional(),
+  defaultContentName: z.string().trim().min(1).max(180).nullable().optional(),
+  defaultItems: z.array(conversionEventItemSchema).nullable().optional(),
   active: z.boolean().default(true)
 });
 
@@ -43,6 +42,10 @@ export const conversionRuleSchema = z.object({
   eventName: conversionEventNameSchema,
   // Legacy field. New conversion sending uses the workspace MetaConversionDestination.
   pixelId: z.string().nullable(),
+  defaultValueCents: z.number().int().positive().nullable().optional(),
+  defaultCurrency: z.string().trim().min(3).max(3).nullable().optional(),
+  defaultContentName: z.string().trim().min(1).max(180).nullable().optional(),
+  defaultItems: z.array(conversionEventItemSchema).nullable().optional(),
   active: z.boolean(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime()
