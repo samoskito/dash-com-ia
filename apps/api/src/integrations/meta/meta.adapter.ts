@@ -56,7 +56,6 @@ type MetaAdAccountGraphNode = {
 type MetaPixelGraphNode = {
   id?: unknown;
   name?: unknown;
-  code?: unknown;
 };
 
 export type MetaOAuthTokenExchangeResult = {
@@ -372,18 +371,27 @@ export class MetaAdapter implements IntegrationAdapter {
   }): Promise<MetaPixelAssetDto[]> {
     const response = await this.getGraphList<MetaPixelGraphNode>(
       `/${input.businessId}/adspixels`,
-      "id,name,code",
+      "id,name",
       input.accessToken
     );
 
     return response
-      .map((item) => ({
-        id: this.asString(item.id),
-        businessId: input.businessId as string | null,
-        name: this.asString(item.name),
-        code: this.asString(item.code)
-      }))
-      .filter((item): item is MetaPixelAssetDto => Boolean(item.id && item.name));
+      .map((item): MetaPixelAssetDto | null => {
+        const id = this.asString(item.id);
+        const name = this.asString(item.name);
+
+        if (!id || !name) {
+          return null;
+        }
+
+        return {
+          id,
+          businessId: input.businessId,
+          name,
+          code: null
+        };
+      })
+      .filter((item): item is MetaPixelAssetDto => Boolean(item));
   }
 
   async listAdAccountPixels(input: {
@@ -392,18 +400,27 @@ export class MetaAdapter implements IntegrationAdapter {
   }): Promise<MetaPixelAssetDto[]> {
     const response = await this.getGraphList<MetaPixelGraphNode>(
       `/${input.adAccountId}/adspixels`,
-      "id,name,code",
+      "id,name",
       input.accessToken
     );
 
     return response
-      .map((item) => ({
-        id: this.asString(item.id),
-        businessId: null as string | null,
-        name: this.asString(item.name),
-        code: this.asString(item.code)
-      }))
-      .filter((item): item is MetaPixelAssetDto => Boolean(item.id && item.name));
+      .map((item): MetaPixelAssetDto | null => {
+        const id = this.asString(item.id);
+        const name = this.asString(item.name);
+
+        if (!id || !name) {
+          return null;
+        }
+
+        return {
+          id,
+          businessId: null,
+          name,
+          code: null
+        };
+      })
+      .filter((item): item is MetaPixelAssetDto => Boolean(item));
   }
 
   async listCampaigns(input: {

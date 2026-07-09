@@ -162,7 +162,8 @@ export class MetaConnectionsService {
 
               return pixels.map((pixel) => ({
                 ...pixel,
-                businessId: pixel.businessId ?? business.id
+                businessId: pixel.businessId ?? business.id,
+                code: null
               }));
             } catch {
               return [];

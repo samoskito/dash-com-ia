@@ -118,7 +118,8 @@ describe("integrations route", () => {
                 id: "pixel_1",
                 businessId: "business_1",
                 name: "Pixel Loja",
-                code: "123456789"
+                code:
+                  "<!-- Facebook Pixel Code --> <script>fbq('init', '123456789');</script><script src=\"https://connect.facebook.net/en_US/fbevents.js\"></script>"
               },
               {
                 id: "pixel_2",
@@ -279,6 +280,9 @@ describe("integrations route", () => {
     expect(html).toContain("BM Principal");
     expect(html).toContain("Conta WhatsApp");
     expect(html).toContain("Pixel Loja");
+    expect(html).not.toContain("Facebook Pixel Code");
+    expect(html).not.toContain("connect.facebook.net");
+    expect(html).not.toContain("fbq(&#x27;init&#x27;");
     expect(html).toContain("BM Secundario");
     expect(html).not.toContain("Conta Outro BM");
     expect(html).not.toContain("Pixel Outro BM");

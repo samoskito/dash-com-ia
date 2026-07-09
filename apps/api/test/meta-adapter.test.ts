@@ -249,12 +249,13 @@ describe("meta adapter oauth", () => {
         id: "pixel_1",
         businessId: "business_1",
         name: "Pixel Loja",
-        code: "1234567890"
+        code: null
       }
     ]);
     expect(fetchCalls[0]).toContain("access_token=EAAB-secret-token");
     expect(fetchCalls[1]).toContain("fields=id%2Cname%2Caccount_status%2Ccurrency%2Ctimezone_name");
-    expect(fetchCalls[2]).toContain("fields=id%2Cname%2Ccode");
+    expect(fetchCalls[2]).toContain("fields=id%2Cname");
+    expect(fetchCalls[2]).not.toContain("code");
   });
 
   it("follows Meta Graph pagination for asset lists", async () => {

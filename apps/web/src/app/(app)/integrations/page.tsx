@@ -629,8 +629,8 @@ export default async function IntegrationsPage() {
                       {selectedMetaAssetDetail(
                         metaAssets.pixels,
                         metaAssets.selection.pixelId,
-                        (pixel) => pixel.code,
-                        "sem codigo"
+                        () => "Selecionado para eventos",
+                        "sem selecao"
                       )}
                     </td>
                     <td><span className="event-chip">selecionado</span></td>

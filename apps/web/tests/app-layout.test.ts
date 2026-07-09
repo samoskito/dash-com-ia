@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -56,5 +58,14 @@ describe("product app layout", () => {
 
     expect(html).toContain("Conteudo privado");
     expect(html).not.toContain("Workspace bloqueado");
+  });
+
+  it("keeps the desktop sidebar fixed while product pages scroll", () => {
+    const css = readFileSync(join(process.cwd(), "src/styles/globals.css"), "utf8");
+
+    expect(css).toMatch(/\.sidebar\s*{[^}]*position:\s*fixed/s);
+    expect(css).toMatch(/\.sidebar\s*{[^}]*height:\s*100vh/s);
+    expect(css).toMatch(/\.sidebar\s*{[^}]*overflow-y:\s*auto/s);
+    expect(css).toMatch(/\.content\s*{[^}]*padding-left:\s*260px/s);
   });
 });
