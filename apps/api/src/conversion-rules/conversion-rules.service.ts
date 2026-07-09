@@ -20,7 +20,11 @@ type PersistedConversionRule = {
   defaultValueCents: number | null;
   defaultCurrency: string | null;
   defaultContentName: string | null;
-  defaultItems: Prisma.JsonValue | null;
+  defaultItems:
+    | Prisma.JsonValue
+    | typeof Prisma.DbNull
+    | typeof Prisma.JsonNull
+    | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -56,8 +60,9 @@ export class ConversionRulesService {
         defaultValueCents: input.defaultValueCents ?? null,
         defaultCurrency: input.defaultCurrency ?? null,
         defaultContentName: input.defaultContentName ?? null,
-        defaultItems:
-          this.toNullableJsonInput(input.defaultItems) ?? Prisma.JsonNull,
+        defaultItems: this.toDefaultItemsInput(input.defaultItems, {
+          useDbNullForUndefined: true
+        }),
         active: input.active
       }
     });
@@ -87,7 +92,7 @@ export class ConversionRulesService {
       data: {
         ...input,
         pixelId: input.pixelId === undefined ? undefined : input.pixelId,
-        defaultItems: this.toNullableJsonInput(input.defaultItems)
+        defaultItems: this.toDefaultItemsInput(input.defaultItems)
       }
     });
     await this.recordRuleAudit({
@@ -138,7 +143,7 @@ export class ConversionRulesService {
       matchMode: rule.matchMode,
       eventName: rule.eventName,
       pixelConfigured: Boolean(rule.pixelId),
-      valueConfigured: Boolean(rule.defaultValueCents),
+      valueConfigured: rule.defaultValueCents !== null,
       currency: rule.defaultCurrency,
       active: rule.active
     } as Prisma.InputJsonValue;
@@ -203,24 +208,29 @@ export class ConversionRulesService {
     };
   }
 
-  private toNullableJsonInput(
+  private toDefaultItemsInput(
     value:
       | ConversionRuleCreateInputDto["defaultItems"]
-      | ConversionRuleUpdateInputDto["defaultItems"]
-  ): Prisma.InputJsonValue | typeof Prisma.JsonNull | undefined {
+      | ConversionRuleUpdateInputDto["defaultItems"],
+    options?: { useDbNullForUndefined?: boolean }
+  ): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
     if (value === undefined) {
-      return undefined;
+      return options?.useDbNullForUndefined ? Prisma.DbNull : undefined;
     }
 
     if (value === null) {
-      return Prisma.JsonNull;
+      return Prisma.DbNull;
     }
 
     return value as Prisma.InputJsonValue;
   }
 
   private toDefaultItemsDto(
-    value: Prisma.JsonValue | null
+    value:
+      | Prisma.JsonValue
+      | typeof Prisma.DbNull
+      | typeof Prisma.JsonNull
+      | null
   ): ConversionRuleDto["defaultItems"] {
     if (!Array.isArray(value)) {
       return null;

@@ -15,6 +15,3 @@ ADD COLUMN     "defaultValueCents" INTEGER;
 -- AlterTable
 ALTER TABLE "Lead" ADD COLUMN     "ctwaClid" TEXT,
 ADD COLUMN     "ctwaSourceUrl" TEXT;
-
--- CreateIndex
-CREATE INDEX "Lead_workspaceId_ctwaClid_idx" ON "Lead"("workspaceId", "ctwaClid");

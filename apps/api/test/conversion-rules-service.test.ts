@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Prisma } from "@prisma/client";
 import { ConversionRulesService } from "../src/conversion-rules/conversion-rules.service";
 
 type Rule = {
@@ -13,7 +14,7 @@ type Rule = {
   defaultValueCents: number | null;
   defaultCurrency: string | null;
   defaultContentName: string | null;
-  defaultItems: Array<{ id: string; quantity?: number; item_price?: number }> | null;
+  defaultItems: unknown;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -195,6 +196,40 @@ describe("conversion rules service", () => {
     );
   });
 
+  it("stores omitted default items as database null and returns null in the DTO", async () => {
+    const { db, service } = createHarness();
+
+    const created = await service.createRule(
+      "workspace_1",
+      {
+        name: "Valor zero configurado",
+        triggerType: "keyword",
+        triggerValue: "teste",
+        matchMode: "contains",
+        eventName: "LeadSubmitted",
+        pixelId: null,
+        defaultValueCents: 0,
+        defaultCurrency: "BRL",
+        defaultContentName: "Diagnostico",
+        active: true
+      },
+      "user_1"
+    );
+
+    expect(created.defaultItems).toBeNull();
+    expect(db.rules[3].defaultItems).toBe(Prisma.DbNull);
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        action: "conversion_rule.created",
+        targetId: created.id,
+        afterSummary: expect.objectContaining({
+          valueConfigured: true,
+          currency: "BRL"
+        })
+      })
+    );
+  });
+
   it("lists conversion rules with default value metadata", async () => {
     const { service } = createHarness();
 
@@ -256,6 +291,7 @@ describe("conversion rules service", () => {
     );
 
     expect(updated.active).toBe(false);
+    expect(db.rules[0].defaultItems).toBe(Prisma.DbNull);
     expect(updated).toMatchObject({
       defaultValueCents: null,
       defaultCurrency: null,
