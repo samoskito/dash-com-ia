@@ -118,6 +118,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         "Campanha,Status,Investimento,Conversas Meta,Conversas reais,LeadSubmitted,QualifiedLead,Purchase,ROAS\n" +
         "Black Friday WhatsApp,active,1200.00,176,0,1,1,1,\n"
     })),
+    saveWhatsappClassificationOverride: vi.fn(async () => ({ ok: true })),
     syncWorkspaceMetaStructure: vi.fn(async () => ({
       workspaceId: "workspace_1",
       adAccountId: "act_123",
@@ -357,6 +358,55 @@ describe("reporting controller", () => {
       .expect(403);
 
     expect(queueService.enqueueSync).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("saves manual WhatsApp classification overrides for the current workspace", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .put("/reports/meta/whatsapp-classification")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        level: "campaign",
+        id: "cmp_1",
+        override: "manual_include"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ ok: true });
+      });
+
+    expect(
+      reportingService.saveWhatsappClassificationOverride
+    ).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      actorUserId: "user_1",
+      level: "campaign",
+      id: "cmp_1",
+      override: "manual_include"
+    });
+
+    await app.close();
+  });
+
+  it("rejects WhatsApp classification overrides for workspace members", async () => {
+    const { app, reportingService } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .put("/reports/meta/whatsapp-classification")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        level: "campaign",
+        id: "cmp_1",
+        override: "manual_include"
+      })
+      .expect(403);
+
+    expect(
+      reportingService.saveWhatsappClassificationOverride
+    ).not.toHaveBeenCalled();
 
     await app.close();
   });

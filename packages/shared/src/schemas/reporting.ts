@@ -12,6 +12,12 @@ export const metaWhatsappClassificationSchema = z.enum([
   "not_whatsapp"
 ]);
 
+export const metaWhatsappOverrideInputSchema = z.object({
+  level: z.enum(["campaign", "adset", "ad"]),
+  id: z.string().trim().min(1),
+  override: z.enum(["manual_include", "manual_exclude"]).nullable()
+});
+
 export const campaignReportRowSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -129,5 +135,8 @@ export type MetaCampaignStructureDto = z.infer<
 export type MetaStructureReportDto = z.infer<typeof metaStructureReportSchema>;
 export type MetaWhatsappClassificationDto = z.infer<
   typeof metaWhatsappClassificationSchema
+>;
+export type MetaWhatsappOverrideInputDto = z.infer<
+  typeof metaWhatsappOverrideInputSchema
 >;
 export type ReportFiltersDto = z.infer<typeof reportFiltersSchema>;

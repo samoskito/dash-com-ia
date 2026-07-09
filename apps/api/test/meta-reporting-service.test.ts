@@ -43,6 +43,7 @@ function createHarness() {
     campaigns: [] as Array<Record<string, unknown>>,
     adSets: [] as Array<Record<string, unknown>>,
     ads: [] as Array<Record<string, unknown>>,
+    auditLogs: [] as Array<Record<string, unknown>>,
     integrationLogs: [] as Array<Record<string, unknown>>,
     diagnosticEvents: [] as Array<Record<string, unknown>>,
     leads: [
@@ -114,7 +115,18 @@ function createHarness() {
       }),
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
         db.campaigns.filter((campaign) => matchesWhere(campaign, args?.where))
-      )
+      ),
+      findFirst: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.campaigns.find((campaign) => matchesWhere(campaign, args?.where)) ??
+        null
+      ),
+      updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        const records = db.campaigns.filter((campaign) =>
+          matchesWhere(campaign, where)
+        );
+        records.forEach((record) => Object.assign(record, data));
+        return { count: records.length };
+      })
     },
     metaAdSet: {
       upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
@@ -124,7 +136,15 @@ function createHarness() {
       }),
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
         db.adSets.filter((adSet) => matchesWhere(adSet, args?.where))
-      )
+      ),
+      findFirst: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.adSets.find((adSet) => matchesWhere(adSet, args?.where)) ?? null
+      ),
+      updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        const records = db.adSets.filter((adSet) => matchesWhere(adSet, where));
+        records.forEach((record) => Object.assign(record, data));
+        return { count: records.length };
+      })
     },
     metaAd: {
       upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
@@ -134,13 +154,23 @@ function createHarness() {
       }),
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
         db.ads.filter((ad) => matchesWhere(ad, args?.where))
-      )
+      ),
+      findFirst: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.ads.find((ad) => matchesWhere(ad, args?.where)) ?? null
+      ),
+      updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        const records = db.ads.filter((ad) => matchesWhere(ad, where));
+        records.forEach((record) => Object.assign(record, data));
+        return { count: records.length };
+      })
     },
     conversionEventLog: {
       findMany: vi.fn(async () => db.conversionLogs)
     },
     lead: {
-      findMany: vi.fn(async () => db.leads)
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.leads.filter((lead) => matchesWhere(lead, args?.where))
+      )
     },
     integrationLog: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -160,6 +190,16 @@ function createHarness() {
         };
         db.diagnosticEvents.push(event);
         return event;
+      })
+    },
+    auditLog: {
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        const log = {
+          id: `audit_${db.auditLogs.length + 1}`,
+          ...data
+        };
+        db.auditLogs.push(log);
+        return log;
       })
     }
   };
@@ -240,6 +280,203 @@ function createHarness() {
 }
 
 describe("meta reporting service", () => {
+  it("saves a manual include override for campaign snapshots and records audit log", async () => {
+    const { db, prisma, service } = createHarness();
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_1",
+      whatsappClassification: "not_whatsapp",
+      classificationOverride: null,
+      classificationSource: "children:no_signal"
+    });
+
+    await expect(
+      service.saveWhatsappClassificationOverride({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        level: "campaign",
+        id: "cmp_1",
+        override: "manual_include"
+      })
+    ).resolves.toEqual({ ok: true });
+
+    expect(prisma.metaCampaign.updateMany).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace_1", campaignId: "cmp_1" },
+      data: {
+        classificationOverride: "manual_include",
+        whatsappClassification: "manual_include",
+        classificationSource: "manual"
+      }
+    });
+    expect(db.campaigns[0]).toMatchObject({
+      classificationOverride: "manual_include",
+      whatsappClassification: "manual_include",
+      classificationSource: "manual"
+    });
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "user",
+        action: "meta.whatsapp_classification.override_updated",
+        targetType: "campaign",
+        targetId: "cmp_1",
+        resultStatus: "success",
+        afterSummary: { override: "manual_include" }
+      })
+    );
+  });
+
+  it("saves manual excludes for ad set and ad snapshots", async () => {
+    const { db, prisma, service } = createHarness();
+    db.adSets.push({
+      workspaceId: "workspace_1",
+      adSetId: "adset_1",
+      whatsappClassification: "auto_whatsapp"
+    });
+    db.ads.push({
+      workspaceId: "workspace_1",
+      adId: "ad_1",
+      whatsappClassification: "creative_whatsapp"
+    });
+
+    await service.saveWhatsappClassificationOverride({
+      workspaceId: "workspace_1",
+      actorUserId: null,
+      level: "adset",
+      id: "adset_1",
+      override: "manual_exclude"
+    });
+    await service.saveWhatsappClassificationOverride({
+      workspaceId: "workspace_1",
+      actorUserId: null,
+      level: "ad",
+      id: "ad_1",
+      override: "manual_exclude"
+    });
+
+    expect(prisma.metaAdSet.updateMany).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace_1", adSetId: "adset_1" },
+      data: {
+        classificationOverride: "manual_exclude",
+        whatsappClassification: "manual_exclude",
+        classificationSource: "manual"
+      }
+    });
+    expect(prisma.metaAd.updateMany).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace_1", adId: "ad_1" },
+      data: {
+        classificationOverride: "manual_exclude",
+        whatsappClassification: "manual_exclude",
+        classificationSource: "manual"
+      }
+    });
+    expect(db.adSets[0]).toMatchObject({
+      classificationOverride: "manual_exclude",
+      whatsappClassification: "manual_exclude"
+    });
+    expect(db.ads[0]).toMatchObject({
+      classificationOverride: "manual_exclude",
+      whatsappClassification: "manual_exclude"
+    });
+    expect(db.auditLogs).toHaveLength(2);
+  });
+
+  it("resets ad manual overrides by recomputing stored WhatsApp signals", async () => {
+    const { db, prisma, service } = createHarness();
+    db.ads.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      destinationType: null,
+      callToActionType: "WHATSAPP_MESSAGE",
+      whatsappClassification: "manual_include",
+      classificationOverride: "manual_include",
+      classificationSource: "manual"
+    });
+
+    await service.saveWhatsappClassificationOverride({
+      workspaceId: "workspace_1",
+      actorUserId: "user_1",
+      level: "ad",
+      id: "ad_1",
+      override: null
+    });
+
+    expect(prisma.metaAd.updateMany).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace_1", adId: "ad_1" },
+      data: {
+        classificationOverride: null,
+        whatsappClassification: "creative_whatsapp",
+        classificationSource: "auto_reset:call_to_action:WHATSAPP_MESSAGE"
+      }
+    });
+    expect(db.ads[0]).toMatchObject({
+      classificationOverride: null,
+      whatsappClassification: "creative_whatsapp",
+      classificationSource: "auto_reset:call_to_action:WHATSAPP_MESSAGE"
+    });
+    expect(db.auditLogs[0]).toMatchObject({
+      afterSummary: { override: null }
+    });
+  });
+
+  it("resets campaign manual overrides from child snapshot classifications", async () => {
+    const { db, service } = createHarness();
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_1",
+      whatsappClassification: "manual_exclude",
+      classificationOverride: "manual_exclude",
+      classificationSource: "manual"
+    });
+    db.adSets.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      whatsappClassification: "auto_whatsapp"
+    });
+
+    await service.saveWhatsappClassificationOverride({
+      workspaceId: "workspace_1",
+      actorUserId: "user_1",
+      level: "campaign",
+      id: "cmp_1",
+      override: null
+    });
+
+    expect(db.campaigns[0]).toMatchObject({
+      classificationOverride: null,
+      whatsappClassification: "auto_whatsapp",
+      classificationSource: "auto_reset:children"
+    });
+  });
+
+  it("does not audit success when override target does not exist in workspace", async () => {
+    const { db, prisma, service } = createHarness();
+
+    await expect(
+      service.saveWhatsappClassificationOverride({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        level: "campaign",
+        id: "cmp_missing",
+        override: "manual_include"
+      })
+    ).rejects.toThrow("Classificacao Meta nao encontrada");
+
+    expect(prisma.metaCampaign.updateMany).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace_1", campaignId: "cmp_missing" },
+      data: {
+        classificationOverride: "manual_include",
+        whatsappClassification: "manual_include",
+        classificationSource: "manual"
+      }
+    });
+    expect(db.auditLogs).toHaveLength(0);
+  });
+
   it("syncs active Meta reporting account campaigns, ad sets and ads into workspace snapshots", async () => {
     const { db, encryption, metaAdapter, prisma, service } = createHarness();
 

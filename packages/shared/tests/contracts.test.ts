@@ -31,6 +31,7 @@ import {
   metaConversionDestinationSchema,
   metaCapiTokenInputSchema,
   metaCapiTokenStatusSchema,
+  metaWhatsappOverrideInputSchema,
   metaAssetSelectionInputSchema,
   metaAssetsSchema,
   metaReportingAccountSchema,
@@ -192,6 +193,37 @@ describe("shared contracts", () => {
     });
 
     expect(row.whatsappClassification).toBe("auto_whatsapp");
+  });
+
+  it("validates manual WhatsApp classification override input", () => {
+    const include = metaWhatsappOverrideInputSchema.parse({
+      level: "campaign",
+      id: " cmp_1 ",
+      override: "manual_include"
+    });
+    const reset = metaWhatsappOverrideInputSchema.parse({
+      level: "ad",
+      id: "ad_1",
+      override: null
+    });
+
+    expect(include.id).toBe("cmp_1");
+    expect(include.override).toBe("manual_include");
+    expect(reset.override).toBeNull();
+    expect(() =>
+      metaWhatsappOverrideInputSchema.parse({
+        level: "business",
+        id: "business_1",
+        override: "manual_include"
+      })
+    ).toThrow();
+    expect(() =>
+      metaWhatsappOverrideInputSchema.parse({
+        level: "campaign",
+        id: "   ",
+        override: "manual_include"
+      })
+    ).toThrow();
   });
 
   it("defaults report filters to WhatsApp classification", () => {

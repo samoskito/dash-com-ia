@@ -1,14 +1,19 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   ForbiddenException,
   Get,
   Inject,
   Post,
+  Put,
   Query,
   Res
 } from "@nestjs/common";
-import { canManageIntegrations } from "@wpptrack/shared";
+import {
+  canManageIntegrations,
+  metaWhatsappOverrideInputSchema
+} from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
@@ -189,6 +194,31 @@ export class ReportingController {
     return this.metaReportingService.getMetaStructureReport(workspaceId);
   }
 
+  @Put("meta/whatsapp-classification")
+  async saveWhatsappClassificationOverride(
+    @AuthToken() refreshToken: string,
+    @Body() body: unknown
+  ) {
+    const parsed = metaWhatsappOverrideInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    const { authenticated, workspace } =
+      await this.getCurrentWorkspaceContext(refreshToken);
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.metaReportingService.saveWhatsappClassificationOverride({
+      workspaceId: workspace.id,
+      actorUserId: authenticated.user.id ?? null,
+      ...parsed.data
+    });
+  }
+
   private async getCurrentWorkspaceId(refreshToken: string): Promise<string> {
     const workspace = await this.getCurrentWorkspace(refreshToken);
 
@@ -196,8 +226,16 @@ export class ReportingController {
   }
 
   private async getCurrentWorkspace(refreshToken: string) {
+    const { workspace } = await this.getCurrentWorkspaceContext(refreshToken);
+
+    return workspace;
+  }
+
+  private async getCurrentWorkspaceContext(refreshToken: string) {
     const authenticated = await this.authService.getSession(refreshToken);
-    return this.workspacesService.getCurrentWorkspace(authenticated);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+
+    return { authenticated, workspace };
   }
 
   private defaultSince(): string {

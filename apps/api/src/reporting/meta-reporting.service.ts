@@ -107,6 +107,7 @@ type MetaAdSetRecord = {
   name: string;
   status: string | null;
   effectiveStatus: string | null;
+  destinationType?: string | null;
   businessId?: string | null;
   adAccountId?: string | null;
   whatsappClassification?: WhatsappClassification;
@@ -121,6 +122,8 @@ type MetaAdRecord = {
   name: string;
   status: string | null;
   effectiveStatus: string | null;
+  destinationType?: string | null;
+  callToActionType?: string | null;
   businessId?: string | null;
   adAccountId?: string | null;
   whatsappClassification?: WhatsappClassification;
@@ -140,6 +143,14 @@ type LeadRecord = {
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
+};
+
+type WhatsappOverrideLevel = "campaign" | "adset" | "ad";
+type WhatsappManualOverride = "manual_include" | "manual_exclude";
+type WhatsappOverrideUpdateData = {
+  classificationOverride: WhatsappManualOverride | null;
+  whatsappClassification: WhatsappClassification;
+  classificationSource: string;
 };
 
 @Injectable()
@@ -599,6 +610,188 @@ export class MetaReportingService {
       campaigns: campaigns.map((campaign) =>
         this.toReportRow(campaign, conversionLogs, leads)
       )
+    };
+  }
+
+  async saveWhatsappClassificationOverride(input: {
+    workspaceId: string;
+    actorUserId: string | null;
+    level: WhatsappOverrideLevel;
+    id: string;
+    override: WhatsappManualOverride | null;
+  }): Promise<{ ok: true }> {
+    const data = input.override
+      ? {
+          classificationOverride: input.override,
+          whatsappClassification: input.override,
+          classificationSource: "manual"
+        }
+      : await this.resetWhatsappClassificationData(input);
+    let result: { count: number };
+
+    if (input.level === "campaign") {
+      result = await this.prisma.metaCampaign.updateMany({
+        where: { workspaceId: input.workspaceId, campaignId: input.id },
+        data
+      });
+    } else if (input.level === "adset") {
+      result = await this.prisma.metaAdSet.updateMany({
+        where: { workspaceId: input.workspaceId, adSetId: input.id },
+        data
+      });
+    } else {
+      result = await this.prisma.metaAd.updateMany({
+        where: { workspaceId: input.workspaceId, adId: input.id },
+        data
+      });
+    }
+
+    if (result.count === 0) {
+      throw new NotFoundException("Classificacao Meta nao encontrada");
+    }
+
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: input.workspaceId,
+        actorUserId: input.actorUserId,
+        actorType: input.actorUserId ? "user" : "system",
+        action: "meta.whatsapp_classification.override_updated",
+        targetType: input.level,
+        targetId: input.id,
+        reason: null,
+        sourceIp: null,
+        resultStatus: "success",
+        beforeSummary: undefined,
+        afterSummary: {
+          override: input.override
+        } as Prisma.InputJsonValue
+      }
+    });
+
+    return { ok: true };
+  }
+
+  private async resetWhatsappClassificationData(input: {
+    workspaceId: string;
+    level: WhatsappOverrideLevel;
+    id: string;
+  }): Promise<WhatsappOverrideUpdateData> {
+    if (input.level === "campaign") {
+      return this.resetCampaignWhatsappClassification(input.workspaceId, input.id);
+    }
+
+    if (input.level === "adset") {
+      return this.resetAdSetWhatsappClassification(input.workspaceId, input.id);
+    }
+
+    return this.resetAdWhatsappClassification(input.workspaceId, input.id);
+  }
+
+  private async resetCampaignWhatsappClassification(
+    workspaceId: string,
+    campaignId: string
+  ): Promise<WhatsappOverrideUpdateData> {
+    const campaign = await this.prisma.metaCampaign.findFirst({
+      where: { workspaceId, campaignId },
+      select: { campaignId: true }
+    });
+
+    if (!campaign) {
+      throw new NotFoundException("Classificacao Meta nao encontrada");
+    }
+
+    const [adSets, ads] = (await Promise.all([
+      this.prisma.metaAdSet.findMany({
+        where: { workspaceId, campaignId },
+        select: { whatsappClassification: true }
+      }),
+      this.prisma.metaAd.findMany({
+        where: { workspaceId, campaignId },
+        select: { whatsappClassification: true }
+      })
+    ])) as [
+      Array<{ whatsappClassification: WhatsappClassification }>,
+      Array<{ whatsappClassification: WhatsappClassification }>
+    ];
+    const whatsappClassification = this.campaignClassificationFromChildren([
+      ...adSets,
+      ...ads
+    ]);
+    const source =
+      whatsappClassification === "not_whatsapp" ? "children:no_signal" : "children";
+
+    return {
+      classificationOverride: null,
+      whatsappClassification,
+      classificationSource: `auto_reset:${source}`
+    };
+  }
+
+  private async resetAdSetWhatsappClassification(
+    workspaceId: string,
+    adSetId: string
+  ): Promise<WhatsappOverrideUpdateData> {
+    const adSet = (await this.prisma.metaAdSet.findFirst({
+      where: { workspaceId, adSetId },
+      select: { destinationType: true }
+    })) as Pick<MetaAdSetRecord, "destinationType"> | null;
+
+    if (!adSet) {
+      throw new NotFoundException("Classificacao Meta nao encontrada");
+    }
+
+    const result = this.whatsappClassifier.classify({
+      destinationType: adSet.destinationType ?? null,
+      callToActionType: null,
+      hasLeadEvidence: await this.hasLeadEvidence({ workspaceId, adSetId }),
+      override: null
+    });
+
+    return {
+      classificationOverride: null,
+      whatsappClassification: result.classification,
+      classificationSource: `auto_reset:${result.source}`
+    };
+  }
+
+  private async resetAdWhatsappClassification(
+    workspaceId: string,
+    adId: string
+  ): Promise<WhatsappOverrideUpdateData> {
+    const ad = (await this.prisma.metaAd.findFirst({
+      where: { workspaceId, adId },
+      select: {
+        adSetId: true,
+        destinationType: true,
+        callToActionType: true
+      }
+    })) as Pick<
+      MetaAdRecord,
+      "adSetId" | "destinationType" | "callToActionType"
+    > | null;
+
+    if (!ad) {
+      throw new NotFoundException("Classificacao Meta nao encontrada");
+    }
+
+    const parentAdSet = ad.destinationType
+      ? null
+      : ((await this.prisma.metaAdSet.findFirst({
+          where: { workspaceId, adSetId: ad.adSetId },
+          select: { destinationType: true }
+        })) as Pick<MetaAdSetRecord, "destinationType"> | null);
+    const result = this.whatsappClassifier.classify({
+      destinationType:
+        ad.destinationType ?? parentAdSet?.destinationType ?? null,
+      callToActionType: ad.callToActionType ?? null,
+      hasLeadEvidence: await this.hasLeadEvidence({ workspaceId, adId }),
+      override: null
+    });
+
+    return {
+      classificationOverride: null,
+      whatsappClassification: result.classification,
+      classificationSource: `auto_reset:${result.source}`
     };
   }
 
@@ -1135,6 +1328,26 @@ export class MetaReportingService {
         adId: true
       }
     }) as Promise<LeadRecord[]>;
+  }
+
+  private async hasLeadEvidence(input: {
+    workspaceId: string;
+    campaignId?: string;
+    adSetId?: string;
+    adId?: string;
+  }): Promise<boolean> {
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        ...(input.campaignId ? { campaignId: input.campaignId } : {}),
+        ...(input.adSetId ? { adSetId: input.adSetId } : {}),
+        ...(input.adId ? { adId: input.adId } : {})
+      },
+      select: { id: true },
+      take: 1
+    });
+
+    return leads.length > 0;
   }
 
   private periodWhere(input: { since?: string; until?: string }) {
