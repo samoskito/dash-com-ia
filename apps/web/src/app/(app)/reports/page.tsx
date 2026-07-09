@@ -11,6 +11,8 @@ import type {
 } from "@wpptrack/shared";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { SubmitButton } from "../../../components/submit-button";
 import { serverApiFetch } from "../../../lib/server-api";
 import { MetaReportFilters } from "./meta-report-filters";
 
@@ -39,6 +41,11 @@ type ReportTotals = {
   leadSubmitted: number;
   qualifiedLead: number;
   purchase: number;
+};
+type ReportNotice = {
+  tone: "success" | "warn";
+  title: string;
+  message: string;
 };
 type ReportFilters = {
   adAccountId?: string;
@@ -229,9 +236,27 @@ function reportQuery(filters: ReportFilters, includeComparison = false) {
 async function syncMetaReports(formData: FormData) {
   "use server";
 
+  const since = formText(formData, "since");
+  const until = formText(formData, "until");
+  const redirectParams = new URLSearchParams();
+
+  for (const key of [
+    "since",
+    "until",
+    "compareSince",
+    "compareUntil",
+    "businessId",
+    "adAccountId",
+    "whatsappClassification"
+  ]) {
+    const value = formText(formData, key);
+
+    if (value) {
+      redirectParams.set(key, value);
+    }
+  }
+
   try {
-    const since = String(formData.get("since") ?? "");
-    const until = String(formData.get("until") ?? "");
     const params = new URLSearchParams();
 
     if (since) {
@@ -248,9 +273,12 @@ async function syncMetaReports(formData: FormData) {
       method: "POST"
     });
     revalidatePath("/reports");
+    redirectParams.set("notice", "meta-sync-queued");
   } catch {
-    return;
+    redirectParams.set("notice", "meta-sync-error");
   }
+
+  redirect(`/reports?${redirectParams.toString()}`);
 }
 
 async function saveWhatsappClassification(formData: FormData) {
@@ -283,6 +311,29 @@ function asStringParam(
   value: string | string[] | undefined
 ): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function formText(formData: FormData, key: string): string {
+  return String(formData.get(key) ?? "").trim();
+}
+
+function reportsNotice(notice?: string): ReportNotice | null {
+  const notices: Record<string, ReportNotice> = {
+    "meta-sync-queued": {
+      tone: "success",
+      title: "Sincronizacao iniciada",
+      message:
+        "A leitura dos dados Meta foi enviada para a fila. Atualize em alguns segundos para ver as campanhas."
+    },
+    "meta-sync-error": {
+      tone: "warn",
+      title: "Sincronizacao nao iniciada",
+      message:
+        "Nao foi possivel iniciar a leitura dos dados Meta agora. Confira as contas ativas e os diagnosticos."
+    }
+  };
+
+  return notice ? notices[notice] ?? null : null;
 }
 
 function leadsHref(filters: {
@@ -495,6 +546,8 @@ export default async function ReportsPage({
   const whatsappClassification = asStringParam(
     resolvedSearchParams.whatsappClassification
   );
+  const notice = asStringParam(resolvedSearchParams.notice);
+  const pageNotice = reportsNotice(notice);
   const reportFilters = {
     since,
     until,
@@ -596,7 +649,21 @@ export default async function ReportsPage({
             <form action={syncMetaReports}>
               <input type="hidden" name="since" value={since ?? ""} />
               <input type="hidden" name="until" value={until ?? ""} />
-              <button className="button" type="submit">Sincronizar Meta</button>
+              <input type="hidden" name="compareSince" value={compareSince ?? ""} />
+              <input type="hidden" name="compareUntil" value={compareUntil ?? ""} />
+              <input type="hidden" name="businessId" value={businessId ?? ""} />
+              <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
+              <input
+                type="hidden"
+                name="whatsappClassification"
+                value={whatsappClassification ?? ""}
+              />
+              <SubmitButton
+                pendingLabel="Sincronizando..."
+                statusText="Enfileirando leitura dos dados Meta."
+              >
+                Sincronizar Meta
+              </SubmitButton>
             </form>
           ) : (
             <span className="tag">Sem permissao para sincronizar Meta</span>
@@ -607,6 +674,13 @@ export default async function ReportsPage({
           ) : null}
         </div>
       </header>
+
+      {pageNotice ? (
+        <div className={`feedback-banner ${pageNotice.tone}`} role="status">
+          <strong>{pageNotice.title}</strong>
+          <span>{pageNotice.message}</span>
+        </div>
+      ) : null}
 
       <MetaReportFilters
         assets={metaAssets}

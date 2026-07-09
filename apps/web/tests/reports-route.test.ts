@@ -248,9 +248,9 @@ describe("reports route", () => {
     expect(html).toContain("Publico quente");
     expect(html).toContain("Criativo WhatsApp");
     expect(html).toContain("Sincronizar Meta");
-    expect(html.match(/name="businessId"/g)).toHaveLength(2);
-    expect(html.match(/name="adAccountId"/g)).toHaveLength(2);
-    expect(html.match(/name="whatsappClassification"/g)).toHaveLength(2);
+    expect(html.match(/name="businessId"/g)).toHaveLength(3);
+    expect(html.match(/name="adAccountId"/g)).toHaveLength(3);
+    expect(html.match(/name="whatsappClassification"/g)).toHaveLength(3);
     expect(html).toContain(
       'href="/reports/export?since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"'
     );
@@ -341,9 +341,13 @@ describe("reports route", () => {
         )
       );
 
-    const element = await ReportsPage({});
+    const element = await ReportsPage({
+      searchParams: Promise.resolve({ notice: "meta-sync-queued" })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
+    expect(html).toContain("Sincronizacao iniciada");
+    expect(html).toContain("A leitura dos dados Meta foi enviada para a fila.");
     expect(html).toContain("Nenhuma campanha sincronizada");
     expect(html).toContain("Nenhum conjunto sincronizado");
     expect(html).toContain("Nenhum anuncio sincronizado");
@@ -550,8 +554,8 @@ describe("reports route", () => {
     expect(html).toContain(
       'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"'
     );
-    expect(html.match(/name="compareSince"/g)).toHaveLength(2);
-    expect(html.match(/name="compareUntil"/g)).toHaveLength(2);
+    expect(html.match(/name="compareSince"/g)).toHaveLength(3);
+    expect(html.match(/name="compareUntil"/g)).toHaveLength(3);
   });
 
   it("renders Meta filters without keeping an account from another BM", () => {

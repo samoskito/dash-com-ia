@@ -1,5 +1,6 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import type { Queue } from "bullmq";
 import {
   META_REPORT_SYNC_QUEUE,
@@ -21,7 +22,7 @@ export class MetaReportSyncQueueService {
   async enqueueSync(
     input: MetaReportSyncJobPayload
   ): Promise<MetaReportSyncQueuedResult> {
-    const jobId = `meta-report-sync:${input.workspaceId}:${input.since}:${input.until}`;
+    const jobId = `meta-report-sync:${input.workspaceId}:${input.since}:${input.until}:${randomUUID()}`;
     const job = await this.queue.add("sync-meta-reporting", input, {
       jobId,
       attempts: 3,
@@ -30,7 +31,10 @@ export class MetaReportSyncQueueService {
         delay: 60_000
       },
       removeOnComplete: true,
-      removeOnFail: false
+      removeOnFail: {
+        age: 86_400,
+        count: 100
+      }
     });
 
     return {
