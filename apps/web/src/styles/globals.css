@@ -1577,6 +1577,132 @@ table {
   color: var(--ink-soft);
 }
 
+.meta-diagnostic-panel {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+
+.meta-diagnostic-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.meta-diagnostic-summary::-webkit-details-marker {
+  display: none;
+}
+
+.meta-diagnostic-summary:focus-visible {
+  outline: 2px solid rgba(66, 240, 168, 0.7);
+  outline-offset: -4px;
+}
+
+.meta-diagnostic-copy {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.meta-diagnostic-copy strong {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: clamp(19px, 1.8vw, 24px);
+  line-height: 1.14;
+}
+
+.meta-diagnostic-copy span:last-child {
+  max-width: 720px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+.meta-diagnostic-action {
+  min-width: 172px;
+}
+
+.meta-diagnostic-action::after {
+  content: "+";
+  margin-left: 10px;
+  color: var(--mint);
+  font-family: var(--font-mono);
+}
+
+.meta-diagnostic-panel[open] .meta-diagnostic-action::after {
+  content: "-";
+}
+
+.meta-diagnostic-panel[open] .meta-diagnostic-summary {
+  border-bottom: 1px solid rgba(142, 173, 164, 0.16);
+}
+
+.meta-diagnostic-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  padding: 0 18px;
+  border-bottom: 1px solid rgba(142, 173, 164, 0.16);
+  background: rgba(142, 173, 164, 0.12);
+}
+
+.meta-diagnostic-stats > span {
+  display: grid;
+  align-content: center;
+  min-height: 82px;
+  padding: 14px;
+  background: rgba(5, 8, 7, 0.48);
+}
+
+.meta-diagnostic-stats strong {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.meta-diagnostic-stats small {
+  margin-top: 8px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.meta-structure-scroll {
+  max-height: 380px;
+  margin: 18px;
+}
+
+.meta-structure-table {
+  min-width: 980px;
+  table-layout: fixed;
+}
+
+.meta-structure-table th:nth-child(1),
+.meta-structure-table td:nth-child(1),
+.meta-structure-table th:nth-child(2),
+.meta-structure-table td:nth-child(2),
+.meta-structure-table th:nth-child(3),
+.meta-structure-table td:nth-child(3) {
+  width: 30%;
+}
+
+.meta-structure-table th:nth-child(4),
+.meta-structure-table td:nth-child(4) {
+  width: 10%;
+}
+
+.meta-structure-table td strong {
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 td,
 th {
   white-space: normal;

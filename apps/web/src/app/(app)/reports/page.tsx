@@ -39,6 +39,13 @@ type ReportTotals = {
   qualifiedLead: number;
   purchase: number;
 };
+type MetaStructureSummary = {
+  campaigns: number;
+  adSets: number;
+  ads: number;
+  activeAccounts: number;
+  lastSyncedAt: string | null;
+};
 type ReportEntityCopy = {
   title: string;
   singular: string;
@@ -566,8 +573,61 @@ function reportTotals(rows: PerformanceRow[]): ReportTotals {
   );
 }
 
+function metaStructureSummary(
+  metaStructure: MetaStructureReportDto | null,
+  metaAssets: MetaAssetsDto | null,
+): MetaStructureSummary {
+  const campaigns = metaStructure?.campaigns ?? [];
+
+  return {
+    campaigns: campaigns.length,
+    adSets: campaigns.reduce(
+      (total, campaign) => total + campaign.adSets.length,
+      0,
+    ),
+    ads: campaigns.reduce(
+      (total, campaign) =>
+        total +
+        campaign.adSets.reduce(
+          (adTotal, adSet) => adTotal + adSet.ads.length,
+          0,
+        ),
+      0,
+    ),
+    activeAccounts: (metaAssets?.reportingAccounts ?? []).filter(
+      (account) => account.active,
+    ).length,
+    lastSyncedAt: metaAssets?.lastSyncedAt ?? null,
+  };
+}
+
 function countLabel(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function syncedCountLabel(
+  count: number,
+  singular: string,
+  plural: string,
+): string {
+  return countLabel(count, singular, plural);
+}
+
+function syncDateLabel(value: string | null): string {
+  if (!value) {
+    return "sem registro";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "data indisponivel";
+  }
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
 }
 
 function statusCountLabel(
@@ -765,6 +825,7 @@ export default async function ReportsPage({
   const adSetRows = adSetReports.report.adSets;
   const adRows = adReports.report.ads;
   const currentTotals = reportTotals(rows);
+  const metaSummary = metaStructureSummary(metaStructure, metaAssets);
   const comparisonTotals = comparisonReports
     ? reportTotals(comparisonReports.report.campaigns)
     : null;
@@ -1175,11 +1236,73 @@ export default async function ReportsPage({
         </div>
       </div>
 
-      <div className="surface-panel">
-        <span className="eyebrow">Estrutura Meta</span>
-        <h2>Campanhas, conjuntos e anuncios sincronizados</h2>
-        <div className="table-wrap">
-          <table>
+      <details className="surface-panel meta-diagnostic-panel">
+        <summary className="meta-diagnostic-summary">
+          <span className="meta-diagnostic-copy">
+            <span className="eyebrow">Diagnostico da sincronizacao Meta</span>
+            <strong>Estrutura tecnica recolhida</strong>
+            <span>
+              A hierarquia bruta da Meta fica aqui para conferencia tecnica. Os
+              relatorios principais acima continuam sendo a fonte de analise.
+            </span>
+          </span>
+          <span className="button ghost meta-diagnostic-action">
+            Ver estrutura tecnica
+          </span>
+        </summary>
+
+        <div
+          className="meta-diagnostic-stats"
+          aria-label="Resumo da estrutura Meta sincronizada"
+        >
+          <span>
+            <strong>{metaSummary.campaigns}</strong>
+            <small>
+              {syncedCountLabel(
+                metaSummary.campaigns,
+                "campanha sincronizada",
+                "campanhas sincronizadas",
+              )}
+            </small>
+          </span>
+          <span>
+            <strong>{metaSummary.adSets}</strong>
+            <small>
+              {syncedCountLabel(
+                metaSummary.adSets,
+                "conjunto sincronizado",
+                "conjuntos sincronizados",
+              )}
+            </small>
+          </span>
+          <span>
+            <strong>{metaSummary.ads}</strong>
+            <small>
+              {syncedCountLabel(
+                metaSummary.ads,
+                "anuncio sincronizado",
+                "anuncios sincronizados",
+              )}
+            </small>
+          </span>
+          <span>
+            <strong>{metaSummary.activeAccounts}</strong>
+            <small>
+              {syncedCountLabel(
+                metaSummary.activeAccounts,
+                "conta ativa",
+                "contas ativas",
+              )}
+            </small>
+          </span>
+          <span>
+            <strong>{syncDateLabel(metaSummary.lastSyncedAt)}</strong>
+            <small>ultima sincronizacao</small>
+          </span>
+        </div>
+
+        <div className="table-wrap report-table-scroll meta-structure-scroll">
+          <table className="meta-structure-table">
             <thead>
               <tr>
                 <th>Campanha</th>
@@ -1258,7 +1381,7 @@ export default async function ReportsPage({
             </tbody>
           </table>
         </div>
-      </div>
+      </details>
     </section>
   );
 }

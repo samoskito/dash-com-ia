@@ -270,6 +270,15 @@ describe("reports route", () => {
     expect(html).toContain("1 conjunto ativo");
     expect(html).toContain("Resumo anuncios");
     expect(html).toContain("1 anuncio ativo");
+    expect(html).toContain("Diagnostico da sincronizacao Meta");
+    expect(html).toContain("1 campanha sincronizada");
+    expect(html).toContain("1 conjunto sincronizado");
+    expect(html).toContain("1 anuncio sincronizado");
+    expect(html).toContain("1 conta ativa");
+    expect(html).toContain("Ver estrutura tecnica");
+    expect(html).toContain(
+      'class="table-wrap report-table-scroll meta-structure-scroll"',
+    );
     expect(html).toContain("Revisao WhatsApp");
     expect(html.match(/Incluir/g)).toHaveLength(3);
     expect(html.match(/Excluir/g)).toHaveLength(3);
