@@ -9,6 +9,7 @@ import { MetaReportSyncProcessor } from "./meta-report-sync.processor";
 import { MetaReportSyncQueueService } from "./meta-report-sync-queue.service";
 import { MetaReportingService } from "./meta-reporting.service";
 import { ReportingController } from "./reporting.controller";
+import { WhatsappCampaignClassifierService } from "./whatsapp-campaign-classifier.service";
 
 @Module({
   imports: [
@@ -24,8 +25,13 @@ import { ReportingController } from "./reporting.controller";
     MetaReportingService,
     MetaReportSyncQueueService,
     MetaReportSyncProcessor,
+    WhatsappCampaignClassifierService,
     PrismaService
   ],
-  exports: [MetaReportingService, MetaReportSyncQueueService]
+  exports: [
+    MetaReportingService,
+    MetaReportSyncQueueService,
+    WhatsappCampaignClassifierService
+  ]
 })
 export class ReportingModule {}
