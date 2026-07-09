@@ -157,6 +157,7 @@ type CampaignMetricOverride = {
   spendCents: number;
   metaConversationsStarted: number;
   adSetIds: Set<string>;
+  adIds: Set<string>;
 };
 
 type WhatsappOverrideLevel = "campaign" | "adset" | "ad";
@@ -592,7 +593,7 @@ export class MetaReportingService {
           whatsappClassification: "whatsapp"
         })
       : null;
-    const [campaigns, whatsappAdSets] = (await Promise.all([
+    const [campaigns, whatsappAdSets, whatsappAds] = (await Promise.all([
       this.prisma.metaCampaign.findMany({
         where: campaignWhere,
         orderBy: { name: "asc" }
@@ -602,8 +603,14 @@ export class MetaReportingService {
             where: whatsappAdSetWhere,
             orderBy: { name: "asc" }
           })
+        : Promise.resolve([]),
+      whatsappAdSetWhere
+        ? this.prisma.metaAd.findMany({
+            where: whatsappAdSetWhere,
+            orderBy: { name: "asc" }
+          })
         : Promise.resolve([])
-    ])) as [MetaCampaignRecord[], MetaAdSetRecord[]];
+    ])) as [MetaCampaignRecord[], MetaAdSetRecord[], MetaAdRecord[]];
     const conversionLogs = (await this.prisma.conversionEventLog.findMany({
       where: {
         workspaceId: input.workspaceId,
@@ -643,7 +650,10 @@ export class MetaReportingService {
         adId: true
       }
     })) as LeadRecord[];
-    const childMetricByCampaign = this.campaignMetricOverrides(whatsappAdSets);
+    const childMetricByCampaign = this.campaignMetricOverrides(
+      whatsappAdSets,
+      whatsappAds
+    );
 
     return {
       workspaceId: input.workspaceId,
@@ -1196,18 +1206,30 @@ export class MetaReportingService {
     leads: LeadRecord[],
     metricOverride?: CampaignMetricOverride
   ): CampaignReportRowDto {
+    const restrictToAdIds = metricOverride?.adIds.size
+      ? metricOverride.adIds
+      : null;
     const restrictToAdSets = metricOverride?.adSetIds.size
       ? metricOverride.adSetIds
       : null;
+    const belongsToMetricScope = (item: ConversionEventRecord | LeadRecord) => {
+      if (restrictToAdIds) {
+        return Boolean(item.adId && restrictToAdIds.has(item.adId));
+      }
+
+      if (restrictToAdSets) {
+        return Boolean(item.adSetId && restrictToAdSets.has(item.adSetId));
+      }
+
+      return true;
+    };
     const campaignEvents = conversionLogs.filter(
       (item) =>
-        item.campaignId === campaign.campaignId &&
-        (!restrictToAdSets || !item.adSetId || restrictToAdSets.has(item.adSetId))
+        item.campaignId === campaign.campaignId && belongsToMetricScope(item)
     );
     const realConversations = leads.filter(
       (item) =>
-        item.campaignId === campaign.campaignId &&
-        (!restrictToAdSets || !item.adSetId || restrictToAdSets.has(item.adSetId))
+        item.campaignId === campaign.campaignId && belongsToMetricScope(item)
     ).length;
     const metrics = this.toMetrics({
       spendCents: metricOverride?.spendCents ?? campaign.spendCents,
@@ -1417,9 +1439,15 @@ export class MetaReportingService {
     const leads = (await this.prisma.lead.findMany({
       where: {
         workspaceId: input.workspaceId,
-        ...(input.campaignIds.length
-          ? { campaignId: { in: input.campaignIds } }
-          : {})
+        OR: [
+          ...(input.campaignIds.length
+            ? [{ campaignId: { in: input.campaignIds } }]
+            : []),
+          ...(input.adSetIds.length
+            ? [{ adSetId: { in: input.adSetIds } }]
+            : []),
+          ...(input.adIds.length ? [{ adId: { in: input.adIds } }] : [])
+        ]
       },
       select: {
         campaignId: true,
@@ -1449,7 +1477,8 @@ export class MetaReportingService {
   }
 
   private campaignMetricOverrides(
-    adSets: MetaAdSetRecord[]
+    adSets: MetaAdSetRecord[],
+    ads: MetaAdRecord[]
   ): Map<string, CampaignMetricOverride> {
     const metrics = new Map<string, CampaignMetricOverride>();
 
@@ -1459,13 +1488,34 @@ export class MetaReportingService {
         ({
           spendCents: 0,
           metaConversationsStarted: 0,
-          adSetIds: new Set<string>()
+          adSetIds: new Set<string>(),
+          adIds: new Set<string>()
         } satisfies CampaignMetricOverride);
 
       current.spendCents += adSet.spendCents;
       current.metaConversationsStarted += adSet.metaConversationsStarted;
       current.adSetIds.add(adSet.adSetId);
       metrics.set(adSet.campaignId, current);
+    }
+
+    for (const ad of ads) {
+      if (metrics.has(ad.campaignId)) {
+        continue;
+      }
+
+      const current =
+        metrics.get(ad.campaignId) ??
+        ({
+          spendCents: 0,
+          metaConversationsStarted: 0,
+          adSetIds: new Set<string>(),
+          adIds: new Set<string>()
+        } satisfies CampaignMetricOverride);
+
+      current.spendCents += ad.spendCents;
+      current.metaConversationsStarted += ad.metaConversationsStarted;
+      current.adIds.add(ad.adId);
+      metrics.set(ad.campaignId, current);
     }
 
     return metrics;
