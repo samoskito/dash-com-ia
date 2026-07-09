@@ -7,6 +7,7 @@
     "build": "nest build",
     "start": "node dist/apps/api/src/main.js",
     "start:prod": "node dist/apps/api/src/main.js",
+    "platform-admin:create": "node dist/apps/api/src/scripts/create-platform-admin.js",
     "test": "vitest run",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit"

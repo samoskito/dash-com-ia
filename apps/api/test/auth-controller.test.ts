@@ -1,8 +1,10 @@
+import { ForbiddenException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { AuthController } from "../src/auth/auth.controller";
 import { AuthService } from "../src/auth/auth.service";
+import { RUNTIME_ENV, type RuntimeEnv } from "../src/common/runtime/runtime.module";
 
 type GoogleCallbackResult = Awaited<
   ReturnType<AuthService["handleGoogleOAuthCallback"]>
@@ -29,7 +31,7 @@ const authPayload = {
   expiresAt: new Date("2026-08-01T03:00:00.000Z")
 };
 
-async function createApp() {
+async function createApp(env: RuntimeEnv = {}) {
   const handleGoogleOAuthCallback = vi.fn<
     AuthService["handleGoogleOAuthCallback"]
   >(async () => ({
@@ -79,6 +81,10 @@ async function createApp() {
       {
         provide: AuthService,
         useValue: authService
+      },
+      {
+        provide: RUNTIME_ENV,
+        useValue: env
       }
     ]
   }).compile();
@@ -90,6 +96,27 @@ async function createApp() {
 }
 
 describe("auth controller", () => {
+  it("blocks public registration by default in production", async () => {
+    const { app, authService } = await createApp({ NODE_ENV: "production" });
+
+    await request(app.getHttpServer())
+      .post("/auth/register")
+      .send({
+        name: "Samuel Choairy",
+        email: "samuel@wpptrack.com",
+        password: "strong-password",
+        workspaceName: "Comunidade NOD"
+      })
+      .expect(403)
+      .expect(({ body }) => {
+        expect(body.message).toBe("Cadastro publico desabilitado");
+      });
+
+    expect(authService.register).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it("registers a user and returns a session payload", async () => {
     const { app, authService } = await createApp();
 
@@ -151,6 +178,29 @@ describe("auth controller", () => {
     await app.close();
   });
 
+  it("sets a shared cookie domain when configured for split frontend and API hosts", async () => {
+    const { app } = await createApp({
+      NODE_ENV: "production",
+      AUTH_COOKIE_DOMAIN: ".rastrack.app"
+    });
+
+    await request(app.getHttpServer())
+      .post("/auth/login")
+      .send({
+        email: "SAMUEL@WPPTRACK.COM",
+        password: "strong-password"
+      })
+      .expect(200)
+      .expect(({ headers }) => {
+        const cookie = headers["set-cookie"]?.[0] ?? "";
+        expect(cookie).toContain("wpptrack_session=");
+        expect(cookie).toContain("Domain=.rastrack.app");
+        expect(cookie).toContain("Secure");
+      });
+
+    await app.close();
+  });
+
   it("loads the active user from bearer token", async () => {
     const { app, authService } = await createApp();
 
@@ -183,6 +233,25 @@ describe("auth controller", () => {
       });
 
     expect(authService.logout).toHaveBeenCalledWith(authPayload.refreshToken);
+
+    await app.close();
+  });
+
+  it("clears the shared cookie domain when configured", async () => {
+    const { app } = await createApp({
+      NODE_ENV: "production",
+      AUTH_COOKIE_DOMAIN: ".rastrack.app"
+    });
+
+    await request(app.getHttpServer())
+      .post("/auth/logout")
+      .set("Authorization", `Bearer ${authPayload.refreshToken}`)
+      .expect(200)
+      .expect(({ headers }) => {
+        const cookie = headers["set-cookie"]?.[0] ?? "";
+        expect(cookie).toContain("wpptrack_session=;");
+        expect(cookie).toContain("Domain=.rastrack.app");
+      });
 
     await app.close();
   });

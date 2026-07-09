@@ -403,6 +403,17 @@ export class AuthService {
       context
     );
 
+    if (!session) {
+      return {
+        provider: "google",
+        action: "exchange_pending",
+        missingEnv: [],
+        codeReceived: true,
+        redirectTo,
+        message: "Usuario ainda nao liberado para acessar a plataforma"
+      };
+    }
+
     return {
       provider: "google",
       action: "authenticated",
@@ -707,7 +718,7 @@ export class AuthService {
       name: string | null;
     },
     context: AuthRequestContext
-  ): Promise<AuthSessionResult> {
+  ): Promise<AuthSessionResult | null> {
     const existingByGoogle = (await this.prisma.user.findUnique({
       where: { googleId: profile.googleId },
       include: {
@@ -750,45 +761,7 @@ export class AuthService {
       return this.createSessionForUser(existingByEmail.id, context);
     }
 
-    const workspaceName = profile.name ?? profile.email.split("@")[0] ?? "Workspace";
-    const created = await this.prisma.$transaction(async (tx) => {
-      const slug = await this.resolveWorkspaceSlug(workspaceName, tx);
-      const workspace = await tx.workspace.create({
-        data: {
-          name: workspaceName,
-          slug
-        }
-      });
-      const user = await tx.user.create({
-        data: {
-          email: profile.email,
-          name: profile.name,
-          passwordHash: null,
-          authProvider: "google",
-          googleId: profile.googleId,
-          emailVerifiedAt: profile.emailVerified ? new Date() : null
-        }
-      });
-
-      const member = await tx.workspaceMember.create({
-        data: {
-          workspaceId: workspace.id,
-          userId: user.id,
-          role: "owner"
-        }
-      });
-
-      return {
-        userId: user.id,
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        workspaceSlug: workspace.slug,
-        memberId: member.id
-      };
-    });
-    await this.recordInitialWorkspaceOwnership(created, context);
-
-    return this.createSessionForUser(created.userId, context);
+    return null;
   }
 
   private async recordInitialWorkspaceOwnership(

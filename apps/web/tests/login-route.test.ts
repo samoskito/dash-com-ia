@@ -13,9 +13,11 @@ describe("login route", () => {
     expect(html).toContain("Entrar com Google");
     expect(html).toContain('href="/login/google"');
     expect(html).toContain('href="/login/forgot"');
+    expect(html).toContain('aria-label="Mostrar senha"');
     expect(html).toContain("Cobertura da plataforma");
     expect(html).toContain('name="email"');
     expect(html).toContain('name="password"');
+    expect(html).not.toContain("Criar conta");
   });
 
   it("does not claim static live platform health on the public login screen", async () => {

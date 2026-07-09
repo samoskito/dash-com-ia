@@ -17,7 +17,11 @@ function loginErrorMessage(error: string | undefined): string | null {
     return "Login com Google ainda nao esta configurado.";
   }
 
-  if (error === "google_exchange" || error === "google_pending") {
+  if (error === "google_pending") {
+    return "Este email ainda nao foi liberado para acessar o WppTrack.";
+  }
+
+  if (error === "google_exchange") {
     return "Nao foi possivel concluir o login com Google.";
   }
 

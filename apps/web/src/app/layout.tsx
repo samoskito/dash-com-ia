@@ -4,7 +4,10 @@ import "../styles/globals.css";
 
 export const metadata: Metadata = {
   title: "WppTrack",
-  description: "Cockpit de WhatsApp, trafego e conversoes para clientes finais."
+  description: "Cockpit de WhatsApp, trafego e conversoes para clientes finais.",
+  icons: {
+    icon: "/favicon.svg"
+  }
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -34,17 +34,26 @@ DATABASE_URL=postgresql://usuario:senha@host:5432/wpptrack
 REDIS_URL=redis://host:6379
 WPPTRACK_PLATFORM_ADMIN_EMAILS=admin@seudominio.com
 WPPTRACK_WHATSAPP_INSTANCE_PRICE_CENTS=9900
+AUTH_PUBLIC_REGISTRATION_ENABLED=false
+AUTH_COOKIE_DOMAIN=.seudominio.com
 ```
 
 Auth propria e Google:
 
 ```env
+AUTH_PUBLIC_REGISTRATION_ENABLED=false
+AUTH_COOKIE_DOMAIN=.seudominio.com
 AUTH_EXPOSE_DEV_TOKENS=false
 EMAIL_PROVIDER=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=https://api.seudominio.com/auth/google/callback
 ```
+
+Quando frontend e API usam subdominios diferentes, por exemplo `app.seudominio.com`
+e `api.seudominio.com`, `AUTH_COOKIE_DOMAIN` precisa apontar para o dominio raiz
+compartilhado (`.seudominio.com`). Sem isso, a API autentica corretamente, mas o
+frontend nao recebe o cookie `wpptrack_session` no middleware.
 
 Meta:
 

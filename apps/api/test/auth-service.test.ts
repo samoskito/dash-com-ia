@@ -573,7 +573,7 @@ describe("auth service session lifecycle", () => {
     );
   });
 
-  it("exchanges Google callback code, creates a workspace owner and opens a session", async () => {
+  it("exchanges Google callback code, links an existing user and opens a session", async () => {
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       fetchCalls.push({ url: String(input), init });
@@ -607,6 +607,12 @@ describe("auth service session lifecycle", () => {
       },
       fetchMock
     );
+    await service.register({
+      name: "Owner Email",
+      email: "owner@wpptrack.com",
+      password: "strong-password",
+      workspaceName: "Comunidade NOD"
+    });
     const start = service.getGoogleOAuthStart({ redirectTo: "/reports" });
 
     const result = await service.handleGoogleOAuthCallback(
@@ -631,11 +637,12 @@ describe("auth service session lifecycle", () => {
       email: "owner@wpptrack.com",
       authProvider: "google",
       googleId: "google-user-1",
-      name: "Owner Google"
+      name: "Owner Email"
     });
     expect(db.users[0]?.emailVerifiedAt).toBeInstanceOf(Date);
-    expect(db.workspaces[0]?.name).toBe("Owner Google");
-    expect(db.sessions[0]?.userAgent).toBe("Vitest");
+    expect(db.workspaces).toHaveLength(1);
+    expect(db.workspaces[0]?.name).toBe("Comunidade NOD");
+    expect(db.sessions[1]?.userAgent).toBe("Vitest");
     expect(fetchCalls[0]?.url).toBe("https://oauth2.googleapis.com/token");
     expect(fetchCalls[0]?.init?.method).toBe("POST");
     expect(fetchCalls[1]?.url).toBe(
@@ -644,5 +651,55 @@ describe("auth service session lifecycle", () => {
     expect(fetchCalls[1]?.init?.headers).toMatchObject({
       Authorization: "Bearer google-access-token"
     });
+  });
+
+  it("does not create a workspace when Google login uses an unknown email", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === "https://oauth2.googleapis.com/token") {
+        return new Response(
+          JSON.stringify({
+            access_token: "google-access-token",
+            token_type: "Bearer",
+            expires_in: 3600
+          }),
+          { status: 200 }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          sub: "google-user-2",
+          email: "cliente-novo@empresa.com",
+          email_verified: true,
+          name: "Cliente Novo"
+        }),
+        { status: 200 }
+      );
+    }) as unknown as typeof fetch;
+    const { db, service } = createHarness(
+      {
+        GOOGLE_CLIENT_ID: "client_123",
+        GOOGLE_CLIENT_SECRET: "secret_123",
+        GOOGLE_REDIRECT_URI: "https://api.wpptrack.test/auth/google/callback"
+      },
+      fetchMock
+    );
+    const start = service.getGoogleOAuthStart({ redirectTo: "/overview" });
+
+    const result = await service.handleGoogleOAuthCallback({
+      code: "oauth-code",
+      state: start.state!
+    });
+
+    expect(result).toMatchObject({
+      provider: "google",
+      action: "exchange_pending",
+      codeReceived: true,
+      redirectTo: "/overview"
+    });
+    expect("session" in result).toBe(false);
+    expect(db.users).toHaveLength(0);
+    expect(db.workspaces).toHaveLength(0);
+    expect(db.sessions).toHaveLength(0);
   });
 });

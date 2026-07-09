@@ -2,14 +2,15 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   Inject,
+  Optional,
   Post,
   Query,
   Req,
-  Res,
-  UnauthorizedException
+  Res
 } from "@nestjs/common";
 import {
   emailVerificationConfirmInputSchema,
@@ -22,6 +23,10 @@ import {
 } from "@wpptrack/shared";
 import { extractAuthToken, firstHeader } from "./auth-token";
 import { AuthService, type AuthSessionResult } from "./auth.service";
+import {
+  RUNTIME_ENV,
+  type RuntimeEnv
+} from "../common/runtime/runtime.module";
 
 const sessionCookieName = "wpptrack_session";
 
@@ -42,9 +47,10 @@ type CookieResponse = {
       secure: boolean;
       expires: Date;
       path: string;
+      domain?: string;
     }
   ) => void;
-  clearCookie: (name: string, options: { path: string }) => void;
+  clearCookie: (name: string, options: { path: string; domain?: string }) => void;
 };
 
 type OAuthCallbackResponse = CookieResponse & {
@@ -53,7 +59,12 @@ type OAuthCallbackResponse = CookieResponse & {
 
 @Controller("auth")
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly authService: AuthService) {}
+  constructor(
+    @Inject(AuthService) private readonly authService: AuthService,
+    @Optional()
+    @Inject(RUNTIME_ENV)
+    private readonly env: RuntimeEnv = process.env
+  ) {}
 
   @Post("register")
   async register(
@@ -61,6 +72,10 @@ export class AuthController {
     @Req() request: AuthRequest,
     @Res({ passthrough: true }) response: CookieResponse
   ): Promise<AuthSessionResult> {
+    if (!this.isPublicRegistrationEnabled()) {
+      throw new ForbiddenException("Cadastro publico desabilitado");
+    }
+
     const input = this.parseBody(registerSchema.safeParse(body));
     const session = await this.authService.register(input, {
       userAgent: firstHeader(request.headers["user-agent"]) ?? null,
@@ -102,7 +117,7 @@ export class AuthController {
     @Res({ passthrough: true }) response: CookieResponse
   ) {
     await this.authService.logout(extractAuthToken(request));
-    response.clearCookie(sessionCookieName, { path: "/" });
+    response.clearCookie(sessionCookieName, this.sessionCookieClearOptions());
 
     return { ok: true };
   }
@@ -186,17 +201,41 @@ export class AuthController {
     response.cookie(sessionCookieName, session.refreshToken, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: this.env.NODE_ENV === "production",
       expires: session.expiresAt,
-      path: "/"
+      path: "/",
+      ...this.sharedCookieDomainOption()
     });
+  }
+
+  private sessionCookieClearOptions(): { path: string; domain?: string } {
+    return {
+      path: "/",
+      ...this.sharedCookieDomainOption()
+    };
+  }
+
+  private sharedCookieDomainOption(): { domain?: string } {
+    const domain = this.env.AUTH_COOKIE_DOMAIN?.trim();
+
+    return domain ? { domain } : {};
+  }
+
+  private isPublicRegistrationEnabled(): boolean {
+    const explicit = this.env.AUTH_PUBLIC_REGISTRATION_ENABLED?.trim().toLowerCase();
+
+    if (explicit) {
+      return explicit === "true";
+    }
+
+    return this.env.NODE_ENV !== "production";
   }
 
   private googleCallbackRedirectUrl(result: {
     action: string;
     redirectTo: string;
   }): string {
-    const webOrigin = (process.env.WEB_ORIGIN ?? "http://localhost:3000").replace(
+    const webOrigin = (this.env.WEB_ORIGIN ?? "http://localhost:3000").replace(
       /\/$/,
       ""
     );
