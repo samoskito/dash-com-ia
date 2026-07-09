@@ -324,6 +324,81 @@ describe("meta adapter oauth", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("lists Meta pages for conversion destination", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ id: "page_1", name: "Pagina Principal" }]
+          }),
+          { status: 200 }
+        )
+    ) as unknown as typeof fetch;
+    const adapter = new MetaAdapter({}, fetcher);
+
+    await expect(
+      adapter.listPages({ accessToken: "meta-token" })
+    ).resolves.toEqual([{ id: "page_1", name: "Pagina Principal" }]);
+  });
+
+  it("lists adsets with destination type", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset_1",
+                name: "Conjunto WhatsApp",
+                campaign_id: "cmp_1",
+                status: "ACTIVE",
+                effective_status: "ACTIVE",
+                destination_type: "WHATSAPP"
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+    ) as unknown as typeof fetch;
+    const adapter = new MetaAdapter({}, fetcher);
+
+    await expect(
+      adapter.listAdSets({ accessToken: "meta-token", adAccountId: "act_123" })
+    ).resolves.toMatchObject([{ destinationType: "WHATSAPP" }]);
+  });
+
+  it("lists ads with creative WhatsApp CTA", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "ad_1",
+                name: "Anuncio WhatsApp",
+                campaign_id: "cmp_1",
+                adset_id: "adset_1",
+                status: "ACTIVE",
+                effective_status: "ACTIVE",
+                creative: {
+                  id: "creative_1",
+                  call_to_action_type: "WHATSAPP_MESSAGE"
+                }
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+    ) as unknown as typeof fetch;
+    const adapter = new MetaAdapter({}, fetcher);
+
+    await expect(
+      adapter.listAds({ accessToken: "meta-token", adAccountId: "act_123" })
+    ).resolves.toMatchObject([
+      { creativeId: "creative_1", callToActionType: "WHATSAPP_MESSAGE" }
+    ]);
+  });
+
   it("lists campaigns, ad sets, ads and campaign insights from the selected ad account", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -479,7 +554,8 @@ describe("meta adapter oauth", () => {
         name: "Publico quente",
         campaignId: "cmp_1",
         status: "ACTIVE",
-        effectiveStatus: "ACTIVE"
+        effectiveStatus: "ACTIVE",
+        destinationType: null
       }
     ]);
     await expect(
@@ -494,7 +570,9 @@ describe("meta adapter oauth", () => {
         campaignId: "cmp_1",
         adSetId: "adset_1",
         status: "ACTIVE",
-        effectiveStatus: "ACTIVE"
+        effectiveStatus: "ACTIVE",
+        creativeId: null,
+        callToActionType: null
       }
     ]);
     await expect(

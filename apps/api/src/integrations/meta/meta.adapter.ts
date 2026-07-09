@@ -3,6 +3,7 @@ import type {
   MetaAdAccountAssetDto,
   MetaBusinessAssetDto,
   MetaOAuthCallbackResultDto,
+  MetaPageAssetDto,
   MetaPixelAssetDto
 } from "@wpptrack/shared";
 import {
@@ -58,6 +59,11 @@ type MetaPixelGraphNode = {
   name?: unknown;
 };
 
+type MetaPageGraphNode = {
+  id?: unknown;
+  name?: unknown;
+};
+
 export type MetaOAuthTokenExchangeResult = {
   publicResult: MetaOAuthCallbackResultDto;
   accessToken: string | null;
@@ -77,6 +83,7 @@ export type MetaAdSetAsset = {
   campaignId: string;
   status: string | null;
   effectiveStatus: string | null;
+  destinationType: string | null;
 };
 
 export type MetaAdAsset = {
@@ -86,6 +93,8 @@ export type MetaAdAsset = {
   adSetId: string;
   status: string | null;
   effectiveStatus: string | null;
+  creativeId: string | null;
+  callToActionType: string | null;
 };
 
 export type MetaCampaignInsight = {
@@ -129,6 +138,7 @@ type MetaAdSetGraphNode = {
   campaign_id?: unknown;
   status?: unknown;
   effective_status?: unknown;
+  destination_type?: unknown;
 };
 
 type MetaAdGraphNode = {
@@ -138,6 +148,10 @@ type MetaAdGraphNode = {
   adset_id?: unknown;
   status?: unknown;
   effective_status?: unknown;
+  creative?: {
+    id?: unknown;
+    call_to_action_type?: unknown;
+  };
 };
 
 type MetaInsightGraphNode = {
@@ -423,6 +437,23 @@ export class MetaAdapter implements IntegrationAdapter {
       .filter((item): item is MetaPixelAssetDto => Boolean(item));
   }
 
+  async listPages(input: {
+    accessToken: string;
+  }): Promise<MetaPageAssetDto[]> {
+    const response = await this.getGraphList<MetaPageGraphNode>(
+      "/me/accounts",
+      "id,name",
+      input.accessToken
+    );
+
+    return response
+      .map((item) => ({
+        id: this.asString(item.id),
+        name: this.asString(item.name)
+      }))
+      .filter((item): item is MetaPageAssetDto => Boolean(item.id && item.name));
+  }
+
   async listCampaigns(input: {
     accessToken: string;
     adAccountId: string;
@@ -450,7 +481,7 @@ export class MetaAdapter implements IntegrationAdapter {
   }): Promise<MetaAdSetAsset[]> {
     const response = await this.getGraphList<MetaAdSetGraphNode>(
       `/${input.adAccountId}/adsets`,
-      "id,name,campaign_id,status,effective_status",
+      "id,name,campaign_id,status,effective_status,destination_type",
       input.accessToken
     );
 
@@ -460,7 +491,8 @@ export class MetaAdapter implements IntegrationAdapter {
         name: this.asString(item.name),
         campaignId: this.asString(item.campaign_id),
         status: this.asString(item.status),
-        effectiveStatus: this.asString(item.effective_status)
+        effectiveStatus: this.asString(item.effective_status),
+        destinationType: this.asString(item.destination_type)
       }))
       .filter(
         (item): item is MetaAdSetAsset =>
@@ -474,7 +506,7 @@ export class MetaAdapter implements IntegrationAdapter {
   }): Promise<MetaAdAsset[]> {
     const response = await this.getGraphList<MetaAdGraphNode>(
       `/${input.adAccountId}/ads`,
-      "id,name,campaign_id,adset_id,status,effective_status",
+      "id,name,campaign_id,adset_id,status,effective_status,creative{id,call_to_action_type}",
       input.accessToken
     );
 
@@ -485,7 +517,9 @@ export class MetaAdapter implements IntegrationAdapter {
         campaignId: this.asString(item.campaign_id),
         adSetId: this.asString(item.adset_id),
         status: this.asString(item.status),
-        effectiveStatus: this.asString(item.effective_status)
+        effectiveStatus: this.asString(item.effective_status),
+        creativeId: this.asString(item.creative?.id),
+        callToActionType: this.asString(item.creative?.call_to_action_type)
       }))
       .filter(
         (item): item is MetaAdAsset =>
