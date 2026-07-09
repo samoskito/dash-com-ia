@@ -157,7 +157,7 @@ describe("meta connections service", () => {
     });
   });
 
-  it("lists selectable Meta assets grouped by business using the encrypted workspace token", async () => {
+  it("lists businesses without fanning out ad accounts and pixels before a BM is selected", async () => {
     const { service } = createHarness();
     const metaAdapter = {
       listBusinesses: vi.fn(async () => [
@@ -240,16 +240,8 @@ describe("meta connections service", () => {
       workspaceId: "workspace_1",
       status: "connected",
       businesses: [{ name: "BM Principal" }, { name: "BM Secundario" }],
-      adAccounts: [
-        { businessId: "business_1", name: "Conta WhatsApp" },
-        { businessId: "business_1", name: "Conta Remarketing" },
-        { businessId: "business_2", name: "Conta Outro BM" }
-      ],
-      pixels: [
-        { businessId: "business_1", name: "Pixel Loja" },
-        { businessId: "business_1", name: "Pixel Remarketing" },
-        { businessId: "business_2", name: "Pixel Outro BM" }
-      ],
+      adAccounts: [],
+      pixels: [],
       selection: {
         businessId: null,
         adAccountId: null,
@@ -260,22 +252,110 @@ describe("meta connections service", () => {
     expect(metaAdapter.listBusinesses).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token"
     });
-    expect(metaAdapter.listOwnedAdAccounts).toHaveBeenCalledWith({
+    expect(metaAdapter.listOwnedAdAccounts).not.toHaveBeenCalled();
+    expect(metaAdapter.listBusinessPixels).not.toHaveBeenCalled();
+    expect(JSON.stringify(assets)).not.toContain("EAAB-secret-token");
+  });
+
+  it("loads ad accounts and pixels only for the selected business", async () => {
+    const { service } = createHarness();
+    const metaAdapter = {
+      listBusinesses: vi.fn(async () => [
+        {
+          id: "business_1",
+          name: "BM Principal",
+          verificationStatus: "verified"
+        },
+        {
+          id: "business_2",
+          name: "BM Secundario",
+          verificationStatus: null
+        }
+      ]),
+      listOwnedAdAccounts: vi.fn(
+        async ({ businessId }: { businessId: string }) =>
+          businessId === "business_1"
+            ? [
+                {
+                  id: "act_123",
+                  name: "Conta WhatsApp",
+                  accountStatus: "1",
+                  currency: "BRL",
+                  timezoneName: "America/Sao_Paulo"
+                }
+              ]
+            : [
+                {
+                  id: "act_789",
+                  name: "Conta Outro BM",
+                  accountStatus: "1",
+                  currency: "USD",
+                  timezoneName: "America/New_York"
+                }
+              ]
+      ),
+      listBusinessPixels: vi.fn(
+        async ({ businessId }: { businessId: string }) =>
+          businessId === "business_1"
+            ? [
+                {
+                  id: "pixel_1",
+                  name: "Pixel Loja",
+                  code: "1234567890"
+                }
+              ]
+            : [
+                {
+                  id: "pixel_3",
+                  name: "Pixel Outro BM",
+                  code: "9999999999"
+                }
+              ]
+      )
+    };
+
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_1",
       accessToken: "EAAB-secret-token",
-      businessId: "business_1"
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read"]
+    });
+    await service.saveAssetSelection("workspace_1", {
+      businessId: "business_1",
+      adAccountId: null,
+      pixelId: null
+    });
+
+    const assets = await service.listAssets("workspace_1", metaAdapter as never);
+
+    expect(assets).toMatchObject({
+      workspaceId: "workspace_1",
+      status: "connected",
+      businesses: [{ name: "BM Principal" }, { name: "BM Secundario" }],
+      adAccounts: [{ businessId: "business_1", name: "Conta WhatsApp" }],
+      pixels: [{ businessId: "business_1", name: "Pixel Loja", code: null }],
+      selection: {
+        businessId: "business_1",
+        adAccountId: null,
+        pixelId: null
+      },
+      syncError: null
     });
     expect(metaAdapter.listOwnedAdAccounts).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
-      businessId: "business_2"
+      businessId: "business_1"
     });
     expect(metaAdapter.listBusinessPixels).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
       businessId: "business_1"
     });
-    expect(metaAdapter.listBusinessPixels).toHaveBeenCalledWith({
-      accessToken: "EAAB-secret-token",
-      businessId: "business_2"
-    });
+    expect(metaAdapter.listOwnedAdAccounts).not.toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: "business_2" })
+    );
+    expect(metaAdapter.listBusinessPixels).not.toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: "business_2" })
+    );
     expect(JSON.stringify(assets)).not.toContain("EAAB-secret-token");
   });
 

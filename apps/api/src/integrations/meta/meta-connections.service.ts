@@ -134,50 +134,47 @@ export class MetaConnectionsService {
         tokenTag: connection.tokenTag
       });
       const businesses = await metaAdapter.listBusinesses({ accessToken });
-      const [adAccountsByBusiness, pixelsByBusiness] = await Promise.all([
-        Promise.all(
-          businesses.map(async (business) => {
-            try {
-              const adAccounts = await metaAdapter.listOwnedAdAccounts({
-                accessToken,
-                businessId: business.id
-              });
-
-              return adAccounts.map((adAccount) => ({
-                ...adAccount,
-                businessId: adAccount.businessId ?? business.id
-              }));
-            } catch {
-              return [];
-            }
-          })
-        ),
-        Promise.all(
-          businesses.map(async (business) => {
-            try {
-              const pixels = await metaAdapter.listBusinessPixels({
-                accessToken,
-                businessId: business.id
-              });
-
-              return pixels.map((pixel) => ({
-                ...pixel,
-                businessId: pixel.businessId ?? business.id,
-                code: null
-              }));
-            } catch {
-              return [];
-            }
-          })
-        )
-      ]);
+      const selectedBusinessId = connection.selectedBusinessId;
+      const selectedBusinessExists = businesses.some(
+        (business) => business.id === selectedBusinessId
+      );
+      const [adAccounts, pixels] =
+        selectedBusinessId && selectedBusinessExists
+          ? await Promise.all([
+              metaAdapter
+                .listOwnedAdAccounts({
+                  accessToken,
+                  businessId: selectedBusinessId
+                })
+                .then((items) =>
+                  items.map((adAccount) => ({
+                    ...adAccount,
+                    businessId: adAccount.businessId ?? selectedBusinessId
+                  }))
+                )
+                .catch(() => []),
+              metaAdapter
+                .listBusinessPixels({
+                  accessToken,
+                  businessId: selectedBusinessId
+                })
+                .then((items) =>
+                  items.map((pixel) => ({
+                    ...pixel,
+                    businessId: pixel.businessId ?? selectedBusinessId,
+                    code: null
+                  }))
+                )
+                .catch(() => [])
+            ])
+          : [[], []];
 
       return {
         workspaceId,
         status: this.toStatus(connection.status),
         businesses,
-        adAccounts: adAccountsByBusiness.flat(),
-        pixels: pixelsByBusiness.flat(),
+        adAccounts,
+        pixels,
         selection: {
           businessId: connection.selectedBusinessId,
           adAccountId: connection.selectedAdAccountId,

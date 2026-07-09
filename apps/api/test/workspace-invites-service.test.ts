@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
 const authenticated = {
@@ -137,6 +137,15 @@ function createHarness() {
 }
 
 describe("workspace invite service", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-02T04:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("creates pending workspace invites and audits without storing invite tokens", async () => {
     const { db, service } = createHarness();
 
