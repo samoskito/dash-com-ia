@@ -4,12 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "node --watch -r ts-node/register src/main.ts",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prebuild": "pnpm run prisma:generate",
     "build": "nest build",
     "start": "node dist/apps/api/src/main.js",
     "start:prod": "node dist/apps/api/src/main.js",
     "platform-admin:create": "node dist/apps/api/src/scripts/create-platform-admin.js",
     "test": "vitest run",
     "lint": "tsc -p tsconfig.json --noEmit",
+    "pretypecheck": "pnpm run prisma:generate",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

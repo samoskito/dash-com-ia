@@ -1,5 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { type Prisma } from "@prisma/client";
+import {
+  type MetaAssetSyncStatus,
+  type MetaConversionDestinationStatus,
+  type Prisma
+} from "@prisma/client";
 import type {
   MetaConversionDestinationDto,
   MetaConversionDestinationInputDto,
@@ -9,6 +13,10 @@ import type {
   MetaAssetSyncStatusDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../../common/prisma/prisma.service";
+
+const CONFIGURED_DESTINATION_STATUS: MetaConversionDestinationStatus =
+  "configured";
+const PENDING_SYNC_STATUS: MetaAssetSyncStatus = "pending";
 
 type MetaConversionDestinationRecord = {
   workspaceId: string;
@@ -64,7 +72,7 @@ export class MetaAssetsService {
       pixelName: input.pixelName,
       pageId: input.pageId,
       pageName: input.pageName,
-      status: "configured",
+      status: CONFIGURED_DESTINATION_STATUS,
       lastValidatedAt: now,
       validationError: null
     };
@@ -118,7 +126,7 @@ export class MetaAssetsService {
       currency: input.currency ?? null,
       timezoneName: input.timezoneName ?? null,
       active: true,
-      syncStatus: "pending",
+      syncStatus: PENDING_SYNC_STATUS,
       syncError: null
     };
     const account = (await this.prisma.metaReportingAccount.upsert({
