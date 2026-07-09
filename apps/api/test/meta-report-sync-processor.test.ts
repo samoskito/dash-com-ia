@@ -14,7 +14,8 @@ describe("meta report sync processor", () => {
     const metaReportingService = {
       syncWorkspaceMetaStructure: vi.fn(async () => ({
         workspaceId: "workspace_1",
-        adAccountId: "act_123",
+        accountsSynced: 1,
+        accountsFailed: 0,
         campaignsSynced: 1,
         adSetsSynced: 1,
         adsSynced: 1
@@ -39,7 +40,8 @@ describe("meta report sync processor", () => {
       } as never)
     ).resolves.toEqual({
       workspaceId: "workspace_1",
-      adAccountId: "act_123",
+      accountsSynced: 1,
+      accountsFailed: 0,
       campaignsSynced: 1,
       adSetsSynced: 1,
       adsSynced: 1
@@ -65,7 +67,8 @@ describe("meta report sync processor", () => {
         errorMessage: null,
         summaryPayload: expect.objectContaining({
           workspaceId: "workspace_1",
-          adAccountId: "act_123",
+          accountsSynced: 1,
+          accountsFailed: 0,
           campaignsSynced: 1,
           adSetsSynced: 1,
           adsSynced: 1,
@@ -79,7 +82,8 @@ describe("meta report sync processor", () => {
     const metaReportingService = {
       syncWorkspaceMetaStructure: vi.fn(async () => ({
         workspaceId: "workspace_1",
-        adAccountId: "act_123",
+        accountsSynced: 1,
+        accountsFailed: 0,
         campaignsSynced: 1,
         adSetsSynced: 1,
         adsSynced: 1
@@ -110,7 +114,8 @@ describe("meta report sync processor", () => {
       } as never)
     ).resolves.toEqual({
       workspaceId: "workspace_1",
-      adAccountId: "act_123",
+      accountsSynced: 1,
+      accountsFailed: 0,
       campaignsSynced: 1,
       adSetsSynced: 1,
       adsSynced: 1

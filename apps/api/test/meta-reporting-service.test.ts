@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MetaReportingService } from "../src/reporting/meta-reporting.service";
+import { WhatsappCampaignClassifierService } from "../src/reporting/whatsapp-campaign-classifier.service";
 
 function createHarness() {
   const db = {
@@ -11,6 +12,17 @@ function createHarness() {
       tokenTag: "tag",
       selectedAdAccountId: "act_123"
     },
+    reportingAccounts: [
+      {
+        id: "reporting_1",
+        workspaceId: "workspace_1",
+        businessId: "business_1",
+        businessName: "BM 1",
+        adAccountId: "act_123",
+        adAccountName: "Conta 1",
+        active: true
+      }
+    ],
     campaigns: [] as Array<Record<string, unknown>>,
     adSets: [] as Array<Record<string, unknown>>,
     ads: [] as Array<Record<string, unknown>>,
@@ -70,6 +82,13 @@ function createHarness() {
     metaIntegration: {
       findUnique: vi.fn(async () => db.metaIntegration)
     },
+    metaReportingAccount: {
+      findMany: vi.fn(async () => db.reportingAccounts),
+      update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const account = db.reportingAccounts.find((item) => item.id === where.id);
+        return { ...account, ...data };
+      })
+    },
     metaCampaign: {
       upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
         const record = { ...create, ...update };
@@ -125,7 +144,7 @@ function createHarness() {
     decrypt: vi.fn(() => "EAAB-secret-token")
   };
   const metaAdapter = {
-    listCampaigns: vi.fn(async () => [
+    listCampaigns: vi.fn(async (_input?: { adAccountId?: string }) => [
       {
         id: "cmp_1",
         name: "Black Friday WhatsApp",
@@ -140,7 +159,8 @@ function createHarness() {
         name: "Publico quente",
         campaignId: "cmp_1",
         status: "ACTIVE",
-        effectiveStatus: "ACTIVE"
+        effectiveStatus: "ACTIVE",
+        destinationType: "WHATSAPP"
       }
     ]),
     listAds: vi.fn(async () => [
@@ -150,7 +170,9 @@ function createHarness() {
         campaignId: "cmp_1",
         adSetId: "adset_1",
         status: "ACTIVE",
-        effectiveStatus: "ACTIVE"
+        effectiveStatus: "ACTIVE",
+        creativeId: "creative_1",
+        callToActionType: "WHATSAPP_MESSAGE" as string | null
       }
     ]),
     listCampaignInsights: vi.fn(async () => [
@@ -187,14 +209,15 @@ function createHarness() {
   const service = new MetaReportingService(
     prisma as never,
     encryption as never,
-    metaAdapter as never
+    metaAdapter as never,
+    new WhatsappCampaignClassifierService()
   );
 
   return { db, encryption, metaAdapter, prisma, service };
 }
 
 describe("meta reporting service", () => {
-  it("syncs selected Meta account campaigns, ad sets and ads into workspace snapshots", async () => {
+  it("syncs active Meta reporting account campaigns, ad sets and ads into workspace snapshots", async () => {
     const { db, encryption, metaAdapter, prisma, service } = createHarness();
 
     await expect(
@@ -205,13 +228,17 @@ describe("meta reporting service", () => {
       })
     ).resolves.toEqual({
       workspaceId: "workspace_1",
-      adAccountId: "act_123",
+      accountsSynced: 1,
+      accountsFailed: 0,
       campaignsSynced: 1,
       adSetsSynced: 1,
       adsSynced: 1
     });
 
     expect(encryption.decrypt).toHaveBeenCalled();
+    expect(prisma.metaReportingAccount.findMany).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace_1", active: true }
+    });
     expect(metaAdapter.listCampaigns).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
       adAccountId: "act_123"
@@ -240,17 +267,28 @@ describe("meta reporting service", () => {
       campaignId: "cmp_1",
       name: "Black Friday WhatsApp",
       spendCents: 120000,
-      metaConversationsStarted: 176
+      metaConversationsStarted: 176,
+      businessId: "business_1",
+      whatsappClassification: "auto_whatsapp"
     });
     expect(db.adSets[0]).toMatchObject({
       adSetId: "adset_1",
       spendCents: 60000,
-      metaConversationsStarted: 80
+      metaConversationsStarted: 80,
+      businessId: "business_1",
+      adAccountId: "act_123",
+      destinationType: "WHATSAPP",
+      whatsappClassification: "auto_whatsapp"
     });
     expect(db.ads[0]).toMatchObject({
       adId: "ad_1",
       spendCents: 30000,
-      metaConversationsStarted: 40
+      metaConversationsStarted: 40,
+      businessId: "business_1",
+      adAccountId: "act_123",
+      creativeId: "creative_1",
+      callToActionType: "WHATSAPP_MESSAGE",
+      whatsappClassification: "auto_whatsapp"
     });
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({
@@ -258,15 +296,16 @@ describe("meta reporting service", () => {
         source: "meta",
         operation: "meta.reporting.sync",
         status: "success",
-        providerRequestId: "act_123"
+        providerRequestId: null
       })
     );
     expect(db.integrationLogs[0].requestSummary).toMatchObject({
-      adAccountId: "act_123",
       since: "2026-07-01",
       until: "2026-07-02"
     });
     expect(db.integrationLogs[0].responseSummary).toMatchObject({
+      accountsSynced: 1,
+      accountsFailed: 0,
       campaignsSynced: 1,
       adSetsSynced: 1,
       adsSynced: 1
@@ -285,8 +324,61 @@ describe("meta reporting service", () => {
     expect(JSON.stringify(db.diagnosticEvents)).not.toContain("EAAB-secret-token");
   });
 
-  it("records operational diagnostics when Meta structure sync fails", async () => {
-    const { db, metaAdapter, service } = createHarness();
+  it("syncs every active Meta reporting account and isolates failed accounts", async () => {
+    const { service, prisma, metaAdapter } = createHarness();
+    prisma.metaReportingAccount.findMany.mockResolvedValue([
+      {
+        id: "reporting_1",
+        workspaceId: "workspace_1",
+        businessId: "business_1",
+        businessName: "BM 1",
+        adAccountId: "act_1",
+        adAccountName: "Conta 1",
+        active: true
+      },
+      {
+        id: "reporting_2",
+        workspaceId: "workspace_1",
+        businessId: "business_2",
+        businessName: "BM 2",
+        adAccountId: "act_2",
+        adAccountName: "Conta 2",
+        active: true
+      }
+    ]);
+    metaAdapter.listCampaigns.mockImplementation(async (input) => {
+      if (input?.adAccountId === "act_2") {
+        throw new Error("Meta account unavailable");
+      }
+      return [
+        {
+          id: "cmp_1",
+          name: "Campanha",
+          status: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          objective: "OUTCOME_LEADS"
+        }
+      ];
+    });
+
+    const result = await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-09"
+    });
+
+    expect(result.accountsSynced).toBe(1);
+    expect(result.accountsFailed).toBe(1);
+    expect(prisma.metaReportingAccount.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "reporting_2" },
+        data: expect.objectContaining({ syncStatus: "error" })
+      })
+    );
+  });
+
+  it("throws and records error diagnostics when every Meta reporting account sync fails", async () => {
+    const { db, metaAdapter, prisma, service } = createHarness();
     metaAdapter.listCampaigns.mockRejectedValueOnce(
       new Error("Meta API unavailable")
     );
@@ -297,7 +389,17 @@ describe("meta reporting service", () => {
         since: "2026-07-01",
         until: "2026-07-02"
       })
-    ).rejects.toThrow("Meta API unavailable");
+    ).rejects.toThrow("Todas as contas Meta falharam na sincronizacao");
+
+    expect(prisma.metaReportingAccount.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "reporting_1" },
+        data: expect.objectContaining({
+          syncStatus: "error",
+          syncError: "Meta API unavailable"
+        })
+      })
+    );
 
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({
@@ -305,10 +407,17 @@ describe("meta reporting service", () => {
         source: "meta",
         operation: "meta.reporting.sync",
         status: "error",
-        providerRequestId: "act_123",
-        providerErrorMessage: "Meta API unavailable"
+        providerRequestId: null,
+        providerErrorMessage: "Todas as contas Meta falharam na sincronizacao"
       })
     );
+    expect(db.integrationLogs[0].responseSummary).toMatchObject({
+      accountsSynced: 0,
+      accountsFailed: 1,
+      campaignsSynced: 0,
+      adSetsSynced: 0,
+      adsSynced: 0
+    });
     expect(db.diagnosticEvents).toContainEqual(
       expect.objectContaining({
         workspaceId: "workspace_1",
@@ -322,6 +431,69 @@ describe("meta reporting service", () => {
     );
     expect(JSON.stringify(db.integrationLogs)).not.toContain("EAAB-secret-token");
     expect(JSON.stringify(db.diagnosticEvents)).not.toContain("EAAB-secret-token");
+  });
+
+  it("classifies ads by inherited WhatsApp destination type when CTA is absent", async () => {
+    const { db, metaAdapter, service } = createHarness();
+    metaAdapter.listAds.mockResolvedValueOnce([
+      {
+        id: "ad_1",
+        name: "Criativo sem CTA",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        creativeId: "creative_1",
+        callToActionType: null
+      }
+    ]);
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    });
+
+    expect(db.ads[0]).toMatchObject({
+      adId: "ad_1",
+      destinationType: "WHATSAPP",
+      callToActionType: null,
+      whatsappClassification: "auto_whatsapp",
+      classificationSource: "destination_type:WHATSAPP"
+    });
+  });
+
+  it("preserves manual classification overrides during Meta structure sync", async () => {
+    const { prisma, service } = createHarness();
+    prisma.metaAdSet.findMany.mockResolvedValueOnce([
+      {
+        adSetId: "adset_1",
+        classificationOverride: "manual_exclude",
+        whatsappClassification: "manual_exclude"
+      }
+    ]);
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02"
+    });
+
+    expect(prisma.metaAdSet.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          whatsappClassification: "manual_exclude",
+          classificationSource: "manual"
+        })
+      })
+    );
+    expect(prisma.metaAdSet.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.not.objectContaining({
+          classificationOverride: null
+        })
+      })
+    );
   });
 
   it("returns campaign report rows combining Meta spend with internal conversion events", async () => {

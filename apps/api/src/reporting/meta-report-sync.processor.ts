@@ -27,7 +27,12 @@ export class MetaReportSyncProcessor extends WorkerHost {
       );
 
       await this.recordAttempt(job, "completed", {
-        ...result,
+        workspaceId: result.workspaceId,
+        accountsSynced: result.accountsSynced,
+        accountsFailed: result.accountsFailed,
+        campaignsSynced: result.campaignsSynced,
+        adSetsSynced: result.adSetsSynced,
+        adsSynced: result.adsSynced,
         resultStatus: "completed"
       });
 
