@@ -39,6 +39,23 @@ type WhatsappLabelSuggestionsResult = {
   state: "real" | "empty" | "error";
 };
 
+const supportedConversionEventNames = [
+  "LeadSubmitted",
+  "QualifiedLead",
+  "OrderShipped",
+  "OrderDelivered",
+  "OrderCanceled",
+  "OrderReturned",
+  "RatingProvided",
+  "ReviewProvided",
+  "ViewContent",
+  "AddToCart",
+  "CartAbandoned",
+  "InitiateCheckout",
+  "Purchase",
+  "OrderCreated"
+] as const;
+
 async function getAccountSettings(): Promise<AccountSettingsResult> {
   try {
     const account = await serverApiFetch<{ user: AccountUserDto }>("/auth/me");
@@ -479,11 +496,11 @@ export default async function SettingsPage() {
                 <option value="exact">Igual a</option>
               </select>
               <select name="eventName" defaultValue="LeadSubmitted" aria-label="Evento Meta">
-                <option value="LeadSubmitted">LeadSubmitted</option>
-                <option value="QualifiedLead">QualifiedLead</option>
-                <option value="Purchase">Purchase</option>
-                <option value="Contact">Contact</option>
-                <option value="CompleteRegistration">CompleteRegistration</option>
+                {supportedConversionEventNames.map((eventName) => (
+                  <option key={eventName} value={eventName}>
+                    {eventName}
+                  </option>
+                ))}
               </select>
               <input name="pixelId" placeholder="Pixel opcional" aria-label="Pixel opcional" />
               <button className="button primary" type="submit">Criar regra</button>

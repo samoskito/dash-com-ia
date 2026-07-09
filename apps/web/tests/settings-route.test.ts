@@ -262,6 +262,11 @@ describe("settings route", () => {
     expect(html).toContain("Criar regra");
     expect(html).toContain("Nome da regra");
     expect(html).toContain("Etiqueta WhatsApp");
+    expect(html).toContain('<option value="OrderDelivered">OrderDelivered</option>');
+    expect(html).not.toContain('<option value="Contact">Contact</option>');
+    expect(html).not.toContain(
+      '<option value="CompleteRegistration">CompleteRegistration</option>'
+    );
     expect(html).toContain("Pausar");
   });
 

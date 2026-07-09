@@ -23,6 +23,7 @@ import {
   emailVerificationConfirmSchema,
   emailVerificationStartSchema,
   currentWorkspaceSchema,
+  diagnosticConversionEventTestInputSchema,
   diagnosticEventCreateSchema,
   diagnosticEventDetailSchema,
   diagnosticEventListQuerySchema,
@@ -1279,6 +1280,23 @@ describe("shared contracts", () => {
     });
 
     expect(input.testEventCode).toBe("TEST12345");
+  });
+
+  it("validates the diagnostic Meta CAPI test input contract", () => {
+    const input = diagnosticConversionEventTestInputSchema.parse({
+      workspaceId: "workspace_1",
+      eventName: "Purchase",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      valueCents: 19900,
+      currency: "BRL",
+      contentName: "Plano mensal",
+      testEventCode: "TEST12345"
+    });
+
+    expect(input.eventName).toBe("Purchase");
+    expect(input.valueCents).toBe(19900);
   });
 
   it("validates conversion rule contracts for keyword and WhatsApp labels", () => {

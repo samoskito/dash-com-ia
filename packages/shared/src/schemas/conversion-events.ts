@@ -76,6 +76,7 @@ export type ConversionEventLogStatusDto = z.infer<
 export type ConversionEventErrorCodeDto = z.infer<
   typeof conversionEventErrorCodeSchema
 >;
+export type ConversionEventItemDto = z.infer<typeof conversionEventItemSchema>;
 export type ConversionEventCustomDataDto = z.infer<
   typeof conversionEventCustomDataSchema
 >;
