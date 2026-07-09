@@ -123,6 +123,7 @@ export class MetaConnectionsService {
     >,
     requestedBusinessId?: string | null
   ): Promise<MetaAssetsDto> {
+    const startedAt = Date.now();
     const connection = (await this.prisma.metaIntegration.findUnique({
       where: { workspaceId }
     })) as MetaIntegrationRecord | null;
@@ -186,7 +187,7 @@ export class MetaConnectionsService {
             ])
           : [[], [], []];
 
-      return {
+      const result = {
         workspaceId,
         status: this.toStatus(connection.status),
         businesses,
@@ -201,12 +202,20 @@ export class MetaConnectionsService {
         lastSyncedAt: new Date().toISOString(),
         syncError: null
       };
+
+      this.logSlowAssetList(result, Date.now() - startedAt, requestedBusinessId);
+
+      return result;
     } catch (error) {
-      return this.emptyAssets(
+      const result = this.emptyAssets(
         workspaceId,
         "error",
         error instanceof Error ? error.message : "Erro ao sincronizar ativos Meta"
       );
+
+      this.logSlowAssetList(result, Date.now() - startedAt, requestedBusinessId);
+
+      return result;
     }
   }
 
@@ -358,5 +367,27 @@ export class MetaConnectionsService {
     }
 
     return "not_connected";
+  }
+
+  private logSlowAssetList(
+    result: MetaAssetsDto,
+    durationMs: number,
+    requestedBusinessId?: string | null
+  ): void {
+    const thresholdMs = Number(process.env.META_ASSETS_SLOW_LOG_MS ?? 1500);
+
+    if (!Number.isFinite(thresholdMs) || durationMs < thresholdMs) {
+      return;
+    }
+
+    console.warn("[wpptrack:meta-assets] slow list", {
+      status: result.status,
+      durationMs,
+      requestedBusiness: Boolean(requestedBusinessId?.trim()),
+      businesses: result.businesses.length,
+      adAccounts: result.adAccounts.length,
+      pixels: result.pixels.length,
+      pages: (result.pages ?? []).length
+    });
   }
 }

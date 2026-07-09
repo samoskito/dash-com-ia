@@ -2,6 +2,7 @@
 
 import type { MetaAssetsDto } from "@wpptrack/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SubmitButton } from "../../../components/submit-button";
 
 type SaveMetaReportingAccountAction = (formData: FormData) => void | Promise<void>;
 type SetMetaReportingAccountStatusAction = (
@@ -80,6 +81,14 @@ export function MetaReportingAccountsForm({
   const [adAccountId, setAdAccountId] = useState(() =>
     initialAdAccountId(assets, initialBusinessId(assets))
   );
+  const selectedBusiness = useMemo(
+    () => assets.businesses.find((business) => business.id === businessId),
+    [assets.businesses, businessId]
+  );
+  const selectedAdAccount = useMemo(
+    () => availableAccounts.find((account) => account.id === adAccountId),
+    [availableAccounts, adAccountId]
+  );
 
   useEffect(() => {
     const nextBusinessId = initialBusinessId(assets);
@@ -129,6 +138,14 @@ export function MetaReportingAccountsForm({
   return (
     <>
       <form className="filter-bar" action={action}>
+        <input type="hidden" name="businessName" value={selectedBusiness?.name ?? ""} />
+        <input type="hidden" name="adAccountName" value={selectedAdAccount?.name ?? ""} />
+        <input type="hidden" name="currency" value={selectedAdAccount?.currency ?? ""} />
+        <input
+          type="hidden"
+          name="timezoneName"
+          value={selectedAdAccount?.timezoneName ?? ""}
+        />
         <select
           className="filter-control"
           name="businessId"
@@ -159,9 +176,13 @@ export function MetaReportingAccountsForm({
             </option>
           ))}
         </select>
-        <button className="button" type="submit">
+        <SubmitButton
+          disabled={isLoadingBusinessAssets || !businessId || !adAccountId}
+          pendingLabel="Salvando conta..."
+          statusText="Adicionando conta aos relatorios."
+        >
           {isLoadingBusinessAssets ? "Carregando contas" : "Adicionar conta"}
-        </button>
+        </SubmitButton>
       </form>
       <div className="table-wrap">
         <table>
@@ -210,9 +231,12 @@ export function MetaReportingAccountsForm({
                         name="active"
                         value={account.active ? "false" : "true"}
                       />
-                      <button className="button" type="submit">
+                      <SubmitButton
+                        pendingLabel={account.active ? "Desativando..." : "Ativando..."}
+                        statusText="Atualizando status da conta."
+                      >
                         {account.active ? "Desativar" : "Ativar"}
-                      </button>
+                      </SubmitButton>
                     </form>
                   </td>
                 </tr>

@@ -2,6 +2,7 @@
 
 import type { MetaAssetsDto } from "@wpptrack/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SubmitButton } from "../../../components/submit-button";
 
 type SaveMetaConversionDestinationAction = (
   formData: FormData
@@ -89,6 +90,14 @@ export function MetaConversionDestinationForm({
         ? destination.pageId
         : firstId(pages)
   );
+  const selectedPixel = useMemo(
+    () => pixels.find((pixel) => pixel.id === pixelId),
+    [pixels, pixelId]
+  );
+  const selectedPage = useMemo(
+    () => pages.find((page) => page.id === pageId),
+    [pages, pageId]
+  );
 
   useEffect(() => {
     const nextBusinessId = initialBusinessId(assets);
@@ -154,6 +163,8 @@ export function MetaConversionDestinationForm({
 
   return (
     <form className="filter-bar" action={action}>
+      <input type="hidden" name="pixelName" value={selectedPixel?.name ?? ""} />
+      <input type="hidden" name="pageName" value={selectedPage?.name ?? ""} />
       <select
         className="filter-control"
         name="businessId"
@@ -199,9 +210,13 @@ export function MetaConversionDestinationForm({
           </option>
         ))}
       </select>
-      <button className="button" type="submit">
+      <SubmitButton
+        disabled={isLoadingBusinessAssets || !businessId || !pixelId || !pageId}
+        pendingLabel="Salvando destino..."
+        statusText="Salvando Pixel e pagina principal."
+      >
         {isLoadingBusinessAssets ? "Carregando ativos" : "Salvar destino"}
-      </button>
+      </SubmitButton>
     </form>
   );
 }

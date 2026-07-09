@@ -12,6 +12,7 @@ import type {
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { SubmitButton } from "../../../components/submit-button";
 import { serverApiFetch } from "../../../lib/server-api";
 import { MetaConversionDestinationForm } from "./meta-conversion-destination-form";
 import { MetaOAuthButton } from "./meta-oauth-button";
@@ -20,6 +21,21 @@ import { MetaReportingAccountsForm } from "./meta-reporting-accounts-form";
 type ResourceResult<T> = {
   data: T;
   state: "real" | "empty" | "error";
+};
+
+type IntegrationsSearchParams = {
+  meta?: string;
+  notice?: string;
+};
+
+type IntegrationsPageProps = {
+  searchParams?: Promise<IntegrationsSearchParams>;
+};
+
+type PageNotice = {
+  tone: "success" | "warn";
+  title: string;
+  message: string;
 };
 
 async function getHealth(): Promise<ResourceResult<IntegrationHealthSummaryDto | null>> {
@@ -184,29 +200,34 @@ async function getMetaAssets(): Promise<ResourceResult<MetaAssetsDto | null>> {
 async function connectWhatsappInstance(formData: FormData) {
   "use server";
 
-  const instanceId = String(formData.get("instanceId") ?? "");
+  const instanceId = formText(formData, "instanceId");
 
   if (!instanceId) {
-    return;
+    redirect("/integrations?notice=whatsapp-connect-error");
   }
+
+  let target = "/integrations?notice=whatsapp-connect-error";
 
   try {
     await serverApiFetch(`/integrations/whatsapp/instances/${instanceId}/connect`, {
       method: "POST"
     });
     revalidatePath("/integrations");
+    target = "/integrations?notice=whatsapp-connect-requested";
   } catch {
-    return;
+    target = "/integrations?notice=whatsapp-connect-error";
   }
+
+  redirect(target);
 }
 
 async function createWhatsappCheckout(formData: FormData) {
   "use server";
 
-  const instanceName = String(formData.get("instanceName") ?? "").trim();
+  const instanceName = formText(formData, "instanceName");
 
   if (!instanceName) {
-    return;
+    redirect("/integrations?notice=whatsapp-checkout-missing");
   }
 
   let checkout: WhatsappInstanceCheckoutDto;
@@ -223,7 +244,7 @@ async function createWhatsappCheckout(formData: FormData) {
       }
     );
   } catch {
-    return;
+    redirect("/integrations?notice=whatsapp-checkout-error");
   }
 
   if (checkout.checkoutUrl) {
@@ -231,47 +252,41 @@ async function createWhatsappCheckout(formData: FormData) {
   }
 
   revalidatePath("/integrations");
+  redirect("/integrations?notice=whatsapp-checkout-created");
 }
 
 async function saveMetaConversionDestination(formData: FormData) {
   "use server";
 
-  const businessId = String(formData.get("businessId") ?? "").trim();
-  const pixelId = String(formData.get("pixelId") ?? "").trim();
-  const pageId = String(formData.get("pageId") ?? "").trim();
+  const businessId = formText(formData, "businessId");
+  const pixelId = formText(formData, "pixelId");
+  const pixelName = formText(formData, "pixelName");
+  const pageId = formText(formData, "pageId");
+  const pageName = formText(formData, "pageName");
 
-  if (!businessId || !pixelId || !pageId) {
-    return;
+  if (!businessId || !pixelId || !pixelName || !pageId || !pageName) {
+    redirect("/integrations?notice=meta-destination-missing");
   }
 
+  let target = "/integrations?notice=meta-destination-error";
+
   try {
-    const assets = await serverApiFetch<MetaAssetsDto>(
-      `/integrations/meta/assets?businessId=${encodeURIComponent(businessId)}`
-    );
-    const pixel = assets.pixels.find(
-      (item) => item.id === pixelId && item.businessId === businessId
-    );
-    const page = (assets.pages ?? []).find(
-      (item) => item.id === pageId && item.businessId === businessId
-    );
-
-    if (!pixel || !page) {
-      return;
-    }
-
     await serverApiFetch("/integrations/meta/conversion-destination", {
       method: "PUT",
       body: JSON.stringify({
         pixelId,
-        pixelName: pixel.name,
+        pixelName,
         pageId,
-        pageName: page.name
+        pageName
       })
     });
     revalidatePath("/integrations");
+    target = "/integrations?notice=meta-destination-saved";
   } catch {
-    return;
+    target = "/integrations?notice=meta-destination-error";
   }
+
+  redirect(target);
 }
 
 async function loadMetaBusinessDestinationAssets(
@@ -302,41 +317,38 @@ async function loadMetaBusinessDestinationAssets(
 async function saveMetaReportingAccount(formData: FormData) {
   "use server";
 
-  const businessId = String(formData.get("businessId") ?? "").trim();
-  const adAccountId = String(formData.get("adAccountId") ?? "").trim();
+  const businessId = formText(formData, "businessId");
+  const businessName = formText(formData, "businessName");
+  const adAccountId = formText(formData, "adAccountId");
+  const adAccountName = formText(formData, "adAccountName");
+  const currency = nullableFormText(formData, "currency");
+  const timezoneName = nullableFormText(formData, "timezoneName");
 
-  if (!businessId || !adAccountId) {
-    return;
+  if (!businessId || !businessName || !adAccountId || !adAccountName) {
+    redirect("/integrations?notice=meta-reporting-missing");
   }
 
+  let target = "/integrations?notice=meta-reporting-error";
+
   try {
-    const assets = await serverApiFetch<MetaAssetsDto>(
-      `/integrations/meta/assets?businessId=${encodeURIComponent(businessId)}`
-    );
-    const business = assets.businesses.find((item) => item.id === businessId);
-    const adAccount = assets.adAccounts.find(
-      (item) => item.id === adAccountId && item.businessId === businessId
-    );
-
-    if (!business || !adAccount) {
-      return;
-    }
-
     await serverApiFetch("/integrations/meta/reporting-accounts", {
       method: "POST",
       body: JSON.stringify({
         businessId,
-        businessName: business.name,
+        businessName,
         adAccountId,
-        adAccountName: adAccount.name,
-        currency: adAccount.currency,
-        timezoneName: adAccount.timezoneName
+        adAccountName,
+        currency,
+        timezoneName
       })
     });
     revalidatePath("/integrations");
+    target = "/integrations?notice=meta-reporting-saved";
   } catch {
-    return;
+    target = "/integrations?notice=meta-reporting-error";
   }
+
+  redirect(target);
 }
 
 async function loadMetaBusinessReportingAssets(
@@ -366,12 +378,14 @@ async function loadMetaBusinessReportingAssets(
 async function setMetaReportingAccountStatus(formData: FormData) {
   "use server";
 
-  const id = String(formData.get("id") ?? "").trim();
-  const active = String(formData.get("active") ?? "") === "true";
+  const id = formText(formData, "id");
+  const active = formText(formData, "active") === "true";
 
   if (!id) {
-    return;
+    redirect("/integrations?notice=meta-reporting-status-error");
   }
+
+  let target = "/integrations?notice=meta-reporting-status-error";
 
   try {
     await serverApiFetch(`/integrations/meta/reporting-accounts/${encodeURIComponent(id)}/status`, {
@@ -379,9 +393,12 @@ async function setMetaReportingAccountStatus(formData: FormData) {
       body: JSON.stringify({ active })
     });
     revalidatePath("/integrations");
+    target = "/integrations?notice=meta-reporting-status-saved";
   } catch {
-    return;
+    target = "/integrations?notice=meta-reporting-status-error";
   }
+
+  redirect(target);
 }
 
 function money(cents: number | null | undefined) {
@@ -423,6 +440,109 @@ function statusLabel(status: string) {
   };
 
   return labels[status] ?? "Status desconhecido";
+}
+
+function formText(formData: FormData, key: string): string {
+  return String(formData.get(key) ?? "").trim();
+}
+
+function nullableFormText(formData: FormData, key: string): string | null {
+  const value = formText(formData, key);
+
+  return value || null;
+}
+
+function integrationsNotice(
+  searchParams: IntegrationsSearchParams
+): PageNotice | null {
+  const notice = searchParams.notice;
+  const meta = searchParams.meta;
+
+  if (meta === "connected") {
+    return {
+      tone: "success",
+      title: "Meta conectada",
+      message: "A conexao foi salva. Selecione BM, Pixel, pagina e contas de relatorio."
+    };
+  }
+
+  if (meta === "error") {
+    return {
+      tone: "warn",
+      title: "Falha ao conectar Meta",
+      message: "Tente conectar novamente ou revise o retorno do OAuth no diagnostico."
+    };
+  }
+
+  const notices: Record<string, PageNotice> = {
+    "meta-destination-saved": {
+      tone: "success",
+      title: "Destino salvo",
+      message: "Pixel e pagina principal foram salvos para o envio de conversoes."
+    },
+    "meta-destination-error": {
+      tone: "warn",
+      title: "Destino nao salvo",
+      message: "Nao foi possivel salvar Pixel e pagina agora. Tente novamente."
+    },
+    "meta-destination-missing": {
+      tone: "warn",
+      title: "Destino incompleto",
+      message: "Selecione BM, Pixel e pagina antes de salvar."
+    },
+    "meta-reporting-saved": {
+      tone: "success",
+      title: "Conta adicionada",
+      message: "A conta de anuncio foi adicionada aos relatorios."
+    },
+    "meta-reporting-error": {
+      tone: "warn",
+      title: "Conta nao adicionada",
+      message: "Nao foi possivel adicionar a conta aos relatorios agora."
+    },
+    "meta-reporting-missing": {
+      tone: "warn",
+      title: "Conta incompleta",
+      message: "Selecione BM e conta de anuncio antes de adicionar."
+    },
+    "meta-reporting-status-saved": {
+      tone: "success",
+      title: "Status atualizado",
+      message: "A conta de anuncio foi atualizada nos relatorios."
+    },
+    "meta-reporting-status-error": {
+      tone: "warn",
+      title: "Status nao atualizado",
+      message: "Nao foi possivel alterar o status da conta agora."
+    },
+    "whatsapp-connect-requested": {
+      tone: "success",
+      title: "Conexao solicitada",
+      message: "A solicitacao de conexao do WhatsApp foi enviada ao provedor."
+    },
+    "whatsapp-connect-error": {
+      tone: "warn",
+      title: "Conexao nao iniciada",
+      message: "Nao foi possivel solicitar a conexao do WhatsApp agora."
+    },
+    "whatsapp-checkout-missing": {
+      tone: "warn",
+      title: "Instancia sem nome",
+      message: "Informe um nome para gerar a cobranca da instancia."
+    },
+    "whatsapp-checkout-created": {
+      tone: "success",
+      title: "Cobranca criada",
+      message: "A instancia foi criada como pendente de pagamento."
+    },
+    "whatsapp-checkout-error": {
+      tone: "warn",
+      title: "Cobranca nao criada",
+      message: "Nao foi possivel gerar a cobranca da instancia agora."
+    }
+  };
+
+  return notice ? notices[notice] ?? null : null;
 }
 
 function metaConnectionTitle(status?: MetaAssetsDto["status"] | MetaConnectionDto["status"]) {
@@ -482,7 +602,11 @@ function pipelineWidth(value: number, maxValue: number) {
   return `${Math.max(8, Math.round((value / maxValue) * 100))}%`;
 }
 
-export default async function IntegrationsPage() {
+export default async function IntegrationsPage({
+  searchParams
+}: IntegrationsPageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const pageNotice = integrationsNotice(resolvedSearchParams);
   const [
     healthResult,
     whatsappInstancesResult,
@@ -574,6 +698,13 @@ export default async function IntegrationsPage() {
           <span className="status-chip">{integrations.length} provedores</span>
         </div>
       </header>
+
+      {pageNotice ? (
+        <div className={`feedback-banner ${pageNotice.tone}`} role="status">
+          <strong>{pageNotice.title}</strong>
+          <span>{pageNotice.message}</span>
+        </div>
+      ) : null}
 
       <div className="integration-grid">
         {integrations.length > 0 ? (
@@ -762,9 +893,12 @@ export default async function IntegrationsPage() {
                 required
                 aria-label="Nome da instancia WhatsApp"
               />
-              <button className="button" type="submit">
+              <SubmitButton
+                pendingLabel="Gerando cobranca..."
+                statusText="Gerando cobranca da instancia no backend."
+              >
                 Adicionar instancia
-              </button>
+              </SubmitButton>
             </form>
             <span className="action-note">
               Preencha o nome para gerar a cobranca. A conexao do WhatsApp so
@@ -825,9 +959,12 @@ export default async function IntegrationsPage() {
                       {instance.billingStatus === "active" && canManageIntegrations ? (
                         <form action={connectWhatsappInstance}>
                           <input type="hidden" name="instanceId" value={instance.id} />
-                          <button className="button" type="submit">
+                          <SubmitButton
+                            pendingLabel="Conectando..."
+                            statusText="Solicitando conexao do WhatsApp."
+                          >
                             Conectar WhatsApp
-                          </button>
+                          </SubmitButton>
                         </form>
                       ) : instance.billingStatus === "active" ? (
                         <span className="event-chip warn">sem permissao</span>

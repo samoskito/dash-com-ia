@@ -783,6 +783,7 @@ export class MetaAdapter implements IntegrationAdapter {
     fields: string,
     accessToken: string
   ): Promise<T[]> {
+    const startedAt = Date.now();
     const params = new URLSearchParams({
       fields,
       access_token: accessToken
@@ -790,25 +791,51 @@ export class MetaAdapter implements IntegrationAdapter {
     let nextUrl: string | null =
       `https://graph.facebook.com/${this.getGraphApiVersion()}${path}?${params.toString()}`;
     const data: T[] = [];
+    let pageCount = 0;
 
-    for (let page = 0; nextUrl && page < 25; page += 1) {
-      const response = await this.fetchImpl(nextUrl);
-      const payload = (await response.json().catch(() => ({}))) as MetaGraphListResponse<T>;
+    try {
+      for (let page = 0; nextUrl && page < 25; page += 1) {
+        pageCount = page + 1;
+        const response = await this.fetchImpl(nextUrl);
+        const payload = (await response.json().catch(() => ({}))) as MetaGraphListResponse<T>;
 
-      if (!response.ok) {
-        throw new Error(
-          this.asString(payload.error?.message) ??
-            `Meta Graph HTTP ${response.status}`
-        );
+        if (!response.ok) {
+          throw new Error(
+            this.asString(payload.error?.message) ??
+              `Meta Graph HTTP ${response.status}`
+          );
+        }
+
+        if (Array.isArray(payload.data)) {
+          data.push(...payload.data);
+        }
+
+        nextUrl = this.asString(payload.paging?.next);
       }
 
-      if (Array.isArray(payload.data)) {
-        data.push(...payload.data);
-      }
+      return data;
+    } finally {
+      this.logSlowGraphList(path, Date.now() - startedAt, pageCount, data.length);
+    }
+  }
 
-      nextUrl = this.asString(payload.paging?.next);
+  private logSlowGraphList(
+    path: string,
+    durationMs: number,
+    pageCount: number,
+    itemCount: number
+  ): void {
+    const thresholdMs = Number(this.env.META_GRAPH_SLOW_LOG_MS ?? 1500);
+
+    if (!Number.isFinite(thresholdMs) || durationMs < thresholdMs) {
+      return;
     }
 
-    return data;
+    console.warn("[wpptrack:meta-graph] slow list", {
+      path,
+      durationMs,
+      pageCount,
+      itemCount
+    });
   }
 }

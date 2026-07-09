@@ -277,7 +277,9 @@ describe("integrations route", () => {
         )
       );
 
-    const element = await IntegrationsPage();
+    const element = await IntegrationsPage({
+      searchParams: Promise.resolve({ notice: "meta-reporting-saved" })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -313,6 +315,8 @@ describe("integrations route", () => {
       expect.objectContaining({ credentials: "include" })
     );
     expect(html).toContain("Meta conectado");
+    expect(html).toContain("Conta adicionada");
+    expect(html).toContain("A conta de anuncio foi adicionada aos relatorios.");
     expect(html).toContain("Trocar conta Meta");
     expect(html).not.toContain("Reconectar Meta");
     expect(html).toContain("pixel_1");
@@ -338,8 +342,12 @@ describe("integrations route", () => {
     expect(html).not.toContain("Remover token CAPI");
     expect(html).not.toContain("EAAB-capi-token-secret");
     expect(html).toContain('name="businessId"');
+    expect(html).toContain('name="businessName"');
     expect(html).toContain('name="adAccountId"');
+    expect(html).toContain('name="adAccountName"');
     expect(html).toContain('name="pixelId"');
+    expect(html).toContain('name="pixelName"');
+    expect(html).toContain('name="pageName"');
     expect(html).not.toContain("Salvar selecao Meta");
     expect(html).toContain("Vendas");
     expect(html).toContain("provider_instance_1");
@@ -624,7 +632,7 @@ describe("integrations route", () => {
         )
       );
 
-    const element = await IntegrationsPage();
+    const element = await IntegrationsPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("Contas para relatorios");
@@ -697,7 +705,7 @@ describe("integrations route", () => {
         })
       );
 
-    const element = await IntegrationsPage();
+    const element = await IntegrationsPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("API indisponivel");
@@ -841,7 +849,7 @@ describe("integrations route", () => {
         )
       );
 
-    const element = await IntegrationsPage();
+    const element = await IntegrationsPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("Meta com status desconhecido");
@@ -959,7 +967,7 @@ describe("integrations route", () => {
         )
       );
 
-    const element = await IntegrationsPage();
+    const element = await IntegrationsPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("BM Nova");

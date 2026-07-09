@@ -323,6 +323,11 @@ button {
   background: rgba(255, 255, 255, 0.04);
   color: var(--ink-soft);
   font-weight: 850;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease,
+    transform 120ms ease;
 }
 
 .button.primary,
@@ -1169,6 +1174,81 @@ body {
 .login-form button:disabled {
   cursor: not-allowed;
   opacity: 0.52;
+}
+
+.button:active,
+.login-form button:active,
+.logout-button:active {
+  transform: translateY(1px);
+}
+
+.button[data-pending="true"],
+.login-form button[data-pending="true"] {
+  border-color: rgba(66, 240, 168, 0.7);
+  box-shadow:
+    inset 0 0 0 1px rgba(66, 240, 168, 0.16),
+    0 0 0 3px rgba(18, 184, 132, 0.12);
+  transform: translateY(1px);
+}
+
+.button[data-pending="true"]::after,
+.login-form button[data-pending="true"]::after {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 8px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  vertical-align: -1px;
+  animation: button-spin 0.75s linear infinite;
+}
+
+.form-status {
+  flex: 1 1 100%;
+  min-height: 18px;
+  color: var(--ink-muted);
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.feedback-banner {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid rgba(66, 240, 168, 0.36);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(18, 184, 132, 0.14), transparent 58%),
+    rgba(10, 24, 21, 0.92);
+  color: var(--ink);
+}
+
+.feedback-banner strong {
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.feedback-banner span {
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.feedback-banner.warn {
+  border-color: rgba(234, 179, 8, 0.4);
+  background:
+    linear-gradient(135deg, rgba(234, 179, 8, 0.14), transparent 58%),
+    rgba(20, 18, 10, 0.88);
+}
+
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .table-wrap {
