@@ -2,10 +2,25 @@ import { z } from "zod";
 
 const moneyCentsSchema = z.number().int().nonnegative();
 
+export const metaWhatsappClassificationSchema = z.enum([
+  "auto_whatsapp",
+  "creative_whatsapp",
+  "detected_by_leads",
+  "manual_include",
+  "manual_exclude",
+  "needs_review",
+  "not_whatsapp"
+]);
+
 export const campaignReportRowSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   status: z.enum(["active", "paused", "deleted", "unknown"]),
+  businessId: z.string().min(1).nullable().optional(),
+  businessName: z.string().min(1).nullable().optional(),
+  adAccountId: z.string().min(1).nullable().optional(),
+  adAccountName: z.string().min(1).nullable().optional(),
+  whatsappClassification: metaWhatsappClassificationSchema.optional(),
   spendCents: moneyCentsSchema,
   metaConversationsStarted: z.number().int().nonnegative(),
   costPerMetaConversationCents: moneyCentsSchema.nullable(),
@@ -90,6 +105,14 @@ export const metaStructureReportSchema = z.object({
   campaigns: z.array(metaCampaignStructureSchema)
 });
 
+export const reportFiltersSchema = z.object({
+  businessId: z.string().min(1).optional(),
+  adAccountId: z.string().min(1).optional(),
+  whatsappClassification: z
+    .enum(["whatsapp", "needs_review", "excluded", "all"])
+    .default("whatsapp")
+});
+
 export type CampaignReportRowDto = z.infer<typeof campaignReportRowSchema>;
 export type ReportOverviewDto = z.infer<typeof reportOverviewSchema>;
 export type AdSetReportRowDto = z.infer<typeof adSetReportRowSchema>;
@@ -104,3 +127,7 @@ export type MetaCampaignStructureDto = z.infer<
   typeof metaCampaignStructureSchema
 >;
 export type MetaStructureReportDto = z.infer<typeof metaStructureReportSchema>;
+export type MetaWhatsappClassificationDto = z.infer<
+  typeof metaWhatsappClassificationSchema
+>;
+export type ReportFiltersDto = z.infer<typeof reportFiltersSchema>;

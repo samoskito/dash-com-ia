@@ -22,6 +22,7 @@ export const conversionRuleCreateInputSchema = z.object({
   triggerValue: z.string().trim().min(1).max(180),
   matchMode: conversionMatchModeSchema.default("contains"),
   eventName: conversionEventNameSchema,
+  // Legacy field. New conversion sending uses the workspace MetaConversionDestination.
   pixelId: z.string().trim().min(1).max(80).nullable().optional(),
   active: z.boolean().default(true)
 });
@@ -40,6 +41,7 @@ export const conversionRuleSchema = z.object({
   triggerValue: z.string().min(1),
   matchMode: conversionMatchModeSchema,
   eventName: conversionEventNameSchema,
+  // Legacy field. New conversion sending uses the workspace MetaConversionDestination.
   pixelId: z.string().nullable(),
   active: z.boolean(),
   createdAt: z.string().datetime(),

@@ -99,6 +99,70 @@ export const metaPixelAssetSchema = z.object({
   code: z.string().min(1).nullable()
 });
 
+export const metaPageAssetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1)
+});
+
+export const metaConversionDestinationStatusSchema = z.enum([
+  "needs_configuration",
+  "configured",
+  "error"
+]);
+
+export const metaConversionDestinationSchema = z.object({
+  workspaceId: z.string().min(1),
+  pixelId: z.string().min(1).nullable(),
+  pixelName: z.string().min(1).nullable(),
+  pageId: z.string().min(1).nullable(),
+  pageName: z.string().min(1).nullable(),
+  status: metaConversionDestinationStatusSchema,
+  lastValidatedAt: z.string().datetime().nullable(),
+  validationError: z.string().min(1).nullable()
+});
+
+export const metaConversionDestinationInputSchema = z.object({
+  pixelId: z.string().trim().min(1),
+  pixelName: z.string().trim().min(1),
+  pageId: z.string().trim().min(1),
+  pageName: z.string().trim().min(1)
+});
+
+export const metaAssetSyncStatusSchema = z.enum([
+  "pending",
+  "syncing",
+  "synced",
+  "error"
+]);
+
+export const metaReportingAccountSchema = z.object({
+  id: z.string().min(1),
+  workspaceId: z.string().min(1),
+  businessId: z.string().min(1),
+  businessName: z.string().min(1),
+  adAccountId: z.string().min(1),
+  adAccountName: z.string().min(1),
+  currency: z.string().min(1).nullable(),
+  timezoneName: z.string().min(1).nullable(),
+  active: z.boolean(),
+  syncStatus: metaAssetSyncStatusSchema,
+  lastSyncedAt: z.string().datetime().nullable(),
+  syncError: z.string().min(1).nullable()
+});
+
+export const metaReportingAccountInputSchema = z.object({
+  businessId: z.string().trim().min(1),
+  businessName: z.string().trim().min(1),
+  adAccountId: z.string().trim().min(1),
+  adAccountName: z.string().trim().min(1),
+  currency: z.string().trim().min(1).nullable().optional(),
+  timezoneName: z.string().trim().min(1).nullable().optional()
+});
+
+export const metaReportingAccountStatusInputSchema = z.object({
+  active: z.boolean()
+});
+
 export const metaAssetSelectionSchema = z.object({
   businessId: z.string().min(1).nullable(),
   adAccountId: z.string().min(1).nullable(),
@@ -111,6 +175,9 @@ export const metaAssetsSchema = z.object({
   businesses: z.array(metaBusinessAssetSchema),
   adAccounts: z.array(metaAdAccountAssetSchema),
   pixels: z.array(metaPixelAssetSchema),
+  pages: z.array(metaPageAssetSchema).optional(),
+  conversionDestination: metaConversionDestinationSchema.nullable().optional(),
+  reportingAccounts: z.array(metaReportingAccountSchema).optional(),
   selection: metaAssetSelectionSchema,
   lastSyncedAt: z.string().datetime().nullable(),
   syncError: z.string().min(1).nullable()
@@ -161,6 +228,28 @@ export type MetaCapiTokenStatusDto = z.infer<typeof metaCapiTokenStatusSchema>;
 export type MetaBusinessAssetDto = z.infer<typeof metaBusinessAssetSchema>;
 export type MetaAdAccountAssetDto = z.infer<typeof metaAdAccountAssetSchema>;
 export type MetaPixelAssetDto = z.infer<typeof metaPixelAssetSchema>;
+export type MetaPageAssetDto = z.infer<typeof metaPageAssetSchema>;
+export type MetaConversionDestinationStatusDto = z.infer<
+  typeof metaConversionDestinationStatusSchema
+>;
+export type MetaConversionDestinationDto = z.infer<
+  typeof metaConversionDestinationSchema
+>;
+export type MetaConversionDestinationInputDto = z.infer<
+  typeof metaConversionDestinationInputSchema
+>;
+export type MetaAssetSyncStatusDto = z.infer<
+  typeof metaAssetSyncStatusSchema
+>;
+export type MetaReportingAccountDto = z.infer<
+  typeof metaReportingAccountSchema
+>;
+export type MetaReportingAccountInputDto = z.infer<
+  typeof metaReportingAccountInputSchema
+>;
+export type MetaReportingAccountStatusInputDto = z.infer<
+  typeof metaReportingAccountStatusInputSchema
+>;
 export type MetaAssetSelectionDto = z.infer<typeof metaAssetSelectionSchema>;
 export type MetaAssetsDto = z.infer<typeof metaAssetsSchema>;
 export type MetaAssetSelectionInputDto = z.infer<

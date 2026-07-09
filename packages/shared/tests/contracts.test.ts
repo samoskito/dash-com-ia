@@ -28,10 +28,12 @@ import {
   integrationHealthSchema,
   integrationHealthSummarySchema,
   integrationPipelineOverviewSchema,
+  metaConversionDestinationSchema,
   metaCapiTokenInputSchema,
   metaCapiTokenStatusSchema,
   metaAssetSelectionInputSchema,
   metaAssetsSchema,
+  metaReportingAccountSchema,
   metaStructureReportSchema,
   leadListItemSchema,
   leadDetailSchema,
@@ -46,6 +48,7 @@ import {
   passwordResetRequestInputSchema,
   passwordResetRequestSchema,
   registerSchema,
+  reportFiltersSchema,
   backofficePaymentChargeListSchema,
   backofficePaymentChargeSchema,
   backofficeSubscriptionPlanCreateInputSchema,
@@ -89,6 +92,11 @@ describe("shared contracts", () => {
       id: "cmp_1",
       name: "Black Friday WhatsApp",
       status: "active",
+      businessId: "business_1",
+      businessName: "BM Principal",
+      adAccountId: "act_123",
+      adAccountName: "Conta WhatsApp",
+      whatsappClassification: "auto_whatsapp",
       spendCents: 120000,
       metaConversationsStarted: 100,
       costPerMetaConversationCents: 1200,
@@ -106,6 +114,92 @@ describe("shared contracts", () => {
     expect(parsed.purchase).toBe(3);
   });
 
+  it("validates legacy campaign report rows without Meta account metadata", () => {
+    const parsed = campaignReportRowSchema.parse({
+      id: "cmp_1",
+      name: "Black Friday WhatsApp",
+      status: "active",
+      spendCents: 120000,
+      metaConversationsStarted: 100,
+      costPerMetaConversationCents: 1200,
+      realConversations: 80,
+      costPerRealConversationCents: 1500,
+      leadSubmitted: 30,
+      costPerLeadSubmittedCents: 4000,
+      qualifiedLead: 12,
+      costPerQualifiedLeadCents: 10000,
+      purchase: 3,
+      costPerPurchaseCents: 40000,
+      roas: 4.2
+    });
+
+    expect(parsed.purchase).toBe(3);
+    expect(parsed.whatsappClassification).toBeUndefined();
+  });
+
+  it("validates Meta conversion destination and reporting accounts", () => {
+    const destination = metaConversionDestinationSchema.parse({
+      workspaceId: "workspace_1",
+      pixelId: "pixel_1",
+      pixelName: "Pixel Principal",
+      pageId: "page_1",
+      pageName: "Pagina Principal",
+      status: "configured",
+      lastValidatedAt: "2026-07-09T12:00:00.000Z",
+      validationError: null
+    });
+    const account = metaReportingAccountSchema.parse({
+      id: "reporting_1",
+      workspaceId: "workspace_1",
+      businessId: "business_1",
+      businessName: "BM Principal",
+      adAccountId: "act_123",
+      adAccountName: "Conta WhatsApp",
+      currency: "BRL",
+      timezoneName: "America/Sao_Paulo",
+      active: true,
+      syncStatus: "synced",
+      lastSyncedAt: "2026-07-09T12:00:00.000Z",
+      syncError: null
+    });
+
+    expect(destination.pageId).toBe("page_1");
+    expect(account.active).toBe(true);
+  });
+
+  it("validates WhatsApp classification filters in reports", () => {
+    const row = campaignReportRowSchema.parse({
+      id: "cmp_1",
+      name: "Campanha WhatsApp",
+      status: "active",
+      businessId: "business_1",
+      businessName: "BM Principal",
+      adAccountId: "act_123",
+      adAccountName: "Conta WhatsApp",
+      whatsappClassification: "auto_whatsapp",
+      spendCents: 10000,
+      metaConversationsStarted: 2,
+      costPerMetaConversationCents: 5000,
+      realConversations: 1,
+      costPerRealConversationCents: 10000,
+      leadSubmitted: 1,
+      costPerLeadSubmittedCents: 10000,
+      qualifiedLead: 0,
+      costPerQualifiedLeadCents: null,
+      purchase: 0,
+      costPerPurchaseCents: null,
+      roas: null
+    });
+
+    expect(row.whatsappClassification).toBe("auto_whatsapp");
+  });
+
+  it("defaults report filters to WhatsApp classification", () => {
+    const filters = reportFiltersSchema.parse({});
+
+    expect(filters.whatsappClassification).toBe("whatsapp");
+  });
+
   it("validates ad set and ad performance report overviews", () => {
     const adSets = adSetReportOverviewSchema.parse({
       workspaceId: "workspace_1",
@@ -117,6 +211,11 @@ describe("shared contracts", () => {
           campaignName: "Black Friday WhatsApp",
           name: "Publico quente",
           status: "active",
+          businessId: "business_1",
+          businessName: "BM Principal",
+          adAccountId: "act_123",
+          adAccountName: "Conta WhatsApp",
+          whatsappClassification: "auto_whatsapp",
           spendCents: 0,
           metaConversationsStarted: 0,
           costPerMetaConversationCents: null,
@@ -144,6 +243,11 @@ describe("shared contracts", () => {
           adSetName: "Publico quente",
           name: "Criativo WhatsApp",
           status: "active",
+          businessId: "business_1",
+          businessName: "BM Principal",
+          adAccountId: "act_123",
+          adAccountName: "Conta WhatsApp",
+          whatsappClassification: "creative_whatsapp",
           spendCents: 0,
           metaConversationsStarted: 0,
           costPerMetaConversationCents: null,
@@ -421,6 +525,38 @@ describe("shared contracts", () => {
           code: "1234567890"
         }
       ],
+      pages: [
+        {
+          id: "page_1",
+          name: "Pagina Principal"
+        }
+      ],
+      conversionDestination: {
+        workspaceId: "workspace_1",
+        pixelId: "pixel_1",
+        pixelName: "Pixel Loja",
+        pageId: "page_1",
+        pageName: "Pagina Principal",
+        status: "configured",
+        lastValidatedAt: "2026-07-02T12:00:00.000Z",
+        validationError: null
+      },
+      reportingAccounts: [
+        {
+          id: "reporting_1",
+          workspaceId: "workspace_1",
+          businessId: "business_1",
+          businessName: "BM Principal",
+          adAccountId: "act_123",
+          adAccountName: "Conta WhatsApp",
+          currency: "BRL",
+          timezoneName: "America/Sao_Paulo",
+          active: true,
+          syncStatus: "synced",
+          lastSyncedAt: "2026-07-02T12:00:00.000Z",
+          syncError: null
+        }
+      ],
       selection: {
         businessId: "business_1",
         adAccountId: "act_123",
@@ -440,6 +576,48 @@ describe("shared contracts", () => {
     expect(assets.pixels[0]?.name).toBe("Pixel Loja");
     expect(input.pixelId).toBe("pixel_1");
     expect(JSON.stringify(assets)).not.toContain("accessToken");
+  });
+
+  it("validates legacy Meta assets without multi-account aggregates", () => {
+    const assets = metaAssetsSchema.parse({
+      workspaceId: "workspace_1",
+      status: "connected",
+      businesses: [
+        {
+          id: "business_1",
+          name: "BM Principal",
+          verificationStatus: "verified"
+        }
+      ],
+      adAccounts: [
+        {
+          id: "act_123",
+          businessId: "business_1",
+          name: "Conta WhatsApp",
+          accountStatus: "1",
+          currency: "BRL",
+          timezoneName: "America/Sao_Paulo"
+        }
+      ],
+      pixels: [
+        {
+          id: "pixel_1",
+          businessId: "business_1",
+          name: "Pixel Loja",
+          code: "1234567890"
+        }
+      ],
+      selection: {
+        businessId: "business_1",
+        adAccountId: "act_123",
+        pixelId: "pixel_1"
+      },
+      lastSyncedAt: "2026-07-02T12:00:00.000Z",
+      syncError: null
+    });
+
+    expect(assets.pixels[0]?.name).toBe("Pixel Loja");
+    expect(assets.reportingAccounts).toBeUndefined();
   });
 
   it("validates Meta CAPI token configuration contracts without echoing secrets", () => {
