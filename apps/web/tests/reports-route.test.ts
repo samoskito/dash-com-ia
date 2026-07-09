@@ -248,9 +248,9 @@ describe("reports route", () => {
     expect(html).toContain("Publico quente");
     expect(html).toContain("Criativo WhatsApp");
     expect(html).toContain("Sincronizar Meta");
-    expect(html.match(/name="businessId"/g)).toHaveLength(3);
-    expect(html.match(/name="adAccountId"/g)).toHaveLength(3);
-    expect(html.match(/name="whatsappClassification"/g)).toHaveLength(3);
+    expect(html.match(/name="businessId"/g)).toHaveLength(4);
+    expect(html.match(/name="adAccountId"/g)).toHaveLength(4);
+    expect(html.match(/name="whatsappClassification"/g)).toHaveLength(4);
     expect(html).toContain(
       'href="/reports/export?since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"',
     );
@@ -279,6 +279,14 @@ describe("reports route", () => {
     expect(html).toContain(
       'class="table-wrap report-table-scroll meta-structure-scroll"',
     );
+    expect(html).toContain('aria-label="Filtros da estrutura tecnica Meta"');
+    expect(html).toContain('name="structureNameScope"');
+    expect(html).toContain('name="structureNameContains"');
+    expect(html).toContain('name="structureStatus"');
+    expect(html).toContain("Campanha contem");
+    expect(html).toContain("Conjunto contem");
+    expect(html).toContain("Anuncio contem");
+    expect(html).toContain("Inativos");
     expect(html).toContain("Revisao WhatsApp");
     expect(html.match(/Incluir/g)).toHaveLength(3);
     expect(html.match(/Excluir/g)).toHaveLength(3);
@@ -569,8 +577,8 @@ describe("reports route", () => {
     expect(html).toContain(
       'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"',
     );
-    expect(html.match(/name="compareSince"/g)).toHaveLength(2);
-    expect(html.match(/name="compareUntil"/g)).toHaveLength(2);
+    expect(html.match(/name="compareSince"/g)).toHaveLength(3);
+    expect(html.match(/name="compareUntil"/g)).toHaveLength(3);
   });
 
   it("renders Meta filters without keeping an account from another BM", () => {
@@ -762,6 +770,142 @@ describe("reports route", () => {
 
     expect(html).toContain("Status desconhecido");
     expect(html).not.toContain(">unknown<");
+  });
+
+  it("filters the Meta technical structure by name and status", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            campaigns: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            campaigns: [
+              {
+                id: "cmp_1",
+                name: "Campanha tecnica",
+                status: "ACTIVE",
+                effectiveStatus: "ACTIVE",
+                objective: "OUTCOME_SALES",
+                adSets: [
+                  {
+                    id: "adset_1",
+                    name: "Publico ativo",
+                    status: "ACTIVE",
+                    effectiveStatus: "ACTIVE",
+                    ads: [
+                      {
+                        id: "ad_1",
+                        name: "Criativo ativo",
+                        status: "ACTIVE",
+                        effectiveStatus: "ACTIVE",
+                      },
+                    ],
+                  },
+                  {
+                    id: "adset_2",
+                    name: "Publico pausado",
+                    status: "PAUSED",
+                    effectiveStatus: "PAUSED",
+                    ads: [
+                      {
+                        id: "ad_2",
+                        name: "Criativo pausado",
+                        status: "PAUSED",
+                        effectiveStatus: "PAUSED",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            adSets: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            ads: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "workspace_1",
+            name: "Workspace",
+            slug: "workspace",
+            role: "owner",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "connected",
+            businesses: [],
+            adAccounts: [],
+            pixels: [],
+            pages: [],
+            reportingAccounts: [],
+            selection: {
+              businessId: null,
+              adAccountId: null,
+              pixelId: null,
+            },
+            lastSyncedAt: null,
+            syncError: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const element = await ReportsPage({
+      searchParams: Promise.resolve({
+        structureNameScope: "ad",
+        structureNameContains: "pausado",
+        structureStatus: "inactive",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain('open=""');
+    expect(html).toContain('name="structureNameScope"');
+    expect(html).toContain('option value="ad" selected=""');
+    expect(html).toContain('name="structureNameContains" value="pausado"');
+    expect(html).toContain('option value="inactive" selected=""');
+    expect(html).toContain("Criativo pausado");
+    expect(html).not.toContain("Criativo ativo");
   });
 
   it("hides Meta sync action for workspace members", async () => {

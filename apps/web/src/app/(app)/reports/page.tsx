@@ -59,6 +59,23 @@ type ReportEntityCopy = {
   unknownSingular: string;
   unknownPlural: string;
 };
+type StructureNameScope = "campaign" | "adset" | "ad";
+type StructureStatusFilter = "all" | "active" | "inactive";
+type MetaStructureFilters = {
+  nameContains?: string;
+  nameScope: StructureNameScope;
+  status: StructureStatusFilter;
+};
+type MetaStructureRow = {
+  adId: string | null;
+  adName: string;
+  adSetId: string;
+  adSetName: string;
+  campaignName: string;
+  campaignObjective: string | null;
+  key: string;
+  status: string | null | undefined;
+};
 type ReportNotice = {
   tone: "success" | "warn";
   title: string;
@@ -340,6 +357,14 @@ function formText(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
 
+function structureNameScope(value?: string): StructureNameScope {
+  return value === "adset" || value === "ad" ? value : "campaign";
+}
+
+function structureStatusFilter(value?: string): StructureStatusFilter {
+  return value === "active" || value === "inactive" ? value : "all";
+}
+
 function reportsNotice(notice?: string): ReportNotice | null {
   const notices: Record<string, ReportNotice> = {
     "meta-sync-queued": {
@@ -601,6 +626,87 @@ function metaStructureSummary(
   };
 }
 
+function metaStructureRows(
+  metaStructure: MetaStructureReportDto | null,
+): MetaStructureRow[] {
+  const rows: MetaStructureRow[] = [];
+
+  for (const campaign of metaStructure?.campaigns ?? []) {
+    for (const adSet of campaign.adSets) {
+      if (adSet.ads.length) {
+        for (const ad of adSet.ads) {
+          rows.push({
+            adId: ad.id,
+            adName: ad.name,
+            adSetId: adSet.id,
+            adSetName: adSet.name,
+            campaignName: campaign.name,
+            campaignObjective: campaign.objective,
+            key: `${campaign.id}:${adSet.id}:${ad.id}`,
+            status: ad.effectiveStatus ?? ad.status,
+          });
+        }
+
+        continue;
+      }
+
+      rows.push({
+        adId: null,
+        adName: "Sem anuncios sincronizados",
+        adSetId: adSet.id,
+        adSetName: adSet.name,
+        campaignName: campaign.name,
+        campaignObjective: campaign.objective,
+        key: `${campaign.id}:${adSet.id}:empty`,
+        status: adSet.effectiveStatus ?? adSet.status,
+      });
+    }
+  }
+
+  return rows;
+}
+
+function normalizedSearch(value: string | null | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+}
+
+function metaStructureRowIsActive(row: MetaStructureRow): boolean {
+  return row.status?.toUpperCase() === "ACTIVE";
+}
+
+function filterMetaStructureRows(
+  rows: MetaStructureRow[],
+  filters: MetaStructureFilters,
+): MetaStructureRow[] {
+  const query = normalizedSearch(filters.nameContains);
+
+  return rows.filter((row) => {
+    const nameTarget = {
+      ad: row.adName,
+      adset: row.adSetName,
+      campaign: row.campaignName,
+    }[filters.nameScope];
+
+    if (query && !normalizedSearch(nameTarget).includes(query)) {
+      return false;
+    }
+
+    if (filters.status === "active") {
+      return metaStructureRowIsActive(row);
+    }
+
+    if (filters.status === "inactive") {
+      return !metaStructureRowIsActive(row);
+    }
+
+    return true;
+  });
+}
+
 function countLabel(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -779,6 +885,15 @@ export default async function ReportsPage({
   const nameScope = asStringParam(resolvedSearchParams.nameScope);
   const nameContains = asStringParam(resolvedSearchParams.nameContains);
   const status = asStringParam(resolvedSearchParams.status);
+  const structureNameContains = asStringParam(
+    resolvedSearchParams.structureNameContains,
+  );
+  const structureNameScopeValue = structureNameScope(
+    asStringParam(resolvedSearchParams.structureNameScope),
+  );
+  const structureStatusValue = structureStatusFilter(
+    asStringParam(resolvedSearchParams.structureStatus),
+  );
   const whatsappClassification = asStringParam(
     resolvedSearchParams.whatsappClassification,
   );
@@ -796,6 +911,14 @@ export default async function ReportsPage({
     status,
     whatsappClassification,
   };
+  const structureFilters: MetaStructureFilters = {
+    nameContains: structureNameContains,
+    nameScope: structureNameScopeValue,
+    status: structureStatusValue,
+  };
+  const structureFiltersApplied = Boolean(
+    structureNameContains || structureStatusValue !== "all",
+  );
   const hasComparison = Boolean(compareSince && compareUntil);
   const [
     campaignReports,
@@ -826,6 +949,11 @@ export default async function ReportsPage({
   const adRows = adReports.report.ads;
   const currentTotals = reportTotals(rows);
   const metaSummary = metaStructureSummary(metaStructure, metaAssets);
+  const rawMetaStructureRows = metaStructureRows(metaStructure);
+  const filteredMetaStructureRows = filterMetaStructureRows(
+    rawMetaStructureRows,
+    structureFilters,
+  );
   const comparisonTotals = comparisonReports
     ? reportTotals(comparisonReports.report.campaigns)
     : null;
@@ -844,6 +972,16 @@ export default async function ReportsPage({
   const syncStructureHint = canSyncMetaReports
     ? "Use o botao Sincronizar Meta para enfileirar a leitura."
     : "A leitura da estrutura Meta depende de owner ou admin.";
+  const emptyStructureTitle = rawMetaStructureRows.length
+    ? "Nenhuma estrutura encontrada"
+    : "Nenhuma estrutura Meta sincronizada";
+  const emptyStructureHint = rawMetaStructureRows.length
+    ? "Ajuste os filtros da estrutura tecnica para ver outros itens sincronizados."
+    : syncStructureHint;
+  const clearStructureQuery = reportQuery(reportFilters, true);
+  const clearStructureHref = clearStructureQuery
+    ? `/reports?${clearStructureQuery}`
+    : "/reports";
   const noReviewPermission = "Sem permissao para revisar";
 
   return (
@@ -1236,7 +1374,10 @@ export default async function ReportsPage({
         </div>
       </div>
 
-      <details className="surface-panel meta-diagnostic-panel">
+      <details
+        className="surface-panel meta-diagnostic-panel"
+        open={structureFiltersApplied}
+      >
         <summary className="meta-diagnostic-summary">
           <span className="meta-diagnostic-copy">
             <span className="eyebrow">Diagnostico da sincronizacao Meta</span>
@@ -1301,6 +1442,62 @@ export default async function ReportsPage({
           </span>
         </div>
 
+        <form
+          className="filter-bar meta-structure-filters"
+          aria-label="Filtros da estrutura tecnica Meta"
+          action="/reports"
+        >
+          <input type="hidden" name="since" value={since ?? ""} />
+          <input type="hidden" name="until" value={until ?? ""} />
+          <input type="hidden" name="compareSince" value={compareSince ?? ""} />
+          <input type="hidden" name="compareUntil" value={compareUntil ?? ""} />
+          <input type="hidden" name="businessId" value={businessId ?? ""} />
+          <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
+          <input type="hidden" name="nameScope" value={nameScope ?? ""} />
+          <input type="hidden" name="nameContains" value={nameContains ?? ""} />
+          <input type="hidden" name="status" value={status ?? ""} />
+          <input
+            type="hidden"
+            name="whatsappClassification"
+            value={whatsappClassification ?? ""}
+          />
+          <select
+            className="filter-control"
+            name="structureNameScope"
+            aria-label="Tipo de filtro da estrutura tecnica"
+            defaultValue={structureFilters.nameScope}
+          >
+            <option value="campaign">Campanha contem</option>
+            <option value="adset">Conjunto contem</option>
+            <option value="ad">Anuncio contem</option>
+          </select>
+          <input
+            className="filter-control"
+            placeholder="Filtrar estrutura por nome"
+            aria-label="Texto contido no nome da estrutura"
+            name="structureNameContains"
+            defaultValue={structureFilters.nameContains ?? ""}
+          />
+          <select
+            className="filter-control"
+            name="structureStatus"
+            aria-label="Filtrar status da estrutura tecnica"
+            defaultValue={structureFilters.status}
+          >
+            <option value="all">Todos os status</option>
+            <option value="active">Ativos</option>
+            <option value="inactive">Inativos</option>
+          </select>
+          <button className="button" type="submit">
+            Filtrar estrutura
+          </button>
+          {structureFiltersApplied ? (
+            <Link className="button ghost" href={clearStructureHref}>
+              Limpar filtros
+            </Link>
+          ) : null}
+        </form>
+
         <div className="table-wrap report-table-scroll meta-structure-scroll">
           <table className="meta-structure-table">
             <thead>
@@ -1312,64 +1509,37 @@ export default async function ReportsPage({
               </tr>
             </thead>
             <tbody>
-              {metaStructure?.campaigns.length ? (
-                metaStructure.campaigns.flatMap((campaign) =>
-                  campaign.adSets.flatMap((adSet) =>
-                    adSet.ads.length
-                      ? adSet.ads.map((ad) => (
-                          <tr key={`${campaign.id}:${adSet.id}:${ad.id}`}>
-                            <td>
-                              <strong>{campaign.name}</strong>
-                              <span>
-                                {campaign.objective ?? "sem objetivo"}
-                              </span>
-                            </td>
-                            <td>
-                              <strong>{adSet.name}</strong>
-                              <span>{adSet.id}</span>
-                            </td>
-                            <td>
-                              <strong>{ad.name}</strong>
-                              <span>{ad.id}</span>
-                            </td>
-                            <td>
-                              <span className="event-chip">
-                                {metaStatusLabel(
-                                  ad.effectiveStatus ?? ad.status,
-                                )}
-                              </span>
-                            </td>
-                          </tr>
-                        ))
-                      : [
-                          <tr key={`${campaign.id}:${adSet.id}:empty`}>
-                            <td>
-                              <strong>{campaign.name}</strong>
-                              <span>
-                                {campaign.objective ?? "sem objetivo"}
-                              </span>
-                            </td>
-                            <td>
-                              <strong>{adSet.name}</strong>
-                              <span>{adSet.id}</span>
-                            </td>
-                            <td>Sem anuncios sincronizados</td>
-                            <td>
-                              <span className="event-chip warn">
-                                {metaStatusLabel(
-                                  adSet.effectiveStatus ?? adSet.status,
-                                )}
-                              </span>
-                            </td>
-                          </tr>,
-                        ],
-                  ),
-                )
+              {filteredMetaStructureRows.length ? (
+                filteredMetaStructureRows.map((row) => (
+                  <tr key={row.key}>
+                    <td>
+                      <strong>{row.campaignName}</strong>
+                      <span>{row.campaignObjective ?? "sem objetivo"}</span>
+                    </td>
+                    <td>
+                      <strong>{row.adSetName}</strong>
+                      <span>{row.adSetId}</span>
+                    </td>
+                    <td>
+                      <strong>{row.adName}</strong>
+                      <span>{row.adId ?? "sem anuncio"}</span>
+                    </td>
+                    <td>
+                      <span
+                        className={`event-chip${
+                          metaStructureRowIsActive(row) ? "" : " warn"
+                        }`}
+                      >
+                        {metaStatusLabel(row.status)}
+                      </span>
+                    </td>
+                  </tr>
+                ))
               ) : (
                 <tr>
                   <td>
-                    <strong>Nenhuma estrutura Meta sincronizada</strong>
-                    <span>{syncStructureHint}</span>
+                    <strong>{emptyStructureTitle}</strong>
+                    <span>{emptyStructureHint}</span>
                   </td>
                   <td>sem conjunto</td>
                   <td>sem anuncio</td>
