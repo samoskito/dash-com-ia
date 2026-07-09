@@ -560,6 +560,7 @@ describe("shared contracts", () => {
       pages: [
         {
           id: "page_1",
+          businessId: "business_1",
           name: "Pagina Principal"
         }
       ],

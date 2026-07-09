@@ -447,11 +447,57 @@ export class MetaAdapter implements IntegrationAdapter {
     );
 
     return response
-      .map((item) => ({
-        id: this.asString(item.id),
-        name: this.asString(item.name)
-      }))
-      .filter((item): item is MetaPageAssetDto => Boolean(item.id && item.name));
+      .map((item): MetaPageAssetDto | null => {
+        const id = this.asString(item.id);
+        const name = this.asString(item.name);
+
+        if (!id || !name) {
+          return null;
+        }
+
+        return {
+          id,
+          businessId: null,
+          name
+        };
+      })
+      .filter((item): item is MetaPageAssetDto => Boolean(item));
+  }
+
+  async listBusinessPages(input: {
+    accessToken: string;
+    businessId: string;
+  }): Promise<MetaPageAssetDto[]> {
+    const [ownedPages, clientPages] = await Promise.all([
+      this.getGraphList<MetaPageGraphNode>(
+        `/${input.businessId}/owned_pages`,
+        "id,name",
+        input.accessToken
+      ),
+      this.getGraphList<MetaPageGraphNode>(
+        `/${input.businessId}/client_pages`,
+        "id,name",
+        input.accessToken
+      )
+    ]);
+    const pagesById = new Map<string, MetaPageAssetDto>();
+
+    for (const item of [...ownedPages, ...clientPages]) {
+      const id = this.asString(item.id);
+      const name = this.asString(item.name);
+
+      if (!id || !name || pagesById.has(id)) {
+        continue;
+      }
+
+      pagesById.set(id, {
+        id,
+        businessId: input.businessId,
+        name
+      });
+    }
+
+    return [...pagesById.values()];
   }
 
   async listCampaigns(input: {

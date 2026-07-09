@@ -236,17 +236,24 @@ async function createWhatsappCheckout(formData: FormData) {
 async function saveMetaConversionDestination(formData: FormData) {
   "use server";
 
+  const businessId = String(formData.get("businessId") ?? "").trim();
   const pixelId = String(formData.get("pixelId") ?? "").trim();
   const pageId = String(formData.get("pageId") ?? "").trim();
 
-  if (!pixelId || !pageId) {
+  if (!businessId || !pixelId || !pageId) {
     return;
   }
 
   try {
-    const assets = await serverApiFetch<MetaAssetsDto>("/integrations/meta/assets");
-    const pixel = assets.pixels.find((item) => item.id === pixelId);
-    const page = (assets.pages ?? []).find((item) => item.id === pageId);
+    const assets = await serverApiFetch<MetaAssetsDto>(
+      `/integrations/meta/assets?businessId=${encodeURIComponent(businessId)}`
+    );
+    const pixel = assets.pixels.find(
+      (item) => item.id === pixelId && item.businessId === businessId
+    );
+    const page = (assets.pages ?? []).find(
+      (item) => item.id === pageId && item.businessId === businessId
+    );
 
     if (!pixel || !page) {
       return;
@@ -264,6 +271,31 @@ async function saveMetaConversionDestination(formData: FormData) {
     revalidatePath("/integrations");
   } catch {
     return;
+  }
+}
+
+async function loadMetaBusinessDestinationAssets(
+  businessId: string
+): Promise<Pick<MetaAssetsDto, "pixels" | "pages">> {
+  "use server";
+
+  const normalizedBusinessId = businessId.trim();
+
+  if (!normalizedBusinessId) {
+    return { pixels: [], pages: [] };
+  }
+
+  try {
+    const assets = await serverApiFetch<MetaAssetsDto>(
+      `/integrations/meta/assets?businessId=${encodeURIComponent(normalizedBusinessId)}`
+    );
+
+    return {
+      pixels: assets.pixels,
+      pages: assets.pages ?? []
+    };
+  } catch {
+    return { pixels: [], pages: [] };
   }
 }
 
@@ -595,46 +627,55 @@ export default async function IntegrationsPage() {
         </p>
         {metaAssets ? (
           <>
-            <span className="eyebrow">Destino de conversao</span>
-            <h2>Pixel e Pagina Facebook principal</h2>
-            <div className="metric-grid compact">
-              <div className="metric-card">
-                <span className="micro-label">Pixel CAPI</span>
-                <strong>{metaAssets.conversionDestination?.pixelName ?? "Sem Pixel"}</strong>
+            <div className="meta-config-section">
+              <div>
+                <span className="eyebrow">Destino de conversao</span>
+                <h2>Pixel e Pagina Facebook principal</h2>
               </div>
-              <div className="metric-card">
-                <span className="micro-label">Pagina Facebook principal</span>
-                <strong>{metaAssets.conversionDestination?.pageName ?? "Sem Pagina"}</strong>
+              <div className="metric-grid compact">
+                <div className="metric-card">
+                  <span className="micro-label">Pixel CAPI</span>
+                  <strong>{metaAssets.conversionDestination?.pixelName ?? "Sem Pixel"}</strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Pagina Facebook principal</span>
+                  <strong>{metaAssets.conversionDestination?.pageName ?? "Sem Pagina"}</strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Status destino</span>
+                  <strong>
+                    {metaAssets.conversionDestination
+                      ? statusLabel(metaAssets.conversionDestination.status)
+                      : "Nao configurado"}
+                  </strong>
+                </div>
               </div>
-              <div className="metric-card">
-                <span className="micro-label">Status destino</span>
-                <strong>
-                  {metaAssets.conversionDestination
-                    ? statusLabel(metaAssets.conversionDestination.status)
-                    : "Nao configurado"}
-                </strong>
-              </div>
+              {canManageIntegrations ? (
+                <MetaConversionDestinationForm
+                  assets={metaAssets}
+                  action={saveMetaConversionDestination}
+                  loadBusinessAssetsAction={loadMetaBusinessDestinationAssets}
+                />
+              ) : (
+                <p className="muted">Sem permissao para alterar destino Meta</p>
+              )}
             </div>
-            {canManageIntegrations ? (
-              <MetaConversionDestinationForm
-                assets={metaAssets}
-                action={saveMetaConversionDestination}
-              />
-            ) : (
-              <p className="muted">Sem permissao para alterar destino Meta</p>
-            )}
 
-            <span className="eyebrow">Contas para relatorios</span>
-            <h2>Contas Meta sincronizadas nos relatorios</h2>
-            {canManageIntegrations ? (
-              <MetaReportingAccountsForm
-                assets={metaAssets}
-                action={saveMetaReportingAccount}
-                statusAction={setMetaReportingAccountStatus}
-              />
-            ) : (
-              <p className="muted">Sem permissao para alterar contas de relatorio</p>
-            )}
+            <div className="meta-config-section">
+              <div>
+                <span className="eyebrow">Contas para relatorios</span>
+                <h2>Contas Meta sincronizadas nos relatorios</h2>
+              </div>
+              {canManageIntegrations ? (
+                <MetaReportingAccountsForm
+                  assets={metaAssets}
+                  action={saveMetaReportingAccount}
+                  statusAction={setMetaReportingAccountStatus}
+                />
+              ) : (
+                <p className="muted">Sem permissao para alterar contas de relatorio</p>
+              )}
+            </div>
           </>
         ) : null}
         <p className="muted">

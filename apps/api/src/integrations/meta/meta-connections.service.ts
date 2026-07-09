@@ -119,7 +119,7 @@ export class MetaConnectionsService {
       | "listBusinesses"
       | "listOwnedAdAccounts"
       | "listBusinessPixels"
-      | "listPages"
+      | "listBusinessPages"
     >,
     requestedBusinessId?: string | null
   ): Promise<MetaAssetsDto> {
@@ -137,18 +137,13 @@ export class MetaConnectionsService {
         tokenIv: connection.tokenIv,
         tokenTag: connection.tokenTag
       });
-      const [businesses, pages] = await Promise.all([
-        metaAdapter.listBusinesses({ accessToken }),
-        typeof metaAdapter.listPages === "function"
-          ? metaAdapter.listPages({ accessToken }).catch(() => [])
-          : []
-      ]);
+      const businesses = await metaAdapter.listBusinesses({ accessToken });
       const selectedBusinessId =
         requestedBusinessId?.trim() || connection.selectedBusinessId;
       const selectedBusinessExists = businesses.some(
         (business) => business.id === selectedBusinessId
       );
-      const [adAccounts, pixels] =
+      const [adAccounts, pixels, pages] =
         selectedBusinessId && selectedBusinessExists
           ? await Promise.all([
               metaAdapter
@@ -175,9 +170,21 @@ export class MetaConnectionsService {
                     code: null
                   }))
                 )
+                .catch(() => []),
+              metaAdapter
+                .listBusinessPages({
+                  accessToken,
+                  businessId: selectedBusinessId
+                })
+                .then((items) =>
+                  items.map((page) => ({
+                    ...page,
+                    businessId: page.businessId ?? selectedBusinessId
+                  }))
+                )
                 .catch(() => [])
             ])
-          : [[], []];
+          : [[], [], []];
 
       return {
         workspaceId,

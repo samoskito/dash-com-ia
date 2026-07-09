@@ -1036,6 +1036,23 @@ body {
   font-size: clamp(18px, 1.7vw, 24px);
 }
 
+.meta-config-section {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+}
+
+.meta-config-section + .meta-config-section {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(142, 173, 164, 0.18);
+}
+
+.meta-config-section > div:first-child {
+  display: grid;
+  gap: 6px;
+}
+
 .integration-card strong,
 .config-card strong,
 .quality-card strong {

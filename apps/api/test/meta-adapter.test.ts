@@ -324,21 +324,42 @@ describe("meta adapter oauth", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("lists Meta pages for conversion destination", async () => {
+  it("lists Meta pages for conversion destination from the selected business", async () => {
+    const fetchCalls: string[] = [];
     const fetcher = vi.fn(
-      async () =>
-        new Response(
+      async (input: string | URL | Request) => {
+        fetchCalls.push(String(input));
+
+        if (String(input).includes("/business_1/client_pages")) {
+          return new Response(
+            JSON.stringify({
+              data: [{ id: "page_2", name: "Pagina Cliente" }]
+            }),
+            { status: 200 }
+          );
+        }
+
+        return new Response(
           JSON.stringify({
             data: [{ id: "page_1", name: "Pagina Principal" }]
           }),
           { status: 200 }
-        )
+        );
+      }
     ) as unknown as typeof fetch;
     const adapter = new MetaAdapter({}, fetcher);
 
     await expect(
-      adapter.listPages({ accessToken: "meta-token" })
-    ).resolves.toEqual([{ id: "page_1", name: "Pagina Principal" }]);
+      adapter.listBusinessPages({
+        accessToken: "meta-token",
+        businessId: "business_1"
+      })
+    ).resolves.toEqual([
+      { id: "page_1", businessId: "business_1", name: "Pagina Principal" },
+      { id: "page_2", businessId: "business_1", name: "Pagina Cliente" }
+    ]);
+    expect(fetchCalls[0]).toContain("/business_1/owned_pages");
+    expect(fetchCalls[1]).toContain("/business_1/client_pages");
   });
 
   it("lists adsets with destination type", async () => {

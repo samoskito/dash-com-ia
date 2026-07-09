@@ -101,6 +101,7 @@ export const metaPixelAssetSchema = z.object({
 
 export const metaPageAssetSchema = z.object({
   id: z.string().min(1),
+  businessId: z.string().min(1).nullable(),
   name: z.string().min(1)
 });
 

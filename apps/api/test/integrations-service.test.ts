@@ -199,7 +199,13 @@ describe("integrations service", () => {
             code: "1234567890"
           }
         ],
-        pages: [{ id: "page_1", name: "Pagina Principal" }],
+        pages: [
+          {
+            id: "page_1",
+            businessId: "business_1",
+            name: "Pagina Principal"
+          }
+        ],
         selection: {
           businessId: "business_1",
           adAccountId: "act_123",

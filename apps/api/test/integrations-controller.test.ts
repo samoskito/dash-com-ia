@@ -89,6 +89,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       pages: [
         {
           id: "page_1",
+          businessId: "business_1",
           name: "Pagina Principal"
         }
       ],

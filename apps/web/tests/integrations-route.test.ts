@@ -131,7 +131,13 @@ describe("integrations route", () => {
             pages: [
               {
                 id: "page_1",
+                businessId: "business_1",
                 name: "Pagina Facebook principal"
+              },
+              {
+                id: "page_2",
+                businessId: "business_2",
+                name: "Pagina Outro BM"
               }
             ],
             conversionDestination: {
@@ -314,6 +320,7 @@ describe("integrations route", () => {
     expect(html).toContain("Pixel Loja");
     expect(html).toContain("Destino de conversao");
     expect(html).toContain("Pagina Facebook principal");
+    expect(html).not.toContain("Pagina Outro BM");
     expect(html).toContain("Contas para relatorios");
     expect(html).toContain("America/Sao_Paulo");
     expect(html).toContain("Desativar");

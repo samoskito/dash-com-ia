@@ -257,7 +257,7 @@ describe("meta connections service", () => {
     expect(JSON.stringify(assets)).not.toContain("EAAB-secret-token");
   });
 
-  it("loads ad accounts and pixels only for the selected business", async () => {
+  it("loads ad accounts, pixels and pages only for the selected business", async () => {
     const { service } = createHarness();
     const metaAdapter = {
       listBusinesses: vi.fn(async () => [
@@ -311,6 +311,24 @@ describe("meta connections service", () => {
                   code: "9999999999"
                 }
               ]
+      ),
+      listBusinessPages: vi.fn(
+        async ({ businessId }: { businessId: string }) =>
+          businessId === "business_1"
+            ? [
+                {
+                  id: "page_1",
+                  businessId: "business_1",
+                  name: "Pagina Principal"
+                }
+              ]
+            : [
+                {
+                  id: "page_2",
+                  businessId: "business_2",
+                  name: "Pagina Outro BM"
+                }
+              ]
       )
     };
 
@@ -335,6 +353,7 @@ describe("meta connections service", () => {
       businesses: [{ name: "BM Principal" }, { name: "BM Secundario" }],
       adAccounts: [{ businessId: "business_1", name: "Conta WhatsApp" }],
       pixels: [{ businessId: "business_1", name: "Pixel Loja", code: null }],
+      pages: [{ businessId: "business_1", name: "Pagina Principal" }],
       selection: {
         businessId: "business_1",
         adAccountId: null,
@@ -350,10 +369,17 @@ describe("meta connections service", () => {
       accessToken: "EAAB-secret-token",
       businessId: "business_1"
     });
+    expect(metaAdapter.listBusinessPages).toHaveBeenCalledWith({
+      accessToken: "EAAB-secret-token",
+      businessId: "business_1"
+    });
     expect(metaAdapter.listOwnedAdAccounts).not.toHaveBeenCalledWith(
       expect.objectContaining({ businessId: "business_2" })
     );
     expect(metaAdapter.listBusinessPixels).not.toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: "business_2" })
+    );
+    expect(metaAdapter.listBusinessPages).not.toHaveBeenCalledWith(
       expect.objectContaining({ businessId: "business_2" })
     );
     expect(JSON.stringify(assets)).not.toContain("EAAB-secret-token");
@@ -397,6 +423,17 @@ describe("meta connections service", () => {
               }
             ]
           : []
+      ),
+      listBusinessPages: vi.fn(async ({ businessId }: { businessId: string }) =>
+        businessId === "business_2"
+          ? [
+              {
+                id: "page_3",
+                businessId: "business_2",
+                name: "Pagina Outro BM"
+              }
+            ]
+          : []
       )
     };
 
@@ -420,6 +457,7 @@ describe("meta connections service", () => {
       businesses: [{ name: "BM Principal" }, { name: "BM Secundario" }],
       adAccounts: [{ businessId: "business_2", name: "Conta Outro BM" }],
       pixels: [{ businessId: "business_2", name: "Pixel Outro BM", code: null }],
+      pages: [{ businessId: "business_2", name: "Pagina Outro BM" }],
       selection: {
         businessId: null,
         adAccountId: null,
@@ -432,6 +470,10 @@ describe("meta connections service", () => {
       businessId: "business_2"
     });
     expect(metaAdapter.listBusinessPixels).toHaveBeenCalledWith({
+      accessToken: "EAAB-secret-token",
+      businessId: "business_2"
+    });
+    expect(metaAdapter.listBusinessPages).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
       businessId: "business_2"
     });
