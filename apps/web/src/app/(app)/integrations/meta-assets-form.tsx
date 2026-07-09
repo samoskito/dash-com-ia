@@ -1,13 +1,17 @@
 "use client";
 
 import type { MetaAssetsDto } from "@wpptrack/shared";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type SaveMetaAssetsAction = (formData: FormData) => void | Promise<void>;
+type LoadMetaBusinessAssetsAction = (
+  businessId: string
+) => Promise<Pick<MetaAssetsDto, "adAccounts" | "pixels">>;
 
 type MetaAssetsFormProps = {
   action: SaveMetaAssetsAction;
   assets: MetaAssetsDto;
+  loadBusinessAssetsAction: LoadMetaBusinessAssetsAction;
 };
 
 export function metaAdAccountsForBusiness(
@@ -39,51 +43,107 @@ function initialBusinessId(assets: MetaAssetsDto): string {
   return assets.selection.businessId ?? firstId(assets.businesses);
 }
 
-export function MetaAssetsForm({ action, assets }: MetaAssetsFormProps) {
+function initialAdAccountId(assets: MetaAssetsDto, businessId: string): string {
+  const selected = assets.selection.adAccountId;
+  const accounts = metaAdAccountsForBusiness(assets, businessId);
+
+  return selected && accounts.some((item) => item.id === selected)
+    ? selected
+    : firstId(accounts);
+}
+
+function initialPixelId(assets: MetaAssetsDto, businessId: string): string {
+  const selected = assets.selection.pixelId;
+  const pixels = metaPixelsForBusiness(assets, businessId);
+
+  return selected && pixels.some((item) => item.id === selected)
+    ? selected
+    : firstId(pixels);
+}
+
+export function MetaAssetsForm({
+  action,
+  assets,
+  loadBusinessAssetsAction
+}: MetaAssetsFormProps) {
   const [businessId, setBusinessId] = useState(() => initialBusinessId(assets));
+  const [availableAdAccounts, setAvailableAdAccounts] = useState(
+    () => assets.adAccounts
+  );
+  const [availablePixels, setAvailablePixels] = useState(() => assets.pixels);
+  const [isLoadingBusinessAssets, setIsLoadingBusinessAssets] = useState(false);
+  const loadSequence = useRef(0);
 
   const businessAdAccounts = useMemo(
-    () => metaAdAccountsForBusiness(assets, businessId),
-    [assets.adAccounts, businessId]
+    () =>
+      metaAdAccountsForBusiness(
+        { ...assets, adAccounts: availableAdAccounts },
+        businessId
+      ),
+    [assets, availableAdAccounts, businessId]
   );
   const businessPixels = useMemo(
-    () => metaPixelsForBusiness(assets, businessId),
-    [assets.pixels, businessId]
+    () => metaPixelsForBusiness({ ...assets, pixels: availablePixels }, businessId),
+    [assets, availablePixels, businessId]
   );
 
-  const [adAccountId, setAdAccountId] = useState(() => {
-    const selected = assets.selection.adAccountId;
-    const initialAccounts = metaAdAccountsForBusiness(
-      assets,
-      initialBusinessId(assets)
-    );
+  const [adAccountId, setAdAccountId] = useState(() =>
+    initialAdAccountId(assets, initialBusinessId(assets))
+  );
+  const [pixelId, setPixelId] = useState(() =>
+    initialPixelId(assets, initialBusinessId(assets))
+  );
 
-    return selected && initialAccounts.some((item) => item.id === selected)
-      ? selected
-      : firstId(initialAccounts);
-  });
-  const [pixelId, setPixelId] = useState(() => {
-    const selected = assets.selection.pixelId;
-    const initialPixels = metaPixelsForBusiness(assets, initialBusinessId(assets));
-
-    return selected && initialPixels.some((item) => item.id === selected)
-      ? selected
-      : firstId(initialPixels);
-  });
-
-  function handleBusinessChange(nextBusinessId: string) {
-    const nextAdAccounts = metaAdAccountsForBusiness(assets, nextBusinessId);
-    const nextPixels = metaPixelsForBusiness(assets, nextBusinessId);
+  useEffect(() => {
+    const nextBusinessId = initialBusinessId(assets);
 
     setBusinessId(nextBusinessId);
-    setAdAccountId((current) =>
-      nextAdAccounts.some((item) => item.id === current)
-        ? current
-        : firstId(nextAdAccounts)
-    );
-    setPixelId((current) =>
-      nextPixels.some((item) => item.id === current) ? current : firstId(nextPixels)
-    );
+    setAvailableAdAccounts(assets.adAccounts);
+    setAvailablePixels(assets.pixels);
+    setAdAccountId(initialAdAccountId(assets, nextBusinessId));
+    setPixelId(initialPixelId(assets, nextBusinessId));
+  }, [assets]);
+
+  async function handleBusinessChange(nextBusinessId: string) {
+    const sequence = loadSequence.current + 1;
+
+    loadSequence.current = sequence;
+    setBusinessId(nextBusinessId);
+    setAdAccountId("");
+    setPixelId("");
+
+    if (!nextBusinessId) {
+      setAvailableAdAccounts([]);
+      setAvailablePixels([]);
+      setIsLoadingBusinessAssets(false);
+      return;
+    }
+
+    setIsLoadingBusinessAssets(true);
+
+    try {
+      const nextAssets = await loadBusinessAssetsAction(nextBusinessId);
+
+      if (loadSequence.current !== sequence) {
+        return;
+      }
+
+      setAvailableAdAccounts(nextAssets.adAccounts);
+      setAvailablePixels(nextAssets.pixels);
+      setAdAccountId(firstId(nextAssets.adAccounts));
+      setPixelId(firstId(nextAssets.pixels));
+    } catch {
+      if (loadSequence.current !== sequence) {
+        return;
+      }
+
+      setAvailableAdAccounts([]);
+      setAvailablePixels([]);
+    } finally {
+      if (loadSequence.current === sequence) {
+        setIsLoadingBusinessAssets(false);
+      }
+    }
   }
 
   return (
@@ -108,6 +168,7 @@ export function MetaAssetsForm({ action, assets }: MetaAssetsFormProps) {
         value={adAccountId}
         onChange={(event) => setAdAccountId(event.currentTarget.value)}
         aria-label="Conta de anuncio Meta"
+        disabled={isLoadingBusinessAssets}
       >
         <option value="">Sem conta</option>
         {businessAdAccounts.map((adAccount) => (
@@ -122,6 +183,7 @@ export function MetaAssetsForm({ action, assets }: MetaAssetsFormProps) {
         value={pixelId}
         onChange={(event) => setPixelId(event.currentTarget.value)}
         aria-label="Pixel Meta"
+        disabled={isLoadingBusinessAssets}
       >
         <option value="">Sem Pixel</option>
         {businessPixels.map((pixel) => (
@@ -131,7 +193,7 @@ export function MetaAssetsForm({ action, assets }: MetaAssetsFormProps) {
         ))}
       </select>
       <button className="button" type="submit">
-        Salvar selecao Meta
+        {isLoadingBusinessAssets ? "Carregando ativos" : "Salvar selecao Meta"}
       </button>
     </form>
   );

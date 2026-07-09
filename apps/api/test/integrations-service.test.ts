@@ -227,6 +227,61 @@ describe("integrations service", () => {
     );
   });
 
+  it("loads Meta assets for a requested business without persisting selection", async () => {
+    const metaAdapter = new MetaAdapter({});
+    const metaConnectionsService = {
+      listAssets: vi.fn(async () => ({
+        workspaceId: "workspace_1",
+        status: "connected",
+        businesses: [{ id: "business_2", name: "BM Secundario", verificationStatus: null }],
+        adAccounts: [
+          {
+            id: "act_789",
+            businessId: "business_2",
+            name: "Conta Outro BM",
+            accountStatus: "1",
+            currency: "USD",
+            timezoneName: "America/New_York"
+          }
+        ],
+        pixels: [
+          {
+            id: "pixel_3",
+            businessId: "business_2",
+            name: "Pixel Outro BM",
+            code: null
+          }
+        ],
+        selection: {
+          businessId: null,
+          adAccountId: null,
+          pixelId: null
+        },
+        lastSyncedAt: "2026-07-02T12:00:00.000Z",
+        syncError: null
+      }))
+    };
+    const service = new IntegrationsService(
+      metaAdapter,
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {},
+      metaConnectionsService as never
+    );
+
+    await expect(
+      service.getMetaAssets("workspace_1", "business_2")
+    ).resolves.toMatchObject({
+      adAccounts: [{ businessId: "business_2", name: "Conta Outro BM" }],
+      pixels: [{ businessId: "business_2", name: "Pixel Outro BM" }]
+    });
+    expect(metaConnectionsService.listAssets).toHaveBeenCalledWith(
+      "workspace_1",
+      metaAdapter,
+      "business_2"
+    );
+  });
+
   it("saves selected Meta assets for a workspace", async () => {
     const metaConnectionsService = {
       saveAssetSelection: vi.fn(async () => ({

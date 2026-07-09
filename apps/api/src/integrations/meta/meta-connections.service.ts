@@ -117,7 +117,8 @@ export class MetaConnectionsService {
     metaAdapter: Pick<
       MetaAdapter,
       "listBusinesses" | "listOwnedAdAccounts" | "listBusinessPixels"
-    >
+    >,
+    requestedBusinessId?: string | null
   ): Promise<MetaAssetsDto> {
     const connection = (await this.prisma.metaIntegration.findUnique({
       where: { workspaceId }
@@ -134,7 +135,8 @@ export class MetaConnectionsService {
         tokenTag: connection.tokenTag
       });
       const businesses = await metaAdapter.listBusinesses({ accessToken });
-      const selectedBusinessId = connection.selectedBusinessId;
+      const selectedBusinessId =
+        requestedBusinessId?.trim() || connection.selectedBusinessId;
       const selectedBusinessExists = businesses.some(
         (business) => business.id === selectedBusinessId
       );

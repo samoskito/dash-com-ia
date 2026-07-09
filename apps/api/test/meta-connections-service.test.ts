@@ -359,6 +359,84 @@ describe("meta connections service", () => {
     expect(JSON.stringify(assets)).not.toContain("EAAB-secret-token");
   });
 
+  it("loads ad accounts and pixels for a requested business without saving selection first", async () => {
+    const { service } = createHarness();
+    const metaAdapter = {
+      listBusinesses: vi.fn(async () => [
+        {
+          id: "business_1",
+          name: "BM Principal",
+          verificationStatus: "verified"
+        },
+        {
+          id: "business_2",
+          name: "BM Secundario",
+          verificationStatus: null
+        }
+      ]),
+      listOwnedAdAccounts: vi.fn(async ({ businessId }: { businessId: string }) =>
+        businessId === "business_2"
+          ? [
+              {
+                id: "act_789",
+                name: "Conta Outro BM",
+                accountStatus: "1",
+                currency: "USD",
+                timezoneName: "America/New_York"
+              }
+            ]
+          : []
+      ),
+      listBusinessPixels: vi.fn(async ({ businessId }: { businessId: string }) =>
+        businessId === "business_2"
+          ? [
+              {
+                id: "pixel_3",
+                name: "Pixel Outro BM",
+                code: "9999999999"
+              }
+            ]
+          : []
+      )
+    };
+
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_1",
+      accessToken: "EAAB-secret-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read"]
+    });
+
+    const assets = await service.listAssets(
+      "workspace_1",
+      metaAdapter as never,
+      "business_2"
+    );
+
+    expect(assets).toMatchObject({
+      workspaceId: "workspace_1",
+      status: "connected",
+      businesses: [{ name: "BM Principal" }, { name: "BM Secundario" }],
+      adAccounts: [{ businessId: "business_2", name: "Conta Outro BM" }],
+      pixels: [{ businessId: "business_2", name: "Pixel Outro BM", code: null }],
+      selection: {
+        businessId: null,
+        adAccountId: null,
+        pixelId: null
+      },
+      syncError: null
+    });
+    expect(metaAdapter.listOwnedAdAccounts).toHaveBeenCalledWith({
+      accessToken: "EAAB-secret-token",
+      businessId: "business_2"
+    });
+    expect(metaAdapter.listBusinessPixels).toHaveBeenCalledWith({
+      accessToken: "EAAB-secret-token",
+      businessId: "business_2"
+    });
+  });
+
   it("saves selected Meta business, ad account and pixel", async () => {
     const { db, service } = createHarness();
 

@@ -180,6 +180,37 @@ async function getMetaAssets(): Promise<ResourceResult<MetaAssetsDto | null>> {
   }
 }
 
+async function loadMetaBusinessAssetsAction(
+  businessId: string
+): Promise<Pick<MetaAssetsDto, "adAccounts" | "pixels">> {
+  "use server";
+
+  const safeBusinessId = businessId.trim();
+
+  if (!safeBusinessId) {
+    return {
+      adAccounts: [],
+      pixels: []
+    };
+  }
+
+  try {
+    const assets = await serverApiFetch<MetaAssetsDto>(
+      `/integrations/meta/assets?businessId=${encodeURIComponent(safeBusinessId)}`
+    );
+
+    return {
+      adAccounts: assets.adAccounts,
+      pixels: assets.pixels
+    };
+  } catch {
+    return {
+      adAccounts: [],
+      pixels: []
+    };
+  }
+}
+
 async function connectWhatsappInstance(formData: FormData) {
   "use server";
 
@@ -570,7 +601,11 @@ export default async function IntegrationsPage() {
           {metaAssetsDetail(metaAssets, metaAssetsResult.state)}
         </p>
         {metaAssets && canManageIntegrations ? (
-          <MetaAssetsForm assets={metaAssets} action={saveMetaAssetSelection} />
+          <MetaAssetsForm
+            assets={metaAssets}
+            action={saveMetaAssetSelection}
+            loadBusinessAssetsAction={loadMetaBusinessAssetsAction}
+          />
         ) : metaAssets ? (
           <p className="muted">Sem permissao para alterar Meta</p>
         ) : null}

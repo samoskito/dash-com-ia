@@ -332,6 +332,26 @@ describe("integrations controller", () => {
     await app.close();
   });
 
+  it("returns Meta assets for a requested business without saving selection", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/meta/assets?businessId=business_2")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.businesses[0].name).toBe("BM Principal");
+      });
+
+    expect(service.getMetaAssets).toHaveBeenCalledWith(
+      "workspace_1",
+      "business_2"
+    );
+
+    await app.close();
+  });
+
   it("saves selected Meta assets for the current workspace", async () => {
     const { app, service } = await createApp();
 

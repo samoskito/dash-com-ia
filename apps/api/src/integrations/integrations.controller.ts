@@ -130,10 +130,17 @@ export class IntegrationsController {
   }
 
   @Get("meta/assets")
-  async getMetaAssets(@AuthToken() refreshToken: string) {
+  async getMetaAssets(
+    @AuthToken() refreshToken: string,
+    @Query("businessId") businessId?: string
+  ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const requestedBusinessId =
+      typeof businessId === "string" && businessId.trim() ? businessId.trim() : null;
 
-    return this.integrationsService.getMetaAssets(workspaceId);
+    return requestedBusinessId
+      ? this.integrationsService.getMetaAssets(workspaceId, requestedBusinessId)
+      : this.integrationsService.getMetaAssets(workspaceId);
   }
 
   @Put("meta/assets/selection")

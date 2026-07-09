@@ -134,7 +134,10 @@ export class IntegrationsService {
     return this.metaConnectionsService.getConnection(workspaceId);
   }
 
-  async getMetaAssets(workspaceId: string): Promise<MetaAssetsDto> {
+  async getMetaAssets(
+    workspaceId: string,
+    businessId?: string | null
+  ): Promise<MetaAssetsDto> {
     if (!this.metaConnectionsService) {
       return {
         workspaceId,
@@ -152,7 +155,13 @@ export class IntegrationsService {
       };
     }
 
-    return this.metaConnectionsService.listAssets(workspaceId, this.metaAdapter);
+    return businessId
+      ? this.metaConnectionsService.listAssets(
+          workspaceId,
+          this.metaAdapter,
+          businessId
+        )
+      : this.metaConnectionsService.listAssets(workspaceId, this.metaAdapter);
   }
 
   async saveMetaAssetSelection(
