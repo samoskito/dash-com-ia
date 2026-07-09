@@ -86,6 +86,38 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           code: "1234567890"
         }
       ],
+      pages: [
+        {
+          id: "page_1",
+          name: "Pagina Principal"
+        }
+      ],
+      conversionDestination: {
+        workspaceId: "workspace_1",
+        pixelId: "pixel_1",
+        pixelName: "Pixel Loja",
+        pageId: "page_1",
+        pageName: "Pagina Principal",
+        status: "configured",
+        lastValidatedAt: "2026-07-09T12:00:00.000Z",
+        validationError: null
+      },
+      reportingAccounts: [
+        {
+          id: "reporting_1",
+          workspaceId: "workspace_1",
+          businessId: "business_1",
+          businessName: "BM Principal",
+          adAccountId: "act_123",
+          adAccountName: "Conta WhatsApp",
+          currency: "BRL",
+          timezoneName: "America/Sao_Paulo",
+          active: true,
+          syncStatus: "pending",
+          lastSyncedAt: null,
+          syncError: null
+        }
+      ],
       selection: {
         businessId: "business_1",
         adAccountId: "act_123",
@@ -110,6 +142,72 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       configured: true,
       updatedAt: "2026-07-02T04:00:00.000Z"
     })),
+    getMetaConversionDestination: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      pixelId: null,
+      pixelName: null,
+      pageId: null,
+      pageName: null,
+      status: "needs_configuration",
+      lastValidatedAt: null,
+      validationError: null
+    })),
+    saveMetaConversionDestination: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      pixelId: "pixel_1",
+      pixelName: "Pixel Principal",
+      pageId: "page_1",
+      pageName: "Pagina Principal",
+      status: "configured",
+      lastValidatedAt: "2026-07-09T12:00:00.000Z",
+      validationError: null
+    })),
+    getMetaReportingAccounts: vi.fn(async () => [
+      {
+        id: "reporting_1",
+        workspaceId: "workspace_1",
+        businessId: "business_1",
+        businessName: "BM Principal",
+        adAccountId: "act_123",
+        adAccountName: "Conta WhatsApp",
+        currency: "BRL",
+        timezoneName: "America/Sao_Paulo",
+        active: true,
+        syncStatus: "pending",
+        lastSyncedAt: null,
+        syncError: null
+      }
+    ]),
+    saveMetaReportingAccount: vi.fn(async () => ({
+      id: "reporting_1",
+      workspaceId: "workspace_1",
+      businessId: "business_1",
+      businessName: "BM Principal",
+      adAccountId: "act_123",
+      adAccountName: "Conta WhatsApp",
+      currency: "BRL",
+      timezoneName: "America/Sao_Paulo",
+      active: true,
+      syncStatus: "pending",
+      lastSyncedAt: null,
+      syncError: null
+    })),
+    setMetaReportingAccountActive: vi.fn(async () => [
+      {
+        id: "reporting_1",
+        workspaceId: "workspace_1",
+        businessId: "business_1",
+        businessName: "BM Principal",
+        adAccountId: "act_123",
+        adAccountName: "Conta WhatsApp",
+        currency: "BRL",
+        timezoneName: "America/Sao_Paulo",
+        active: false,
+        syncStatus: "pending",
+        lastSyncedAt: null,
+        syncError: null
+      }
+    ]),
     getUazapiStartAction: vi.fn(() => ({
       provider: "uazapi",
       action: "configure_env",
@@ -324,6 +422,9 @@ describe("integrations controller", () => {
         expect(body.businesses[0].name).toBe("BM Principal");
         expect(body.adAccounts[0].name).toBe("Conta WhatsApp");
         expect(body.pixels[0].name).toBe("Pixel Loja");
+        expect(body.pages[0].name).toBe("Pagina Principal");
+        expect(body.conversionDestination.pageId).toBe("page_1");
+        expect(body.reportingAccounts[0].adAccountId).toBe("act_123");
         expect(JSON.stringify(body)).not.toContain("EAAB");
       });
 
@@ -444,6 +545,181 @@ describe("integrations controller", () => {
       .expect(403);
 
     expect(service.saveMetaCapiToken).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("returns Meta conversion destination for the current workspace", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/meta/conversion-destination")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.status).toBe("needs_configuration");
+      });
+
+    expect(service.getMetaConversionDestination).toHaveBeenCalledWith(
+      "workspace_1"
+    );
+
+    await app.close();
+  });
+
+  it("saves Meta conversion destination for integration managers", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .put("/integrations/meta/conversion-destination")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        pixelId: "pixel_1",
+        pixelName: "Pixel Principal",
+        pageId: "page_1",
+        pageName: "Pagina Principal"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.pixelId).toBe("pixel_1");
+        expect(body.pageId).toBe("page_1");
+        expect(body.status).toBe("configured");
+      });
+
+    expect(service.saveMetaConversionDestination).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        pixelId: "pixel_1",
+        pixelName: "Pixel Principal",
+        pageId: "page_1",
+        pageName: "Pagina Principal"
+      },
+      "user_1"
+    );
+
+    await app.close();
+  });
+
+  it("rejects Meta conversion destination changes for workspace members", async () => {
+    const { app, service } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .put("/integrations/meta/conversion-destination")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        pixelId: "pixel_1",
+        pixelName: "Pixel Principal",
+        pageId: "page_1",
+        pageName: "Pagina Principal"
+      })
+      .expect(403);
+
+    expect(service.saveMetaConversionDestination).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("returns Meta reporting accounts for the current workspace", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/meta/reporting-accounts")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body[0].id).toBe("reporting_1");
+        expect(body[0].adAccountId).toBe("act_123");
+      });
+
+    expect(service.getMetaReportingAccounts).toHaveBeenCalledWith(
+      "workspace_1"
+    );
+
+    await app.close();
+  });
+
+  it("saves Meta reporting accounts for integration managers", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/integrations/meta/reporting-accounts")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        businessId: "business_1",
+        businessName: "BM Principal",
+        adAccountId: "act_123",
+        adAccountName: "Conta WhatsApp",
+        currency: "BRL",
+        timezoneName: "America/Sao_Paulo"
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.id).toBe("reporting_1");
+        expect(body.active).toBe(true);
+      });
+
+    expect(service.saveMetaReportingAccount).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        businessId: "business_1",
+        businessName: "BM Principal",
+        adAccountId: "act_123",
+        adAccountName: "Conta WhatsApp",
+        currency: "BRL",
+        timezoneName: "America/Sao_Paulo"
+      },
+      "user_1"
+    );
+
+    await app.close();
+  });
+
+  it("updates Meta reporting account active status for integration managers", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .put("/integrations/meta/reporting-accounts/reporting_1/status")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({ active: false })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body[0].id).toBe("reporting_1");
+        expect(body[0].active).toBe(false);
+      });
+
+    expect(service.setMetaReportingAccountActive).toHaveBeenCalledWith(
+      "workspace_1",
+      "reporting_1",
+      false,
+      "user_1"
+    );
+
+    await app.close();
+  });
+
+  it("rejects Meta reporting account writes for workspace members", async () => {
+    const { app, service } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .post("/integrations/meta/reporting-accounts")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        businessId: "business_1",
+        businessName: "BM Principal",
+        adAccountId: "act_123",
+        adAccountName: "Conta WhatsApp"
+      })
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .put("/integrations/meta/reporting-accounts/reporting_1/status")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({ active: false })
+      .expect(403);
+
+    expect(service.saveMetaReportingAccount).not.toHaveBeenCalled();
+    expect(service.setMetaReportingAccountActive).not.toHaveBeenCalled();
 
     await app.close();
   });

@@ -4,8 +4,12 @@ import type {
   MetaConnectionDto,
   MetaCapiTokenInputDto,
   MetaCapiTokenStatusDto,
+  MetaConversionDestinationDto,
+  MetaConversionDestinationInputDto,
   MetaAssetSelectionInputDto,
   MetaAssetsDto,
+  MetaReportingAccountDto,
+  MetaReportingAccountInputDto,
   IntegrationHealthSummaryDto,
   IntegrationPipelineOverviewDto,
   IntegrationStartActionDto,
@@ -17,6 +21,7 @@ import { AsaasAdapter } from "./asaas/asaas.adapter";
 import type { IntegrationEnv } from "./integration.types";
 import { INTEGRATION_ENV } from "./integration.types";
 import { MetaAdapter } from "./meta/meta.adapter";
+import { MetaAssetsService } from "./meta/meta-assets.service";
 import { MetaConnectionsService } from "./meta/meta-connections.service";
 import { UazapiAdapter } from "./uazapi/uazapi.adapter";
 
@@ -31,7 +36,10 @@ export class IntegrationsService {
     private readonly metaConnectionsService?: MetaConnectionsService,
     @Optional()
     @Inject(PrismaService)
-    private readonly prisma?: PrismaService
+    private readonly prisma?: PrismaService,
+    @Optional()
+    @Inject(MetaAssetsService)
+    private readonly metaAssetsService?: MetaAssetsService
   ) {}
 
   async getHealthSummary(): Promise<IntegrationHealthSummaryDto> {
@@ -145,6 +153,9 @@ export class IntegrationsService {
         businesses: [],
         adAccounts: [],
         pixels: [],
+        pages: [],
+        conversionDestination: this.emptyConversionDestination(workspaceId),
+        reportingAccounts: [],
         selection: {
           businessId: null,
           adAccountId: null,
@@ -155,13 +166,26 @@ export class IntegrationsService {
       };
     }
 
-    return businessId
+    const assets = businessId
       ? this.metaConnectionsService.listAssets(
           workspaceId,
           this.metaAdapter,
           businessId
         )
       : this.metaConnectionsService.listAssets(workspaceId, this.metaAdapter);
+    const [baseAssets, conversionDestination, reportingAccounts] =
+      await Promise.all([
+        assets,
+        this.getMetaConversionDestination(workspaceId),
+        this.getMetaReportingAccounts(workspaceId)
+      ]);
+
+    return {
+      ...baseAssets,
+      pages: baseAssets.pages ?? [],
+      conversionDestination,
+      reportingAccounts
+    };
   }
 
   async saveMetaAssetSelection(
@@ -196,6 +220,76 @@ export class IntegrationsService {
     return this.metaConnectionsService.saveCapiToken(
       workspaceId,
       input,
+      actorUserId
+    );
+  }
+
+  async getMetaConversionDestination(
+    workspaceId: string
+  ): Promise<MetaConversionDestinationDto> {
+    if (!this.metaAssetsService) {
+      return this.emptyConversionDestination(workspaceId);
+    }
+
+    return this.metaAssetsService.getConversionDestination(workspaceId);
+  }
+
+  async saveMetaConversionDestination(
+    workspaceId: string,
+    input: MetaConversionDestinationInputDto,
+    actorUserId?: string | null
+  ): Promise<MetaConversionDestinationDto> {
+    if (!this.metaAssetsService) {
+      return this.emptyConversionDestination(workspaceId);
+    }
+
+    return this.metaAssetsService.saveConversionDestination(
+      workspaceId,
+      input,
+      actorUserId
+    );
+  }
+
+  async getMetaReportingAccounts(
+    workspaceId: string
+  ): Promise<MetaReportingAccountDto[]> {
+    if (!this.metaAssetsService) {
+      return [];
+    }
+
+    return this.metaAssetsService.listReportingAccounts(workspaceId);
+  }
+
+  async saveMetaReportingAccount(
+    workspaceId: string,
+    input: MetaReportingAccountInputDto,
+    actorUserId?: string | null
+  ): Promise<MetaReportingAccountDto> {
+    if (!this.metaAssetsService) {
+      throw new Error("Meta assets service is not available");
+    }
+
+    return this.metaAssetsService.saveReportingAccount(
+      workspaceId,
+      input,
+      actorUserId
+    );
+  }
+
+  async setMetaReportingAccountActive(
+    workspaceId: string,
+    id: string,
+    active: boolean,
+    actorUserId?: string | null
+  ): Promise<MetaReportingAccountDto[]> {
+    if (!this.metaAssetsService) {
+      return [];
+    }
+
+    return this.metaAssetsService.setReportingAccountActive(
+      workspaceId,
+      id,
+      active,
       actorUserId
     );
   }
@@ -369,6 +463,21 @@ export class IntegrationsService {
           detail: "Eventos enviados para Meta"
         }
       ]
+    };
+  }
+
+  private emptyConversionDestination(
+    workspaceId: string
+  ): MetaConversionDestinationDto {
+    return {
+      workspaceId,
+      pixelId: null,
+      pixelName: null,
+      pageId: null,
+      pageName: null,
+      status: "needs_configuration",
+      lastValidatedAt: null,
+      validationError: null
     };
   }
 

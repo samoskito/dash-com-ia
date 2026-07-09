@@ -174,7 +174,7 @@ describe("integrations service", () => {
     });
   });
 
-  it("returns selectable Meta assets for a workspace", async () => {
+  it("returns selectable Meta assets with pages and saved account configuration", async () => {
     const metaAdapter = new MetaAdapter({});
     const metaConnectionsService = {
       listAssets: vi.fn(async () => ({
@@ -199,6 +199,7 @@ describe("integrations service", () => {
             code: "1234567890"
           }
         ],
+        pages: [{ id: "page_1", name: "Pagina Principal" }],
         selection: {
           businessId: "business_1",
           adAccountId: "act_123",
@@ -208,22 +209,71 @@ describe("integrations service", () => {
         syncError: null
       }))
     };
+    const metaAssetsService = {
+      getConversionDestination: vi.fn(async () => ({
+        workspaceId: "workspace_1",
+        pixelId: "pixel_1",
+        pixelName: "Pixel Loja",
+        pageId: "page_1",
+        pageName: "Pagina Principal",
+        status: "configured",
+        lastValidatedAt: "2026-07-09T12:00:00.000Z",
+        validationError: null
+      })),
+      listReportingAccounts: vi.fn(async () => [
+        {
+          id: "reporting_1",
+          workspaceId: "workspace_1",
+          businessId: "business_1",
+          businessName: "BM Principal",
+          adAccountId: "act_123",
+          adAccountName: "Conta WhatsApp",
+          currency: "BRL",
+          timezoneName: "America/Sao_Paulo",
+          active: true,
+          syncStatus: "pending",
+          lastSyncedAt: null,
+          syncError: null
+        }
+      ])
+    };
     const service = new IntegrationsService(
       metaAdapter,
       new UazapiAdapter({}),
       new AsaasAdapter({}),
       {},
-      metaConnectionsService as never
+      metaConnectionsService as never,
+      undefined,
+      metaAssetsService as never
     );
 
     await expect(service.getMetaAssets("workspace_1")).resolves.toMatchObject({
       workspaceId: "workspace_1",
       businesses: [{ name: "BM Principal" }],
-      pixels: [{ name: "Pixel Loja" }]
+      pixels: [{ name: "Pixel Loja" }],
+      pages: [{ name: "Pagina Principal" }],
+      conversionDestination: {
+        pixelId: "pixel_1",
+        pageId: "page_1",
+        status: "configured"
+      },
+      reportingAccounts: [
+        {
+          id: "reporting_1",
+          adAccountId: "act_123",
+          active: true
+        }
+      ]
     });
     expect(metaConnectionsService.listAssets).toHaveBeenCalledWith(
       "workspace_1",
       metaAdapter
+    );
+    expect(metaAssetsService.getConversionDestination).toHaveBeenCalledWith(
+      "workspace_1"
+    );
+    expect(metaAssetsService.listReportingAccounts).toHaveBeenCalledWith(
+      "workspace_1"
     );
   });
 
@@ -315,6 +365,134 @@ describe("integrations service", () => {
       selectedAdAccountId: "act_123",
       selectedPixelId: "pixel_1"
     });
+  });
+
+  it("delegates Meta conversion destination operations to the assets service", async () => {
+    const metaAssetsService = {
+      getConversionDestination: vi.fn(async () => ({
+        workspaceId: "workspace_1",
+        pixelId: null,
+        pixelName: null,
+        pageId: null,
+        pageName: null,
+        status: "needs_configuration",
+        lastValidatedAt: null,
+        validationError: null
+      })),
+      saveConversionDestination: vi.fn(async () => ({
+        workspaceId: "workspace_1",
+        pixelId: "pixel_1",
+        pixelName: "Pixel Principal",
+        pageId: "page_1",
+        pageName: "Pagina Principal",
+        status: "configured",
+        lastValidatedAt: "2026-07-09T12:00:00.000Z",
+        validationError: null
+      }))
+    };
+    const service = new IntegrationsService(
+      new MetaAdapter({}),
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {},
+      undefined,
+      undefined,
+      metaAssetsService as never
+    );
+
+    await expect(
+      service.getMetaConversionDestination("workspace_1")
+    ).resolves.toMatchObject({
+      workspaceId: "workspace_1",
+      status: "needs_configuration"
+    });
+    await expect(
+      service.saveMetaConversionDestination(
+        "workspace_1",
+        {
+          pixelId: "pixel_1",
+          pixelName: "Pixel Principal",
+          pageId: "page_1",
+          pageName: "Pagina Principal"
+        },
+        "user_1"
+      )
+    ).resolves.toMatchObject({
+      pixelId: "pixel_1",
+      pageId: "page_1",
+      status: "configured"
+    });
+    expect(metaAssetsService.saveConversionDestination).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        pixelId: "pixel_1",
+        pixelName: "Pixel Principal",
+        pageId: "page_1",
+        pageName: "Pagina Principal"
+      },
+      "user_1"
+    );
+  });
+
+  it("delegates Meta reporting account operations to the assets service", async () => {
+    const accounts = [
+      {
+        id: "reporting_1",
+        workspaceId: "workspace_1",
+        businessId: "business_1",
+        businessName: "BM Principal",
+        adAccountId: "act_123",
+        adAccountName: "Conta WhatsApp",
+        currency: "BRL",
+        timezoneName: "America/Sao_Paulo",
+        active: true,
+        syncStatus: "pending",
+        lastSyncedAt: null,
+        syncError: null
+      }
+    ];
+    const metaAssetsService = {
+      listReportingAccounts: vi.fn(async () => accounts),
+      saveReportingAccount: vi.fn(async () => accounts[0]),
+      setReportingAccountActive: vi.fn(async () => [
+        { ...accounts[0], active: false }
+      ])
+    };
+    const service = new IntegrationsService(
+      new MetaAdapter({}),
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {},
+      undefined,
+      undefined,
+      metaAssetsService as never
+    );
+
+    await expect(
+      service.getMetaReportingAccounts("workspace_1")
+    ).resolves.toEqual(accounts);
+    await expect(
+      service.saveMetaReportingAccount(
+        "workspace_1",
+        {
+          businessId: "business_1",
+          businessName: "BM Principal",
+          adAccountId: "act_123",
+          adAccountName: "Conta WhatsApp",
+          currency: "BRL",
+          timezoneName: "America/Sao_Paulo"
+        },
+        "user_1"
+      )
+    ).resolves.toEqual(accounts[0]);
+    await expect(
+      service.setMetaReportingAccountActive(
+        "workspace_1",
+        "reporting_1",
+        false,
+        "user_1"
+      )
+    ).resolves.toMatchObject([{ id: "reporting_1", active: false }]);
   });
 
   it("summarizes the integration signal pipeline from persisted logs", async () => {

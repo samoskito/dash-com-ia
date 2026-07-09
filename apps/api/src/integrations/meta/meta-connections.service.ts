@@ -116,7 +116,10 @@ export class MetaConnectionsService {
     workspaceId: string,
     metaAdapter: Pick<
       MetaAdapter,
-      "listBusinesses" | "listOwnedAdAccounts" | "listBusinessPixels"
+      | "listBusinesses"
+      | "listOwnedAdAccounts"
+      | "listBusinessPixels"
+      | "listPages"
     >,
     requestedBusinessId?: string | null
   ): Promise<MetaAssetsDto> {
@@ -134,7 +137,12 @@ export class MetaConnectionsService {
         tokenIv: connection.tokenIv,
         tokenTag: connection.tokenTag
       });
-      const businesses = await metaAdapter.listBusinesses({ accessToken });
+      const [businesses, pages] = await Promise.all([
+        metaAdapter.listBusinesses({ accessToken }),
+        typeof metaAdapter.listPages === "function"
+          ? metaAdapter.listPages({ accessToken }).catch(() => [])
+          : []
+      ]);
       const selectedBusinessId =
         requestedBusinessId?.trim() || connection.selectedBusinessId;
       const selectedBusinessExists = businesses.some(
@@ -177,6 +185,7 @@ export class MetaConnectionsService {
         businesses,
         adAccounts,
         pixels,
+        pages,
         selection: {
           businessId: connection.selectedBusinessId,
           adAccountId: connection.selectedAdAccountId,
@@ -306,6 +315,7 @@ export class MetaConnectionsService {
       businesses: [],
       adAccounts: [],
       pixels: [],
+      pages: [],
       selection: {
         businessId: null,
         adAccountId: null,

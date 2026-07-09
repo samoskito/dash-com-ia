@@ -6,6 +6,8 @@ import {
   Get,
   Headers,
   Inject,
+  Param,
+  Post,
   Put,
   Query,
   Res
@@ -14,7 +16,10 @@ import {
   canManageIntegrations,
   metaAssetSelectionInputSchema,
   metaCapiTokenInputSchema,
-  metaOAuthCallbackQuerySchema
+  metaConversionDestinationInputSchema,
+  metaOAuthCallbackQuerySchema,
+  metaReportingAccountInputSchema,
+  metaReportingAccountStatusInputSchema
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
@@ -179,6 +184,86 @@ export class IntegrationsController {
     return this.integrationsService.saveMetaCapiToken(
       workspace.id,
       input,
+      authenticated.user.id
+    );
+  }
+
+  @Get("meta/conversion-destination")
+  async getMetaConversionDestination(@AuthToken() refreshToken: string) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.integrationsService.getMetaConversionDestination(workspaceId);
+  }
+
+  @Put("meta/conversion-destination")
+  async saveMetaConversionDestination(
+    @AuthToken() refreshToken: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaConversionDestinationInputSchema.safeParse(body)
+    );
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.saveMetaConversionDestination(
+      workspace.id,
+      input,
+      authenticated.user.id
+    );
+  }
+
+  @Get("meta/reporting-accounts")
+  async getMetaReportingAccounts(@AuthToken() refreshToken: string) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.integrationsService.getMetaReportingAccounts(workspaceId);
+  }
+
+  @Post("meta/reporting-accounts")
+  async saveMetaReportingAccount(
+    @AuthToken() refreshToken: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(metaReportingAccountInputSchema.safeParse(body));
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.saveMetaReportingAccount(
+      workspace.id,
+      input,
+      authenticated.user.id
+    );
+  }
+
+  @Put("meta/reporting-accounts/:id/status")
+  async setMetaReportingAccountActive(
+    @AuthToken() refreshToken: string,
+    @Param("id") id: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaReportingAccountStatusInputSchema.safeParse(body)
+    );
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.setMetaReportingAccountActive(
+      workspace.id,
+      id,
+      input.active,
       authenticated.user.id
     );
   }
