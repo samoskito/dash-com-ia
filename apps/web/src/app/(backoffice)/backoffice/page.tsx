@@ -1528,6 +1528,34 @@ export default async function BackofficePage({
             ? `${activeDiagnosticFilterCount} filtros ativos`
             : "Mostrando os ultimos eventos recebidos pela plataforma."}
         </p>
+        {diagnosticSummary ? (
+          <div className="backoffice-grid">
+            <article className="config-card">
+              <span className="micro-label">Contas Meta ativas</span>
+              <strong>{diagnosticSummary.totals.metaReportingAccountsActive}</strong>
+              <p className="muted">Contas de anuncios Meta ativas para sync.</p>
+            </article>
+            <article className="config-card">
+              <span className="micro-label">Contas Meta com erro</span>
+              <strong>{diagnosticSummary.totals.metaReportingAccountsError}</strong>
+              <p className="muted">Contas com syncStatus error.</p>
+            </article>
+            <article className="config-card">
+              <span className="micro-label">Campanhas para revisar</span>
+              <strong>{diagnosticSummary.totals.metaWhatsappNeedsReview}</strong>
+              <p className="muted">Campanhas Meta classificadas como needs_review.</p>
+            </article>
+            <article className="config-card">
+              <span className="micro-label">Destino CAPI</span>
+              <strong>
+                {diagnosticSummary.totals.metaConversionDestinationConfigured
+                  ? "Configurado"
+                  : "Nao configurado"}
+              </strong>
+              <p className="muted">Destino de conversao Meta do workspace.</p>
+            </article>
+          </div>
+        ) : null}
         <div className="table-wrap">
           <table>
             <thead>

@@ -63,7 +63,11 @@ describe("backoffice route", () => {
               failedIntegrationCalls: 1,
               conversionEvents: 7,
               failedConversionEvents: 5,
-              auditLogs: 5
+              auditLogs: 5,
+              metaReportingAccountsActive: 3,
+              metaReportingAccountsError: 1,
+              metaWhatsappNeedsReview: 2,
+              metaConversionDestinationConfigured: true
             }
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
@@ -94,6 +98,14 @@ describe("backoffice route", () => {
       "42 eventos / 12 webhooks / 3 jobs / 4 chamadas / 7 CAPI / 5 auditorias"
     );
     expect(html).toContain("9 falhas no periodo");
+    expect(html).toContain("Contas Meta ativas");
+    expect(html).toContain("3");
+    expect(html).toContain("Contas Meta com erro");
+    expect(html).toContain("1");
+    expect(html).toContain("Campanhas para revisar");
+    expect(html).toContain("2");
+    expect(html).toContain("Destino CAPI");
+    expect(html).toContain("Configurado");
   });
 
   it("renders split receivers returned by the backend", async () => {

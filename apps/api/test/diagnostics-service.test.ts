@@ -8,6 +8,9 @@ function createHarness() {
   const integrationLogs: Array<Record<string, unknown>> = [];
   const conversionEventLogs: Array<Record<string, unknown>> = [];
   const webhookLogs: Array<Record<string, unknown>> = [];
+  const metaReportingAccounts: Array<Record<string, unknown>> = [];
+  const metaCampaigns: Array<Record<string, unknown>> = [];
+  const metaConversionDestinations: Array<Record<string, unknown>> = [];
   const webhookFindManyCalls: Array<Record<string, unknown>> = [];
   const jobAttemptFindManyCalls: Array<Record<string, unknown>> = [];
   const integrationLogFindManyCalls: Array<Record<string, unknown>> = [];
@@ -267,6 +270,18 @@ function createHarness() {
       },
       count: async ({ where }: { where: Record<string, unknown> }) =>
         countRecords(conversionEventLogs, where)
+    },
+    metaReportingAccount: {
+      count: async ({ where }: { where: Record<string, unknown> }) =>
+        countRecords(metaReportingAccounts, where)
+    },
+    metaCampaign: {
+      count: async ({ where }: { where: Record<string, unknown> }) =>
+        countRecords(metaCampaigns, where)
+    },
+    metaConversionDestination: {
+      count: async ({ where }: { where: Record<string, unknown> }) =>
+        countRecords(metaConversionDestinations, where)
     }
   };
 
@@ -313,6 +328,9 @@ function createHarness() {
     integrationLogs,
     jobAttemptFindManyCalls,
     jobAttempts,
+    metaCampaigns,
+    metaConversionDestinations,
+    metaReportingAccounts,
     webhookFindManyCalls,
     webhookLogs,
     service: new DiagnosticsService(prisma as never),
@@ -440,6 +458,73 @@ describe("diagnostics service", () => {
       conversionEvents: 2,
       failedConversionEvents: 1,
       auditLogs: 1
+    });
+  });
+
+  it("summarizes Meta account and destination diagnostics for the selected workspace", async () => {
+    const {
+      metaCampaigns,
+      metaConversionDestinations,
+      metaReportingAccounts,
+      service
+    } = createHarness();
+
+    metaReportingAccounts.push(
+      {
+        id: "reporting_1",
+        workspaceId: "workspace_1",
+        active: true,
+        syncStatus: "success"
+      },
+      {
+        id: "reporting_2",
+        workspaceId: "workspace_1",
+        active: true,
+        syncStatus: "error"
+      },
+      {
+        id: "reporting_3",
+        workspaceId: "workspace_2",
+        active: true,
+        syncStatus: "error"
+      }
+    );
+    metaCampaigns.push(
+      {
+        id: "campaign_1",
+        workspaceId: "workspace_1",
+        whatsappClassification: "needs_review"
+      },
+      {
+        id: "campaign_2",
+        workspaceId: "workspace_2",
+        whatsappClassification: "needs_review"
+      }
+    );
+    metaConversionDestinations.push(
+      {
+        id: "destination_1",
+        workspaceId: "workspace_1",
+        status: "configured"
+      },
+      {
+        id: "destination_2",
+        workspaceId: "workspace_2",
+        status: "error"
+      }
+    );
+
+    const summary = await service.getSummary({
+      workspaceId: "workspace_1",
+      since: "2026-07-02T00:00:00.000Z",
+      until: "2026-07-02T23:59:59.000Z"
+    });
+
+    expect(summary.totals).toMatchObject({
+      metaReportingAccountsActive: 2,
+      metaReportingAccountsError: 1,
+      metaWhatsappNeedsReview: 1,
+      metaConversionDestinationConfigured: true
     });
   });
 

@@ -93,7 +93,11 @@ export const diagnosticSummarySchema = z.object({
     failedIntegrationCalls: z.number().int().nonnegative(),
     conversionEvents: z.number().int().nonnegative(),
     failedConversionEvents: z.number().int().nonnegative(),
-    auditLogs: z.number().int().nonnegative()
+    auditLogs: z.number().int().nonnegative(),
+    metaReportingAccountsActive: z.number().int().nonnegative(),
+    metaReportingAccountsError: z.number().int().nonnegative(),
+    metaWhatsappNeedsReview: z.number().int().nonnegative(),
+    metaConversionDestinationConfigured: z.boolean()
   })
 });
 

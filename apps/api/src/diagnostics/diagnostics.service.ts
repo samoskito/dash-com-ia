@@ -348,6 +348,14 @@ export class DiagnosticsService {
         lte: until
       }
     };
+    const metaReportingAccountWhere: Prisma.MetaReportingAccountWhereInput = {
+      ...workspaceFilter
+    };
+    const metaCampaignWhere: Prisma.MetaCampaignWhereInput = {
+      ...workspaceFilter
+    };
+    const metaConversionDestinationWhere: Prisma.MetaConversionDestinationWhereInput =
+      { ...workspaceFilter };
 
     const [
       diagnosticEvents,
@@ -361,7 +369,11 @@ export class DiagnosticsService {
       failedIntegrationCalls,
       conversionEvents,
       failedConversionEvents,
-      auditLogs
+      auditLogs,
+      metaReportingAccountsActive,
+      metaReportingAccountsError,
+      metaWhatsappNeedsReview,
+      metaConversionDestinationsConfigured
     ] = await Promise.all([
       this.prisma.diagnosticEvent.count({ where: diagnosticEventWhere }),
       this.prisma.diagnosticEvent.count({
@@ -414,7 +426,31 @@ export class DiagnosticsService {
           }
         }
       }),
-      this.prisma.auditLog.count({ where: auditWhere })
+      this.prisma.auditLog.count({ where: auditWhere }),
+      this.prisma.metaReportingAccount.count({
+        where: {
+          ...metaReportingAccountWhere,
+          active: true
+        }
+      }),
+      this.prisma.metaReportingAccount.count({
+        where: {
+          ...metaReportingAccountWhere,
+          syncStatus: "error"
+        }
+      }),
+      this.prisma.metaCampaign.count({
+        where: {
+          ...metaCampaignWhere,
+          whatsappClassification: "needs_review"
+        }
+      }),
+      this.prisma.metaConversionDestination.count({
+        where: {
+          ...metaConversionDestinationWhere,
+          status: "configured"
+        }
+      })
     ]);
 
     const status =
@@ -447,7 +483,12 @@ export class DiagnosticsService {
         failedIntegrationCalls,
         conversionEvents,
         failedConversionEvents,
-        auditLogs
+        auditLogs,
+        metaReportingAccountsActive,
+        metaReportingAccountsError,
+        metaWhatsappNeedsReview,
+        metaConversionDestinationConfigured:
+          metaConversionDestinationsConfigured > 0
       }
     };
   }
