@@ -25,6 +25,18 @@ type ReportPeriod = {
   rangeLabel: string;
 };
 
+type WhatsappClassificationFilter =
+  | "whatsapp"
+  | "needs_review"
+  | "excluded"
+  | "all";
+
+type ReportFilters = {
+  businessId?: string;
+  adAccountId?: string;
+  whatsappClassification?: WhatsappClassificationFilter;
+};
+
 @Controller("reports")
 export class ReportingController {
   constructor(
@@ -42,16 +54,25 @@ export class ReportingController {
   async getCampaignReports(
     @AuthToken() refreshToken: string,
     @Query("since") since?: string,
-    @Query("until") until?: string
+    @Query("until") until?: string,
+    @Query("businessId") businessId?: string | string[],
+    @Query("adAccountId") adAccountId?: string | string[],
+    @Query("whatsappClassification") whatsappClassification?: string | string[]
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
+    const filters = this.parseReportFilters({
+      businessId,
+      adAccountId,
+      whatsappClassification
+    });
 
     return this.metaReportingService.getCampaignReportOverview({
       workspaceId,
       since: period.since,
       until: period.until,
-      rangeLabel: period.rangeLabel
+      rangeLabel: period.rangeLabel,
+      ...filters
     });
   }
 
@@ -60,15 +81,24 @@ export class ReportingController {
     @AuthToken() refreshToken: string,
     @Res({ passthrough: true }) response: HeaderResponse,
     @Query("since") since?: string,
-    @Query("until") until?: string
+    @Query("until") until?: string,
+    @Query("businessId") businessId?: string | string[],
+    @Query("adAccountId") adAccountId?: string | string[],
+    @Query("whatsappClassification") whatsappClassification?: string | string[]
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
+    const filters = this.parseReportFilters({
+      businessId,
+      adAccountId,
+      whatsappClassification
+    });
     const csv = await this.metaReportingService.getCampaignReportCsv({
       workspaceId,
       since: period.since,
       until: period.until,
-      rangeLabel: period.rangeLabel
+      rangeLabel: period.rangeLabel,
+      ...filters
     });
 
     response.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -84,16 +114,25 @@ export class ReportingController {
   async getAdSetReports(
     @AuthToken() refreshToken: string,
     @Query("since") since?: string,
-    @Query("until") until?: string
+    @Query("until") until?: string,
+    @Query("businessId") businessId?: string | string[],
+    @Query("adAccountId") adAccountId?: string | string[],
+    @Query("whatsappClassification") whatsappClassification?: string | string[]
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
+    const filters = this.parseReportFilters({
+      businessId,
+      adAccountId,
+      whatsappClassification
+    });
 
     return this.metaReportingService.getAdSetReportOverview({
       workspaceId,
       since: period.since,
       until: period.until,
-      rangeLabel: period.rangeLabel
+      rangeLabel: period.rangeLabel,
+      ...filters
     });
   }
 
@@ -101,16 +140,25 @@ export class ReportingController {
   async getAdReports(
     @AuthToken() refreshToken: string,
     @Query("since") since?: string,
-    @Query("until") until?: string
+    @Query("until") until?: string,
+    @Query("businessId") businessId?: string | string[],
+    @Query("adAccountId") adAccountId?: string | string[],
+    @Query("whatsappClassification") whatsappClassification?: string | string[]
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
+    const filters = this.parseReportFilters({
+      businessId,
+      adAccountId,
+      whatsappClassification
+    });
 
     return this.metaReportingService.getAdReportOverview({
       workspaceId,
       since: period.since,
       until: period.until,
-      rangeLabel: period.rangeLabel
+      rangeLabel: period.rangeLabel,
+      ...filters
     });
   }
 
@@ -183,6 +231,56 @@ export class ReportingController {
       until,
       rangeLabel: `${since} a ${until}`
     };
+  }
+
+  private parseReportFilters(input: {
+    businessId?: string | string[];
+    adAccountId?: string | string[];
+    whatsappClassification?: string | string[];
+  }): ReportFilters {
+    return {
+      businessId: this.trimOptional(input.businessId),
+      adAccountId: this.trimOptional(input.adAccountId),
+      whatsappClassification: this.parseWhatsappClassificationFilter(
+        input.whatsappClassification
+      )
+    };
+  }
+
+  private trimOptional(value?: string | string[]): string | undefined {
+    if (Array.isArray(value)) {
+      throw new BadRequestException("Filtro de relatorio invalido");
+    }
+
+    const trimmed = value?.trim();
+
+    return trimmed ? trimmed : undefined;
+  }
+
+  private isWhatsappClassificationFilter(
+    value: string
+  ): value is WhatsappClassificationFilter {
+    return ["whatsapp", "needs_review", "excluded", "all"].includes(value);
+  }
+
+  private parseWhatsappClassificationFilter(
+    value?: string | string[]
+  ): WhatsappClassificationFilter | undefined {
+    if (Array.isArray(value)) {
+      throw new BadRequestException("Filtro de relatorio invalido");
+    }
+
+    const trimmed = value?.trim();
+
+    if (!trimmed) {
+      return undefined;
+    }
+
+    if (this.isWhatsappClassificationFilter(trimmed)) {
+      return trimmed;
+    }
+
+    throw new BadRequestException("Filtro de classificacao invalido");
   }
 
   private isDateOnly(value?: string): value is string {

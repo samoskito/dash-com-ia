@@ -45,6 +45,27 @@ export type ReportCsvResult = {
   content: string;
 };
 
+type WhatsappClassificationFilter =
+  | "whatsapp"
+  | "needs_review"
+  | "excluded"
+  | "all";
+
+type ReportFilterInput = {
+  businessId?: string;
+  adAccountId?: string;
+  whatsappClassification?: WhatsappClassificationFilter;
+};
+
+type MetaSnapshotWhere = {
+  workspaceId: string;
+  businessId?: string;
+  adAccountId?: string;
+  whatsappClassification?:
+    | WhatsappClassification
+    | { in: WhatsappClassification[] };
+};
+
 type MetaIntegrationRecord = {
   workspaceId: string;
   encryptedAccessToken: string;
@@ -73,6 +94,9 @@ type MetaCampaignRecord = {
   status: string | null;
   effectiveStatus?: string | null;
   objective?: string | null;
+  businessId?: string | null;
+  adAccountId?: string | null;
+  whatsappClassification?: WhatsappClassification;
   spendCents: number;
   metaConversationsStarted: number;
 };
@@ -83,6 +107,9 @@ type MetaAdSetRecord = {
   name: string;
   status: string | null;
   effectiveStatus: string | null;
+  businessId?: string | null;
+  adAccountId?: string | null;
+  whatsappClassification?: WhatsappClassification;
   spendCents: number;
   metaConversationsStarted: number;
 };
@@ -94,6 +121,9 @@ type MetaAdRecord = {
   name: string;
   status: string | null;
   effectiveStatus: string | null;
+  businessId?: string | null;
+  adAccountId?: string | null;
+  whatsappClassification?: WhatsappClassification;
   spendCents: number;
   metaConversationsStarted: number;
 };
@@ -518,9 +548,9 @@ export class MetaReportingService {
     rangeLabel: string;
     since?: string;
     until?: string;
-  }): Promise<ReportOverviewDto> {
+  } & ReportFilterInput): Promise<ReportOverviewDto> {
     const campaigns = (await this.prisma.metaCampaign.findMany({
-      where: { workspaceId: input.workspaceId },
+      where: this.metaSnapshotWhere(input),
       orderBy: { name: "asc" }
     })) as MetaCampaignRecord[];
     const conversionLogs = (await this.prisma.conversionEventLog.findMany({
@@ -577,7 +607,7 @@ export class MetaReportingService {
     rangeLabel: string;
     since?: string;
     until?: string;
-  }): Promise<ReportCsvResult> {
+  } & ReportFilterInput): Promise<ReportCsvResult> {
     const report = await this.getCampaignReportOverview(input);
     const rows = [
       [
@@ -615,14 +645,14 @@ export class MetaReportingService {
     rangeLabel: string;
     since?: string;
     until?: string;
-  }): Promise<AdSetReportOverviewDto> {
+  } & ReportFilterInput): Promise<AdSetReportOverviewDto> {
     const [campaigns, adSets, conversionLogs, leads] = await Promise.all([
       this.prisma.metaCampaign.findMany({
-        where: { workspaceId: input.workspaceId },
+        where: this.metaHierarchyWhere(input),
         orderBy: { name: "asc" }
       }) as Promise<MetaCampaignRecord[]>,
       this.prisma.metaAdSet.findMany({
-        where: { workspaceId: input.workspaceId },
+        where: this.metaSnapshotWhere(input),
         orderBy: { name: "asc" }
       }) as Promise<MetaAdSetRecord[]>,
       this.getSentConversionEvents(input),
@@ -652,18 +682,18 @@ export class MetaReportingService {
     rangeLabel: string;
     since?: string;
     until?: string;
-  }): Promise<AdReportOverviewDto> {
+  } & ReportFilterInput): Promise<AdReportOverviewDto> {
     const [campaigns, adSets, ads, conversionLogs, leads] = await Promise.all([
       this.prisma.metaCampaign.findMany({
-        where: { workspaceId: input.workspaceId },
+        where: this.metaHierarchyWhere(input),
         orderBy: { name: "asc" }
       }) as Promise<MetaCampaignRecord[]>,
       this.prisma.metaAdSet.findMany({
-        where: { workspaceId: input.workspaceId },
+        where: this.metaHierarchyWhere(input),
         orderBy: { name: "asc" }
       }) as Promise<MetaAdSetRecord[]>,
       this.prisma.metaAd.findMany({
-        where: { workspaceId: input.workspaceId },
+        where: this.metaSnapshotWhere(input),
         orderBy: { name: "asc" }
       }) as Promise<MetaAdRecord[]>,
       this.getSentConversionEvents(input),
@@ -935,6 +965,9 @@ export class MetaReportingService {
       id: campaign.campaignId,
       name: campaign.name,
       status: this.toReportStatus(campaign.status),
+      businessId: campaign.businessId,
+      adAccountId: campaign.adAccountId,
+      whatsappClassification: campaign.whatsappClassification,
       spendCents: campaign.spendCents,
       metaConversationsStarted: campaign.metaConversationsStarted,
       costPerMetaConversationCents: this.costPer(
@@ -984,6 +1017,9 @@ export class MetaReportingService {
       campaignName: input.campaignName,
       name: input.adSet.name,
       status: this.toReportStatus(input.adSet.status),
+      businessId: input.adSet.businessId,
+      adAccountId: input.adSet.adAccountId,
+      whatsappClassification: input.adSet.whatsappClassification,
       ...metrics
     };
   }
@@ -1016,6 +1052,9 @@ export class MetaReportingService {
       adSetName: input.adSetName,
       name: input.ad.name,
       status: this.toReportStatus(input.ad.status),
+      businessId: input.ad.businessId,
+      adAccountId: input.ad.adAccountId,
+      whatsappClassification: input.ad.whatsappClassification,
       ...metrics
     };
   }
@@ -1107,6 +1146,49 @@ export class MetaReportingService {
           }
         }
       : {};
+  }
+
+  private metaSnapshotWhere(input: {
+    workspaceId: string;
+  } & ReportFilterInput): MetaSnapshotWhere {
+    const where = this.metaHierarchyWhere(input) as MetaSnapshotWhere;
+
+    const classification = input.whatsappClassification ?? "whatsapp";
+
+    if (classification === "whatsapp") {
+      where.whatsappClassification = {
+        in: [
+          "auto_whatsapp",
+          "creative_whatsapp",
+          "detected_by_leads",
+          "manual_include"
+        ]
+      };
+    } else if (classification === "needs_review") {
+      where.whatsappClassification = "needs_review";
+    } else if (classification === "excluded") {
+      where.whatsappClassification = "manual_exclude";
+    }
+
+    return where;
+  }
+
+  private metaHierarchyWhere(input: {
+    workspaceId: string;
+  } & ReportFilterInput): Omit<MetaSnapshotWhere, "whatsappClassification"> {
+    const where: Omit<MetaSnapshotWhere, "whatsappClassification"> = {
+      workspaceId: input.workspaceId
+    };
+
+    if (input.businessId) {
+      where.businessId = input.businessId;
+    }
+
+    if (input.adAccountId) {
+      where.adAccountId = input.adAccountId;
+    }
+
+    return where;
   }
 
   private countEvents(

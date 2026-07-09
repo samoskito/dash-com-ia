@@ -2,6 +2,23 @@ import { describe, expect, it, vi } from "vitest";
 import { MetaReportingService } from "../src/reporting/meta-reporting.service";
 import { WhatsappCampaignClassifierService } from "../src/reporting/whatsapp-campaign-classifier.service";
 
+function matchesWhere(
+  record: Record<string, unknown>,
+  where?: Record<string, unknown>
+) {
+  if (!where) {
+    return true;
+  }
+
+  return Object.entries(where).every(([key, value]) => {
+    if (value && typeof value === "object" && "in" in value) {
+      return (value.in as unknown[]).includes(record[key]);
+    }
+
+    return record[key] === value;
+  });
+}
+
 function createHarness() {
   const db = {
     metaIntegration: {
@@ -95,7 +112,9 @@ function createHarness() {
         db.campaigns.push(record);
         return record;
       }),
-      findMany: vi.fn(async () => db.campaigns)
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.campaigns.filter((campaign) => matchesWhere(campaign, args?.where))
+      )
     },
     metaAdSet: {
       upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
@@ -103,7 +122,9 @@ function createHarness() {
         db.adSets.push(record);
         return record;
       }),
-      findMany: vi.fn(async () => db.adSets)
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.adSets.filter((adSet) => matchesWhere(adSet, args?.where))
+      )
     },
     metaAd: {
       upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
@@ -111,7 +132,9 @@ function createHarness() {
         db.ads.push(record);
         return record;
       }),
-      findMany: vi.fn(async () => db.ads)
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.ads.filter((ad) => matchesWhere(ad, args?.where))
+      )
     },
     conversionEventLog: {
       findMany: vi.fn(async () => db.conversionLogs)
@@ -518,6 +541,9 @@ describe("meta reporting service", () => {
           id: "cmp_1",
           name: "Black Friday WhatsApp",
           status: "active",
+          businessId: "business_1",
+          adAccountId: "act_123",
+          whatsappClassification: "auto_whatsapp",
           spendCents: 120000,
           metaConversationsStarted: 176,
           costPerMetaConversationCents: 681,
@@ -532,6 +558,272 @@ describe("meta reporting service", () => {
           roas: null
         }
       ]
+    });
+  });
+
+  it("defaults campaign reports to WhatsApp-classified snapshots", async () => {
+    const { db, service } = createHarness();
+
+    db.campaigns.push(
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_whatsapp",
+        name: "Campanha WhatsApp",
+        status: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "manual_include",
+        spendCents: 10000,
+        metaConversationsStarted: 2
+      },
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_not_whatsapp",
+        name: "Campanha Trafego",
+        status: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "not_whatsapp",
+        spendCents: 20000,
+        metaConversationsStarted: 0
+      },
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_manual_exclude",
+        name: "Campanha Excluida",
+        status: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "manual_exclude",
+        spendCents: 30000,
+        metaConversationsStarted: 0
+      }
+    );
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias"
+    });
+
+    expect(report.campaigns.map((campaign) => campaign.id)).toEqual([
+      "cmp_whatsapp"
+    ]);
+    expect(report.campaigns[0]).toMatchObject({
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "manual_include"
+    });
+  });
+
+  it("defaults ad set and ad reports to WhatsApp-classified snapshots", async () => {
+    const { db, service } = createHarness();
+
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_1",
+      name: "Campanha WhatsApp",
+      status: "ACTIVE",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "auto_whatsapp",
+      spendCents: 0,
+      metaConversationsStarted: 0
+    });
+    db.adSets.push(
+      {
+        workspaceId: "workspace_1",
+        adSetId: "adset_whatsapp",
+        campaignId: "cmp_1",
+        name: "Conjunto WhatsApp",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "creative_whatsapp",
+        spendCents: 10000,
+        metaConversationsStarted: 3
+      },
+      {
+        workspaceId: "workspace_1",
+        adSetId: "adset_not_whatsapp",
+        campaignId: "cmp_1",
+        name: "Conjunto Trafego",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "not_whatsapp",
+        spendCents: 20000,
+        metaConversationsStarted: 0
+      },
+      {
+        workspaceId: "workspace_1",
+        adSetId: "adset_manual_exclude",
+        campaignId: "cmp_1",
+        name: "Conjunto Excluido",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "manual_exclude",
+        spendCents: 30000,
+        metaConversationsStarted: 0
+      }
+    );
+    db.ads.push(
+      {
+        workspaceId: "workspace_1",
+        adId: "ad_whatsapp",
+        adSetId: "adset_whatsapp",
+        campaignId: "cmp_1",
+        name: "Anuncio WhatsApp",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "detected_by_leads",
+        spendCents: 10000,
+        metaConversationsStarted: 4
+      },
+      {
+        workspaceId: "workspace_1",
+        adId: "ad_not_whatsapp",
+        adSetId: "adset_not_whatsapp",
+        campaignId: "cmp_1",
+        name: "Anuncio Trafego",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "not_whatsapp",
+        spendCents: 20000,
+        metaConversationsStarted: 0
+      },
+      {
+        workspaceId: "workspace_1",
+        adId: "ad_manual_exclude",
+        adSetId: "adset_manual_exclude",
+        campaignId: "cmp_1",
+        name: "Anuncio Excluido",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "manual_exclude",
+        spendCents: 30000,
+        metaConversationsStarted: 0
+      }
+    );
+
+    const [adSets, ads] = await Promise.all([
+      service.getAdSetReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 7 dias"
+      }),
+      service.getAdReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 7 dias"
+      })
+    ]);
+
+    expect(adSets.adSets.map((adSet) => adSet.id)).toEqual(["adset_whatsapp"]);
+    expect(adSets.adSets[0]).toMatchObject({
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "creative_whatsapp"
+    });
+    expect(ads.ads.map((ad) => ad.id)).toEqual(["ad_whatsapp"]);
+    expect(ads.ads[0]).toMatchObject({
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "detected_by_leads"
+    });
+  });
+
+  it("keeps hierarchy names when parent classification differs from reported child", async () => {
+    const { db, service } = createHarness();
+
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_parent",
+      name: "Campanha em Revisao",
+      status: "ACTIVE",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "needs_review",
+      spendCents: 0,
+      metaConversationsStarted: 0
+    });
+    db.adSets.push({
+      workspaceId: "workspace_1",
+      adSetId: "adset_child",
+      campaignId: "cmp_parent",
+      name: "Conjunto WhatsApp",
+      status: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "creative_whatsapp",
+      spendCents: 10000,
+      metaConversationsStarted: 3
+    });
+    db.ads.push({
+      workspaceId: "workspace_1",
+      adId: "ad_child",
+      adSetId: "adset_child",
+      campaignId: "cmp_parent",
+      name: "Anuncio WhatsApp",
+      status: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "auto_whatsapp",
+      spendCents: 5000,
+      metaConversationsStarted: 2
+    });
+
+    const [adSets, ads] = await Promise.all([
+      service.getAdSetReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 7 dias"
+      }),
+      service.getAdReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 7 dias"
+      })
+    ]);
+
+    expect(adSets.adSets).toHaveLength(1);
+    expect(adSets.adSets[0]).toMatchObject({
+      id: "adset_child",
+      campaignName: "Campanha em Revisao"
+    });
+    expect(ads.ads).toHaveLength(1);
+    expect(ads.ads[0]).toMatchObject({
+      id: "ad_child",
+      campaignName: "Campanha em Revisao",
+      adSetName: "Conjunto WhatsApp"
+    });
+  });
+
+  it("applies Meta account and classification filters to campaign reports", async () => {
+    const { prisma, service } = createHarness();
+
+    await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Todas",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "all"
+    });
+
+    expect(prisma.metaCampaign.findMany).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        businessId: "business_1",
+        adAccountId: "act_123"
+      },
+      orderBy: { name: "asc" }
     });
   });
 
@@ -638,6 +930,9 @@ describe("meta reporting service", () => {
           campaignName: "Black Friday WhatsApp",
           name: "Publico quente",
           status: "active",
+          businessId: "business_1",
+          adAccountId: "act_123",
+          whatsappClassification: "auto_whatsapp",
           spendCents: 60000,
           metaConversationsStarted: 80,
           costPerMetaConversationCents: 750,
@@ -681,6 +976,9 @@ describe("meta reporting service", () => {
           adSetName: "Publico quente",
           name: "Criativo WhatsApp",
           status: "active",
+          businessId: "business_1",
+          adAccountId: "act_123",
+          whatsappClassification: "auto_whatsapp",
           spendCents: 30000,
           metaConversationsStarted: 40,
           costPerMetaConversationCents: 750,
