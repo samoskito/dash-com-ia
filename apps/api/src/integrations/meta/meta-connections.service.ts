@@ -116,7 +116,7 @@ export class MetaConnectionsService {
     workspaceId: string,
     metaAdapter: Pick<
       MetaAdapter,
-      "listBusinesses" | "listOwnedAdAccounts" | "listAdAccountPixels"
+      "listBusinesses" | "listOwnedAdAccounts" | "listBusinessPixels"
     >
   ): Promise<MetaAssetsDto> {
     const connection = (await this.prisma.metaIntegration.findUnique({
@@ -134,28 +134,49 @@ export class MetaConnectionsService {
         tokenTag: connection.tokenTag
       });
       const businesses = await metaAdapter.listBusinesses({ accessToken });
-      const businessId = connection.selectedBusinessId ?? businesses[0]?.id ?? null;
-      const adAccounts = businessId
-        ? await metaAdapter.listOwnedAdAccounts({
-            accessToken,
-            businessId
+      const [adAccountsByBusiness, pixelsByBusiness] = await Promise.all([
+        Promise.all(
+          businesses.map(async (business) => {
+            try {
+              const adAccounts = await metaAdapter.listOwnedAdAccounts({
+                accessToken,
+                businessId: business.id
+              });
+
+              return adAccounts.map((adAccount) => ({
+                ...adAccount,
+                businessId: adAccount.businessId ?? business.id
+              }));
+            } catch {
+              return [];
+            }
           })
-        : [];
-      const adAccountId =
-        connection.selectedAdAccountId ?? adAccounts[0]?.id ?? null;
-      const pixels = adAccountId
-        ? await metaAdapter.listAdAccountPixels({
-            accessToken,
-            adAccountId
+        ),
+        Promise.all(
+          businesses.map(async (business) => {
+            try {
+              const pixels = await metaAdapter.listBusinessPixels({
+                accessToken,
+                businessId: business.id
+              });
+
+              return pixels.map((pixel) => ({
+                ...pixel,
+                businessId: pixel.businessId ?? business.id
+              }));
+            } catch {
+              return [];
+            }
           })
-        : [];
+        )
+      ]);
 
       return {
         workspaceId,
         status: this.toStatus(connection.status),
         businesses,
-        adAccounts,
-        pixels,
+        adAccounts: adAccountsByBusiness.flat(),
+        pixels: pixelsByBusiness.flat(),
         selection: {
           businessId: connection.selectedBusinessId,
           adAccountId: connection.selectedAdAccountId,

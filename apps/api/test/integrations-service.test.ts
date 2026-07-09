@@ -184,13 +184,21 @@ describe("integrations service", () => {
         adAccounts: [
           {
             id: "act_123",
+            businessId: "business_1",
             name: "Conta WhatsApp",
             accountStatus: "1",
             currency: "BRL",
             timezoneName: "America/Sao_Paulo"
           }
         ],
-        pixels: [{ id: "pixel_1", name: "Pixel Loja", code: "1234567890" }],
+        pixels: [
+          {
+            id: "pixel_1",
+            businessId: "business_1",
+            name: "Pixel Loja",
+            code: "1234567890"
+          }
+        ],
         selection: {
           businessId: "business_1",
           adAccountId: "act_123",

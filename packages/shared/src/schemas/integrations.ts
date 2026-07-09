@@ -85,6 +85,7 @@ export const metaBusinessAssetSchema = z.object({
 
 export const metaAdAccountAssetSchema = z.object({
   id: z.string().min(1),
+  businessId: z.string().min(1).nullable(),
   name: z.string().min(1),
   accountStatus: z.string().min(1).nullable(),
   currency: z.string().min(1).nullable(),
@@ -93,6 +94,7 @@ export const metaAdAccountAssetSchema = z.object({
 
 export const metaPixelAssetSchema = z.object({
   id: z.string().min(1),
+  businessId: z.string().min(1).nullable(),
   name: z.string().min(1),
   code: z.string().min(1).nullable()
 });

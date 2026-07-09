@@ -35,6 +35,9 @@ type ConversionEventLogRecord = {
 };
 
 type MetaIntegrationCapiTokenRecord = {
+  encryptedAccessToken: string | null;
+  tokenIv: string | null;
+  tokenTag: string | null;
   capiAccessTokenEncrypted: string | null;
   capiTokenIv: string | null;
   capiTokenTag: string | null;
@@ -153,25 +156,33 @@ export class ConversionEventsService {
     const connection = (await this.prisma.metaIntegration.findUnique({
       where: { workspaceId },
       select: {
+        encryptedAccessToken: true,
+        tokenIv: true,
+        tokenTag: true,
         capiAccessTokenEncrypted: true,
         capiTokenIv: true,
         capiTokenTag: true
       }
     })) as MetaIntegrationCapiTokenRecord | null;
 
-    if (
-      !connection?.capiAccessTokenEncrypted ||
-      !connection.capiTokenIv ||
-      !connection.capiTokenTag
-    ) {
+    if (!connection) {
+      return null;
+    }
+
+    const encryptedAccessToken =
+      connection.capiAccessTokenEncrypted ?? connection.encryptedAccessToken;
+    const tokenIv = connection.capiTokenIv ?? connection.tokenIv;
+    const tokenTag = connection.capiTokenTag ?? connection.tokenTag;
+
+    if (!encryptedAccessToken || !tokenIv || !tokenTag) {
       return null;
     }
 
     try {
       return this.metaTokenEncryption.decrypt({
-        encryptedAccessToken: connection.capiAccessTokenEncrypted,
-        tokenIv: connection.capiTokenIv,
-        tokenTag: connection.capiTokenTag
+        encryptedAccessToken,
+        tokenIv,
+        tokenTag
       });
     } catch {
       return null;

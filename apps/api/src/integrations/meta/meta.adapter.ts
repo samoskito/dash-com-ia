@@ -29,6 +29,9 @@ type MetaTokenResponse = {
 
 type MetaGraphListResponse<T> = {
   data?: T[];
+  paging?: {
+    next?: unknown;
+  };
   error?: {
     message?: unknown;
     type?: unknown;
@@ -311,6 +314,7 @@ export class MetaAdapter implements IntegrationAdapter {
     return response
       .map((item) => ({
         id: this.asString(item.id),
+        businessId: input.businessId as string | null,
         name: this.asString(item.name),
         accountStatus: this.asString(item.account_status),
         currency: this.asString(item.currency),
@@ -319,6 +323,26 @@ export class MetaAdapter implements IntegrationAdapter {
       .filter(
         (item): item is MetaAdAccountAssetDto => Boolean(item.id && item.name)
       );
+  }
+
+  async listBusinessPixels(input: {
+    accessToken: string;
+    businessId: string;
+  }): Promise<MetaPixelAssetDto[]> {
+    const response = await this.getGraphList<MetaPixelGraphNode>(
+      `/${input.businessId}/adspixels`,
+      "id,name,code",
+      input.accessToken
+    );
+
+    return response
+      .map((item) => ({
+        id: this.asString(item.id),
+        businessId: input.businessId as string | null,
+        name: this.asString(item.name),
+        code: this.asString(item.code)
+      }))
+      .filter((item): item is MetaPixelAssetDto => Boolean(item.id && item.name));
   }
 
   async listAdAccountPixels(input: {
@@ -334,6 +358,7 @@ export class MetaAdapter implements IntegrationAdapter {
     return response
       .map((item) => ({
         id: this.asString(item.id),
+        businessId: null as string | null,
         name: this.asString(item.name),
         code: this.asString(item.code)
       }))
@@ -624,18 +649,28 @@ export class MetaAdapter implements IntegrationAdapter {
       fields,
       access_token: accessToken
     });
-    const response = await this.fetchImpl(
-      `https://graph.facebook.com/${this.getGraphApiVersion()}${path}?${params.toString()}`
-    );
-    const payload = (await response.json().catch(() => ({}))) as MetaGraphListResponse<T>;
+    let nextUrl: string | null =
+      `https://graph.facebook.com/${this.getGraphApiVersion()}${path}?${params.toString()}`;
+    const data: T[] = [];
 
-    if (!response.ok) {
-      throw new Error(
-        this.asString(payload.error?.message) ??
-          `Meta Graph HTTP ${response.status}`
-      );
+    for (let page = 0; nextUrl && page < 25; page += 1) {
+      const response = await this.fetchImpl(nextUrl);
+      const payload = (await response.json().catch(() => ({}))) as MetaGraphListResponse<T>;
+
+      if (!response.ok) {
+        throw new Error(
+          this.asString(payload.error?.message) ??
+            `Meta Graph HTTP ${response.status}`
+        );
+      }
+
+      if (Array.isArray(payload.data)) {
+        data.push(...payload.data);
+      }
+
+      nextUrl = this.asString(payload.paging?.next);
     }
 
-    return Array.isArray(payload.data) ? payload.data : [];
+    return data;
   }
 }

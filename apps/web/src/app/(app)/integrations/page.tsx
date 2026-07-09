@@ -13,6 +13,7 @@ import type {
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { serverApiFetch } from "../../../lib/server-api";
+import { MetaAssetsForm } from "./meta-assets-form";
 import { MetaOAuthButton } from "./meta-oauth-button";
 
 type ResourceResult<T> = {
@@ -250,33 +251,6 @@ async function saveMetaAssetSelection(formData: FormData) {
         adAccountId: adAccountId || null,
         pixelId: pixelId || null
       })
-    });
-    revalidatePath("/integrations");
-  } catch {
-    return;
-  }
-}
-
-async function saveMetaCapiToken(formData: FormData) {
-  "use server";
-
-  const accessToken = String(formData.get("accessToken") ?? "").trim();
-  const clear = String(formData.get("clear") ?? "") === "true";
-
-  if (!accessToken && !clear) {
-    return;
-  }
-
-  try {
-    await serverApiFetch("/integrations/meta/capi-token", {
-      method: "PUT",
-      body: JSON.stringify(
-        clear
-          ? { clear: true }
-          : {
-              accessToken
-            }
-      )
     });
     revalidatePath("/integrations");
   } catch {
@@ -591,99 +565,14 @@ export default async function IntegrationsPage() {
             <span className="micro-label">Pixel selecionado</span>
             <strong>{selectedPixelName}</strong>
           </div>
-          <div className="metric-card">
-            <span className="micro-label">Escopos</span>
-            <strong>
-              {metaConnection?.scopes.length ? metaConnection.scopes.join(", ") : "sem escopos"}
-            </strong>
-          </div>
-          <div className="metric-card">
-            <span className="micro-label">Token CAPI</span>
-            <strong>
-              {metaConnection?.capiTokenConfigured
-                ? "Token CAPI configurado"
-                : "Token CAPI ausente"}
-            </strong>
-          </div>
         </div>
         <p className="muted">
           {metaAssetsDetail(metaAssets, metaAssetsResult.state)}
         </p>
         {metaAssets && canManageIntegrations ? (
-          <form className="filter-bar" action={saveMetaAssetSelection}>
-            <select
-              className="filter-control"
-              name="businessId"
-              defaultValue={metaAssets.selection.businessId ?? ""}
-              aria-label="Business Manager Meta"
-            >
-              <option value="">Sem BM</option>
-              {metaAssets.businesses.map((business) => (
-                <option key={business.id} value={business.id}>
-                  {business.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="filter-control"
-              name="adAccountId"
-              defaultValue={metaAssets.selection.adAccountId ?? ""}
-              aria-label="Conta de anuncio Meta"
-            >
-              <option value="">Sem conta</option>
-              {metaAssets.adAccounts.map((adAccount) => (
-                <option key={adAccount.id} value={adAccount.id}>
-                  {adAccount.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="filter-control"
-              name="pixelId"
-              defaultValue={metaAssets.selection.pixelId ?? ""}
-              aria-label="Pixel Meta"
-            >
-              <option value="">Sem Pixel</option>
-              {metaAssets.pixels.map((pixel) => (
-                <option key={pixel.id} value={pixel.id}>
-                  {pixel.name}
-                </option>
-              ))}
-            </select>
-            <button className="button" type="submit">Salvar selecao Meta</button>
-          </form>
+          <MetaAssetsForm assets={metaAssets} action={saveMetaAssetSelection} />
         ) : metaAssets ? (
           <p className="muted">Sem permissao para alterar Meta</p>
-        ) : null}
-        {metaConnection && canManageIntegrations ? (
-          <div className="inline-form">
-            <form className="inline-form" action={saveMetaCapiToken}>
-              <input
-                autoComplete="off"
-                name="accessToken"
-                placeholder="Token CAPI do Pixel"
-                type="password"
-                aria-label="Token CAPI Meta"
-              />
-              <button className="button" type="submit">
-                Salvar token CAPI
-              </button>
-            </form>
-            {metaConnection.capiTokenConfigured ? (
-              <form action={saveMetaCapiToken}>
-                <input type="hidden" name="clear" value="true" />
-                <button className="button" type="submit">
-                  Remover token CAPI
-                </button>
-              </form>
-            ) : null}
-          </div>
-        ) : metaConnection ? (
-          <p className="muted">
-            {metaConnection.capiTokenConfigured
-              ? "Token CAPI configurado"
-              : "Token CAPI ausente"}
-          </p>
         ) : null}
         <div className="table-wrap">
           <table>
@@ -774,8 +663,8 @@ export default async function IntegrationsPage() {
           </table>
         </div>
         <p className="muted">
-          Tokens Meta ficam criptografados no backend. Esta tela mostra apenas estado,
-          escopos e selecoes operacionais.
+          A conexao Meta fica protegida no backend. Esta tela mostra apenas a
+          selecao operacional de BM, conta de anuncio e Pixel.
         </p>
       </div>
 

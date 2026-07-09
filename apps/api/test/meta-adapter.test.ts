@@ -115,7 +115,7 @@ describe("meta adapter oauth", () => {
     });
   });
 
-  it("lists Meta businesses, ad accounts and pixels from Graph API with backend token", async () => {
+  it("lists Meta businesses, ad accounts and business pixels from Graph API with backend token", async () => {
     const fetchCalls: string[] = [];
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -153,15 +153,24 @@ describe("meta adapter oauth", () => {
         );
       }
 
+      if (url.includes("/business_1/adspixels")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "pixel_1",
+                name: "Pixel Loja",
+                code: "1234567890"
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
       return new Response(
         JSON.stringify({
-          data: [
-            {
-              id: "pixel_1",
-              name: "Pixel Loja",
-              code: "1234567890"
-            }
-          ]
+          data: []
         }),
         { status: 200 }
       );
@@ -190,6 +199,7 @@ describe("meta adapter oauth", () => {
     ).resolves.toEqual([
       {
         id: "act_123",
+        businessId: "business_1",
         name: "Conta WhatsApp",
         accountStatus: "1",
         currency: "BRL",
@@ -197,13 +207,14 @@ describe("meta adapter oauth", () => {
       }
     ]);
     await expect(
-      adapter.listAdAccountPixels({
+      adapter.listBusinessPixels({
         accessToken: "EAAB-secret-token",
-        adAccountId: "act_123"
+        businessId: "business_1"
       })
     ).resolves.toEqual([
       {
         id: "pixel_1",
+        businessId: "business_1",
         name: "Pixel Loja",
         code: "1234567890"
       }
@@ -211,6 +222,72 @@ describe("meta adapter oauth", () => {
     expect(fetchCalls[0]).toContain("access_token=EAAB-secret-token");
     expect(fetchCalls[1]).toContain("fields=id%2Cname%2Caccount_status%2Ccurrency%2Ctimezone_name");
     expect(fetchCalls[2]).toContain("fields=id%2Cname%2Ccode");
+  });
+
+  it("follows Meta Graph pagination for asset lists", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+
+      if (url.includes("page=2")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "act_2",
+                name: "Conta Pagina 2",
+                account_status: 1,
+                currency: "BRL",
+                timezone_name: "America/Sao_Paulo"
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "act_1",
+              name: "Conta Pagina 1",
+              account_status: 1,
+              currency: "BRL",
+              timezone_name: "America/Sao_Paulo"
+            }
+          ],
+          paging: {
+            next: "https://graph.facebook.com/v25.0/business_1/owned_ad_accounts?page=2"
+          }
+        }),
+        { status: 200 }
+      );
+    }) as unknown as typeof fetch;
+    const adapter = new MetaAdapter(
+      {
+        META_GRAPH_API_VERSION: "v25.0"
+      },
+      fetchMock
+    );
+
+    await expect(
+      adapter.listOwnedAdAccounts({
+        accessToken: "EAAB-secret-token",
+        businessId: "business_1"
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "act_1",
+        businessId: "business_1",
+        name: "Conta Pagina 1"
+      }),
+      expect.objectContaining({
+        id: "act_2",
+        businessId: "business_1",
+        name: "Conta Pagina 2"
+      })
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("lists campaigns, ad sets, ads and campaign insights from the selected ad account", async () => {

@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import IntegrationsPage from "../src/app/(app)/integrations/page";
+import {
+  metaAdAccountsForBusiness,
+  metaPixelsForBusiness
+} from "../src/app/(app)/integrations/meta-assets-form";
 
 vi.mock("next/navigation", () => ({
   redirect: () => undefined,
@@ -84,22 +88,43 @@ describe("integrations route", () => {
                 id: "business_1",
                 name: "BM Principal",
                 verificationStatus: "verified"
+              },
+              {
+                id: "business_2",
+                name: "BM Secundario",
+                verificationStatus: null
               }
             ],
             adAccounts: [
               {
                 id: "act_1",
+                businessId: "business_1",
                 name: "Conta WhatsApp",
                 accountStatus: "active",
                 currency: "BRL",
                 timezoneName: "America/Sao_Paulo"
+              },
+              {
+                id: "act_2",
+                businessId: "business_2",
+                name: "Conta Outro BM",
+                accountStatus: "active",
+                currency: "USD",
+                timezoneName: "America/New_York"
               }
             ],
             pixels: [
               {
                 id: "pixel_1",
+                businessId: "business_1",
                 name: "Pixel Loja",
                 code: "123456789"
+              },
+              {
+                id: "pixel_2",
+                businessId: "business_2",
+                name: "Pixel Outro BM",
+                code: "987654321"
               }
             ],
             selection: {
@@ -252,10 +277,14 @@ describe("integrations route", () => {
     expect(html).toContain("BM Principal");
     expect(html).toContain("Conta WhatsApp");
     expect(html).toContain("Pixel Loja");
-    expect(html).toContain("Token CAPI configurado");
-    expect(html).toContain('name="accessToken"');
-    expect(html).toContain("Salvar token CAPI");
-    expect(html).toContain("Remover token CAPI");
+    expect(html).toContain("BM Secundario");
+    expect(html).not.toContain("Conta Outro BM");
+    expect(html).not.toContain("Pixel Outro BM");
+    expect(html).not.toContain("Escopos");
+    expect(html).not.toContain("Token CAPI");
+    expect(html).not.toContain('name="accessToken"');
+    expect(html).not.toContain("Salvar token CAPI");
+    expect(html).not.toContain("Remover token CAPI");
     expect(html).not.toContain("EAAB-capi-token-secret");
     expect(html).toContain('name="businessId"');
     expect(html).toContain('name="adAccountId"');
@@ -290,6 +319,63 @@ describe("integrations route", () => {
     expect(html).toContain("4");
     expect(html).toContain("2");
     expect(html).not.toContain("aguardando dados");
+  });
+
+  it("filters Meta ad accounts and pixels by selected business", () => {
+    const assets = {
+      workspaceId: "workspace_1",
+      status: "connected" as const,
+      businesses: [
+        { id: "business_1", name: "BM Principal", verificationStatus: null },
+        { id: "business_2", name: "BM Secundario", verificationStatus: null }
+      ],
+      adAccounts: [
+        {
+          id: "act_1",
+          businessId: "business_1",
+          name: "Conta Principal",
+          accountStatus: null,
+          currency: "BRL",
+          timezoneName: null
+        },
+        {
+          id: "act_2",
+          businessId: "business_2",
+          name: "Conta Secundaria",
+          accountStatus: null,
+          currency: "USD",
+          timezoneName: null
+        }
+      ],
+      pixels: [
+        {
+          id: "pixel_1",
+          businessId: "business_1",
+          name: "Pixel Principal",
+          code: null
+        },
+        {
+          id: "pixel_2",
+          businessId: "business_2",
+          name: "Pixel Secundario",
+          code: null
+        }
+      ],
+      selection: {
+        businessId: "business_1",
+        adAccountId: "act_1",
+        pixelId: "pixel_1"
+      },
+      lastSyncedAt: "2026-07-02T03:00:00.000Z",
+      syncError: null
+    };
+
+    expect(metaAdAccountsForBusiness(assets, "business_2")).toEqual([
+      expect.objectContaining({ id: "act_2", name: "Conta Secundaria" })
+    ]);
+    expect(metaPixelsForBusiness(assets, "business_2")).toEqual([
+      expect.objectContaining({ id: "pixel_2", name: "Pixel Secundario" })
+    ]);
   });
 
   it("hides integration mutation actions for workspace members", async () => {
@@ -347,9 +433,25 @@ describe("integrations route", () => {
           JSON.stringify({
             workspaceId: "workspace_1",
             status: "connected",
-            businesses: [{ id: "business_1", name: "BM Principal" }],
-            adAccounts: [{ id: "act_1", name: "Conta WhatsApp" }],
-            pixels: [{ id: "pixel_1", name: "Pixel Loja", code: "123456789" }],
+            businesses: [{ id: "business_1", name: "BM Principal", verificationStatus: null }],
+            adAccounts: [
+              {
+                id: "act_1",
+                businessId: "business_1",
+                name: "Conta WhatsApp",
+                accountStatus: null,
+                currency: "BRL",
+                timezoneName: null
+              }
+            ],
+            pixels: [
+              {
+                id: "pixel_1",
+                businessId: "business_1",
+                name: "Pixel Loja",
+                code: "123456789"
+              }
+            ],
             selection: {
               businessId: "business_1",
               adAccountId: "act_1",
@@ -437,7 +539,8 @@ describe("integrations route", () => {
     expect(html).toContain("Ativa");
     expect(html).toContain("Nao vinculada");
     expect(html).toContain("Sem permissao para alterar Meta");
-    expect(html).toContain("Token CAPI configurado");
+    expect(html).not.toContain("Escopos");
+    expect(html).not.toContain("Token CAPI");
     expect(html).not.toContain("Salvar token CAPI");
     expect(html).not.toContain("Remover token CAPI");
     expect(html).toContain("Sem permissao para adicionar instancias");
