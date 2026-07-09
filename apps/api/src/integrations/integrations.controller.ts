@@ -148,6 +148,29 @@ export class IntegrationsController {
       : this.integrationsService.getMetaAssets(workspaceId);
   }
 
+  @Post("meta/assets/refresh")
+  async refreshMetaAssets(
+    @AuthToken() refreshToken: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const businessId =
+      typeof body.businessId === "string" && body.businessId.trim()
+        ? body.businessId.trim()
+        : null;
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.refreshMetaAssets(
+      workspace.id,
+      businessId,
+      authenticated.user.id
+    );
+  }
+
   @Put("meta/assets/selection")
   async saveMetaAssetSelection(
     @AuthToken() refreshToken: string,

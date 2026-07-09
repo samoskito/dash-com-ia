@@ -147,23 +147,7 @@ export class IntegrationsService {
     businessId?: string | null
   ): Promise<MetaAssetsDto> {
     if (!this.metaConnectionsService) {
-      return {
-        workspaceId,
-        status: "not_connected",
-        businesses: [],
-        adAccounts: [],
-        pixels: [],
-        pages: [],
-        conversionDestination: this.emptyConversionDestination(workspaceId),
-        reportingAccounts: [],
-        selection: {
-          businessId: null,
-          adAccountId: null,
-          pixelId: null
-        },
-        lastSyncedAt: null,
-        syncError: null
-      };
+      return this.emptyMetaAssets(workspaceId);
     }
 
     const assets = businessId
@@ -173,6 +157,34 @@ export class IntegrationsService {
           businessId
         )
       : this.metaConnectionsService.listAssets(workspaceId, this.metaAdapter);
+
+    return this.withMetaOperationalData(workspaceId, assets);
+  }
+
+  async refreshMetaAssets(
+    workspaceId: string,
+    businessId?: string | null,
+    actorUserId?: string | null
+  ): Promise<MetaAssetsDto> {
+    if (!this.metaConnectionsService) {
+      return this.emptyMetaAssets(workspaceId);
+    }
+
+    return this.withMetaOperationalData(
+      workspaceId,
+      this.metaConnectionsService.refreshAssets(
+        workspaceId,
+        this.metaAdapter,
+        businessId,
+        actorUserId
+      )
+    );
+  }
+
+  private async withMetaOperationalData(
+    workspaceId: string,
+    assets: Promise<MetaAssetsDto>
+  ): Promise<MetaAssetsDto> {
     const [baseAssets, conversionDestination, reportingAccounts] =
       await Promise.all([
         assets,
@@ -185,6 +197,26 @@ export class IntegrationsService {
       pages: baseAssets.pages ?? [],
       conversionDestination,
       reportingAccounts
+    };
+  }
+
+  private emptyMetaAssets(workspaceId: string): MetaAssetsDto {
+    return {
+      workspaceId,
+      status: "not_connected",
+      businesses: [],
+      adAccounts: [],
+      pixels: [],
+      pages: [],
+      conversionDestination: this.emptyConversionDestination(workspaceId),
+      reportingAccounts: [],
+      selection: {
+        businessId: null,
+        adAccountId: null,
+        pixelId: null
+      },
+      lastSyncedAt: null,
+      syncError: null
     };
   }
 

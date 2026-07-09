@@ -5,6 +5,7 @@ import { MetaTokenEncryptionService } from "../src/integrations/meta/meta-token-
 function createHarness() {
   const db = {
     records: [] as Array<Record<string, unknown>>,
+    snapshots: [] as Array<Record<string, unknown>>,
     auditLogs: [] as Array<Record<string, unknown>>
   };
   const prisma = {
@@ -70,6 +71,53 @@ function createHarness() {
         };
 
         return db.records[index];
+      }
+    },
+    metaAssetSnapshot: {
+      findUnique: async ({
+        where
+      }: {
+        where: { workspaceId_snapshotKey: { workspaceId: string; snapshotKey: string } };
+      }) =>
+        db.snapshots.find(
+          (record) =>
+            record.workspaceId === where.workspaceId_snapshotKey.workspaceId &&
+            record.snapshotKey === where.workspaceId_snapshotKey.snapshotKey
+        ) ?? null,
+      upsert: async ({
+        create,
+        update,
+        where
+      }: {
+        create: Record<string, unknown>;
+        update: Record<string, unknown>;
+        where: { workspaceId_snapshotKey: { workspaceId: string; snapshotKey: string } };
+      }) => {
+        const index = db.snapshots.findIndex(
+          (record) =>
+            record.workspaceId === where.workspaceId_snapshotKey.workspaceId &&
+            record.snapshotKey === where.workspaceId_snapshotKey.snapshotKey
+        );
+        const now = new Date("2026-07-09T12:00:00.000Z");
+
+        if (index === -1) {
+          const record = {
+            id: `snapshot_${db.snapshots.length + 1}`,
+            createdAt: now,
+            updatedAt: now,
+            ...create
+          };
+          db.snapshots.push(record);
+          return record;
+        }
+
+        db.snapshots[index] = {
+          ...db.snapshots[index],
+          ...update,
+          updatedAt: now
+        };
+
+        return db.snapshots[index];
       }
     },
     auditLog: {
@@ -157,7 +205,7 @@ describe("meta connections service", () => {
     });
   });
 
-  it("lists businesses without fanning out ad accounts and pixels before a BM is selected", async () => {
+  it("refreshes businesses without fanning out ad accounts and pixels before a BM is selected", async () => {
     const { service } = createHarness();
     const metaAdapter = {
       listBusinesses: vi.fn(async () => [
@@ -234,7 +282,10 @@ describe("meta connections service", () => {
       scopes: ["ads_read"]
     });
 
-    const assets = await service.listAssets("workspace_1", metaAdapter as never);
+    const assets = await service.refreshAssets(
+      "workspace_1",
+      metaAdapter as never
+    );
 
     expect(assets).toMatchObject({
       workspaceId: "workspace_1",
@@ -345,7 +396,10 @@ describe("meta connections service", () => {
       pixelId: null
     });
 
-    const assets = await service.listAssets("workspace_1", metaAdapter as never);
+    const assets = await service.refreshAssets(
+      "workspace_1",
+      metaAdapter as never
+    );
 
     expect(assets).toMatchObject({
       workspaceId: "workspace_1",
@@ -383,6 +437,177 @@ describe("meta connections service", () => {
       expect.objectContaining({ businessId: "business_2" })
     );
     expect(JSON.stringify(assets)).not.toContain("EAAB-secret-token");
+  });
+
+  it("returns cached Meta assets without calling Graph on page load", async () => {
+    const { db, service } = createHarness();
+    const metaAdapter = {
+      listBusinesses: vi.fn(),
+      listOwnedAdAccounts: vi.fn(),
+      listBusinessPixels: vi.fn(),
+      listBusinessPages: vi.fn()
+    };
+
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_1",
+      accessToken: "EAAB-secret-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read"]
+    });
+    await service.saveAssetSelection("workspace_1", {
+      businessId: "business_1",
+      adAccountId: null,
+      pixelId: null
+    });
+    db.snapshots.push(
+      {
+        workspaceId: "workspace_1",
+        snapshotKey: "root",
+        businessId: null,
+        status: "connected",
+        businesses: [
+          { id: "business_1", name: "BM Principal", verificationStatus: "verified" }
+        ],
+        adAccounts: [],
+        pixels: [],
+        pages: [],
+        syncError: null,
+        syncedAt: new Date("2026-07-09T11:00:00.000Z")
+      },
+      {
+        workspaceId: "workspace_1",
+        snapshotKey: "business_1",
+        businessId: "business_1",
+        status: "connected",
+        businesses: [],
+        adAccounts: [
+          {
+            id: "act_123",
+            businessId: "business_1",
+            name: "Conta WhatsApp",
+            accountStatus: "1",
+            currency: "BRL",
+            timezoneName: "America/Sao_Paulo"
+          }
+        ],
+        pixels: [
+          {
+            id: "pixel_1",
+            businessId: "business_1",
+            name: "Pixel Loja",
+            code: null
+          }
+        ],
+        pages: [
+          {
+            id: "page_1",
+            businessId: "business_1",
+            name: "Pagina Principal"
+          }
+        ],
+        syncError: null,
+        syncedAt: new Date("2026-07-09T11:01:00.000Z")
+      }
+    );
+
+    const assets = await service.listAssets("workspace_1", metaAdapter as never);
+
+    expect(assets).toMatchObject({
+      workspaceId: "workspace_1",
+      status: "connected",
+      businesses: [{ name: "BM Principal" }],
+      adAccounts: [{ name: "Conta WhatsApp" }],
+      pixels: [{ name: "Pixel Loja" }],
+      pages: [{ name: "Pagina Principal" }],
+      lastSyncedAt: "2026-07-09T11:01:00.000Z",
+      syncError: null
+    });
+    expect(metaAdapter.listBusinesses).not.toHaveBeenCalled();
+    expect(metaAdapter.listOwnedAdAccounts).not.toHaveBeenCalled();
+    expect(metaAdapter.listBusinessPixels).not.toHaveBeenCalled();
+    expect(metaAdapter.listBusinessPages).not.toHaveBeenCalled();
+  });
+
+  it("refreshes Meta asset snapshots from Graph when requested", async () => {
+    const { db, service } = createHarness();
+    const metaAdapter = {
+      listBusinesses: vi.fn(async () => [
+        {
+          id: "business_1",
+          name: "BM Principal",
+          verificationStatus: "verified"
+        }
+      ]),
+      listOwnedAdAccounts: vi.fn(async () => [
+        {
+          id: "act_123",
+          name: "Conta WhatsApp",
+          accountStatus: "1",
+          currency: "BRL",
+          timezoneName: "America/Sao_Paulo"
+        }
+      ]),
+      listBusinessPixels: vi.fn(async () => [
+        {
+          id: "pixel_1",
+          name: "Pixel Loja",
+          code: "1234567890"
+        }
+      ]),
+      listBusinessPages: vi.fn(async () => [
+        {
+          id: "page_1",
+          businessId: "business_1",
+          name: "Pagina Principal"
+        }
+      ])
+    };
+
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_1",
+      accessToken: "EAAB-secret-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read"]
+    });
+
+    const assets = await service.refreshAssets(
+      "workspace_1",
+      metaAdapter as never,
+      "business_1",
+      "user_1"
+    );
+
+    expect(assets).toMatchObject({
+      businesses: [{ name: "BM Principal" }],
+      adAccounts: [{ businessId: "business_1", name: "Conta WhatsApp" }],
+      pixels: [{ businessId: "business_1", name: "Pixel Loja", code: null }],
+      pages: [{ businessId: "business_1", name: "Pagina Principal" }],
+      syncError: null
+    });
+    expect(db.snapshots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workspaceId: "workspace_1",
+          snapshotKey: "root",
+          businessId: null
+        }),
+        expect.objectContaining({
+          workspaceId: "workspace_1",
+          snapshotKey: "business_1",
+          businessId: "business_1"
+        })
+      ])
+    );
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        action: "meta.assets.snapshot_refreshed",
+        resultStatus: "success"
+      })
+    );
   });
 
   it("loads ad accounts and pixels for a requested business without saving selection first", async () => {
@@ -445,7 +670,7 @@ describe("meta connections service", () => {
       scopes: ["ads_read"]
     });
 
-    const assets = await service.listAssets(
+    const assets = await service.refreshAssets(
       "workspace_1",
       metaAdapter as never,
       "business_2"

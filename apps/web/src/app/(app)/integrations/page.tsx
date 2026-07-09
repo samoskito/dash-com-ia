@@ -197,6 +197,26 @@ async function getMetaAssets(): Promise<ResourceResult<MetaAssetsDto | null>> {
   }
 }
 
+async function refreshMetaAssets(formData: FormData) {
+  "use server";
+
+  const businessId = nullableFormText(formData, "businessId");
+  let target = "/integrations?notice=meta-assets-refresh-error";
+
+  try {
+    await serverApiFetch("/integrations/meta/assets/refresh", {
+      method: "POST",
+      body: JSON.stringify({ businessId })
+    });
+    revalidatePath("/integrations");
+    target = "/integrations?notice=meta-assets-refreshed";
+  } catch {
+    target = "/integrations?notice=meta-assets-refresh-error";
+  }
+
+  redirect(target);
+}
+
 async function connectWhatsappInstance(formData: FormData) {
   "use server";
 
@@ -302,8 +322,13 @@ async function loadMetaBusinessDestinationAssets(
 
   try {
     const assets = await serverApiFetch<MetaAssetsDto>(
-      `/integrations/meta/assets?businessId=${encodeURIComponent(normalizedBusinessId)}`
+      "/integrations/meta/assets/refresh",
+      {
+        method: "POST",
+        body: JSON.stringify({ businessId: normalizedBusinessId })
+      }
     );
+    revalidatePath("/integrations");
 
     return {
       pixels: assets.pixels,
@@ -364,8 +389,13 @@ async function loadMetaBusinessReportingAssets(
 
   try {
     const assets = await serverApiFetch<MetaAssetsDto>(
-      `/integrations/meta/assets?businessId=${encodeURIComponent(normalizedBusinessId)}`
+      "/integrations/meta/assets/refresh",
+      {
+        method: "POST",
+        body: JSON.stringify({ businessId: normalizedBusinessId })
+      }
     );
+    revalidatePath("/integrations");
 
     return {
       adAccounts: assets.adAccounts
@@ -490,6 +520,16 @@ function integrationsNotice(
       title: "Destino incompleto",
       message: "Selecione BM, Pixel e pagina antes de salvar."
     },
+    "meta-assets-refreshed": {
+      tone: "success",
+      title: "Ativos Meta atualizados",
+      message: "BMs, contas, Pixels e paginas foram salvos para carregamento rapido."
+    },
+    "meta-assets-refresh-error": {
+      tone: "warn",
+      title: "Ativos nao atualizados",
+      message: "Nao foi possivel sincronizar ativos Meta agora. Tente novamente."
+    },
     "meta-reporting-saved": {
       tone: "success",
       title: "Conta adicionada",
@@ -588,10 +628,24 @@ function metaAssetsDetail(
     metaAssets.adAccounts.length === 0 &&
     metaAssets.pixels.length === 0
   ) {
-    return "Conta conectada, mas nenhum ativo Meta foi encontrado neste workspace.";
+    return "Conta conectada. Clique em Atualizar ativos Meta para buscar BMs, contas, Pixels e paginas.";
   }
 
   return "Ativos disponiveis para selecionar no proximo passo do fluxo operacional.";
+}
+
+function metaLastSyncedAt(metaAssets: MetaAssetsDto | null) {
+  if (!metaAssets?.lastSyncedAt) {
+    return "Ativos ainda nao sincronizados neste workspace.";
+  }
+
+  return `Ativos atualizados em ${new Date(metaAssets.lastSyncedAt).toLocaleString(
+    "pt-BR",
+    {
+      dateStyle: "short",
+      timeStyle: "short"
+    }
+  )}.`;
 }
 
 function pipelineWidth(value: number, maxValue: number) {
@@ -659,6 +713,13 @@ export default async function IntegrationsPage({
   const activeReportingAccounts =
     (metaAssets?.reportingAccounts ?? []).filter((account) => account.active)
       .length;
+  const metaRefreshBusinessId =
+    metaAssets?.selection.businessId &&
+    metaAssets.businesses.some(
+      (business) => business.id === metaAssets.selection.businessId
+    )
+      ? metaAssets.selection.businessId
+      : (metaAssets?.businesses[0]?.id ?? "");
   const integrations =
     health?.providers.map((item) => ({
       title: providerTitle(item.provider),
@@ -756,7 +817,23 @@ export default async function IntegrationsPage({
             </p>
           </div>
           {canManageIntegrations ? (
-            <MetaOAuthButton connected={metaStatus === "connected"} />
+            <div className="header-actions">
+              <MetaOAuthButton connected={metaStatus === "connected"} />
+              <form action={refreshMetaAssets}>
+                <input
+                  type="hidden"
+                  name="businessId"
+                  value={metaRefreshBusinessId}
+                />
+                <SubmitButton
+                  disabled={metaStatus !== "connected"}
+                  pendingLabel="Atualizando..."
+                  statusText="Buscando ativos no Meta e salvando snapshot."
+                >
+                  Atualizar ativos Meta
+                </SubmitButton>
+              </form>
+            </div>
           ) : (
             <span className="event-chip warn">sem permissao</span>
           )}
@@ -782,6 +859,7 @@ export default async function IntegrationsPage({
         <p className="muted">
           {metaAssetsDetail(metaAssets, metaAssetsResult.state)}
         </p>
+        <p className="muted">{metaLastSyncedAt(metaAssets)}</p>
         {metaAssets ? (
           <>
             <div className="meta-config-section">

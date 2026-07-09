@@ -154,6 +154,7 @@ model Workspace {
   conversionRules             ConversionRule[]
   leads                       Lead[]
   metaIntegration             MetaIntegration?
+  metaAssetSnapshots          MetaAssetSnapshot[]
   metaConversionDestination   MetaConversionDestination?
   metaReportingAccounts       MetaReportingAccount[]
   metaCampaigns               MetaCampaign[]
@@ -590,6 +591,27 @@ model MetaIntegration {
   @@index([selectedBusinessId])
   @@index([selectedAdAccountId])
   @@index([selectedPixelId])
+}
+
+model MetaAssetSnapshot {
+  id          String    @id @default(cuid())
+  workspaceId String
+  snapshotKey String
+  businessId  String?
+  status      String    @default("connected")
+  businesses  Json
+  adAccounts  Json
+  pixels      Json
+  pages       Json
+  syncError   String?
+  syncedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, snapshotKey])
+  @@index([workspaceId, businessId])
 }
 
 model MetaConversionDestination {

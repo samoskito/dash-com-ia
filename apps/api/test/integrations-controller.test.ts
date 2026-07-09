@@ -127,6 +127,49 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       lastSyncedAt: "2026-07-02T12:00:00.000Z",
       syncError: null
     })),
+    refreshMetaAssets: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      status: "connected",
+      businesses: [
+        {
+          id: "business_1",
+          name: "BM Principal",
+          verificationStatus: "verified"
+        }
+      ],
+      adAccounts: [
+        {
+          id: "act_123",
+          businessId: "business_1",
+          name: "Conta WhatsApp",
+          accountStatus: "1",
+          currency: "BRL",
+          timezoneName: "America/Sao_Paulo"
+        }
+      ],
+      pixels: [
+        {
+          id: "pixel_1",
+          businessId: "business_1",
+          name: "Pixel Loja",
+          code: null
+        }
+      ],
+      pages: [
+        {
+          id: "page_1",
+          businessId: "business_1",
+          name: "Pagina Principal"
+        }
+      ],
+      selection: {
+        businessId: "business_1",
+        adAccountId: "act_123",
+        pixelId: "pixel_1"
+      },
+      lastSyncedAt: "2026-07-09T12:00:00.000Z",
+      syncError: null
+    })),
     saveMetaAssetSelection: vi.fn(async () => ({
       workspaceId: "workspace_1",
       status: "connected",
@@ -450,6 +493,43 @@ describe("integrations controller", () => {
       "workspace_1",
       "business_2"
     );
+
+    await app.close();
+  });
+
+  it("refreshes Meta assets for integration managers", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/integrations/meta/assets/refresh")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({ businessId: "business_1" })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.businesses[0].name).toBe("BM Principal");
+        expect(body.adAccounts[0].name).toBe("Conta WhatsApp");
+      });
+
+    expect(service.refreshMetaAssets).toHaveBeenCalledWith(
+      "workspace_1",
+      "business_1",
+      "user_1"
+    );
+
+    await app.close();
+  });
+
+  it("rejects Meta asset refresh for workspace members", async () => {
+    const { app, service } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .post("/integrations/meta/assets/refresh")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({ businessId: "business_1" })
+      .expect(403);
+
+    expect(service.refreshMetaAssets).not.toHaveBeenCalled();
 
     await app.close();
   });

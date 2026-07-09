@@ -1,12 +1,16 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
+  MetaAdAccountAssetDto,
   MetaAssetSelectionInputDto,
   MetaAssetsDto,
+  MetaBusinessAssetDto,
   MetaCapiTokenInputDto,
   MetaCapiTokenStatusDto,
   MetaConnectionDto,
-  MetaConnectionStatusDto
+  MetaConnectionStatusDto,
+  MetaPageAssetDto,
+  MetaPixelAssetDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { MetaAdapter } from "./meta.adapter";
@@ -39,6 +43,62 @@ type MetaIntegrationRecord = {
   capiTokenTag: string | null;
   updatedAt: Date;
 };
+
+type MetaAssetSnapshotRecord = {
+  workspaceId: string;
+  snapshotKey: string;
+  businessId: string | null;
+  status: string;
+  businesses: Prisma.JsonValue;
+  adAccounts: Prisma.JsonValue;
+  pixels: Prisma.JsonValue;
+  pages: Prisma.JsonValue;
+  syncError: string | null;
+  syncedAt: Date | null;
+};
+
+type MetaAssetSnapshotClient = {
+  findUnique(args: {
+    where: {
+      workspaceId_snapshotKey: {
+        workspaceId: string;
+        snapshotKey: string;
+      };
+    };
+  }): Promise<MetaAssetSnapshotRecord | null>;
+  upsert(args: {
+    where: {
+      workspaceId_snapshotKey: {
+        workspaceId: string;
+        snapshotKey: string;
+      };
+    };
+    create: {
+      workspaceId: string;
+      snapshotKey: string;
+      businessId: string | null;
+      status: string;
+      businesses: Prisma.InputJsonValue;
+      adAccounts: Prisma.InputJsonValue;
+      pixels: Prisma.InputJsonValue;
+      pages: Prisma.InputJsonValue;
+      syncError: string | null;
+      syncedAt: Date | null;
+    };
+    update: {
+      businessId: string | null;
+      status: string;
+      businesses: Prisma.InputJsonValue;
+      adAccounts: Prisma.InputJsonValue;
+      pixels: Prisma.InputJsonValue;
+      pages: Prisma.InputJsonValue;
+      syncError: string | null;
+      syncedAt: Date | null;
+    };
+  }): Promise<MetaAssetSnapshotRecord>;
+};
+
+const ROOT_SNAPSHOT_KEY = "root";
 
 @Injectable()
 export class MetaConnectionsService {
@@ -114,7 +174,7 @@ export class MetaConnectionsService {
 
   async listAssets(
     workspaceId: string,
-    metaAdapter: Pick<
+    _metaAdapter: Pick<
       MetaAdapter,
       | "listBusinesses"
       | "listOwnedAdAccounts"
@@ -133,6 +193,60 @@ export class MetaConnectionsService {
     }
 
     try {
+      const rootSnapshot = await this.findAssetSnapshot(
+        workspaceId,
+        ROOT_SNAPSHOT_KEY
+      );
+      const selectedBusinessId =
+        requestedBusinessId?.trim() || connection.selectedBusinessId;
+      const businessSnapshot = selectedBusinessId
+        ? await this.findAssetSnapshot(workspaceId, selectedBusinessId)
+        : null;
+      const assets = this.assetsFromSnapshots(
+        workspaceId,
+        connection,
+        rootSnapshot,
+        businessSnapshot
+      );
+
+      this.logSlowAssetList(assets, Date.now() - startedAt, requestedBusinessId);
+
+      return assets;
+    } catch (error) {
+      const result = this.emptyAssets(
+        workspaceId,
+        "error",
+        error instanceof Error ? error.message : "Erro ao sincronizar ativos Meta"
+      );
+
+      this.logSlowAssetList(result, Date.now() - startedAt, requestedBusinessId);
+
+      return result;
+    }
+  }
+
+  async refreshAssets(
+    workspaceId: string,
+    metaAdapter: Pick<
+      MetaAdapter,
+      | "listBusinesses"
+      | "listOwnedAdAccounts"
+      | "listBusinessPixels"
+      | "listBusinessPages"
+    >,
+    requestedBusinessId?: string | null,
+    actorUserId?: string | null
+  ): Promise<MetaAssetsDto> {
+    const connection = (await this.prisma.metaIntegration.findUnique({
+      where: { workspaceId }
+    })) as MetaIntegrationRecord | null;
+
+    if (!connection) {
+      return this.emptyAssets(workspaceId, "not_connected", null);
+    }
+
+    try {
+      const syncedAt = new Date();
       const accessToken = this.encryption.decrypt({
         encryptedAccessToken: connection.encryptedAccessToken,
         tokenIv: connection.tokenIv,
@@ -186,36 +300,74 @@ export class MetaConnectionsService {
                 .catch(() => [])
             ])
           : [[], [], []];
-
-      const result = {
+      const status = this.toStatus(connection.status);
+      const rootSnapshot = await this.upsertAssetSnapshot({
         workspaceId,
-        status: this.toStatus(connection.status),
+        snapshotKey: ROOT_SNAPSHOT_KEY,
+        businessId: null,
+        status,
         businesses,
-        adAccounts,
-        pixels,
-        pages,
-        selection: {
-          businessId: connection.selectedBusinessId,
-          adAccountId: connection.selectedAdAccountId,
-          pixelId: connection.selectedPixelId
-        },
-        lastSyncedAt: new Date().toISOString(),
-        syncError: null
-      };
+        adAccounts: [],
+        pixels: [],
+        pages: [],
+        syncError: null,
+        syncedAt
+      });
+      const businessSnapshot =
+        selectedBusinessId && selectedBusinessExists
+          ? await this.upsertAssetSnapshot({
+              workspaceId,
+              snapshotKey: selectedBusinessId,
+              businessId: selectedBusinessId,
+              status,
+              businesses: [],
+              adAccounts,
+              pixels,
+              pages,
+              syncError: null,
+              syncedAt
+            })
+          : null;
+      const result = this.assetsFromSnapshots(
+        workspaceId,
+        connection,
+        rootSnapshot,
+        businessSnapshot
+      );
 
-      this.logSlowAssetList(result, Date.now() - startedAt, requestedBusinessId);
+      await this.recordMetaAudit({
+        workspaceId,
+        actorUserId: actorUserId ?? null,
+        action: "meta.assets.snapshot_refreshed",
+        resultStatus: "success",
+        afterSummary: {
+          businessId: selectedBusinessId ?? null,
+          businesses: result.businesses.length,
+          adAccounts: result.adAccounts.length,
+          pixels: result.pixels.length,
+          pages: (result.pages ?? []).length
+        } as Prisma.InputJsonValue
+      });
 
       return result;
     } catch (error) {
-      const result = this.emptyAssets(
+      const message =
+        error instanceof Error ? error.message : "Erro ao sincronizar ativos Meta";
+
+      await this.upsertAssetSnapshot({
         workspaceId,
-        "error",
-        error instanceof Error ? error.message : "Erro ao sincronizar ativos Meta"
-      );
+        snapshotKey: ROOT_SNAPSHOT_KEY,
+        businessId: null,
+        status: "error",
+        businesses: [],
+        adAccounts: [],
+        pixels: [],
+        pages: [],
+        syncError: message,
+        syncedAt: new Date()
+      });
 
-      this.logSlowAssetList(result, Date.now() - startedAt, requestedBusinessId);
-
-      return result;
+      return this.emptyAssets(workspaceId, "error", message);
     }
   }
 
@@ -367,6 +519,99 @@ export class MetaConnectionsService {
     }
 
     return "not_connected";
+  }
+
+  private get metaAssetSnapshots(): MetaAssetSnapshotClient {
+    return (this.prisma as unknown as {
+      metaAssetSnapshot: MetaAssetSnapshotClient;
+    }).metaAssetSnapshot;
+  }
+
+  private async findAssetSnapshot(
+    workspaceId: string,
+    snapshotKey: string
+  ): Promise<MetaAssetSnapshotRecord | null> {
+    return this.metaAssetSnapshots.findUnique({
+      where: {
+        workspaceId_snapshotKey: {
+          workspaceId,
+          snapshotKey
+        }
+      }
+    });
+  }
+
+  private async upsertAssetSnapshot(input: {
+    workspaceId: string;
+    snapshotKey: string;
+    businessId: string | null;
+    status: MetaConnectionStatusDto;
+    businesses: MetaBusinessAssetDto[];
+    adAccounts: MetaAdAccountAssetDto[];
+    pixels: MetaPixelAssetDto[];
+    pages: MetaPageAssetDto[];
+    syncError: string | null;
+    syncedAt: Date | null;
+  }): Promise<MetaAssetSnapshotRecord> {
+    const data = {
+      businessId: input.businessId,
+      status: input.status,
+      businesses: input.businesses as Prisma.InputJsonValue,
+      adAccounts: input.adAccounts as Prisma.InputJsonValue,
+      pixels: input.pixels as Prisma.InputJsonValue,
+      pages: input.pages as Prisma.InputJsonValue,
+      syncError: input.syncError,
+      syncedAt: input.syncedAt
+    };
+
+    return this.metaAssetSnapshots.upsert({
+      where: {
+        workspaceId_snapshotKey: {
+          workspaceId: input.workspaceId,
+          snapshotKey: input.snapshotKey
+        }
+      },
+      create: {
+        workspaceId: input.workspaceId,
+        snapshotKey: input.snapshotKey,
+        ...data
+      },
+      update: data
+    });
+  }
+
+  private assetsFromSnapshots(
+    workspaceId: string,
+    connection: MetaIntegrationRecord,
+    rootSnapshot: MetaAssetSnapshotRecord | null,
+    businessSnapshot: MetaAssetSnapshotRecord | null
+  ): MetaAssetsDto {
+    const mostSpecificSnapshot = businessSnapshot ?? rootSnapshot;
+
+    return {
+      workspaceId,
+      status: this.toStatus(connection.status),
+      businesses: this.snapshotArray<MetaBusinessAssetDto>(
+        rootSnapshot?.businesses
+      ),
+      adAccounts: this.snapshotArray<MetaAdAccountAssetDto>(
+        businessSnapshot?.adAccounts
+      ),
+      pixels: this.snapshotArray<MetaPixelAssetDto>(businessSnapshot?.pixels),
+      pages: this.snapshotArray<MetaPageAssetDto>(businessSnapshot?.pages),
+      selection: {
+        businessId: connection.selectedBusinessId,
+        adAccountId: connection.selectedAdAccountId,
+        pixelId: connection.selectedPixelId
+      },
+      lastSyncedAt: mostSpecificSnapshot?.syncedAt?.toISOString() ?? null,
+      syncError:
+        businessSnapshot?.syncError ?? rootSnapshot?.syncError ?? null
+    };
+  }
+
+  private snapshotArray<T>(value: Prisma.JsonValue | undefined): T[] {
+    return Array.isArray(value) ? (value as T[]) : [];
   }
 
   private logSlowAssetList(
