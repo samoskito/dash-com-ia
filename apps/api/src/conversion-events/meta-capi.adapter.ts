@@ -1,20 +1,43 @@
+import type {
+  ConversionEventCustomDataDto,
+  ConversionEventNameDto
+} from "@wpptrack/shared";
+import { buildMetaCapiPayload } from "./meta-capi-payload.builder";
+
 type MetaCapiEnv = Record<string, string | undefined>;
 type Fetcher = typeof fetch;
+
+export type MetaCapiSendEventErrorCode =
+  | "MissingMetaDestination"
+  | "MissingAccessToken"
+  | "MissingPhoneHash"
+  | "MissingCtwaClid"
+  | "MissingAdId"
+  | "MetaCapiRejected"
+  | "MetaCapiNetworkError"
+  | null;
 
 export type MetaCapiSendEventInput = {
   accessToken?: string | null;
   pixelId: string | null;
   pageId: string | null;
-  eventName: string;
+  eventName: ConversionEventNameDto;
   dedupeKey: string;
   phoneHash: string | null;
   adId: string | null;
+  ctwaClid: string | null;
+  valueCents?: number | null;
+  currency?: string | null;
+  contentName?: string | null;
+  customData?: ConversionEventCustomDataDto | null;
+  testEventCode?: string | null;
 };
 
 export type MetaCapiSendEventResult = {
   status: "not_configured" | "sent" | "error";
   responseSummary: Record<string, unknown> | null;
   errorMessage: string | null;
+  errorCode: MetaCapiSendEventErrorCode;
 };
 
 export class MetaCapiAdapter {
@@ -26,42 +49,86 @@ export class MetaCapiAdapter {
   async sendEvent(
     input: MetaCapiSendEventInput
   ): Promise<MetaCapiSendEventResult> {
-    const accessToken = input.accessToken ?? this.env.META_CAPI_ACCESS_TOKEN;
+    const accessToken =
+      input.accessToken?.trim() || this.env.META_CAPI_ACCESS_TOKEN?.trim();
+    const pixelId = input.pixelId?.trim() ?? null;
+    const pageId = input.pageId?.trim() ?? null;
+    const phoneHash = input.phoneHash?.trim() ?? null;
+    const ctwaClid = input.ctwaClid?.trim() ?? null;
+    const adId = input.adId?.trim() ?? null;
 
-    if (!accessToken || !input.pixelId || !input.pageId) {
-      return {
-        status: "not_configured",
-        responseSummary: null,
-        errorMessage: "Meta CAPI token, pixel id or page id not configured"
-      };
+    if (!accessToken) {
+      return this.notConfigured(
+        "MissingAccessToken",
+        "Meta CAPI access token not configured"
+      );
+    }
+
+    if (!pixelId || !pageId) {
+      return this.notConfigured(
+        "MissingMetaDestination",
+        "Meta CAPI pixel id or page id not configured"
+      );
+    }
+
+    if (!phoneHash) {
+      return this.notConfigured(
+        "MissingPhoneHash",
+        "Meta CAPI phone hash not available"
+      );
+    }
+
+    if (!ctwaClid) {
+      return this.notConfigured(
+        "MissingCtwaClid",
+        "Meta CAPI ctwa_clid not available"
+      );
+    }
+
+    if (!adId) {
+      return this.notConfigured("MissingAdId", "Meta CAPI ad id not available");
     }
 
     const version = this.env.META_GRAPH_API_VERSION ?? "v21.0";
     const url = new URL(
-      `https://graph.facebook.com/${version}/${input.pixelId}/events`
+      `https://graph.facebook.com/${version}/${pixelId}/events`
     );
     url.searchParams.set("access_token", accessToken);
 
-    const response = await this.fetcher(url.toString(), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        data: [
-          {
-            event_name: input.eventName,
-            event_time: Math.floor(Date.now() / 1000),
-            event_id: input.dedupeKey,
-            action_source: "business_messaging",
-            user_data: this.buildUserData(input),
-            custom_data: {
-              ad_id: input.adId
-            }
-          }
-        ]
-      })
-    });
+    let response: Response;
+    try {
+      response = await this.fetcher(url.toString(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(
+          buildMetaCapiPayload({
+            eventName: input.eventName,
+            eventTime: new Date(),
+            eventId: input.dedupeKey,
+            phoneHash,
+            ctwaClid,
+            pageId,
+            adId,
+            valueCents: input.valueCents ?? null,
+            currency: input.currency ?? null,
+            contentName: input.contentName ?? null,
+            customData: input.customData ?? null,
+            testEventCode: input.testEventCode ?? null
+          })
+        )
+      });
+    } catch (error) {
+      return {
+        status: "error",
+        responseSummary: null,
+        errorMessage:
+          error instanceof Error ? error.message : "Meta CAPI network error",
+        errorCode: "MetaCapiNetworkError"
+      };
+    }
+
     const payload = (await response.json().catch(() => ({}))) as Record<
       string,
       unknown
@@ -71,21 +138,31 @@ export class MetaCapiAdapter {
       return {
         status: "error",
         responseSummary: payload,
-        errorMessage: "Meta CAPI request failed"
+        errorMessage: "Meta CAPI request failed",
+        errorCode: "MetaCapiRejected"
       };
     }
 
     return {
       status: "sent",
       responseSummary: payload,
-      errorMessage: null
+      errorMessage: null,
+      errorCode: null
     };
   }
 
-  private buildUserData(input: MetaCapiSendEventInput): Record<string, unknown> {
+  private notConfigured(
+    errorCode: Exclude<
+      MetaCapiSendEventErrorCode,
+      "MetaCapiRejected" | "MetaCapiNetworkError" | null
+    >,
+    errorMessage: string
+  ): MetaCapiSendEventResult {
     return {
-      ...(input.phoneHash ? { ph: [input.phoneHash] } : {}),
-      ...(input.pageId ? { page_id: input.pageId } : {})
+      status: "not_configured",
+      responseSummary: null,
+      errorMessage,
+      errorCode
     };
   }
 }

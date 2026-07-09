@@ -1,6 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import type { ConversionRuleDto } from "@wpptrack/shared";
+import type {
+  ConversionEventNameDto,
+  ConversionRuleDto
+} from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
 import { MetaCapiAdapter } from "./meta-capi.adapter";
@@ -26,7 +29,7 @@ type ConversionEventLogRecord = {
   leadId: string | null;
   pixelId: string | null;
   pageId: string | null;
-  eventName: string;
+  eventName: ConversionEventNameDto;
   status: string;
   phoneHash: string | null;
   campaignId: string | null;
@@ -136,7 +139,13 @@ export class ConversionEventsService {
       eventName: log.eventName,
       dedupeKey: log.dedupeKey,
       phoneHash: log.phoneHash,
-      adId: log.adId
+      adId: log.adId,
+      ctwaClid: null,
+      valueCents: null,
+      currency: null,
+      contentName: null,
+      customData: null,
+      testEventCode: null
     });
     const integrationLogId = await this.recordMetaCapiIntegrationLog(
       log,

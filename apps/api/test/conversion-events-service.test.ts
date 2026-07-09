@@ -91,7 +91,8 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
         sendEvent: async () => ({
           status: "not_configured" as const,
           responseSummary: null,
-          errorMessage: "Meta CAPI token, pixel id or page id not configured"
+          errorMessage: "Meta CAPI token, pixel id or page id not configured",
+          errorCode: "MissingMetaDestination" as const
         })
       }) as never,
       {
@@ -171,7 +172,8 @@ describe("conversion events service", () => {
           responseSummary: {
             events_received: 1
           },
-          errorMessage: null
+          errorMessage: null,
+          errorCode: null
         };
       }
     };
@@ -216,7 +218,13 @@ describe("conversion events service", () => {
     expect(adapter.calls[0]).toMatchObject({
       accessToken: "workspace-oauth-token",
       pixelId: "pixel_1",
-      pageId: null
+      pageId: null,
+      ctwaClid: null,
+      valueCents: null,
+      currency: null,
+      contentName: null,
+      customData: null,
+      testEventCode: null
     });
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({
@@ -244,7 +252,8 @@ describe("conversion events service", () => {
           responseSummary: {
             events_received: 1
           },
-          errorMessage: null
+          errorMessage: null,
+          errorCode: null
         };
       }
     };

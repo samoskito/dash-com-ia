@@ -1,46 +1,57 @@
 import { describe, expect, it, vi } from "vitest";
-import { MetaCapiAdapter } from "../src/conversion-events/meta-capi.adapter";
+import {
+  MetaCapiAdapter,
+  type MetaCapiSendEventInput
+} from "../src/conversion-events/meta-capi.adapter";
+
+type FetchLike = (
+  url: RequestInfo | URL,
+  init?: RequestInit
+) => Promise<Response>;
+type FetchMock = ReturnType<typeof vi.fn<FetchLike>>;
+
+function baseInput(
+  overrides: Partial<MetaCapiSendEventInput> = {}
+): MetaCapiSendEventInput {
+  return {
+    accessToken: null,
+    pixelId: "pixel_1",
+    pageId: "page_1",
+    eventName: "QualifiedLead",
+    dedupeKey: "workspace_1:lead_1:rule_1:QualifiedLead:ad_1",
+    phoneHash: "phone_hash",
+    adId: "ad_1",
+    ctwaClid: "ctwa_1",
+    valueCents: null,
+    currency: null,
+    contentName: null,
+    customData: null,
+    testEventCode: null,
+    ...overrides
+  };
+}
+
+function successfulFetchMock(): FetchMock {
+  return vi.fn(async () => {
+    return new Response(
+      JSON.stringify({
+        events_received: 1,
+        messages: []
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  });
+}
+
+function parseRequestBody(fetchMock: FetchMock) {
+  const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+
+  return JSON.parse(String(init?.body));
+}
 
 describe("meta capi adapter", () => {
-  it("reports not_configured without access token, pixel id, or page id", async () => {
-    const adapter = new MetaCapiAdapter(
-      {
-        META_CAPI_ACCESS_TOKEN: "meta-token"
-      },
-      fetch
-    );
-
-    const result = await adapter.sendEvent({
-      pixelId: "pixel_1",
-      pageId: null,
-      eventName: "QualifiedLead",
-      dedupeKey: "dedupe_1",
-      phoneHash: "phone_hash",
-      adId: "ad_1"
-    });
-
-    expect(result).toEqual({
-      status: "not_configured",
-      responseSummary: null,
-      errorMessage: "Meta CAPI token, pixel id or page id not configured"
-    });
-  });
-
-  it("sends conversion events to the pixel events edge", async () => {
-    let requestedUrl = "";
-    let requestedInit: RequestInit | undefined;
-    const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
-      requestedUrl = String(url);
-      requestedInit = init;
-
-      return new Response(
-        JSON.stringify({
-          events_received: 1,
-          messages: []
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    });
+  it("sends whatsapp messaging channel and ctwa user data through the builder", async () => {
+    const fetchMock = successfulFetchMock();
     const adapter = new MetaCapiAdapter(
       {
         META_CAPI_ACCESS_TOKEN: "meta-token",
@@ -49,26 +60,25 @@ describe("meta capi adapter", () => {
       fetchMock as never
     );
 
-    const result = await adapter.sendEvent({
-      pixelId: "pixel_1",
-      pageId: "page_1",
-      eventName: "QualifiedLead",
-      dedupeKey: "workspace_1:lead_1:rule_1:QualifiedLead:ad_1",
-      phoneHash: "phone_hash",
-      adId: "ad_1"
-    });
+    const result = await adapter.sendEvent(baseInput());
 
-    expect(result.status).toBe("sent");
-    expect(requestedUrl).toBe(
+    expect(result).toMatchObject({
+      status: "sent",
+      errorMessage: null,
+      errorCode: null
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       "https://graph.facebook.com/v21.0/pixel_1/events?access_token=meta-token"
     );
-    const body = JSON.parse(String(requestedInit?.body));
+    const body = parseRequestBody(fetchMock);
     expect(body.data[0]).toMatchObject({
       event_name: "QualifiedLead",
       event_id: "workspace_1:lead_1:rule_1:QualifiedLead:ad_1",
       action_source: "business_messaging",
+      messaging_channel: "whatsapp",
       user_data: {
         ph: ["phone_hash"],
+        ctwa_clid: "ctwa_1",
         page_id: "page_1"
       },
       custom_data: {
@@ -77,17 +87,117 @@ describe("meta capi adapter", () => {
     });
   });
 
-  it("sends page_id for business messaging events", async () => {
-    let requestedInit: RequestInit | undefined;
-    const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      requestedInit = init;
+  it.each([
+    {
+      name: "ctwa clid",
+      overrides: { ctwaClid: null },
+      errorCode: "MissingCtwaClid"
+    },
+    {
+      name: "access token",
+      env: {},
+      overrides: { accessToken: null },
+      errorCode: "MissingAccessToken"
+    },
+    {
+      name: "pixel/page destination",
+      overrides: { pixelId: null },
+      errorCode: "MissingMetaDestination"
+    },
+    {
+      name: "phone hash",
+      overrides: { phoneHash: null },
+      errorCode: "MissingPhoneHash"
+    },
+    {
+      name: "ad id",
+      overrides: { adId: null },
+      errorCode: "MissingAdId"
+    }
+  ])(
+    "returns $errorCode and does not call fetch when $name is missing",
+    async ({ env, overrides, errorCode }) => {
+      const fetchMock = successfulFetchMock();
+      const adapter = new MetaCapiAdapter(
+        env ?? {
+          META_CAPI_ACCESS_TOKEN: "meta-token"
+        },
+        fetchMock as never
+      );
 
+      const result = await adapter.sendEvent(baseInput(overrides));
+
+      expect(result).toMatchObject({
+        status: "not_configured",
+        responseSummary: null,
+        errorCode
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it("includes test_event_code when provided", async () => {
+    const fetchMock = successfulFetchMock();
+    const adapter = new MetaCapiAdapter(
+      {
+        META_CAPI_ACCESS_TOKEN: "meta-token"
+      },
+      fetchMock as never
+    );
+
+    await adapter.sendEvent(baseInput({ testEventCode: "TEST123" }));
+
+    expect(parseRequestBody(fetchMock)).toMatchObject({
+      test_event_code: "TEST123"
+    });
+  });
+
+  it("includes purchase value, currency, content name, and custom data when provided", async () => {
+    const fetchMock = successfulFetchMock();
+    const adapter = new MetaCapiAdapter(
+      {
+        META_CAPI_ACCESS_TOKEN: "meta-token"
+      },
+      fetchMock as never
+    );
+
+    await adapter.sendEvent(
+      baseInput({
+        eventName: "Purchase",
+        valueCents: 12345,
+        currency: "BRL",
+        contentName: "Plano Pro",
+        customData: {
+          order_id: "order_1",
+          num_items: 2
+        }
+      })
+    );
+
+    const body = parseRequestBody(fetchMock);
+    expect(body.data[0]).toMatchObject({
+      event_name: "Purchase",
+      custom_data: {
+        ad_id: "ad_1",
+        value: 123.45,
+        currency: "BRL",
+        content_name: "Plano Pro",
+        order_id: "order_1",
+        num_items: 2
+      }
+    });
+  });
+
+  it("maps non-OK Meta responses to MetaCapiRejected", async () => {
+    const fetchMock = vi.fn(async () => {
       return new Response(
         JSON.stringify({
-          events_received: 1,
-          messages: []
+          error: {
+            message: "Invalid parameter",
+            code: 100
+          }
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
+        { status: 400, headers: { "Content-Type": "application/json" } }
       );
     });
     const adapter = new MetaCapiAdapter(
@@ -97,19 +207,40 @@ describe("meta capi adapter", () => {
       fetchMock as never
     );
 
-    const result = await adapter.sendEvent({
-      pixelId: "pixel_1",
-      pageId: "page_1",
-      eventName: "QualifiedLead",
-      dedupeKey: "dedupe_1",
-      phoneHash: null,
-      adId: "ad_1"
-    });
+    const result = await adapter.sendEvent(baseInput());
 
-    expect(result.status).toBe("sent");
-    const body = JSON.parse(String(requestedInit?.body));
-    expect(body.data[0].user_data).toEqual({
-      page_id: "page_1"
+    expect(result).toEqual({
+      status: "error",
+      responseSummary: {
+        error: {
+          message: "Invalid parameter",
+          code: 100
+        }
+      },
+      errorMessage: "Meta CAPI request failed",
+      errorCode: "MetaCapiRejected"
     });
+  });
+
+  it("maps thrown fetch errors to MetaCapiNetworkError", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error("socket hang up");
+    });
+    const adapter = new MetaCapiAdapter(
+      {
+        META_CAPI_ACCESS_TOKEN: "meta-token"
+      },
+      fetchMock as never
+    );
+
+    const result = await adapter.sendEvent(baseInput());
+
+    expect(result).toMatchObject({
+      status: "error",
+      responseSummary: null,
+      errorCode: "MetaCapiNetworkError"
+    });
+    expect(result.errorMessage).toContain("socket hang up");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
