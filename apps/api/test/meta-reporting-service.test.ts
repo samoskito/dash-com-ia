@@ -4,7 +4,7 @@ import { WhatsappCampaignClassifierService } from "../src/reporting/whatsapp-cam
 
 function matchesWhere(
   record: Record<string, unknown>,
-  where?: Record<string, unknown>
+  where?: Record<string, unknown>,
 ): boolean {
   if (!where) {
     return true;
@@ -16,7 +16,7 @@ function matchesWhere(
         (item) =>
           item !== null &&
           typeof item === "object" &&
-          matchesWhere(record, item as Record<string, unknown>)
+          matchesWhere(record, item as Record<string, unknown>),
       );
     }
 
@@ -36,7 +36,7 @@ function createHarness() {
       encryptedAccessToken: "encrypted",
       tokenIv: "iv",
       tokenTag: "tag",
-      selectedAdAccountId: "act_123"
+      selectedAdAccountId: "act_123",
     },
     reportingAccounts: [
       {
@@ -46,8 +46,8 @@ function createHarness() {
         businessName: "BM 1",
         adAccountId: "act_123",
         adAccountName: "Conta 1",
-        active: true
-      }
+        active: true,
+      },
     ],
     campaigns: [] as Array<Record<string, unknown>>,
     adSets: [] as Array<Record<string, unknown>>,
@@ -61,22 +61,22 @@ function createHarness() {
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
-        createdAt: new Date("2026-07-01T12:00:00.000Z")
+        createdAt: new Date("2026-07-01T12:00:00.000Z"),
       },
       {
         workspaceId: "workspace_1",
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
-        createdAt: new Date("2026-07-02T12:00:00.000Z")
+        createdAt: new Date("2026-07-02T12:00:00.000Z"),
       },
       {
         workspaceId: "workspace_1",
         campaignId: "cmp_other",
         adSetId: "adset_other",
         adId: "ad_other",
-        createdAt: new Date("2026-07-02T12:00:00.000Z")
-      }
+        createdAt: new Date("2026-07-02T12:00:00.000Z"),
+      },
     ] as Array<{
       workspaceId: string;
       campaignId: string | null;
@@ -91,7 +91,7 @@ function createHarness() {
         adSetId: "adset_1",
         adId: "ad_1",
         eventName: "LeadSubmitted",
-        status: "sent"
+        status: "sent",
       },
       {
         workspaceId: "workspace_1",
@@ -99,7 +99,7 @@ function createHarness() {
         adSetId: "adset_1",
         adId: "ad_1",
         eventName: "QualifiedLead",
-        status: "sent"
+        status: "sent",
       },
       {
         workspaceId: "workspace_1",
@@ -107,123 +107,187 @@ function createHarness() {
         adSetId: "adset_1",
         adId: "ad_1",
         eventName: "Purchase",
-        status: "sent"
-      }
-    ]
+        status: "sent",
+      },
+    ],
   };
   const prisma = {
     metaIntegration: {
-      findUnique: vi.fn(async () => db.metaIntegration)
+      findUnique: vi.fn(async () => db.metaIntegration),
     },
     metaReportingAccount: {
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
         db.reportingAccounts.filter((account) =>
-          matchesWhere(account, args?.where)
-        )
+          matchesWhere(account, args?.where),
+        ),
       ),
-      update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
-        const account = db.reportingAccounts.find((item) => item.id === where.id);
-        return { ...account, ...data };
-      })
+      update: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: { id: string };
+          data: Record<string, unknown>;
+        }) => {
+          const account = db.reportingAccounts.find(
+            (item) => item.id === where.id,
+          );
+          return { ...account, ...data };
+        },
+      ),
     },
     metaCampaign: {
-      upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
-        const record = { ...create, ...update };
-        db.campaigns.push(record);
-        return record;
-      }),
+      upsert: vi.fn(
+        async ({
+          create,
+          update,
+        }: {
+          create: Record<string, unknown>;
+          update: Record<string, unknown>;
+        }) => {
+          const record = { ...create, ...update };
+          db.campaigns.push(record);
+          return record;
+        },
+      ),
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
-        db.campaigns.filter((campaign) => matchesWhere(campaign, args?.where))
+        db.campaigns.filter((campaign) => matchesWhere(campaign, args?.where)),
       ),
-      findFirst: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
-        db.campaigns.find((campaign) => matchesWhere(campaign, args?.where)) ??
-        null
+      findFirst: vi.fn(
+        async (args?: { where?: Record<string, unknown> }) =>
+          db.campaigns.find((campaign) =>
+            matchesWhere(campaign, args?.where),
+          ) ?? null,
       ),
-      updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
-        const records = db.campaigns.filter((campaign) =>
-          matchesWhere(campaign, where)
-        );
-        records.forEach((record) => Object.assign(record, data));
-        return { count: records.length };
-      })
+      updateMany: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: Record<string, unknown>;
+          data: Record<string, unknown>;
+        }) => {
+          const records = db.campaigns.filter((campaign) =>
+            matchesWhere(campaign, where),
+          );
+          records.forEach((record) => Object.assign(record, data));
+          return { count: records.length };
+        },
+      ),
     },
     metaAdSet: {
-      upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
-        const record = { ...create, ...update };
-        db.adSets.push(record);
-        return record;
-      }),
+      upsert: vi.fn(
+        async ({
+          create,
+          update,
+        }: {
+          create: Record<string, unknown>;
+          update: Record<string, unknown>;
+        }) => {
+          const record = { ...create, ...update };
+          db.adSets.push(record);
+          return record;
+        },
+      ),
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
-        db.adSets.filter((adSet) => matchesWhere(adSet, args?.where))
+        db.adSets.filter((adSet) => matchesWhere(adSet, args?.where)),
       ),
-      findFirst: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
-        db.adSets.find((adSet) => matchesWhere(adSet, args?.where)) ?? null
+      findFirst: vi.fn(
+        async (args?: { where?: Record<string, unknown> }) =>
+          db.adSets.find((adSet) => matchesWhere(adSet, args?.where)) ?? null,
       ),
-      updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
-        const records = db.adSets.filter((adSet) => matchesWhere(adSet, where));
-        records.forEach((record) => Object.assign(record, data));
-        return { count: records.length };
-      })
+      updateMany: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: Record<string, unknown>;
+          data: Record<string, unknown>;
+        }) => {
+          const records = db.adSets.filter((adSet) =>
+            matchesWhere(adSet, where),
+          );
+          records.forEach((record) => Object.assign(record, data));
+          return { count: records.length };
+        },
+      ),
     },
     metaAd: {
-      upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
-        const record = { ...create, ...update };
-        db.ads.push(record);
-        return record;
-      }),
+      upsert: vi.fn(
+        async ({
+          create,
+          update,
+        }: {
+          create: Record<string, unknown>;
+          update: Record<string, unknown>;
+        }) => {
+          const record = { ...create, ...update };
+          db.ads.push(record);
+          return record;
+        },
+      ),
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
-        db.ads.filter((ad) => matchesWhere(ad, args?.where))
+        db.ads.filter((ad) => matchesWhere(ad, args?.where)),
       ),
-      findFirst: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
-        db.ads.find((ad) => matchesWhere(ad, args?.where)) ?? null
+      findFirst: vi.fn(
+        async (args?: { where?: Record<string, unknown> }) =>
+          db.ads.find((ad) => matchesWhere(ad, args?.where)) ?? null,
       ),
-      updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
-        const records = db.ads.filter((ad) => matchesWhere(ad, where));
-        records.forEach((record) => Object.assign(record, data));
-        return { count: records.length };
-      })
+      updateMany: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: Record<string, unknown>;
+          data: Record<string, unknown>;
+        }) => {
+          const records = db.ads.filter((ad) => matchesWhere(ad, where));
+          records.forEach((record) => Object.assign(record, data));
+          return { count: records.length };
+        },
+      ),
     },
     conversionEventLog: {
-      findMany: vi.fn(async () => db.conversionLogs)
+      findMany: vi.fn(async () => db.conversionLogs),
     },
     lead: {
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
-        db.leads.filter((lead) => matchesWhere(lead, args?.where))
-      )
+        db.leads.filter((lead) => matchesWhere(lead, args?.where)),
+      ),
     },
     integrationLog: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const log = {
           id: `integration_${db.integrationLogs.length + 1}`,
-          ...data
+          ...data,
         };
         db.integrationLogs.push(log);
         return log;
-      })
+      }),
     },
     diagnosticEvent: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const event = {
           id: `diagnostic_${db.diagnosticEvents.length + 1}`,
-          ...data
+          ...data,
         };
         db.diagnosticEvents.push(event);
         return event;
-      })
+      }),
     },
     auditLog: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const log = {
           id: `audit_${db.auditLogs.length + 1}`,
-          ...data
+          ...data,
         };
         db.auditLogs.push(log);
         return log;
-      })
-    }
+      }),
+    },
   };
   const encryption = {
-    decrypt: vi.fn(() => "EAAB-secret-token")
+    decrypt: vi.fn(() => "EAAB-secret-token"),
   };
   const metaAdapter = {
     listCampaigns: vi.fn(async (_input?: { adAccountId?: string }) => [
@@ -232,8 +296,8 @@ function createHarness() {
         name: "Black Friday WhatsApp",
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
-        objective: "OUTCOME_SALES"
-      }
+        objective: "OUTCOME_SALES",
+      },
     ]),
     listAdSets: vi.fn(async () => [
       {
@@ -242,8 +306,8 @@ function createHarness() {
         campaignId: "cmp_1",
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
-        destinationType: "WHATSAPP" as string | null
-      }
+        destinationType: "WHATSAPP" as string | null,
+      },
     ]),
     listAds: vi.fn(async () => [
       {
@@ -254,8 +318,8 @@ function createHarness() {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
-        callToActionType: "WHATSAPP_MESSAGE" as string | null
-      }
+        callToActionType: "WHATSAPP_MESSAGE" as string | null,
+      },
     ]),
     listCampaignInsights: vi.fn(async () => [
       {
@@ -263,8 +327,8 @@ function createHarness() {
         spendCents: 120000,
         impressions: 10000,
         clicks: 420,
-        metaConversationsStarted: 176
-      }
+        metaConversationsStarted: 176,
+      },
     ]),
     listAdSetInsights: vi.fn(async () => [
       {
@@ -273,8 +337,8 @@ function createHarness() {
         spendCents: 60000,
         impressions: 5000,
         clicks: 210,
-        metaConversationsStarted: 80
-      }
+        metaConversationsStarted: 80,
+      },
     ]),
     listAdInsights: vi.fn(async () => [
       {
@@ -284,15 +348,15 @@ function createHarness() {
         spendCents: 30000,
         impressions: 2500,
         clicks: 105,
-        metaConversationsStarted: 40
-      }
-    ])
+        metaConversationsStarted: 40,
+      },
+    ]),
   };
   const service = new MetaReportingService(
     prisma as never,
     encryption as never,
     metaAdapter as never,
-    new WhatsappCampaignClassifierService()
+    new WhatsappCampaignClassifierService(),
   );
 
   return { db, encryption, metaAdapter, prisma, service };
@@ -306,7 +370,7 @@ describe("meta reporting service", () => {
       campaignId: "cmp_1",
       whatsappClassification: "not_whatsapp",
       classificationOverride: null,
-      classificationSource: "children:no_signal"
+      classificationSource: "children:no_signal",
     });
 
     await expect(
@@ -315,8 +379,8 @@ describe("meta reporting service", () => {
         actorUserId: "user_1",
         level: "campaign",
         id: "cmp_1",
-        override: "manual_include"
-      })
+        override: "manual_include",
+      }),
     ).resolves.toEqual({ ok: true });
 
     expect(prisma.metaCampaign.updateMany).toHaveBeenCalledWith({
@@ -324,13 +388,13 @@ describe("meta reporting service", () => {
       data: {
         classificationOverride: "manual_include",
         whatsappClassification: "manual_include",
-        classificationSource: "manual"
-      }
+        classificationSource: "manual",
+      },
     });
     expect(db.campaigns[0]).toMatchObject({
       classificationOverride: "manual_include",
       whatsappClassification: "manual_include",
-      classificationSource: "manual"
+      classificationSource: "manual",
     });
     expect(db.auditLogs).toContainEqual(
       expect.objectContaining({
@@ -341,8 +405,8 @@ describe("meta reporting service", () => {
         targetType: "campaign",
         targetId: "cmp_1",
         resultStatus: "success",
-        afterSummary: { override: "manual_include" }
-      })
+        afterSummary: { override: "manual_include" },
+      }),
     );
   });
 
@@ -351,12 +415,12 @@ describe("meta reporting service", () => {
     db.adSets.push({
       workspaceId: "workspace_1",
       adSetId: "adset_1",
-      whatsappClassification: "auto_whatsapp"
+      whatsappClassification: "auto_whatsapp",
     });
     db.ads.push({
       workspaceId: "workspace_1",
       adId: "ad_1",
-      whatsappClassification: "creative_whatsapp"
+      whatsappClassification: "creative_whatsapp",
     });
 
     await service.saveWhatsappClassificationOverride({
@@ -364,14 +428,14 @@ describe("meta reporting service", () => {
       actorUserId: null,
       level: "adset",
       id: "adset_1",
-      override: "manual_exclude"
+      override: "manual_exclude",
     });
     await service.saveWhatsappClassificationOverride({
       workspaceId: "workspace_1",
       actorUserId: null,
       level: "ad",
       id: "ad_1",
-      override: "manual_exclude"
+      override: "manual_exclude",
     });
 
     expect(prisma.metaAdSet.updateMany).toHaveBeenCalledWith({
@@ -379,24 +443,24 @@ describe("meta reporting service", () => {
       data: {
         classificationOverride: "manual_exclude",
         whatsappClassification: "manual_exclude",
-        classificationSource: "manual"
-      }
+        classificationSource: "manual",
+      },
     });
     expect(prisma.metaAd.updateMany).toHaveBeenCalledWith({
       where: { workspaceId: "workspace_1", adId: "ad_1" },
       data: {
         classificationOverride: "manual_exclude",
         whatsappClassification: "manual_exclude",
-        classificationSource: "manual"
-      }
+        classificationSource: "manual",
+      },
     });
     expect(db.adSets[0]).toMatchObject({
       classificationOverride: "manual_exclude",
-      whatsappClassification: "manual_exclude"
+      whatsappClassification: "manual_exclude",
     });
     expect(db.ads[0]).toMatchObject({
       classificationOverride: "manual_exclude",
-      whatsappClassification: "manual_exclude"
+      whatsappClassification: "manual_exclude",
     });
     expect(db.auditLogs).toHaveLength(2);
   });
@@ -412,7 +476,7 @@ describe("meta reporting service", () => {
       callToActionType: "WHATSAPP_MESSAGE",
       whatsappClassification: "manual_include",
       classificationOverride: "manual_include",
-      classificationSource: "manual"
+      classificationSource: "manual",
     });
 
     await service.saveWhatsappClassificationOverride({
@@ -420,7 +484,7 @@ describe("meta reporting service", () => {
       actorUserId: "user_1",
       level: "ad",
       id: "ad_1",
-      override: null
+      override: null,
     });
 
     expect(prisma.metaAd.updateMany).toHaveBeenCalledWith({
@@ -428,16 +492,16 @@ describe("meta reporting service", () => {
       data: {
         classificationOverride: null,
         whatsappClassification: "creative_whatsapp",
-        classificationSource: "auto_reset:call_to_action:WHATSAPP_MESSAGE"
-      }
+        classificationSource: "auto_reset:call_to_action:WHATSAPP_MESSAGE",
+      },
     });
     expect(db.ads[0]).toMatchObject({
       classificationOverride: null,
       whatsappClassification: "creative_whatsapp",
-      classificationSource: "auto_reset:call_to_action:WHATSAPP_MESSAGE"
+      classificationSource: "auto_reset:call_to_action:WHATSAPP_MESSAGE",
     });
     expect(db.auditLogs[0]).toMatchObject({
-      afterSummary: { override: null }
+      afterSummary: { override: null },
     });
   });
 
@@ -448,13 +512,13 @@ describe("meta reporting service", () => {
       campaignId: "cmp_1",
       whatsappClassification: "manual_exclude",
       classificationOverride: "manual_exclude",
-      classificationSource: "manual"
+      classificationSource: "manual",
     });
     db.adSets.push({
       workspaceId: "workspace_1",
       campaignId: "cmp_1",
       adSetId: "adset_1",
-      whatsappClassification: "auto_whatsapp"
+      whatsappClassification: "auto_whatsapp",
     });
 
     await service.saveWhatsappClassificationOverride({
@@ -462,13 +526,13 @@ describe("meta reporting service", () => {
       actorUserId: "user_1",
       level: "campaign",
       id: "cmp_1",
-      override: null
+      override: null,
     });
 
     expect(db.campaigns[0]).toMatchObject({
       classificationOverride: null,
       whatsappClassification: "auto_whatsapp",
-      classificationSource: "auto_reset:children"
+      classificationSource: "auto_reset:children",
     });
   });
 
@@ -481,8 +545,8 @@ describe("meta reporting service", () => {
         actorUserId: "user_1",
         level: "campaign",
         id: "cmp_missing",
-        override: "manual_include"
-      })
+        override: "manual_include",
+      }),
     ).rejects.toThrow("Classificacao Meta nao encontrada");
 
     expect(prisma.metaCampaign.updateMany).toHaveBeenCalledWith({
@@ -490,8 +554,8 @@ describe("meta reporting service", () => {
       data: {
         classificationOverride: "manual_include",
         whatsappClassification: "manual_include",
-        classificationSource: "manual"
-      }
+        classificationSource: "manual",
+      },
     });
     expect(db.auditLogs).toHaveLength(0);
   });
@@ -503,42 +567,42 @@ describe("meta reporting service", () => {
       service.syncWorkspaceMetaStructure({
         workspaceId: "workspace_1",
         since: "2026-07-01",
-        until: "2026-07-02"
-      })
+        until: "2026-07-02",
+      }),
     ).resolves.toEqual({
       workspaceId: "workspace_1",
       accountsSynced: 1,
       accountsFailed: 0,
       campaignsSynced: 1,
       adSetsSynced: 1,
-      adsSynced: 1
+      adsSynced: 1,
     });
 
     expect(encryption.decrypt).toHaveBeenCalled();
     expect(prisma.metaReportingAccount.findMany).toHaveBeenCalledWith({
-      where: { workspaceId: "workspace_1", active: true }
+      where: { workspaceId: "workspace_1", active: true },
     });
     expect(metaAdapter.listCampaigns).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
-      adAccountId: "act_123"
+      adAccountId: "act_123",
     });
     expect(metaAdapter.listCampaignInsights).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
       adAccountId: "act_123",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
     expect(metaAdapter.listAdSetInsights).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
       adAccountId: "act_123",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
     expect(metaAdapter.listAdInsights).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
       adAccountId: "act_123",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
     expect(prisma.metaCampaign.upsert).toHaveBeenCalled();
     expect(db.campaigns[0]).toMatchObject({
@@ -548,7 +612,7 @@ describe("meta reporting service", () => {
       spendCents: 120000,
       metaConversationsStarted: 176,
       businessId: "business_1",
-      whatsappClassification: "auto_whatsapp"
+      whatsappClassification: "auto_whatsapp",
     });
     expect(db.adSets[0]).toMatchObject({
       adSetId: "adset_1",
@@ -557,7 +621,7 @@ describe("meta reporting service", () => {
       businessId: "business_1",
       adAccountId: "act_123",
       destinationType: "WHATSAPP",
-      whatsappClassification: "auto_whatsapp"
+      whatsappClassification: "auto_whatsapp",
     });
     expect(db.ads[0]).toMatchObject({
       adId: "ad_1",
@@ -567,7 +631,7 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       creativeId: "creative_1",
       callToActionType: "WHATSAPP_MESSAGE",
-      whatsappClassification: "auto_whatsapp"
+      whatsappClassification: "auto_whatsapp",
     });
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({
@@ -575,19 +639,19 @@ describe("meta reporting service", () => {
         source: "meta",
         operation: "meta.reporting.sync",
         status: "success",
-        providerRequestId: null
-      })
+        providerRequestId: null,
+      }),
     );
     expect(db.integrationLogs[0].requestSummary).toMatchObject({
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
     expect(db.integrationLogs[0].responseSummary).toMatchObject({
       accountsSynced: 1,
       accountsFailed: 0,
       campaignsSynced: 1,
       adSetsSynced: 1,
-      adsSynced: 1
+      adsSynced: 1,
     });
     expect(db.diagnosticEvents).toContainEqual(
       expect.objectContaining({
@@ -596,11 +660,15 @@ describe("meta reporting service", () => {
         eventType: "meta.reporting.sync",
         severity: "info",
         status: "success",
-        integrationLogId: "integration_1"
-      })
+        integrationLogId: "integration_1",
+      }),
     );
-    expect(JSON.stringify(db.integrationLogs)).not.toContain("EAAB-secret-token");
-    expect(JSON.stringify(db.diagnosticEvents)).not.toContain("EAAB-secret-token");
+    expect(JSON.stringify(db.integrationLogs)).not.toContain(
+      "EAAB-secret-token",
+    );
+    expect(JSON.stringify(db.diagnosticEvents)).not.toContain(
+      "EAAB-secret-token",
+    );
   });
 
   it("syncs every active Meta reporting account and isolates failed accounts", async () => {
@@ -613,7 +681,7 @@ describe("meta reporting service", () => {
         businessName: "BM 1",
         adAccountId: "act_1",
         adAccountName: "Conta 1",
-        active: true
+        active: true,
       },
       {
         id: "reporting_2",
@@ -622,8 +690,8 @@ describe("meta reporting service", () => {
         businessName: "BM 2",
         adAccountId: "act_2",
         adAccountName: "Conta 2",
-        active: true
-      }
+        active: true,
+      },
     ]);
     metaAdapter.listCampaigns.mockImplementation(async (input) => {
       if (input?.adAccountId === "act_2") {
@@ -635,15 +703,15 @@ describe("meta reporting service", () => {
           name: "Campanha",
           status: "ACTIVE",
           effectiveStatus: "ACTIVE",
-          objective: "OUTCOME_LEADS"
-        }
+          objective: "OUTCOME_LEADS",
+        },
       ];
     });
 
     const result = await service.syncWorkspaceMetaStructure({
       workspaceId: "workspace_1",
       since: "2026-07-01",
-      until: "2026-07-09"
+      until: "2026-07-09",
     });
 
     expect(result.accountsSynced).toBe(1);
@@ -651,23 +719,23 @@ describe("meta reporting service", () => {
     expect(prisma.metaReportingAccount.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "reporting_2" },
-        data: expect.objectContaining({ syncStatus: "error" })
-      })
+        data: expect.objectContaining({ syncStatus: "error" }),
+      }),
     );
   });
 
   it("throws and records error diagnostics when every Meta reporting account sync fails", async () => {
     const { db, metaAdapter, prisma, service } = createHarness();
     metaAdapter.listCampaigns.mockRejectedValueOnce(
-      new Error("Meta API unavailable")
+      new Error("Meta API unavailable"),
     );
 
     await expect(
       service.syncWorkspaceMetaStructure({
         workspaceId: "workspace_1",
         since: "2026-07-01",
-        until: "2026-07-02"
-      })
+        until: "2026-07-02",
+      }),
     ).rejects.toThrow("Todas as contas Meta falharam na sincronizacao");
 
     expect(prisma.metaReportingAccount.update).toHaveBeenCalledWith(
@@ -675,9 +743,9 @@ describe("meta reporting service", () => {
         where: { id: "reporting_1" },
         data: expect.objectContaining({
           syncStatus: "error",
-          syncError: "Meta API unavailable"
-        })
-      })
+          syncError: "Meta API unavailable",
+        }),
+      }),
     );
 
     expect(db.integrationLogs).toContainEqual(
@@ -687,15 +755,15 @@ describe("meta reporting service", () => {
         operation: "meta.reporting.sync",
         status: "error",
         providerRequestId: null,
-        providerErrorMessage: "Todas as contas Meta falharam na sincronizacao"
-      })
+        providerErrorMessage: "Todas as contas Meta falharam na sincronizacao",
+      }),
     );
     expect(db.integrationLogs[0].responseSummary).toMatchObject({
       accountsSynced: 0,
       accountsFailed: 1,
       campaignsSynced: 0,
       adSetsSynced: 0,
-      adsSynced: 0
+      adsSynced: 0,
     });
     expect(db.diagnosticEvents).toContainEqual(
       expect.objectContaining({
@@ -705,11 +773,15 @@ describe("meta reporting service", () => {
         severity: "error",
         status: "error",
         integrationLogId: "integration_1",
-        errorCode: "MetaReportingSyncError"
-      })
+        errorCode: "MetaReportingSyncError",
+      }),
     );
-    expect(JSON.stringify(db.integrationLogs)).not.toContain("EAAB-secret-token");
-    expect(JSON.stringify(db.diagnosticEvents)).not.toContain("EAAB-secret-token");
+    expect(JSON.stringify(db.integrationLogs)).not.toContain(
+      "EAAB-secret-token",
+    );
+    expect(JSON.stringify(db.diagnosticEvents)).not.toContain(
+      "EAAB-secret-token",
+    );
   });
 
   it("classifies ads by inherited WhatsApp destination type when CTA is absent", async () => {
@@ -723,14 +795,14 @@ describe("meta reporting service", () => {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
-        callToActionType: null
-      }
+        callToActionType: null,
+      },
     ]);
 
     await service.syncWorkspaceMetaStructure({
       workspaceId: "workspace_1",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
 
     expect(db.ads[0]).toMatchObject({
@@ -738,7 +810,7 @@ describe("meta reporting service", () => {
       destinationType: "WHATSAPP",
       callToActionType: null,
       whatsappClassification: "auto_whatsapp",
-      classificationSource: "destination_type:WHATSAPP"
+      classificationSource: "destination_type:WHATSAPP",
     });
   });
 
@@ -748,30 +820,30 @@ describe("meta reporting service", () => {
       {
         adSetId: "adset_1",
         classificationOverride: "manual_exclude",
-        whatsappClassification: "manual_exclude"
-      }
+        whatsappClassification: "manual_exclude",
+      },
     ]);
 
     await service.syncWorkspaceMetaStructure({
       workspaceId: "workspace_1",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
 
     expect(prisma.metaAdSet.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         update: expect.objectContaining({
           whatsappClassification: "manual_exclude",
-          classificationSource: "manual"
-        })
-      })
+          classificationSource: "manual",
+        }),
+      }),
     );
     expect(prisma.metaAdSet.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         update: expect.not.objectContaining({
-          classificationOverride: null
-        })
-      })
+          classificationOverride: null,
+        }),
+      }),
     );
   });
 
@@ -783,8 +855,8 @@ describe("meta reporting service", () => {
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
-        createdAt: new Date("2026-07-02T12:00:00.000Z")
-      }
+        createdAt: new Date("2026-07-02T12:00:00.000Z"),
+      },
     ];
     metaAdapter.listAdSets.mockResolvedValueOnce([
       {
@@ -793,8 +865,8 @@ describe("meta reporting service", () => {
         campaignId: "cmp_1",
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
-        destinationType: null as string | null
-      }
+        destinationType: null as string | null,
+      },
     ]);
     metaAdapter.listAds.mockResolvedValueOnce([
       {
@@ -805,30 +877,30 @@ describe("meta reporting service", () => {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
-        callToActionType: null as string | null
-      }
+        callToActionType: null as string | null,
+      },
     ]);
 
     await service.syncWorkspaceMetaStructure({
       workspaceId: "workspace_1",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
 
     expect(db.adSets[0]).toMatchObject({
       adSetId: "adset_1",
       whatsappClassification: "detected_by_leads",
-      classificationSource: "lead_evidence"
+      classificationSource: "lead_evidence",
     });
     expect(db.ads[0]).toMatchObject({
       adId: "ad_1",
       whatsappClassification: "detected_by_leads",
-      classificationSource: "lead_evidence"
+      classificationSource: "lead_evidence",
     });
     expect(db.campaigns[0]).toMatchObject({
       campaignId: "cmp_1",
       whatsappClassification: "detected_by_leads",
-      classificationSource: "children"
+      classificationSource: "children",
     });
   });
 
@@ -840,8 +912,8 @@ describe("meta reporting service", () => {
         campaignId: null as string | null,
         adSetId: null as string | null,
         adId: "ad_1",
-        createdAt: new Date("2026-07-02T12:00:00.000Z")
-      }
+        createdAt: new Date("2026-07-02T12:00:00.000Z"),
+      },
     ];
     metaAdapter.listAdSets.mockResolvedValueOnce([
       {
@@ -850,8 +922,8 @@ describe("meta reporting service", () => {
         campaignId: "cmp_1",
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
-        destinationType: null as string | null
-      }
+        destinationType: null as string | null,
+      },
     ]);
     metaAdapter.listAds.mockResolvedValueOnce([
       {
@@ -862,24 +934,24 @@ describe("meta reporting service", () => {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
-        callToActionType: null as string | null
-      }
+        callToActionType: null as string | null,
+      },
     ]);
 
     await service.syncWorkspaceMetaStructure({
       workspaceId: "workspace_1",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
 
     expect(db.ads[0]).toMatchObject({
       adId: "ad_1",
       whatsappClassification: "detected_by_leads",
-      classificationSource: "lead_evidence"
+      classificationSource: "lead_evidence",
     });
     expect(db.campaigns[0]).toMatchObject({
       campaignId: "cmp_1",
-      whatsappClassification: "detected_by_leads"
+      whatsappClassification: "detected_by_leads",
     });
   });
 
@@ -889,14 +961,14 @@ describe("meta reporting service", () => {
     await service.syncWorkspaceMetaStructure({
       workspaceId: "workspace_1",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
 
     await expect(
       service.getCampaignReportOverview({
         workspaceId: "workspace_1",
-        rangeLabel: "Ultimos 2 dias"
-      })
+        rangeLabel: "Ultimos 2 dias",
+      }),
     ).resolves.toEqual({
       workspaceId: "workspace_1",
       rangeLabel: "Ultimos 2 dias",
@@ -919,9 +991,9 @@ describe("meta reporting service", () => {
           costPerQualifiedLeadCents: 60000,
           purchase: 1,
           costPerPurchaseCents: 60000,
-          roas: null
-        }
-      ]
+          roas: null,
+        },
+      ],
     });
   });
 
@@ -938,7 +1010,7 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "manual_include",
         spendCents: 10000,
-        metaConversationsStarted: 2
+        metaConversationsStarted: 2,
       },
       {
         workspaceId: "workspace_1",
@@ -949,7 +1021,7 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "not_whatsapp",
         spendCents: 20000,
-        metaConversationsStarted: 0
+        metaConversationsStarted: 0,
       },
       {
         workspaceId: "workspace_1",
@@ -960,22 +1032,22 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "manual_exclude",
         spendCents: 30000,
-        metaConversationsStarted: 0
-      }
+        metaConversationsStarted: 0,
+      },
     );
 
     const report = await service.getCampaignReportOverview({
       workspaceId: "workspace_1",
-      rangeLabel: "Ultimos 7 dias"
+      rangeLabel: "Ultimos 7 dias",
     });
 
     expect(report.campaigns.map((campaign) => campaign.id)).toEqual([
-      "cmp_whatsapp"
+      "cmp_whatsapp",
     ]);
     expect(report.campaigns[0]).toMatchObject({
       businessId: "business_1",
       adAccountId: "act_123",
-      whatsappClassification: "manual_include"
+      whatsappClassification: "manual_include",
     });
   });
 
@@ -988,7 +1060,7 @@ describe("meta reporting service", () => {
       businessName: "BM Inativo",
       adAccountId: "act_inactive",
       adAccountName: "Conta Inativa",
-      active: false
+      active: false,
     });
     db.campaigns.push(
       {
@@ -1000,7 +1072,7 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "manual_include",
         spendCents: 10000,
-        metaConversationsStarted: 1
+        metaConversationsStarted: 1,
       },
       {
         workspaceId: "workspace_1",
@@ -1011,17 +1083,17 @@ describe("meta reporting service", () => {
         adAccountId: "act_inactive",
         whatsappClassification: "manual_include",
         spendCents: 90000,
-        metaConversationsStarted: 9
-      }
+        metaConversationsStarted: 9,
+      },
     );
 
     const report = await service.getCampaignReportOverview({
       workspaceId: "workspace_1",
-      rangeLabel: "Ultimos 7 dias"
+      rangeLabel: "Ultimos 7 dias",
     });
 
     expect(report.campaigns.map((campaign) => campaign.id)).toEqual([
-      "cmp_active"
+      "cmp_active",
     ]);
   });
 
@@ -1036,7 +1108,7 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       whatsappClassification: "auto_whatsapp",
       spendCents: 100000,
-      metaConversationsStarted: 50
+      metaConversationsStarted: 50,
     });
     db.adSets.push(
       {
@@ -1050,7 +1122,7 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "auto_whatsapp",
         spendCents: 30000,
-        metaConversationsStarted: 15
+        metaConversationsStarted: 15,
       },
       {
         workspaceId: "workspace_1",
@@ -1063,20 +1135,20 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "not_whatsapp",
         spendCents: 70000,
-        metaConversationsStarted: 35
-      }
+        metaConversationsStarted: 35,
+      },
     );
 
     const report = await service.getCampaignReportOverview({
       workspaceId: "workspace_1",
-      rangeLabel: "Ultimos 7 dias"
+      rangeLabel: "Ultimos 7 dias",
     });
 
     expect(report.campaigns).toHaveLength(1);
     expect(report.campaigns[0]).toMatchObject({
       id: "cmp_mixed",
       spendCents: 30000,
-      metaConversationsStarted: 15
+      metaConversationsStarted: 15,
     });
   });
 
@@ -1091,7 +1163,7 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       whatsappClassification: "creative_whatsapp",
       spendCents: 100000,
-      metaConversationsStarted: 50
+      metaConversationsStarted: 50,
     });
     db.adSets.push({
       workspaceId: "workspace_1",
@@ -1104,7 +1176,7 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       whatsappClassification: "not_whatsapp",
       spendCents: 100000,
-      metaConversationsStarted: 50
+      metaConversationsStarted: 50,
     });
     db.ads.push(
       {
@@ -1119,7 +1191,7 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "creative_whatsapp",
         spendCents: 25000,
-        metaConversationsStarted: 10
+        metaConversationsStarted: 10,
       },
       {
         workspaceId: "workspace_1",
@@ -1133,20 +1205,20 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "not_whatsapp",
         spendCents: 75000,
-        metaConversationsStarted: 40
-      }
+        metaConversationsStarted: 40,
+      },
     );
 
     const report = await service.getCampaignReportOverview({
       workspaceId: "workspace_1",
-      rangeLabel: "Ultimos 7 dias"
+      rangeLabel: "Ultimos 7 dias",
     });
 
     expect(report.campaigns).toHaveLength(1);
     expect(report.campaigns[0]).toMatchObject({
       id: "cmp_ad_mixed",
       spendCents: 25000,
-      metaConversationsStarted: 10
+      metaConversationsStarted: 10,
     });
   });
 
@@ -1162,7 +1234,7 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       whatsappClassification: "auto_whatsapp",
       spendCents: 0,
-      metaConversationsStarted: 0
+      metaConversationsStarted: 0,
     });
     db.adSets.push(
       {
@@ -1176,7 +1248,7 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "creative_whatsapp",
         spendCents: 10000,
-        metaConversationsStarted: 3
+        metaConversationsStarted: 3,
       },
       {
         workspaceId: "workspace_1",
@@ -1189,7 +1261,7 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "not_whatsapp",
         spendCents: 20000,
-        metaConversationsStarted: 0
+        metaConversationsStarted: 0,
       },
       {
         workspaceId: "workspace_1",
@@ -1202,8 +1274,8 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "manual_exclude",
         spendCents: 30000,
-        metaConversationsStarted: 0
-      }
+        metaConversationsStarted: 0,
+      },
     );
     db.ads.push(
       {
@@ -1218,7 +1290,7 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "detected_by_leads",
         spendCents: 10000,
-        metaConversationsStarted: 4
+        metaConversationsStarted: 4,
       },
       {
         workspaceId: "workspace_1",
@@ -1232,7 +1304,7 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "not_whatsapp",
         spendCents: 20000,
-        metaConversationsStarted: 0
+        metaConversationsStarted: 0,
       },
       {
         workspaceId: "workspace_1",
@@ -1246,32 +1318,32 @@ describe("meta reporting service", () => {
         adAccountId: "act_123",
         whatsappClassification: "manual_exclude",
         spendCents: 30000,
-        metaConversationsStarted: 0
-      }
+        metaConversationsStarted: 0,
+      },
     );
 
     const [adSets, ads] = await Promise.all([
       service.getAdSetReportOverview({
         workspaceId: "workspace_1",
-        rangeLabel: "Ultimos 7 dias"
+        rangeLabel: "Ultimos 7 dias",
       }),
       service.getAdReportOverview({
         workspaceId: "workspace_1",
-        rangeLabel: "Ultimos 7 dias"
-      })
+        rangeLabel: "Ultimos 7 dias",
+      }),
     ]);
 
     expect(adSets.adSets.map((adSet) => adSet.id)).toEqual(["adset_whatsapp"]);
     expect(adSets.adSets[0]).toMatchObject({
       businessId: "business_1",
       adAccountId: "act_123",
-      whatsappClassification: "creative_whatsapp"
+      whatsappClassification: "creative_whatsapp",
     });
     expect(ads.ads.map((ad) => ad.id)).toEqual(["ad_whatsapp"]);
     expect(ads.ads[0]).toMatchObject({
       businessId: "business_1",
       adAccountId: "act_123",
-      whatsappClassification: "detected_by_leads"
+      whatsappClassification: "detected_by_leads",
     });
   });
 
@@ -1287,7 +1359,7 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       whatsappClassification: "needs_review",
       spendCents: 0,
-      metaConversationsStarted: 0
+      metaConversationsStarted: 0,
     });
     db.adSets.push({
       workspaceId: "workspace_1",
@@ -1300,7 +1372,7 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       whatsappClassification: "creative_whatsapp",
       spendCents: 10000,
-      metaConversationsStarted: 3
+      metaConversationsStarted: 3,
     });
     db.ads.push({
       workspaceId: "workspace_1",
@@ -1314,31 +1386,236 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       whatsappClassification: "auto_whatsapp",
       spendCents: 5000,
-      metaConversationsStarted: 2
+      metaConversationsStarted: 2,
     });
 
     const [adSets, ads] = await Promise.all([
       service.getAdSetReportOverview({
         workspaceId: "workspace_1",
-        rangeLabel: "Ultimos 7 dias"
+        rangeLabel: "Ultimos 7 dias",
       }),
       service.getAdReportOverview({
         workspaceId: "workspace_1",
-        rangeLabel: "Ultimos 7 dias"
-      })
+        rangeLabel: "Ultimos 7 dias",
+      }),
     ]);
 
     expect(adSets.adSets).toHaveLength(1);
     expect(adSets.adSets[0]).toMatchObject({
       id: "adset_child",
-      campaignName: "Campanha em Revisao"
+      campaignName: "Campanha em Revisao",
     });
     expect(ads.ads).toHaveLength(1);
     expect(ads.ads[0]).toMatchObject({
       id: "ad_child",
       campaignName: "Campanha em Revisao",
-      adSetName: "Conjunto WhatsApp"
+      adSetName: "Conjunto WhatsApp",
     });
+  });
+
+  it("filters campaign reports by child name scope and status", async () => {
+    const { db, service } = createHarness();
+
+    db.campaigns.push(
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_bpc",
+        name: "Campanha Pesquisa",
+        status: "PAUSED",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "auto_whatsapp",
+        spendCents: 40000,
+        metaConversationsStarted: 8,
+      },
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_acidente",
+        name: "Campanha Acidente",
+        status: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "auto_whatsapp",
+        spendCents: 50000,
+        metaConversationsStarted: 10,
+      },
+    );
+    db.adSets.push(
+      {
+        workspaceId: "workspace_1",
+        adSetId: "adset_bpc",
+        campaignId: "cmp_bpc",
+        name: "Publico BPC regional",
+        status: "PAUSED",
+        effectiveStatus: "PAUSED",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "auto_whatsapp",
+        spendCents: 40000,
+        metaConversationsStarted: 8,
+      },
+      {
+        workspaceId: "workspace_1",
+        adSetId: "adset_acidente",
+        campaignId: "cmp_acidente",
+        name: "Publico Acidente",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "auto_whatsapp",
+        spendCents: 50000,
+        metaConversationsStarted: 10,
+      },
+    );
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      nameScope: "adset",
+      nameContains: "bpc",
+      status: "paused",
+    });
+
+    expect(report.campaigns.map((campaign) => campaign.id)).toEqual([
+      "cmp_bpc",
+    ]);
+  });
+
+  it("filters ad set reports by campaign name scope and status", async () => {
+    const { db, service } = createHarness();
+
+    db.campaigns.push(
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_bpc",
+        name: "BPC principal",
+        status: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "auto_whatsapp",
+        spendCents: 0,
+        metaConversationsStarted: 0,
+      },
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_acidente",
+        name: "Acidente principal",
+        status: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "auto_whatsapp",
+        spendCents: 0,
+        metaConversationsStarted: 0,
+      },
+    );
+    db.adSets.push(
+      {
+        workspaceId: "workspace_1",
+        adSetId: "adset_bpc",
+        campaignId: "cmp_bpc",
+        name: "Publico aberto",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "auto_whatsapp",
+        spendCents: 10000,
+        metaConversationsStarted: 2,
+      },
+      {
+        workspaceId: "workspace_1",
+        adSetId: "adset_acidente",
+        campaignId: "cmp_acidente",
+        name: "Publico aberto",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "auto_whatsapp",
+        spendCents: 20000,
+        metaConversationsStarted: 4,
+      },
+    );
+
+    const report = await service.getAdSetReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      nameScope: "campaign",
+      nameContains: "bpc",
+      status: "active",
+    });
+
+    expect(report.adSets.map((adSet) => adSet.id)).toEqual(["adset_bpc"]);
+  });
+
+  it("filters ad reports by ad name scope and status", async () => {
+    const { db, service } = createHarness();
+
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_1",
+      name: "Campanha WhatsApp",
+      status: "ACTIVE",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "auto_whatsapp",
+      spendCents: 0,
+      metaConversationsStarted: 0,
+    });
+    db.adSets.push({
+      workspaceId: "workspace_1",
+      adSetId: "adset_1",
+      campaignId: "cmp_1",
+      name: "Conjunto principal",
+      status: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "auto_whatsapp",
+      spendCents: 0,
+      metaConversationsStarted: 0,
+    });
+    db.ads.push(
+      {
+        workspaceId: "workspace_1",
+        adId: "ad_bpc",
+        adSetId: "adset_1",
+        campaignId: "cmp_1",
+        name: "Criativo BPC video",
+        status: "PAUSED",
+        effectiveStatus: "PAUSED",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "auto_whatsapp",
+        spendCents: 10000,
+        metaConversationsStarted: 2,
+      },
+      {
+        workspaceId: "workspace_1",
+        adId: "ad_acidente",
+        adSetId: "adset_1",
+        campaignId: "cmp_1",
+        name: "Criativo acidente",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "auto_whatsapp",
+        spendCents: 20000,
+        metaConversationsStarted: 4,
+      },
+    );
+
+    const report = await service.getAdReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      nameScope: "ad",
+      nameContains: "bpc",
+      status: "paused",
+    });
+
+    expect(report.ads.map((ad) => ad.id)).toEqual(["ad_bpc"]);
   });
 
   it("applies Meta account and classification filters to campaign reports", async () => {
@@ -1349,16 +1626,16 @@ describe("meta reporting service", () => {
       rangeLabel: "Todas",
       businessId: "business_1",
       adAccountId: "act_123",
-      whatsappClassification: "all"
+      whatsappClassification: "all",
     });
 
     expect(prisma.metaCampaign.findMany).toHaveBeenCalledWith({
       where: {
         workspaceId: "workspace_1",
         businessId: "business_1",
-        adAccountId: "act_123"
+        adAccountId: "act_123",
       },
-      orderBy: { name: "asc" }
+      orderBy: { name: "asc" },
     });
   });
 
@@ -1368,14 +1645,14 @@ describe("meta reporting service", () => {
     await service.syncWorkspaceMetaStructure({
       workspaceId: "workspace_1",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
 
     await service.getCampaignReportOverview({
       workspaceId: "workspace_1",
       rangeLabel: "2026-07-01 a 2026-07-02",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
 
     expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith(
@@ -1383,20 +1660,20 @@ describe("meta reporting service", () => {
         where: expect.objectContaining({
           createdAt: {
             gte: new Date("2026-07-01T00:00:00.000Z"),
-            lte: new Date("2026-07-02T23:59:59.999Z")
-          }
-        })
-      })
+            lte: new Date("2026-07-02T23:59:59.999Z"),
+          },
+        }),
+      }),
     );
     expect(prisma.lead.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           createdAt: {
             gte: new Date("2026-07-01T00:00:00.000Z"),
-            lte: new Date("2026-07-02T23:59:59.999Z")
-          }
-        })
-      })
+            lte: new Date("2026-07-02T23:59:59.999Z"),
+          },
+        }),
+      }),
     );
   });
 
@@ -1406,11 +1683,11 @@ describe("meta reporting service", () => {
     await service.syncWorkspaceMetaStructure({
       workspaceId: "workspace_1",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
 
     await expect(
-      service.getMetaStructureReport("workspace_1")
+      service.getMetaStructureReport("workspace_1"),
     ).resolves.toEqual({
       workspaceId: "workspace_1",
       campaigns: [
@@ -1431,13 +1708,13 @@ describe("meta reporting service", () => {
                   id: "ad_1",
                   name: "Criativo WhatsApp",
                   status: "ACTIVE",
-                  effectiveStatus: "ACTIVE"
-                }
-              ]
-            }
-          ]
-        }
-      ]
+                  effectiveStatus: "ACTIVE",
+                },
+              ],
+            },
+          ],
+        },
+      ],
     });
   });
 
@@ -1447,14 +1724,14 @@ describe("meta reporting service", () => {
     await service.syncWorkspaceMetaStructure({
       workspaceId: "workspace_1",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
 
     await expect(
       service.getAdSetReportOverview({
         workspaceId: "workspace_1",
-        rangeLabel: "Ultimos 2 dias"
-      })
+        rangeLabel: "Ultimos 2 dias",
+      }),
     ).resolves.toEqual({
       workspaceId: "workspace_1",
       rangeLabel: "Ultimos 2 dias",
@@ -1479,9 +1756,9 @@ describe("meta reporting service", () => {
           costPerQualifiedLeadCents: 60000,
           purchase: 1,
           costPerPurchaseCents: 60000,
-          roas: null
-        }
-      ]
+          roas: null,
+        },
+      ],
     });
   });
 
@@ -1491,14 +1768,14 @@ describe("meta reporting service", () => {
     await service.syncWorkspaceMetaStructure({
       workspaceId: "workspace_1",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
 
     await expect(
       service.getAdReportOverview({
         workspaceId: "workspace_1",
-        rangeLabel: "Ultimos 2 dias"
-      })
+        rangeLabel: "Ultimos 2 dias",
+      }),
     ).resolves.toEqual({
       workspaceId: "workspace_1",
       rangeLabel: "Ultimos 2 dias",
@@ -1525,9 +1802,9 @@ describe("meta reporting service", () => {
           costPerQualifiedLeadCents: 30000,
           purchase: 1,
           costPerPurchaseCents: 30000,
-          roas: null
-        }
-      ]
+          roas: null,
+        },
+      ],
     });
   });
 });

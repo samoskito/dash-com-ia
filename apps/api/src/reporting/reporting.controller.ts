@@ -8,11 +8,11 @@ import {
   Post,
   Put,
   Query,
-  Res
+  Res,
 } from "@nestjs/common";
 import {
   canManageIntegrations,
-  metaWhatsappOverrideInputSchema
+  metaWhatsappOverrideInputSchema,
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
@@ -31,14 +31,16 @@ type ReportPeriod = {
 };
 
 type WhatsappClassificationFilter =
-  | "whatsapp"
-  | "needs_review"
-  | "excluded"
-  | "all";
+  "whatsapp" | "needs_review" | "excluded" | "all";
+type ReportNameScope = "campaign" | "adset" | "ad";
+type ReportStatusFilter = "all" | "active" | "paused";
 
 type ReportFilters = {
   businessId?: string;
   adAccountId?: string;
+  nameScope?: ReportNameScope;
+  nameContains?: string;
+  status?: ReportStatusFilter;
   whatsappClassification?: WhatsappClassificationFilter;
 };
 
@@ -52,7 +54,7 @@ export class ReportingController {
     @Inject(AuthService)
     private readonly authService: AuthService,
     @Inject(WorkspacesService)
-    private readonly workspacesService: WorkspacesService
+    private readonly workspacesService: WorkspacesService,
   ) {}
 
   @Get("campaigns")
@@ -62,22 +64,26 @@ export class ReportingController {
     @Query("until") until?: string,
     @Query("businessId") businessId?: string | string[],
     @Query("adAccountId") adAccountId?: string | string[],
-    @Query("whatsappClassification") whatsappClassification?: string | string[]
+    @Query("nameScope") nameScope?: string | string[],
+    @Query("nameContains") nameContains?: string | string[],
+    @Query("status") status?: string | string[],
+    @Query("whatsappClassification") whatsappClassification?: string | string[],
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
     const filters = this.parseReportFilters({
       businessId,
       adAccountId,
-      whatsappClassification
+      nameScope,
+      nameContains,
+      status,
+      whatsappClassification,
     });
 
     return this.metaReportingService.getCampaignReportOverview({
       workspaceId,
-      since: period.since,
-      until: period.until,
-      rangeLabel: period.rangeLabel,
-      ...filters
+      ...period,
+      ...filters,
     });
   }
 
@@ -89,27 +95,31 @@ export class ReportingController {
     @Query("until") until?: string,
     @Query("businessId") businessId?: string | string[],
     @Query("adAccountId") adAccountId?: string | string[],
-    @Query("whatsappClassification") whatsappClassification?: string | string[]
+    @Query("nameScope") nameScope?: string | string[],
+    @Query("nameContains") nameContains?: string | string[],
+    @Query("status") status?: string | string[],
+    @Query("whatsappClassification") whatsappClassification?: string | string[],
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
     const filters = this.parseReportFilters({
       businessId,
       adAccountId,
-      whatsappClassification
+      nameScope,
+      nameContains,
+      status,
+      whatsappClassification,
     });
     const csv = await this.metaReportingService.getCampaignReportCsv({
       workspaceId,
-      since: period.since,
-      until: period.until,
-      rangeLabel: period.rangeLabel,
-      ...filters
+      ...period,
+      ...filters,
     });
 
     response.setHeader("Content-Type", "text/csv; charset=utf-8");
     response.setHeader(
       "Content-Disposition",
-      `attachment; filename="${csv.filename}"`
+      `attachment; filename="${csv.filename}"`,
     );
 
     return csv.content;
@@ -122,22 +132,26 @@ export class ReportingController {
     @Query("until") until?: string,
     @Query("businessId") businessId?: string | string[],
     @Query("adAccountId") adAccountId?: string | string[],
-    @Query("whatsappClassification") whatsappClassification?: string | string[]
+    @Query("nameScope") nameScope?: string | string[],
+    @Query("nameContains") nameContains?: string | string[],
+    @Query("status") status?: string | string[],
+    @Query("whatsappClassification") whatsappClassification?: string | string[],
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
     const filters = this.parseReportFilters({
       businessId,
       adAccountId,
-      whatsappClassification
+      nameScope,
+      nameContains,
+      status,
+      whatsappClassification,
     });
 
     return this.metaReportingService.getAdSetReportOverview({
       workspaceId,
-      since: period.since,
-      until: period.until,
-      rangeLabel: period.rangeLabel,
-      ...filters
+      ...period,
+      ...filters,
     });
   }
 
@@ -148,22 +162,26 @@ export class ReportingController {
     @Query("until") until?: string,
     @Query("businessId") businessId?: string | string[],
     @Query("adAccountId") adAccountId?: string | string[],
-    @Query("whatsappClassification") whatsappClassification?: string | string[]
+    @Query("nameScope") nameScope?: string | string[],
+    @Query("nameContains") nameContains?: string | string[],
+    @Query("status") status?: string | string[],
+    @Query("whatsappClassification") whatsappClassification?: string | string[],
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
     const filters = this.parseReportFilters({
       businessId,
       adAccountId,
-      whatsappClassification
+      nameScope,
+      nameContains,
+      status,
+      whatsappClassification,
     });
 
     return this.metaReportingService.getAdReportOverview({
       workspaceId,
-      since: period.since,
-      until: period.until,
-      rangeLabel: period.rangeLabel,
-      ...filters
+      ...period,
+      ...filters,
     });
   }
 
@@ -171,7 +189,7 @@ export class ReportingController {
   async syncMetaReports(
     @AuthToken() refreshToken: string,
     @Query("since") since = this.defaultSince(),
-    @Query("until") until = this.defaultUntil()
+    @Query("until") until = this.defaultUntil(),
   ) {
     const workspace = await this.getCurrentWorkspace(refreshToken);
     const period = this.parseReportPeriod(since, until);
@@ -183,7 +201,7 @@ export class ReportingController {
     return this.metaReportSyncQueueService.enqueueSync({
       workspaceId: workspace.id,
       since: period.since as string,
-      until: period.until as string
+      until: period.until as string,
     });
   }
 
@@ -197,7 +215,7 @@ export class ReportingController {
   @Put("meta/whatsapp-classification")
   async saveWhatsappClassificationOverride(
     @AuthToken() refreshToken: string,
-    @Body() body: unknown
+    @Body() body: unknown,
   ) {
     const parsed = metaWhatsappOverrideInputSchema.safeParse(body);
 
@@ -215,7 +233,7 @@ export class ReportingController {
     return this.metaReportingService.saveWhatsappClassificationOverride({
       workspaceId: workspace.id,
       actorUserId: authenticated.user.id ?? null,
-      ...parsed.data
+      ...parsed.data,
     });
   }
 
@@ -252,7 +270,7 @@ export class ReportingController {
   private parseReportPeriod(since?: string, until?: string): ReportPeriod {
     if (!since && !until) {
       return {
-        rangeLabel: "Ultimos 7 dias"
+        rangeLabel: "Ultimos 7 dias",
       };
     }
 
@@ -267,22 +285,50 @@ export class ReportingController {
     return {
       since,
       until,
-      rangeLabel: `${since} a ${until}`
+      rangeLabel: `${since} a ${until}`,
     };
   }
 
   private parseReportFilters(input: {
     businessId?: string | string[];
     adAccountId?: string | string[];
+    nameScope?: string | string[];
+    nameContains?: string | string[];
+    status?: string | string[];
     whatsappClassification?: string | string[];
   }): ReportFilters {
-    return {
-      businessId: this.trimOptional(input.businessId),
-      adAccountId: this.trimOptional(input.adAccountId),
-      whatsappClassification: this.parseWhatsappClassificationFilter(
-        input.whatsappClassification
-      )
-    };
+    const filters: ReportFilters = {};
+    const businessId = this.trimOptional(input.businessId);
+    const adAccountId = this.trimOptional(input.adAccountId);
+    const nameContains = this.trimOptional(input.nameContains);
+    const nameScope = this.parseNameScopeFilter(input.nameScope);
+    const status = this.parseStatusFilter(input.status);
+    const whatsappClassification = this.parseWhatsappClassificationFilter(
+      input.whatsappClassification,
+    );
+
+    if (businessId) {
+      filters.businessId = businessId;
+    }
+
+    if (adAccountId) {
+      filters.adAccountId = adAccountId;
+    }
+
+    if (nameContains) {
+      filters.nameContains = nameContains;
+      filters.nameScope = nameScope ?? "campaign";
+    }
+
+    if (status) {
+      filters.status = status;
+    }
+
+    if (whatsappClassification) {
+      filters.whatsappClassification = whatsappClassification;
+    }
+
+    return filters;
   }
 
   private trimOptional(value?: string | string[]): string | undefined {
@@ -296,13 +342,61 @@ export class ReportingController {
   }
 
   private isWhatsappClassificationFilter(
-    value: string
+    value: string,
   ): value is WhatsappClassificationFilter {
     return ["whatsapp", "needs_review", "excluded", "all"].includes(value);
   }
 
+  private isNameScopeFilter(value: string): value is ReportNameScope {
+    return ["campaign", "adset", "ad"].includes(value);
+  }
+
+  private isStatusFilter(value: string): value is ReportStatusFilter {
+    return ["all", "active", "paused"].includes(value);
+  }
+
+  private parseNameScopeFilter(
+    value?: string | string[],
+  ): ReportNameScope | undefined {
+    if (Array.isArray(value)) {
+      throw new BadRequestException("Filtro de relatorio invalido");
+    }
+
+    const trimmed = value?.trim();
+
+    if (!trimmed) {
+      return undefined;
+    }
+
+    if (this.isNameScopeFilter(trimmed)) {
+      return trimmed;
+    }
+
+    throw new BadRequestException("Filtro de nome invalido");
+  }
+
+  private parseStatusFilter(
+    value?: string | string[],
+  ): ReportStatusFilter | undefined {
+    if (Array.isArray(value)) {
+      throw new BadRequestException("Filtro de relatorio invalido");
+    }
+
+    const trimmed = value?.trim();
+
+    if (!trimmed) {
+      return undefined;
+    }
+
+    if (this.isStatusFilter(trimmed)) {
+      return trimmed;
+    }
+
+    throw new BadRequestException("Filtro de status invalido");
+  }
+
   private parseWhatsappClassificationFilter(
-    value?: string | string[]
+    value?: string | string[],
   ): WhatsappClassificationFilter | undefined {
     if (Array.isArray(value)) {
       throw new BadRequestException("Filtro de relatorio invalido");
@@ -328,6 +422,8 @@ export class ReportingController {
 
     const date = new Date(`${value}T00:00:00.000Z`);
 
-    return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+    return (
+      !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value)
+    );
   }
 }

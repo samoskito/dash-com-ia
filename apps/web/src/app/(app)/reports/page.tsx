@@ -7,7 +7,7 @@ import type {
   CurrentWorkspaceDto,
   MetaAssetsDto,
   MetaStructureReportDto,
-  ReportOverviewDto
+  ReportOverviewDto,
 } from "@wpptrack/shared";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
@@ -30,10 +30,7 @@ type AdReportsResult = {
   report: AdReportOverviewDto;
   state: ReportFetchState;
 };
-type PerformanceRow =
-  | CampaignReportRowDto
-  | AdSetReportRowDto
-  | AdReportRowDto;
+type PerformanceRow = CampaignReportRowDto | AdSetReportRowDto | AdReportRowDto;
 type ReportTotals = {
   spendCents: number;
   metaConversationsStarted: number;
@@ -52,7 +49,10 @@ type ReportFilters = {
   businessId?: string;
   compareSince?: string;
   compareUntil?: string;
+  nameContains?: string;
+  nameScope?: string;
   since?: string;
+  status?: string;
   until?: string;
   whatsappClassification?: string;
 };
@@ -64,7 +64,7 @@ function money(cents: number | null) {
 
   return (cents / 100).toLocaleString("pt-BR", {
     currency: "BRL",
-    style: "currency"
+    style: "currency",
   });
 }
 
@@ -81,103 +81,91 @@ function metaStatusLabel(status: string | null | undefined) {
     IN_PROCESS: "Em processamento",
     WITH_ISSUES: "Com problemas",
     CAMPAIGN_PAUSED: "Campanha pausada",
-    ADSET_PAUSED: "Conjunto pausado"
+    ADSET_PAUSED: "Conjunto pausado",
   };
 
   return labels[status.toUpperCase()] ?? "Status desconhecido";
 }
 
-async function getCampaignReports(filters: {
-  adAccountId?: string;
-  businessId?: string;
-  since?: string;
-  until?: string;
-  whatsappClassification?: string;
-}): Promise<CampaignReportsResult> {
+async function getCampaignReports(
+  filters: ReportFilters,
+): Promise<CampaignReportsResult> {
   try {
     const query = reportQuery(filters);
 
     const report = await serverApiFetch<ReportOverviewDto>(
-      query ? `/reports/campaigns?${query}` : "/reports/campaigns"
+      query ? `/reports/campaigns?${query}` : "/reports/campaigns",
     );
 
     return {
       report,
-      state: report.campaigns.length > 0 ? "real" : "empty"
+      state: report.campaigns.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       report: {
         workspaceId: "unavailable",
         rangeLabel: "API indisponivel",
-        campaigns: []
+        campaigns: [],
       },
-      state: "error"
+      state: "error",
     };
   }
 }
 
-async function getAdSetReports(filters: {
-  adAccountId?: string;
-  businessId?: string;
-  since?: string;
-  until?: string;
-  whatsappClassification?: string;
-}): Promise<AdSetReportsResult> {
+async function getAdSetReports(
+  filters: ReportFilters,
+): Promise<AdSetReportsResult> {
   try {
     const query = reportQuery(filters);
     const report = await serverApiFetch<AdSetReportOverviewDto>(
-      query ? `/reports/adsets?${query}` : "/reports/adsets"
+      query ? `/reports/adsets?${query}` : "/reports/adsets",
     );
 
     return {
       report,
-      state: report.adSets.length > 0 ? "real" : "empty"
+      state: report.adSets.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       report: {
         workspaceId: "unavailable",
         rangeLabel: "API indisponivel",
-        adSets: []
+        adSets: [],
       },
-      state: "error"
+      state: "error",
     };
   }
 }
 
-async function getAdReports(filters: {
-  adAccountId?: string;
-  businessId?: string;
-  since?: string;
-  until?: string;
-  whatsappClassification?: string;
-}): Promise<AdReportsResult> {
+async function getAdReports(filters: ReportFilters): Promise<AdReportsResult> {
   try {
     const query = reportQuery(filters);
     const report = await serverApiFetch<AdReportOverviewDto>(
-      query ? `/reports/ads?${query}` : "/reports/ads"
+      query ? `/reports/ads?${query}` : "/reports/ads",
     );
 
     return {
       report,
-      state: report.ads.length > 0 ? "real" : "empty"
+      state: report.ads.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       report: {
         workspaceId: "unavailable",
         rangeLabel: "API indisponivel",
-        ads: []
+        ads: [],
       },
-      state: "error"
+      state: "error",
     };
   }
 }
 
 async function getMetaStructureReport(): Promise<MetaStructureReportDto | null> {
   try {
-    return await serverApiFetch<MetaStructureReportDto>("/reports/meta/structure");
+    return await serverApiFetch<MetaStructureReportDto>(
+      "/reports/meta/structure",
+    );
   } catch {
     return null;
   }
@@ -226,6 +214,15 @@ function reportQuery(filters: ReportFilters, includeComparison = false) {
     params.set("adAccountId", filters.adAccountId);
   }
 
+  if (filters.nameContains) {
+    params.set("nameContains", filters.nameContains);
+    params.set("nameScope", filters.nameScope ?? "campaign");
+  }
+
+  if (filters.status) {
+    params.set("status", filters.status);
+  }
+
   if (filters.whatsappClassification) {
     params.set("whatsappClassification", filters.whatsappClassification);
   }
@@ -247,7 +244,10 @@ async function syncMetaReports(formData: FormData) {
     "compareUntil",
     "businessId",
     "adAccountId",
-    "whatsappClassification"
+    "nameScope",
+    "nameContains",
+    "status",
+    "whatsappClassification",
   ]) {
     const value = formText(formData, key);
 
@@ -269,9 +269,12 @@ async function syncMetaReports(formData: FormData) {
 
     const query = params.toString();
 
-    await serverApiFetch(query ? `/reports/meta/sync?${query}` : "/reports/meta/sync", {
-      method: "POST"
-    });
+    await serverApiFetch(
+      query ? `/reports/meta/sync?${query}` : "/reports/meta/sync",
+      {
+        method: "POST",
+      },
+    );
     revalidatePath("/reports");
     redirectParams.set("notice", "meta-sync-queued");
   } catch {
@@ -299,7 +302,7 @@ async function saveWhatsappClassification(formData: FormData) {
   try {
     await serverApiFetch("/reports/meta/whatsapp-classification", {
       method: "PUT",
-      body: JSON.stringify({ level, id, override })
+      body: JSON.stringify({ level, id, override }),
     });
     revalidatePath("/reports");
   } catch {
@@ -308,7 +311,7 @@ async function saveWhatsappClassification(formData: FormData) {
 }
 
 function asStringParam(
-  value: string | string[] | undefined
+  value: string | string[] | undefined,
 ): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -323,17 +326,17 @@ function reportsNotice(notice?: string): ReportNotice | null {
       tone: "success",
       title: "Sincronizacao iniciada",
       message:
-        "A leitura dos dados Meta foi enviada para a fila. Atualize em alguns segundos para ver as campanhas."
+        "A leitura dos dados Meta foi enviada para a fila. Atualize em alguns segundos para ver as campanhas.",
     },
     "meta-sync-error": {
       tone: "warn",
       title: "Sincronizacao nao iniciada",
       message:
-        "Nao foi possivel iniciar a leitura dos dados Meta agora. Confira as contas ativas e os diagnosticos."
-    }
+        "Nao foi possivel iniciar a leitura dos dados Meta agora. Confira as contas ativas e os diagnosticos.",
+    },
   };
 
-  return notice ? notices[notice] ?? null : null;
+  return notice ? (notices[notice] ?? null) : null;
 }
 
 function leadsHref(filters: {
@@ -411,7 +414,7 @@ function reportStatusChip(status: PerformanceRow["status"]) {
 
 function ReviewActions({
   id,
-  level
+  level,
 }: {
   id: string;
   level: "campaign" | "adset" | "ad";
@@ -466,11 +469,21 @@ function EmptyPerformanceCells() {
   return (
     <>
       <td>{money(0)}</td>
-      <td>0<span>-</span></td>
-      <td>0<span>-</span></td>
-      <td>0<span>-</span></td>
-      <td>0<span>-</span></td>
-      <td>0<span>-</span></td>
+      <td>
+        0<span>-</span>
+      </td>
+      <td>
+        0<span>-</span>
+      </td>
+      <td>
+        0<span>-</span>
+      </td>
+      <td>
+        0<span>-</span>
+      </td>
+      <td>
+        0<span>-</span>
+      </td>
       <td>-</td>
     </>
   );
@@ -485,7 +498,7 @@ function reportTotals(rows: CampaignReportRowDto[]): ReportTotals {
       realConversations: totals.realConversations + row.realConversations,
       leadSubmitted: totals.leadSubmitted + row.leadSubmitted,
       qualifiedLead: totals.qualifiedLead + row.qualifiedLead,
-      purchase: totals.purchase + row.purchase
+      purchase: totals.purchase + row.purchase,
     }),
     {
       spendCents: 0,
@@ -493,8 +506,8 @@ function reportTotals(rows: CampaignReportRowDto[]): ReportTotals {
       realConversations: 0,
       leadSubmitted: 0,
       qualifiedLead: 0,
-      purchase: 0
-    }
+      purchase: 0,
+    },
   );
 }
 
@@ -513,7 +526,7 @@ function ComparisonMetric({
   label,
   current,
   previous,
-  format = String
+  format = String,
 }: {
   label: string;
   current: number;
@@ -532,7 +545,7 @@ function ComparisonMetric({
 }
 
 export default async function ReportsPage({
-  searchParams
+  searchParams,
 }: {
   searchParams?: Promise<ReportsSearchParams>;
 }) {
@@ -543,8 +556,11 @@ export default async function ReportsPage({
   const compareUntil = asStringParam(resolvedSearchParams.compareUntil);
   const businessId = asStringParam(resolvedSearchParams.businessId);
   const adAccountId = asStringParam(resolvedSearchParams.adAccountId);
+  const nameScope = asStringParam(resolvedSearchParams.nameScope);
+  const nameContains = asStringParam(resolvedSearchParams.nameContains);
+  const status = asStringParam(resolvedSearchParams.status);
   const whatsappClassification = asStringParam(
-    resolvedSearchParams.whatsappClassification
+    resolvedSearchParams.whatsappClassification,
   );
   const notice = asStringParam(resolvedSearchParams.notice);
   const pageNotice = reportsNotice(notice);
@@ -555,7 +571,10 @@ export default async function ReportsPage({
     compareUntil,
     businessId,
     adAccountId,
-    whatsappClassification
+    nameScope,
+    nameContains,
+    status,
+    whatsappClassification,
   };
   const hasComparison = Boolean(compareSince && compareUntil);
   const [
@@ -565,7 +584,7 @@ export default async function ReportsPage({
     adReports,
     currentWorkspace,
     comparisonReports,
-    metaAssets
+    metaAssets,
   ] = await Promise.all([
     getCampaignReports(reportFilters),
     getMetaStructureReport(),
@@ -576,10 +595,10 @@ export default async function ReportsPage({
       ? getCampaignReports({
           ...reportFilters,
           since: compareSince,
-          until: compareUntil
+          until: compareUntil,
         })
       : Promise.resolve(null),
-    getMetaAssets()
+    getMetaAssets(),
   ]);
   const { report, state: reportState } = campaignReports;
   const rows = report.campaigns;
@@ -590,7 +609,7 @@ export default async function ReportsPage({
     ? reportTotals(comparisonReports.report.campaigns)
     : null;
   const canSyncMetaReports = Boolean(
-    currentWorkspace?.permissions.canManageIntegrations
+    currentWorkspace?.permissions.canManageIntegrations,
   );
   const syncCampaignHint = canSyncMetaReports
     ? "Use Sincronizar Meta para carregar campanhas reais."
@@ -612,12 +631,21 @@ export default async function ReportsPage({
         <div>
           <span className="eyebrow">Relatorios</span>
           <h1>Performance por campanha</h1>
-          <p>Metricas Meta Ads combinadas com leads reais e eventos de conversao.</p>
+          <p>
+            Metricas Meta Ads combinadas com leads reais e eventos de conversao.
+          </p>
         </div>
         <div className="header-actions">
           <form className="inline-form report-period-form" action="/reports">
             <input type="hidden" name="businessId" value={businessId ?? ""} />
             <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
+            <input type="hidden" name="nameScope" value={nameScope ?? ""} />
+            <input
+              type="hidden"
+              name="nameContains"
+              value={nameContains ?? ""}
+            />
+            <input type="hidden" name="status" value={status ?? ""} />
             <input
               type="hidden"
               name="whatsappClassification"
@@ -631,22 +659,40 @@ export default async function ReportsPage({
               <span>Fim</span>
               <input type="date" name="until" defaultValue={until} />
             </label>
-            <button className="button" type="submit">Filtrar periodo</button>
+            <button className="button" type="submit">
+              Filtrar periodo
+            </button>
           </form>
-          <Link
-            className="button"
-            href={reportExportHref(reportFilters)}
-          >
+          <Link className="button" href={reportExportHref(reportFilters)}>
             Exportar CSV
           </Link>
           {canSyncMetaReports ? (
             <form action={syncMetaReports}>
               <input type="hidden" name="since" value={since ?? ""} />
               <input type="hidden" name="until" value={until ?? ""} />
-              <input type="hidden" name="compareSince" value={compareSince ?? ""} />
-              <input type="hidden" name="compareUntil" value={compareUntil ?? ""} />
+              <input
+                type="hidden"
+                name="compareSince"
+                value={compareSince ?? ""}
+              />
+              <input
+                type="hidden"
+                name="compareUntil"
+                value={compareUntil ?? ""}
+              />
               <input type="hidden" name="businessId" value={businessId ?? ""} />
-              <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
+              <input
+                type="hidden"
+                name="adAccountId"
+                value={adAccountId ?? ""}
+              />
+              <input type="hidden" name="nameScope" value={nameScope ?? ""} />
+              <input
+                type="hidden"
+                name="nameContains"
+                value={nameContains ?? ""}
+              />
+              <input type="hidden" name="status" value={status ?? ""} />
               <input
                 type="hidden"
                 name="whatsappClassification"
@@ -680,6 +726,9 @@ export default async function ReportsPage({
         assets={metaAssets}
         businessId={businessId}
         adAccountId={adAccountId}
+        nameScope={nameScope}
+        nameContains={nameContains}
+        status={status}
         whatsappClassification={whatsappClassification}
         since={since}
         until={until}
@@ -727,7 +776,7 @@ export default async function ReportsPage({
         </div>
       ) : null}
 
-      <div className="table-wrap">
+      <div className="table-wrap report-table-scroll">
         <table>
           <thead>
             <tr>
@@ -745,35 +794,35 @@ export default async function ReportsPage({
           <tbody>
             {rows.length > 0 ? (
               rows.map((row) => (
-                  <tr key={row.id}>
-                    <td>
-                      <strong>
-                        <Link
-                          href={leadsHref({
-                            campaignId: row.id,
-                            since,
-                            until,
-                            compareSince,
-                            compareUntil,
-                            businessId,
-                            adAccountId,
-                            whatsappClassification
-                          })}
-                        >
-                          {row.name}
-                        </Link>
-                      </strong>
-                      {reportStatusChip(row.status)}
-                    </td>
-                    <PerformanceMetricsCells row={row} />
-                    <td>
-                      {canSyncMetaReports ? (
-                        <ReviewActions level="campaign" id={row.id} />
-                      ) : (
-                        <span className="tag">{noReviewPermission}</span>
-                      )}
-                    </td>
-                  </tr>
+                <tr key={row.id}>
+                  <td>
+                    <strong>
+                      <Link
+                        href={leadsHref({
+                          campaignId: row.id,
+                          since,
+                          until,
+                          compareSince,
+                          compareUntil,
+                          businessId,
+                          adAccountId,
+                          whatsappClassification,
+                        })}
+                      >
+                        {row.name}
+                      </Link>
+                    </strong>
+                    {reportStatusChip(row.status)}
+                  </td>
+                  <PerformanceMetricsCells row={row} />
+                  <td>
+                    {canSyncMetaReports ? (
+                      <ReviewActions level="campaign" id={row.id} />
+                    ) : (
+                      <span className="tag">{noReviewPermission}</span>
+                    )}
+                  </td>
+                </tr>
               ))
             ) : (
               <tr>
@@ -800,8 +849,11 @@ export default async function ReportsPage({
       <div className="surface-panel">
         <span className="eyebrow">Conjuntos</span>
         <h2>Performance por conjunto</h2>
-        <p className="muted">Insights Meta por conjunto sincronizados com leads reais e eventos de conversao.</p>
-        <div className="table-wrap">
+        <p className="muted">
+          Insights Meta por conjunto sincronizados com leads reais e eventos de
+          conversao.
+        </p>
+        <div className="table-wrap report-table-scroll">
           <table>
             <thead>
               <tr>
@@ -832,7 +884,7 @@ export default async function ReportsPage({
                             compareUntil,
                             businessId,
                             adAccountId,
-                            whatsappClassification
+                            whatsappClassification,
                           })}
                         >
                           {row.name}
@@ -877,8 +929,11 @@ export default async function ReportsPage({
       <div className="surface-panel">
         <span className="eyebrow">Anuncios</span>
         <h2>Performance por anuncio</h2>
-        <p className="muted">Insights Meta por anuncio sincronizados com leads reais e eventos de conversao.</p>
-        <div className="table-wrap">
+        <p className="muted">
+          Insights Meta por anuncio sincronizados com leads reais e eventos de
+          conversao.
+        </p>
+        <div className="table-wrap report-table-scroll">
           <table>
             <thead>
               <tr>
@@ -910,13 +965,15 @@ export default async function ReportsPage({
                             compareUntil,
                             businessId,
                             adAccountId,
-                            whatsappClassification
+                            whatsappClassification,
                           })}
                         >
                           {row.name}
                         </Link>
                       </strong>
-                      <span>{row.campaignName} / {row.adSetName}</span>
+                      <span>
+                        {row.campaignName} / {row.adSetName}
+                      </span>
                       {reportStatusChip(row.status)}
                     </td>
                     <PerformanceMetricsCells row={row} />
@@ -974,7 +1031,9 @@ export default async function ReportsPage({
                           <tr key={`${campaign.id}:${adSet.id}:${ad.id}`}>
                             <td>
                               <strong>{campaign.name}</strong>
-                              <span>{campaign.objective ?? "sem objetivo"}</span>
+                              <span>
+                                {campaign.objective ?? "sem objetivo"}
+                              </span>
                             </td>
                             <td>
                               <strong>{adSet.name}</strong>
@@ -986,7 +1045,9 @@ export default async function ReportsPage({
                             </td>
                             <td>
                               <span className="event-chip">
-                                {metaStatusLabel(ad.effectiveStatus ?? ad.status)}
+                                {metaStatusLabel(
+                                  ad.effectiveStatus ?? ad.status,
+                                )}
                               </span>
                             </td>
                           </tr>
@@ -995,7 +1056,9 @@ export default async function ReportsPage({
                           <tr key={`${campaign.id}:${adSet.id}:empty`}>
                             <td>
                               <strong>{campaign.name}</strong>
-                              <span>{campaign.objective ?? "sem objetivo"}</span>
+                              <span>
+                                {campaign.objective ?? "sem objetivo"}
+                              </span>
                             </td>
                             <td>
                               <strong>{adSet.name}</strong>
@@ -1004,12 +1067,14 @@ export default async function ReportsPage({
                             <td>Sem anuncios sincronizados</td>
                             <td>
                               <span className="event-chip warn">
-                                {metaStatusLabel(adSet.effectiveStatus ?? adSet.status)}
+                                {metaStatusLabel(
+                                  adSet.effectiveStatus ?? adSet.status,
+                                )}
                               </span>
                             </td>
-                          </tr>
-                        ]
-                  )
+                          </tr>,
+                        ],
+                  ),
                 )
               ) : (
                 <tr>
@@ -1019,7 +1084,9 @@ export default async function ReportsPage({
                   </td>
                   <td>sem conjunto</td>
                   <td>sem anuncio</td>
-                  <td><span className="event-chip warn">aguardando sync</span></td>
+                  <td>
+                    <span className="event-chip warn">aguardando sync</span>
+                  </td>
                 </tr>
               )}
             </tbody>

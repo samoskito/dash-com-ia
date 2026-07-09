@@ -28,9 +28,9 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           costPerQualifiedLeadCents: 120000,
           purchase: 1,
           costPerPurchaseCents: 120000,
-          roas: null
-        }
-      ]
+          roas: null,
+        },
+      ],
     })),
     getMetaStructureReport: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -52,13 +52,13 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
                   id: "ad_1",
                   name: "Criativo WhatsApp",
                   status: "ACTIVE",
-                  effectiveStatus: "ACTIVE"
-                }
-              ]
-            }
-          ]
-        }
-      ]
+                  effectiveStatus: "ACTIVE",
+                },
+              ],
+            },
+          ],
+        },
+      ],
     })),
     getAdSetReportOverview: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -81,9 +81,9 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           costPerQualifiedLeadCents: null,
           purchase: 1,
           costPerPurchaseCents: null,
-          roas: null
-        }
-      ]
+          roas: null,
+        },
+      ],
     })),
     getAdReportOverview: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -108,15 +108,15 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           costPerQualifiedLeadCents: null,
           purchase: 1,
           costPerPurchaseCents: null,
-          roas: null
-        }
-      ]
+          roas: null,
+        },
+      ],
     })),
     getCampaignReportCsv: vi.fn(async () => ({
       filename: "wpptrack-campanhas-2026-07-01-2026-07-02.csv",
       content:
         "Campanha,Status,Investimento,Conversas Meta,Conversas reais,LeadSubmitted,QualifiedLead,Purchase,ROAS\n" +
-        "Black Friday WhatsApp,active,1200.00,176,0,1,1,1,\n"
+        "Black Friday WhatsApp,active,1200.00,176,0,1,1,1,\n",
     })),
     saveWhatsappClassificationOverride: vi.fn(async () => ({ ok: true })),
     syncWorkspaceMetaStructure: vi.fn(async () => ({
@@ -124,8 +124,8 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       adAccountId: "act_123",
       campaignsSynced: 1,
       adSetsSynced: 1,
-      adsSynced: 1
-    }))
+      adsSynced: 1,
+    })),
   };
   const queueService = {
     enqueueSync: vi.fn(async () => ({
@@ -133,8 +133,8 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       since: "2026-07-01",
       until: "2026-07-02",
       jobId: "meta-report-sync_workspace_1_2026-07-01_2026-07-02",
-      status: "queued"
-    }))
+      status: "queued",
+    })),
   };
   const authService = {
     getSession: vi.fn(async () => ({
@@ -143,25 +143,25 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         email: "owner@wpptrack.com",
         name: "Owner",
         authProvider: "email",
-        emailVerifiedAt: null
+        emailVerifiedAt: null,
       },
       workspaces: [
         {
           id: "workspace_1",
           name: "Workspace",
           slug: "workspace",
-          role
-        }
-      ]
-    }))
+          role,
+        },
+      ],
+    })),
   };
   const workspacesService = {
     getCurrentWorkspace: vi.fn(() => ({
       id: "workspace_1",
       name: "Workspace",
       slug: "workspace",
-      role
-    }))
+      role,
+    })),
   };
   const moduleRef = await Test.createTestingModule({
     controllers: [ReportingController],
@@ -169,8 +169,8 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       { provide: MetaReportingService, useValue: reportingService },
       { provide: MetaReportSyncQueueService, useValue: queueService },
       { provide: AuthService, useValue: authService },
-      { provide: WorkspacesService, useValue: workspacesService }
-    ]
+      { provide: WorkspacesService, useValue: workspacesService },
+    ],
   }).compile();
   const app = moduleRef.createNestApplication();
   await app.init();
@@ -193,7 +193,7 @@ describe("reporting controller", () => {
 
     expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
-      rangeLabel: "Ultimos 7 dias"
+      rangeLabel: "Ultimos 7 dias",
     });
 
     await app.close();
@@ -211,7 +211,7 @@ describe("reporting controller", () => {
       workspaceId: "workspace_1",
       since: "2026-07-01",
       until: "2026-07-02",
-      rangeLabel: "2026-07-01 a 2026-07-02"
+      rangeLabel: "2026-07-01 a 2026-07-02",
     });
 
     await app.close();
@@ -222,7 +222,7 @@ describe("reporting controller", () => {
 
     await request(app.getHttpServer())
       .get(
-        "/reports/campaigns?businessId=business_1&adAccountId=act_123&whatsappClassification=all"
+        "/reports/campaigns?businessId=business_1&adAccountId=act_123&whatsappClassification=all",
       )
       .set("Cookie", "wpptrack_session=refresh-token")
       .expect(200);
@@ -232,8 +232,47 @@ describe("reporting controller", () => {
       rangeLabel: "Ultimos 7 dias",
       businessId: "business_1",
       adAccountId: "act_123",
-      whatsappClassification: "all"
+      whatsappClassification: "all",
     });
+
+    await app.close();
+  });
+
+  it("passes name scope and status filters to all report levels", async () => {
+    const { app, reportingService } = await createApp();
+    const query =
+      "nameScope=adset&nameContains=BPC&status=active&businessId=business_1&adAccountId=act_123";
+
+    await request(app.getHttpServer())
+      .get(`/reports/campaigns?${query}`)
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+    await request(app.getHttpServer())
+      .get(`/reports/adsets?${query}`)
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+    await request(app.getHttpServer())
+      .get(`/reports/ads?${query}`)
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+
+    const expected = {
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      nameScope: "adset",
+      nameContains: "BPC",
+      status: "active",
+    };
+
+    expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith(
+      expected,
+    );
+    expect(reportingService.getAdSetReportOverview).toHaveBeenCalledWith(
+      expected,
+    );
+    expect(reportingService.getAdReportOverview).toHaveBeenCalledWith(expected);
 
     await app.close();
   });
@@ -254,12 +293,36 @@ describe("reporting controller", () => {
     await app.close();
   });
 
+  it("rejects invalid report name and status filters", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/campaigns?nameScope=creative&nameContains=BPC")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.message).toBe("Filtro de nome invalido");
+      });
+
+    await request(app.getHttpServer())
+      .get("/reports/campaigns?status=learning")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.message).toBe("Filtro de status invalido");
+      });
+
+    expect(reportingService.getCampaignReportOverview).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it("rejects repeated report filters", async () => {
     const { app, reportingService } = await createApp();
 
     await request(app.getHttpServer())
       .get(
-        "/reports/campaigns?whatsappClassification=all&whatsappClassification=whatsapp"
+        "/reports/campaigns?whatsappClassification=all&whatsappClassification=whatsapp",
       )
       .set("Cookie", "wpptrack_session=refresh-token")
       .expect(400)
@@ -303,12 +366,15 @@ describe("reporting controller", () => {
 
     await request(app.getHttpServer())
       .get(
-        "/reports/campaigns/export.csv?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_123&whatsappClassification=all"
+        "/reports/campaigns/export.csv?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_123&whatsappClassification=all",
       )
       .set("Cookie", "wpptrack_session=refresh-token")
       .expect(200)
       .expect("Content-Type", /text\/csv/)
-      .expect("Content-Disposition", /wpptrack-campanhas-2026-07-01-2026-07-02.csv/)
+      .expect(
+        "Content-Disposition",
+        /wpptrack-campanhas-2026-07-01-2026-07-02.csv/,
+      )
       .expect((response) => {
         expect(response.text).toContain("Campanha,Status,Investimento");
         expect(response.text).toContain("Black Friday WhatsApp");
@@ -321,7 +387,7 @@ describe("reporting controller", () => {
       rangeLabel: "2026-07-01 a 2026-07-02",
       businessId: "business_1",
       adAccountId: "act_123",
-      whatsappClassification: "all"
+      whatsappClassification: "all",
     });
 
     await app.close();
@@ -337,14 +403,14 @@ describe("reporting controller", () => {
       .expect(({ body }) => {
         expect(body.status).toBe("queued");
         expect(body.jobId).toBe(
-          "meta-report-sync_workspace_1_2026-07-01_2026-07-02"
+          "meta-report-sync_workspace_1_2026-07-01_2026-07-02",
         );
       });
 
     expect(queueService.enqueueSync).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     });
     expect(reportingService.syncWorkspaceMetaStructure).not.toHaveBeenCalled();
 
@@ -373,7 +439,7 @@ describe("reporting controller", () => {
       .send({
         level: "campaign",
         id: "cmp_1",
-        override: "manual_include"
+        override: "manual_include",
       })
       .expect(200)
       .expect(({ body }) => {
@@ -381,13 +447,13 @@ describe("reporting controller", () => {
       });
 
     expect(
-      reportingService.saveWhatsappClassificationOverride
+      reportingService.saveWhatsappClassificationOverride,
     ).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       actorUserId: "user_1",
       level: "campaign",
       id: "cmp_1",
-      override: "manual_include"
+      override: "manual_include",
     });
 
     await app.close();
@@ -402,12 +468,12 @@ describe("reporting controller", () => {
       .send({
         level: "campaign",
         id: "cmp_1",
-        override: "manual_include"
+        override: "manual_include",
       })
       .expect(403);
 
     expect(
-      reportingService.saveWhatsappClassificationOverride
+      reportingService.saveWhatsappClassificationOverride,
     ).not.toHaveBeenCalled();
 
     await app.close();
@@ -423,12 +489,12 @@ describe("reporting controller", () => {
       .expect(({ body }) => {
         expect(body.workspaceId).toBe("workspace_1");
         expect(body.campaigns[0].adSets[0].ads[0].name).toBe(
-          "Criativo WhatsApp"
+          "Criativo WhatsApp",
         );
       });
 
     expect(reportingService.getMetaStructureReport).toHaveBeenCalledWith(
-      "workspace_1"
+      "workspace_1",
     );
 
     await app.close();
@@ -439,7 +505,7 @@ describe("reporting controller", () => {
 
     await request(app.getHttpServer())
       .get(
-        "/reports/adsets?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_123&whatsappClassification=needs_review"
+        "/reports/adsets?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_123&whatsappClassification=needs_review",
       )
       .set("Cookie", "wpptrack_session=refresh-token")
       .expect(200)
@@ -455,7 +521,7 @@ describe("reporting controller", () => {
       rangeLabel: "2026-07-01 a 2026-07-02",
       businessId: "business_1",
       adAccountId: "act_123",
-      whatsappClassification: "needs_review"
+      whatsappClassification: "needs_review",
     });
 
     await app.close();
@@ -466,7 +532,7 @@ describe("reporting controller", () => {
 
     await request(app.getHttpServer())
       .get(
-        "/reports/ads?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_123&whatsappClassification=excluded"
+        "/reports/ads?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_123&whatsappClassification=excluded",
       )
       .set("Cookie", "wpptrack_session=refresh-token")
       .expect(200)
@@ -482,7 +548,7 @@ describe("reporting controller", () => {
       rangeLabel: "2026-07-01 a 2026-07-02",
       businessId: "business_1",
       adAccountId: "act_123",
-      whatsappClassification: "excluded"
+      whatsappClassification: "excluded",
     });
 
     await app.close();

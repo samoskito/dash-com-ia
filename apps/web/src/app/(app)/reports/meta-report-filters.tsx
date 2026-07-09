@@ -9,23 +9,42 @@ type MetaReportFiltersProps = {
   businessId?: string;
   compareSince?: string;
   compareUntil?: string;
+  nameContains?: string;
+  nameScope?: string;
   since?: string;
+  status?: string;
   until?: string;
   whatsappClassification?: string;
 };
+
+const nameScopeOptions = [
+  ["campaign", "Campanha contem"],
+  ["adset", "Conjunto contem"],
+  ["ad", "Anuncio contem"],
+] as const;
+
+const statusOptions = [
+  ["all", "Todos os status"],
+  ["active", "Ativas"],
+  ["paused", "Pausadas"],
+] as const;
 
 const classificationOptions = [
   ["whatsapp", "Campanhas WhatsApp"],
   ["needs_review", "Precisa revisar"],
   ["excluded", "Excluidas"],
-  ["all", "Todas as campanhas"]
+  ["all", "Todas as campanhas"],
 ] as const;
 
 type ReportingAccount = NonNullable<MetaAssetsDto["reportingAccounts"]>[number];
+type ReportingBusiness = {
+  id: string;
+  name: string;
+};
 
 function accountsForBusiness(
   reportingAccounts: ReportingAccount[],
-  businessId: string
+  businessId: string,
 ) {
   return businessId
     ? reportingAccounts.filter((account) => account.businessId === businessId)
@@ -33,9 +52,24 @@ function accountsForBusiness(
 }
 
 function validAdAccountId(accounts: ReportingAccount[], adAccountId?: string) {
-  return adAccountId && accounts.some((account) => account.adAccountId === adAccountId)
+  return adAccountId &&
+    accounts.some((account) => account.adAccountId === adAccountId)
     ? adAccountId
     : "";
+}
+
+function businessesFromReportingAccounts(
+  reportingAccounts: ReportingAccount[],
+): ReportingBusiness[] {
+  const businesses = new Map<string, string>();
+
+  reportingAccounts.forEach((account) => {
+    if (!businesses.has(account.businessId)) {
+      businesses.set(account.businessId, account.businessName);
+    }
+  });
+
+  return Array.from(businesses, ([id, name]) => ({ id, name }));
 }
 
 export function MetaReportFilters({
@@ -44,19 +78,33 @@ export function MetaReportFilters({
   businessId,
   compareSince,
   compareUntil,
+  nameContains,
+  nameScope = "campaign",
   since,
+  status = "all",
   until,
-  whatsappClassification = "whatsapp"
+  whatsappClassification = "whatsapp",
 }: MetaReportFiltersProps) {
-  const reportingAccounts = assets?.reportingAccounts ?? [];
-  const businesses = assets?.businesses ?? [];
-  const [selectedBusinessId, setSelectedBusinessId] = useState(businessId ?? "");
+  const reportingAccounts = useMemo(
+    () => (assets?.reportingAccounts ?? []).filter((account) => account.active),
+    [assets?.reportingAccounts],
+  );
+  const businesses = useMemo(
+    () => businessesFromReportingAccounts(reportingAccounts),
+    [reportingAccounts],
+  );
+  const [selectedBusinessId, setSelectedBusinessId] = useState(
+    businessId ?? "",
+  );
   const accounts = useMemo(
     () => accountsForBusiness(reportingAccounts, selectedBusinessId),
-    [reportingAccounts, selectedBusinessId]
+    [reportingAccounts, selectedBusinessId],
   );
   const [selectedAdAccountId, setSelectedAdAccountId] = useState(() =>
-    validAdAccountId(accountsForBusiness(reportingAccounts, businessId ?? ""), adAccountId)
+    validAdAccountId(
+      accountsForBusiness(reportingAccounts, businessId ?? ""),
+      adAccountId,
+    ),
   );
 
   useEffect(() => {
@@ -73,7 +121,11 @@ export function MetaReportFilters({
   }
 
   return (
-    <form className="filter-bar" aria-label="Filtros Meta de relatorios" action="/reports">
+    <form
+      className="filter-bar"
+      aria-label="Filtros Meta de relatorios"
+      action="/reports"
+    >
       <input type="hidden" name="since" value={since ?? ""} />
       <input type="hidden" name="until" value={until ?? ""} />
       <input type="hidden" name="compareSince" value={compareSince ?? ""} />
@@ -103,6 +155,37 @@ export function MetaReportFilters({
         {accounts.map((account) => (
           <option key={account.id} value={account.adAccountId}>
             {account.adAccountName}
+          </option>
+        ))}
+      </select>
+      <select
+        className="filter-control"
+        name="nameScope"
+        defaultValue={nameScope}
+        aria-label="Tipo de filtro por nome"
+      >
+        {nameScopeOptions.map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <input
+        className="filter-control"
+        name="nameContains"
+        defaultValue={nameContains ?? ""}
+        placeholder="Filtrar por nome"
+        aria-label="Texto contido no nome"
+      />
+      <select
+        className="filter-control"
+        name="status"
+        defaultValue={status}
+        aria-label="Filtrar por status"
+      >
+        {statusOptions.map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
           </option>
         ))}
       </select>

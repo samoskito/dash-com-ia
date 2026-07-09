@@ -7,7 +7,7 @@ import type {
   AdSetReportRowDto,
   CampaignReportRowDto,
   MetaStructureReportDto,
-  ReportOverviewDto
+  ReportOverviewDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import {
@@ -17,12 +17,12 @@ import {
   type MetaAdSetAsset,
   type MetaAdSetInsight,
   type MetaCampaignAsset,
-  type MetaCampaignInsight
+  type MetaCampaignInsight,
 } from "../integrations/meta/meta.adapter";
 import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
 import {
   WhatsappCampaignClassifierService,
-  type WhatsappClassification
+  type WhatsappClassification,
 } from "./whatsapp-campaign-classifier.service";
 
 export type MetaStructureSyncInput = {
@@ -46,14 +46,16 @@ export type ReportCsvResult = {
 };
 
 type WhatsappClassificationFilter =
-  | "whatsapp"
-  | "needs_review"
-  | "excluded"
-  | "all";
+  "whatsapp" | "needs_review" | "excluded" | "all";
+type ReportNameScope = "campaign" | "adset" | "ad";
+type ReportStatusFilter = "all" | "active" | "paused";
 
 type ReportFilterInput = {
   businessId?: string;
   adAccountId?: string;
+  nameScope?: ReportNameScope;
+  nameContains?: string;
+  status?: ReportStatusFilter;
   whatsappClassification?: WhatsappClassificationFilter;
 };
 
@@ -64,8 +66,7 @@ type MetaSnapshotWhere = {
   businessId?: StringFilter;
   adAccountId?: StringFilter;
   whatsappClassification?:
-    | WhatsappClassification
-    | { in: WhatsappClassification[] };
+    WhatsappClassification | { in: WhatsappClassification[] };
 };
 
 type MetaIntegrationRecord = {
@@ -174,22 +175,22 @@ export class MetaReportingService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     private readonly encryption: MetaTokenEncryptionService,
     private readonly metaAdapter: MetaAdapter,
-    private readonly whatsappClassifier: WhatsappCampaignClassifierService
+    private readonly whatsappClassifier: WhatsappCampaignClassifierService,
   ) {}
 
   async syncWorkspaceMetaStructure(
-    input: MetaStructureSyncInput
+    input: MetaStructureSyncInput,
   ): Promise<MetaStructureSyncResult> {
     const startedAt = new Date();
     const connection = await this.getConnection(input.workspaceId);
     const accessToken = this.encryption.decrypt({
       encryptedAccessToken: connection.encryptedAccessToken,
       tokenIv: connection.tokenIv,
-      tokenTag: connection.tokenTag
+      tokenTag: connection.tokenTag,
     });
 
     const accounts = (await this.prisma.metaReportingAccount.findMany({
-      where: { workspaceId: input.workspaceId, active: true }
+      where: { workspaceId: input.workspaceId, active: true },
     })) as MetaReportingAccountRecord[];
 
     if (accounts.length === 0) {
@@ -202,7 +203,7 @@ export class MetaReportingService {
       accountsFailed: 0,
       campaignsSynced: 0,
       adSetsSynced: 0,
-      adsSynced: 0
+      adsSynced: 0,
     };
 
     for (const account of accounts) {
@@ -211,8 +212,8 @@ export class MetaReportingService {
           where: { id: account.id },
           data: {
             syncStatus: "syncing",
-            syncError: null
-          }
+            syncError: null,
+          },
         });
 
         const accountResult = await this.syncReportingAccount({
@@ -220,7 +221,7 @@ export class MetaReportingService {
           accessToken,
           account,
           since: input.since,
-          until: input.until
+          until: input.until,
         });
 
         await this.prisma.metaReportingAccount.update({
@@ -228,8 +229,8 @@ export class MetaReportingService {
           data: {
             syncStatus: "synced",
             lastSyncedAt: new Date(),
-            syncError: null
-          }
+            syncError: null,
+          },
         });
 
         result.accountsSynced += 1;
@@ -242,8 +243,8 @@ export class MetaReportingService {
           where: { id: account.id },
           data: {
             syncStatus: "error",
-            syncError: this.errorMessage(error)
-          }
+            syncError: this.errorMessage(error),
+          },
         });
       }
     }
@@ -254,7 +255,7 @@ export class MetaReportingService {
         input,
         startedAt,
         result,
-        error
+        error,
       });
       throw error;
     }
@@ -262,7 +263,7 @@ export class MetaReportingService {
     await this.recordMetaReportingSyncDiagnostics({
       input,
       startedAt,
-      result
+      result,
     });
 
     return result;
@@ -280,95 +281,99 @@ export class MetaReportingService {
     adsSynced: number;
   }> {
     const adAccountId = input.account.adAccountId;
-    const [campaigns, adSets, ads, campaignInsights, adSetInsights, adInsights] =
-      await Promise.all([
-        this.metaAdapter.listCampaigns({
-          accessToken: input.accessToken,
-          adAccountId
-        }),
-        this.metaAdapter.listAdSets({
-          accessToken: input.accessToken,
-          adAccountId
-        }),
-        this.metaAdapter.listAds({ accessToken: input.accessToken, adAccountId }),
-        this.metaAdapter.listCampaignInsights({
-          accessToken: input.accessToken,
-          adAccountId,
-          since: input.since,
-          until: input.until
-        }),
-        this.metaAdapter.listAdSetInsights({
-          accessToken: input.accessToken,
-          adAccountId,
-          since: input.since,
-          until: input.until
-        }),
-        this.metaAdapter.listAdInsights({
-          accessToken: input.accessToken,
-          adAccountId,
-          since: input.since,
-          until: input.until
-        })
-      ]);
+    const [
+      campaigns,
+      adSets,
+      ads,
+      campaignInsights,
+      adSetInsights,
+      adInsights,
+    ] = await Promise.all([
+      this.metaAdapter.listCampaigns({
+        accessToken: input.accessToken,
+        adAccountId,
+      }),
+      this.metaAdapter.listAdSets({
+        accessToken: input.accessToken,
+        adAccountId,
+      }),
+      this.metaAdapter.listAds({ accessToken: input.accessToken, adAccountId }),
+      this.metaAdapter.listCampaignInsights({
+        accessToken: input.accessToken,
+        adAccountId,
+        since: input.since,
+        until: input.until,
+      }),
+      this.metaAdapter.listAdSetInsights({
+        accessToken: input.accessToken,
+        adAccountId,
+        since: input.since,
+        until: input.until,
+      }),
+      this.metaAdapter.listAdInsights({
+        accessToken: input.accessToken,
+        adAccountId,
+        since: input.since,
+        until: input.until,
+      }),
+    ]);
     const insightByCampaign = new Map(
-      campaignInsights.map((item) => [item.campaignId, item])
+      campaignInsights.map((item) => [item.campaignId, item]),
     );
     const insightByAdSet = new Map(
-      adSetInsights.map((item) => [item.adSetId, item])
+      adSetInsights.map((item) => [item.adSetId, item]),
     );
     const insightByAd = new Map(adInsights.map((item) => [item.adId, item]));
     const adSetById = new Map(adSets.map((adSet) => [adSet.id, adSet]));
-    const [
-      existingCampaigns,
-      existingAdSets,
-      existingAds
-    ] = await Promise.all([
+    const [existingCampaigns, existingAdSets, existingAds] = await Promise.all([
       this.prisma.metaCampaign.findMany({
         where: {
           workspaceId: input.workspaceId,
-          campaignId: { in: campaigns.map((campaign) => campaign.id) }
+          campaignId: { in: campaigns.map((campaign) => campaign.id) },
         },
         select: {
           campaignId: true,
           classificationOverride: true,
-          whatsappClassification: true
-        }
-      }) as Promise<Array<ExistingClassificationRecord & { campaignId: string }>>,
+          whatsappClassification: true,
+        },
+      }) as Promise<
+        Array<ExistingClassificationRecord & { campaignId: string }>
+      >,
       this.prisma.metaAdSet.findMany({
         where: {
           workspaceId: input.workspaceId,
-          adSetId: { in: adSets.map((adSet) => adSet.id) }
+          adSetId: { in: adSets.map((adSet) => adSet.id) },
         },
         select: {
           adSetId: true,
           classificationOverride: true,
-          whatsappClassification: true
-        }
+          whatsappClassification: true,
+        },
       }) as Promise<Array<ExistingClassificationRecord & { adSetId: string }>>,
       this.prisma.metaAd.findMany({
         where: {
           workspaceId: input.workspaceId,
-          adId: { in: ads.map((ad) => ad.id) }
+          adId: { in: ads.map((ad) => ad.id) },
         },
         select: {
           adId: true,
           classificationOverride: true,
-          whatsappClassification: true
-        }
-      }) as Promise<Array<ExistingClassificationRecord & { adId: string }>>
+          whatsappClassification: true,
+        },
+      }) as Promise<Array<ExistingClassificationRecord & { adId: string }>>,
     ]);
     const existingCampaignById = new Map(
-      existingCampaigns.map((campaign) => [campaign.campaignId, campaign])
+      existingCampaigns.map((campaign) => [campaign.campaignId, campaign]),
     );
     const existingAdSetById = new Map(
-      existingAdSets.map((adSet) => [adSet.adSetId, adSet])
+      existingAdSets.map((adSet) => [adSet.adSetId, adSet]),
     );
     const existingAdById = new Map(existingAds.map((ad) => [ad.adId, ad]));
     const leadEvidence = await this.loadLeadEvidence({
       workspaceId: input.workspaceId,
       campaignIds: campaigns.map((campaign) => campaign.id),
       adSetIds: adSets.map((adSet) => adSet.id),
-      adIds: ads.map((ad) => ad.id)
+      adIds: ads.map((ad) => ad.id),
     });
     const adSetClassificationById = new Map(
       adSets.map((adSet) => [
@@ -377,9 +382,9 @@ export class MetaReportingService {
           destinationType: adSet.destinationType,
           callToActionType: null,
           hasLeadEvidence: leadEvidence.adSets.has(adSet.id),
-          override: this.manualOverride(existingAdSetById.get(adSet.id))
-        })
-      ])
+          override: this.manualOverride(existingAdSetById.get(adSet.id)),
+        }),
+      ]),
     );
     const adClassificationById = new Map(
       ads.map((ad) => [
@@ -388,22 +393,22 @@ export class MetaReportingService {
           destinationType: adSetById.get(ad.adSetId)?.destinationType ?? null,
           callToActionType: ad.callToActionType,
           hasLeadEvidence: leadEvidence.ads.has(ad.id),
-          override: this.manualOverride(existingAdById.get(ad.id))
-        })
-      ])
+          override: this.manualOverride(existingAdById.get(ad.id)),
+        }),
+      ]),
     );
     const campaignClassificationById = new Map(
       campaigns.map((campaign) => {
         const override = this.manualOverride(
-          existingCampaignById.get(campaign.id)
+          existingCampaignById.get(campaign.id),
         );
         if (override) {
           return [
             campaign.id,
             {
               classification: override,
-              source: "manual"
-            }
+              source: "manual",
+            },
           ];
         }
 
@@ -416,14 +421,15 @@ export class MetaReportingService {
             .map((adSet) => ({
               whatsappClassification:
                 adSetClassificationById.get(adSet.id)?.classification ??
-                "not_whatsapp"
+                "not_whatsapp",
             })),
           ...ads
             .filter((ad) => ad.campaignId === campaign.id)
             .map((ad) => ({
               whatsappClassification:
-                adClassificationById.get(ad.id)?.classification ?? "not_whatsapp"
-            }))
+                adClassificationById.get(ad.id)?.classification ??
+                "not_whatsapp",
+            })),
         ]);
 
         return [
@@ -431,10 +437,12 @@ export class MetaReportingService {
           {
             classification,
             source:
-              classification === "not_whatsapp" ? "children:no_signal" : "children"
-          }
+              classification === "not_whatsapp"
+                ? "children:no_signal"
+                : "children",
+          },
         ];
-      })
+      }),
     );
     const syncedAt = new Date();
 
@@ -449,9 +457,10 @@ export class MetaReportingService {
             campaignClassificationById.get(campaign.id)?.classification ??
             "not_whatsapp",
           classificationSource:
-            campaignClassificationById.get(campaign.id)?.source ?? "children:no_signal",
-          syncedAt
-        })
+            campaignClassificationById.get(campaign.id)?.source ??
+            "children:no_signal",
+          syncedAt,
+        }),
       ),
       ...adSets.map((adSet) =>
         this.upsertAdSet({
@@ -464,8 +473,8 @@ export class MetaReportingService {
             "not_whatsapp",
           classificationSource:
             adSetClassificationById.get(adSet.id)?.source ?? "no_signal",
-          syncedAt
-        })
+          syncedAt,
+        }),
       ),
       ...ads.map((ad) =>
         this.upsertAd({
@@ -478,15 +487,15 @@ export class MetaReportingService {
             adClassificationById.get(ad.id)?.classification ?? "not_whatsapp",
           classificationSource:
             adClassificationById.get(ad.id)?.source ?? "no_signal",
-          syncedAt
-        })
-      )
+          syncedAt,
+        }),
+      ),
     ]);
 
     return {
       campaignsSynced: campaigns.length,
       adSetsSynced: adSets.length,
-      adsSynced: ads.length
+      adsSynced: ads.length,
     };
   }
 
@@ -516,14 +525,14 @@ export class MetaReportingService {
           finishedAt,
           durationMs: Math.max(
             0,
-            finishedAt.getTime() - input.startedAt.getTime()
+            finishedAt.getTime() - input.startedAt.getTime(),
           ),
           providerRequestId: null,
           providerErrorCode: input.error ? "MetaReportingSyncError" : null,
           providerErrorMessage: errorMessage,
           requestSummary: {
             since: input.input.since,
-            until: input.input.until
+            until: input.input.until,
           } as Prisma.InputJsonValue,
           responseSummary: input.result
             ? ({
@@ -531,12 +540,12 @@ export class MetaReportingService {
                 accountsFailed: input.result.accountsFailed,
                 campaignsSynced: input.result.campaignsSynced,
                 adSetsSynced: input.result.adSetsSynced,
-                adsSynced: input.result.adsSynced
+                adsSynced: input.result.adsSynced,
               } as Prisma.InputJsonValue)
             : ({
-                errorMessage
-              } as Prisma.InputJsonValue)
-        }
+                errorMessage,
+              } as Prisma.InputJsonValue),
+        },
       });
       await this.prisma.diagnosticEvent.create({
         data: {
@@ -550,7 +559,7 @@ export class MetaReportingService {
             ? "Falha na sincronizacao de relatorios Meta"
             : "Sincronizacao de relatorios Meta concluida",
           message: input.error
-            ? errorMessage ?? "A sincronizacao Meta falhou."
+            ? (errorMessage ?? "A sincronizacao Meta falhou.")
             : "Campanhas, conjuntos e anuncios Meta foram sincronizados.",
           jobId: null,
           errorCode: input.error ? "MetaReportingSyncError" : null,
@@ -565,51 +574,56 @@ export class MetaReportingService {
                   accountsFailed: input.result.accountsFailed,
                   campaignsSynced: input.result.campaignsSynced,
                   adSetsSynced: input.result.adSetsSynced,
-                  adsSynced: input.result.adsSynced
+                  adsSynced: input.result.adsSynced,
                 }
               : {
-                  errorMessage
-                })
-          } as Prisma.InputJsonValue
-        }
+                  errorMessage,
+                }),
+          } as Prisma.InputJsonValue,
+        },
       });
     } catch {
       return;
     }
   }
 
-  async getCampaignReportOverview(input: {
-    workspaceId: string;
-    rangeLabel: string;
-    since?: string;
-    until?: string;
-  } & ReportFilterInput): Promise<ReportOverviewDto> {
+  async getCampaignReportOverview(
+    input: {
+      workspaceId: string;
+      rangeLabel: string;
+      since?: string;
+      until?: string;
+    } & ReportFilterInput,
+  ): Promise<ReportOverviewDto> {
     const campaignWhere = await this.metaSnapshotWhere(input);
     const usesWhatsappDefault =
       (input.whatsappClassification ?? "whatsapp") === "whatsapp";
+    const needsChildNameFilter = this.needsCampaignChildNameFilter(input);
     const whatsappAdSetWhere = usesWhatsappDefault
       ? await this.metaSnapshotWhere({
           ...input,
-          whatsappClassification: "whatsapp"
+          whatsappClassification: "whatsapp",
         })
       : null;
+    const childWhere =
+      whatsappAdSetWhere ?? (needsChildNameFilter ? campaignWhere : null);
     const [campaigns, whatsappAdSets, whatsappAds] = (await Promise.all([
       this.prisma.metaCampaign.findMany({
         where: campaignWhere,
-        orderBy: { name: "asc" }
+        orderBy: { name: "asc" },
       }),
-      whatsappAdSetWhere
+      childWhere
         ? this.prisma.metaAdSet.findMany({
-            where: whatsappAdSetWhere,
-            orderBy: { name: "asc" }
+            where: childWhere,
+            orderBy: { name: "asc" },
           })
         : Promise.resolve([]),
-      whatsappAdSetWhere
+      childWhere
         ? this.prisma.metaAd.findMany({
-            where: whatsappAdSetWhere,
-            orderBy: { name: "asc" }
+            where: childWhere,
+            orderBy: { name: "asc" },
           })
-        : Promise.resolve([])
+        : Promise.resolve([]),
     ])) as [MetaCampaignRecord[], MetaAdSetRecord[], MetaAdRecord[]];
     const conversionLogs = (await this.prisma.conversionEventLog.findMany({
       where: {
@@ -619,18 +633,18 @@ export class MetaReportingService {
           ? {
               createdAt: {
                 gte: new Date(`${input.since}T00:00:00.000Z`),
-                lte: new Date(`${input.until}T23:59:59.999Z`)
-              }
+                lte: new Date(`${input.until}T23:59:59.999Z`),
+              },
             }
-          : {})
+          : {}),
       },
       select: {
         campaignId: true,
         adSetId: true,
         adId: true,
         eventName: true,
-        status: true
-      }
+        status: true,
+      },
     })) as ConversionEventRecord[];
     const leads = (await this.prisma.lead.findMany({
       where: {
@@ -639,33 +653,39 @@ export class MetaReportingService {
           ? {
               createdAt: {
                 gte: new Date(`${input.since}T00:00:00.000Z`),
-                lte: new Date(`${input.until}T23:59:59.999Z`)
-              }
+                lte: new Date(`${input.until}T23:59:59.999Z`),
+              },
             }
-          : {})
+          : {}),
       },
       select: {
         campaignId: true,
         adSetId: true,
-        adId: true
-      }
+        adId: true,
+      },
     })) as LeadRecord[];
     const childMetricByCampaign = this.campaignMetricOverrides(
-      whatsappAdSets,
-      whatsappAds
+      usesWhatsappDefault ? whatsappAdSets : [],
+      usesWhatsappDefault ? whatsappAds : [],
+    );
+    const rows = campaigns.map((campaign) =>
+      this.toReportRow(
+        campaign,
+        conversionLogs,
+        leads,
+        childMetricByCampaign.get(campaign.campaignId),
+      ),
     );
 
     return {
       workspaceId: input.workspaceId,
       rangeLabel: input.rangeLabel,
-      campaigns: campaigns.map((campaign) =>
-        this.toReportRow(
-          campaign,
-          conversionLogs,
-          leads,
-          childMetricByCampaign.get(campaign.campaignId)
-        )
-      )
+      campaigns: this.filterCampaignReportRows(
+        rows,
+        input,
+        whatsappAdSets,
+        whatsappAds,
+      ),
     };
   }
 
@@ -680,7 +700,7 @@ export class MetaReportingService {
       ? {
           classificationOverride: input.override,
           whatsappClassification: input.override,
-          classificationSource: "manual"
+          classificationSource: "manual",
         }
       : await this.resetWhatsappClassificationData(input);
     let result: { count: number };
@@ -688,17 +708,17 @@ export class MetaReportingService {
     if (input.level === "campaign") {
       result = await this.prisma.metaCampaign.updateMany({
         where: { workspaceId: input.workspaceId, campaignId: input.id },
-        data
+        data,
       });
     } else if (input.level === "adset") {
       result = await this.prisma.metaAdSet.updateMany({
         where: { workspaceId: input.workspaceId, adSetId: input.id },
-        data
+        data,
       });
     } else {
       result = await this.prisma.metaAd.updateMany({
         where: { workspaceId: input.workspaceId, adId: input.id },
-        data
+        data,
       });
     }
 
@@ -719,9 +739,9 @@ export class MetaReportingService {
         resultStatus: "success",
         beforeSummary: undefined,
         afterSummary: {
-          override: input.override
-        } as Prisma.InputJsonValue
-      }
+          override: input.override,
+        } as Prisma.InputJsonValue,
+      },
     });
 
     return { ok: true };
@@ -733,7 +753,10 @@ export class MetaReportingService {
     id: string;
   }): Promise<WhatsappOverrideUpdateData> {
     if (input.level === "campaign") {
-      return this.resetCampaignWhatsappClassification(input.workspaceId, input.id);
+      return this.resetCampaignWhatsappClassification(
+        input.workspaceId,
+        input.id,
+      );
     }
 
     if (input.level === "adset") {
@@ -745,11 +768,11 @@ export class MetaReportingService {
 
   private async resetCampaignWhatsappClassification(
     workspaceId: string,
-    campaignId: string
+    campaignId: string,
   ): Promise<WhatsappOverrideUpdateData> {
     const campaign = await this.prisma.metaCampaign.findFirst({
       where: { workspaceId, campaignId },
-      select: { campaignId: true }
+      select: { campaignId: true },
     });
 
     if (!campaign) {
@@ -759,37 +782,39 @@ export class MetaReportingService {
     const [adSets, ads] = (await Promise.all([
       this.prisma.metaAdSet.findMany({
         where: { workspaceId, campaignId },
-        select: { whatsappClassification: true }
+        select: { whatsappClassification: true },
       }),
       this.prisma.metaAd.findMany({
         where: { workspaceId, campaignId },
-        select: { whatsappClassification: true }
-      })
+        select: { whatsappClassification: true },
+      }),
     ])) as [
       Array<{ whatsappClassification: WhatsappClassification }>,
-      Array<{ whatsappClassification: WhatsappClassification }>
+      Array<{ whatsappClassification: WhatsappClassification }>,
     ];
     const whatsappClassification = this.campaignClassificationFromChildren([
       ...adSets,
-      ...ads
+      ...ads,
     ]);
     const source =
-      whatsappClassification === "not_whatsapp" ? "children:no_signal" : "children";
+      whatsappClassification === "not_whatsapp"
+        ? "children:no_signal"
+        : "children";
 
     return {
       classificationOverride: null,
       whatsappClassification,
-      classificationSource: `auto_reset:${source}`
+      classificationSource: `auto_reset:${source}`,
     };
   }
 
   private async resetAdSetWhatsappClassification(
     workspaceId: string,
-    adSetId: string
+    adSetId: string,
   ): Promise<WhatsappOverrideUpdateData> {
     const adSet = (await this.prisma.metaAdSet.findFirst({
       where: { workspaceId, adSetId },
-      select: { destinationType: true }
+      select: { destinationType: true },
     })) as Pick<MetaAdSetRecord, "destinationType"> | null;
 
     if (!adSet) {
@@ -800,27 +825,27 @@ export class MetaReportingService {
       destinationType: adSet.destinationType ?? null,
       callToActionType: null,
       hasLeadEvidence: await this.hasLeadEvidence({ workspaceId, adSetId }),
-      override: null
+      override: null,
     });
 
     return {
       classificationOverride: null,
       whatsappClassification: result.classification,
-      classificationSource: `auto_reset:${result.source}`
+      classificationSource: `auto_reset:${result.source}`,
     };
   }
 
   private async resetAdWhatsappClassification(
     workspaceId: string,
-    adId: string
+    adId: string,
   ): Promise<WhatsappOverrideUpdateData> {
     const ad = (await this.prisma.metaAd.findFirst({
       where: { workspaceId, adId },
       select: {
         adSetId: true,
         destinationType: true,
-        callToActionType: true
-      }
+        callToActionType: true,
+      },
     })) as Pick<
       MetaAdRecord,
       "adSetId" | "destinationType" | "callToActionType"
@@ -834,29 +859,31 @@ export class MetaReportingService {
       ? null
       : ((await this.prisma.metaAdSet.findFirst({
           where: { workspaceId, adSetId: ad.adSetId },
-          select: { destinationType: true }
+          select: { destinationType: true },
         })) as Pick<MetaAdSetRecord, "destinationType"> | null);
     const result = this.whatsappClassifier.classify({
       destinationType:
         ad.destinationType ?? parentAdSet?.destinationType ?? null,
       callToActionType: ad.callToActionType ?? null,
       hasLeadEvidence: await this.hasLeadEvidence({ workspaceId, adId }),
-      override: null
+      override: null,
     });
 
     return {
       classificationOverride: null,
       whatsappClassification: result.classification,
-      classificationSource: `auto_reset:${result.source}`
+      classificationSource: `auto_reset:${result.source}`,
     };
   }
 
-  async getCampaignReportCsv(input: {
-    workspaceId: string;
-    rangeLabel: string;
-    since?: string;
-    until?: string;
-  } & ReportFilterInput): Promise<ReportCsvResult> {
+  async getCampaignReportCsv(
+    input: {
+      workspaceId: string;
+      rangeLabel: string;
+      since?: string;
+      until?: string;
+    } & ReportFilterInput,
+  ): Promise<ReportCsvResult> {
     const report = await this.getCampaignReportOverview(input);
     const rows = [
       [
@@ -868,7 +895,7 @@ export class MetaReportingService {
         "LeadSubmitted",
         "QualifiedLead",
         "Purchase",
-        "ROAS"
+        "ROAS",
       ],
       ...report.campaigns.map((campaign) => [
         campaign.name,
@@ -879,117 +906,276 @@ export class MetaReportingService {
         String(campaign.leadSubmitted),
         String(campaign.qualifiedLead),
         String(campaign.purchase),
-        campaign.roas === null ? "" : String(campaign.roas)
-      ])
+        campaign.roas === null ? "" : String(campaign.roas),
+      ]),
     ];
 
     return {
       filename: this.csvFilename(input),
-      content: `${rows.map((row) => row.map(this.csvCell).join(",")).join("\n")}\n`
+      content: `${rows.map((row) => row.map(this.csvCell).join(",")).join("\n")}\n`,
     };
   }
 
-  async getAdSetReportOverview(input: {
-    workspaceId: string;
-    rangeLabel: string;
-    since?: string;
-    until?: string;
-  } & ReportFilterInput): Promise<AdSetReportOverviewDto> {
+  async getAdSetReportOverview(
+    input: {
+      workspaceId: string;
+      rangeLabel: string;
+      since?: string;
+      until?: string;
+    } & ReportFilterInput,
+  ): Promise<AdSetReportOverviewDto> {
     const hierarchyWhere = await this.metaHierarchyWhere(input);
     const snapshotWhere = await this.metaSnapshotWhere(input);
-    const [campaigns, adSets, conversionLogs, leads] = await Promise.all([
-      this.prisma.metaCampaign.findMany({
-        where: hierarchyWhere,
-        orderBy: { name: "asc" }
-      }) as Promise<MetaCampaignRecord[]>,
-      this.prisma.metaAdSet.findMany({
-        where: snapshotWhere,
-        orderBy: { name: "asc" }
-      }) as Promise<MetaAdSetRecord[]>,
-      this.getSentConversionEvents(input),
-      this.getLeads(input)
-    ]);
+    const shouldLoadAdsForNameFilter = this.reportNameScope(input) === "ad";
+    const [campaigns, adSets, adsForNameFilter, conversionLogs, leads] =
+      await Promise.all([
+        this.prisma.metaCampaign.findMany({
+          where: hierarchyWhere,
+          orderBy: { name: "asc" },
+        }) as Promise<MetaCampaignRecord[]>,
+        this.prisma.metaAdSet.findMany({
+          where: snapshotWhere,
+          orderBy: { name: "asc" },
+        }) as Promise<MetaAdSetRecord[]>,
+        shouldLoadAdsForNameFilter
+          ? (this.prisma.metaAd.findMany({
+              where: snapshotWhere,
+              orderBy: { name: "asc" },
+            }) as Promise<MetaAdRecord[]>)
+          : Promise.resolve([]),
+        this.getSentConversionEvents(input),
+        this.getLeads(input),
+      ]);
     const campaignNames = new Map(
-      campaigns.map((campaign) => [campaign.campaignId, campaign.name])
+      campaigns.map((campaign) => [campaign.campaignId, campaign.name]),
+    );
+    const rows = adSets.map((adSet) =>
+      this.toAdSetReportRow({
+        adSet,
+        campaignName:
+          campaignNames.get(adSet.campaignId) ?? "Campanha nao resolvida",
+        conversionLogs,
+        leads,
+      }),
     );
 
     return {
       workspaceId: input.workspaceId,
       rangeLabel: input.rangeLabel,
-      adSets: adSets.map((adSet) =>
-        this.toAdSetReportRow({
-          adSet,
-          campaignName:
-            campaignNames.get(adSet.campaignId) ?? "Campanha nao resolvida",
-          conversionLogs,
-          leads
-        })
-      )
+      adSets: this.filterAdSetReportRows(rows, input, adsForNameFilter),
     };
   }
 
-  async getAdReportOverview(input: {
-    workspaceId: string;
-    rangeLabel: string;
-    since?: string;
-    until?: string;
-  } & ReportFilterInput): Promise<AdReportOverviewDto> {
+  async getAdReportOverview(
+    input: {
+      workspaceId: string;
+      rangeLabel: string;
+      since?: string;
+      until?: string;
+    } & ReportFilterInput,
+  ): Promise<AdReportOverviewDto> {
     const hierarchyWhere = await this.metaHierarchyWhere(input);
     const snapshotWhere = await this.metaSnapshotWhere(input);
     const [campaigns, adSets, ads, conversionLogs, leads] = await Promise.all([
       this.prisma.metaCampaign.findMany({
         where: hierarchyWhere,
-        orderBy: { name: "asc" }
+        orderBy: { name: "asc" },
       }) as Promise<MetaCampaignRecord[]>,
       this.prisma.metaAdSet.findMany({
         where: hierarchyWhere,
-        orderBy: { name: "asc" }
+        orderBy: { name: "asc" },
       }) as Promise<MetaAdSetRecord[]>,
       this.prisma.metaAd.findMany({
         where: snapshotWhere,
-        orderBy: { name: "asc" }
+        orderBy: { name: "asc" },
       }) as Promise<MetaAdRecord[]>,
       this.getSentConversionEvents(input),
-      this.getLeads(input)
+      this.getLeads(input),
     ]);
     const campaignNames = new Map(
-      campaigns.map((campaign) => [campaign.campaignId, campaign.name])
+      campaigns.map((campaign) => [campaign.campaignId, campaign.name]),
     );
-    const adSetNames = new Map(adSets.map((adSet) => [adSet.adSetId, adSet.name]));
+    const adSetNames = new Map(
+      adSets.map((adSet) => [adSet.adSetId, adSet.name]),
+    );
+    const rows = ads.map((ad) =>
+      this.toAdReportRow({
+        ad,
+        campaignName:
+          campaignNames.get(ad.campaignId) ?? "Campanha nao resolvida",
+        adSetName: adSetNames.get(ad.adSetId) ?? "Conjunto nao resolvido",
+        conversionLogs,
+        leads,
+      }),
+    );
 
     return {
       workspaceId: input.workspaceId,
       rangeLabel: input.rangeLabel,
-      ads: ads.map((ad) =>
-        this.toAdReportRow({
-          ad,
-          campaignName:
-            campaignNames.get(ad.campaignId) ?? "Campanha nao resolvida",
-          adSetName: adSetNames.get(ad.adSetId) ?? "Conjunto nao resolvido",
-          conversionLogs,
-          leads
-        })
-      )
+      ads: this.filterAdReportRows(rows, input),
     };
   }
 
+  private filterCampaignReportRows(
+    rows: CampaignReportRowDto[],
+    input: ReportFilterInput,
+    adSets: MetaAdSetRecord[],
+    ads: MetaAdRecord[],
+  ): CampaignReportRowDto[] {
+    const statusRows = this.filterByReportStatus(rows, input);
+    const nameContains = this.normalizedReportName(input.nameContains);
+
+    if (!nameContains) {
+      return statusRows;
+    }
+
+    const scope = this.reportNameScope(input);
+
+    if (scope === "campaign") {
+      return statusRows.filter((row) =>
+        this.normalizedReportName(row.name)?.includes(nameContains),
+      );
+    }
+
+    if (scope === "adset") {
+      const campaignIds = new Set(
+        adSets
+          .filter((adSet) =>
+            this.normalizedReportName(adSet.name)?.includes(nameContains),
+          )
+          .map((adSet) => adSet.campaignId),
+      );
+
+      return statusRows.filter((row) => campaignIds.has(row.id));
+    }
+
+    const campaignIds = new Set(
+      ads
+        .filter((ad) =>
+          this.normalizedReportName(ad.name)?.includes(nameContains),
+        )
+        .map((ad) => ad.campaignId),
+    );
+
+    return statusRows.filter((row) => campaignIds.has(row.id));
+  }
+
+  private filterAdSetReportRows(
+    rows: AdSetReportRowDto[],
+    input: ReportFilterInput,
+    ads: MetaAdRecord[],
+  ): AdSetReportRowDto[] {
+    const statusRows = this.filterByReportStatus(rows, input);
+    const nameContains = this.normalizedReportName(input.nameContains);
+
+    if (!nameContains) {
+      return statusRows;
+    }
+
+    const scope = this.reportNameScope(input);
+
+    if (scope === "campaign") {
+      return statusRows.filter((row) =>
+        this.normalizedReportName(row.campaignName)?.includes(nameContains),
+      );
+    }
+
+    if (scope === "adset") {
+      return statusRows.filter((row) =>
+        this.normalizedReportName(row.name)?.includes(nameContains),
+      );
+    }
+
+    const adSetIds = new Set(
+      ads
+        .filter((ad) =>
+          this.normalizedReportName(ad.name)?.includes(nameContains),
+        )
+        .map((ad) => ad.adSetId),
+    );
+
+    return statusRows.filter((row) => adSetIds.has(row.id));
+  }
+
+  private filterAdReportRows(
+    rows: AdReportRowDto[],
+    input: ReportFilterInput,
+  ): AdReportRowDto[] {
+    const statusRows = this.filterByReportStatus(rows, input);
+    const nameContains = this.normalizedReportName(input.nameContains);
+
+    if (!nameContains) {
+      return statusRows;
+    }
+
+    const scope = this.reportNameScope(input);
+
+    if (scope === "campaign") {
+      return statusRows.filter((row) =>
+        this.normalizedReportName(row.campaignName)?.includes(nameContains),
+      );
+    }
+
+    if (scope === "adset") {
+      return statusRows.filter((row) =>
+        this.normalizedReportName(row.adSetName)?.includes(nameContains),
+      );
+    }
+
+    return statusRows.filter((row) =>
+      this.normalizedReportName(row.name)?.includes(nameContains),
+    );
+  }
+
+  private filterByReportStatus<
+    T extends { status: CampaignReportRowDto["status"] },
+  >(rows: T[], input: ReportFilterInput): T[] {
+    if (!input.status || input.status === "all") {
+      return rows;
+    }
+
+    return rows.filter((row) => row.status === input.status);
+  }
+
+  private needsCampaignChildNameFilter(input: ReportFilterInput): boolean {
+    return Boolean(
+      this.normalizedReportName(input.nameContains) &&
+      this.reportNameScope(input) !== "campaign",
+    );
+  }
+
+  private normalizedReportName(value?: string | null): string | null {
+    const trimmed = value?.trim();
+
+    return trimmed
+      ? trimmed
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+      : null;
+  }
+
+  private reportNameScope(input: ReportFilterInput): ReportNameScope {
+    return input.nameScope ?? "campaign";
+  }
+
   async getMetaStructureReport(
-    workspaceId: string
+    workspaceId: string,
   ): Promise<MetaStructureReportDto> {
     const where = await this.metaHierarchyWhere({ workspaceId });
     const [campaigns, adSets, ads] = (await Promise.all([
       this.prisma.metaCampaign.findMany({
         where,
-        orderBy: { name: "asc" }
+        orderBy: { name: "asc" },
       }),
       this.prisma.metaAdSet.findMany({
         where,
-        orderBy: { name: "asc" }
+        orderBy: { name: "asc" },
       }),
       this.prisma.metaAd.findMany({
         where,
-        orderBy: { name: "asc" }
-      })
+        orderBy: { name: "asc" },
+      }),
     ])) as [MetaCampaignRecord[], MetaAdSetRecord[], MetaAdRecord[]];
 
     return {
@@ -1013,18 +1199,18 @@ export class MetaReportingService {
                 id: ad.adId,
                 name: ad.name,
                 status: ad.status,
-                effectiveStatus: ad.effectiveStatus
-              }))
-          }))
-      }))
+                effectiveStatus: ad.effectiveStatus,
+              })),
+          })),
+      })),
     };
   }
 
   private async getConnection(
-    workspaceId: string
+    workspaceId: string,
   ): Promise<MetaIntegrationRecord> {
     const connection = (await this.prisma.metaIntegration.findUnique({
-      where: { workspaceId }
+      where: { workspaceId },
     })) as MetaIntegrationRecord | null;
 
     if (!connection) {
@@ -1056,22 +1242,22 @@ export class MetaReportingService {
       impressions: input.insight?.impressions ?? 0,
       clicks: input.insight?.clicks ?? 0,
       metaConversationsStarted: input.insight?.metaConversationsStarted ?? 0,
-      lastSyncedAt: input.syncedAt
+      lastSyncedAt: input.syncedAt,
     };
 
     return this.prisma.metaCampaign.upsert({
       where: {
         workspaceId_campaignId: {
           workspaceId: input.workspaceId,
-          campaignId: input.campaign.id
-        }
+          campaignId: input.campaign.id,
+        },
       },
       create: {
         workspaceId: input.workspaceId,
         campaignId: input.campaign.id,
-        ...data
+        ...data,
       },
-      update: data
+      update: data,
     });
   }
 
@@ -1098,22 +1284,22 @@ export class MetaReportingService {
       impressions: input.insight?.impressions ?? 0,
       clicks: input.insight?.clicks ?? 0,
       metaConversationsStarted: input.insight?.metaConversationsStarted ?? 0,
-      lastSyncedAt: input.syncedAt
+      lastSyncedAt: input.syncedAt,
     };
 
     return this.prisma.metaAdSet.upsert({
       where: {
         workspaceId_adSetId: {
           workspaceId: input.workspaceId,
-          adSetId: input.adSet.id
-        }
+          adSetId: input.adSet.id,
+        },
       },
       create: {
         workspaceId: input.workspaceId,
         adSetId: input.adSet.id,
-        ...data
+        ...data,
       },
-      update: data
+      update: data,
     });
   }
 
@@ -1144,27 +1330,27 @@ export class MetaReportingService {
       impressions: input.insight?.impressions ?? 0,
       clicks: input.insight?.clicks ?? 0,
       metaConversationsStarted: input.insight?.metaConversationsStarted ?? 0,
-      lastSyncedAt: input.syncedAt
+      lastSyncedAt: input.syncedAt,
     };
 
     return this.prisma.metaAd.upsert({
       where: {
         workspaceId_adId: {
           workspaceId: input.workspaceId,
-          adId: input.ad.id
-        }
+          adId: input.ad.id,
+        },
       },
       create: {
         workspaceId: input.workspaceId,
         adId: input.ad.id,
-        ...data
+        ...data,
       },
-      update: data
+      update: data,
     });
   }
 
   private manualOverride(
-    record?: ExistingClassificationRecord
+    record?: ExistingClassificationRecord,
   ): WhatsappClassification | null {
     const override =
       record?.classificationOverride ?? record?.whatsappClassification ?? null;
@@ -1175,7 +1361,7 @@ export class MetaReportingService {
   }
 
   private campaignClassificationFromChildren(
-    children: Array<{ whatsappClassification: string }>
+    children: Array<{ whatsappClassification: string }>,
   ): WhatsappClassification {
     const order: WhatsappClassification[] = [
       "manual_include",
@@ -1184,12 +1370,12 @@ export class MetaReportingService {
       "detected_by_leads",
       "needs_review",
       "not_whatsapp",
-      "manual_exclude"
+      "manual_exclude",
     ];
 
     return (
       order.find((value) =>
-        children.some((child) => child.whatsappClassification === value)
+        children.some((child) => child.whatsappClassification === value),
       ) ?? "not_whatsapp"
     );
   }
@@ -1204,7 +1390,7 @@ export class MetaReportingService {
     campaign: MetaCampaignRecord,
     conversionLogs: ConversionEventRecord[],
     leads: LeadRecord[],
-    metricOverride?: CampaignMetricOverride
+    metricOverride?: CampaignMetricOverride,
   ): CampaignReportRowDto {
     const restrictToAdIds = metricOverride?.adIds.size
       ? metricOverride.adIds
@@ -1225,11 +1411,11 @@ export class MetaReportingService {
     };
     const campaignEvents = conversionLogs.filter(
       (item) =>
-        item.campaignId === campaign.campaignId && belongsToMetricScope(item)
+        item.campaignId === campaign.campaignId && belongsToMetricScope(item),
     );
     const realConversations = leads.filter(
       (item) =>
-        item.campaignId === campaign.campaignId && belongsToMetricScope(item)
+        item.campaignId === campaign.campaignId && belongsToMetricScope(item),
     ).length;
     const metrics = this.toMetrics({
       spendCents: metricOverride?.spendCents ?? campaign.spendCents,
@@ -1237,7 +1423,7 @@ export class MetaReportingService {
         metricOverride?.metaConversationsStarted ??
         campaign.metaConversationsStarted,
       events: campaignEvents,
-      realConversations
+      realConversations,
     });
 
     return {
@@ -1247,7 +1433,7 @@ export class MetaReportingService {
       businessId: campaign.businessId,
       adAccountId: campaign.adAccountId,
       whatsappClassification: campaign.whatsappClassification,
-      ...metrics
+      ...metrics,
     };
   }
 
@@ -1258,16 +1444,16 @@ export class MetaReportingService {
     leads: LeadRecord[];
   }): AdSetReportRowDto {
     const events = input.conversionLogs.filter(
-      (item) => item.adSetId === input.adSet.adSetId
+      (item) => item.adSetId === input.adSet.adSetId,
     );
     const realConversations = input.leads.filter(
-      (item) => item.adSetId === input.adSet.adSetId
+      (item) => item.adSetId === input.adSet.adSetId,
     ).length;
     const metrics = this.toMetrics({
       spendCents: input.adSet.spendCents,
       metaConversationsStarted: input.adSet.metaConversationsStarted,
       events,
-      realConversations
+      realConversations,
     });
 
     return {
@@ -1279,7 +1465,7 @@ export class MetaReportingService {
       businessId: input.adSet.businessId,
       adAccountId: input.adSet.adAccountId,
       whatsappClassification: input.adSet.whatsappClassification,
-      ...metrics
+      ...metrics,
     };
   }
 
@@ -1291,16 +1477,16 @@ export class MetaReportingService {
     leads: LeadRecord[];
   }): AdReportRowDto {
     const events = input.conversionLogs.filter(
-      (item) => item.adId === input.ad.adId
+      (item) => item.adId === input.ad.adId,
     );
     const realConversations = input.leads.filter(
-      (item) => item.adId === input.ad.adId
+      (item) => item.adId === input.ad.adId,
     ).length;
     const metrics = this.toMetrics({
       spendCents: input.ad.spendCents,
       metaConversationsStarted: input.ad.metaConversationsStarted,
       events,
-      realConversations
+      realConversations,
     });
 
     return {
@@ -1314,7 +1500,7 @@ export class MetaReportingService {
       businessId: input.ad.businessId,
       adAccountId: input.ad.adAccountId,
       whatsappClassification: input.ad.whatsappClassification,
-      ...metrics
+      ...metrics,
     };
   }
 
@@ -1337,23 +1523,20 @@ export class MetaReportingService {
       metaConversationsStarted: input.metaConversationsStarted,
       costPerMetaConversationCents: this.costPer(
         input.spendCents,
-        input.metaConversationsStarted
+        input.metaConversationsStarted,
       ),
       realConversations: input.realConversations,
       costPerRealConversationCents: this.costPer(
         input.spendCents,
-        input.realConversations
+        input.realConversations,
       ),
       leadSubmitted,
       costPerLeadSubmittedCents: this.costPer(input.spendCents, leadSubmitted),
       qualifiedLead,
-      costPerQualifiedLeadCents: this.costPer(
-        input.spendCents,
-        qualifiedLead
-      ),
+      costPerQualifiedLeadCents: this.costPer(input.spendCents, qualifiedLead),
       purchase,
       costPerPurchaseCents: this.costPer(input.spendCents, purchase),
-      roas: null
+      roas: null,
     };
   }
 
@@ -1366,15 +1549,15 @@ export class MetaReportingService {
       where: {
         workspaceId: input.workspaceId,
         status: "sent",
-        ...this.periodWhere(input)
+        ...this.periodWhere(input),
       },
       select: {
         campaignId: true,
         adSetId: true,
         adId: true,
         eventName: true,
-        status: true
-      }
+        status: true,
+      },
     }) as Promise<ConversionEventRecord[]>;
   }
 
@@ -1386,13 +1569,13 @@ export class MetaReportingService {
     return this.prisma.lead.findMany({
       where: {
         workspaceId: input.workspaceId,
-        ...this.periodWhere(input)
+        ...this.periodWhere(input),
       },
       select: {
         campaignId: true,
         adSetId: true,
-        adId: true
-      }
+        adId: true,
+      },
     }) as Promise<LeadRecord[]>;
   }
 
@@ -1407,10 +1590,10 @@ export class MetaReportingService {
         workspaceId: input.workspaceId,
         ...(input.campaignId ? { campaignId: input.campaignId } : {}),
         ...(input.adSetId ? { adSetId: input.adSetId } : {}),
-        ...(input.adId ? { adId: input.adId } : {})
+        ...(input.adId ? { adId: input.adId } : {}),
       },
       select: { id: true },
-      take: 1
+      take: 1,
     });
 
     return leads.length > 0;
@@ -1425,7 +1608,7 @@ export class MetaReportingService {
     const evidence: LeadEvidenceMaps = {
       campaigns: new Set(),
       adSets: new Set(),
-      ads: new Set()
+      ads: new Set(),
     };
 
     if (
@@ -1446,14 +1629,14 @@ export class MetaReportingService {
           ...(input.adSetIds.length
             ? [{ adSetId: { in: input.adSetIds } }]
             : []),
-          ...(input.adIds.length ? [{ adId: { in: input.adIds } }] : [])
-        ]
+          ...(input.adIds.length ? [{ adId: { in: input.adIds } }] : []),
+        ],
       },
       select: {
         campaignId: true,
         adSetId: true,
-        adId: true
-      }
+        adId: true,
+      },
     })) as LeadRecord[];
 
     const adSetIds = new Set(input.adSetIds);
@@ -1478,7 +1661,7 @@ export class MetaReportingService {
 
   private campaignMetricOverrides(
     adSets: MetaAdSetRecord[],
-    ads: MetaAdRecord[]
+    ads: MetaAdRecord[],
   ): Map<string, CampaignMetricOverride> {
     const metrics = new Map<string, CampaignMetricOverride>();
 
@@ -1489,7 +1672,7 @@ export class MetaReportingService {
           spendCents: 0,
           metaConversationsStarted: 0,
           adSetIds: new Set<string>(),
-          adIds: new Set<string>()
+          adIds: new Set<string>(),
         } satisfies CampaignMetricOverride);
 
       current.spendCents += adSet.spendCents;
@@ -1509,7 +1692,7 @@ export class MetaReportingService {
           spendCents: 0,
           metaConversationsStarted: 0,
           adSetIds: new Set<string>(),
-          adIds: new Set<string>()
+          adIds: new Set<string>(),
         } satisfies CampaignMetricOverride);
 
       current.spendCents += ad.spendCents;
@@ -1526,15 +1709,17 @@ export class MetaReportingService {
       ? {
           createdAt: {
             gte: new Date(`${input.since}T00:00:00.000Z`),
-            lte: new Date(`${input.until}T23:59:59.999Z`)
-          }
+            lte: new Date(`${input.until}T23:59:59.999Z`),
+          },
         }
       : {};
   }
 
-  private async metaSnapshotWhere(input: {
-    workspaceId: string;
-  } & ReportFilterInput): Promise<MetaSnapshotWhere> {
+  private async metaSnapshotWhere(
+    input: {
+      workspaceId: string;
+    } & ReportFilterInput,
+  ): Promise<MetaSnapshotWhere> {
     const where = (await this.metaHierarchyWhere(input)) as MetaSnapshotWhere;
 
     const classification = input.whatsappClassification ?? "whatsapp";
@@ -1545,8 +1730,8 @@ export class MetaReportingService {
           "auto_whatsapp",
           "creative_whatsapp",
           "detected_by_leads",
-          "manual_include"
-        ]
+          "manual_include",
+        ],
       };
     } else if (classification === "needs_review") {
       where.whatsappClassification = "needs_review";
@@ -1557,23 +1742,25 @@ export class MetaReportingService {
     return where;
   }
 
-  private async metaHierarchyWhere(input: {
-    workspaceId: string;
-  } & ReportFilterInput): Promise<Omit<MetaSnapshotWhere, "whatsappClassification">> {
+  private async metaHierarchyWhere(
+    input: {
+      workspaceId: string;
+    } & ReportFilterInput,
+  ): Promise<Omit<MetaSnapshotWhere, "whatsappClassification">> {
     const where: Omit<MetaSnapshotWhere, "whatsappClassification"> = {
-      workspaceId: input.workspaceId
+      workspaceId: input.workspaceId,
     };
     const activeAccounts = (await this.prisma.metaReportingAccount.findMany({
       where: {
         workspaceId: input.workspaceId,
         active: true,
         ...(input.businessId ? { businessId: input.businessId } : {}),
-        ...(input.adAccountId ? { adAccountId: input.adAccountId } : {})
+        ...(input.adAccountId ? { adAccountId: input.adAccountId } : {}),
       },
       select: {
         businessId: true,
-        adAccountId: true
-      }
+        adAccountId: true,
+      },
     })) as Array<{ businessId: string; adAccountId: string }>;
 
     if (input.businessId) {
@@ -1582,7 +1769,7 @@ export class MetaReportingService {
 
     if (input.adAccountId) {
       where.adAccountId = activeAccounts.some(
-        (account) => account.adAccountId === input.adAccountId
+        (account) => account.adAccountId === input.adAccountId,
       )
         ? input.adAccountId
         : { in: [] };
@@ -1590,12 +1777,12 @@ export class MetaReportingService {
     }
 
     where.adAccountId = {
-      in: [...new Set(activeAccounts.map((account) => account.adAccountId))]
+      in: [...new Set(activeAccounts.map((account) => account.adAccountId))],
     };
 
     if (!input.businessId && activeAccounts.length > 0) {
       where.businessId = {
-        in: [...new Set(activeAccounts.map((account) => account.businessId))]
+        in: [...new Set(activeAccounts.map((account) => account.businessId))],
       };
     }
 
@@ -1604,7 +1791,7 @@ export class MetaReportingService {
 
   private countEvents(
     events: ConversionEventRecord[],
-    eventName: string
+    eventName: string,
   ): number {
     return events.filter((item) => item.eventName === eventName).length;
   }
@@ -1627,7 +1814,9 @@ export class MetaReportingService {
       : "wpptrack-campanhas.csv";
   }
 
-  private toReportStatus(status: string | null): CampaignReportRowDto["status"] {
+  private toReportStatus(
+    status: string | null,
+  ): CampaignReportRowDto["status"] {
     if (status === "ACTIVE") {
       return "active";
     }
