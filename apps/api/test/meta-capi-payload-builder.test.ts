@@ -52,6 +52,71 @@ describe("Meta CAPI payload builder", () => {
     });
   });
 
+  it("lets canonical builder inputs win over colliding custom_data keys", () => {
+    const payload = buildMetaCapiPayload({
+      eventName: "Purchase",
+      eventTime: new Date("2026-07-09T12:00:00.000Z"),
+      eventId: "purchase_2",
+      phoneHash: "phone_hash_1",
+      ctwaClid: "clid_1",
+      pageId: "page_1",
+      adId: "ad_canonical",
+      valueCents: 19900,
+      currency: "BRL",
+      contentName: "Plano mensal",
+      customData: {
+        ad_id: "ad_custom",
+        value: 1,
+        currency: "USD",
+        content_name: "Plano antigo"
+      }
+    });
+
+    expect(payload.data[0].custom_data).toMatchObject({
+      ad_id: "ad_canonical",
+      value: 199,
+      currency: "BRL",
+      content_name: "Plano mensal"
+    });
+  });
+
+  it("preserves pass-through custom_data fields", () => {
+    const payload = buildMetaCapiPayload({
+      eventName: "Purchase",
+      eventTime: new Date("2026-07-09T12:00:00.000Z"),
+      eventId: "purchase_3",
+      phoneHash: "phone_hash_1",
+      ctwaClid: "clid_1",
+      pageId: "page_1",
+      adId: "ad_1",
+      customData: {
+        order_id: "order_1",
+        content_type: "product",
+        contents: [
+          {
+            id: "sku_1",
+            quantity: 2,
+            item_price: 99.5
+          }
+        ],
+        num_items: 2
+      }
+    });
+
+    expect(payload.data[0].custom_data).toMatchObject({
+      order_id: "order_1",
+      content_type: "product",
+      contents: [
+        {
+          id: "sku_1",
+          quantity: 2,
+          item_price: 99.5
+        }
+      ],
+      num_items: 2
+    });
+  });
+
   it("adds test_event_code at the top level when provided", () => {
     const payload = buildMetaCapiPayload({
       eventName: "LeadSubmitted",

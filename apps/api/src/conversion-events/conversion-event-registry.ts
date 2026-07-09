@@ -5,40 +5,39 @@ export type ConversionEventDefinition = {
   requiresValue: boolean;
 };
 
-export const conversionEventDefinitions: ConversionEventDefinition[] = [
-  { eventName: "LeadSubmitted", requiresValue: false },
-  { eventName: "QualifiedLead", requiresValue: false },
-  { eventName: "OrderShipped", requiresValue: false },
-  { eventName: "OrderDelivered", requiresValue: false },
-  { eventName: "OrderCanceled", requiresValue: false },
-  { eventName: "OrderReturned", requiresValue: false },
-  { eventName: "RatingProvided", requiresValue: false },
-  { eventName: "ReviewProvided", requiresValue: false },
-  { eventName: "ViewContent", requiresValue: true },
-  { eventName: "AddToCart", requiresValue: true },
-  { eventName: "CartAbandoned", requiresValue: true },
-  { eventName: "InitiateCheckout", requiresValue: true },
-  { eventName: "Purchase", requiresValue: true },
-  { eventName: "OrderCreated", requiresValue: true }
-];
+const conversionEventDefinitionsByName = {
+  LeadSubmitted: { requiresValue: false },
+  QualifiedLead: { requiresValue: false },
+  OrderShipped: { requiresValue: false },
+  OrderDelivered: { requiresValue: false },
+  OrderCanceled: { requiresValue: false },
+  OrderReturned: { requiresValue: false },
+  RatingProvided: { requiresValue: false },
+  ReviewProvided: { requiresValue: false },
+  ViewContent: { requiresValue: true },
+  AddToCart: { requiresValue: true },
+  CartAbandoned: { requiresValue: true },
+  InitiateCheckout: { requiresValue: true },
+  Purchase: { requiresValue: true },
+  OrderCreated: { requiresValue: true }
+} satisfies Record<ConversionEventNameDto, { requiresValue: boolean }>;
 
-const definitionsByName = new Map(
-  conversionEventDefinitions.map((definition) => [
-    definition.eventName,
-    definition
-  ])
-);
+export const conversionEventDefinitions: ConversionEventDefinition[] = (
+  Object.keys(conversionEventDefinitionsByName) as ConversionEventNameDto[]
+).map((eventName) => ({
+  eventName,
+  requiresValue: conversionEventDefinitionsByName[eventName].requiresValue
+}));
 
 export function getConversionEventDefinition(
   eventName: ConversionEventNameDto
 ): ConversionEventDefinition {
-  const definition = definitionsByName.get(eventName);
+  const definition = conversionEventDefinitionsByName[eventName];
 
-  if (!definition) {
-    throw new Error(`Unsupported conversion event: ${eventName}`);
-  }
-
-  return definition;
+  return {
+    eventName,
+    requiresValue: definition.requiresValue
+  };
 }
 
 export function isConversionEventRequiringValue(

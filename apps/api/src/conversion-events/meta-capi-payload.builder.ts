@@ -1,4 +1,7 @@
-import type { ConversionEventNameDto } from "@wpptrack/shared";
+import type {
+  ConversionEventCustomDataDto,
+  ConversionEventNameDto
+} from "@wpptrack/shared";
 
 export type MetaCapiPayloadInput = {
   eventName: ConversionEventNameDto;
@@ -11,7 +14,7 @@ export type MetaCapiPayloadInput = {
   valueCents?: number | null;
   currency?: string | null;
   contentName?: string | null;
-  customData?: Record<string, unknown> | null;
+  customData?: ConversionEventCustomDataDto | null;
   testEventCode?: string | null;
 };
 
@@ -27,7 +30,7 @@ export type MetaCapiPayload = {
       ctwa_clid: string;
       page_id: string;
     };
-    custom_data: Record<string, unknown>;
+    custom_data: ConversionEventCustomDataDto;
   }>;
   test_event_code?: string;
 };
@@ -35,7 +38,7 @@ export type MetaCapiPayload = {
 export function buildMetaCapiPayload(
   input: MetaCapiPayloadInput
 ): MetaCapiPayload {
-  const customData = {
+  const customData: ConversionEventCustomDataDto = {
     ...(input.customData ?? {}),
     ad_id: input.adId,
     ...(typeof input.valueCents === "number"
