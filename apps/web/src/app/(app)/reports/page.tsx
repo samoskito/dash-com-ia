@@ -39,6 +39,19 @@ type ReportTotals = {
   qualifiedLead: number;
   purchase: number;
 };
+type ReportEntityCopy = {
+  title: string;
+  singular: string;
+  plural: string;
+  activeSingular: string;
+  activePlural: string;
+  pausedSingular: string;
+  pausedPlural: string;
+  deletedSingular: string;
+  deletedPlural: string;
+  unknownSingular: string;
+  unknownPlural: string;
+};
 type ReportNotice = {
   tone: "success" | "warn";
   title: string;
@@ -412,6 +425,48 @@ function reportStatusChip(status: PerformanceRow["status"]) {
   );
 }
 
+const campaignSummaryCopy: ReportEntityCopy = {
+  title: "Resumo campanhas",
+  singular: "campanha",
+  plural: "campanhas",
+  activeSingular: "ativa",
+  activePlural: "ativas",
+  pausedSingular: "pausada",
+  pausedPlural: "pausadas",
+  deletedSingular: "excluida",
+  deletedPlural: "excluidas",
+  unknownSingular: "sem status",
+  unknownPlural: "sem status",
+};
+
+const adSetSummaryCopy: ReportEntityCopy = {
+  title: "Resumo conjuntos",
+  singular: "conjunto",
+  plural: "conjuntos",
+  activeSingular: "ativo",
+  activePlural: "ativos",
+  pausedSingular: "pausado",
+  pausedPlural: "pausados",
+  deletedSingular: "excluido",
+  deletedPlural: "excluidos",
+  unknownSingular: "sem status",
+  unknownPlural: "sem status",
+};
+
+const adSummaryCopy: ReportEntityCopy = {
+  title: "Resumo anuncios",
+  singular: "anuncio",
+  plural: "anuncios",
+  activeSingular: "ativo",
+  activePlural: "ativos",
+  pausedSingular: "pausado",
+  pausedPlural: "pausados",
+  deletedSingular: "excluido",
+  deletedPlural: "excluidos",
+  unknownSingular: "sem status",
+  unknownPlural: "sem status",
+};
+
 function ReviewActions({
   id,
   level,
@@ -489,7 +544,7 @@ function EmptyPerformanceCells() {
   );
 }
 
-function reportTotals(rows: CampaignReportRowDto[]): ReportTotals {
+function reportTotals(rows: PerformanceRow[]): ReportTotals {
   return rows.reduce(
     (totals, row) => ({
       spendCents: totals.spendCents + (row.spendCents ?? 0),
@@ -508,6 +563,111 @@ function reportTotals(rows: CampaignReportRowDto[]): ReportTotals {
       qualifiedLead: 0,
       purchase: 0,
     },
+  );
+}
+
+function countLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function statusCountLabel(
+  count: number,
+  singular: string,
+  plural: string,
+): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function reportEntitySummary(
+  rows: PerformanceRow[],
+  copy: ReportEntityCopy,
+): string {
+  const total = rows.length;
+
+  if (total === 0) {
+    return countLabel(0, copy.singular, copy.plural);
+  }
+
+  const statusCounts = {
+    active: rows.filter((row) => row.status === "active").length,
+    paused: rows.filter((row) => row.status === "paused").length,
+    deleted: rows.filter((row) => row.status === "deleted").length,
+    unknown: rows.filter((row) => row.status === "unknown").length,
+  };
+  const parts = [
+    statusCounts.active
+      ? statusCountLabel(
+          statusCounts.active,
+          copy.activeSingular,
+          copy.activePlural,
+        )
+      : null,
+    statusCounts.paused
+      ? statusCountLabel(
+          statusCounts.paused,
+          copy.pausedSingular,
+          copy.pausedPlural,
+        )
+      : null,
+    statusCounts.deleted
+      ? statusCountLabel(
+          statusCounts.deleted,
+          copy.deletedSingular,
+          copy.deletedPlural,
+        )
+      : null,
+    statusCounts.unknown
+      ? statusCountLabel(
+          statusCounts.unknown,
+          copy.unknownSingular,
+          copy.unknownPlural,
+        )
+      : null,
+  ].filter(Boolean);
+
+  if (parts.length === 1) {
+    return `${countLabel(total, copy.singular, copy.plural)} ${String(parts[0]).replace(/^\d+\s+/, "")}`;
+  }
+
+  return `${countLabel(total, copy.singular, copy.plural)}: ${parts.join(", ")}`;
+}
+
+function SummaryMetricsCells({ totals }: { totals: ReportTotals }) {
+  return (
+    <>
+      <td>{money(totals.spendCents)}</td>
+      <td>{totals.metaConversationsStarted}</td>
+      <td>{totals.realConversations}</td>
+      <td>{totals.leadSubmitted}</td>
+      <td>{totals.qualifiedLead}</td>
+      <td>{totals.purchase}</td>
+      <td>-</td>
+    </>
+  );
+}
+
+function PerformanceSummaryFooter({
+  copy,
+  rows,
+}: {
+  copy: ReportEntityCopy;
+  rows: PerformanceRow[];
+}) {
+  const totals = reportTotals(rows);
+
+  return (
+    <tfoot className="report-summary">
+      <tr>
+        <td className="performance-name-cell summary-name">
+          <strong>{copy.title}</strong>
+          <span>{reportEntitySummary(rows, copy)}</span>
+        </td>
+        <SummaryMetricsCells totals={totals} />
+        <td>
+          <span className="tag">Total</span>
+        </td>
+      </tr>
+    </tfoot>
   );
 }
 
@@ -777,7 +937,7 @@ export default async function ReportsPage({
       ) : null}
 
       <div className="table-wrap report-table-scroll">
-        <table>
+        <table className="performance-table">
           <thead>
             <tr>
               <th>Campanha</th>
@@ -795,7 +955,7 @@ export default async function ReportsPage({
             {rows.length > 0 ? (
               rows.map((row) => (
                 <tr key={row.id}>
-                  <td>
+                  <td className="performance-name-cell">
                     <strong>
                       <Link
                         href={leadsHref({
@@ -826,7 +986,7 @@ export default async function ReportsPage({
               ))
             ) : (
               <tr>
-                <td>
+                <td className="performance-name-cell">
                   <strong>
                     {reportState === "error"
                       ? "Nao foi possivel carregar campanhas"
@@ -843,6 +1003,7 @@ export default async function ReportsPage({
               </tr>
             )}
           </tbody>
+          <PerformanceSummaryFooter copy={campaignSummaryCopy} rows={rows} />
         </table>
       </div>
 
@@ -854,7 +1015,7 @@ export default async function ReportsPage({
           conversao.
         </p>
         <div className="table-wrap report-table-scroll">
-          <table>
+          <table className="performance-table">
             <thead>
               <tr>
                 <th>Conjunto</th>
@@ -872,7 +1033,7 @@ export default async function ReportsPage({
               {adSetRows.length > 0 ? (
                 adSetRows.map((row) => (
                   <tr key={row.id}>
-                    <td>
+                    <td className="performance-name-cell">
                       <strong>
                         <Link
                           href={leadsHref({
@@ -905,7 +1066,7 @@ export default async function ReportsPage({
                 ))
               ) : (
                 <tr>
-                  <td>
+                  <td className="performance-name-cell">
                     <strong>
                       {adSetReports.state === "error"
                         ? "Nao foi possivel carregar conjuntos"
@@ -922,6 +1083,10 @@ export default async function ReportsPage({
                 </tr>
               )}
             </tbody>
+            <PerformanceSummaryFooter
+              copy={adSetSummaryCopy}
+              rows={adSetRows}
+            />
           </table>
         </div>
       </div>
@@ -934,7 +1099,7 @@ export default async function ReportsPage({
           conversao.
         </p>
         <div className="table-wrap report-table-scroll">
-          <table>
+          <table className="performance-table">
             <thead>
               <tr>
                 <th>Anuncio</th>
@@ -952,7 +1117,7 @@ export default async function ReportsPage({
               {adRows.length > 0 ? (
                 adRows.map((row) => (
                   <tr key={row.id}>
-                    <td>
+                    <td className="performance-name-cell">
                       <strong>
                         <Link
                           href={leadsHref({
@@ -988,7 +1153,7 @@ export default async function ReportsPage({
                 ))
               ) : (
                 <tr>
-                  <td>
+                  <td className="performance-name-cell">
                     <strong>
                       {adReports.state === "error"
                         ? "Nao foi possivel carregar anuncios"
@@ -1005,6 +1170,7 @@ export default async function ReportsPage({
                 </tr>
               )}
             </tbody>
+            <PerformanceSummaryFooter copy={adSummaryCopy} rows={adRows} />
           </table>
         </div>
       </div>

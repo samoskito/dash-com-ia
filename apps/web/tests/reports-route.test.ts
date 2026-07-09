@@ -32,12 +32,12 @@ describe("reports route", () => {
                 costPerQualifiedLeadCents: 120000,
                 purchase: 1,
                 costPerPurchaseCents: 120000,
-                roas: null
-              }
-            ]
+                roas: null,
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -61,16 +61,16 @@ describe("reports route", () => {
                         id: "ad_1",
                         name: "Criativo WhatsApp",
                         status: "ACTIVE",
-                        effectiveStatus: "ACTIVE"
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
+                        effectiveStatus: "ACTIVE",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -95,12 +95,12 @@ describe("reports route", () => {
                 costPerQualifiedLeadCents: 60000,
                 purchase: 1,
                 costPerPurchaseCents: 60000,
-                roas: null
-              }
-            ]
+                roas: null,
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -127,12 +127,12 @@ describe("reports route", () => {
                 costPerQualifiedLeadCents: 30000,
                 purchase: 1,
                 costPerPurchaseCents: 30000,
-                roas: null
-              }
-            ]
+                roas: null,
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -145,11 +145,11 @@ describe("reports route", () => {
               canInviteMembers: true,
               canManageBilling: true,
               canManageIntegrations: true,
-              canViewReports: true
-            }
+              canViewReports: true,
+            },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -160,8 +160,8 @@ describe("reports route", () => {
               {
                 id: "business_1",
                 name: "BM Principal",
-                verificationStatus: "verified"
-              }
+                verificationStatus: "verified",
+              },
             ],
             adAccounts: [
               {
@@ -170,8 +170,8 @@ describe("reports route", () => {
                 name: "Conta WhatsApp",
                 accountStatus: "active",
                 currency: "BRL",
-                timezoneName: "America/Sao_Paulo"
-              }
+                timezoneName: "America/Sao_Paulo",
+              },
             ],
             pixels: [],
             pages: [],
@@ -188,19 +188,19 @@ describe("reports route", () => {
                 active: true,
                 syncStatus: "synced",
                 lastSyncedAt: "2026-07-02T03:00:00.000Z",
-                syncError: null
-              }
+                syncError: null,
+              },
             ],
             selection: {
               businessId: "business_1",
               adAccountId: "act_1",
-              pixelId: null
+              pixelId: null,
             },
             lastSyncedAt: "2026-07-02T03:00:00.000Z",
-            syncError: null
+            syncError: null,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await ReportsPage({
@@ -209,34 +209,34 @@ describe("reports route", () => {
         until: "2026-07-02",
         businessId: "business_1",
         adAccountId: "act_1",
-        whatsappClassification: "whatsapp"
-      })
+        whatsappClassification: "whatsapp",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/reports/campaigns?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappClassification=whatsapp",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/reports/meta/structure",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/reports/adsets?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappClassification=whatsapp",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/reports/ads?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappClassification=whatsapp",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/workspaces/current",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/meta/assets",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Black Friday WhatsApp");
     expect(html).toContain("Todas as contas");
@@ -252,7 +252,7 @@ describe("reports route", () => {
     expect(html.match(/name="adAccountId"/g)).toHaveLength(3);
     expect(html.match(/name="whatsappClassification"/g)).toHaveLength(3);
     expect(html).toContain(
-      'href="/reports/export?since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"'
+      'href="/reports/export?since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"',
     );
     expect(html).toContain("2026-07-01");
     expect(html).toContain("2026-07-02");
@@ -264,6 +264,12 @@ describe("reports route", () => {
     expect(html).toContain("Performance por anuncio");
     expect(html).toContain("Insights Meta por conjunto sincronizados");
     expect(html).toContain("Insights Meta por anuncio sincronizados");
+    expect(html).toContain("Resumo campanhas");
+    expect(html).toContain("1 campanha ativa");
+    expect(html).toContain("Resumo conjuntos");
+    expect(html).toContain("1 conjunto ativo");
+    expect(html).toContain("Resumo anuncios");
+    expect(html).toContain("1 anuncio ativo");
     expect(html).toContain("Revisao WhatsApp");
     expect(html.match(/Incluir/g)).toHaveLength(3);
     expect(html.match(/Excluir/g)).toHaveLength(3);
@@ -271,13 +277,13 @@ describe("reports route", () => {
     expect(html).toContain("600,00");
     expect(html).toContain("300,00");
     expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"'
+      'href="/leads?campaignId=cmp_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"',
     );
     expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"'
+      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"',
     );
     expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"'
+      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"',
     );
     expect(html).not.toContain("nao tem investimento proprio persistido");
   });
@@ -289,39 +295,39 @@ describe("reports route", () => {
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "Ultimos 7 dias",
-            campaigns: []
+            campaigns: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
-            campaigns: []
+            campaigns: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            adSets: []
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "Ultimos 7 dias",
-            ads: []
+            adSets: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            ads: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -334,15 +340,15 @@ describe("reports route", () => {
               canInviteMembers: true,
               canManageBilling: true,
               canManageIntegrations: true,
-              canViewReports: true
-            }
+              canViewReports: true,
+            },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await ReportsPage({
-      searchParams: Promise.resolve({ notice: "meta-sync-queued" })
+      searchParams: Promise.resolve({ notice: "meta-sync-queued" }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -379,21 +385,21 @@ describe("reports route", () => {
                 costPerQualifiedLeadCents: 25000,
                 purchase: 3,
                 costPerPurchaseCents: 50000,
-                roas: null
-              }
-            ]
+                roas: null,
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
-            campaigns: []
+            campaigns: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -418,12 +424,12 @@ describe("reports route", () => {
                 costPerQualifiedLeadCents: 25000,
                 purchase: 1,
                 costPerPurchaseCents: 75000,
-                roas: null
-              }
-            ]
+                roas: null,
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -450,12 +456,12 @@ describe("reports route", () => {
                 costPerQualifiedLeadCents: 25000,
                 purchase: 1,
                 costPerPurchaseCents: 25000,
-                roas: null
-              }
-            ]
+                roas: null,
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -468,11 +474,11 @@ describe("reports route", () => {
               canInviteMembers: true,
               canManageBilling: true,
               canManageIntegrations: true,
-              canViewReports: true
-            }
+              canViewReports: true,
+            },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -495,12 +501,12 @@ describe("reports route", () => {
                 costPerQualifiedLeadCents: 25000,
                 purchase: 2,
                 costPerPurchaseCents: 50000,
-                roas: null
-              }
-            ]
+                roas: null,
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -515,13 +521,13 @@ describe("reports route", () => {
             selection: {
               businessId: null,
               adAccountId: null,
-              pixelId: null
+              pixelId: null,
             },
             lastSyncedAt: "2026-07-02T03:00:00.000Z",
-            syncError: null
+            syncError: null,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await ReportsPage({
@@ -529,33 +535,33 @@ describe("reports route", () => {
         since: "2026-07-08",
         until: "2026-07-14",
         compareSince: "2026-07-01",
-        compareUntil: "2026-07-07"
-      })
+        compareUntil: "2026-07-07",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/reports/campaigns?since=2026-07-01&until=2026-07-07",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Comparacao entre periodos");
     expect(html).toContain("01/07/2026 a 07/07/2026");
     expect(html).toContain("+50%");
     expect(html).toContain("+20%");
     expect(html).toContain(
-      'href="/reports/export?since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"'
+      'href="/reports/export?since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"',
     );
     expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"'
+      'href="/leads?campaignId=cmp_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"',
     );
     expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"'
+      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"',
     );
     expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"'
+      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"',
     );
-    expect(html.match(/name="compareSince"/g)).toHaveLength(3);
-    expect(html.match(/name="compareUntil"/g)).toHaveLength(3);
+    expect(html.match(/name="compareSince"/g)).toHaveLength(2);
+    expect(html.match(/name="compareUntil"/g)).toHaveLength(2);
   });
 
   it("renders Meta filters without keeping an account from another BM", () => {
@@ -565,8 +571,16 @@ describe("reports route", () => {
           workspaceId: "workspace_1",
           status: "connected",
           businesses: [
-            { id: "business_1", name: "BM Principal", verificationStatus: null },
-            { id: "business_2", name: "BM Secundario", verificationStatus: null }
+            {
+              id: "business_1",
+              name: "BM Principal",
+              verificationStatus: null,
+            },
+            {
+              id: "business_2",
+              name: "BM Secundario",
+              verificationStatus: null,
+            },
           ],
           adAccounts: [],
           pixels: [],
@@ -584,7 +598,7 @@ describe("reports route", () => {
               active: true,
               syncStatus: "synced",
               lastSyncedAt: null,
-              syncError: null
+              syncError: null,
             },
             {
               id: "reporting_2",
@@ -598,16 +612,16 @@ describe("reports route", () => {
               active: true,
               syncStatus: "synced",
               lastSyncedAt: null,
-              syncError: null
-            }
+              syncError: null,
+            },
           ],
           selection: {
             businessId: null,
             adAccountId: null,
-            pixelId: null
+            pixelId: null,
           },
           lastSyncedAt: null,
-          syncError: null
+          syncError: null,
         },
         businessId: "business_2",
         adAccountId: "act_1",
@@ -615,8 +629,8 @@ describe("reports route", () => {
         until: "2026-07-14",
         compareSince: "2026-07-01",
         compareUntil: "2026-07-07",
-        whatsappClassification: "whatsapp"
-      })
+        whatsappClassification: "whatsapp",
+      }),
     );
 
     expect(html).toContain("Conta Secundaria");
@@ -651,10 +665,10 @@ describe("reports route", () => {
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "Ultimos 7 dias",
-            campaigns: []
+            campaigns: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -678,43 +692,43 @@ describe("reports route", () => {
                         id: "ad_1",
                         name: "Criativo",
                         status: null,
-                        effectiveStatus: null
-                      }
-                    ]
+                        effectiveStatus: null,
+                      },
+                    ],
                   },
                   {
                     id: "adset_2",
                     name: "Publico sem anuncio",
                     status: null,
                     effectiveStatus: null,
-                    ads: []
-                  }
-                ]
-              }
-            ]
+                    ads: [],
+                  },
+                ],
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "Ultimos 7 dias",
-            adSets: []
+            adSets: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "Ultimos 7 dias",
-            ads: []
+            ads: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -727,11 +741,11 @@ describe("reports route", () => {
               canInviteMembers: true,
               canManageBilling: true,
               canManageIntegrations: true,
-              canViewReports: true
-            }
+              canViewReports: true,
+            },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await ReportsPage({});
@@ -748,39 +762,39 @@ describe("reports route", () => {
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "Ultimos 7 dias",
-            campaigns: []
+            campaigns: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
-            campaigns: []
+            campaigns: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            adSets: []
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "Ultimos 7 dias",
-            ads: []
+            adSets: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            ads: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -793,11 +807,11 @@ describe("reports route", () => {
               canInviteMembers: false,
               canManageBilling: false,
               canManageIntegrations: false,
-              canViewReports: true
-            }
+              canViewReports: true,
+            },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await ReportsPage({});

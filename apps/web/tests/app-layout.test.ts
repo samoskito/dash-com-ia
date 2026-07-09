@@ -15,14 +15,14 @@ describe("product app layout", () => {
       new Response(
         JSON.stringify({
           statusCode: 403,
-          message: "Workspace bloqueado operacionalmente"
+          message: "Workspace bloqueado operacionalmente",
         }),
-        { status: 403, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
     const element = await ProductLayout({
-      children: createElement("p", null, "Conteudo privado")
+      children: createElement("p", null, "Conteudo privado"),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -44,15 +44,15 @@ describe("product app layout", () => {
             canInviteMembers: true,
             canManageBilling: true,
             canManageIntegrations: true,
-            canViewReports: true
-          }
+            canViewReports: true,
+          },
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
     const element = await ProductLayout({
-      children: createElement("p", null, "Conteudo privado")
+      children: createElement("p", null, "Conteudo privado"),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -61,11 +61,20 @@ describe("product app layout", () => {
   });
 
   it("keeps the desktop sidebar fixed while product pages scroll", () => {
-    const css = readFileSync(join(process.cwd(), "src/styles/globals.css"), "utf8");
+    const css = readFileSync(
+      join(process.cwd(), "src/styles/globals.css"),
+      "utf8",
+    );
 
+    expect(css).toMatch(/\.app-shell\s*{[^}]*--sidebar-width:\s*260px/s);
+    expect(css).toMatch(
+      /\.app-shell\.sidebar-collapsed\s*{[^}]*--sidebar-width:\s*76px/s,
+    );
     expect(css).toMatch(/\.sidebar\s*{[^}]*position:\s*fixed/s);
     expect(css).toMatch(/\.sidebar\s*{[^}]*height:\s*100vh/s);
     expect(css).toMatch(/\.sidebar\s*{[^}]*overflow-y:\s*auto/s);
-    expect(css).toMatch(/\.content\s*{[^}]*padding-left:\s*260px/s);
+    expect(css).toMatch(
+      /\.content\s*{[^}]*padding-left:\s*var\(--sidebar-width\)/s,
+    );
   });
 });

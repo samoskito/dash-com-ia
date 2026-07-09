@@ -12,14 +12,16 @@ describe("navigation", () => {
       "leads",
       "reports",
       "integrations",
-      "settings"
+      "settings",
     ]);
-    expect(clientNavigation.map((item) => item.label)).not.toContain("Clientes");
+    expect(clientNavigation.map((item) => item.label)).not.toContain(
+      "Clientes",
+    );
   });
 
   it("renders the client navigation in the web app shell", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, null, createElement("p", null, "Panel content"))
+      createElement(AppShell, null, createElement("p", null, "Panel content")),
     );
 
     for (const item of clientNavigation) {
@@ -31,27 +33,34 @@ describe("navigation", () => {
     expect(html).not.toContain("Clientes");
   });
 
+  it("renders a sidebar collapse control for dense report screens", () => {
+    const html = renderToStaticMarkup(
+      createElement(AppShell, null, createElement("p", null, "Panel content")),
+    );
+
+    expect(html).toContain('class="sidebar-toggle"');
+    expect(html).toContain("Recolher menu");
+    expect(html).toContain('aria-expanded="true"');
+  });
+
   it("renders real workspace context without static health placeholders", () => {
     const html = renderToStaticMarkup(
-      createElement(
-        AppShell,
-        {
-          workspace: {
-            id: "workspace_1",
-            name: "Comunidade NOD",
-            slug: "comunidade-nod",
-            role: "owner",
-            operationalStatus: "active",
-            permissions: {
-              canInviteMembers: true,
-              canManageBilling: true,
-              canManageIntegrations: true,
-              canViewReports: true
-            }
+      createElement(AppShell, {
+        workspace: {
+          id: "workspace_1",
+          name: "Comunidade NOD",
+          slug: "comunidade-nod",
+          role: "owner",
+          operationalStatus: "active",
+          permissions: {
+            canInviteMembers: true,
+            canManageBilling: true,
+            canManageIntegrations: true,
+            canViewReports: true,
           },
-          children: createElement("p", null, "Panel content")
         },
-      )
+        children: createElement("p", null, "Panel content"),
+      }),
     );
 
     expect(html).toContain("Workspace");
@@ -69,15 +78,18 @@ describe("navigation", () => {
       "workspaces",
       "billing",
       "split",
-      "diagnostics"
+      "diagnostics",
     ]);
   });
 
   it("contains mobile nav scrolling without widening the app shell", () => {
-    const css = readFileSync(new URL("../src/styles/globals.css", import.meta.url), "utf8");
+    const css = readFileSync(
+      new URL("../src/styles/globals.css", import.meta.url),
+      "utf8",
+    );
     const mobileBlock = css.slice(
       css.indexOf("@media (max-width: 900px)"),
-      css.indexOf("@media (max-width: 620px)")
+      css.indexOf("@media (max-width: 620px)"),
     );
 
     expect(mobileBlock).toContain(".app-shell");
@@ -88,9 +100,19 @@ describe("navigation", () => {
   });
 
   it("protects app routes with the session middleware", () => {
-    const middleware = readFileSync(new URL("../src/middleware.ts", import.meta.url), "utf8");
+    const middleware = readFileSync(
+      new URL("../src/middleware.ts", import.meta.url),
+      "utf8",
+    );
 
-    for (const route of ["/overview", "/leads", "/reports", "/integrations", "/settings", "/backoffice"]) {
+    for (const route of [
+      "/overview",
+      "/leads",
+      "/reports",
+      "/integrations",
+      "/settings",
+      "/backoffice",
+    ]) {
       expect(middleware).toContain(route);
     }
 
