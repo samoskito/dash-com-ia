@@ -7,6 +7,7 @@ import {
   type MetaReportSyncJobPayload
 } from "../common/queue/queue.constants";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { createBullJobId } from "../common/queue/job-id";
 import { MetaReportingService } from "./meta-reporting.service";
 
 @Processor(META_REPORT_SYNC_QUEUE)
@@ -66,7 +67,9 @@ export class MetaReportSyncProcessor extends WorkerHost {
         data: {
           workspaceId: job.data.workspaceId,
           queueName: META_REPORT_SYNC_QUEUE,
-          jobId: String(job.id ?? `meta-report-sync:${job.data.workspaceId}`),
+          jobId: String(
+            job.id ?? createBullJobId("meta-report-sync", job.data.workspaceId)
+          ),
           jobName: job.name || "sync-meta-reporting",
           attemptNumber: (job.attemptsMade ?? 0) + 1,
           status,

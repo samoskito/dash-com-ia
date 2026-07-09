@@ -6,6 +6,7 @@ import {
   META_REPORT_SYNC_QUEUE,
   type MetaReportSyncJobPayload
 } from "../common/queue/queue.constants";
+import { createBullJobId } from "../common/queue/job-id";
 
 export type MetaReportSyncQueuedResult = MetaReportSyncJobPayload & {
   jobId: string;
@@ -22,7 +23,13 @@ export class MetaReportSyncQueueService {
   async enqueueSync(
     input: MetaReportSyncJobPayload
   ): Promise<MetaReportSyncQueuedResult> {
-    const jobId = `meta-report-sync:${input.workspaceId}:${input.since}:${input.until}:${randomUUID()}`;
+    const jobId = createBullJobId(
+      "meta-report-sync",
+      input.workspaceId,
+      input.since,
+      input.until,
+      randomUUID()
+    );
     const job = await this.queue.add("sync-meta-reporting", input, {
       jobId,
       attempts: 3,

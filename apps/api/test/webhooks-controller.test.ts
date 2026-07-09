@@ -58,7 +58,7 @@ async function createApp() {
   const conversionEventsQueueService = {
     enqueueSend: vi.fn(async () => ({
       conversionEventLogId: "conversion_1",
-      jobId: "conversion-send:conversion_1",
+      jobId: "conversion-send_conversion_1",
       status: "queued"
     }))
   };
@@ -187,7 +187,7 @@ describe("webhooks controller", () => {
         expect(body.conversion.queued).toEqual([
           {
             conversionEventLogId: "conversion_1",
-            jobId: "conversion-send:conversion_1",
+            jobId: "conversion-send_conversion_1",
             status: "queued"
           }
         ]);

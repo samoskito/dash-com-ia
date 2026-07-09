@@ -5,6 +5,7 @@ import {
   CONVERSION_EVENTS_QUEUE,
   type ConversionEventJobPayload
 } from "./queue.constants";
+import { createBullJobId } from "./job-id";
 
 export type ConversionEventQueuedResult = {
   conversionEventLogId: string;
@@ -22,7 +23,7 @@ export class ConversionEventsQueueService {
   async enqueueSend(
     conversionEventLogId: string
   ): Promise<ConversionEventQueuedResult> {
-    const jobId = `conversion-send:${conversionEventLogId}`;
+    const jobId = createBullJobId("conversion-send", conversionEventLogId);
     const job = await this.queue.add(
       "send-ready-event",
       {

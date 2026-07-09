@@ -28,13 +28,15 @@ describe("meta report sync queue service", () => {
       since: "2026-07-01",
       until: "2026-07-02",
       jobId: expect.stringMatching(
-        /^meta-report-sync:workspace_1:2026-07-01:2026-07-02:[0-9a-f-]{36}$/
+        /^meta-report-sync_workspace_1_2026-07-01_2026-07-02_[0-9a-f-]{36}$/
       ),
       status: "queued"
     });
     expect(second.jobId).toMatch(
-      /^meta-report-sync:workspace_1:2026-07-01:2026-07-02:[0-9a-f-]{36}$/
+      /^meta-report-sync_workspace_1_2026-07-01_2026-07-02_[0-9a-f-]{36}$/
     );
+    expect(first.jobId).not.toContain(":");
+    expect(second.jobId).not.toContain(":");
     expect(second.jobId).not.toBe(first.jobId);
 
     expect(queue.add).toHaveBeenNthCalledWith(

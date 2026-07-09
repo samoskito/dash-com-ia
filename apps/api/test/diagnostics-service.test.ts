@@ -27,7 +27,7 @@ function createHarness() {
   const conversionEventsQueueService = {
     enqueueSend: vi.fn(async (conversionEventLogId: string) => ({
       conversionEventLogId,
-      jobId: `conversion-send:${conversionEventLogId}`,
+      jobId: `conversion-send_${conversionEventLogId}`,
       status: "queued" as const
     }))
   };
@@ -1128,7 +1128,7 @@ describe("diagnostics service", () => {
     );
     expect(conversionEventLogs[0]).toMatchObject({
       status: "ready_to_send",
-      jobId: "conversion-send:conversion_1",
+      jobId: "conversion-send_conversion_1",
       errorMessage: null
     });
     expect(auditLogs[0]).toMatchObject({
@@ -1143,7 +1143,7 @@ describe("diagnostics service", () => {
     expect(jobAttempts[0]).toMatchObject({
       workspaceId: "workspace_1",
       queueName: "conversion-events",
-      jobId: "conversion-send:conversion_1",
+      jobId: "conversion-send_conversion_1",
       jobName: "send-ready-event",
       attemptNumber: 1,
       status: "queued",
@@ -1160,7 +1160,7 @@ describe("diagnostics service", () => {
       title: "Reenvio Meta CAPI enfileirado",
       conversionEventLogId: "conversion_1",
       jobAttemptId: "job_attempt_1",
-      jobId: "conversion-send:conversion_1"
+      jobId: "conversion-send_conversion_1"
     });
   });
 

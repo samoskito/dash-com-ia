@@ -132,7 +132,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       workspaceId: "workspace_1",
       since: "2026-07-01",
       until: "2026-07-02",
-      jobId: "meta-report-sync:workspace_1:2026-07-01:2026-07-02",
+      jobId: "meta-report-sync_workspace_1_2026-07-01_2026-07-02",
       status: "queued"
     }))
   };
@@ -336,7 +336,9 @@ describe("reporting controller", () => {
       .expect(201)
       .expect(({ body }) => {
         expect(body.status).toBe("queued");
-        expect(body.jobId).toBe("meta-report-sync:workspace_1:2026-07-01:2026-07-02");
+        expect(body.jobId).toBe(
+          "meta-report-sync_workspace_1_2026-07-01_2026-07-02"
+        );
       });
 
     expect(queueService.enqueueSync).toHaveBeenCalledWith({

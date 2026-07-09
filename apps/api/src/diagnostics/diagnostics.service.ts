@@ -26,6 +26,7 @@ import type {
 import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
 import { DiagnosticsQueueService } from "../common/queue/diagnostics-queue.service";
+import { createBullJobId } from "../common/queue/job-id";
 import { CONVERSION_EVENTS_QUEUE } from "../common/queue/queue.constants";
 
 const sensitiveKeyPattern =
@@ -1079,7 +1080,8 @@ export class DiagnosticsService {
     const queued = await this.conversionEventsQueueService?.enqueueSend(
       conversionEvent.id
     );
-    const jobId = queued?.jobId ?? `conversion-send:${conversionEvent.id}`;
+    const jobId =
+      queued?.jobId ?? createBullJobId("conversion-send", conversionEvent.id);
 
     await this.prisma.conversionEventLog.update({
       where: { id: conversionEvent.id },
