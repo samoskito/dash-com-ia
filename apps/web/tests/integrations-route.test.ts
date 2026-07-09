@@ -332,7 +332,7 @@ describe("integrations route", () => {
     expect(html).toContain('name="businessId"');
     expect(html).toContain('name="adAccountId"');
     expect(html).toContain('name="pixelId"');
-    expect(html).toContain("Salvar selecao Meta");
+    expect(html).not.toContain("Salvar selecao Meta");
     expect(html).toContain("Vendas");
     expect(html).toContain("provider_instance_1");
     expect(html).toContain("Conectar WhatsApp");
@@ -577,11 +577,12 @@ describe("integrations route", () => {
     const element = await IntegrationsPage();
     const html = renderToStaticMarkup(createElement("div", null, element));
 
-    expect(html).toContain("BM Principal");
+    expect(html).toContain("Contas para relatorios");
     expect(html).toContain("Vendas");
     expect(html).toContain("Ativa");
     expect(html).toContain("Nao vinculada");
-    expect(html).toContain("Sem permissao para alterar Meta");
+    expect(html).toContain("Sem permissao para alterar destino Meta");
+    expect(html).toContain("Sem permissao para alterar contas de relatorio");
     expect(html).not.toContain("Escopos");
     expect(html).not.toContain("Token CAPI");
     expect(html).not.toContain("Salvar token CAPI");
@@ -651,10 +652,10 @@ describe("integrations route", () => {
 
     expect(html).toContain("API indisponivel");
     expect(html).toContain("Nao foi possivel carregar integracoes");
-    expect(html).toContain("Ativos Meta indisponiveis");
+    expect(html).toContain("Nao foi possivel ler os ativos Meta agora.");
     expect(html).toContain("Nao foi possivel carregar instancias");
-    expect(html).toContain("Leitura de ativos indisponivel");
-    expect(html).toContain("Tente novamente apos a API responder");
+    expect(html).not.toContain("Leitura de ativos indisponivel");
+    expect(html).not.toContain("Tente novamente apos a API responder");
     expect(html).not.toContain("aguardando API");
     expect(html).not.toContain("sem dados");
     expect(html).not.toContain("Fallback visual");
@@ -911,8 +912,13 @@ describe("integrations route", () => {
     const element = await IntegrationsPage();
     const html = renderToStaticMarkup(createElement("div", null, element));
 
-    expect(html).toContain("Ativo selecionado fora da ultima sincronizacao");
-    expect(html).toContain("Ressincronize a Meta ou escolha outro ativo");
+    expect(html).toContain("BM Nova");
+    expect(html).toContain("Sem Pixel");
+    expect(html).toContain("Sem Pagina");
+    expect(html).toContain("Nenhuma conta configurada");
+    expect(html).not.toContain("business_old");
+    expect(html).not.toContain("act_old");
+    expect(html).not.toContain("pixel_old");
     expect(html).not.toContain("ativo selecionado nao encontrado");
   });
 });

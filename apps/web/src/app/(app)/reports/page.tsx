@@ -253,6 +253,32 @@ async function syncMetaReports(formData: FormData) {
   }
 }
 
+async function saveWhatsappClassification(formData: FormData) {
+  "use server";
+
+  const level = String(formData.get("level") ?? "");
+  const id = String(formData.get("id") ?? "");
+  const overrideValue = String(formData.get("override") ?? "");
+  const override =
+    overrideValue === "manual_include" || overrideValue === "manual_exclude"
+      ? overrideValue
+      : null;
+
+  if (!["campaign", "adset", "ad"].includes(level) || !id) {
+    return;
+  }
+
+  try {
+    await serverApiFetch("/reports/meta/whatsapp-classification", {
+      method: "PUT",
+      body: JSON.stringify({ level, id, override })
+    });
+    revalidatePath("/reports");
+  } catch {
+    return;
+  }
+}
+
 function asStringParam(
   value: string | string[] | undefined
 ): string | undefined {
@@ -329,6 +355,30 @@ function reportStatusChip(status: PerformanceRow["status"]) {
     <span className={`event-chip${status === "paused" ? " warn" : ""}`}>
       {status}
     </span>
+  );
+}
+
+function ReviewActions({
+  id,
+  level
+}: {
+  id: string;
+  level: "campaign" | "adset" | "ad";
+}) {
+  return (
+    <form className="review-actions" action={saveWhatsappClassification}>
+      <input type="hidden" name="level" value={level} />
+      <input type="hidden" name="id" value={id} />
+      <button type="submit" name="override" value="manual_include">
+        Incluir
+      </button>
+      <button type="submit" name="override" value="manual_exclude">
+        Excluir
+      </button>
+      <button type="submit" name="override" value="">
+        Resetar
+      </button>
+    </form>
   );
 }
 
@@ -501,6 +551,7 @@ export default async function ReportsPage({
   const syncStructureHint = canSyncMetaReports
     ? "Use o botao Sincronizar Meta para enfileirar a leitura."
     : "A leitura da estrutura Meta depende de owner ou admin.";
+  const noReviewPermission = "Sem permissao para revisar";
 
   return (
     <section className="page-stack">
@@ -620,6 +671,7 @@ export default async function ReportsPage({
               <th>QualifiedLead</th>
               <th>Purchase</th>
               <th>ROAS</th>
+              <th>Revisao WhatsApp</th>
             </tr>
           </thead>
           <tbody>
@@ -646,6 +698,13 @@ export default async function ReportsPage({
                       {reportStatusChip(row.status)}
                     </td>
                     <PerformanceMetricsCells row={row} />
+                    <td>
+                      {canSyncMetaReports ? (
+                        <ReviewActions level="campaign" id={row.id} />
+                      ) : (
+                        <span className="tag">{noReviewPermission}</span>
+                      )}
+                    </td>
                   </tr>
               ))
             ) : (
@@ -663,6 +722,7 @@ export default async function ReportsPage({
                   </span>
                 </td>
                 <EmptyPerformanceCells />
+                <td>-</td>
               </tr>
             )}
           </tbody>
@@ -685,6 +745,7 @@ export default async function ReportsPage({
                 <th>QualifiedLead</th>
                 <th>Purchase</th>
                 <th>ROAS</th>
+                <th>Revisao WhatsApp</th>
               </tr>
             </thead>
             <tbody>
@@ -713,6 +774,13 @@ export default async function ReportsPage({
                       {reportStatusChip(row.status)}
                     </td>
                     <PerformanceMetricsCells row={row} />
+                    <td>
+                      {canSyncMetaReports ? (
+                        <ReviewActions level="adset" id={row.id} />
+                      ) : (
+                        <span className="tag">{noReviewPermission}</span>
+                      )}
+                    </td>
                   </tr>
                 ))
               ) : (
@@ -730,6 +798,7 @@ export default async function ReportsPage({
                     </span>
                   </td>
                   <EmptyPerformanceCells />
+                  <td>-</td>
                 </tr>
               )}
             </tbody>
@@ -753,6 +822,7 @@ export default async function ReportsPage({
                 <th>QualifiedLead</th>
                 <th>Purchase</th>
                 <th>ROAS</th>
+                <th>Revisao WhatsApp</th>
               </tr>
             </thead>
             <tbody>
@@ -782,6 +852,13 @@ export default async function ReportsPage({
                       {reportStatusChip(row.status)}
                     </td>
                     <PerformanceMetricsCells row={row} />
+                    <td>
+                      {canSyncMetaReports ? (
+                        <ReviewActions level="ad" id={row.id} />
+                      ) : (
+                        <span className="tag">{noReviewPermission}</span>
+                      )}
+                    </td>
                   </tr>
                 ))
               ) : (
@@ -799,6 +876,7 @@ export default async function ReportsPage({
                     </span>
                   </td>
                   <EmptyPerformanceCells />
+                  <td>-</td>
                 </tr>
               )}
             </tbody>

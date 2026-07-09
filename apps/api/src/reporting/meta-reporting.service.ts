@@ -57,10 +57,12 @@ type ReportFilterInput = {
   whatsappClassification?: WhatsappClassificationFilter;
 };
 
+type StringFilter = string | { in: string[] };
+
 type MetaSnapshotWhere = {
   workspaceId: string;
-  businessId?: string;
-  adAccountId?: string;
+  businessId?: StringFilter;
+  adAccountId?: StringFilter;
   whatsappClassification?:
     | WhatsappClassification
     | { in: WhatsappClassification[] };
@@ -143,6 +145,18 @@ type LeadRecord = {
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
+};
+
+type LeadEvidenceMaps = {
+  campaigns: Set<string>;
+  adSets: Set<string>;
+  ads: Set<string>;
+};
+
+type CampaignMetricOverride = {
+  spendCents: number;
+  metaConversationsStarted: number;
+  adSetIds: Set<string>;
 };
 
 type WhatsappOverrideLevel = "campaign" | "adset" | "ad";
@@ -349,13 +363,19 @@ export class MetaReportingService {
       existingAdSets.map((adSet) => [adSet.adSetId, adSet])
     );
     const existingAdById = new Map(existingAds.map((ad) => [ad.adId, ad]));
+    const leadEvidence = await this.loadLeadEvidence({
+      workspaceId: input.workspaceId,
+      campaignIds: campaigns.map((campaign) => campaign.id),
+      adSetIds: adSets.map((adSet) => adSet.id),
+      adIds: ads.map((ad) => ad.id)
+    });
     const adSetClassificationById = new Map(
       adSets.map((adSet) => [
         adSet.id,
         this.whatsappClassifier.classify({
           destinationType: adSet.destinationType,
           callToActionType: null,
-          hasLeadEvidence: false,
+          hasLeadEvidence: leadEvidence.adSets.has(adSet.id),
           override: this.manualOverride(existingAdSetById.get(adSet.id))
         })
       ])
@@ -366,7 +386,7 @@ export class MetaReportingService {
         this.whatsappClassifier.classify({
           destinationType: adSetById.get(ad.adSetId)?.destinationType ?? null,
           callToActionType: ad.callToActionType,
-          hasLeadEvidence: false,
+          hasLeadEvidence: leadEvidence.ads.has(ad.id),
           override: this.manualOverride(existingAdById.get(ad.id))
         })
       ])
@@ -387,6 +407,9 @@ export class MetaReportingService {
         }
 
         const classification = this.campaignClassificationFromChildren([
+          ...(leadEvidence.campaigns.has(campaign.id)
+            ? [{ whatsappClassification: "detected_by_leads" }]
+            : []),
           ...adSets
             .filter((adSet) => adSet.campaignId === campaign.id)
             .map((adSet) => ({
@@ -560,10 +583,27 @@ export class MetaReportingService {
     since?: string;
     until?: string;
   } & ReportFilterInput): Promise<ReportOverviewDto> {
-    const campaigns = (await this.prisma.metaCampaign.findMany({
-      where: this.metaSnapshotWhere(input),
-      orderBy: { name: "asc" }
-    })) as MetaCampaignRecord[];
+    const campaignWhere = await this.metaSnapshotWhere(input);
+    const usesWhatsappDefault =
+      (input.whatsappClassification ?? "whatsapp") === "whatsapp";
+    const whatsappAdSetWhere = usesWhatsappDefault
+      ? await this.metaSnapshotWhere({
+          ...input,
+          whatsappClassification: "whatsapp"
+        })
+      : null;
+    const [campaigns, whatsappAdSets] = (await Promise.all([
+      this.prisma.metaCampaign.findMany({
+        where: campaignWhere,
+        orderBy: { name: "asc" }
+      }),
+      whatsappAdSetWhere
+        ? this.prisma.metaAdSet.findMany({
+            where: whatsappAdSetWhere,
+            orderBy: { name: "asc" }
+          })
+        : Promise.resolve([])
+    ])) as [MetaCampaignRecord[], MetaAdSetRecord[]];
     const conversionLogs = (await this.prisma.conversionEventLog.findMany({
       where: {
         workspaceId: input.workspaceId,
@@ -603,12 +643,18 @@ export class MetaReportingService {
         adId: true
       }
     })) as LeadRecord[];
+    const childMetricByCampaign = this.campaignMetricOverrides(whatsappAdSets);
 
     return {
       workspaceId: input.workspaceId,
       rangeLabel: input.rangeLabel,
       campaigns: campaigns.map((campaign) =>
-        this.toReportRow(campaign, conversionLogs, leads)
+        this.toReportRow(
+          campaign,
+          conversionLogs,
+          leads,
+          childMetricByCampaign.get(campaign.campaignId)
+        )
       )
     };
   }
@@ -839,13 +885,15 @@ export class MetaReportingService {
     since?: string;
     until?: string;
   } & ReportFilterInput): Promise<AdSetReportOverviewDto> {
+    const hierarchyWhere = await this.metaHierarchyWhere(input);
+    const snapshotWhere = await this.metaSnapshotWhere(input);
     const [campaigns, adSets, conversionLogs, leads] = await Promise.all([
       this.prisma.metaCampaign.findMany({
-        where: this.metaHierarchyWhere(input),
+        where: hierarchyWhere,
         orderBy: { name: "asc" }
       }) as Promise<MetaCampaignRecord[]>,
       this.prisma.metaAdSet.findMany({
-        where: this.metaSnapshotWhere(input),
+        where: snapshotWhere,
         orderBy: { name: "asc" }
       }) as Promise<MetaAdSetRecord[]>,
       this.getSentConversionEvents(input),
@@ -876,17 +924,19 @@ export class MetaReportingService {
     since?: string;
     until?: string;
   } & ReportFilterInput): Promise<AdReportOverviewDto> {
+    const hierarchyWhere = await this.metaHierarchyWhere(input);
+    const snapshotWhere = await this.metaSnapshotWhere(input);
     const [campaigns, adSets, ads, conversionLogs, leads] = await Promise.all([
       this.prisma.metaCampaign.findMany({
-        where: this.metaHierarchyWhere(input),
+        where: hierarchyWhere,
         orderBy: { name: "asc" }
       }) as Promise<MetaCampaignRecord[]>,
       this.prisma.metaAdSet.findMany({
-        where: this.metaHierarchyWhere(input),
+        where: hierarchyWhere,
         orderBy: { name: "asc" }
       }) as Promise<MetaAdSetRecord[]>,
       this.prisma.metaAd.findMany({
-        where: this.metaSnapshotWhere(input),
+        where: snapshotWhere,
         orderBy: { name: "asc" }
       }) as Promise<MetaAdRecord[]>,
       this.getSentConversionEvents(input),
@@ -916,17 +966,18 @@ export class MetaReportingService {
   async getMetaStructureReport(
     workspaceId: string
   ): Promise<MetaStructureReportDto> {
+    const where = await this.metaHierarchyWhere({ workspaceId });
     const [campaigns, adSets, ads] = (await Promise.all([
       this.prisma.metaCampaign.findMany({
-        where: { workspaceId },
+        where,
         orderBy: { name: "asc" }
       }),
       this.prisma.metaAdSet.findMany({
-        where: { workspaceId },
+        where,
         orderBy: { name: "asc" }
       }),
       this.prisma.metaAd.findMany({
-        where: { workspaceId },
+        where,
         orderBy: { name: "asc" }
       })
     ])) as [MetaCampaignRecord[], MetaAdSetRecord[], MetaAdRecord[]];
@@ -1142,17 +1193,30 @@ export class MetaReportingService {
   private toReportRow(
     campaign: MetaCampaignRecord,
     conversionLogs: ConversionEventRecord[],
-    leads: LeadRecord[]
+    leads: LeadRecord[],
+    metricOverride?: CampaignMetricOverride
   ): CampaignReportRowDto {
+    const restrictToAdSets = metricOverride?.adSetIds.size
+      ? metricOverride.adSetIds
+      : null;
     const campaignEvents = conversionLogs.filter(
-      (item) => item.campaignId === campaign.campaignId
+      (item) =>
+        item.campaignId === campaign.campaignId &&
+        (!restrictToAdSets || !item.adSetId || restrictToAdSets.has(item.adSetId))
     );
     const realConversations = leads.filter(
-      (item) => item.campaignId === campaign.campaignId
+      (item) =>
+        item.campaignId === campaign.campaignId &&
+        (!restrictToAdSets || !item.adSetId || restrictToAdSets.has(item.adSetId))
     ).length;
-    const leadSubmitted = this.countEvents(campaignEvents, "LeadSubmitted");
-    const qualifiedLead = this.countEvents(campaignEvents, "QualifiedLead");
-    const purchase = this.countEvents(campaignEvents, "Purchase");
+    const metrics = this.toMetrics({
+      spendCents: metricOverride?.spendCents ?? campaign.spendCents,
+      metaConversationsStarted:
+        metricOverride?.metaConversationsStarted ??
+        campaign.metaConversationsStarted,
+      events: campaignEvents,
+      realConversations
+    });
 
     return {
       id: campaign.campaignId,
@@ -1161,27 +1225,7 @@ export class MetaReportingService {
       businessId: campaign.businessId,
       adAccountId: campaign.adAccountId,
       whatsappClassification: campaign.whatsappClassification,
-      spendCents: campaign.spendCents,
-      metaConversationsStarted: campaign.metaConversationsStarted,
-      costPerMetaConversationCents: this.costPer(
-        campaign.spendCents,
-        campaign.metaConversationsStarted
-      ),
-      realConversations,
-      costPerRealConversationCents: this.costPer(
-        campaign.spendCents,
-        realConversations
-      ),
-      leadSubmitted,
-      costPerLeadSubmittedCents: this.costPer(campaign.spendCents, leadSubmitted),
-      qualifiedLead,
-      costPerQualifiedLeadCents: this.costPer(
-        campaign.spendCents,
-        qualifiedLead
-      ),
-      purchase,
-      costPerPurchaseCents: this.costPer(campaign.spendCents, purchase),
-      roas: null
+      ...metrics
     };
   }
 
@@ -1350,6 +1394,83 @@ export class MetaReportingService {
     return leads.length > 0;
   }
 
+  private async loadLeadEvidence(input: {
+    workspaceId: string;
+    campaignIds: string[];
+    adSetIds: string[];
+    adIds: string[];
+  }): Promise<LeadEvidenceMaps> {
+    const evidence: LeadEvidenceMaps = {
+      campaigns: new Set(),
+      adSets: new Set(),
+      ads: new Set()
+    };
+
+    if (
+      input.campaignIds.length === 0 &&
+      input.adSetIds.length === 0 &&
+      input.adIds.length === 0
+    ) {
+      return evidence;
+    }
+
+    const leads = (await this.prisma.lead.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        ...(input.campaignIds.length
+          ? { campaignId: { in: input.campaignIds } }
+          : {})
+      },
+      select: {
+        campaignId: true,
+        adSetId: true,
+        adId: true
+      }
+    })) as LeadRecord[];
+
+    const adSetIds = new Set(input.adSetIds);
+    const adIds = new Set(input.adIds);
+
+    for (const lead of leads) {
+      if (lead.campaignId) {
+        evidence.campaigns.add(lead.campaignId);
+      }
+
+      if (lead.adSetId && adSetIds.has(lead.adSetId)) {
+        evidence.adSets.add(lead.adSetId);
+      }
+
+      if (lead.adId && adIds.has(lead.adId)) {
+        evidence.ads.add(lead.adId);
+      }
+    }
+
+    return evidence;
+  }
+
+  private campaignMetricOverrides(
+    adSets: MetaAdSetRecord[]
+  ): Map<string, CampaignMetricOverride> {
+    const metrics = new Map<string, CampaignMetricOverride>();
+
+    for (const adSet of adSets) {
+      const current =
+        metrics.get(adSet.campaignId) ??
+        ({
+          spendCents: 0,
+          metaConversationsStarted: 0,
+          adSetIds: new Set<string>()
+        } satisfies CampaignMetricOverride);
+
+      current.spendCents += adSet.spendCents;
+      current.metaConversationsStarted += adSet.metaConversationsStarted;
+      current.adSetIds.add(adSet.adSetId);
+      metrics.set(adSet.campaignId, current);
+    }
+
+    return metrics;
+  }
+
   private periodWhere(input: { since?: string; until?: string }) {
     return input.since && input.until
       ? {
@@ -1361,10 +1482,10 @@ export class MetaReportingService {
       : {};
   }
 
-  private metaSnapshotWhere(input: {
+  private async metaSnapshotWhere(input: {
     workspaceId: string;
-  } & ReportFilterInput): MetaSnapshotWhere {
-    const where = this.metaHierarchyWhere(input) as MetaSnapshotWhere;
+  } & ReportFilterInput): Promise<MetaSnapshotWhere> {
+    const where = (await this.metaHierarchyWhere(input)) as MetaSnapshotWhere;
 
     const classification = input.whatsappClassification ?? "whatsapp";
 
@@ -1386,19 +1507,46 @@ export class MetaReportingService {
     return where;
   }
 
-  private metaHierarchyWhere(input: {
+  private async metaHierarchyWhere(input: {
     workspaceId: string;
-  } & ReportFilterInput): Omit<MetaSnapshotWhere, "whatsappClassification"> {
+  } & ReportFilterInput): Promise<Omit<MetaSnapshotWhere, "whatsappClassification">> {
     const where: Omit<MetaSnapshotWhere, "whatsappClassification"> = {
       workspaceId: input.workspaceId
     };
+    const activeAccounts = (await this.prisma.metaReportingAccount.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        active: true,
+        ...(input.businessId ? { businessId: input.businessId } : {}),
+        ...(input.adAccountId ? { adAccountId: input.adAccountId } : {})
+      },
+      select: {
+        businessId: true,
+        adAccountId: true
+      }
+    })) as Array<{ businessId: string; adAccountId: string }>;
 
     if (input.businessId) {
       where.businessId = input.businessId;
     }
 
     if (input.adAccountId) {
-      where.adAccountId = input.adAccountId;
+      where.adAccountId = activeAccounts.some(
+        (account) => account.adAccountId === input.adAccountId
+      )
+        ? input.adAccountId
+        : { in: [] };
+      return where;
+    }
+
+    where.adAccountId = {
+      in: [...new Set(activeAccounts.map((account) => account.adAccountId))]
+    };
+
+    if (!input.businessId && activeAccounts.length > 0) {
+      where.businessId = {
+        in: [...new Set(activeAccounts.map((account) => account.businessId))]
+      };
     }
 
     return where;

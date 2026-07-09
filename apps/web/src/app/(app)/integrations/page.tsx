@@ -13,7 +13,6 @@ import type {
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { serverApiFetch } from "../../../lib/server-api";
-import { MetaAssetsForm } from "./meta-assets-form";
 import { MetaConversionDestinationForm } from "./meta-conversion-destination-form";
 import { MetaOAuthButton } from "./meta-oauth-button";
 import { MetaReportingAccountsForm } from "./meta-reporting-accounts-form";
@@ -182,37 +181,6 @@ async function getMetaAssets(): Promise<ResourceResult<MetaAssetsDto | null>> {
   }
 }
 
-async function loadMetaBusinessAssetsAction(
-  businessId: string
-): Promise<Pick<MetaAssetsDto, "adAccounts" | "pixels">> {
-  "use server";
-
-  const safeBusinessId = businessId.trim();
-
-  if (!safeBusinessId) {
-    return {
-      adAccounts: [],
-      pixels: []
-    };
-  }
-
-  try {
-    const assets = await serverApiFetch<MetaAssetsDto>(
-      `/integrations/meta/assets?businessId=${encodeURIComponent(safeBusinessId)}`
-    );
-
-    return {
-      adAccounts: assets.adAccounts,
-      pixels: assets.pixels
-    };
-  } catch {
-    return {
-      adAccounts: [],
-      pixels: []
-    };
-  }
-}
-
 async function connectWhatsappInstance(formData: FormData) {
   "use server";
 
@@ -263,32 +231,6 @@ async function createWhatsappCheckout(formData: FormData) {
   }
 
   revalidatePath("/integrations");
-}
-
-async function saveMetaAssetSelection(formData: FormData) {
-  "use server";
-
-  const businessId = String(formData.get("businessId") ?? "").trim();
-  const adAccountId = String(formData.get("adAccountId") ?? "").trim();
-  const pixelId = String(formData.get("pixelId") ?? "").trim();
-
-  if (!businessId && !adAccountId && !pixelId) {
-    return;
-  }
-
-  try {
-    await serverApiFetch("/integrations/meta/assets/selection", {
-      method: "PUT",
-      body: JSON.stringify({
-        businessId: businessId || null,
-        adAccountId: adAccountId || null,
-        pixelId: pixelId || null
-      })
-    });
-    revalidatePath("/integrations");
-  } catch {
-    return;
-  }
 }
 
 async function saveMetaConversionDestination(formData: FormData) {
@@ -445,40 +387,6 @@ function metaConnectionTitle(status?: MetaAssetsDto["status"] | MetaConnectionDt
   return "Meta nao conectado";
 }
 
-function selectedMetaAssetName<T extends { id: string; name: string }>(
-  items: T[],
-  selectedId: string | null | undefined,
-  emptyLabel: string
-) {
-  if (!selectedId) {
-    return emptyLabel;
-  }
-
-  return (
-    items.find((item) => item.id === selectedId)?.name ??
-    "Ativo selecionado fora da ultima sincronizacao"
-  );
-}
-
-function selectedMetaAssetDetail<T extends { id: string }>(
-  items: T[],
-  selectedId: string | null | undefined,
-  detail: (item: T) => string | null | undefined,
-  emptyLabel: string
-) {
-  if (!selectedId) {
-    return emptyLabel;
-  }
-
-  const item = items.find((candidate) => candidate.id === selectedId);
-
-  if (!item) {
-    return "Ressincronize a Meta ou escolha outro ativo";
-  }
-
-  return detail(item) ?? emptyLabel;
-}
-
 function metaAssetsDetail(
   metaAssets: MetaAssetsDto | null,
   state: ResourceResult<MetaAssetsDto | null>["state"]
@@ -566,21 +474,9 @@ export default async function IntegrationsPage() {
     workspaceResult.state
   ].includes("error");
   const metaStatus = metaAssets?.status ?? metaConnection?.status;
-  const selectedBusinessName = selectedMetaAssetName(
-    metaAssets?.businesses ?? [],
-    metaAssets?.selection.businessId,
-    metaAssets?.status === "connected" ? "aguardando BM" : "Meta nao conectado"
-  );
-  const selectedAdAccountName = selectedMetaAssetName(
-    metaAssets?.adAccounts ?? [],
-    metaAssets?.selection.adAccountId,
-    metaAssets?.status === "connected" ? "aguardando conta" : "Meta nao conectado"
-  );
-  const selectedPixelName = selectedMetaAssetName(
-    metaAssets?.pixels ?? [],
-    metaAssets?.selection.pixelId,
-    metaAssets?.status === "connected" ? "aguardando Pixel" : "Meta nao conectado"
-  );
+  const activeReportingAccounts =
+    (metaAssets?.reportingAccounts ?? []).filter((account) => account.active)
+      .length;
   const integrations =
     health?.providers.map((item) => ({
       title: providerTitle(item.provider),
@@ -682,30 +578,21 @@ export default async function IntegrationsPage() {
             <strong>{metaStatusLabel}</strong>
           </div>
           <div className="metric-card">
-            <span className="micro-label">BM selecionado</span>
-            <strong>{selectedBusinessName}</strong>
+            <span className="micro-label">Destino CAPI</span>
+            <strong>
+              {metaAssets?.conversionDestination
+                ? statusLabel(metaAssets.conversionDestination.status)
+                : "Nao configurado"}
+            </strong>
           </div>
           <div className="metric-card">
-            <span className="micro-label">Conta selecionada</span>
-            <strong>{selectedAdAccountName}</strong>
-          </div>
-          <div className="metric-card">
-            <span className="micro-label">Pixel selecionado</span>
-            <strong>{selectedPixelName}</strong>
+            <span className="micro-label">Contas em relatorios</span>
+            <strong>{activeReportingAccounts}</strong>
           </div>
         </div>
         <p className="muted">
           {metaAssetsDetail(metaAssets, metaAssetsResult.state)}
         </p>
-        {metaAssets && canManageIntegrations ? (
-          <MetaAssetsForm
-            assets={metaAssets}
-            action={saveMetaAssetSelection}
-            loadBusinessAssetsAction={loadMetaBusinessAssetsAction}
-          />
-        ) : metaAssets ? (
-          <p className="muted">Sem permissao para alterar Meta</p>
-        ) : null}
         {metaAssets ? (
           <>
             <span className="eyebrow">Destino de conversao</span>
@@ -750,97 +637,9 @@ export default async function IntegrationsPage() {
             )}
           </>
         ) : null}
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Tipo</th>
-                <th>Ativo</th>
-                <th>Detalhe</th>
-                <th>Selecao</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metaAssets ? (
-                <>
-                  <tr>
-                    <td>Business Manager</td>
-                    <td>
-                      <strong>{selectedBusinessName}</strong>
-                      <span>{metaAssets.selection.businessId ?? "sem selecao"}</span>
-                    </td>
-                    <td>
-                      {selectedMetaAssetDetail(
-                        metaAssets.businesses,
-                        metaAssets.selection.businessId,
-                        (business) => business.verificationStatus,
-                        "sem status"
-                      )}
-                    </td>
-                    <td><span className="event-chip">selecionado</span></td>
-                  </tr>
-                  <tr>
-                    <td>Conta de anuncio</td>
-                    <td>
-                      <strong>{selectedAdAccountName}</strong>
-                      <span>{metaAssets.selection.adAccountId ?? "sem selecao"}</span>
-                    </td>
-                    <td>
-                      {selectedMetaAssetDetail(
-                        metaAssets.adAccounts,
-                        metaAssets.selection.adAccountId,
-                        (adAccount) => adAccount.currency,
-                        "sem moeda"
-                      )}
-                    </td>
-                    <td><span className="event-chip">selecionado</span></td>
-                  </tr>
-                  <tr>
-                    <td>Pixel</td>
-                    <td>
-                      <strong>{selectedPixelName}</strong>
-                      <span>{metaAssets.selection.pixelId ?? "sem selecao"}</span>
-                    </td>
-                    <td>
-                      {selectedMetaAssetDetail(
-                        metaAssets.pixels,
-                        metaAssets.selection.pixelId,
-                        () => "Selecionado para eventos",
-                        "sem selecao"
-                      )}
-                    </td>
-                    <td><span className="event-chip">selecionado</span></td>
-                  </tr>
-                </>
-              ) : (
-                <tr>
-                  <td>Meta</td>
-                  <td>
-                    <strong>Ativos Meta indisponiveis</strong>
-                    <span>
-                      {metaAssetsResult.state === "error"
-                        ? "Leitura de ativos indisponivel"
-                        : "Conecte a Meta para carregar ativos"}
-                    </span>
-                  </td>
-                  <td>
-                    {metaAssetsResult.state === "error"
-                      ? "Tente novamente apos a API responder"
-                      : "Aguardando conexao Meta"}
-                  </td>
-                  <td>
-                    <span className="event-chip warn">
-                      {metaAssetsResult.state === "error" ? "indisponivel" : "sem ativos"}
-                    </span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
         <p className="muted">
-          A conexao Meta fica protegida no backend. Esta tela mostra apenas a
-          selecao operacional de BM, conta de anuncio e Pixel.
+          A conexao Meta fica protegida no backend. Esta tela mostra apenas o
+          destino unico de conversao e as contas ativas usadas nos relatorios.
         </p>
       </div>
 

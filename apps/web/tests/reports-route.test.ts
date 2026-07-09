@@ -264,6 +264,10 @@ describe("reports route", () => {
     expect(html).toContain("Performance por anuncio");
     expect(html).toContain("Insights Meta por conjunto sincronizados");
     expect(html).toContain("Insights Meta por anuncio sincronizados");
+    expect(html).toContain("Revisao WhatsApp");
+    expect(html.match(/Incluir/g)).toHaveLength(3);
+    expect(html.match(/Excluir/g)).toHaveLength(3);
+    expect(html.match(/Resetar/g)).toHaveLength(3);
     expect(html).toContain("600,00");
     expect(html).toContain("300,00");
     expect(html).toContain(
