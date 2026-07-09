@@ -1,5 +1,6 @@
 import { Test } from "@nestjs/testing";
 import { describe, expect, it } from "vitest";
+import { MetaReportAutoSyncService } from "../src/reporting/meta-report-auto-sync.service";
 import { MetaReportingService } from "../src/reporting/meta-reporting.service";
 import { ReportingModule } from "../src/reporting/reporting.module";
 
@@ -11,6 +12,9 @@ describe("reporting module wiring", () => {
 
     expect(moduleRef.get(MetaReportingService)).toBeInstanceOf(
       MetaReportingService
+    );
+    expect(moduleRef.get(MetaReportAutoSyncService)).toBeInstanceOf(
+      MetaReportAutoSyncService
     );
 
     await moduleRef.close();

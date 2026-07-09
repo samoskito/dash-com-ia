@@ -1116,6 +1116,31 @@ body {
   flex-basis: 150px;
 }
 
+.report-period-form {
+  align-items: flex-end;
+}
+
+.filter-field {
+  display: grid;
+  flex: 0 1 150px;
+  gap: 6px;
+  min-width: 140px;
+}
+
+.filter-field span {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.filter-field input {
+  width: 100%;
+}
+
 .inline-form input::placeholder,
 .filter-bar input::placeholder,
 .control-row input::placeholder {

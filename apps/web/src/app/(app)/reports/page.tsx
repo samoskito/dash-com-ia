@@ -615,7 +615,7 @@ export default async function ReportsPage({
           <p>Metricas Meta Ads combinadas com leads reais e eventos de conversao.</p>
         </div>
         <div className="header-actions">
-          <form className="inline-form" action="/reports">
+          <form className="inline-form report-period-form" action="/reports">
             <input type="hidden" name="businessId" value={businessId ?? ""} />
             <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
             <input
@@ -623,20 +623,14 @@ export default async function ReportsPage({
               name="whatsappClassification"
               value={whatsappClassification ?? ""}
             />
-            <input type="date" name="since" defaultValue={since} aria-label="Data inicial" />
-            <input type="date" name="until" defaultValue={until} aria-label="Data final" />
-            <input
-              type="date"
-              name="compareSince"
-              defaultValue={compareSince}
-              aria-label="Data inicial comparada"
-            />
-            <input
-              type="date"
-              name="compareUntil"
-              defaultValue={compareUntil}
-              aria-label="Data final comparada"
-            />
+            <label className="filter-field">
+              <span>Inicio</span>
+              <input type="date" name="since" defaultValue={since} />
+            </label>
+            <label className="filter-field">
+              <span>Fim</span>
+              <input type="date" name="until" defaultValue={until} />
+            </label>
             <button className="button" type="submit">Filtrar periodo</button>
           </form>
           <Link

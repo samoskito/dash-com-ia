@@ -6,6 +6,7 @@ import { META_REPORT_SYNC_QUEUE } from "../common/queue/queue.constants";
 import { IntegrationsModule } from "../integrations/integrations.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { MetaReportSyncProcessor } from "./meta-report-sync.processor";
+import { MetaReportAutoSyncService } from "./meta-report-auto-sync.service";
 import { MetaReportSyncQueueService } from "./meta-report-sync-queue.service";
 import { MetaReportingService } from "./meta-reporting.service";
 import { ReportingController } from "./reporting.controller";
@@ -23,6 +24,7 @@ import { WhatsappCampaignClassifierService } from "./whatsapp-campaign-classifie
   controllers: [ReportingController],
   providers: [
     MetaReportingService,
+    MetaReportAutoSyncService,
     MetaReportSyncQueueService,
     MetaReportSyncProcessor,
     WhatsappCampaignClassifierService,
