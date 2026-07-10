@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type {
   ConversionEventCustomDataDto,
@@ -251,7 +252,8 @@ export class ConversionEventsService {
       "manual_test",
       input.eventName,
       input.adId ?? "missing_ad",
-      Date.now()
+      Date.now(),
+      randomUUID()
     ].join(":");
     const initialStatus = this.resolveInitialStatus({
       eventName: input.eventName,

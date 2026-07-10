@@ -375,6 +375,8 @@ describe("conversion events service", () => {
       workspaceId: "workspace_1",
       status: "sent"
     });
+    const manualTestKeyPattern =
+      /^workspace_1:lead_1:manual_test:QualifiedLead:ad_1:1234567890:[0-9a-f-]{36}$/;
     expect(db.logs[0]).toMatchObject({
       workspaceId: "workspace_1",
       leadId: "lead_1",
@@ -382,8 +384,8 @@ describe("conversion events service", () => {
       sourceTrigger: "manual_test",
       eventName: "QualifiedLead",
       status: "sent",
-      eventId: "workspace_1:lead_1:manual_test:QualifiedLead:ad_1:1234567890",
-      dedupeKey: "workspace_1:lead_1:manual_test:QualifiedLead:ad_1:1234567890",
+      eventId: expect.stringMatching(manualTestKeyPattern),
+      dedupeKey: expect.stringMatching(manualTestKeyPattern),
       adId: "ad_1",
       ctwaClid: "clid_1",
       attributionStatus: "manual_test",
@@ -395,9 +397,65 @@ describe("conversion events service", () => {
       pixelId: "workspace_pixel_1",
       pageId: "page_1",
       eventName: "QualifiedLead",
-      dedupeKey: "workspace_1:lead_1:manual_test:QualifiedLead:ad_1:1234567890",
+      dedupeKey: db.logs[0]?.dedupeKey,
       testEventCode: "TEST12345"
     });
+    expect(db.logs[0]?.eventId).toBe(db.logs[0]?.dedupeKey);
+  });
+
+  it("creates distinct manual test conversions when Date.now matches", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1234567890);
+    const adapter = {
+      calls: [] as Array<Record<string, unknown>>,
+      sendEvent: async (input: Record<string, unknown>) => {
+        adapter.calls.push(input);
+
+        return {
+          status: "sent" as const,
+          responseSummary: {
+            events_received: 1
+          },
+          errorMessage: null,
+          errorCode: null
+        };
+      }
+    };
+    const { db, service } = createHarness(adapter);
+    db.destinations.push({
+      workspaceId: "workspace_1",
+      pixelId: "workspace_pixel_1",
+      pageId: "page_1"
+    });
+
+    const input = {
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      eventName: "QualifiedLead" as const,
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      testEventCode: "TEST12345"
+    };
+
+    const first = await service.sendManualTestEvent(input);
+    const second = await service.sendManualTestEvent(input);
+
+    expect(first).toMatchObject({
+      conversionEventLogId: "conversion_1",
+      workspaceId: "workspace_1",
+      status: "sent"
+    });
+    expect(second).toMatchObject({
+      conversionEventLogId: "conversion_2",
+      workspaceId: "workspace_1",
+      status: "sent"
+    });
+    expect(db.logs).toHaveLength(2);
+    expect(db.logs[0]?.dedupeKey).not.toBe(db.logs[1]?.dedupeKey);
+    expect(db.logs[0]?.eventId).not.toBe(db.logs[1]?.eventId);
+    expect(adapter.calls).toHaveLength(2);
+    expect(adapter.calls[0]?.dedupeKey).toBe(db.logs[0]?.dedupeKey);
+    expect(adapter.calls[1]?.dedupeKey).toBe(db.logs[1]?.dedupeKey);
   });
 
   it("records a manual test conversion without sending when initial status is blocked", async () => {
