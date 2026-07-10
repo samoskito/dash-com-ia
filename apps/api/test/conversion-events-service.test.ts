@@ -210,6 +210,49 @@ describe("conversion events service", () => {
     });
   });
 
+  it("records legacy unsupported event names as skipped without enqueueing them", async () => {
+    const adapter = {
+      sendEvent: vi.fn()
+    };
+    const { db, service } = createHarness(adapter);
+
+    const result = await service.recordRuleMatches({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      rules: [
+        {
+          id: "rule_legacy",
+          workspaceId: "workspace_1",
+          name: "Legacy contact",
+          triggerType: "keyword",
+          triggerValue: "contato",
+          matchMode: "contains",
+          eventName: "Contact" as never,
+          pixelId: "pixel_1",
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        }
+      ]
+    });
+
+    await expect(service.listReadyLogIds(result.created)).resolves.toEqual([]);
+    expect(result.created).toEqual(["conversion_1"]);
+    expect(adapter.sendEvent).not.toHaveBeenCalled();
+    expect(db.logs[0]).toMatchObject({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      sourceTrigger: "keyword",
+      eventName: "Contact",
+      status: "skipped",
+      errorCode: "UnsupportedConversionEventName",
+      errorMessage: "Unsupported conversion event name"
+    });
+  });
+
   it("records automatic LeadSubmitted once and dedupes the second call", async () => {
     const { db, service } = createHarness();
     const input = {

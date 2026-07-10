@@ -21,18 +21,14 @@ export class ConversionEventProcessor extends WorkerHost {
   }
 
   async process(job: Job<ConversionEventJobPayload>) {
+    let result: Awaited<
+      ReturnType<ConversionEventsService["sendReadyEvent"]>
+    >;
+
     try {
-      const result = await this.conversionEventsService.sendReadyEvent(
+      result = await this.conversionEventsService.sendReadyEvent(
         job.data.conversionEventLogId
       );
-
-      await this.recordAttempt(job, result.status, {
-        conversionEventLogId: result.conversionEventLogId,
-        workspaceId: result.workspaceId,
-        resultStatus: result.status
-      });
-
-      return result;
     } catch (error) {
       await this.recordAttempt(
         job,
@@ -45,6 +41,37 @@ export class ConversionEventProcessor extends WorkerHost {
 
       throw error;
     }
+
+    if (
+      result.status === "error" &&
+      result.errorCode === "MetaCapiNetworkError"
+    ) {
+      const error = new Error(
+        result.errorMessage ?? "Meta CAPI network request failed"
+      );
+
+      await this.recordAttempt(
+        job,
+        "failed",
+        {
+          conversionEventLogId: result.conversionEventLogId,
+          workspaceId: result.workspaceId,
+          resultStatus: result.status,
+          errorCode: result.errorCode
+        },
+        error
+      );
+
+      throw error;
+    }
+
+    await this.recordAttempt(job, result.status, {
+      conversionEventLogId: result.conversionEventLogId,
+      workspaceId: result.workspaceId,
+      resultStatus: result.status
+    });
+
+    return result;
   }
 
   private async recordAttempt(

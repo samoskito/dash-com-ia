@@ -145,4 +145,55 @@ describe("conversion event processor", () => {
       })
     });
   });
+
+  it("throws transient Meta CAPI network results so BullMQ can retry", async () => {
+    const conversionEventsService = {
+      sendReadyEvent: vi.fn(async () => ({
+        conversionEventLogId: "conversion_1",
+        workspaceId: "workspace_1",
+        status: "error",
+        errorCode: "MetaCapiNetworkError",
+        errorMessage: "Meta CAPI network request failed"
+      }))
+    };
+    const prisma = createPrismaHarness();
+    const processor = new ConversionEventProcessor(
+      conversionEventsService as never,
+      prisma as never
+    );
+
+    await expect(
+      processor.process({
+        id: "bull_job_3",
+        name: "send-conversion-event",
+        attemptsMade: 0,
+        data: {
+          conversionEventLogId: "conversion_1"
+        }
+      } as never)
+    ).rejects.toThrow("Meta CAPI network request failed");
+
+    expect(prisma.jobAttempt.create).toHaveBeenCalledTimes(1);
+    expect(prisma.jobAttempt.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workspaceId: "workspace_1",
+        queueName: "conversion-events",
+        jobId: "bull_job_3",
+        jobName: "send-conversion-event",
+        attemptNumber: 1,
+        status: "failed",
+        source: "meta",
+        relatedEntityType: "ConversionEventLog",
+        relatedEntityId: "conversion_1",
+        errorCode: null,
+        errorMessage: "Meta CAPI network request failed",
+        summaryPayload: expect.objectContaining({
+          conversionEventLogId: "conversion_1",
+          workspaceId: "workspace_1",
+          resultStatus: "error",
+          errorCode: "MetaCapiNetworkError"
+        })
+      })
+    });
+  });
 });

@@ -20,4 +20,10 @@ describe("conversion event registry", () => {
       requiresValue: false
     });
   });
+
+  it("throws a clear error for unsupported runtime event names", () => {
+    expect(() => getConversionEventDefinition("Contact" as never)).toThrow(
+      "Unsupported conversion event name: Contact"
+    );
+  });
 });

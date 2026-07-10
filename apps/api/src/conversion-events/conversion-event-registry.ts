@@ -32,12 +32,28 @@ export const conversionEventDefinitions: ConversionEventDefinition[] = (
 export function getConversionEventDefinition(
   eventName: ConversionEventNameDto
 ): ConversionEventDefinition {
+  if (!isSupportedConversionEventName(eventName)) {
+    throw new Error(`Unsupported conversion event name: ${String(eventName)}`);
+  }
+
   const definition = conversionEventDefinitionsByName[eventName];
 
   return {
     eventName,
     requiresValue: definition.requiresValue
   };
+}
+
+export function isSupportedConversionEventName(
+  eventName: unknown
+): eventName is ConversionEventNameDto {
+  return (
+    typeof eventName === "string" &&
+    Object.prototype.hasOwnProperty.call(
+      conversionEventDefinitionsByName,
+      eventName
+    )
+  );
 }
 
 export function isConversionEventRequiringValue(

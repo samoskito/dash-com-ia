@@ -13,7 +13,10 @@ import {
   MetaCapiAdapter,
   type MetaCapiSendEventErrorCode
 } from "./meta-capi.adapter";
-import { isConversionEventRequiringValue } from "./conversion-event-registry";
+import {
+  isConversionEventRequiringValue,
+  isSupportedConversionEventName
+} from "./conversion-event-registry";
 
 export type RecordRuleMatchesInput = {
   workspaceId: string;
@@ -58,8 +61,17 @@ type ConversionEventLogRecord = {
 };
 
 type InitialStatus = {
-  status: "pending_meta_context" | "pending_value" | "ready_to_send";
-  errorCode: "MissingAdId" | "MissingCtwaClid" | "EventValueMissing" | null;
+  status:
+    | "pending_meta_context"
+    | "pending_value"
+    | "ready_to_send"
+    | "skipped";
+  errorCode:
+    | "MissingAdId"
+    | "MissingCtwaClid"
+    | "EventValueMissing"
+    | "UnsupportedConversionEventName"
+    | null;
   errorMessage: string | null;
 };
 
@@ -98,6 +110,8 @@ export type SendReadyEventResult = {
   conversionEventLogId: string;
   workspaceId: string | null;
   status: "not_configured" | "sent" | "error" | "skipped";
+  errorCode?: MetaCapiSendEventErrorCode;
+  errorMessage?: string | null;
 };
 
 type SendReadyEventOptions = {
@@ -366,7 +380,13 @@ export class ConversionEventsService {
     return {
       conversionEventLogId: log.id,
       workspaceId: log.workspaceId,
-      status: result.status
+      status: result.status,
+      ...(result.errorCode === "MetaCapiNetworkError"
+        ? {
+            errorCode: result.errorCode,
+            errorMessage: result.errorMessage
+          }
+        : {})
     };
   }
 
@@ -573,6 +593,14 @@ export class ConversionEventsService {
     ctwaClid?: string | null;
     valueCents?: number | null;
   }): InitialStatus {
+    if (!isSupportedConversionEventName(input.eventName)) {
+      return {
+        status: "skipped",
+        errorCode: "UnsupportedConversionEventName",
+        errorMessage: "Unsupported conversion event name"
+      };
+    }
+
     if (!input.adId) {
       return {
         status: "pending_meta_context",
