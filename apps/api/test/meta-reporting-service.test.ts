@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MetaReportingService } from "../src/reporting/meta-reporting.service";
+import { ReportingMetricsEngine } from "../src/reporting/reporting-metrics.engine";
 import { WhatsappCampaignClassifierService } from "../src/reporting/whatsapp-campaign-classifier.service";
 
 function matchesWhere(
@@ -22,6 +23,28 @@ function matchesWhere(
 
     if (value && typeof value === "object" && "in" in value) {
       return (value.in as unknown[]).includes(record[key]);
+    }
+
+    if (value && typeof value === "object" && "not" in value) {
+      return record[key] !== value.not;
+    }
+
+    if (value && typeof value === "object" && ("gte" in value || "lte" in value)) {
+      const current = record[key];
+
+      if (!(current instanceof Date)) {
+        return false;
+      }
+
+      if ("gte" in value && current < (value.gte as Date)) {
+        return false;
+      }
+
+      if ("lte" in value && current > (value.lte as Date)) {
+        return false;
+      }
+
+      return true;
     }
 
     return record[key] === value;
@@ -55,61 +78,109 @@ function createHarness() {
     auditLogs: [] as Array<Record<string, unknown>>,
     integrationLogs: [] as Array<Record<string, unknown>>,
     diagnosticEvents: [] as Array<Record<string, unknown>>,
-    leads: [
+    conversionRules: [
       {
         workspaceId: "workspace_1",
+        eventName: "QualifiedLead",
+        active: true,
+      },
+      {
+        workspaceId: "workspace_1",
+        eventName: "Purchase",
+        active: true,
+      },
+    ],
+    leads: [
+      {
+        id: "lead_1",
+        workspaceId: "workspace_1",
+        phoneHash: "phone_a",
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
+        firstMessageAt: new Date("2026-07-01T12:00:00.000Z"),
         createdAt: new Date("2026-07-01T12:00:00.000Z"),
       },
       {
+        id: "lead_2",
         workspaceId: "workspace_1",
+        phoneHash: "phone_b",
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
+        firstMessageAt: null,
         createdAt: new Date("2026-07-02T12:00:00.000Z"),
       },
       {
+        id: "lead_other",
         workspaceId: "workspace_1",
+        phoneHash: "phone_other",
         campaignId: "cmp_other",
         adSetId: "adset_other",
         adId: "ad_other",
+        firstMessageAt: new Date("2026-07-02T12:00:00.000Z"),
         createdAt: new Date("2026-07-02T12:00:00.000Z"),
       },
     ] as Array<{
+      id: string;
       workspaceId: string;
+      phoneHash: string;
       campaignId: string | null;
       adSetId: string | null;
       adId: string | null;
+      firstMessageAt: Date | null;
       createdAt: Date;
     }>,
     conversionLogs: [
       {
+        id: "event_lead_submitted",
         workspaceId: "workspace_1",
+        phoneHash: "phone_a",
+        customerIdentityKey: "phone_a",
+        businessSource: "paid",
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
         eventName: "LeadSubmitted",
+        eventOccurredAt: new Date("2026-07-01T12:05:00.000Z"),
         status: "sent",
+        valueCents: null,
+        currency: null,
+        purchaseKind: null,
       },
       {
+        id: "event_qualified",
         workspaceId: "workspace_1",
+        phoneHash: "phone_a",
+        customerIdentityKey: "phone_a",
+        businessSource: "paid",
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
         eventName: "QualifiedLead",
-        status: "sent",
+        eventOccurredAt: new Date("2026-07-01T12:10:00.000Z"),
+        status: "error",
+        valueCents: null,
+        currency: null,
+        purchaseKind: null,
       },
       {
+        id: "event_purchase",
         workspaceId: "workspace_1",
+        phoneHash: "phone_a",
+        customerIdentityKey: "phone_a",
+        businessSource: "paid",
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
         eventName: "Purchase",
+        eventOccurredAt: new Date("2026-07-01T12:30:00.000Z"),
         status: "sent",
+        valueCents: 100000,
+        currency: "BRL",
+        purchaseKind: "first_purchase",
       },
-    ],
+    ] as Array<Record<string, unknown>>,
   };
   const prisma = {
     metaIntegration: {
@@ -247,8 +318,15 @@ function createHarness() {
         },
       ),
     },
+    conversionRule: {
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.conversionRules.filter((rule) => matchesWhere(rule, args?.where)),
+      ),
+    },
     conversionEventLog: {
-      findMany: vi.fn(async () => db.conversionLogs),
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.conversionLogs.filter((log) => matchesWhere(log, args?.where)),
+      ),
     },
     lead: {
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
@@ -357,6 +435,7 @@ function createHarness() {
     encryption as never,
     metaAdapter as never,
     new WhatsappCampaignClassifierService(),
+    new ReportingMetricsEngine(),
   );
 
   return { db, encryption, metaAdapter, prisma, service };
@@ -408,6 +487,127 @@ describe("meta reporting service", () => {
         afterSummary: { override: "manual_include" },
       }),
     );
+  });
+
+  it("returns latest conversion event audit rows for the report period", async () => {
+    const { db, prisma, service } = createHarness();
+    db.conversionLogs = [
+      {
+        id: "conversion_1",
+        workspaceId: "workspace_1",
+        eventName: "LeadSubmitted",
+        eventOccurredAt: new Date("2026-07-02T12:00:00.000Z"),
+        sentAt: new Date("2026-07-02T12:01:00.000Z"),
+        status: "sent",
+        leadId: "lead_1",
+        phoneHash: "phone_hash_1",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
+        pixelId: "pixel_1",
+        pageId: "page_1",
+        providerResponseSummary: "events_received: 1",
+        errorCode: null,
+        errorMessage: null,
+      },
+      {
+        id: "conversion_2",
+        workspaceId: "workspace_1",
+        eventName: "CustomEvent",
+        eventOccurredAt: new Date("2026-07-01T12:00:00.000Z"),
+        sentAt: null,
+        status: "pending_value",
+        leadId: null,
+        phoneHash: null,
+        campaignId: null,
+        adSetId: null,
+        adId: null,
+        pixelId: null,
+        pageId: null,
+        providerResponseSummary: null,
+        errorCode: "EventValueMissing",
+        errorMessage: "Conversion event value is required",
+      },
+    ];
+
+    await expect(
+      service.getConversionEventAudit({
+        workspaceId: "workspace_1",
+        since: "2026-07-01",
+        until: "2026-07-02",
+        rangeLabel: "2026-07-01 a 2026-07-02",
+      }),
+    ).resolves.toEqual({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      events: [
+        {
+          id: "conversion_1",
+          eventName: "LeadSubmitted",
+          eventLabel: "Conversas reais iniciadas",
+          leadId: "lead_1",
+          phoneHash: "phone_hash_1",
+          campaignId: "cmp_1",
+          adSetId: "adset_1",
+          adId: "ad_1",
+          pixelId: "pixel_1",
+          pageId: "page_1",
+          occurredAt: "2026-07-02T12:00:00.000Z",
+          sentAt: "2026-07-02T12:01:00.000Z",
+          status: "sent",
+          providerResponseSummary: "events_received: 1",
+          errorCode: null,
+          errorMessage: null,
+        },
+        {
+          id: "conversion_2",
+          eventName: "CustomEvent",
+          eventLabel: "CustomEvent",
+          leadId: null,
+          phoneHash: null,
+          campaignId: null,
+          adSetId: null,
+          adId: null,
+          pixelId: null,
+          pageId: null,
+          occurredAt: "2026-07-01T12:00:00.000Z",
+          sentAt: null,
+          status: "pending_value",
+          providerResponseSummary: null,
+          errorCode: "EventValueMissing",
+          errorMessage: "Conversion event value is required",
+        },
+      ],
+    });
+
+    expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        eventOccurredAt: {
+          gte: new Date("2026-07-01T00:00:00.000Z"),
+          lte: new Date("2026-07-02T23:59:59.999Z"),
+        },
+      },
+      orderBy: { eventOccurredAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        eventName: true,
+        leadId: true,
+        phoneHash: true,
+        campaignId: true,
+        adSetId: true,
+        adId: true,
+        pixelId: true,
+        pageId: true,
+        eventOccurredAt: true,
+        sentAt: true,
+        status: true,
+        providerResponseSummary: true,
+        errorCode: true,
+        errorMessage: true,
+      },
+    });
   });
 
   it("saves manual excludes for ad set and ad snapshots", async () => {
@@ -851,10 +1051,13 @@ describe("meta reporting service", () => {
     const { db, metaAdapter, service } = createHarness();
     db.leads = [
       {
+        id: "lead_signal",
         workspaceId: "workspace_1",
+        phoneHash: "phone_signal",
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
+        firstMessageAt: new Date("2026-07-02T12:00:00.000Z"),
         createdAt: new Date("2026-07-02T12:00:00.000Z"),
       },
     ];
@@ -908,10 +1111,13 @@ describe("meta reporting service", () => {
     const { db, metaAdapter, service } = createHarness();
     db.leads = [
       {
+        id: "lead_ad_only",
         workspaceId: "workspace_1",
+        phoneHash: "phone_ad_only",
         campaignId: null as string | null,
         adSetId: null as string | null,
         adId: "ad_1",
+        firstMessageAt: new Date("2026-07-02T12:00:00.000Z"),
         createdAt: new Date("2026-07-02T12:00:00.000Z"),
       },
     ];
@@ -985,16 +1191,90 @@ describe("meta reporting service", () => {
           costPerMetaConversationCents: 750,
           realConversations: 2,
           costPerRealConversationCents: 30000,
-          leadSubmitted: 1,
-          costPerLeadSubmittedCents: 60000,
+          organicLeads: 0,
+          totalReceived: 2,
+          trackingRate: 1,
           qualifiedLead: 1,
           costPerQualifiedLeadCents: 60000,
-          purchase: 1,
+          purchases: 1,
+          firstPurchases: 1,
+          repurchases: 0,
           costPerPurchaseCents: 60000,
-          roas: null,
+          trafficRevenueCents: 100000,
+          organicRevenueCents: 0,
+          totalRevenueCents: 100000,
+          firstPurchaseRevenueCents: 100000,
+          repurchaseRevenueCents: 0,
+          roasAcquisition: 100000 / 60000,
+          roasWithRepurchase: 100000 / 60000,
+          funnelSteps: [
+            {
+              key: "real_conversations",
+              label: "Conversas reais iniciadas",
+              value: 2,
+              costCents: 30000,
+            },
+            {
+              key: "qualified_lead",
+              label: "Lead qualificado",
+              value: 1,
+              costCents: 60000,
+            },
+            {
+              key: "purchase",
+              label: "Compras",
+              value: 1,
+              costCents: 60000,
+            },
+            {
+              key: "first_purchase",
+              label: "Primeira compra",
+              value: 1,
+              costCents: 60000,
+            },
+          ],
         },
       ],
     });
+  });
+
+  it("keeps configured funnel events visible when the period has zero matching events", async () => {
+    const { db, service } = createHarness();
+    db.conversionLogs = [];
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Sem eventos",
+    });
+
+    expect(report.campaigns[0]?.qualifiedLead).toBe(0);
+    expect(report.campaigns[0]?.purchases).toBe(0);
+    expect(report.campaigns[0]?.funnelSteps).toEqual([
+      {
+        key: "real_conversations",
+        label: "Conversas reais iniciadas",
+        value: 2,
+        costCents: 30000,
+      },
+      {
+        key: "qualified_lead",
+        label: "Lead qualificado",
+        value: 0,
+        costCents: null,
+      },
+      {
+        key: "purchase",
+        label: "Compras",
+        value: 0,
+        costCents: null,
+      },
+    ]);
   });
 
   it("defaults campaign reports to WhatsApp-classified snapshots", async () => {
@@ -1658,7 +1938,8 @@ describe("meta reporting service", () => {
     expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          createdAt: {
+          status: { not: "skipped" },
+          eventOccurredAt: {
             gte: new Date("2026-07-01T00:00:00.000Z"),
             lte: new Date("2026-07-02T23:59:59.999Z"),
           },
@@ -1668,10 +1949,21 @@ describe("meta reporting service", () => {
     expect(prisma.lead.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          createdAt: {
-            gte: new Date("2026-07-01T00:00:00.000Z"),
-            lte: new Date("2026-07-02T23:59:59.999Z"),
-          },
+          OR: [
+            {
+              firstMessageAt: {
+                gte: new Date("2026-07-01T00:00:00.000Z"),
+                lte: new Date("2026-07-02T23:59:59.999Z"),
+              },
+            },
+            {
+              firstMessageAt: null,
+              createdAt: {
+                gte: new Date("2026-07-01T00:00:00.000Z"),
+                lte: new Date("2026-07-02T23:59:59.999Z"),
+              },
+            },
+          ],
         }),
       }),
     );
@@ -1750,13 +2042,48 @@ describe("meta reporting service", () => {
           costPerMetaConversationCents: 750,
           realConversations: 2,
           costPerRealConversationCents: 30000,
-          leadSubmitted: 1,
-          costPerLeadSubmittedCents: 60000,
+          organicLeads: 0,
+          totalReceived: 2,
+          trackingRate: 1,
           qualifiedLead: 1,
           costPerQualifiedLeadCents: 60000,
-          purchase: 1,
+          purchases: 1,
+          firstPurchases: 1,
+          repurchases: 0,
           costPerPurchaseCents: 60000,
-          roas: null,
+          trafficRevenueCents: 100000,
+          organicRevenueCents: 0,
+          totalRevenueCents: 100000,
+          firstPurchaseRevenueCents: 100000,
+          repurchaseRevenueCents: 0,
+          roasAcquisition: 100000 / 60000,
+          roasWithRepurchase: 100000 / 60000,
+          funnelSteps: [
+            {
+              key: "real_conversations",
+              label: "Conversas reais iniciadas",
+              value: 2,
+              costCents: 30000,
+            },
+            {
+              key: "qualified_lead",
+              label: "Lead qualificado",
+              value: 1,
+              costCents: 60000,
+            },
+            {
+              key: "purchase",
+              label: "Compras",
+              value: 1,
+              costCents: 60000,
+            },
+            {
+              key: "first_purchase",
+              label: "Primeira compra",
+              value: 1,
+              costCents: 60000,
+            },
+          ],
         },
       ],
     });
@@ -1796,13 +2123,48 @@ describe("meta reporting service", () => {
           costPerMetaConversationCents: 750,
           realConversations: 2,
           costPerRealConversationCents: 15000,
-          leadSubmitted: 1,
-          costPerLeadSubmittedCents: 30000,
+          organicLeads: 0,
+          totalReceived: 2,
+          trackingRate: 1,
           qualifiedLead: 1,
           costPerQualifiedLeadCents: 30000,
-          purchase: 1,
+          purchases: 1,
+          firstPurchases: 1,
+          repurchases: 0,
           costPerPurchaseCents: 30000,
-          roas: null,
+          trafficRevenueCents: 100000,
+          organicRevenueCents: 0,
+          totalRevenueCents: 100000,
+          firstPurchaseRevenueCents: 100000,
+          repurchaseRevenueCents: 0,
+          roasAcquisition: 100000 / 30000,
+          roasWithRepurchase: 100000 / 30000,
+          funnelSteps: [
+            {
+              key: "real_conversations",
+              label: "Conversas reais iniciadas",
+              value: 2,
+              costCents: 15000,
+            },
+            {
+              key: "qualified_lead",
+              label: "Lead qualificado",
+              value: 1,
+              costCents: 30000,
+            },
+            {
+              key: "purchase",
+              label: "Compras",
+              value: 1,
+              costCents: 30000,
+            },
+            {
+              key: "first_purchase",
+              label: "Primeira compra",
+              value: 1,
+              costCents: 30000,
+            },
+          ],
         },
       ],
     });

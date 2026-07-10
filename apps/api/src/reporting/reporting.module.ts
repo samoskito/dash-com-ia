@@ -9,6 +9,7 @@ import { MetaReportSyncProcessor } from "./meta-report-sync.processor";
 import { MetaReportAutoSyncService } from "./meta-report-auto-sync.service";
 import { MetaReportSyncQueueService } from "./meta-report-sync-queue.service";
 import { MetaReportingService } from "./meta-reporting.service";
+import { ReportingMetricsEngine } from "./reporting-metrics.engine";
 import { ReportingController } from "./reporting.controller";
 import { WhatsappCampaignClassifierService } from "./whatsapp-campaign-classifier.service";
 
@@ -27,6 +28,7 @@ import { WhatsappCampaignClassifierService } from "./whatsapp-campaign-classifie
     MetaReportAutoSyncService,
     MetaReportSyncQueueService,
     MetaReportSyncProcessor,
+    ReportingMetricsEngine,
     WhatsappCampaignClassifierService,
     PrismaService
   ],

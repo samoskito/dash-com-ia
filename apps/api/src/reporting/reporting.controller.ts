@@ -185,6 +185,21 @@ export class ReportingController {
     });
   }
 
+  @Get("conversions/audit")
+  async getConversionEventAudit(
+    @AuthToken() refreshToken: string,
+    @Query("since") since?: string,
+    @Query("until") until?: string,
+  ) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const period = this.parseReportPeriod(since, until);
+
+    return this.metaReportingService.getConversionEventAudit({
+      workspaceId,
+      ...period,
+    });
+  }
+
   @Post("meta/sync")
   async syncMetaReports(
     @AuthToken() refreshToken: string,

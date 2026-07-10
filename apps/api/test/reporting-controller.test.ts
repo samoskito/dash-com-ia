@@ -7,6 +7,56 @@ import { MetaReportingService } from "../src/reporting/meta-reporting.service";
 import { ReportingController } from "../src/reporting/reporting.controller";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
+const reportMetricsFixture = {
+  spendCents: 120000,
+  metaConversationsStarted: 176,
+  costPerMetaConversationCents: 681,
+  realConversations: 2,
+  costPerRealConversationCents: 60000,
+  organicLeads: 0,
+  totalReceived: 2,
+  trackingRate: 1,
+  qualifiedLead: 1,
+  costPerQualifiedLeadCents: 120000,
+  purchases: 1,
+  firstPurchases: 1,
+  repurchases: 0,
+  costPerPurchaseCents: 120000,
+  trafficRevenueCents: 100000,
+  organicRevenueCents: 0,
+  totalRevenueCents: 100000,
+  firstPurchaseRevenueCents: 100000,
+  repurchaseRevenueCents: 0,
+  roasAcquisition: 100000 / 120000,
+  roasWithRepurchase: 100000 / 120000,
+  funnelSteps: [
+    {
+      key: "real_conversations",
+      label: "Conversas reais iniciadas",
+      value: 2,
+      costCents: 60000,
+    },
+    {
+      key: "qualified_lead",
+      label: "Lead qualificado",
+      value: 1,
+      costCents: 120000,
+    },
+    {
+      key: "purchase",
+      label: "Compras",
+      value: 1,
+      costCents: 120000,
+    },
+    {
+      key: "first_purchase",
+      label: "Primeira compra",
+      value: 1,
+      costCents: 120000,
+    },
+  ],
+};
+
 async function createApp(role: "owner" | "admin" | "member" = "owner") {
   const reportingService = {
     getCampaignReportOverview: vi.fn(async () => ({
@@ -17,18 +67,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           id: "cmp_1",
           name: "Black Friday WhatsApp",
           status: "active",
-          spendCents: 120000,
-          metaConversationsStarted: 176,
-          costPerMetaConversationCents: 681,
-          realConversations: 0,
-          costPerRealConversationCents: null,
-          leadSubmitted: 1,
-          costPerLeadSubmittedCents: 120000,
-          qualifiedLead: 1,
-          costPerQualifiedLeadCents: 120000,
-          purchase: 1,
-          costPerPurchaseCents: 120000,
-          roas: null,
+          ...reportMetricsFixture,
         },
       ],
     })),
@@ -70,18 +109,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           campaignName: "Black Friday WhatsApp",
           name: "Publico quente",
           status: "active",
-          spendCents: 0,
-          metaConversationsStarted: 0,
-          costPerMetaConversationCents: null,
-          realConversations: 2,
-          costPerRealConversationCents: null,
-          leadSubmitted: 1,
-          costPerLeadSubmittedCents: null,
-          qualifiedLead: 1,
-          costPerQualifiedLeadCents: null,
-          purchase: 1,
-          costPerPurchaseCents: null,
-          roas: null,
+          ...reportMetricsFixture,
         },
       ],
     })),
@@ -97,26 +125,39 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           adSetName: "Publico quente",
           name: "Criativo WhatsApp",
           status: "active",
-          spendCents: 0,
-          metaConversationsStarted: 0,
-          costPerMetaConversationCents: null,
-          realConversations: 2,
-          costPerRealConversationCents: null,
-          leadSubmitted: 1,
-          costPerLeadSubmittedCents: null,
-          qualifiedLead: 1,
-          costPerQualifiedLeadCents: null,
-          purchase: 1,
-          costPerPurchaseCents: null,
-          roas: null,
+          ...reportMetricsFixture,
+        },
+      ],
+    })),
+    getConversionEventAudit: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      events: [
+        {
+          id: "conversion_1",
+          eventName: "LeadSubmitted",
+          eventLabel: "Conversas reais iniciadas",
+          leadId: "lead_1",
+          phoneHash: "phone_hash_1",
+          campaignId: "cmp_1",
+          adSetId: "adset_1",
+          adId: "ad_1",
+          pixelId: "pixel_1",
+          pageId: "page_1",
+          occurredAt: "2026-07-02T12:00:00.000Z",
+          sentAt: "2026-07-02T12:01:00.000Z",
+          status: "sent",
+          providerResponseSummary: "events_received: 1",
+          errorCode: null,
+          errorMessage: null,
         },
       ],
     })),
     getCampaignReportCsv: vi.fn(async () => ({
       filename: "wpptrack-campanhas-2026-07-01-2026-07-02.csv",
       content:
-        "Campanha,Status,Investimento,Conversas Meta,Conversas reais,LeadSubmitted,QualifiedLead,Purchase,ROAS\n" +
-        "Black Friday WhatsApp,active,1200.00,176,0,1,1,1,\n",
+        "Campanha,Status,Investimento,Conversas Meta,Conversas reais,Leads organicos,Total recebido,Taxa de rastreio,Lead qualificado,Compras,Primeiras compras,Recompras,Receita total,ROAS aquisicao,ROAS com recompra\n" +
+        "Black Friday WhatsApp,active,1200.00,176,2,0,2,1,1,1,1,0,1000.00,0.8333333333333334,0.8333333333333334\n",
     })),
     saveWhatsappClassificationOverride: vi.fn(async () => ({ ok: true })),
     syncWorkspaceMetaStructure: vi.fn(async () => ({
@@ -194,6 +235,30 @@ describe("reporting controller", () => {
     expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       rangeLabel: "Ultimos 7 dias",
+    });
+
+    await app.close();
+  });
+
+  it("returns conversion event audit for the current workspace period", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/conversions/audit?since=2026-07-01&until=2026-07-02")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.events[0].eventLabel).toBe(
+          "Conversas reais iniciadas",
+        );
+      });
+
+    expect(reportingService.getConversionEventAudit).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      rangeLabel: "2026-07-01 a 2026-07-02",
     });
 
     await app.close();
