@@ -24,10 +24,11 @@ export function parseUazapiWebhook(
 ): ParsedUazapiWebhook {
   const message = recordValue(body.message);
   const context = recordValue(body.context);
-  const referral =
-    recordValue(body.referral) ??
-    recordValue(message?.referral) ??
-    recordValue(context?.referral);
+  const bodyReferral = recordValue(body.referral);
+  const messageReferral = recordValue(message?.referral);
+  const contextReferral = recordValue(context?.referral);
+  const referral = bodyReferral ?? messageReferral ?? contextReferral;
+  const referralCandidates = [bodyReferral, messageReferral, contextReferral];
   const adsContext =
     recordValue(body.ads_context_data) ??
     recordValue(body.adsContextData) ??
@@ -83,13 +84,11 @@ export function parseUazapiWebhook(
     ctwaClid:
       firstString(body.ctwa_clid) ??
       firstString(body.ctwaClid) ??
-      firstString(referral?.ctwa_clid) ??
-      firstString(referral?.ctwaClid),
+      firstStringFromRecords(referralCandidates, ["ctwa_clid", "ctwaClid"]),
     ctwaSourceUrl:
       firstString(body.ctwaSourceUrl) ??
       firstString(body.source_url) ??
-      firstString(referral?.source_url) ??
-      firstString(referral?.sourceUrl),
+      firstStringFromRecords(referralCandidates, ["source_url", "sourceUrl"]),
     providerInstanceId: getProviderInstanceId(body)
   };
 }
@@ -102,6 +101,27 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function firstStringFromRecords(
+  records: Array<Record<string, unknown> | undefined>,
+  keys: string[]
+): string | undefined {
+  for (const record of records) {
+    if (!record) {
+      continue;
+    }
+
+    for (const key of keys) {
+      const value = firstString(record[key]);
+
+      if (value) {
+        return value;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function getMessageText(body: UazapiWebhookBody): string | undefined {

@@ -64,6 +64,28 @@ describe("Uazapi webhook parser", () => {
     expect(parsed.ctwaClid).toBe("clid_context");
   });
 
+  it("falls back to context referral CTWA clid when earlier referrals lack one", () => {
+    const parsed = parseUazapiWebhook({
+      referral: { ad_id: "ad_top" },
+      message: { referral: { campaign_id: "cmp_message" } },
+      context: { referral: { ctwa_clid: "clid_context" } }
+    });
+
+    expect(parsed.ctwaClid).toBe("clid_context");
+    expect(parsed.adId).toBe("ad_top");
+  });
+
+  it("falls back to context referral CTWA source URL when earlier referrals lack one", () => {
+    const parsed = parseUazapiWebhook({
+      referral: { ad_id: "ad_top" },
+      message: { referral: { campaign_id: "cmp_message" } },
+      context: { referral: { source_url: "https://fb.com/context-ad" } }
+    });
+
+    expect(parsed.ctwaSourceUrl).toBe("https://fb.com/context-ad");
+    expect(parsed.adId).toBe("ad_top");
+  });
+
   it("extracts provider instance id from nested instance records", () => {
     expect(
       parseUazapiWebhook({ instance: { id: "instance_1" } })
