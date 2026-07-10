@@ -214,6 +214,64 @@ describe("leads service", () => {
     );
   });
 
+  it("stores CTWA fields on create and preserves them when later webhooks omit CTWA", async () => {
+    const { prisma, service } = createHarness();
+
+    await service.upsertFromWhatsappWebhook({
+      workspaceId: "workspace_1",
+      name: "Rafael Costa",
+      phone: "+55 (31) 97710-4300",
+      source: "uazapi",
+      labels: ["Venda fechada"],
+      campaignId: "cmp_2",
+      adSetId: "adset_2",
+      adId: "ad_2",
+      ctwaClid: "ctwa_click_1",
+      ctwaSourceUrl: "https://fb.com/ad/ctwa",
+      occurredAt: new Date("2026-07-02T04:00:00.000Z")
+    });
+    await service.upsertFromWhatsappWebhook({
+      workspaceId: "workspace_1",
+      name: "Rafael Costa",
+      phone: "+55 (31) 97710-4300",
+      source: "uazapi",
+      labels: ["Venda fechada"],
+      campaignId: "cmp_2",
+      adSetId: "adset_2",
+      adId: "ad_2",
+      occurredAt: new Date("2026-07-02T04:05:00.000Z")
+    });
+
+    expect(prisma.lead.upsert).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        create: expect.objectContaining({
+          ctwaClid: "ctwa_click_1",
+          ctwaSourceUrl: "https://fb.com/ad/ctwa"
+        }),
+        update: expect.objectContaining({
+          ctwaClid: "ctwa_click_1",
+          ctwaSourceUrl: "https://fb.com/ad/ctwa"
+        })
+      })
+    );
+    expect(prisma.lead.upsert).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        update: expect.objectContaining({
+          ctwaClid: undefined,
+          ctwaSourceUrl: undefined
+        })
+      })
+    );
+    const secondUpdate = prisma.lead.upsert.mock.calls[1]?.[0].update;
+
+    expect(Object.hasOwn(secondUpdate, "ctwaClid")).toBe(true);
+    expect(Object.hasOwn(secondUpdate, "ctwaSourceUrl")).toBe(true);
+    expect(secondUpdate.ctwaClid).toBeUndefined();
+    expect(secondUpdate.ctwaSourceUrl).toBeUndefined();
+  });
+
   it("returns lead detail with attribution, conversions and webhook timeline", async () => {
     const { prisma, service } = createHarness();
 
