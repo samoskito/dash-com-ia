@@ -145,6 +145,7 @@ type ConversionEventLogRecord = {
   leadId: string | null;
   phoneHash: string | null;
   sourceTrigger: string;
+  eventId: string | null;
   eventName: string;
   status: string;
   pixelId: string | null;
@@ -154,6 +155,11 @@ type ConversionEventLogRecord = {
   adId: string | null;
   attributionStatus: string | null;
   dedupeKey: string | null;
+  ctwaClid: string | null;
+  valueCents: number | null;
+  currency: string | null;
+  contentName: string | null;
+  customData?: unknown;
   sentAt: Date | null;
   errorCode: string | null;
   errorMessage: string | null;
@@ -1291,6 +1297,7 @@ export class DiagnosticsService {
       leadId: log.leadId,
       phoneHash: log.phoneHash,
       sourceTrigger: log.sourceTrigger,
+      eventId: log.eventId,
       eventName: log.eventName,
       status: log.status,
       pixelId: log.pixelId,
@@ -1300,6 +1307,13 @@ export class DiagnosticsService {
       adId: log.adId,
       attributionStatus: log.attributionStatus,
       dedupeKey: log.dedupeKey,
+      ctwaClid: this.maskCtwaClid(log.ctwaClid),
+      valueCents: log.valueCents,
+      currency: log.currency,
+      contentName: log.contentName,
+      customData: this.payloadRecord(
+        this.stripSensitiveKeys(this.redactSensitive(log.customData))
+      ),
       sentAt: log.sentAt?.toISOString() ?? null,
       errorCode: log.errorCode,
       errorMessage: log.errorMessage,
@@ -1521,6 +1535,37 @@ export class DiagnosticsService {
     return value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private maskCtwaClid(value: string | null | undefined): string | null {
+    if (!value) {
+      return null;
+    }
+
+    if (value.length <= 8) {
+      return `${value.slice(0, 2)}***`;
+    }
+
+    return `${value.slice(0, 4)}...${value.slice(-4)}`;
+  }
+
+  private stripSensitiveKeys(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.stripSensitiveKeys(item));
+    }
+
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value)
+          .filter(([key]) => !sensitiveKeyPattern.test(key))
+          .map(([key, innerValue]) => [
+            key,
+            this.stripSensitiveKeys(innerValue)
+          ])
+      );
+    }
+
+    return value;
   }
 
   private redactSensitive(value: unknown): unknown {

@@ -1081,6 +1081,72 @@ describe("diagnostics service", () => {
     expect(conversionEventLogFindManyCalls[0]?.take).toBe(10);
   });
 
+  it("lists CAPI conversion logs with masked ctwa and redacted purchase metadata", async () => {
+    const { conversionEventLogs, service } = createHarness();
+    conversionEventLogs.push({
+      id: "conversion_1",
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      sourceTrigger: "keyword",
+      eventId: "purchase_event_1",
+      eventName: "Purchase",
+      status: "pending_value",
+      pixelId: "pixel_1",
+      metaAccountId: "act_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      attributionStatus: "attributed",
+      dedupeKey: "dedupe_1",
+      ctwaClid: "ctwa_click_1234567890abcdef",
+      valueCents: 19900,
+      currency: "BRL",
+      contentName: "Plano mensal",
+      customData: {
+        order_id: "order_1",
+        access_token: "secret-token",
+        nested: {
+          refreshToken: "secret-refresh",
+          value: 199
+        }
+      },
+      providerResponseSummary: {
+        access_token: "provider-secret"
+      },
+      sentAt: null,
+      errorCode: "EventValueMissing",
+      errorMessage: "Conversion event value is required",
+      jobId: null,
+      createdAt: new Date("2026-07-02T03:00:00.000Z")
+    });
+
+    const result = await service.listConversionEventLogs({
+      workspaceId: "workspace_1",
+      status: "pending_value",
+      eventName: "Purchase",
+      limit: 10
+    });
+
+    expect(result[0]).toMatchObject({
+      id: "conversion_1",
+      eventId: "purchase_event_1",
+      ctwaClid: "ctwa...cdef",
+      valueCents: 19900,
+      currency: "BRL",
+      contentName: "Plano mensal",
+      customData: {
+        order_id: "order_1",
+        nested: {
+          value: 199
+        }
+      }
+    });
+    expect(JSON.stringify(result)).not.toContain("secret-token");
+    expect(JSON.stringify(result)).not.toContain("provider-secret");
+    expect(JSON.stringify(result)).not.toContain("access_token");
+  });
+
   it("queues an audited retry for a conversion event log", async () => {
     const {
       auditLogs,
