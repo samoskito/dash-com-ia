@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { Prisma } from "@prisma/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
 import { MetaCapiAdapter } from "../src/conversion-events/meta-capi.adapter";
 
@@ -110,6 +111,10 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
 }
 
 describe("conversion events service", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("records conversion logs for matched keyword and label rules without sending Meta events", async () => {
     const { db, service } = createHarness();
 
@@ -329,6 +334,102 @@ describe("conversion events service", () => {
       })
     );
     expect(JSON.stringify(db.integrationLogs)).not.toContain("workspace-oauth-token");
+  });
+
+  it("creates and sends a manual test conversion with Meta test event code", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1234567890);
+    const adapter = {
+      calls: [] as Array<Record<string, unknown>>,
+      sendEvent: async (input: Record<string, unknown>) => {
+        adapter.calls.push(input);
+
+        return {
+          status: "sent" as const,
+          responseSummary: {
+            events_received: 1
+          },
+          errorMessage: null,
+          errorCode: null
+        };
+      }
+    };
+    const { db, service } = createHarness(adapter);
+    db.destinations.push({
+      workspaceId: "workspace_1",
+      pixelId: "workspace_pixel_1",
+      pageId: "page_1"
+    });
+
+    const result = await service.sendManualTestEvent({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      eventName: "QualifiedLead",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      testEventCode: "TEST12345"
+    });
+
+    expect(result).toEqual({
+      conversionEventLogId: "conversion_1",
+      workspaceId: "workspace_1",
+      status: "sent"
+    });
+    expect(db.logs[0]).toMatchObject({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      sourceTrigger: "manual_test",
+      eventName: "QualifiedLead",
+      status: "sent",
+      eventId: "workspace_1:lead_1:manual_test:QualifiedLead:ad_1:1234567890",
+      dedupeKey: "workspace_1:lead_1:manual_test:QualifiedLead:ad_1:1234567890",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      attributionStatus: "manual_test",
+      customData: Prisma.JsonNull,
+      errorCode: null,
+      errorMessage: null
+    });
+    expect(adapter.calls[0]).toMatchObject({
+      pixelId: "workspace_pixel_1",
+      pageId: "page_1",
+      eventName: "QualifiedLead",
+      dedupeKey: "workspace_1:lead_1:manual_test:QualifiedLead:ad_1:1234567890",
+      testEventCode: "TEST12345"
+    });
+  });
+
+  it("records a manual test conversion without sending when initial status is blocked", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1234567890);
+    const adapter = {
+      sendEvent: vi.fn()
+    };
+    const { db, service } = createHarness(adapter);
+
+    const result = await service.sendManualTestEvent({
+      workspaceId: "workspace_1",
+      eventName: "Purchase",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      testEventCode: "TEST12345"
+    });
+
+    expect(result).toEqual({
+      conversionEventLogId: "conversion_1",
+      workspaceId: "workspace_1",
+      status: "not_configured"
+    });
+    expect(adapter.sendEvent).not.toHaveBeenCalled();
+    expect(db.logs[0]).toMatchObject({
+      sourceTrigger: "manual_test",
+      eventName: "Purchase",
+      status: "pending_value",
+      attributionStatus: "manual_test",
+      errorCode: "EventValueMissing",
+      errorMessage: "Conversion event value is required"
+    });
   });
 
   it("uses workspace conversion destination instead of rule pixel when sending CAPI", async () => {

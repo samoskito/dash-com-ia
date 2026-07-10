@@ -2,6 +2,7 @@ import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { PlatformAdminService } from "../src/auth/platform-admin.service";
+import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
 import { DiagnosticsController } from "../src/diagnostics/diagnostics.controller";
 import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
 
@@ -194,6 +195,13 @@ async function createApp() {
       jobAttemptId: "job_attempt_2"
     }))
   };
+  const conversionEventsService = {
+    sendManualTestEvent: vi.fn(async () => ({
+      conversionEventLogId: "conversion_test_1",
+      workspaceId: "workspace_1",
+      status: "sent"
+    }))
+  };
   const platformAdminService = {
     assertPlatformAdmin: vi.fn(async () => ({
       id: "user_1",
@@ -205,6 +213,7 @@ async function createApp() {
     controllers: [DiagnosticsController],
     providers: [
       { provide: DiagnosticsService, useValue: service },
+      { provide: ConversionEventsService, useValue: conversionEventsService },
       { provide: PlatformAdminService, useValue: platformAdminService }
     ]
   }).compile();
@@ -212,7 +221,7 @@ async function createApp() {
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, platformAdminService, service };
+  return { app, conversionEventsService, platformAdminService, service };
 }
 
 describe("diagnostics controller", () => {
@@ -577,6 +586,45 @@ describe("diagnostics controller", () => {
     );
     expect(service.retryConversionEvent).toHaveBeenCalledWith("conversion_1", {
       reason: "Token Meta corrigido e cliente pediu reprocessamento"
+    });
+
+    await app.close();
+  });
+
+  it("sends a manual Meta CAPI test conversion event", async () => {
+    const { app, conversionEventsService, platformAdminService } =
+      await createApp();
+
+    await request(app.getHttpServer())
+      .post("/backoffice/diagnostics/conversions/test")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        workspaceId: "workspace_1",
+        eventName: "QualifiedLead",
+        phoneHash: "phone_hash_1",
+        adId: "ad_1",
+        ctwaClid: "clid_1",
+        testEventCode: "TEST12345"
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          conversionEventLogId: "conversion_test_1",
+          workspaceId: "workspace_1",
+          status: "sent"
+        });
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
+      "refresh-token"
+    );
+    expect(conversionEventsService.sendManualTestEvent).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      eventName: "QualifiedLead",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      testEventCode: "TEST12345"
     });
 
     await app.close();

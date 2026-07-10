@@ -10,6 +10,7 @@ import {
   Req
 } from "@nestjs/common";
 import {
+  diagnosticConversionEventTestInputSchema,
   diagnosticConversionEventLogListQuerySchema,
   diagnosticAuditLogListQuerySchema,
   diagnosticEventCreateSchema,
@@ -22,6 +23,7 @@ import {
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { PlatformAdminService } from "../auth/platform-admin.service";
+import { ConversionEventsService } from "../conversion-events/conversion-events.service";
 import { DiagnosticsService } from "./diagnostics.service";
 
 type DiagnosticsRequest = {
@@ -34,7 +36,9 @@ export class DiagnosticsController {
     @Inject(PlatformAdminService)
     private readonly platformAdminService: PlatformAdminService,
     @Inject(DiagnosticsService)
-    private readonly diagnosticsService: DiagnosticsService
+    private readonly diagnosticsService: DiagnosticsService,
+    @Inject(ConversionEventsService)
+    private readonly conversionEventsService: ConversionEventsService
   ) {}
 
   @Get("summary")
@@ -163,6 +167,22 @@ export class DiagnosticsController {
     }
 
     return this.diagnosticsService.retryConversionEvent(id, parsed.data);
+  }
+
+  @Post("conversions/test")
+  async sendConversionEventTest(
+    @AuthToken() refreshToken: string,
+    @Body() body: unknown
+  ) {
+    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    const parsed = diagnosticConversionEventTestInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    return this.conversionEventsService.sendManualTestEvent(parsed.data);
   }
 
   @Get("audit")

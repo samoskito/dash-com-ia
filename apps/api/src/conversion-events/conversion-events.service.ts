@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import type {
   ConversionEventCustomDataDto,
   ConversionEventNameDto,
+  ConversionEventTestInputDto,
   ConversionRuleDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
@@ -71,6 +72,8 @@ type RecordAutomaticLeadSubmittedInput = {
   ctwaClid?: string;
 };
 
+export type SendManualTestEventInput = ConversionEventTestInputDto;
+
 type MetaIntegrationCapiTokenRecord = {
   encryptedAccessToken: string | null;
   tokenIv: string | null;
@@ -94,6 +97,10 @@ export type SendReadyEventResult = {
   conversionEventLogId: string;
   workspaceId: string | null;
   status: "not_configured" | "sent" | "error" | "skipped";
+};
+
+type SendReadyEventOptions = {
+  testEventCode?: string;
 };
 
 @Injectable()
@@ -234,7 +241,64 @@ export class ConversionEventsService {
     return logs.map((log) => log.id);
   }
 
-  async sendReadyEvent(logId: string): Promise<SendReadyEventResult> {
+  async sendManualTestEvent(
+    input: SendManualTestEventInput
+  ): Promise<SendReadyEventResult> {
+    const subject = input.leadId ?? input.phoneHash ?? "unknown";
+    const dedupeKey = [
+      input.workspaceId,
+      subject,
+      "manual_test",
+      input.eventName,
+      input.adId ?? "missing_ad",
+      Date.now()
+    ].join(":");
+    const initialStatus = this.resolveInitialStatus({
+      eventName: input.eventName,
+      adId: input.adId,
+      ctwaClid: input.ctwaClid,
+      valueCents: input.valueCents ?? null
+    });
+    const log = await this.prisma.conversionEventLog.create({
+      data: {
+        workspaceId: input.workspaceId,
+        leadId: input.leadId ?? null,
+        phoneHash: input.phoneHash,
+        sourceTrigger: "manual_test",
+        eventName: input.eventName,
+        status: initialStatus.status,
+        pixelId: null,
+        eventId: dedupeKey,
+        campaignId: null,
+        adSetId: null,
+        adId: input.adId ?? null,
+        ctwaClid: input.ctwaClid ?? null,
+        attributionStatus: "manual_test",
+        dedupeKey,
+        valueCents: input.valueCents ?? null,
+        currency: input.currency ?? null,
+        contentName: input.contentName ?? null,
+        customData: Prisma.JsonNull,
+        errorCode: initialStatus.errorCode,
+        errorMessage: initialStatus.errorMessage
+      }
+    });
+
+    if (initialStatus.status !== "ready_to_send") {
+      return {
+        conversionEventLogId: log.id,
+        workspaceId: input.workspaceId,
+        status: "not_configured"
+      };
+    }
+
+    return this.sendReadyEvent(log.id, { testEventCode: input.testEventCode });
+  }
+
+  async sendReadyEvent(
+    logId: string,
+    options: SendReadyEventOptions = {}
+  ): Promise<SendReadyEventResult> {
     const log = (await this.prisma.conversionEventLog.findUnique({
       where: { id: logId }
     })) as ConversionEventLogRecord | null;
@@ -268,7 +332,7 @@ export class ConversionEventsService {
       currency: log.currency,
       contentName: log.contentName,
       customData: log.customData as ConversionEventCustomDataDto | null,
-      testEventCode: null
+      testEventCode: options.testEventCode ?? null
     });
     const integrationLogId = await this.recordMetaCapiIntegrationLog(
       log,
