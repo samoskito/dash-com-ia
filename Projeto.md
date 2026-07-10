@@ -610,7 +610,9 @@ Proximo passo operacional:
 - Payload Meta CAPI agora usa `action_source: business_messaging`, `messaging_channel: whatsapp`, `ctwa_clid`, `page_id`, `ad_id`, valores quando exigidos e `test_event_code` no endpoint de teste controlado do backoffice (`POST /backoffice/diagnostics/conversions/test`). Diagnosticos exibem metadados CAPI com `ctwaClid` mascarado e sem expor `access_token`.
 - Paridade R100 WPP para CAPI: WppTrack deve reaproveitar o comportamento de envio de conversoes do R100, incluindo payload `business_messaging`, `page_id`, `ctwa_clid`, `Purchase` com `order_id`, `content_type`, `contents` e `num_items`, mas sem trazer chat, CRM, Kanban ou atendimento.
 - Decisao de fase registrada em 2026-07-09: como a operacao atual de WhatsApp usa Uazapi/API nao oficial e o fluxo ja foi validado no R100 WPP/N8n, o CAPI desta etapa permanece com `page_id`. `whatsapp_business_account_id`/WABA nao deve bloquear nem substituir este payload agora; fica planejado para a futura integracao WhatsApp Cloud API oficial.
-- Depois de validar o CAPI em ambiente real, continuar com formulas finais de ROAS/receita e custos por etapa.
+- Testes automatizados ja executados para a etapa CAPI/paridade R100: `meta-capi-payload-builder.test.ts`, `meta-capi-adapter.test.ts`, `conversion-events-service.test.ts` e `pnpm --filter @wpptrack/api typecheck` passaram antes do commit `a31a7df feat: align capi purchase payload with r100`.
+- Decisao operacional em 2026-07-10: o teste real com Uazapi/CAPI (`ctwa_clid`, `ad_id`, payload real de webhook e envio real para Meta) sera feito mais para frente, quando a plataforma estiver mais pronta. Esse teste nao deve bloquear a continuidade do desenvolvimento; se o payload real vier diferente, ajustar o parser depois com base no dado real.
+- Ordem aprovada para continuidade: 1) criar a spec do modulo de formulas e metricas finais de relatorios; 2) implementar um motor backend centralizado de metricas; 3) aplicar esse motor nos relatorios de visao geral, campanhas, conjuntos e anuncios; 4) depois voltar para o teste real Uazapi/CAPI e corrigir qualquer ajuste fino de payload.
 
 ## Perguntas Abertas
 
