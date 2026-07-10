@@ -605,7 +605,9 @@ Checkpoint atual:
 
 Proximo passo operacional:
 
-- Spec CAPI criada em 2026-07-09: `docs/superpowers/specs/2026-07-09-wpptrack-capi-conversion-events-design.md`. A proxima rodada deve implementar o modulo CAPI robusto antes de fechar formulas finais: parser Uazapi/CTWA com `ctwa_clid`, `LeadSubmitted` automatico para leads CTWA elegiveis, eventos por palavra-chave/etiqueta, payload Meta Business Messaging com `messaging_channel="whatsapp"`, Pixel/Pagina principal do workspace, diagnosticos de bloqueio e endpoint/backoffice de teste com `test_event_code`.
+- Modulo CAPI WhatsApp implementado em 2026-07-09 a partir da spec `docs/superpowers/specs/2026-07-09-wpptrack-capi-conversion-events-design.md`: eventos `LeadSubmitted`, `QualifiedLead`, `Purchase` e registry expandido usam destino unico Pixel + Pagina, token OAuth Meta criptografado, parser Uazapi com `ctwa_clid`, fila BullMQ e diagnosticos de bloqueio/envio. Usuario final nao informa token CAPI manual.
+- Webhooks Uazapi com CTWA agora persistem `ctwa_clid` no lead, criam `LeadSubmitted` automatico para leads elegiveis, avaliam regras por palavra-chave/etiqueta e enfileiram apenas eventos `ready_to_send`. Eventos sem `adId`, sem `ctwa_clid` ou sem valor obrigatorio ficam bloqueados com diagnostico (`pending_meta_context`/`pending_value`) ate haver contexto suficiente.
+- Payload Meta CAPI agora usa `action_source: business_messaging`, `messaging_channel: whatsapp`, `ctwa_clid`, `page_id`, `ad_id`, valores quando exigidos e `test_event_code` no endpoint de teste controlado do backoffice (`POST /backoffice/diagnostics/conversions/test`). Diagnosticos exibem metadados CAPI com `ctwaClid` mascarado e sem expor `access_token`.
 - Depois de validar o CAPI em ambiente real, continuar com formulas finais de ROAS/receita e custos por etapa.
 
 ## Perguntas Abertas
