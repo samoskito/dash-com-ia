@@ -6,7 +6,10 @@ import type {
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
-import { MetaCapiAdapter } from "./meta-capi.adapter";
+import {
+  MetaCapiAdapter,
+  type MetaCapiSendEventErrorCode
+} from "./meta-capi.adapter";
 
 export type RecordRuleMatchesInput = {
   workspaceId: string;
@@ -163,6 +166,7 @@ export class ConversionEventsService {
         pageId: resolvedDestination.pageId,
         providerResponseSummary:
           result.responseSummary ? result.responseSummary as Prisma.InputJsonValue : Prisma.JsonNull,
+        errorCode: result.errorCode,
         errorMessage: result.errorMessage
       }
     });
@@ -246,6 +250,7 @@ export class ConversionEventsService {
       status: SendReadyEventResult["status"];
       responseSummary: unknown;
       errorMessage: string | null;
+      errorCode: MetaCapiSendEventErrorCode;
     },
     destination: ResolvedConversionDestination
   ): Promise<string | null> {
@@ -268,6 +273,7 @@ export class ConversionEventsService {
           finishedAt,
           durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
           providerRequestId: log.id,
+          providerErrorCode: result.errorCode,
           providerErrorMessage: result.errorMessage,
           leadId: log.leadId,
           campaignId: log.campaignId,
@@ -281,7 +287,8 @@ export class ConversionEventsService {
             pageId: destination.pageId,
             dedupeKey: log.dedupeKey,
             phoneHash: log.phoneHash,
-            adId: log.adId
+            adId: log.adId,
+            errorCode: result.errorCode
           } as Prisma.InputJsonValue,
           responseSummary:
             result.responseSummary === null
@@ -300,6 +307,7 @@ export class ConversionEventsService {
     result: {
       status: SendReadyEventResult["status"];
       errorMessage: string | null;
+      errorCode: MetaCapiSendEventErrorCode;
     },
     integrationLogId: string | null,
     destination: ResolvedConversionDestination
@@ -332,7 +340,9 @@ export class ConversionEventsService {
           adSetId: log.adSetId,
           adId: log.adId,
           jobId: log.id,
-          errorCode: isBlocked ? "MetaCapiNotConfigured" : "MetaCapiSendError",
+          errorCode:
+            result.errorCode ??
+            (isBlocked ? "MetaCapiNotConfigured" : "MetaCapiSendError"),
           integrationLogId,
           conversionEventLogId: log.id,
           summaryPayload: {
@@ -341,6 +351,7 @@ export class ConversionEventsService {
             pixelId: destination.pixelId,
             pageId: destination.pageId,
             status: result.status,
+            errorCode: result.errorCode,
             errorMessage: result.errorMessage
           } as Prisma.InputJsonValue
         }

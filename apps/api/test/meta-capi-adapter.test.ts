@@ -105,6 +105,11 @@ describe("meta capi adapter", () => {
       errorCode: "MissingMetaDestination"
     },
     {
+      name: "page destination",
+      overrides: { pageId: null },
+      errorCode: "MissingMetaDestination"
+    },
+    {
       name: "phone hash",
       overrides: { phoneHash: null },
       errorCode: "MissingPhoneHash"
@@ -238,9 +243,35 @@ describe("meta capi adapter", () => {
     expect(result).toMatchObject({
       status: "error",
       responseSummary: null,
+      errorMessage: "Meta CAPI network request failed",
       errorCode: "MetaCapiNetworkError"
     });
-    expect(result.errorMessage).toContain("socket hang up");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not expose access tokens from thrown fetch errors", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error(
+        "failed https://graph.facebook.com/v24.0/pixel/events?access_token=secret-token"
+      );
+    });
+    const adapter = new MetaCapiAdapter(
+      {
+        META_CAPI_ACCESS_TOKEN: "secret-token"
+      },
+      fetchMock as never
+    );
+
+    const result = await adapter.sendEvent(baseInput());
+    const serializedResult = JSON.stringify(result);
+
+    expect(result).toMatchObject({
+      status: "error",
+      responseSummary: null,
+      errorMessage: "Meta CAPI network request failed",
+      errorCode: "MetaCapiNetworkError"
+    });
+    expect(serializedResult).not.toContain("secret-token");
+    expect(serializedResult).not.toContain("access_token=secret-token");
   });
 });

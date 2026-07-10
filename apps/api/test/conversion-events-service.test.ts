@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
-import type { MetaCapiAdapter } from "../src/conversion-events/meta-capi.adapter";
+import { MetaCapiAdapter } from "../src/conversion-events/meta-capi.adapter";
 
 function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
   const db = {
@@ -301,8 +301,23 @@ describe("conversion events service", () => {
     });
   });
 
-  it("records diagnostics when Meta CAPI send is blocked by missing configuration", async () => {
-    const { db, service } = createHarness();
+  it("stores and surfaces MissingCtwaClid when the adapter blocks the service placeholder send", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          events_received: 1
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+    const { db, service } = createHarness(
+      new MetaCapiAdapter({}, fetchMock as never)
+    );
+    db.destinations.push({
+      workspaceId: "workspace_1",
+      pixelId: "workspace_pixel_1",
+      pageId: "page_1"
+    });
     await service.recordRuleMatches({
       workspaceId: "workspace_1",
       leadId: "lead_1",
@@ -329,10 +344,18 @@ describe("conversion events service", () => {
 
     const result = await service.sendReadyEvent("conversion_1");
 
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       conversionEventLogId: "conversion_1",
       workspaceId: "workspace_1",
       status: "not_configured"
+    });
+    expect(db.logs[0]).toMatchObject({
+      status: "not_configured",
+      pixelId: "workspace_pixel_1",
+      pageId: "page_1",
+      errorMessage: "Meta CAPI ctwa_clid not available",
+      errorCode: "MissingCtwaClid"
     });
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({
@@ -341,15 +364,17 @@ describe("conversion events service", () => {
         source: "meta",
         operation: "meta.capi.send_event",
         status: "blocked",
-        providerErrorMessage: "Meta CAPI token, pixel id or page id not configured",
+        providerErrorCode: "MissingCtwaClid",
+        providerErrorMessage: "Meta CAPI ctwa_clid not available",
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1"
       })
     );
     expect(db.integrationLogs[0].requestSummary).toMatchObject({
-      pixelId: "pixel_1",
-      pageId: null
+      pixelId: "workspace_pixel_1",
+      pageId: "page_1",
+      errorCode: "MissingCtwaClid"
     });
     expect(db.diagnosticEvents).toContainEqual(
       expect.objectContaining({
@@ -363,13 +388,14 @@ describe("conversion events service", () => {
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
-        errorCode: "MetaCapiNotConfigured"
+        errorCode: "MissingCtwaClid"
       })
     );
     expect(db.diagnosticEvents[0].summaryPayload).toMatchObject({
-      pixelId: "pixel_1",
-      pageId: null,
-      errorMessage: "Meta CAPI token, pixel id or page id not configured"
+      pixelId: "workspace_pixel_1",
+      pageId: "page_1",
+      errorMessage: "Meta CAPI ctwa_clid not available",
+      errorCode: "MissingCtwaClid"
     });
     expect(JSON.stringify(db.diagnosticEvents)).not.toContain("secret");
   });

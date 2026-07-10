@@ -123,8 +123,7 @@ export class MetaCapiAdapter {
       return {
         status: "error",
         responseSummary: null,
-        errorMessage:
-          error instanceof Error ? error.message : "Meta CAPI network error",
+        errorMessage: "Meta CAPI network request failed",
         errorCode: "MetaCapiNetworkError"
       };
     }
