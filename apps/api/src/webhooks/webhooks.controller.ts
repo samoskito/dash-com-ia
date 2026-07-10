@@ -19,6 +19,7 @@ import { ConversionEventsService } from "../conversion-events/conversion-events.
 import { ConversionRulesService } from "../conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../diagnostics/diagnostics.service";
 import { LeadsService } from "../leads/leads.service";
+import { parseUazapiWebhook } from "./uazapi-webhook-parser";
 
 type WebhookBody = Record<string, unknown>;
 
@@ -312,8 +313,10 @@ export class WebhooksController {
     workspaceId?: string,
     whatsappInstanceId?: string
   ) {
-    const metadata = this.getUazapiWebhookMetadata(body);
-    const resolvedContext = await this.resolveUazapiContext(body);
+    const parsed = parseUazapiWebhook(body);
+    const resolvedContext = await this.resolveUazapiContext(
+      parsed.providerInstanceId
+    );
     const resolvedWorkspaceId = workspaceId ?? resolvedContext?.workspaceId;
     const resolvedWhatsappInstanceId =
       whatsappInstanceId ??
@@ -322,16 +325,16 @@ export class WebhooksController {
     const diagnostic = await this.diagnosticsService.recordWebhookLog({
       workspaceId: resolvedWorkspaceId,
       source: "uazapi",
-      eventType: metadata.eventType,
-      externalEventId: metadata.externalEventId,
-      idempotencyKey: metadata.externalEventId
-        ? `uazapi:${metadata.externalEventId}`
+      eventType: parsed.eventType,
+      externalEventId: parsed.externalEventId,
+      idempotencyKey: parsed.externalEventId
+        ? `uazapi:${parsed.externalEventId}`
         : undefined,
-      leadId: metadata.leadId,
-      phoneHash: metadata.phoneHash,
-      campaignId: metadata.campaignId,
-      adSetId: metadata.adSetId,
-      adId: metadata.adId,
+      leadId: parsed.leadId,
+      phoneHash: parsed.phoneHash,
+      campaignId: parsed.campaignId,
+      adSetId: parsed.adSetId,
+      adId: parsed.adId,
       summaryPayload: body
     });
 
@@ -358,8 +361,8 @@ export class WebhooksController {
     }
 
     const triggerInput = {
-      messageText: this.getMessageText(body),
-      labels: this.getLabels(body)
+      messageText: parsed.messageText,
+      labels: parsed.labels
     };
     const rules = await this.conversionRulesService.evaluateTriggers(
       resolvedWorkspaceId,
@@ -368,27 +371,44 @@ export class WebhooksController {
     const lead = await this.leadsService.upsertFromWhatsappWebhook({
       workspaceId: resolvedWorkspaceId,
       whatsappInstanceId: resolvedWhatsappInstanceId,
-      name: this.getContactName(body),
-      phone: this.getPhone(body),
-      phoneHash: this.firstString(body.phoneHash),
+      name: parsed.contactName,
+      phone: parsed.phone,
+      phoneHash: parsed.phoneHash,
       source: "uazapi",
       labels: triggerInput.labels,
-      campaignId: metadata.campaignId,
-      adSetId: metadata.adSetId,
-      adId: metadata.adId,
+      campaignId: parsed.campaignId,
+      adSetId: parsed.adSetId,
+      adId: parsed.adId,
+      ctwaClid: parsed.ctwaClid,
+      ctwaSourceUrl: parsed.ctwaSourceUrl,
       occurredAt: new Date()
     });
+    const automatic =
+      await this.conversionEventsService.recordAutomaticLeadSubmitted({
+        workspaceId: resolvedWorkspaceId,
+        leadId: lead?.id ?? parsed.leadId,
+        phoneHash: parsed.phoneHash,
+        campaignId: parsed.campaignId,
+        adSetId: parsed.adSetId,
+        adId: parsed.adId,
+        ctwaClid: parsed.ctwaClid
+      });
     const conversion = await this.conversionEventsService.recordRuleMatches({
       workspaceId: resolvedWorkspaceId,
       rules,
-      leadId: lead?.id ?? this.firstString(body.leadId),
-      phoneHash: metadata.phoneHash,
-      campaignId: metadata.campaignId,
-      adSetId: metadata.adSetId,
-      adId: metadata.adId
+      leadId: lead?.id ?? parsed.leadId,
+      phoneHash: parsed.phoneHash,
+      campaignId: parsed.campaignId,
+      adSetId: parsed.adSetId,
+      adId: parsed.adId,
+      ctwaClid: parsed.ctwaClid
     });
+    const readyLogIds = await this.conversionEventsService.listReadyLogIds([
+      ...automatic.created,
+      ...conversion.created
+    ]);
     const queued = await Promise.all(
-      conversion.created.map((logId) =>
+      readyLogIds.map((logId) =>
         this.conversionEventsQueueService.enqueueSend(logId)
       )
     );
@@ -397,6 +417,7 @@ export class WebhooksController {
       ...diagnostic,
       conversion: {
         ...conversion,
+        automatic,
         queued
       }
     };
@@ -414,189 +435,13 @@ export class WebhooksController {
     return this.firstString(body.object) ?? this.firstString(body.event) ?? "meta.webhook";
   }
 
-  private getUazapiWebhookMetadata(body: WebhookBody): {
-    eventType: string;
-    externalEventId?: string;
-    leadId?: string;
-    phoneHash?: string;
-    campaignId?: string;
-    adSetId?: string;
-    adId?: string;
-  } {
-    const attribution = this.getUazapiAttribution(body);
-
-    return {
-      eventType: this.getEventType("uazapi", body),
-      externalEventId:
-        this.firstString(body.id) ??
-        this.firstString(body.eventId) ??
-        this.firstString(body.externalEventId),
-      leadId: this.firstString(body.leadId),
-      phoneHash: this.firstString(body.phoneHash) ?? this.hashPhone(this.getPhone(body)),
-      campaignId: attribution.campaignId,
-      adSetId: attribution.adSetId,
-      adId: attribution.adId
-    };
-  }
-
-  private getUazapiAttribution(body: WebhookBody): {
-    campaignId?: string;
-    adSetId?: string;
-    adId?: string;
-  } {
-    const message = this.recordValue(body.message);
-    const context = this.recordValue(body.context);
-    const referral =
-      this.recordValue(body.referral) ??
-      this.recordValue(message?.referral) ??
-      this.recordValue(context?.referral);
-    const adsContext =
-      this.recordValue(body.ads_context_data) ??
-      this.recordValue(body.adsContextData) ??
-      this.recordValue(referral?.ads_context_data) ??
-      this.recordValue(referral?.adsContextData);
-
-    return {
-      campaignId:
-        this.firstString(body.campaignId) ??
-        this.firstString(body.campaign_id) ??
-        this.firstString(body.utm_campaign) ??
-        this.firstString(referral?.campaignId) ??
-        this.firstString(referral?.campaign_id) ??
-        this.firstString(adsContext?.campaignId) ??
-        this.firstString(adsContext?.campaign_id),
-      adSetId:
-        this.firstString(body.adSetId) ??
-        this.firstString(body.adsetId) ??
-        this.firstString(body.ad_set_id) ??
-        this.firstString(body.adset_id) ??
-        this.firstString(body.utm_adset) ??
-        this.firstString(referral?.adSetId) ??
-        this.firstString(referral?.adsetId) ??
-        this.firstString(referral?.ad_set_id) ??
-        this.firstString(referral?.adset_id) ??
-        this.firstString(adsContext?.adSetId) ??
-        this.firstString(adsContext?.adsetId) ??
-        this.firstString(adsContext?.ad_set_id) ??
-        this.firstString(adsContext?.adset_id),
-      adId:
-        this.firstString(body.adId) ??
-        this.firstString(body.ad_id) ??
-        this.firstString(body.sourceId) ??
-        this.firstString(body.source_id) ??
-        this.firstString(referral?.adId) ??
-        this.firstString(referral?.ad_id) ??
-        this.firstString(referral?.sourceId) ??
-        this.firstString(referral?.source_id) ??
-        this.firstString(adsContext?.adId) ??
-        this.firstString(adsContext?.ad_id)
-    };
-  }
-
   private firstString(value: unknown): string | undefined {
     return typeof value === "string" && value.trim() ? value : undefined;
   }
 
-  private recordValue(value: unknown): Record<string, unknown> | undefined {
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : undefined;
-  }
-
-  private getMessageText(body: WebhookBody): string | undefined {
-    const message = body.message;
-
-    if (typeof message === "string") {
-      return this.firstString(message);
-    }
-
-    if (message && typeof message === "object" && !Array.isArray(message)) {
-      const messageObject = message as Record<string, unknown>;
-      return (
-        this.firstString(messageObject.text) ??
-        this.firstString(messageObject.body) ??
-        this.firstString(messageObject.message) ??
-        this.firstString(messageObject.conversation)
-      );
-    }
-
-    return (
-      this.firstString(body.text) ??
-      this.firstString(body.body) ??
-      this.firstString(body.messageText)
-    );
-  }
-
-  private getLabels(body: WebhookBody): string[] {
-    const rawLabels =
-      body.labels ??
-      (body.chat &&
-      typeof body.chat === "object" &&
-      !Array.isArray(body.chat)
-        ? (body.chat as Record<string, unknown>).labels
-        : undefined) ??
-      body.label;
-
-    if (!rawLabels) {
-      return [];
-    }
-
-    const list = Array.isArray(rawLabels) ? rawLabels : [rawLabels];
-
-    return list
-      .map((label) => this.labelToString(label))
-      .filter((label): label is string => Boolean(label));
-  }
-
-  private getPhone(body: WebhookBody): string | undefined {
-    const contact = body.contact;
-    const chat = body.chat;
-
-    return (
-      this.firstString(body.phone) ??
-      this.firstString(body.from) ??
-      this.firstString(body.sender) ??
-      (contact && typeof contact === "object" && !Array.isArray(contact)
-        ? this.firstString((contact as Record<string, unknown>).phone)
-        : undefined) ??
-      (chat && typeof chat === "object" && !Array.isArray(chat)
-        ? this.firstString((chat as Record<string, unknown>).phone)
-        : undefined)
-    );
-  }
-
-  private getContactName(body: WebhookBody): string | undefined {
-    const contact = body.contact;
-
-    return (
-      this.firstString(body.name) ??
-      this.firstString(body.contactName) ??
-      this.firstString(body.pushName) ??
-      (contact && typeof contact === "object" && !Array.isArray(contact)
-        ? this.firstString((contact as Record<string, unknown>).name)
-        : undefined)
-    );
-  }
-
-  private hashPhone(phone?: string): string | undefined {
-    const normalized = this.normalizePhone(phone);
-
-    return normalized
-      ? createHash("sha256").update(normalized).digest("hex")
-      : undefined;
-  }
-
-  private normalizePhone(phone?: string): string | undefined {
-    const digits = phone?.replace(/\D/g, "");
-
-    return digits || undefined;
-  }
-
   private async resolveUazapiContext(
-    body: WebhookBody
+    providerInstanceId?: string
   ): Promise<{ workspaceId: string; whatsappInstanceId: string } | null> {
-    const providerInstanceId = this.getUazapiProviderInstanceId(body);
-
     if (!providerInstanceId) {
       return null;
     }
@@ -618,46 +463,5 @@ export class WebhooksController {
           whatsappInstanceId: instance.id
         }
       : null;
-  }
-
-  private getUazapiProviderInstanceId(body: WebhookBody): string | undefined {
-    const instance = body.instance;
-    const whatsappInstance = body.whatsappInstance;
-
-    return (
-      this.firstString(body.providerInstanceId) ??
-      this.firstString(body.instanceId) ??
-      this.firstString(body.instance_id) ??
-      (instance && typeof instance === "object" && !Array.isArray(instance)
-        ? this.firstString((instance as Record<string, unknown>).id) ??
-          this.firstString((instance as Record<string, unknown>).instanceId) ??
-          this.firstString((instance as Record<string, unknown>).instance_id)
-        : undefined) ??
-      (whatsappInstance &&
-      typeof whatsappInstance === "object" &&
-      !Array.isArray(whatsappInstance)
-        ? this.firstString(
-            (whatsappInstance as Record<string, unknown>).providerInstanceId
-          ) ??
-          this.firstString((whatsappInstance as Record<string, unknown>).id)
-        : undefined)
-    );
-  }
-
-  private labelToString(label: unknown): string | undefined {
-    if (typeof label === "string") {
-      return this.firstString(label);
-    }
-
-    if (label && typeof label === "object" && !Array.isArray(label)) {
-      const labelObject = label as Record<string, unknown>;
-      return (
-        this.firstString(labelObject.name) ??
-        this.firstString(labelObject.title) ??
-        this.firstString(labelObject.label)
-      );
-    }
-
-    return undefined;
   }
 }

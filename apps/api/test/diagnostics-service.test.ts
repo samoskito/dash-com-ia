@@ -1164,6 +1164,94 @@ describe("diagnostics service", () => {
     });
   });
 
+  it("rejects retry for conversion events still pending value", async () => {
+    const {
+      auditLogs,
+      conversionEventLogs,
+      conversionEventsQueueService,
+      events,
+      jobAttempts,
+      serviceWithQueues
+    } = createHarness();
+    conversionEventLogs.push({
+      id: "conversion_1",
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      sourceTrigger: "keyword",
+      eventName: "Purchase",
+      status: "pending_value",
+      pixelId: "pixel_1",
+      metaAccountId: "act_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      attributionStatus: "attributed",
+      dedupeKey: "dedupe_1",
+      sentAt: null,
+      errorCode: "EventValueMissing",
+      errorMessage: "Conversion event value is required",
+      jobId: null,
+      createdAt: new Date("2026-07-02T03:00:00.000Z")
+    });
+
+    await expect(
+      serviceWithQueues.retryConversionEvent("conversion_1", {
+        reason: "Reprocessar compra"
+      })
+    ).rejects.toThrow("Evento ainda precisa de valor antes do reenvio");
+
+    expect(conversionEventLogs[0]?.status).toBe("pending_value");
+    expect(conversionEventsQueueService.enqueueSend).not.toHaveBeenCalled();
+    expect(auditLogs).toHaveLength(0);
+    expect(jobAttempts).toHaveLength(0);
+    expect(events).toHaveLength(0);
+  });
+
+  it("rejects retry for conversion events still pending Meta context", async () => {
+    const {
+      auditLogs,
+      conversionEventLogs,
+      conversionEventsQueueService,
+      events,
+      jobAttempts,
+      serviceWithQueues
+    } = createHarness();
+    conversionEventLogs.push({
+      id: "conversion_1",
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      sourceTrigger: "auto_lead",
+      eventName: "LeadSubmitted",
+      status: "pending_meta_context",
+      pixelId: null,
+      metaAccountId: "act_1",
+      campaignId: "cmp_1",
+      adSetId: null,
+      adId: null,
+      attributionStatus: "missing_ad_id",
+      dedupeKey: "dedupe_1",
+      sentAt: null,
+      errorCode: "MissingAdId",
+      errorMessage: "Meta CAPI ad id not available",
+      jobId: null,
+      createdAt: new Date("2026-07-02T03:00:00.000Z")
+    });
+
+    await expect(
+      serviceWithQueues.retryConversionEvent("conversion_1", {
+        reason: "Reprocessar lead"
+      })
+    ).rejects.toThrow("Evento ainda precisa de contexto Meta antes do reenvio");
+
+    expect(conversionEventLogs[0]?.status).toBe("pending_meta_context");
+    expect(conversionEventsQueueService.enqueueSend).not.toHaveBeenCalled();
+    expect(auditLogs).toHaveLength(0);
+    expect(jobAttempts).toHaveLength(0);
+    expect(events).toHaveLength(0);
+  });
+
   it("lists audit logs with operational filters", async () => {
     const { auditLogFindManyCalls, auditLogs, service } = createHarness();
     auditLogs.push({

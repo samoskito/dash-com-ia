@@ -1,4 +1,10 @@
-import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  Optional
+} from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
   DiagnosticAuditLogDto,
@@ -1046,6 +1052,18 @@ export class DiagnosticsService {
 
     if (!conversionEvent) {
       throw new NotFoundException("Conversao nao encontrada");
+    }
+
+    if (conversionEvent.status === "pending_value") {
+      throw new BadRequestException(
+        "Evento ainda precisa de valor antes do reenvio"
+      );
+    }
+
+    if (conversionEvent.status === "pending_meta_context") {
+      throw new BadRequestException(
+        "Evento ainda precisa de contexto Meta antes do reenvio"
+      );
     }
 
     const auditLog = await this.prisma.auditLog.create({

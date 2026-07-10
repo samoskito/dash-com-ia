@@ -51,14 +51,20 @@ async function createApp() {
     ])
   };
   const conversionEventsService = {
+    recordAutomaticLeadSubmitted: vi.fn(async () => ({
+      created: ["automatic_1"],
+      duplicates: []
+    })),
     recordRuleMatches: vi.fn(async () => ({
-      created: ["conversion_1"]
-    }))
+      created: ["conversion_1"],
+      duplicates: []
+    })),
+    listReadyLogIds: vi.fn(async (logIds: string[]) => logIds)
   };
   const conversionEventsQueueService = {
-    enqueueSend: vi.fn(async () => ({
-      conversionEventLogId: "conversion_1",
-      jobId: "conversion-send_conversion_1",
+    enqueueSend: vi.fn(async (conversionEventLogId: string) => ({
+      conversionEventLogId,
+      jobId: `conversion-send_${conversionEventLogId}`,
       status: "queued"
     }))
   };
@@ -183,8 +189,14 @@ describe("webhooks controller", () => {
       .expect(({ body }) => {
         expect(body.status).toBe("received");
         expect(body.webhookLogId).toBe("webhook_1");
+        expect(body.conversion.automatic.created).toEqual(["automatic_1"]);
         expect(body.conversion.created).toEqual(["conversion_1"]);
         expect(body.conversion.queued).toEqual([
+          {
+            conversionEventLogId: "automatic_1",
+            jobId: "conversion-send_automatic_1",
+            status: "queued"
+          },
           {
             conversionEventLogId: "conversion_1",
             jobId: "conversion-send_conversion_1",
@@ -217,11 +229,26 @@ describe("webhooks controller", () => {
       expect.objectContaining({
         workspaceId: "workspace_1",
         leadId: "lead_1",
+        phoneHash: expectedPhoneHash,
         rules: expect.arrayContaining([
           expect.objectContaining({ eventName: "QualifiedLead" })
         ])
       })
     );
+    expect(conversionEventsService.recordAutomaticLeadSubmitted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        leadId: "lead_1",
+        phoneHash: expectedPhoneHash,
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1"
+      })
+    );
+    expect(conversionEventsService.listReadyLogIds).toHaveBeenCalledWith([
+      "automatic_1",
+      "conversion_1"
+    ]);
     expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
@@ -234,6 +261,9 @@ describe("webhooks controller", () => {
       })
     );
     expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
+      "automatic_1"
+    );
+    expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
       "conversion_1"
     );
 
@@ -241,13 +271,28 @@ describe("webhooks controller", () => {
   });
 
   it("extracts Uazapi CTWA referral attribution and object labels", async () => {
+    const expectedPhoneHash = createHash("sha256")
+      .update("5511988441020")
+      .digest("hex");
     const {
       app,
       diagnosticsService,
       conversionRulesService,
       conversionEventsService,
+      conversionEventsQueueService,
       leadsService
     } = await createApp();
+    conversionEventsService.recordAutomaticLeadSubmitted.mockResolvedValueOnce({
+      created: ["automatic_pending_meta"],
+      duplicates: []
+    });
+    conversionEventsService.recordRuleMatches.mockResolvedValueOnce({
+      created: ["conversion_ready_1"],
+      duplicates: []
+    });
+    conversionEventsService.listReadyLogIds.mockResolvedValueOnce([
+      "conversion_ready_1"
+    ]);
 
     await request(app.getHttpServer())
       .post("/webhooks/uazapi")
@@ -260,6 +305,7 @@ describe("webhooks controller", () => {
           referral: {
             source_id: "ad_ref_1",
             ctwa_clid: "ctwa_click_1",
+            source_url: "https://fb.com/ad/ref",
             ads_context_data: {
               campaign_id: "cmp_ref_1",
               adset_id: "adset_ref_1",
@@ -306,15 +352,40 @@ describe("webhooks controller", () => {
         labels: ["Venda fechada", "Cliente VIP"],
         campaignId: "cmp_ref_1",
         adSetId: "adset_ref_1",
-        adId: "ad_ref_1"
+        adId: "ad_ref_1",
+        ctwaClid: "ctwa_click_1",
+        ctwaSourceUrl: "https://fb.com/ad/ref"
+      })
+    );
+    expect(conversionEventsService.recordAutomaticLeadSubmitted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        leadId: "lead_1",
+        phoneHash: expectedPhoneHash,
+        campaignId: "cmp_ref_1",
+        adSetId: "adset_ref_1",
+        adId: "ad_ref_1",
+        ctwaClid: "ctwa_click_1"
       })
     );
     expect(conversionEventsService.recordRuleMatches).toHaveBeenCalledWith(
       expect.objectContaining({
+        workspaceId: "workspace_1",
+        leadId: "lead_1",
+        phoneHash: expectedPhoneHash,
         campaignId: "cmp_ref_1",
         adSetId: "adset_ref_1",
-        adId: "ad_ref_1"
+        adId: "ad_ref_1",
+        ctwaClid: "ctwa_click_1"
       })
+    );
+    expect(conversionEventsService.listReadyLogIds).toHaveBeenCalledWith([
+      "automatic_pending_meta",
+      "conversion_ready_1"
+    ]);
+    expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledOnce();
+    expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
+      "conversion_ready_1"
     );
 
     await app.close();
@@ -357,7 +428,11 @@ describe("webhooks controller", () => {
 
     expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
     expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+    expect(
+      conversionEventsService.recordAutomaticLeadSubmitted
+    ).not.toHaveBeenCalled();
     expect(conversionEventsService.recordRuleMatches).not.toHaveBeenCalled();
+    expect(conversionEventsService.listReadyLogIds).not.toHaveBeenCalled();
     expect(conversionEventsQueueService.enqueueSend).not.toHaveBeenCalled();
 
     await app.close();

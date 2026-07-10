@@ -20,6 +20,8 @@ type LeadRecord = {
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
+  ctwaClid: string | null;
+  ctwaSourceUrl: string | null;
   firstMessageAt: Date | null;
   lastMessageAt: Date | null;
   createdAt: Date;
@@ -80,6 +82,8 @@ export type UpsertWhatsappLeadInput = {
   campaignId?: string;
   adSetId?: string;
   adId?: string;
+  ctwaClid?: string;
+  ctwaSourceUrl?: string;
   occurredAt?: Date;
 };
 
@@ -349,6 +353,8 @@ export class LeadsService {
         campaignId: input.campaignId ?? null,
         adSetId: input.adSetId ?? null,
         adId: input.adId ?? null,
+        ctwaClid: input.ctwaClid ?? null,
+        ctwaSourceUrl: input.ctwaSourceUrl ?? null,
         firstMessageAt: occurredAt,
         lastMessageAt: occurredAt
       },
@@ -361,6 +367,8 @@ export class LeadsService {
         campaignId: input.campaignId ?? undefined,
         adSetId: input.adSetId ?? undefined,
         adId: input.adId ?? undefined,
+        ctwaClid: input.ctwaClid ?? undefined,
+        ctwaSourceUrl: input.ctwaSourceUrl ?? undefined,
         lastMessageAt: occurredAt
       },
       select: {
