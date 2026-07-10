@@ -578,6 +578,8 @@ model Lead {
 
   @@unique([workspaceId, phoneHash])
   @@index([workspaceId, status, lastMessageAt])
+  @@index([workspaceId, firstMessageAt])
+  @@index([workspaceId, createdAt])
   @@index([workspaceId, campaignId])
   @@index([workspaceId, adSetId])
   @@index([workspaceId, adId])
@@ -672,6 +674,7 @@ model MetaReportingAccount {
 
   @@unique([workspaceId, adAccountId])
   @@index([workspaceId, active])
+  @@index([workspaceId, active, businessId, adAccountId])
   @@index([businessId])
 }
 
@@ -701,6 +704,7 @@ model MetaCampaign {
   @@unique([workspaceId, campaignId])
   @@index([workspaceId, adAccountId])
   @@index([workspaceId, status])
+  @@index([workspaceId, businessId, adAccountId, whatsappClassification])
 }
 
 model MetaAdSet {
@@ -729,6 +733,8 @@ model MetaAdSet {
 
   @@unique([workspaceId, adSetId])
   @@index([workspaceId, campaignId])
+  @@index([workspaceId, businessId, adAccountId, whatsappClassification])
+  @@index([workspaceId, status])
 }
 
 model MetaAd {
@@ -761,4 +767,6 @@ model MetaAd {
   @@unique([workspaceId, adId])
   @@index([workspaceId, campaignId])
   @@index([workspaceId, adSetId])
+  @@index([workspaceId, businessId, adAccountId, whatsappClassification])
+  @@index([workspaceId, status])
 }

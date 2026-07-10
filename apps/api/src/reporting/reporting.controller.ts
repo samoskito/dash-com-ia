@@ -25,9 +25,14 @@ type HeaderResponse = {
 };
 
 type ReportPeriod = {
-  since?: string;
-  until?: string;
+  since: string;
+  until: string;
   rangeLabel: string;
+};
+
+type ReportPagination = {
+  page: number;
+  pageSize: number;
 };
 
 type WhatsappClassificationFilter =
@@ -68,6 +73,8 @@ export class ReportingController {
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
+    @Query("page") page?: string | string[],
+    @Query("pageSize") pageSize?: string | string[],
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
@@ -79,11 +86,13 @@ export class ReportingController {
       status,
       whatsappClassification,
     });
+    const pagination = this.parseReportPagination(page, pageSize);
 
     return this.metaReportingService.getCampaignReportOverview({
       workspaceId,
       ...period,
       ...filters,
+      ...pagination,
     });
   }
 
@@ -136,6 +145,8 @@ export class ReportingController {
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
+    @Query("page") page?: string | string[],
+    @Query("pageSize") pageSize?: string | string[],
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
@@ -147,11 +158,13 @@ export class ReportingController {
       status,
       whatsappClassification,
     });
+    const pagination = this.parseReportPagination(page, pageSize);
 
     return this.metaReportingService.getAdSetReportOverview({
       workspaceId,
       ...period,
       ...filters,
+      ...pagination,
     });
   }
 
@@ -166,6 +179,8 @@ export class ReportingController {
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
+    @Query("page") page?: string | string[],
+    @Query("pageSize") pageSize?: string | string[],
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
@@ -177,11 +192,13 @@ export class ReportingController {
       status,
       whatsappClassification,
     });
+    const pagination = this.parseReportPagination(page, pageSize);
 
     return this.metaReportingService.getAdReportOverview({
       workspaceId,
       ...period,
       ...filters,
+      ...pagination,
     });
   }
 
@@ -273,7 +290,7 @@ export class ReportingController {
 
   private defaultSince(): string {
     const date = new Date();
-    date.setDate(date.getDate() - 7);
+    date.setUTCDate(date.getUTCDate() - 6);
 
     return date.toISOString().slice(0, 10);
   }
@@ -285,6 +302,8 @@ export class ReportingController {
   private parseReportPeriod(since?: string, until?: string): ReportPeriod {
     if (!since && !until) {
       return {
+        since: this.defaultSince(),
+        until: this.defaultUntil(),
         rangeLabel: "Ultimos 7 dias",
       };
     }
@@ -302,6 +321,48 @@ export class ReportingController {
       until,
       rangeLabel: `${since} a ${until}`,
     };
+  }
+
+  private parseReportPagination(
+    page?: string | string[],
+    pageSize?: string | string[],
+  ): Partial<ReportPagination> {
+    if (page === undefined && pageSize === undefined) {
+      return {};
+    }
+
+    return {
+      page: this.parsePositiveInteger(page, 1, "Pagina invalida"),
+      pageSize: this.parsePositiveInteger(
+        pageSize,
+        10,
+        "Tamanho de pagina invalido",
+        100,
+      ),
+    };
+  }
+
+  private parsePositiveInteger(
+    value: string | string[] | undefined,
+    fallback: number,
+    message: string,
+    max?: number,
+  ): number {
+    if (Array.isArray(value)) {
+      throw new BadRequestException("Filtro de relatorio invalido");
+    }
+
+    if (value === undefined || value === "") {
+      return fallback;
+    }
+
+    const parsed = Number(value);
+
+    if (!Number.isInteger(parsed) || parsed < 1 || (max && parsed > max)) {
+      throw new BadRequestException(message);
+    }
+
+    return parsed;
   }
 
   private parseReportFilters(input: {

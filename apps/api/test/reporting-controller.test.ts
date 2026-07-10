@@ -1,5 +1,5 @@
 import { Test } from "@nestjs/testing";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { AuthService } from "../src/auth/auth.service";
 import { MetaReportSyncQueueService } from "../src/reporting/meta-report-sync-queue.service";
@@ -220,6 +220,15 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
 }
 
 describe("reporting controller", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("returns campaign reports for the current workspace", async () => {
     const { app, reportingService } = await createApp();
 
@@ -234,6 +243,8 @@ describe("reporting controller", () => {
 
     expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
+      since: "2026-07-04",
+      until: "2026-07-10",
       rangeLabel: "Ultimos 7 dias",
     });
 
@@ -249,9 +260,7 @@ describe("reporting controller", () => {
       .expect(200)
       .expect(({ body }) => {
         expect(body.workspaceId).toBe("workspace_1");
-        expect(body.events[0].eventLabel).toBe(
-          "Conversas reais iniciadas",
-        );
+        expect(body.events[0].eventLabel).toBe("Conversas reais iniciadas");
       });
 
     expect(reportingService.getConversionEventAudit).toHaveBeenCalledWith({
@@ -294,6 +303,8 @@ describe("reporting controller", () => {
 
     expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
+      since: "2026-07-04",
+      until: "2026-07-10",
       rangeLabel: "Ultimos 7 dias",
       businessId: "business_1",
       adAccountId: "act_123",
@@ -323,6 +334,8 @@ describe("reporting controller", () => {
 
     const expected = {
       workspaceId: "workspace_1",
+      since: "2026-07-04",
+      until: "2026-07-10",
       rangeLabel: "Ultimos 7 dias",
       businessId: "business_1",
       adAccountId: "act_123",
@@ -338,6 +351,26 @@ describe("reporting controller", () => {
       expected,
     );
     expect(reportingService.getAdReportOverview).toHaveBeenCalledWith(expected);
+
+    await app.close();
+  });
+
+  it("passes validated pagination to the selected report level", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/adsets?page=3&pageSize=25")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+
+    expect(reportingService.getAdSetReportOverview).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-04",
+      until: "2026-07-10",
+      rangeLabel: "Ultimos 7 dias",
+      page: 3,
+      pageSize: 25,
+    });
 
     await app.close();
   });

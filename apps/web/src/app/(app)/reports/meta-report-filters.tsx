@@ -11,9 +11,11 @@ type MetaReportFiltersProps = {
   compareUntil?: string;
   nameContains?: string;
   nameScope?: string;
+  pageSize?: number;
   since?: string;
   status?: string;
   until?: string;
+  view?: "campaigns" | "adsets" | "ads";
   whatsappClassification?: string;
 };
 
@@ -80,9 +82,11 @@ export function MetaReportFilters({
   compareUntil,
   nameContains,
   nameScope = "campaign",
+  pageSize = 10,
   since,
   status = "all",
   until,
+  view = "campaigns",
   whatsappClassification = "whatsapp",
 }: MetaReportFiltersProps) {
   const reportingAccounts = useMemo(
@@ -130,6 +134,8 @@ export function MetaReportFilters({
       <input type="hidden" name="until" value={until ?? ""} />
       <input type="hidden" name="compareSince" value={compareSince ?? ""} />
       <input type="hidden" name="compareUntil" value={compareUntil ?? ""} />
+      <input type="hidden" name="view" value={view} />
+      <input type="hidden" name="pageSize" value={pageSize} />
       <select
         className="filter-control"
         name="businessId"

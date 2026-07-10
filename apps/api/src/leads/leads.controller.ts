@@ -4,7 +4,7 @@ import {
   Get,
   Inject,
   Param,
-  Query
+  Query,
 } from "@nestjs/common";
 import { leadListQuerySchema } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
@@ -18,7 +18,7 @@ export class LeadsController {
     @Inject(AuthService) private readonly authService: AuthService,
     @Inject(WorkspacesService)
     private readonly workspacesService: WorkspacesService,
-    @Inject(LeadsService) private readonly leadsService: LeadsService
+    @Inject(LeadsService) private readonly leadsService: LeadsService,
   ) {}
 
   @Get()
@@ -35,10 +35,24 @@ export class LeadsController {
     return this.leadsService.listLeads(workspace.id, parsed.data);
   }
 
+  @Get("page")
+  async listPage(@AuthToken() refreshToken: string, @Query() query: unknown) {
+    const parsed = leadListQuerySchema.safeParse(query);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Query invalida");
+    }
+
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+
+    return this.leadsService.listLeadsPage(workspace.id, parsed.data);
+  }
+
   @Get(":leadId")
   async detail(
     @AuthToken() refreshToken: string,
-    @Param("leadId") leadId: string
+    @Param("leadId") leadId: string,
   ) {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);

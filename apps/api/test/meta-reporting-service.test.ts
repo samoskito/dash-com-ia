@@ -29,7 +29,11 @@ function matchesWhere(
       return record[key] !== value.not;
     }
 
-    if (value && typeof value === "object" && ("gte" in value || "lte" in value)) {
+    if (
+      value &&
+      typeof value === "object" &&
+      ("gte" in value || "lte" in value)
+    ) {
       const current = record[key];
 
       if (!(current instanceof Date)) {
@@ -1329,6 +1333,46 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       whatsappClassification: "manual_include",
     });
+  });
+
+  it("paginates report entities before loading scoped metrics", async () => {
+    const { db, prisma, service } = createHarness();
+
+    db.campaigns.push(
+      ...["A", "B", "C"].map((name, index) => ({
+        workspaceId: "workspace_1",
+        campaignId: `cmp_${index + 1}`,
+        name: `Campanha ${name}`,
+        status: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "manual_include",
+        spendCents: 10000,
+        metaConversationsStarted: 2,
+      })),
+    );
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      page: 2,
+      pageSize: 1,
+    });
+
+    expect(report.campaigns.map((campaign) => campaign.id)).toEqual(["cmp_2"]);
+    expect(report.pagination).toEqual({
+      page: 2,
+      pageSize: 1,
+      totalItems: 3,
+      totalPages: 3,
+    });
+    expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          campaignId: { in: ["cmp_2"] },
+        }),
+      }),
+    );
   });
 
   it("excludes inactive Meta reporting account snapshots from default campaign reports", async () => {

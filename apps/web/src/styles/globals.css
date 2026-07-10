@@ -1115,6 +1115,35 @@ td span {
 }
 
 @media (max-width: 620px) {
+  .route-loading-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-view-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .report-view-tabs a {
+    justify-content: center;
+    padding-inline: 8px;
+  }
+
+  .report-pagination,
+  .meta-diagnostic-collapsed {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .report-pagination > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .report-pagination .button {
+    justify-content: center;
+  }
   .page-stack {
     padding: 18px;
   }
@@ -1479,6 +1508,83 @@ body {
   }
 }
 
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.46;
+  }
+
+  50% {
+    opacity: 0.82;
+  }
+}
+
+.route-loading {
+  min-height: 70vh;
+}
+
+.route-loading-header > div {
+  display: grid;
+  gap: 10px;
+  width: min(620px, 100%);
+}
+
+.skeleton-line,
+.skeleton-block,
+.skeleton-panel {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  animation: skeleton-pulse 1.1s ease-in-out infinite;
+}
+
+.skeleton-eyebrow {
+  width: 92px;
+  height: 11px;
+}
+
+.skeleton-title {
+  width: min(420px, 82%);
+  height: 36px;
+}
+
+.skeleton-copy {
+  width: min(560px, 96%);
+  height: 16px;
+}
+
+.skeleton-action {
+  width: 132px;
+  height: 38px;
+}
+
+.route-loading-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.skeleton-block {
+  min-height: 126px;
+}
+
+.skeleton-panel {
+  min-height: 360px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .table-wrap {
   max-width: 100%;
   overflow-x: auto;
@@ -1514,7 +1620,7 @@ table {
 }
 
 .performance-table {
-  min-width: 1180px;
+  min-width: 1980px;
   table-layout: fixed;
 }
 
@@ -1539,7 +1645,67 @@ table {
   max-width: 100%;
   font-size: 13px;
   line-height: 1.22;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.report-view-tabs {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--graphite-900);
+}
+
+.report-view-tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.report-view-tabs a:hover,
+.report-view-tabs a.active {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.report-view-tabs a.active {
+  box-shadow: inset 0 -2px 0 var(--mint);
+}
+
+.report-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.report-pagination > div {
+  display: flex;
+  gap: 8px;
+}
+
+.button.disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.meta-diagnostic-collapsed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
 }
 
 .performance-name-cell > span {

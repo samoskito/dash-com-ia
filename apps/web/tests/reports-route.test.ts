@@ -1,23 +1,22 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import ReportsPage from "../src/app/(app)/reports/page";
-import { MetaReportFilters } from "../src/app/(app)/reports/meta-report-filters";
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 function reportMetrics(overrides: Record<string, unknown> = {}) {
-  const metrics = {
+  return {
     spendCents: 120000,
     metaConversationsStarted: 176,
     costPerMetaConversationCents: 681,
     realConversations: 2,
     costPerRealConversationCents: 60000,
-    organicLeads: 4,
-    totalReceived: 6,
-    trackingRate: 0.3333,
+    organicLeads: 0,
+    totalReceived: 2,
+    trackingRate: 1,
     qualifiedLead: 1,
     costPerQualifiedLeadCents: 120000,
     purchases: 1,
@@ -25,1051 +24,332 @@ function reportMetrics(overrides: Record<string, unknown> = {}) {
     repurchases: 0,
     costPerPurchaseCents: 120000,
     trafficRevenueCents: 360000,
-    organicRevenueCents: 90000,
-    totalRevenueCents: 450000,
+    organicRevenueCents: 0,
+    totalRevenueCents: 360000,
     firstPurchaseRevenueCents: 360000,
     repurchaseRevenueCents: 0,
     roasAcquisition: 3,
     roasWithRepurchase: 3,
-    funnelSteps: [
-      {
-        key: "real_conversations",
-        label: "Conversas reais iniciadas",
-        value: 2,
-        costCents: 60000,
-      },
-      {
-        key: "qualified_lead",
-        label: "Lead qualificado",
-        value: 1,
-        costCents: 120000,
-      },
-      {
-        key: "purchase",
-        label: "Compras",
-        value: 1,
-        costCents: 120000,
-      },
-      {
-        key: "first_purchase",
-        label: "Primeira compra",
-        value: 1,
-      },
-      {
-        key: "repurchase",
-        label: "Recompra",
-        value: 0,
-      },
-    ],
+    funnelSteps: [],
+    ...overrides,
   };
+}
 
-  return { ...metrics, ...overrides };
+const campaignReport = {
+  workspaceId: "workspace_1",
+  rangeLabel: "Ultimos 7 dias",
+  campaigns: [
+    {
+      id: "cmp_1",
+      name: "Black Friday WhatsApp",
+      status: "active",
+      ...reportMetrics(),
+    },
+  ],
+  pagination: {
+    page: 1,
+    pageSize: 10,
+    totalItems: 21,
+    totalPages: 3,
+  },
+};
+
+const adSetReport = {
+  workspaceId: "workspace_1",
+  rangeLabel: "Ultimos 7 dias",
+  adSets: [
+    {
+      id: "adset_1",
+      campaignId: "cmp_1",
+      campaignName: "Black Friday WhatsApp",
+      name: "Publico quente",
+      status: "active",
+      ...reportMetrics(),
+    },
+  ],
+  pagination: {
+    page: 1,
+    pageSize: 10,
+    totalItems: 1,
+    totalPages: 1,
+  },
+};
+
+const adReport = {
+  workspaceId: "workspace_1",
+  rangeLabel: "Ultimos 7 dias",
+  ads: [
+    {
+      id: "ad_1",
+      campaignId: "cmp_1",
+      campaignName: "Black Friday WhatsApp",
+      adSetId: "adset_1",
+      adSetName: "Publico quente",
+      name: "Criativo WhatsApp",
+      status: "active",
+      ...reportMetrics(),
+    },
+  ],
+  pagination: {
+    page: 1,
+    pageSize: 10,
+    totalItems: 1,
+    totalPages: 1,
+  },
+};
+
+const workspace = {
+  id: "workspace_1",
+  name: "Workspace",
+  slug: "workspace",
+  role: "owner",
+  operationalStatus: "active",
+  permissions: {
+    canInviteMembers: true,
+    canManageBilling: true,
+    canManageIntegrations: true,
+    canViewReports: true,
+  },
+};
+
+const metaAssets = {
+  workspaceId: "workspace_1",
+  status: "connected",
+  businesses: [],
+  adAccounts: [],
+  pixels: [],
+  pages: [],
+  reportingAccounts: [],
+  selection: {
+    businessId: null,
+    adAccountId: null,
+    pixelId: null,
+  },
+  conversionDestination: null,
+  lastSyncedAt: "2026-07-10T10:00:00.000Z",
+  syncError: null,
+};
+
+const metaStructure = {
+  workspaceId: "workspace_1",
+  campaigns: [
+    {
+      id: "cmp_1",
+      name: "Black Friday WhatsApp",
+      status: "PAUSED",
+      effectiveStatus: "PAUSED",
+      objective: "OUTCOME_SALES",
+      adSets: [
+        {
+          id: "adset_1",
+          name: "Publico quente",
+          status: "PAUSED",
+          effectiveStatus: "PAUSED",
+          ads: [
+            {
+              id: "ad_1",
+              name: "Criativo WhatsApp",
+              status: "RATE_LIMITED",
+              effectiveStatus: "RATE_LIMITED",
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+function json(value: unknown, status = 200) {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function mockReportsApi(
+  options: {
+    fail?: boolean;
+    member?: boolean;
+    comparison?: typeof campaignReport;
+  } = {},
+) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+
+    if (options.fail) {
+      return json({ message: "unavailable" }, 503);
+    }
+
+    if (url.includes("/workspaces/current")) {
+      return json(
+        options.member
+          ? {
+              ...workspace,
+              role: "member",
+              permissions: {
+                ...workspace.permissions,
+                canManageIntegrations: false,
+              },
+            }
+          : workspace,
+      );
+    }
+
+    if (url.includes("/integrations/meta/assets")) {
+      return json(metaAssets);
+    }
+
+    if (url.includes("/reports/meta/structure")) {
+      return json(metaStructure);
+    }
+
+    if (url.includes("/reports/adsets")) {
+      return json(adSetReport);
+    }
+
+    if (url.includes("/reports/ads")) {
+      return json(adReport);
+    }
+
+    if (url.includes("/reports/campaigns")) {
+      return json(
+        url.includes("since=2026-07-01") && options.comparison
+          ? options.comparison
+          : campaignReport,
+      );
+    }
+
+    return json({ message: "not found" }, 404);
+  });
+}
+
+async function renderReports(searchParams: Record<string, string> = {}) {
+  const element = await ReportsPage({
+    searchParams: Promise.resolve(searchParams),
+  });
+
+  return renderToStaticMarkup(createElement("div", null, element));
 }
 
 describe("reports route", () => {
-  it("renders campaign reports returned by the backend", async () => {
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            campaigns: [
-              {
-                id: "cmp_1",
-                name: "Black Friday WhatsApp",
-                status: "active",
-                ...reportMetrics(),
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            campaigns: [
-              {
-                id: "cmp_1",
-                name: "Black Friday WhatsApp",
-                status: "ACTIVE",
-                effectiveStatus: "ACTIVE",
-                objective: "OUTCOME_SALES",
-                adSets: [
-                  {
-                    id: "adset_1",
-                    name: "Publico quente",
-                    status: "ACTIVE",
-                    effectiveStatus: "ACTIVE",
-                    ads: [
-                      {
-                        id: "ad_1",
-                        name: "Criativo WhatsApp",
-                        status: "ACTIVE",
-                        effectiveStatus: "ACTIVE",
-                      },
-                    ],
-                  },
-                ],
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            adSets: [
-              {
-                id: "adset_1",
-                campaignId: "cmp_1",
-                campaignName: "Black Friday WhatsApp",
-                name: "Publico quente",
-                status: "active",
-                ...reportMetrics({
-                  spendCents: 60000,
-                  metaConversationsStarted: 80,
-                  costPerMetaConversationCents: 750,
-                  costPerRealConversationCents: 30000,
-                  costPerQualifiedLeadCents: 60000,
-                  costPerPurchaseCents: 60000,
-                  roasAcquisition: 6,
-                  roasWithRepurchase: 6,
-                }),
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            ads: [
-              {
-                id: "ad_1",
-                campaignId: "cmp_1",
-                campaignName: "Black Friday WhatsApp",
-                adSetId: "adset_1",
-                adSetName: "Publico quente",
-                name: "Criativo WhatsApp",
-                status: "active",
-                ...reportMetrics({
-                  spendCents: 30000,
-                  metaConversationsStarted: 40,
-                  costPerMetaConversationCents: 750,
-                  costPerRealConversationCents: 15000,
-                  costPerQualifiedLeadCents: 30000,
-                  costPerPurchaseCents: 30000,
-                  roasAcquisition: 12,
-                  roasWithRepurchase: 12,
-                }),
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            id: "workspace_1",
-            name: "Workspace",
-            slug: "workspace",
-            role: "owner",
-            permissions: {
-              canInviteMembers: true,
-              canManageBilling: true,
-              canManageIntegrations: true,
-              canViewReports: true,
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            status: "connected",
-            businesses: [
-              {
-                id: "business_1",
-                name: "BM Principal",
-                verificationStatus: "verified",
-              },
-            ],
-            adAccounts: [
-              {
-                id: "act_1",
-                businessId: "business_1",
-                name: "Conta WhatsApp",
-                accountStatus: "active",
-                currency: "BRL",
-                timezoneName: "America/Sao_Paulo",
-              },
-            ],
-            pixels: [],
-            pages: [],
-            reportingAccounts: [
-              {
-                id: "reporting_1",
-                workspaceId: "workspace_1",
-                businessId: "business_1",
-                businessName: "BM Principal",
-                adAccountId: "act_1",
-                adAccountName: "Conta WhatsApp",
-                currency: "BRL",
-                timezoneName: "America/Sao_Paulo",
-                active: true,
-                syncStatus: "synced",
-                lastSyncedAt: "2026-07-02T03:00:00.000Z",
-                syncError: null,
-              },
-            ],
-            selection: {
-              businessId: "business_1",
-              adAccountId: "act_1",
-              pixelId: null,
-            },
-            lastSyncedAt: "2026-07-02T03:00:00.000Z",
-            syncError: null,
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
+  it("loads only campaigns in the default report view", async () => {
+    const fetchMock = mockReportsApi();
+    const html = await renderReports();
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
 
-    const element = await ReportsPage({
-      searchParams: Promise.resolve({
-        since: "2026-07-01",
-        until: "2026-07-02",
-        businessId: "business_1",
-        adAccountId: "act_1",
-        whatsappClassification: "whatsapp",
-      }),
-    });
-    const html = renderToStaticMarkup(createElement("div", null, element));
-
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/campaigns?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappClassification=whatsapp",
-      expect.objectContaining({ credentials: "include" }),
-    );
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/meta/structure",
-      expect.objectContaining({ credentials: "include" }),
-    );
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/adsets?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappClassification=whatsapp",
-      expect.objectContaining({ credentials: "include" }),
-    );
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/ads?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappClassification=whatsapp",
-      expect.objectContaining({ credentials: "include" }),
-    );
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/workspaces/current",
-      expect.objectContaining({ credentials: "include" }),
-    );
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/integrations/meta/assets",
-      expect.objectContaining({ credentials: "include" }),
-    );
     expect(html).toContain("Black Friday WhatsApp");
-    expect(html).toContain("Todas as contas");
-    expect(html).toContain("Campanhas WhatsApp");
-    expect(html).toContain("BM Principal");
-    expect(html).toContain("Conta WhatsApp");
-    expect(html).not.toContain("Remarketing 7 dias");
-    expect(html).not.toContain("Publico frio - videos");
-    expect(html).toContain("Publico quente");
-    expect(html).toContain("Criativo WhatsApp");
-    expect(html).toContain("Sincronizar Meta");
-    expect(html.match(/name="businessId"/g)).toHaveLength(4);
-    expect(html.match(/name="adAccountId"/g)).toHaveLength(4);
-    expect(html.match(/name="whatsappClassification"/g)).toHaveLength(4);
-    expect(html).toContain(
-      'href="/reports/export?since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"',
+    expect(html).toContain("Subtotal da pagina 1");
+    expect(html).toContain("21 campanhas");
+    expect(html).toContain("Proxima");
+    expect(
+      urls.some((url) => url.includes("/reports/campaigns?page=1&pageSize=10")),
+    ).toBe(true);
+    expect(urls.some((url) => url.includes("/reports/adsets"))).toBe(false);
+    expect(urls.some((url) => /\/reports\/ads(?:\?|$)/.test(url))).toBe(false);
+    expect(urls.some((url) => url.includes("/reports/meta/structure"))).toBe(
+      false,
     );
-    expect(html).toContain("2026-07-01");
-    expect(html).toContain("2026-07-02");
-    expect(html).toContain("1.200,00");
-    expect(html).toContain("176");
-    expect(html).toContain("2");
-    expect(html).toContain("Lead qualificado");
-    expect(html).toContain("Compras");
-    expect(html).toContain("Primeira compra");
-    expect(html).toContain("Recompra");
-    expect(html).toContain("Leads organicos");
-    expect(html).toContain("Receita trafego");
-    expect(html).toContain("Receita organica");
-    expect(html).toContain("Receita total");
-    expect(html).toContain("ROAS aquisicao");
-    expect(html).toContain("ROAS com recompra");
-    expect(html).not.toContain("LeadSubmitted");
+  });
+
+  it("loads only the selected ad set view", async () => {
+    const fetchMock = mockReportsApi();
+    const html = await renderReports({ view: "adsets" });
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+
     expect(html).toContain("Performance por conjunto");
-    expect(html).toContain("Performance por anuncio");
-    expect(html).toContain("Insights Meta por conjunto sincronizados");
-    expect(html).toContain("Insights Meta por anuncio sincronizados");
-    expect(html).toContain("Resumo campanhas");
-    expect(html).toContain("1 campanha ativa");
-    expect(html).toContain("Resumo conjuntos");
-    expect(html).toContain("1 conjunto ativo");
-    expect(html).toContain("Resumo anuncios");
-    expect(html).toContain("1 anuncio ativo");
-    expect(html).toContain("Diagnostico da sincronizacao Meta");
-    expect(html).toContain("1 campanha sincronizada");
-    expect(html).toContain("1 conjunto sincronizado");
-    expect(html).toContain("1 anuncio sincronizado");
-    expect(html).toContain("1 conta ativa");
-    expect(html).toContain("Ver estrutura tecnica");
-    expect(html).toContain(
-      'class="table-wrap report-table-scroll meta-structure-scroll"',
-    );
-    expect(html).toContain('aria-label="Filtros da estrutura tecnica Meta"');
-    expect(html).toContain('name="structureNameScope"');
-    expect(html).toContain('name="structureNameContains"');
-    expect(html).toContain('name="structureStatus"');
-    expect(html).toContain("Campanha contem");
-    expect(html).toContain("Conjunto contem");
-    expect(html).toContain("Anuncio contem");
-    expect(html).toContain("Inativos");
-    expect(html).toContain("Revisao WhatsApp");
-    expect(html.match(/Incluir/g)).toHaveLength(3);
-    expect(html.match(/Excluir/g)).toHaveLength(3);
-    expect(html.match(/Resetar/g)).toHaveLength(3);
-    expect(html).toContain("600,00");
-    expect(html).toContain("300,00");
-    expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"',
-    );
-    expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"',
-    );
-    expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-01&amp;until=2026-07-02&amp;businessId=business_1&amp;adAccountId=act_1&amp;whatsappClassification=whatsapp"',
-    );
-    expect(html).not.toContain("nao tem investimento proprio persistido");
+    expect(html).toContain("Publico quente");
+    expect(
+      urls.some((url) => url.includes("/reports/adsets?page=1&pageSize=10")),
+    ).toBe(true);
+    expect(urls.some((url) => url.includes("/reports/campaigns"))).toBe(false);
+    expect(urls.some((url) => /\/reports\/ads(?:\?|$)/.test(url))).toBe(false);
   });
 
-  it("renders an empty campaign state without demo rows when backend returns no campaigns", async () => {
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            campaigns: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            campaigns: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            adSets: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            ads: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            id: "workspace_1",
-            name: "Workspace",
-            slug: "workspace",
-            role: "owner",
-            permissions: {
-              canInviteMembers: true,
-              canManageBilling: true,
-              canManageIntegrations: true,
-              canViewReports: true,
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-
-    const element = await ReportsPage({
-      searchParams: Promise.resolve({ notice: "meta-sync-queued" }),
+  it("preserves filters when navigating report pages", async () => {
+    mockReportsApi();
+    const html = await renderReports({
+      businessId: "business_1",
+      nameContains: "Black",
+      page: "1",
     });
-    const html = renderToStaticMarkup(createElement("div", null, element));
 
-    expect(html).toContain("Sincronizacao iniciada");
-    expect(html).toContain("A leitura dos dados Meta foi enviada para a fila.");
-    expect(html).toContain("Nenhuma campanha sincronizada");
-    expect(html).toContain("Nenhum conjunto sincronizado");
-    expect(html).toContain("Nenhum anuncio sincronizado");
-    expect(html).toContain("Use Sincronizar Meta");
-    expect(html).not.toContain("Black Friday WhatsApp");
-    expect(html).not.toContain("Remarketing 7 dias");
+    expect(html).toContain(
+      "businessId=business_1&amp;nameContains=Black&amp;nameScope=campaign&amp;page=2&amp;pageSize=10&amp;view=campaigns",
+    );
   });
 
-  it("renders comparison metrics when a comparison period is selected", async () => {
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "08/07/2026 a 14/07/2026",
-            campaigns: [
-              {
-                id: "cmp_1",
-                name: "Semana atual",
-                status: "active",
-                ...reportMetrics({
-                  spendCents: 150000,
-                  metaConversationsStarted: 90,
-                  costPerMetaConversationCents: 1666,
-                  realConversations: 30,
-                  costPerRealConversationCents: 5000,
-                  organicLeads: 5,
-                  totalReceived: 35,
-                  trackingRate: 0.8571,
-                  qualifiedLead: 6,
-                  costPerQualifiedLeadCents: 25000,
-                  purchases: 3,
-                  firstPurchases: 2,
-                  repurchases: 1,
-                  costPerPurchaseCents: 50000,
-                  trafficRevenueCents: 300000,
-                  organicRevenueCents: 50000,
-                  totalRevenueCents: 350000,
-                  firstPurchaseRevenueCents: 250000,
-                  repurchaseRevenueCents: 100000,
-                  roasAcquisition: 1.6667,
-                  roasWithRepurchase: 2,
-                }),
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            campaigns: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "08/07/2026 a 14/07/2026",
-            adSets: [
-              {
-                id: "adset_1",
-                campaignId: "cmp_1",
-                campaignName: "Semana atual",
-                name: "Publico atual",
-                status: "active",
-                ...reportMetrics({
-                  spendCents: 75000,
-                  metaConversationsStarted: 45,
-                  costPerMetaConversationCents: 1666,
-                  realConversations: 15,
-                  costPerRealConversationCents: 5000,
-                  organicLeads: 3,
-                  totalReceived: 18,
-                  trackingRate: 0.8333,
-                  qualifiedLead: 3,
-                  costPerQualifiedLeadCents: 25000,
-                  purchases: 1,
-                  firstPurchases: 1,
-                  repurchases: 0,
-                  costPerPurchaseCents: 75000,
-                  trafficRevenueCents: 150000,
-                  organicRevenueCents: 0,
-                  totalRevenueCents: 150000,
-                  firstPurchaseRevenueCents: 150000,
-                  repurchaseRevenueCents: 0,
-                  roasAcquisition: 2,
-                  roasWithRepurchase: 2,
-                }),
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "08/07/2026 a 14/07/2026",
-            ads: [
-              {
-                id: "ad_1",
-                campaignId: "cmp_1",
-                campaignName: "Semana atual",
-                adSetId: "adset_1",
-                adSetName: "Publico atual",
-                name: "Criativo atual",
-                status: "active",
-                ...reportMetrics({
-                  spendCents: 25000,
-                  metaConversationsStarted: 15,
-                  costPerMetaConversationCents: 1666,
-                  realConversations: 5,
-                  costPerRealConversationCents: 5000,
-                  organicLeads: 1,
-                  totalReceived: 6,
-                  trackingRate: 0.8333,
-                  qualifiedLead: 1,
-                  costPerQualifiedLeadCents: 25000,
-                  purchases: 1,
-                  firstPurchases: 1,
-                  repurchases: 0,
-                  costPerPurchaseCents: 25000,
-                  trafficRevenueCents: 100000,
-                  organicRevenueCents: 0,
-                  totalRevenueCents: 100000,
-                  firstPurchaseRevenueCents: 100000,
-                  repurchaseRevenueCents: 0,
-                  roasAcquisition: 4,
-                  roasWithRepurchase: 4,
-                }),
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            id: "workspace_1",
-            name: "Workspace",
-            slug: "workspace",
-            role: "owner",
-            permissions: {
-              canInviteMembers: true,
-              canManageBilling: true,
-              canManageIntegrations: true,
-              canViewReports: true,
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "01/07/2026 a 07/07/2026",
-            campaigns: [
-              {
-                id: "cmp_1",
-                name: "Semana anterior",
-                status: "active",
-                ...reportMetrics({
-                  spendCents: 100000,
-                  metaConversationsStarted: 60,
-                  costPerMetaConversationCents: 1666,
-                  realConversations: 20,
-                  costPerRealConversationCents: 5000,
-                  organicLeads: 4,
-                  totalReceived: 24,
-                  trackingRate: 0.8333,
-                  qualifiedLead: 4,
-                  costPerQualifiedLeadCents: 25000,
-                  purchases: 2,
-                  firstPurchases: 1,
-                  repurchases: 1,
-                  costPerPurchaseCents: 50000,
-                  trafficRevenueCents: 150000,
-                  organicRevenueCents: 50000,
-                  totalRevenueCents: 200000,
-                  firstPurchaseRevenueCents: 100000,
-                  repurchaseRevenueCents: 100000,
-                  roasAcquisition: 1,
-                  roasWithRepurchase: 1.5,
-                }),
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            status: "connected",
-            businesses: [],
-            adAccounts: [],
-            pixels: [],
-            pages: [],
-            reportingAccounts: [],
-            selection: {
-              businessId: null,
-              adAccountId: null,
-              pixelId: null,
-            },
-            lastSyncedAt: "2026-07-02T03:00:00.000Z",
-            syncError: null,
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-
-    const element = await ReportsPage({
-      searchParams: Promise.resolve({
-        since: "2026-07-08",
-        until: "2026-07-14",
-        compareSince: "2026-07-01",
-        compareUntil: "2026-07-07",
-      }),
-    });
-    const html = renderToStaticMarkup(createElement("div", null, element));
-
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/campaigns?since=2026-07-01&until=2026-07-07",
-      expect.objectContaining({ credentials: "include" }),
-    );
-    expect(html).toContain("Comparacao entre periodos");
-    expect(html).toContain("01/07/2026 a 07/07/2026");
-    expect(html).toContain("+50%");
-    expect(html).toContain("+25%");
-    expect(html).toContain("+75%");
-    expect(html).toContain("+33%");
-    expect(html).toContain(
-      'href="/reports/export?since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"',
-    );
-    expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"',
-    );
-    expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"',
-    );
-    expect(html).toContain(
-      'href="/leads?campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;since=2026-07-08&amp;until=2026-07-14&amp;compareSince=2026-07-01&amp;compareUntil=2026-07-07"',
-    );
-    expect(html.match(/name="compareSince"/g)).toHaveLength(3);
-    expect(html.match(/name="compareUntil"/g)).toHaveLength(3);
-  });
-
-  it("renders Meta filters without keeping an account from another BM", () => {
-    const html = renderToStaticMarkup(
-      createElement(MetaReportFilters, {
-        assets: {
-          workspaceId: "workspace_1",
-          status: "connected",
-          businesses: [
-            {
-              id: "business_1",
-              name: "BM Principal",
-              verificationStatus: null,
-            },
-            {
-              id: "business_2",
-              name: "BM Secundario",
-              verificationStatus: null,
-            },
-          ],
-          adAccounts: [],
-          pixels: [],
-          pages: [],
-          reportingAccounts: [
-            {
-              id: "reporting_1",
-              workspaceId: "workspace_1",
-              businessId: "business_1",
-              businessName: "BM Principal",
-              adAccountId: "act_1",
-              adAccountName: "Conta Principal",
-              currency: "BRL",
-              timezoneName: "America/Sao_Paulo",
-              active: true,
-              syncStatus: "synced",
-              lastSyncedAt: null,
-              syncError: null,
-            },
-            {
-              id: "reporting_2",
-              workspaceId: "workspace_1",
-              businessId: "business_2",
-              businessName: "BM Secundario",
-              adAccountId: "act_2",
-              adAccountName: "Conta Secundaria",
-              currency: "BRL",
-              timezoneName: "America/Sao_Paulo",
-              active: true,
-              syncStatus: "synced",
-              lastSyncedAt: null,
-              syncError: null,
-            },
-          ],
-          selection: {
-            businessId: null,
-            adAccountId: null,
-            pixelId: null,
-          },
-          lastSyncedAt: null,
-          syncError: null,
+  it("loads campaign comparison only when it is requested", async () => {
+    const comparison = {
+      ...campaignReport,
+      rangeLabel: "2026-07-01 a 2026-07-07",
+      campaigns: [
+        {
+          ...campaignReport.campaigns[0],
+          spendCents: 60000,
+          metaConversationsStarted: 80,
         },
-        businessId: "business_2",
-        adAccountId: "act_1",
-        since: "2026-07-08",
-        until: "2026-07-14",
-        compareSince: "2026-07-01",
-        compareUntil: "2026-07-07",
-        whatsappClassification: "whatsapp",
-      }),
+      ],
+    };
+    const fetchMock = mockReportsApi({ comparison });
+    const html = await renderReports({
+      since: "2026-07-08",
+      until: "2026-07-14",
+      compareSince: "2026-07-01",
+      compareUntil: "2026-07-07",
+    });
+    const campaignCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes("/reports/campaigns"),
     );
 
-    expect(html).toContain("Conta Secundaria");
-    expect(html).not.toContain("Conta Principal");
-    expect(html).not.toContain('option value="act_1" selected=""');
-    expect(html).toContain('name="compareSince" value="2026-07-01"');
-    expect(html).toContain('name="compareUntil" value="2026-07-07"');
+    expect(campaignCalls).toHaveLength(2);
+    expect(html).toContain("Comparacao entre periodos");
+    expect(html).toContain("2026-07-01 a 2026-07-07");
   });
 
-  it("renders an unavailable state without demo rows when backend is unavailable", async () => {
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response("offline", { status: 503 }))
-      .mockResolvedValueOnce(new Response("offline", { status: 503 }))
-      .mockResolvedValueOnce(new Response("offline", { status: 503 }))
-      .mockResolvedValueOnce(new Response("offline", { status: 503 }))
-      .mockResolvedValueOnce(new Response("offline", { status: 503 }));
+  it("loads the Meta technical structure only on demand", async () => {
+    const fetchMock = mockReportsApi();
+    const html = await renderReports({ diagnostic: "open" });
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
 
-    const element = await ReportsPage({});
-    const html = renderToStaticMarkup(createElement("div", null, element));
+    expect(urls.some((url) => url.includes("/reports/meta/structure"))).toBe(
+      true,
+    );
+    expect(html).toContain("Estrutura tecnica recolhida");
+    expect(html).toContain("Status desconhecido");
+  });
+
+  it("filters the technical structure without loading other report levels", async () => {
+    const fetchMock = mockReportsApi();
+    const html = await renderReports({
+      structureNameContains: "Criativo",
+      structureNameScope: "ad",
+      structureStatus: "inactive",
+    });
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+
+    expect(html).toContain("Criativo WhatsApp");
+    expect(urls.some((url) => url.includes("/reports/meta/structure"))).toBe(
+      true,
+    );
+    expect(urls.some((url) => url.includes("/reports/adsets"))).toBe(false);
+    expect(urls.some((url) => url.includes("/reports/ads"))).toBe(false);
+  });
+
+  it("renders API failure without pretending other report levels were loaded", async () => {
+    mockReportsApi({ fail: true });
+    const html = await renderReports();
 
     expect(html).toContain("API indisponivel");
     expect(html).toContain("Nao foi possivel carregar campanhas");
-    expect(html).toContain("Nao foi possivel carregar conjuntos");
-    expect(html).toContain("Nao foi possivel carregar anuncios");
-    expect(html).not.toContain("Black Friday WhatsApp");
+    expect(html).not.toContain("Nao foi possivel carregar conjuntos");
+    expect(html).not.toContain("Nao foi possivel carregar anuncios");
   });
 
-  it("renders unknown Meta structure statuses in Portuguese", async () => {
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            campaigns: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            campaigns: [
-              {
-                id: "cmp_1",
-                name: "Campanha Meta",
-                status: null,
-                effectiveStatus: null,
-                objective: null,
-                adSets: [
-                  {
-                    id: "adset_1",
-                    name: "Publico",
-                    status: null,
-                    effectiveStatus: null,
-                    ads: [
-                      {
-                        id: "ad_1",
-                        name: "Criativo",
-                        status: null,
-                        effectiveStatus: null,
-                      },
-                    ],
-                  },
-                  {
-                    id: "adset_2",
-                    name: "Publico sem anuncio",
-                    status: null,
-                    effectiveStatus: null,
-                    ads: [],
-                  },
-                ],
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            adSets: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            ads: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            id: "workspace_1",
-            name: "Workspace",
-            slug: "workspace",
-            role: "owner",
-            permissions: {
-              canInviteMembers: true,
-              canManageBilling: true,
-              canManageIntegrations: true,
-              canViewReports: true,
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-
-    const element = await ReportsPage({});
-    const html = renderToStaticMarkup(createElement("div", null, element));
-
-    expect(html).toContain("Status desconhecido");
-    expect(html).not.toContain(">unknown<");
-  });
-
-  it("filters the Meta technical structure by name and status", async () => {
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            campaigns: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            campaigns: [
-              {
-                id: "cmp_1",
-                name: "Campanha tecnica",
-                status: "ACTIVE",
-                effectiveStatus: "ACTIVE",
-                objective: "OUTCOME_SALES",
-                adSets: [
-                  {
-                    id: "adset_1",
-                    name: "Publico ativo",
-                    status: "ACTIVE",
-                    effectiveStatus: "ACTIVE",
-                    ads: [
-                      {
-                        id: "ad_1",
-                        name: "Criativo ativo",
-                        status: "ACTIVE",
-                        effectiveStatus: "ACTIVE",
-                      },
-                    ],
-                  },
-                  {
-                    id: "adset_2",
-                    name: "Publico pausado",
-                    status: "PAUSED",
-                    effectiveStatus: "PAUSED",
-                    ads: [
-                      {
-                        id: "ad_2",
-                        name: "Criativo pausado",
-                        status: "PAUSED",
-                        effectiveStatus: "PAUSED",
-                      },
-                    ],
-                  },
-                ],
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            adSets: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            ads: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            id: "workspace_1",
-            name: "Workspace",
-            slug: "workspace",
-            role: "owner",
-            permissions: {
-              canInviteMembers: true,
-              canManageBilling: true,
-              canManageIntegrations: true,
-              canViewReports: true,
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            status: "connected",
-            businesses: [],
-            adAccounts: [],
-            pixels: [],
-            pages: [],
-            reportingAccounts: [],
-            selection: {
-              businessId: null,
-              adAccountId: null,
-              pixelId: null,
-            },
-            lastSyncedAt: null,
-            syncError: null,
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-
-    const element = await ReportsPage({
-      searchParams: Promise.resolve({
-        structureNameScope: "ad",
-        structureNameContains: "pausado",
-        structureStatus: "inactive",
-      }),
-    });
-    const html = renderToStaticMarkup(createElement("div", null, element));
-
-    expect(html).toContain('open=""');
-    expect(html).toContain('name="structureNameScope"');
-    expect(html).toContain('option value="ad" selected=""');
-    expect(html).toContain('name="structureNameContains" value="pausado"');
-    expect(html).toContain('option value="inactive" selected=""');
-    expect(html).toContain("Criativo pausado");
-    expect(html).not.toContain("Criativo ativo");
-  });
-
-  it("hides Meta sync action for workspace members", async () => {
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            campaigns: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            campaigns: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            adSets: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            workspaceId: "workspace_1",
-            rangeLabel: "Ultimos 7 dias",
-            ads: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            id: "workspace_1",
-            name: "Workspace",
-            slug: "workspace",
-            role: "member",
-            permissions: {
-              canInviteMembers: false,
-              canManageBilling: false,
-              canManageIntegrations: false,
-              canViewReports: true,
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-
-    const element = await ReportsPage({});
-    const html = renderToStaticMarkup(createElement("div", null, element));
+  it("hides Meta synchronization from workspace members", async () => {
+    mockReportsApi({ member: true });
+    const html = await renderReports();
 
     expect(html).toContain("Sem permissao para sincronizar Meta");
-    expect(html).not.toContain("Sincronizar Meta");
+    expect(html).not.toContain("Enfileirando leitura dos dados Meta");
   });
 });

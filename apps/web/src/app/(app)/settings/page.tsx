@@ -8,6 +8,7 @@ import type {
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
+import { getCurrentWorkspace } from "../../../lib/current-workspace";
 
 type AccountUserDto = {
   id: string;
@@ -91,7 +92,7 @@ async function getConversionRules(): Promise<ConversionRulesResult> {
 async function getWorkspaceSettings(): Promise<WorkspaceSettingsResult> {
   try {
     const [workspace, members, invites] = await Promise.all([
-      serverApiFetch<CurrentWorkspaceDto>("/workspaces/current"),
+      getCurrentWorkspace(),
       serverApiFetch<WorkspaceMemberDto[]>("/workspaces/current/members"),
       serverApiFetch<WorkspaceInviteDto[]>("/workspaces/current/invites")
     ]);
@@ -121,11 +122,19 @@ async function getWhatsappLabelSuggestions(): Promise<WhatsappLabelSuggestionsRe
       (instance) =>
         instance.provider === "uazapi" && instance.billingStatus === "active"
     );
+    const configuredTimeout = Number(
+      process.env.WPPTRACK_WEB_PROVIDER_STATUS_TIMEOUT_MS ?? 2000
+    );
+    const timeoutMs =
+      Number.isFinite(configuredTimeout) && configuredTimeout > 0
+        ? configuredTimeout
+        : 2000;
     const labelLists = await Promise.all(
       activeUazapiInstances.map(async (instance) => {
         try {
           return await serverApiFetch<WhatsappLabelDto[]>(
-            `/integrations/whatsapp/instances/${instance.id}/labels`
+            `/integrations/whatsapp/instances/${instance.id}/labels`,
+            { signal: AbortSignal.timeout(timeoutMs) }
           );
         } catch {
           return [];

@@ -4,15 +4,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import IntegrationsPage from "../src/app/(app)/integrations/page";
 import {
   metaAdAccountsForBusiness,
-  metaPixelsForBusiness
+  metaPixelsForBusiness,
 } from "../src/app/(app)/integrations/meta-assets-form";
 import { metaReportingAccountsForBusiness } from "../src/app/(app)/integrations/meta-reporting-accounts-form";
 
 vi.mock("next/navigation", () => ({
   redirect: () => undefined,
   useRouter: () => ({
-    refresh: () => undefined
-  })
+    refresh: () => undefined,
+  }),
 }));
 
 afterEach(() => {
@@ -30,12 +30,12 @@ describe("integrations route", () => {
               {
                 provider: "uazapi",
                 status: "connected",
-                checkedAt: "2026-07-02T03:00:00.000Z"
-              }
-            ]
+                checkedAt: "2026-07-02T03:00:00.000Z",
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -47,7 +47,7 @@ describe("integrations route", () => {
               billingStatus: "active",
               providerInstanceId: "provider_instance_1",
               checkoutUrl: null,
-              createdAt: "2026-07-02T03:00:00.000Z"
+              createdAt: "2026-07-02T03:00:00.000Z",
             },
             {
               id: "wpp_2",
@@ -56,11 +56,11 @@ describe("integrations route", () => {
               billingStatus: "pending_payment",
               providerInstanceId: null,
               checkoutUrl: "https://sandbox.asaas.com/i/pay_2",
-              createdAt: "2026-07-02T03:00:00.000Z"
-            }
+              createdAt: "2026-07-02T03:00:00.000Z",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -74,10 +74,10 @@ describe("integrations route", () => {
             selectedBusinessId: null,
             selectedAdAccountId: null,
             selectedPixelId: "pixel_1",
-            capiTokenConfigured: true
+            capiTokenConfigured: true,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -88,13 +88,13 @@ describe("integrations route", () => {
               {
                 id: "business_1",
                 name: "BM Principal",
-                verificationStatus: "verified"
+                verificationStatus: "verified",
               },
               {
                 id: "business_2",
                 name: "BM Secundario",
-                verificationStatus: null
-              }
+                verificationStatus: null,
+              },
             ],
             adAccounts: [
               {
@@ -103,7 +103,7 @@ describe("integrations route", () => {
                 name: "Conta WhatsApp",
                 accountStatus: "active",
                 currency: "BRL",
-                timezoneName: "America/Sao_Paulo"
+                timezoneName: "America/Sao_Paulo",
               },
               {
                 id: "act_2",
@@ -111,35 +111,34 @@ describe("integrations route", () => {
                 name: "Conta Outro BM",
                 accountStatus: "active",
                 currency: "USD",
-                timezoneName: "America/New_York"
-              }
+                timezoneName: "America/New_York",
+              },
             ],
             pixels: [
               {
                 id: "pixel_1",
                 businessId: "business_1",
                 name: "Pixel Loja",
-                code:
-                  "<!-- Facebook Pixel Code --> <script>fbq('init', '123456789');</script><script src=\"https://connect.facebook.net/en_US/fbevents.js\"></script>"
+                code: "<!-- Facebook Pixel Code --> <script>fbq('init', '123456789');</script><script src=\"https://connect.facebook.net/en_US/fbevents.js\"></script>",
               },
               {
                 id: "pixel_2",
                 businessId: "business_2",
                 name: "Pixel Outro BM",
-                code: "987654321"
-              }
+                code: "987654321",
+              },
             ],
             pages: [
               {
                 id: "page_1",
                 businessId: "business_1",
-                name: "Pagina Facebook principal"
+                name: "Pagina Facebook principal",
               },
               {
                 id: "page_2",
                 businessId: "business_2",
-                name: "Pagina Outro BM"
-              }
+                name: "Pagina Outro BM",
+              },
             ],
             conversionDestination: {
               workspaceId: "workspace_1",
@@ -149,7 +148,7 @@ describe("integrations route", () => {
               pageName: "Pagina Facebook principal",
               status: "configured",
               lastValidatedAt: "2026-07-02T03:00:00.000Z",
-              validationError: null
+              validationError: null,
             },
             reportingAccounts: [
               {
@@ -164,19 +163,19 @@ describe("integrations route", () => {
                 active: true,
                 syncStatus: "synced",
                 lastSyncedAt: "2026-07-02T03:00:00.000Z",
-                syncError: null
-              }
+                syncError: null,
+              },
             ],
             selection: {
               businessId: "business_1",
               adAccountId: "act_1",
-              pixelId: "pixel_1"
+              pixelId: "pixel_1",
             },
             lastSyncedAt: "2026-07-02T03:00:00.000Z",
-            syncError: null
+            syncError: null,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -185,10 +184,10 @@ describe("integrations route", () => {
             activeInstances: 1,
             pricePerInstanceCents: 9900,
             nextInstanceAmountCents: 9900,
-            currency: "BRL"
+            currency: "BRL",
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -200,10 +199,10 @@ describe("integrations route", () => {
             pricePerWhatsappInstanceCents: 9900,
             monthlyAmountCents: 19800,
             currentPeriodEnd: "2026-08-02T03:00:00.000Z",
-            asaasSubscriptionId: "sub_asaas_1"
+            asaasSubscriptionId: "sub_asaas_1",
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -215,36 +214,36 @@ describe("integrations route", () => {
                 key: "ctwa",
                 label: "CTWA",
                 value: 3,
-                detail: "Leads com origem de campanha Meta"
+                detail: "Leads com origem de campanha Meta",
               },
               {
                 key: "webhook",
                 label: "Webhook",
                 value: 4,
-                detail: "Webhooks Uazapi recebidos"
+                detail: "Webhooks Uazapi recebidos",
               },
               {
                 key: "lead",
                 label: "Lead",
                 value: 5,
-                detail: "Leads rastreados pelo WhatsApp"
+                detail: "Leads rastreados pelo WhatsApp",
               },
               {
                 key: "conversion_ready",
                 label: "CAPI pronta",
                 value: 6,
-                detail: "Eventos aguardando envio para Meta"
+                detail: "Eventos aguardando envio para Meta",
               },
               {
                 key: "meta_sent",
                 label: "Meta ACK",
                 value: 2,
-                detail: "Eventos enviados para Meta"
-              }
-            ]
+                detail: "Eventos enviados para Meta",
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -257,11 +256,11 @@ describe("integrations route", () => {
               canInviteMembers: true,
               canManageBilling: true,
               canManageIntegrations: true,
-              canViewReports: true
-            }
+              canViewReports: true,
+            },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -271,48 +270,48 @@ describe("integrations route", () => {
             billingStatus: "active",
             connectionStatus: "qr_required",
             qrCode: "qr-code-text",
-            message: "Escaneie o QR Code"
+            message: "Escaneie o QR Code",
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await IntegrationsPage({
-      searchParams: Promise.resolve({ notice: "meta-reporting-saved" })
+      searchParams: Promise.resolve({ notice: "meta-reporting-saved" }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/whatsapp/instances",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/meta/connection",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/meta/assets",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/billing/whatsapp-instance/quote",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/billing/subscription",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/pipeline",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/workspaces/current",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/whatsapp/instances/wpp_1/status",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Meta conectado");
     expect(html).toContain("Conta adicionada");
@@ -364,7 +363,7 @@ describe("integrations route", () => {
     expect(html).toContain("Adicionar instancia");
     expect(html).toContain("99,00");
     expect(html).toContain(
-      "Ao continuar, o backend vai gerar uma cobranca de R$\u00a099,00 no Asaas antes da conexao."
+      "Ao continuar, o backend vai gerar uma cobranca de R$\u00a099,00 no Asaas antes da conexao.",
     );
     expect(html).toContain("Assinatura");
     expect(html).toContain("Por instancia");
@@ -386,7 +385,7 @@ describe("integrations route", () => {
       status: "connected" as const,
       businesses: [
         { id: "business_1", name: "BM Principal", verificationStatus: null },
-        { id: "business_2", name: "BM Secundario", verificationStatus: null }
+        { id: "business_2", name: "BM Secundario", verificationStatus: null },
       ],
       adAccounts: [
         {
@@ -395,7 +394,7 @@ describe("integrations route", () => {
           name: "Conta Principal",
           accountStatus: null,
           currency: "BRL",
-          timezoneName: null
+          timezoneName: null,
         },
         {
           id: "act_2",
@@ -403,37 +402,37 @@ describe("integrations route", () => {
           name: "Conta Secundaria",
           accountStatus: null,
           currency: "USD",
-          timezoneName: null
-        }
+          timezoneName: null,
+        },
       ],
       pixels: [
         {
           id: "pixel_1",
           businessId: "business_1",
           name: "Pixel Principal",
-          code: null
+          code: null,
         },
         {
           id: "pixel_2",
           businessId: "business_2",
           name: "Pixel Secundario",
-          code: null
-        }
+          code: null,
+        },
       ],
       selection: {
         businessId: "business_1",
         adAccountId: "act_1",
-        pixelId: "pixel_1"
+        pixelId: "pixel_1",
       },
       lastSyncedAt: "2026-07-02T03:00:00.000Z",
-      syncError: null
+      syncError: null,
     };
 
     expect(metaAdAccountsForBusiness(assets, "business_2")).toEqual([
-      expect.objectContaining({ id: "act_2", name: "Conta Secundaria" })
+      expect.objectContaining({ id: "act_2", name: "Conta Secundaria" }),
     ]);
     expect(metaPixelsForBusiness(assets, "business_2")).toEqual([
-      expect.objectContaining({ id: "pixel_2", name: "Pixel Secundario" })
+      expect.objectContaining({ id: "pixel_2", name: "Pixel Secundario" }),
     ]);
   });
 
@@ -443,7 +442,7 @@ describe("integrations route", () => {
       status: "connected" as const,
       businesses: [
         { id: "business_1", name: "BM Principal", verificationStatus: null },
-        { id: "business_2", name: "BM Secundario", verificationStatus: null }
+        { id: "business_2", name: "BM Secundario", verificationStatus: null },
       ],
       adAccounts: [
         {
@@ -452,7 +451,7 @@ describe("integrations route", () => {
           name: "Conta Principal",
           accountStatus: null,
           currency: "BRL",
-          timezoneName: null
+          timezoneName: null,
         },
         {
           id: "act_2",
@@ -460,22 +459,22 @@ describe("integrations route", () => {
           name: "Conta Secundaria",
           accountStatus: null,
           currency: "USD",
-          timezoneName: null
-        }
+          timezoneName: null,
+        },
       ],
       pixels: [],
       pages: [],
       selection: {
         businessId: "business_1",
         adAccountId: "act_1",
-        pixelId: null
+        pixelId: null,
       },
       lastSyncedAt: "2026-07-02T03:00:00.000Z",
-      syncError: null
+      syncError: null,
     };
 
     expect(metaReportingAccountsForBusiness(assets, "business_2")).toEqual([
-      expect.objectContaining({ id: "act_2", name: "Conta Secundaria" })
+      expect.objectContaining({ id: "act_2", name: "Conta Secundaria" }),
     ]);
   });
 
@@ -489,12 +488,12 @@ describe("integrations route", () => {
               {
                 provider: "uazapi",
                 status: "connected",
-                checkedAt: "2026-07-02T03:00:00.000Z"
-              }
-            ]
+                checkedAt: "2026-07-02T03:00:00.000Z",
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -506,11 +505,11 @@ describe("integrations route", () => {
               billingStatus: "active",
               providerInstanceId: "provider_instance_1",
               checkoutUrl: null,
-              createdAt: "2026-07-02T03:00:00.000Z"
-            }
+              createdAt: "2026-07-02T03:00:00.000Z",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -524,17 +523,23 @@ describe("integrations route", () => {
             selectedBusinessId: "business_1",
             selectedAdAccountId: "act_1",
             selectedPixelId: "pixel_1",
-            capiTokenConfigured: true
+            capiTokenConfigured: true,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
             status: "connected",
-            businesses: [{ id: "business_1", name: "BM Principal", verificationStatus: null }],
+            businesses: [
+              {
+                id: "business_1",
+                name: "BM Principal",
+                verificationStatus: null,
+              },
+            ],
             adAccounts: [
               {
                 id: "act_1",
@@ -542,27 +547,27 @@ describe("integrations route", () => {
                 name: "Conta WhatsApp",
                 accountStatus: null,
                 currency: "BRL",
-                timezoneName: null
-              }
+                timezoneName: null,
+              },
             ],
             pixels: [
               {
                 id: "pixel_1",
                 businessId: "business_1",
                 name: "Pixel Loja",
-                code: "123456789"
-              }
+                code: "123456789",
+              },
             ],
             selection: {
               businessId: "business_1",
               adAccountId: "act_1",
-              pixelId: "pixel_1"
+              pixelId: "pixel_1",
             },
             lastSyncedAt: "2026-07-02T03:00:00.000Z",
-            syncError: null
+            syncError: null,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -571,10 +576,10 @@ describe("integrations route", () => {
             activeInstances: 1,
             pricePerInstanceCents: 9900,
             nextInstanceAmountCents: 9900,
-            currency: "BRL"
+            currency: "BRL",
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -586,20 +591,20 @@ describe("integrations route", () => {
             pricePerWhatsappInstanceCents: 9900,
             monthlyAmountCents: 9900,
             currentPeriodEnd: null,
-            asaasSubscriptionId: null
+            asaasSubscriptionId: null,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "Ultimos 7 dias",
-            stages: []
+            stages: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -612,11 +617,11 @@ describe("integrations route", () => {
               canInviteMembers: false,
               canManageBilling: false,
               canManageIntegrations: false,
-              canViewReports: true
-            }
+              canViewReports: true,
+            },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -626,10 +631,10 @@ describe("integrations route", () => {
             billingStatus: "active",
             connectionStatus: "connected",
             qrCode: null,
-            message: "WhatsApp conectado"
+            message: "WhatsApp conectado",
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await IntegrationsPage({});
@@ -659,50 +664,50 @@ describe("integrations route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
     const element = await IntegrationsPage({});
@@ -736,12 +741,12 @@ describe("integrations route", () => {
               {
                 provider: "uazapi",
                 status: "rate_limited",
-                checkedAt: "2026-07-02T03:00:00.000Z"
-              }
-            ]
+                checkedAt: "2026-07-02T03:00:00.000Z",
+              },
+            ],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -753,11 +758,11 @@ describe("integrations route", () => {
               billingStatus: "provisioning_hold",
               providerInstanceId: null,
               checkoutUrl: null,
-              createdAt: "2026-07-02T03:00:00.000Z"
-            }
+              createdAt: "2026-07-02T03:00:00.000Z",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -770,10 +775,10 @@ describe("integrations route", () => {
             connectedAt: null,
             selectedBusinessId: null,
             selectedAdAccountId: null,
-            selectedPixelId: null
+            selectedPixelId: null,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -786,13 +791,13 @@ describe("integrations route", () => {
             selection: {
               businessId: null,
               adAccountId: null,
-              pixelId: null
+              pixelId: null,
             },
             lastSyncedAt: null,
-            syncError: null
+            syncError: null,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -801,10 +806,10 @@ describe("integrations route", () => {
             activeInstances: 1,
             pricePerInstanceCents: 9900,
             nextInstanceAmountCents: 9900,
-            currency: "BRL"
+            currency: "BRL",
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -816,20 +821,20 @@ describe("integrations route", () => {
             pricePerWhatsappInstanceCents: 9900,
             monthlyAmountCents: 9900,
             currentPeriodEnd: null,
-            asaasSubscriptionId: null
+            asaasSubscriptionId: null,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "Ultimos 7 dias",
-            stages: []
+            stages: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -842,11 +847,11 @@ describe("integrations route", () => {
               canInviteMembers: true,
               canManageBilling: true,
               canManageIntegrations: true,
-              canViewReports: true
-            }
+              canViewReports: true,
+            },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await IntegrationsPage({});
@@ -866,16 +871,16 @@ describe("integrations route", () => {
         new Response(
           JSON.stringify({
             checkedAt: "2026-07-02T03:00:00.000Z",
-            providers: []
+            providers: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -888,10 +893,10 @@ describe("integrations route", () => {
             connectedAt: "2026-07-02T03:00:00.000Z",
             selectedBusinessId: "business_old",
             selectedAdAccountId: "act_old",
-            selectedPixelId: "pixel_old"
+            selectedPixelId: "pixel_old",
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -904,13 +909,13 @@ describe("integrations route", () => {
             selection: {
               businessId: "business_old",
               adAccountId: "act_old",
-              pixelId: "pixel_old"
+              pixelId: "pixel_old",
             },
             lastSyncedAt: "2026-07-02T03:00:00.000Z",
-            syncError: null
+            syncError: null,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -919,10 +924,10 @@ describe("integrations route", () => {
             activeInstances: 0,
             pricePerInstanceCents: 9900,
             nextInstanceAmountCents: 9900,
-            currency: "BRL"
+            currency: "BRL",
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -934,20 +939,20 @@ describe("integrations route", () => {
             pricePerWhatsappInstanceCents: 9900,
             monthlyAmountCents: 0,
             currentPeriodEnd: null,
-            asaasSubscriptionId: null
+            asaasSubscriptionId: null,
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             workspaceId: "workspace_1",
             rangeLabel: "Ultimos 7 dias",
-            stages: []
+            stages: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -960,11 +965,11 @@ describe("integrations route", () => {
               canInviteMembers: true,
               canManageBilling: true,
               canManageIntegrations: true,
-              canViewReports: true
-            }
+              canViewReports: true,
+            },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await IntegrationsPage({});
@@ -978,5 +983,103 @@ describe("integrations route", () => {
     expect(html).not.toContain("act_old");
     expect(html).not.toContain("pixel_old");
     expect(html).not.toContain("ativo selecionado nao encontrado");
+  });
+
+  it("does not present a workspace API failure as denied permission", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      const response = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+
+      if (url.includes("/workspaces/current")) {
+        return response({ message: "unavailable" }, 503);
+      }
+
+      if (url.includes("/integrations/health")) {
+        return response({
+          checkedAt: "2026-07-10T10:00:00.000Z",
+          providers: [],
+        });
+      }
+
+      if (url.includes("/integrations/whatsapp/instances")) {
+        return response([]);
+      }
+
+      if (url.includes("/integrations/meta/connection")) {
+        return response({
+          workspaceId: "workspace_1",
+          status: "connected",
+          scopes: [],
+          expiresAt: null,
+          connectedAt: "2026-07-10T10:00:00.000Z",
+        });
+      }
+
+      if (url.includes("/integrations/meta/assets")) {
+        return response({
+          workspaceId: "workspace_1",
+          status: "connected",
+          businesses: [],
+          adAccounts: [],
+          pixels: [],
+          pages: [],
+          reportingAccounts: [],
+          selection: {
+            businessId: null,
+            adAccountId: null,
+            pixelId: null,
+          },
+          conversionDestination: null,
+          lastSyncedAt: null,
+          syncError: null,
+        });
+      }
+
+      if (url.includes("/billing/whatsapp-instance/quote")) {
+        return response({
+          workspaceId: "workspace_1",
+          activeInstances: 0,
+          pricePerInstanceCents: 9900,
+          nextInstanceAmountCents: 9900,
+          currency: "BRL",
+        });
+      }
+
+      if (url.includes("/billing/subscription")) {
+        return response({
+          workspaceId: "workspace_1",
+          status: "active",
+          planName: "Por instancia",
+          activeInstances: 0,
+          pricePerWhatsappInstanceCents: 9900,
+          monthlyAmountCents: 0,
+          currentPeriodEnd: null,
+          asaasSubscriptionId: null,
+        });
+      }
+
+      if (url.includes("/integrations/pipeline")) {
+        return response({
+          workspaceId: "workspace_1",
+          rangeLabel: "Ultimos 7 dias",
+          stages: [],
+        });
+      }
+
+      return response({ message: "not found" }, 404);
+    });
+
+    const element = await IntegrationsPage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Permissoes temporariamente indisponiveis");
+    expect(html).toContain("Nao foi possivel confirmar as permissoes agora.");
+    expect(html).toContain("Trocar conta Meta");
+    expect(html).toContain("A API validara a acao ao continuar.");
+    expect(html).not.toContain(">sem permissao<");
   });
 });

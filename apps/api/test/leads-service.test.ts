@@ -19,8 +19,8 @@ function createHarness() {
         firstMessageAt: new Date("2026-07-02T03:00:00.000Z"),
         lastMessageAt: new Date("2026-07-02T03:10:00.000Z"),
         createdAt: new Date("2026-07-02T03:00:00.000Z"),
-        updatedAt: new Date("2026-07-02T03:10:00.000Z")
-      }
+        updatedAt: new Date("2026-07-02T03:10:00.000Z"),
+      },
     ],
     conversionLogs: [
       {
@@ -37,8 +37,8 @@ function createHarness() {
         errorCode: null,
         errorMessage: null,
         sentAt: new Date("2026-07-02T03:13:00.000Z"),
-        createdAt: new Date("2026-07-02T03:12:00.000Z")
-      }
+        createdAt: new Date("2026-07-02T03:12:00.000Z"),
+      },
     ],
     webhookLogs: [
       {
@@ -51,65 +51,76 @@ function createHarness() {
         errorCode: null,
         errorMessage: null,
         receivedAt: new Date("2026-07-02T03:01:00.000Z"),
-        processedAt: new Date("2026-07-02T03:01:01.000Z")
-      }
+        processedAt: new Date("2026-07-02T03:01:01.000Z"),
+      },
     ],
     campaigns: [
       {
         campaignId: "cmp_1",
-        name: "Black Friday WhatsApp"
-      }
+        name: "Black Friday WhatsApp",
+      },
     ],
     adSets: [
       {
         adSetId: "adset_1",
-        name: "Publico quente"
-      }
+        name: "Publico quente",
+      },
     ],
     ads: [
       {
         adId: "ad_1",
-        name: "Criativo WhatsApp"
-      }
-    ]
+        name: "Criativo WhatsApp",
+      },
+    ],
   };
   const prisma = {
     lead: {
       findMany: vi.fn(async () => db.leads),
-      findFirst: vi.fn(async ({ where }: { where: { id: string; workspaceId: string } }) =>
-        db.leads.find(
-          (lead) => lead.id === where.id && lead.workspaceId === where.workspaceId
-        ) ?? null
+      count: vi.fn(async () => db.leads.length),
+      findFirst: vi.fn(
+        async ({ where }: { where: { id: string; workspaceId: string } }) =>
+          db.leads.find(
+            (lead) =>
+              lead.id === where.id && lead.workspaceId === where.workspaceId,
+          ) ?? null,
       ),
-      upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => ({
-        id: "lead_2",
-        createdAt: new Date("2026-07-02T04:00:00.000Z"),
-        updatedAt: new Date("2026-07-02T04:00:00.000Z"),
-        ...create,
-        ...update
-      }))
+      upsert: vi.fn(
+        async ({
+          create,
+          update,
+        }: {
+          create: Record<string, unknown>;
+          update: Record<string, unknown>;
+        }) => ({
+          id: "lead_2",
+          createdAt: new Date("2026-07-02T04:00:00.000Z"),
+          updatedAt: new Date("2026-07-02T04:00:00.000Z"),
+          ...create,
+          ...update,
+        }),
+      ),
     },
     conversionEventLog: {
-      findMany: vi.fn(async () => db.conversionLogs)
+      findMany: vi.fn(async () => db.conversionLogs),
     },
     webhookLog: {
-      findMany: vi.fn(async () => db.webhookLogs)
+      findMany: vi.fn(async () => db.webhookLogs),
     },
     metaCampaign: {
-      findMany: vi.fn(async () => db.campaigns)
+      findMany: vi.fn(async () => db.campaigns),
     },
     metaAdSet: {
-      findMany: vi.fn(async () => db.adSets)
+      findMany: vi.fn(async () => db.adSets),
     },
     metaAd: {
-      findMany: vi.fn(async () => db.ads)
-    }
+      findMany: vi.fn(async () => db.ads),
+    },
   };
 
   return {
     db,
     prisma,
-    service: new LeadsService(prisma as never)
+    service: new LeadsService(prisma as never),
   };
 }
 
@@ -121,7 +132,7 @@ describe("leads service", () => {
       search: "Mariana",
       status: "active",
       label: "Venda fechada",
-      limit: 25
+      limit: 25,
     });
 
     expect(prisma.lead.findMany).toHaveBeenCalledWith(
@@ -129,10 +140,16 @@ describe("leads service", () => {
         where: expect.objectContaining({
           workspaceId: "workspace_1",
           status: "active",
-          labels: { has: "Venda fechada" }
+          labels: { has: "Venda fechada" },
         }),
-        take: 25
-      })
+        skip: 0,
+        take: 25,
+      }),
+    );
+    expect(prisma.lead.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ workspaceId: "workspace_1" }),
+      }),
     );
     expect(leads).toEqual([
       expect.objectContaining({
@@ -140,8 +157,8 @@ describe("leads service", () => {
         campaignName: "Black Friday WhatsApp",
         lastEventName: "QualifiedLead",
         labels: ["Venda fechada", "VIP"],
-        score: 86
-      })
+        score: 86,
+      }),
     ]);
   });
 
@@ -154,7 +171,7 @@ describe("leads service", () => {
       adId: "ad_1",
       since: "2026-07-01",
       until: "2026-07-02",
-      limit: 50
+      limit: 50,
     });
 
     expect(prisma.lead.findMany).toHaveBeenCalledWith(
@@ -166,10 +183,10 @@ describe("leads service", () => {
           adId: "ad_1",
           createdAt: {
             gte: new Date("2026-07-01T00:00:00.000Z"),
-            lte: new Date("2026-07-02T23:59:59.999Z")
-          }
-        })
-      })
+            lte: new Date("2026-07-02T23:59:59.999Z"),
+          },
+        }),
+      }),
     );
   });
 
@@ -185,7 +202,7 @@ describe("leads service", () => {
       campaignId: "cmp_2",
       adSetId: "adset_2",
       adId: "ad_2",
-      occurredAt: new Date("2026-07-02T04:00:00.000Z")
+      occurredAt: new Date("2026-07-02T04:00:00.000Z"),
     });
 
     expect(result?.id).toBe("lead_2");
@@ -194,8 +211,8 @@ describe("leads service", () => {
         where: {
           workspaceId_phoneHash: {
             workspaceId: "workspace_1",
-            phoneHash: expect.any(String)
-          }
+            phoneHash: expect.any(String),
+          },
         },
         create: expect.objectContaining({
           workspaceId: "workspace_1",
@@ -203,14 +220,14 @@ describe("leads service", () => {
           phoneDisplay: "+55 31 *****-4300",
           labels: ["Venda fechada"],
           campaignId: "cmp_2",
-          adId: "ad_2"
+          adId: "ad_2",
         }),
         update: expect.objectContaining({
           name: "Rafael Costa",
           labels: ["Venda fechada"],
-          lastMessageAt: new Date("2026-07-02T04:00:00.000Z")
-        })
-      })
+          lastMessageAt: new Date("2026-07-02T04:00:00.000Z"),
+        }),
+      }),
     );
   });
 
@@ -228,7 +245,7 @@ describe("leads service", () => {
       adId: "ad_2",
       ctwaClid: "ctwa_click_1",
       ctwaSourceUrl: "https://fb.com/ad/ctwa",
-      occurredAt: new Date("2026-07-02T04:00:00.000Z")
+      occurredAt: new Date("2026-07-02T04:00:00.000Z"),
     });
     await service.upsertFromWhatsappWebhook({
       workspaceId: "workspace_1",
@@ -239,7 +256,7 @@ describe("leads service", () => {
       campaignId: "cmp_2",
       adSetId: "adset_2",
       adId: "ad_2",
-      occurredAt: new Date("2026-07-02T04:05:00.000Z")
+      occurredAt: new Date("2026-07-02T04:05:00.000Z"),
     });
 
     expect(prisma.lead.upsert).toHaveBeenNthCalledWith(
@@ -247,22 +264,22 @@ describe("leads service", () => {
       expect.objectContaining({
         create: expect.objectContaining({
           ctwaClid: "ctwa_click_1",
-          ctwaSourceUrl: "https://fb.com/ad/ctwa"
+          ctwaSourceUrl: "https://fb.com/ad/ctwa",
         }),
         update: expect.objectContaining({
           ctwaClid: "ctwa_click_1",
-          ctwaSourceUrl: "https://fb.com/ad/ctwa"
-        })
-      })
+          ctwaSourceUrl: "https://fb.com/ad/ctwa",
+        }),
+      }),
     );
     expect(prisma.lead.upsert).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         update: expect.objectContaining({
           ctwaClid: undefined,
-          ctwaSourceUrl: undefined
-        })
-      })
+          ctwaSourceUrl: undefined,
+        }),
+      }),
     );
     const secondUpdate = prisma.lead.upsert.mock.calls[1]?.[0].update;
 
@@ -280,36 +297,36 @@ describe("leads service", () => {
     expect(prisma.lead.findFirst).toHaveBeenCalledWith({
       where: {
         id: "lead_1",
-        workspaceId: "workspace_1"
-      }
+        workspaceId: "workspace_1",
+      },
     });
     expect(detail).toMatchObject({
       lead: {
         id: "lead_1",
         campaignName: "Black Friday WhatsApp",
         lastEventName: "QualifiedLead",
-        labels: ["Venda fechada", "VIP"]
+        labels: ["Venda fechada", "VIP"],
       },
       attribution: {
         campaignName: "Black Friday WhatsApp",
         adSetName: "Publico quente",
-        adName: "Criativo WhatsApp"
+        adName: "Criativo WhatsApp",
       },
       conversionEvents: [
         {
           id: "conversion_1",
           eventName: "QualifiedLead",
           status: "sent",
-          sentAt: "2026-07-02T03:13:00.000Z"
-        }
+          sentAt: "2026-07-02T03:13:00.000Z",
+        },
       ],
       webhookEvents: [
         {
           id: "webhook_1",
           source: "uazapi",
-          status: "processed"
-        }
-      ]
+          status: "processed",
+        },
+      ],
     });
   });
 });

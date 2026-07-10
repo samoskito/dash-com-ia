@@ -8,12 +8,13 @@ import type {
   WhatsappInstanceConnectionDto,
   WhatsappInstanceQuoteDto,
   WhatsappInstanceSummaryDto,
-  WorkspaceSubscriptionSummaryDto
+  WorkspaceSubscriptionSummaryDto,
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { SubmitButton } from "../../../components/submit-button";
 import { serverApiFetch } from "../../../lib/server-api";
+import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { MetaConversionDestinationForm } from "./meta-conversion-destination-form";
 import { MetaOAuthButton } from "./meta-oauth-button";
 import { MetaReportingAccountsForm } from "./meta-reporting-accounts-form";
@@ -38,51 +39,65 @@ type PageNotice = {
   message: string;
 };
 
-async function getHealth(): Promise<ResourceResult<IntegrationHealthSummaryDto | null>> {
+async function getHealth(): Promise<
+  ResourceResult<IntegrationHealthSummaryDto | null>
+> {
   try {
-    const health = await serverApiFetch<IntegrationHealthSummaryDto>("/integrations/health");
+    const health = await serverApiFetch<IntegrationHealthSummaryDto>(
+      "/integrations/health",
+    );
 
     return {
       data: health,
-      state: health.providers.length > 0 ? "real" : "empty"
+      state: health.providers.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: null,
-      state: "error"
+      state: "error",
     };
   }
 }
 
-async function getWhatsappInstances(): Promise<ResourceResult<WhatsappInstanceSummaryDto[]>> {
+async function getWhatsappInstances(): Promise<
+  ResourceResult<WhatsappInstanceSummaryDto[]>
+> {
   try {
     const instances = await serverApiFetch<WhatsappInstanceSummaryDto[]>(
-      "/integrations/whatsapp/instances"
+      "/integrations/whatsapp/instances",
     );
 
     return {
       data: instances,
-      state: instances.length > 0 ? "real" : "empty"
+      state: instances.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
 
 async function getWhatsappInstanceStatuses(
-  instances: WhatsappInstanceSummaryDto[]
+  instances: WhatsappInstanceSummaryDto[],
 ): Promise<Record<string, WhatsappInstanceConnectionDto>> {
+  const configuredTimeout = Number(
+    process.env.WPPTRACK_WEB_PROVIDER_STATUS_TIMEOUT_MS ?? 2000,
+  );
+  const timeoutMs =
+    Number.isFinite(configuredTimeout) && configuredTimeout > 0
+      ? configuredTimeout
+      : 2000;
   const activeInstances = instances.filter(
-    (instance) => instance.billingStatus === "active"
+    (instance) => instance.billingStatus === "active",
   );
   const entries = await Promise.all(
     activeInstances.map(async (instance) => {
       try {
         const status = await serverApiFetch<WhatsappInstanceConnectionDto>(
-          `/integrations/whatsapp/instances/${instance.id}/status`
+          `/integrations/whatsapp/instances/${instance.id}/status`,
+          { signal: AbortSignal.timeout(timeoutMs) },
         );
 
         return [instance.id, status] as const;
@@ -95,90 +110,102 @@ async function getWhatsappInstanceStatuses(
             billingStatus: instance.billingStatus,
             connectionStatus: "error",
             qrCode: null,
-            message: "Nao foi possivel carregar o status da instancia."
-          }
+            message: "Nao foi possivel carregar o status da instancia.",
+          },
         ] as const;
       }
-    })
+    }),
   );
 
   return Object.fromEntries(entries);
 }
 
-async function getWhatsappQuote(): Promise<ResourceResult<WhatsappInstanceQuoteDto | null>> {
+async function getWhatsappQuote(): Promise<
+  ResourceResult<WhatsappInstanceQuoteDto | null>
+> {
   try {
     return {
       data: await serverApiFetch<WhatsappInstanceQuoteDto>(
-        "/billing/whatsapp-instance/quote"
+        "/billing/whatsapp-instance/quote",
       ),
-      state: "real"
+      state: "real",
     };
   } catch {
     return {
       data: null,
-      state: "error"
+      state: "error",
     };
   }
 }
 
-async function getBillingSubscription(): Promise<ResourceResult<WorkspaceSubscriptionSummaryDto | null>> {
+async function getBillingSubscription(): Promise<
+  ResourceResult<WorkspaceSubscriptionSummaryDto | null>
+> {
   try {
     return {
       data: await serverApiFetch<WorkspaceSubscriptionSummaryDto>(
-        "/billing/subscription"
+        "/billing/subscription",
       ),
-      state: "real"
+      state: "real",
     };
   } catch {
     return {
       data: null,
-      state: "error"
+      state: "error",
     };
   }
 }
 
-async function getIntegrationPipeline(): Promise<ResourceResult<IntegrationPipelineOverviewDto | null>> {
+async function getIntegrationPipeline(): Promise<
+  ResourceResult<IntegrationPipelineOverviewDto | null>
+> {
   try {
     const pipeline = await serverApiFetch<IntegrationPipelineOverviewDto>(
-      "/integrations/pipeline"
+      "/integrations/pipeline",
     );
 
     return {
       data: pipeline,
-      state: pipeline.stages.length > 0 ? "real" : "empty"
+      state: pipeline.stages.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: null,
-      state: "error"
+      state: "error",
     };
   }
 }
 
-async function getCurrentWorkspace(): Promise<ResourceResult<CurrentWorkspaceDto | null>> {
+async function getCurrentWorkspaceResource(): Promise<
+  ResourceResult<CurrentWorkspaceDto | null>
+> {
   try {
     return {
-      data: await serverApiFetch<CurrentWorkspaceDto>("/workspaces/current"),
-      state: "real"
+      data: await getCurrentWorkspace(),
+      state: "real",
     };
   } catch {
     return {
       data: null,
-      state: "error"
+      state: "error",
     };
   }
 }
 
-async function getMetaConnection(): Promise<ResourceResult<MetaConnectionDto | null>> {
+async function getMetaConnection(): Promise<
+  ResourceResult<MetaConnectionDto | null>
+> {
   try {
     return {
-      data: await serverApiFetch<MetaConnectionDto>("/integrations/meta/connection"),
-      state: "real"
+      data: await serverApiFetch<MetaConnectionDto>(
+        "/integrations/meta/connection",
+      ),
+      state: "real",
     };
   } catch {
     return {
       data: null,
-      state: "error"
+      state: "error",
     };
   }
 }
@@ -187,12 +214,12 @@ async function getMetaAssets(): Promise<ResourceResult<MetaAssetsDto | null>> {
   try {
     return {
       data: await serverApiFetch<MetaAssetsDto>("/integrations/meta/assets"),
-      state: "real"
+      state: "real",
     };
   } catch {
     return {
       data: null,
-      state: "error"
+      state: "error",
     };
   }
 }
@@ -206,7 +233,7 @@ async function refreshMetaAssets(formData: FormData) {
   try {
     await serverApiFetch("/integrations/meta/assets/refresh", {
       method: "POST",
-      body: JSON.stringify({ businessId })
+      body: JSON.stringify({ businessId }),
     });
     revalidatePath("/integrations");
     target = "/integrations?notice=meta-assets-refreshed";
@@ -229,9 +256,12 @@ async function connectWhatsappInstance(formData: FormData) {
   let target = "/integrations?notice=whatsapp-connect-error";
 
   try {
-    await serverApiFetch(`/integrations/whatsapp/instances/${instanceId}/connect`, {
-      method: "POST"
-    });
+    await serverApiFetch(
+      `/integrations/whatsapp/instances/${instanceId}/connect`,
+      {
+        method: "POST",
+      },
+    );
     revalidatePath("/integrations");
     target = "/integrations?notice=whatsapp-connect-requested";
   } catch {
@@ -259,9 +289,9 @@ async function createWhatsappCheckout(formData: FormData) {
         method: "POST",
         body: JSON.stringify({
           instanceName,
-          provider: "uazapi"
-        })
-      }
+          provider: "uazapi",
+        }),
+      },
     );
   } catch {
     redirect("/integrations?notice=whatsapp-checkout-error");
@@ -297,8 +327,8 @@ async function saveMetaConversionDestination(formData: FormData) {
         pixelId,
         pixelName,
         pageId,
-        pageName
-      })
+        pageName,
+      }),
     });
     revalidatePath("/integrations");
     target = "/integrations?notice=meta-destination-saved";
@@ -310,7 +340,7 @@ async function saveMetaConversionDestination(formData: FormData) {
 }
 
 async function loadMetaBusinessDestinationAssets(
-  businessId: string
+  businessId: string,
 ): Promise<Pick<MetaAssetsDto, "pixels" | "pages">> {
   "use server";
 
@@ -325,14 +355,14 @@ async function loadMetaBusinessDestinationAssets(
       "/integrations/meta/assets/refresh",
       {
         method: "POST",
-        body: JSON.stringify({ businessId: normalizedBusinessId })
-      }
+        body: JSON.stringify({ businessId: normalizedBusinessId }),
+      },
     );
     revalidatePath("/integrations");
 
     return {
       pixels: assets.pixels,
-      pages: assets.pages ?? []
+      pages: assets.pages ?? [],
     };
   } catch {
     return { pixels: [], pages: [] };
@@ -364,8 +394,8 @@ async function saveMetaReportingAccount(formData: FormData) {
         adAccountId,
         adAccountName,
         currency,
-        timezoneName
-      })
+        timezoneName,
+      }),
     });
     revalidatePath("/integrations");
     target = "/integrations?notice=meta-reporting-saved";
@@ -377,7 +407,7 @@ async function saveMetaReportingAccount(formData: FormData) {
 }
 
 async function loadMetaBusinessReportingAssets(
-  businessId: string
+  businessId: string,
 ): Promise<Pick<MetaAssetsDto, "adAccounts">> {
   "use server";
 
@@ -392,13 +422,13 @@ async function loadMetaBusinessReportingAssets(
       "/integrations/meta/assets/refresh",
       {
         method: "POST",
-        body: JSON.stringify({ businessId: normalizedBusinessId })
-      }
+        body: JSON.stringify({ businessId: normalizedBusinessId }),
+      },
     );
     revalidatePath("/integrations");
 
     return {
-      adAccounts: assets.adAccounts
+      adAccounts: assets.adAccounts,
     };
   } catch {
     return { adAccounts: [] };
@@ -418,10 +448,13 @@ async function setMetaReportingAccountStatus(formData: FormData) {
   let target = "/integrations?notice=meta-reporting-status-error";
 
   try {
-    await serverApiFetch(`/integrations/meta/reporting-accounts/${encodeURIComponent(id)}/status`, {
-      method: "PUT",
-      body: JSON.stringify({ active })
-    });
+    await serverApiFetch(
+      `/integrations/meta/reporting-accounts/${encodeURIComponent(id)}/status`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ active }),
+      },
+    );
     revalidatePath("/integrations");
     target = "/integrations?notice=meta-reporting-status-saved";
   } catch {
@@ -438,7 +471,7 @@ function money(cents: number | null | undefined) {
 
   return (cents / 100).toLocaleString("pt-BR", {
     currency: "BRL",
-    style: "currency"
+    style: "currency",
   });
 }
 
@@ -446,7 +479,7 @@ function providerTitle(provider: string) {
   const titles: Record<string, string> = {
     uazapi: "WhatsApp / Uazapi",
     meta: "Meta OAuth",
-    asaas: "Asaas"
+    asaas: "Asaas",
   };
 
   return titles[provider] ?? "Provedor desconhecido";
@@ -466,7 +499,7 @@ function statusLabel(status: string) {
     qr_required: "QR pendente",
     syncing: "Sincronizando",
     configured: "Configurado",
-    needs_configuration: "Configurar"
+    needs_configuration: "Configurar",
   };
 
   return labels[status] ?? "Status desconhecido";
@@ -483,7 +516,7 @@ function nullableFormText(formData: FormData, key: string): string | null {
 }
 
 function integrationsNotice(
-  searchParams: IntegrationsSearchParams
+  searchParams: IntegrationsSearchParams,
 ): PageNotice | null {
   const notice = searchParams.notice;
   const meta = searchParams.meta;
@@ -492,7 +525,8 @@ function integrationsNotice(
     return {
       tone: "success",
       title: "Meta conectada",
-      message: "A conexao foi salva. Selecione BM, Pixel, pagina e contas de relatorio."
+      message:
+        "A conexao foi salva. Selecione BM, Pixel, pagina e contas de relatorio.",
     };
   }
 
@@ -500,7 +534,8 @@ function integrationsNotice(
     return {
       tone: "warn",
       title: "Falha ao conectar Meta",
-      message: "Tente conectar novamente ou revise o retorno do OAuth no diagnostico."
+      message:
+        "Tente conectar novamente ou revise o retorno do OAuth no diagnostico.",
     };
   }
 
@@ -508,84 +543,89 @@ function integrationsNotice(
     "meta-destination-saved": {
       tone: "success",
       title: "Destino salvo",
-      message: "Pixel e pagina principal foram salvos para o envio de conversoes."
+      message:
+        "Pixel e pagina principal foram salvos para o envio de conversoes.",
     },
     "meta-destination-error": {
       tone: "warn",
       title: "Destino nao salvo",
-      message: "Nao foi possivel salvar Pixel e pagina agora. Tente novamente."
+      message: "Nao foi possivel salvar Pixel e pagina agora. Tente novamente.",
     },
     "meta-destination-missing": {
       tone: "warn",
       title: "Destino incompleto",
-      message: "Selecione BM, Pixel e pagina antes de salvar."
+      message: "Selecione BM, Pixel e pagina antes de salvar.",
     },
     "meta-assets-refreshed": {
       tone: "success",
       title: "Ativos Meta atualizados",
-      message: "BMs, contas, Pixels e paginas foram salvos para carregamento rapido."
+      message:
+        "BMs, contas, Pixels e paginas foram salvos para carregamento rapido.",
     },
     "meta-assets-refresh-error": {
       tone: "warn",
       title: "Ativos nao atualizados",
-      message: "Nao foi possivel sincronizar ativos Meta agora. Tente novamente."
+      message:
+        "Nao foi possivel sincronizar ativos Meta agora. Tente novamente.",
     },
     "meta-reporting-saved": {
       tone: "success",
       title: "Conta adicionada",
-      message: "A conta de anuncio foi adicionada aos relatorios."
+      message: "A conta de anuncio foi adicionada aos relatorios.",
     },
     "meta-reporting-error": {
       tone: "warn",
       title: "Conta nao adicionada",
-      message: "Nao foi possivel adicionar a conta aos relatorios agora."
+      message: "Nao foi possivel adicionar a conta aos relatorios agora.",
     },
     "meta-reporting-missing": {
       tone: "warn",
       title: "Conta incompleta",
-      message: "Selecione BM e conta de anuncio antes de adicionar."
+      message: "Selecione BM e conta de anuncio antes de adicionar.",
     },
     "meta-reporting-status-saved": {
       tone: "success",
       title: "Status atualizado",
-      message: "A conta de anuncio foi atualizada nos relatorios."
+      message: "A conta de anuncio foi atualizada nos relatorios.",
     },
     "meta-reporting-status-error": {
       tone: "warn",
       title: "Status nao atualizado",
-      message: "Nao foi possivel alterar o status da conta agora."
+      message: "Nao foi possivel alterar o status da conta agora.",
     },
     "whatsapp-connect-requested": {
       tone: "success",
       title: "Conexao solicitada",
-      message: "A solicitacao de conexao do WhatsApp foi enviada ao provedor."
+      message: "A solicitacao de conexao do WhatsApp foi enviada ao provedor.",
     },
     "whatsapp-connect-error": {
       tone: "warn",
       title: "Conexao nao iniciada",
-      message: "Nao foi possivel solicitar a conexao do WhatsApp agora."
+      message: "Nao foi possivel solicitar a conexao do WhatsApp agora.",
     },
     "whatsapp-checkout-missing": {
       tone: "warn",
       title: "Instancia sem nome",
-      message: "Informe um nome para gerar a cobranca da instancia."
+      message: "Informe um nome para gerar a cobranca da instancia.",
     },
     "whatsapp-checkout-created": {
       tone: "success",
       title: "Cobranca criada",
-      message: "A instancia foi criada como pendente de pagamento."
+      message: "A instancia foi criada como pendente de pagamento.",
     },
     "whatsapp-checkout-error": {
       tone: "warn",
       title: "Cobranca nao criada",
-      message: "Nao foi possivel gerar a cobranca da instancia agora."
-    }
+      message: "Nao foi possivel gerar a cobranca da instancia agora.",
+    },
   };
 
-  return notice ? notices[notice] ?? null : null;
+  return notice ? (notices[notice] ?? null) : null;
 }
 
-function metaConnectionTitle(status?: MetaAssetsDto["status"] | MetaConnectionDto["status"]) {
+function metaConnectionTitle(
+  status?: MetaAssetsDto["status"] | MetaConnectionDto["status"],
+) {
   if (status === "connected") {
     return "Meta conectado";
   }
@@ -607,7 +647,7 @@ function metaConnectionTitle(status?: MetaAssetsDto["status"] | MetaConnectionDt
 
 function metaAssetsDetail(
   metaAssets: MetaAssetsDto | null,
-  state: ResourceResult<MetaAssetsDto | null>["state"]
+  state: ResourceResult<MetaAssetsDto | null>["state"],
 ) {
   if (!metaAssets) {
     return state === "error"
@@ -639,13 +679,12 @@ function metaLastSyncedAt(metaAssets: MetaAssetsDto | null) {
     return "Ativos ainda nao sincronizados neste workspace.";
   }
 
-  return `Ativos atualizados em ${new Date(metaAssets.lastSyncedAt).toLocaleString(
-    "pt-BR",
-    {
-      dateStyle: "short",
-      timeStyle: "short"
-    }
-  )}.`;
+  return `Ativos atualizados em ${new Date(
+    metaAssets.lastSyncedAt,
+  ).toLocaleString("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  })}.`;
 }
 
 function pipelineWidth(value: number, maxValue: number) {
@@ -657,7 +696,7 @@ function pipelineWidth(value: number, maxValue: number) {
 }
 
 export default async function IntegrationsPage({
-  searchParams
+  searchParams,
 }: IntegrationsPageProps) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const pageNotice = integrationsNotice(resolvedSearchParams);
@@ -669,7 +708,7 @@ export default async function IntegrationsPage({
     whatsappQuoteResult,
     billingSubscriptionResult,
     pipelineResult,
-    workspaceResult
+    workspaceResult,
   ] = await Promise.all([
     getHealth(),
     getWhatsappInstances(),
@@ -678,26 +717,26 @@ export default async function IntegrationsPage({
     getWhatsappQuote(),
     getBillingSubscription(),
     getIntegrationPipeline(),
-    getCurrentWorkspace()
+    getCurrentWorkspaceResource(),
   ]);
   const health = healthResult.data;
   const whatsappInstances = whatsappInstancesResult.data;
-  const whatsappInstanceStatuses = await getWhatsappInstanceStatuses(
-    whatsappInstances
-  );
+  const whatsappInstanceStatuses =
+    await getWhatsappInstanceStatuses(whatsappInstances);
   const metaConnection = metaConnectionResult.data;
   const metaAssets = metaAssetsResult.data;
   const whatsappQuote = whatsappQuoteResult.data;
   const billingSubscription = billingSubscriptionResult.data;
   const pipeline = pipelineResult.data;
   const workspace = workspaceResult.data;
+  const workspacePermissionsUnavailable = workspaceResult.state === "error";
   const canManageIntegrations = Boolean(
-    workspace?.permissions.canManageIntegrations
+    workspace?.permissions.canManageIntegrations,
   );
   const canManageBilling = Boolean(workspace?.permissions.canManageBilling);
   const maxPipelineValue = Math.max(
-    ...((pipeline?.stages ?? []).map((stage) => stage.value)),
-    0
+    ...(pipeline?.stages ?? []).map((stage) => stage.value),
+    0,
   );
   const hasIntegrationError = [
     healthResult.state,
@@ -707,16 +746,16 @@ export default async function IntegrationsPage({
     whatsappQuoteResult.state,
     billingSubscriptionResult.state,
     pipelineResult.state,
-    workspaceResult.state
+    workspaceResult.state,
   ].includes("error");
   const metaStatus = metaAssets?.status ?? metaConnection?.status;
-  const activeReportingAccounts =
-    (metaAssets?.reportingAccounts ?? []).filter((account) => account.active)
-      .length;
+  const activeReportingAccounts = (metaAssets?.reportingAccounts ?? []).filter(
+    (account) => account.active,
+  ).length;
   const metaRefreshBusinessId =
     metaAssets?.selection.businessId &&
     metaAssets.businesses.some(
-      (business) => business.id === metaAssets.selection.businessId
+      (business) => business.id === metaAssets.selection.businessId,
     )
       ? metaAssets.selection.businessId
       : (metaAssets?.businesses[0]?.id ?? "");
@@ -728,10 +767,13 @@ export default async function IntegrationsPage({
       description:
         item.message ??
         "Credenciais encontradas. Proxima etapa depende do fluxo operacional do provedor.",
-      detail: `Verificado em ${new Date(item.checkedAt).toLocaleTimeString("pt-BR", {
-        hour: "2-digit",
-        minute: "2-digit"
-      })}`
+      detail: `Verificado em ${new Date(item.checkedAt).toLocaleTimeString(
+        "pt-BR",
+        {
+          hour: "2-digit",
+          minute: "2-digit",
+        },
+      )}`,
     })) ?? [];
   const metaStatusLabel =
     metaAssetsResult.state === "error" && metaConnectionResult.state === "error"
@@ -750,7 +792,10 @@ export default async function IntegrationsPage({
         <div>
           <span className="eyebrow">Integracoes</span>
           <h1>WhatsApp, Meta e Pixel</h1>
-          <p>Uazapi primeiro, Meta OAuth desde o inicio e Cloud API preparada para futuro.</p>
+          <p>
+            Uazapi primeiro, Meta OAuth desde o inicio e Cloud API preparada
+            para futuro.
+          </p>
         </div>
         <div className="header-actions">
           <span className={`status-chip${hasIntegrationError ? " warn" : ""}`}>
@@ -771,7 +816,11 @@ export default async function IntegrationsPage({
         {integrations.length > 0 ? (
           integrations.map((item) => (
             <article className="integration-card" key={item.title}>
-              <span className={`status-chip${item.tone ? ` ${item.tone}` : ""}`}>{item.status}</span>
+              <span
+                className={`status-chip${item.tone ? ` ${item.tone}` : ""}`}
+              >
+                {item.status}
+              </span>
               <div>
                 <span className="micro-label">{item.title}</span>
                 <strong>{item.detail}</strong>
@@ -785,7 +834,9 @@ export default async function IntegrationsPage({
         ) : (
           <article className="integration-card">
             <span className="status-chip warn">
-              {healthResult.state === "error" ? "API indisponivel" : "Sem provedores"}
+              {healthResult.state === "error"
+                ? "API indisponivel"
+                : "Sem provedores"}
             </span>
             <div>
               <span className="micro-label">Integracoes</span>
@@ -795,7 +846,10 @@ export default async function IntegrationsPage({
                   : "Nenhuma integracao retornada"}
               </strong>
             </div>
-            <p className="muted">A lista sera preenchida somente com provedores retornados pelo backend.</p>
+            <p className="muted">
+              A lista sera preenchida somente com provedores retornados pelo
+              backend.
+            </p>
           </article>
         )}
       </div>
@@ -816,26 +870,37 @@ export default async function IntegrationsPage({
               O token nasce no backend e fica criptografado.
             </p>
           </div>
-          {canManageIntegrations ? (
+          {canManageIntegrations || workspacePermissionsUnavailable ? (
             <div className="header-actions">
               <MetaOAuthButton connected={metaStatus === "connected"} />
-              <form action={refreshMetaAssets}>
-                <input
-                  type="hidden"
-                  name="businessId"
-                  value={metaRefreshBusinessId}
-                />
-                <SubmitButton
-                  disabled={metaStatus !== "connected"}
-                  pendingLabel="Atualizando..."
-                  statusText="Buscando ativos no Meta e salvando snapshot."
-                >
-                  Atualizar ativos Meta
-                </SubmitButton>
-              </form>
+              {canManageIntegrations ? (
+                <form action={refreshMetaAssets}>
+                  <input
+                    type="hidden"
+                    name="businessId"
+                    value={metaRefreshBusinessId}
+                  />
+                  <SubmitButton
+                    disabled={metaStatus !== "connected"}
+                    pendingLabel="Atualizando..."
+                    statusText="Buscando ativos no Meta e salvando snapshot."
+                  >
+                    Atualizar ativos Meta
+                  </SubmitButton>
+                </form>
+              ) : (
+                <span className="action-note warn">
+                  Permissoes temporariamente indisponiveis. A API validara a
+                  acao ao continuar.
+                </span>
+              )}
             </div>
           ) : (
-            <span className="event-chip warn">sem permissao</span>
+            <span className="event-chip warn">
+              {workspacePermissionsUnavailable
+                ? "permissoes indisponiveis"
+                : "sem permissao"}
+            </span>
           )}
         </div>
         <div className="metric-grid compact">
@@ -870,11 +935,15 @@ export default async function IntegrationsPage({
               <div className="metric-grid compact">
                 <div className="metric-card">
                   <span className="micro-label">Pixel CAPI</span>
-                  <strong>{metaAssets.conversionDestination?.pixelName ?? "Sem Pixel"}</strong>
+                  <strong>
+                    {metaAssets.conversionDestination?.pixelName ?? "Sem Pixel"}
+                  </strong>
                 </div>
                 <div className="metric-card">
                   <span className="micro-label">Pagina Facebook principal</span>
-                  <strong>{metaAssets.conversionDestination?.pageName ?? "Sem Pagina"}</strong>
+                  <strong>
+                    {metaAssets.conversionDestination?.pageName ?? "Sem Pagina"}
+                  </strong>
                 </div>
                 <div className="metric-card">
                   <span className="micro-label">Status destino</span>
@@ -892,7 +961,11 @@ export default async function IntegrationsPage({
                   loadBusinessAssetsAction={loadMetaBusinessDestinationAssets}
                 />
               ) : (
-                <p className="muted">Sem permissao para alterar destino Meta</p>
+                <p className="muted">
+                  {workspacePermissionsUnavailable
+                    ? "Nao foi possivel confirmar as permissoes agora."
+                    : "Sem permissao para alterar destino Meta"}
+                </p>
               )}
             </div>
 
@@ -909,7 +982,11 @@ export default async function IntegrationsPage({
                   statusAction={setMetaReportingAccountStatus}
                 />
               ) : (
-                <p className="muted">Sem permissao para alterar contas de relatorio</p>
+                <p className="muted">
+                  {workspacePermissionsUnavailable
+                    ? "Nao foi possivel confirmar as permissoes agora."
+                    : "Sem permissao para alterar contas de relatorio"}
+                </p>
               )}
             </div>
           </>
@@ -926,7 +1003,9 @@ export default async function IntegrationsPage({
         <div className="metric-grid compact">
           <div className="metric-card">
             <span className="micro-label">Instancias ativas</span>
-            <strong>{whatsappQuote?.activeInstances ?? whatsappInstances.length}</strong>
+            <strong>
+              {whatsappQuote?.activeInstances ?? whatsappInstances.length}
+            </strong>
           </div>
           <div className="metric-card">
             <span className="micro-label">Nova instancia</span>
@@ -958,7 +1037,9 @@ export default async function IntegrationsPage({
           </div>
           <div className="metric-card">
             <span className="micro-label">Asaas</span>
-            <strong>{billingSubscription?.asaasSubscriptionId ?? "Nao vinculada"}</strong>
+            <strong>
+              {billingSubscription?.asaasSubscriptionId ?? "Nao vinculada"}
+            </strong>
           </div>
         </div>
         {canManageBilling ? (
@@ -984,12 +1065,16 @@ export default async function IntegrationsPage({
             </span>
             <p className="muted">
               Ao continuar, o backend vai gerar uma cobranca de{" "}
-              {money(whatsappQuote?.nextInstanceAmountCents)} no Asaas antes
-              da conexao.
+              {money(whatsappQuote?.nextInstanceAmountCents)} no Asaas antes da
+              conexao.
             </p>
           </>
         ) : (
-          <p className="muted">Sem permissao para adicionar instancias</p>
+          <p className="muted">
+            {workspacePermissionsUnavailable
+              ? "Nao foi possivel confirmar as permissoes agora."
+              : "Sem permissao para adicionar instancias"}
+          </p>
         )}
         <div className="table-wrap">
           <table>
@@ -1018,25 +1103,38 @@ export default async function IntegrationsPage({
                         <>
                           <strong>
                             {statusLabel(
-                              whatsappInstanceStatuses[instance.id].connectionStatus
+                              whatsappInstanceStatuses[instance.id]
+                                .connectionStatus,
                             )}
                           </strong>
                           {whatsappInstanceStatuses[instance.id].message ? (
-                            <span>{whatsappInstanceStatuses[instance.id].message}</span>
+                            <span>
+                              {whatsappInstanceStatuses[instance.id].message}
+                            </span>
                           ) : null}
                           {whatsappInstanceStatuses[instance.id].qrCode ? (
-                            <code>{whatsappInstanceStatuses[instance.id].qrCode}</code>
+                            <code>
+                              {whatsappInstanceStatuses[instance.id].qrCode}
+                            </code>
                           ) : null}
                         </>
                       ) : (
                         <span>-</span>
                       )}
                     </td>
-                    <td>{instance.providerInstanceId ?? "ID Uazapi ainda nao emitido"}</td>
                     <td>
-                      {instance.billingStatus === "active" && canManageIntegrations ? (
+                      {instance.providerInstanceId ??
+                        "ID Uazapi ainda nao emitido"}
+                    </td>
+                    <td>
+                      {instance.billingStatus === "active" &&
+                      canManageIntegrations ? (
                         <form action={connectWhatsappInstance}>
-                          <input type="hidden" name="instanceId" value={instance.id} />
+                          <input
+                            type="hidden"
+                            name="instanceId"
+                            value={instance.id}
+                          />
                           <SubmitButton
                             pendingLabel="Conectando..."
                             statusText="Solicitando conexao do WhatsApp."
@@ -1045,7 +1143,11 @@ export default async function IntegrationsPage({
                           </SubmitButton>
                         </form>
                       ) : instance.billingStatus === "active" ? (
-                        <span className="event-chip warn">sem permissao</span>
+                        <span className="event-chip warn">
+                          {workspacePermissionsUnavailable
+                            ? "permissoes indisponiveis"
+                            : "sem permissao"}
+                        </span>
                       ) : instance.checkoutUrl ? (
                         <a
                           className="button primary"
@@ -1056,7 +1158,9 @@ export default async function IntegrationsPage({
                           Pagar agora
                         </a>
                       ) : (
-                        <span className="event-chip warn">Pagamento pendente</span>
+                        <span className="event-chip warn">
+                          Pagamento pendente
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -1065,7 +1169,9 @@ export default async function IntegrationsPage({
                 <tr>
                   <td>
                     <strong>{whatsappInstancesEmptyTitle}</strong>
-                    <span>Adicione e pague uma instancia para conectar o WhatsApp</span>
+                    <span>
+                      Adicione e pague uma instancia para conectar o WhatsApp
+                    </span>
                   </td>
                   <td>-</td>
                   <td>-</td>
@@ -1101,7 +1207,11 @@ export default async function IntegrationsPage({
                 <strong>{stage.value}</strong>
                 <p>{stage.detail}</p>
                 <div className="signal-bar">
-                  <i style={{ width: pipelineWidth(stage.value, maxPipelineValue) }} />
+                  <i
+                    style={{
+                      width: pipelineWidth(stage.value, maxPipelineValue),
+                    }}
+                  />
                 </div>
               </div>
             ))
@@ -1113,7 +1223,9 @@ export default async function IntegrationsPage({
                   ? "API indisponivel"
                   : "Aguardando eventos reais"}
               </strong>
-              <div className="signal-bar"><i style={{ width: "0%" }} /></div>
+              <div className="signal-bar">
+                <i style={{ width: "0%" }} />
+              </div>
             </div>
           )}
         </div>

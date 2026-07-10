@@ -12,21 +12,21 @@ const session = {
     email: "owner@wpptrack.com",
     name: "Owner",
     authProvider: "email",
-    emailVerifiedAt: null
+    emailVerifiedAt: null,
   },
   workspaces: [
     {
       id: "workspace_1",
       name: "Comunidade NOD",
       slug: "comunidade-nod",
-      role: "owner"
-    }
-  ]
+      role: "owner",
+    },
+  ],
 };
 
 async function createApp() {
   const authService = {
-    getSession: vi.fn(async () => session)
+    getSession: vi.fn(async () => session),
   };
   const workspacesService = {
     getCurrentWorkspace: vi.fn(() => ({
@@ -35,9 +35,9 @@ async function createApp() {
         canInviteMembers: true,
         canManageBilling: true,
         canManageIntegrations: true,
-        canViewReports: true
-      }
-    }))
+        canViewReports: true,
+      },
+    })),
   };
   const leadsService = {
     listLeads: vi.fn(async () => [
@@ -59,9 +59,18 @@ async function createApp() {
         firstMessageAt: "2026-07-02T03:00:00.000Z",
         lastMessageAt: "2026-07-02T03:10:00.000Z",
         createdAt: "2026-07-02T03:00:00.000Z",
-        updatedAt: "2026-07-02T03:10:00.000Z"
-      }
+        updatedAt: "2026-07-02T03:10:00.000Z",
+      },
     ]),
+    listLeadsPage: vi.fn(async () => ({
+      items: [],
+      pagination: {
+        page: 2,
+        pageSize: 25,
+        totalItems: 31,
+        totalPages: 2,
+      },
+    })),
     getLeadDetail: vi.fn(async () => ({
       lead: {
         id: "lead_1",
@@ -81,12 +90,12 @@ async function createApp() {
         firstMessageAt: "2026-07-02T03:00:00.000Z",
         lastMessageAt: "2026-07-02T03:10:00.000Z",
         createdAt: "2026-07-02T03:00:00.000Z",
-        updatedAt: "2026-07-02T03:10:00.000Z"
+        updatedAt: "2026-07-02T03:10:00.000Z",
       },
       attribution: {
         campaignName: "Black Friday WhatsApp",
         adSetName: "Publico quente",
-        adName: "Criativo WhatsApp"
+        adName: "Criativo WhatsApp",
       },
       conversionEvents: [
         {
@@ -101,8 +110,8 @@ async function createApp() {
           errorCode: null,
           errorMessage: null,
           sentAt: "2026-07-02T03:13:00.000Z",
-          createdAt: "2026-07-02T03:12:00.000Z"
-        }
+          createdAt: "2026-07-02T03:12:00.000Z",
+        },
       ],
       webhookEvents: [
         {
@@ -113,10 +122,10 @@ async function createApp() {
           errorCode: null,
           errorMessage: null,
           receivedAt: "2026-07-02T03:01:00.000Z",
-          processedAt: "2026-07-02T03:01:01.000Z"
-        }
-      ]
-    }))
+          processedAt: "2026-07-02T03:01:01.000Z",
+        },
+      ],
+    })),
   };
 
   const moduleRef = await Test.createTestingModule({
@@ -124,8 +133,8 @@ async function createApp() {
     providers: [
       { provide: AuthService, useValue: authService },
       { provide: WorkspacesService, useValue: workspacesService },
-      { provide: LeadsService, useValue: leadsService }
-    ]
+      { provide: LeadsService, useValue: leadsService },
+    ],
   }).compile();
 
   const app = moduleRef.createNestApplication();
@@ -151,7 +160,7 @@ describe("leads controller", () => {
     expect(leadsService.listLeads).toHaveBeenCalledWith("workspace_1", {
       search: "mariana",
       status: "qualified",
-      limit: 25
+      limit: 25,
     });
 
     await app.close();
@@ -167,7 +176,6 @@ describe("leads controller", () => {
 
     expect(leadsService.listLeads).toHaveBeenCalledWith("workspace_1", {
       label: "Venda fechada",
-      limit: 50
     });
 
     await app.close();
@@ -178,7 +186,7 @@ describe("leads controller", () => {
 
     await request(app.getHttpServer())
       .get(
-        "/leads?campaignId=cmp_1&adSetId=adset_1&adId=ad_1&since=2026-07-01&until=2026-07-02"
+        "/leads?campaignId=cmp_1&adSetId=adset_1&adId=ad_1&since=2026-07-01&until=2026-07-02",
       )
       .set("Authorization", "Bearer refresh-token")
       .expect(200);
@@ -189,7 +197,30 @@ describe("leads controller", () => {
       adId: "ad_1",
       since: "2026-07-01",
       until: "2026-07-02",
-      limit: 50
+    });
+
+    await app.close();
+  });
+
+  it("returns a paginated lead page for large workspaces", async () => {
+    const { app, leadsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/leads/page?page=2&pageSize=25")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.pagination).toEqual({
+          page: 2,
+          pageSize: 25,
+          totalItems: 31,
+          totalPages: 2,
+        });
+      });
+
+    expect(leadsService.listLeadsPage).toHaveBeenCalledWith("workspace_1", {
+      page: 2,
+      pageSize: 25,
     });
 
     await app.close();
@@ -211,7 +242,7 @@ describe("leads controller", () => {
 
     expect(leadsService.getLeadDetail).toHaveBeenCalledWith(
       "workspace_1",
-      "lead_1"
+      "lead_1",
     );
 
     await app.close();

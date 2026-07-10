@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ProductLayout from "../src/app/(app)/layout";
+import { WorkspaceAccessGate } from "../src/components/workspace-access-gate";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -21,7 +22,7 @@ describe("product app layout", () => {
       ),
     );
 
-    const element = await ProductLayout({
+    const element = await WorkspaceAccessGate({
       children: createElement("p", null, "Conteudo privado"),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
@@ -51,7 +52,7 @@ describe("product app layout", () => {
       ),
     );
 
-    const element = await ProductLayout({
+    const element = await WorkspaceAccessGate({
       children: createElement("p", null, "Conteudo privado"),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
@@ -76,5 +77,17 @@ describe("product app layout", () => {
     expect(css).toMatch(
       /\.content\s*{[^}]*padding-left:\s*var\(--sidebar-width\)/s,
     );
+  });
+
+  it("wraps workspace authorization in Suspense so the shell can render first", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/app/(app)/layout.tsx"),
+      "utf8",
+    );
+
+    expect(ProductLayout).toBeTypeOf("function");
+    expect(source).toContain("<Suspense");
+    expect(source).toContain("<ProductRouteLoading />");
+    expect(source).toContain("<WorkspaceAccessGate>");
   });
 });

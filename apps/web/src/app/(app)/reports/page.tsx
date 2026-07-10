@@ -8,15 +8,18 @@ import type {
   MetaAssetsDto,
   MetaStructureReportDto,
   ReportOverviewDto,
+  ReportPaginationDto,
 } from "@wpptrack/shared";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { SubmitButton } from "../../../components/submit-button";
 import { serverApiFetch } from "../../../lib/server-api";
+import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { MetaReportFilters } from "./meta-report-filters";
 
 type ReportsSearchParams = Record<string, string | string[] | undefined>;
+type ReportView = "campaigns" | "adsets" | "ads";
 type ReportFetchState = "real" | "empty" | "error";
 type CampaignReportsResult = {
   report: ReportOverviewDto;
@@ -92,6 +95,10 @@ type ReportNotice = {
   title: string;
   message: string;
 };
+type WorkspaceFetchResult = {
+  data: CurrentWorkspaceDto | null;
+  state: "real" | "error";
+};
 type ReportFilters = {
   adAccountId?: string;
   businessId?: string;
@@ -99,6 +106,8 @@ type ReportFilters = {
   compareUntil?: string;
   nameContains?: string;
   nameScope?: string;
+  page?: number;
+  pageSize?: number;
   since?: string;
   status?: string;
   until?: string;
@@ -238,11 +247,17 @@ async function getMetaStructureReport(): Promise<MetaStructureReportDto | null> 
   }
 }
 
-async function getCurrentWorkspace(): Promise<CurrentWorkspaceDto | null> {
+async function getCurrentWorkspaceResource(): Promise<WorkspaceFetchResult> {
   try {
-    return await serverApiFetch<CurrentWorkspaceDto>("/workspaces/current");
+    return {
+      data: await getCurrentWorkspace(),
+      state: "real",
+    };
   } catch {
-    return null;
+    return {
+      data: null,
+      state: "error",
+    };
   }
 }
 
@@ -254,7 +269,11 @@ async function getMetaAssets(): Promise<MetaAssetsDto | null> {
   }
 }
 
-function reportQuery(filters: ReportFilters, includeComparison = false) {
+function reportQuery(
+  filters: ReportFilters,
+  includeComparison = false,
+  includePagination = true,
+) {
   const params = new URLSearchParams();
 
   if (filters.since) {
@@ -294,6 +313,14 @@ function reportQuery(filters: ReportFilters, includeComparison = false) {
     params.set("whatsappClassification", filters.whatsappClassification);
   }
 
+  if (includePagination && filters.page) {
+    params.set("page", String(filters.page));
+  }
+
+  if (includePagination && filters.pageSize) {
+    params.set("pageSize", String(filters.pageSize));
+  }
+
   return params.toString();
 }
 
@@ -315,6 +342,8 @@ async function syncMetaReports(formData: FormData) {
     "nameContains",
     "status",
     "whatsappClassification",
+    "view",
+    "pageSize",
   ]) {
     const value = formText(formData, key);
 
@@ -381,6 +410,16 @@ function asStringParam(
   value: string | string[] | undefined,
 ): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function reportView(value?: string): ReportView {
+  return value === "adsets" || value === "ads" ? value : "campaigns";
+}
+
+function positiveIntegerParam(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function formText(formData: FormData, key: string): string {
@@ -474,9 +513,29 @@ function leadsHref(filters: {
 }
 
 function reportExportHref(filters: ReportFilters): string {
-  const query = reportQuery(filters, true);
+  const query = reportQuery(filters, true, false);
 
   return query ? `/reports/export?${query}` : "/reports/export";
+}
+
+function reportViewHref(view: ReportView, filters: ReportFilters): string {
+  const params = new URLSearchParams(
+    reportQuery({ ...filters, page: 1 }, true),
+  );
+  params.set("view", view);
+
+  return `/reports?${params.toString()}`;
+}
+
+function reportPageHref(
+  view: ReportView,
+  filters: ReportFilters,
+  page: number,
+): string {
+  const params = new URLSearchParams(reportQuery({ ...filters, page }, true));
+  params.set("view", view);
+
+  return `/reports?${params.toString()}`;
 }
 
 function reportStatusChip(status: PerformanceRow["status"]) {
@@ -659,10 +718,8 @@ function reportTotals(rows: PerformanceRow[]): ReportTotals {
       purchases: totals.purchases + row.purchases,
       firstPurchases: totals.firstPurchases + row.firstPurchases,
       repurchases: totals.repurchases + row.repurchases,
-      trafficRevenueCents:
-        totals.trafficRevenueCents + row.trafficRevenueCents,
-      organicRevenueCents:
-        totals.organicRevenueCents + row.organicRevenueCents,
+      trafficRevenueCents: totals.trafficRevenueCents + row.trafficRevenueCents,
+      organicRevenueCents: totals.organicRevenueCents + row.organicRevenueCents,
       totalRevenueCents: totals.totalRevenueCents + row.totalRevenueCents,
       firstPurchaseRevenueCents:
         totals.firstPurchaseRevenueCents + row.firstPurchaseRevenueCents,
@@ -950,9 +1007,11 @@ function PerformanceMetricHeaders() {
 
 function PerformanceSummaryFooter({
   copy,
+  pagination,
   rows,
 }: {
   copy: ReportEntityCopy;
+  pagination?: ReportPaginationDto;
   rows: PerformanceRow[];
 }) {
   const totals = reportTotals(rows);
@@ -961,8 +1020,15 @@ function PerformanceSummaryFooter({
     <tfoot className="report-summary">
       <tr>
         <td className="performance-name-cell summary-name">
-          <strong>{copy.title}</strong>
-          <span>{reportEntitySummary(rows, copy)}</span>
+          <strong>
+            {pagination ? `Subtotal da pagina ${pagination.page}` : copy.title}
+          </strong>
+          <span>
+            {reportEntitySummary(rows, copy)}
+            {pagination && pagination.totalItems !== rows.length
+              ? ` de ${pagination.totalItems} no filtro`
+              : ""}
+          </span>
         </td>
         <SummaryMetricsCells totals={totals} />
         <td>
@@ -970,6 +1036,60 @@ function PerformanceSummaryFooter({
         </td>
       </tr>
     </tfoot>
+  );
+}
+
+function ReportPagination({
+  copy,
+  filters,
+  pagination,
+  view,
+}: {
+  copy: ReportEntityCopy;
+  filters: ReportFilters;
+  pagination?: ReportPaginationDto;
+  view: ReportView;
+}) {
+  if (!pagination) {
+    return null;
+  }
+
+  return (
+    <nav
+      className="report-pagination"
+      aria-label={`Paginacao de ${copy.plural}`}
+    >
+      <span>
+        Pagina {pagination.page} de {Math.max(pagination.totalPages, 1)} ·{" "}
+        {pagination.totalItems} {copy.plural}
+      </span>
+      <div>
+        {pagination.page > 1 ? (
+          <Link
+            className="button ghost"
+            href={reportPageHref(view, filters, pagination.page - 1)}
+          >
+            Anterior
+          </Link>
+        ) : (
+          <span className="button ghost disabled" aria-disabled="true">
+            Anterior
+          </span>
+        )}
+        {pagination.page < pagination.totalPages ? (
+          <Link
+            className="button ghost"
+            href={reportPageHref(view, filters, pagination.page + 1)}
+          >
+            Proxima
+          </Link>
+        ) : (
+          <span className="button ghost disabled" aria-disabled="true">
+            Proxima
+          </span>
+        )}
+      </div>
+    </nav>
   );
 }
 
@@ -1036,6 +1156,15 @@ export default async function ReportsPage({
   const nameScope = asStringParam(resolvedSearchParams.nameScope);
   const nameContains = asStringParam(resolvedSearchParams.nameContains);
   const status = asStringParam(resolvedSearchParams.status);
+  const activeView = reportView(asStringParam(resolvedSearchParams.view));
+  const page = positiveIntegerParam(
+    asStringParam(resolvedSearchParams.page),
+    1,
+  );
+  const pageSize = Math.min(
+    positiveIntegerParam(asStringParam(resolvedSearchParams.pageSize), 10),
+    100,
+  );
   const structureNameContains = asStringParam(
     resolvedSearchParams.structureNameContains,
   );
@@ -1049,6 +1178,8 @@ export default async function ReportsPage({
     resolvedSearchParams.whatsappClassification,
   );
   const notice = asStringParam(resolvedSearchParams.notice);
+  const diagnosticRequested =
+    asStringParam(resolvedSearchParams.diagnostic) === "open";
   const pageNotice = reportsNotice(notice);
   const reportFilters = {
     since,
@@ -1059,6 +1190,8 @@ export default async function ReportsPage({
     adAccountId,
     nameScope,
     nameContains,
+    page,
+    pageSize,
     status,
     whatsappClassification,
   };
@@ -1070,35 +1203,64 @@ export default async function ReportsPage({
   const structureFiltersApplied = Boolean(
     structureNameContains || structureStatusValue !== "all",
   );
-  const hasComparison = Boolean(compareSince && compareUntil);
+  const shouldLoadMetaStructure =
+    diagnosticRequested || structureFiltersApplied;
+  const hasComparison = Boolean(
+    activeView === "campaigns" && compareSince && compareUntil,
+  );
   const [
     campaignReports,
-    metaStructure,
     adSetReports,
     adReports,
-    currentWorkspace,
+    currentWorkspaceResult,
     comparisonReports,
     metaAssets,
+    metaStructure,
   ] = await Promise.all([
-    getCampaignReports(reportFilters),
-    getMetaStructureReport(),
-    getAdSetReports(reportFilters),
-    getAdReports(reportFilters),
-    getCurrentWorkspace(),
+    activeView === "campaigns"
+      ? getCampaignReports(reportFilters)
+      : Promise.resolve(null),
+    activeView === "adsets"
+      ? getAdSetReports(reportFilters)
+      : Promise.resolve(null),
+    activeView === "ads" ? getAdReports(reportFilters) : Promise.resolve(null),
+    getCurrentWorkspaceResource(),
     hasComparison
       ? getCampaignReports({
           ...reportFilters,
           since: compareSince,
           until: compareUntil,
+          page: undefined,
+          pageSize: undefined,
         })
       : Promise.resolve(null),
     getMetaAssets(),
+    shouldLoadMetaStructure ? getMetaStructureReport() : Promise.resolve(null),
   ]);
-  const { report, state: reportState } = campaignReports;
-  const rows = report.campaigns;
-  const adSetRows = adSetReports.report.adSets;
-  const adRows = adReports.report.ads;
-  const currentTotals = reportTotals(rows);
+  const rows = campaignReports?.report.campaigns ?? [];
+  const adSetRows = adSetReports?.report.adSets ?? [];
+  const adRows = adReports?.report.ads ?? [];
+  const activeRows: PerformanceRow[] =
+    activeView === "campaigns"
+      ? rows
+      : activeView === "adsets"
+        ? adSetRows
+        : adRows;
+  const reportState =
+    campaignReports?.state ??
+    adSetReports?.state ??
+    adReports?.state ??
+    "error";
+  const rangeLabel =
+    campaignReports?.report.rangeLabel ??
+    adSetReports?.report.rangeLabel ??
+    adReports?.report.rangeLabel ??
+    "API indisponivel";
+  const pagination: ReportPaginationDto | undefined =
+    campaignReports?.report.pagination ??
+    adSetReports?.report.pagination ??
+    adReports?.report.pagination;
+  const currentTotals = reportTotals(activeRows);
   const metaSummary = metaStructureSummary(metaStructure, metaAssets);
   const rawMetaStructureRows = metaStructureRows(metaStructure);
   const filteredMetaStructureRows = filterMetaStructureRows(
@@ -1109,20 +1271,30 @@ export default async function ReportsPage({
     ? reportTotals(comparisonReports.report.campaigns)
     : null;
   const canSyncMetaReports = Boolean(
-    currentWorkspace?.permissions.canManageIntegrations,
+    currentWorkspaceResult.data?.permissions?.canManageIntegrations,
   );
+  const workspacePermissionsUnavailable =
+    currentWorkspaceResult.state === "error";
   const syncCampaignHint = canSyncMetaReports
     ? "Use Sincronizar Meta para carregar campanhas reais."
-    : "A sincronizacao Meta depende de owner ou admin.";
+    : workspacePermissionsUnavailable
+      ? "Nao foi possivel confirmar as permissoes agora."
+      : "A sincronizacao Meta depende de owner ou admin.";
   const syncAdSetHint = canSyncMetaReports
     ? "Use Sincronizar Meta para carregar conjuntos reais."
-    : "A sincronizacao Meta depende de owner ou admin.";
+    : workspacePermissionsUnavailable
+      ? "Nao foi possivel confirmar as permissoes agora."
+      : "A sincronizacao Meta depende de owner ou admin.";
   const syncAdHint = canSyncMetaReports
     ? "Use Sincronizar Meta para carregar anuncios reais."
-    : "A sincronizacao Meta depende de owner ou admin.";
+    : workspacePermissionsUnavailable
+      ? "Nao foi possivel confirmar as permissoes agora."
+      : "A sincronizacao Meta depende de owner ou admin.";
   const syncStructureHint = canSyncMetaReports
     ? "Use o botao Sincronizar Meta para enfileirar a leitura."
-    : "A leitura da estrutura Meta depende de owner ou admin.";
+    : workspacePermissionsUnavailable
+      ? "Nao foi possivel confirmar as permissoes agora."
+      : "A leitura da estrutura Meta depende de owner ou admin.";
   const emptyStructureTitle = rawMetaStructureRows.length
     ? "Nenhuma estrutura encontrada"
     : "Nenhuma estrutura Meta sincronizada";
@@ -1131,22 +1303,39 @@ export default async function ReportsPage({
     : syncStructureHint;
   const clearStructureQuery = reportQuery(reportFilters, true);
   const clearStructureHref = clearStructureQuery
-    ? `/reports?${clearStructureQuery}`
+    ? `/reports?${clearStructureQuery}&view=${activeView}&diagnostic=open`
     : "/reports";
-  const noReviewPermission = "Sem permissao para revisar";
+  const diagnosticHref = clearStructureQuery
+    ? `/reports?${clearStructureQuery}&view=${activeView}&diagnostic=open`
+    : `/reports?view=${activeView}&diagnostic=open`;
+  const noReviewPermission = workspacePermissionsUnavailable
+    ? "Permissoes indisponiveis"
+    : "Sem permissao para revisar";
+  const reportTitle = {
+    ads: "Performance por anuncio",
+    adsets: "Performance por conjunto",
+    campaigns: "Performance por campanha",
+  }[activeView];
+  const activeCopy = {
+    ads: adSummaryCopy,
+    adsets: adSetSummaryCopy,
+    campaigns: campaignSummaryCopy,
+  }[activeView];
 
   return (
     <section className="page-stack">
       <header className="page-header">
         <div>
           <span className="eyebrow">Relatorios</span>
-          <h1>Performance por campanha</h1>
+          <h1>{reportTitle}</h1>
           <p>
             Metricas Meta Ads combinadas com leads reais e eventos de conversao.
           </p>
         </div>
         <div className="header-actions">
           <form className="inline-form report-period-form" action="/reports">
+            <input type="hidden" name="view" value={activeView} />
+            <input type="hidden" name="pageSize" value={pageSize} />
             <input type="hidden" name="businessId" value={businessId ?? ""} />
             <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
             <input type="hidden" name="nameScope" value={nameScope ?? ""} />
@@ -1178,6 +1367,8 @@ export default async function ReportsPage({
           </Link>
           {canSyncMetaReports ? (
             <form action={syncMetaReports}>
+              <input type="hidden" name="view" value={activeView} />
+              <input type="hidden" name="pageSize" value={pageSize} />
               <input type="hidden" name="since" value={since ?? ""} />
               <input type="hidden" name="until" value={until ?? ""} />
               <input
@@ -1216,9 +1407,13 @@ export default async function ReportsPage({
               </SubmitButton>
             </form>
           ) : (
-            <span className="tag">Sem permissao para sincronizar Meta</span>
+            <span className="tag">
+              {workspacePermissionsUnavailable
+                ? "Permissoes indisponiveis"
+                : "Sem permissao para sincronizar Meta"}
+            </span>
           )}
-          <span className="tag">{report.rangeLabel}</span>
+          <span className="tag">{rangeLabel}</span>
           {reportState === "error" ? (
             <span className="tag">API indisponivel</span>
           ) : null}
@@ -1232,6 +1427,25 @@ export default async function ReportsPage({
         </div>
       ) : null}
 
+      <nav className="report-view-tabs" aria-label="Nivel do relatorio">
+        {(
+          [
+            ["campaigns", "Campanhas"],
+            ["adsets", "Conjuntos"],
+            ["ads", "Anuncios"],
+          ] as const
+        ).map(([view, label]) => (
+          <Link
+            aria-current={activeView === view ? "page" : undefined}
+            className={activeView === view ? "active" : ""}
+            href={reportViewHref(view, reportFilters)}
+            key={view}
+          >
+            {label}
+          </Link>
+        ))}
+      </nav>
+
       <MetaReportFilters
         assets={metaAssets}
         businessId={businessId}
@@ -1244,6 +1458,8 @@ export default async function ReportsPage({
         until={until}
         compareSince={compareSince}
         compareUntil={compareUntil}
+        view={activeView}
+        pageSize={pageSize}
       />
 
       {comparisonReports && comparisonTotals ? (
@@ -1326,97 +1542,25 @@ export default async function ReportsPage({
         </div>
       ) : null}
 
-      <div className="table-wrap report-table-scroll">
-        <table className="performance-table">
-          <thead>
-            <tr>
-              <th>Campanha</th>
-              <PerformanceMetricHeaders />
-              <th>Revisao WhatsApp</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length > 0 ? (
-              rows.map((row) => (
-                <tr key={row.id}>
-                  <td className="performance-name-cell">
-                    <strong>
-                      <Link
-                        href={leadsHref({
-                          campaignId: row.id,
-                          since,
-                          until,
-                          compareSince,
-                          compareUntil,
-                          businessId,
-                          adAccountId,
-                          whatsappClassification,
-                        })}
-                      >
-                        {row.name}
-                      </Link>
-                    </strong>
-                    {reportStatusChip(row.status)}
-                  </td>
-                  <PerformanceMetricsCells row={row} />
-                  <td>
-                    {canSyncMetaReports ? (
-                      <ReviewActions level="campaign" id={row.id} />
-                    ) : (
-                      <span className="tag">{noReviewPermission}</span>
-                    )}
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td className="performance-name-cell">
-                  <strong>
-                    {reportState === "error"
-                      ? "Nao foi possivel carregar campanhas"
-                      : "Nenhuma campanha sincronizada"}
-                  </strong>
-                  <span>
-                    {reportState === "error"
-                      ? "Confira a API antes de analisar performance."
-                      : syncCampaignHint}
-                  </span>
-                </td>
-                <EmptyPerformanceCells />
-                <td>-</td>
-              </tr>
-            )}
-          </tbody>
-          <PerformanceSummaryFooter copy={campaignSummaryCopy} rows={rows} />
-        </table>
-      </div>
-
-      <div className="surface-panel">
-        <span className="eyebrow">Conjuntos</span>
-        <h2>Performance por conjunto</h2>
-        <p className="muted">
-          Insights Meta por conjunto sincronizados com leads reais e eventos de
-          conversao.
-        </p>
+      {activeView === "campaigns" ? (
         <div className="table-wrap report-table-scroll">
           <table className="performance-table">
             <thead>
               <tr>
-                <th>Conjunto</th>
+                <th>Campanha</th>
                 <PerformanceMetricHeaders />
                 <th>Revisao WhatsApp</th>
               </tr>
             </thead>
             <tbody>
-              {adSetRows.length > 0 ? (
-                adSetRows.map((row) => (
+              {rows.length > 0 ? (
+                rows.map((row) => (
                   <tr key={row.id}>
                     <td className="performance-name-cell">
                       <strong>
                         <Link
                           href={leadsHref({
-                            campaignId: row.campaignId,
-                            adSetId: row.id,
+                            campaignId: row.id,
                             since,
                             until,
                             compareSince,
@@ -1429,13 +1573,12 @@ export default async function ReportsPage({
                           {row.name}
                         </Link>
                       </strong>
-                      <span>{row.campaignName}</span>
                       {reportStatusChip(row.status)}
                     </td>
                     <PerformanceMetricsCells row={row} />
                     <td>
                       {canSyncMetaReports ? (
-                        <ReviewActions level="adset" id={row.id} />
+                        <ReviewActions level="campaign" id={row.id} />
                       ) : (
                         <span className="tag">{noReviewPermission}</span>
                       )}
@@ -1446,14 +1589,14 @@ export default async function ReportsPage({
                 <tr>
                   <td className="performance-name-cell">
                     <strong>
-                      {adSetReports.state === "error"
-                        ? "Nao foi possivel carregar conjuntos"
-                        : "Nenhum conjunto sincronizado"}
+                      {reportState === "error"
+                        ? "Nao foi possivel carregar campanhas"
+                        : "Nenhuma campanha sincronizada"}
                     </strong>
                     <span>
-                      {adSetReports.state === "error"
-                        ? "Confira a API antes de analisar conjuntos."
-                        : syncAdSetHint}
+                      {reportState === "error"
+                        ? "Confira a API antes de analisar performance."
+                        : syncCampaignHint}
                     </span>
                   </td>
                   <EmptyPerformanceCells />
@@ -1462,269 +1605,390 @@ export default async function ReportsPage({
               )}
             </tbody>
             <PerformanceSummaryFooter
-              copy={adSetSummaryCopy}
-              rows={adSetRows}
+              copy={campaignSummaryCopy}
+              pagination={pagination}
+              rows={rows}
             />
           </table>
         </div>
-      </div>
+      ) : null}
 
-      <div className="surface-panel">
-        <span className="eyebrow">Anuncios</span>
-        <h2>Performance por anuncio</h2>
-        <p className="muted">
-          Insights Meta por anuncio sincronizados com leads reais e eventos de
-          conversao.
-        </p>
-        <div className="table-wrap report-table-scroll">
-          <table className="performance-table">
-            <thead>
-              <tr>
-                <th>Anuncio</th>
-                <PerformanceMetricHeaders />
-                <th>Revisao WhatsApp</th>
-              </tr>
-            </thead>
-            <tbody>
-              {adRows.length > 0 ? (
-                adRows.map((row) => (
-                  <tr key={row.id}>
+      {activeView === "adsets" ? (
+        <div className="surface-panel">
+          <span className="eyebrow">Conjuntos</span>
+          <h2>Performance por conjunto</h2>
+          <p className="muted">
+            Insights Meta por conjunto sincronizados com leads reais e eventos
+            de conversao.
+          </p>
+          <div className="table-wrap report-table-scroll">
+            <table className="performance-table">
+              <thead>
+                <tr>
+                  <th>Conjunto</th>
+                  <PerformanceMetricHeaders />
+                  <th>Revisao WhatsApp</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adSetRows.length > 0 ? (
+                  adSetRows.map((row) => (
+                    <tr key={row.id}>
+                      <td className="performance-name-cell">
+                        <strong>
+                          <Link
+                            href={leadsHref({
+                              campaignId: row.campaignId,
+                              adSetId: row.id,
+                              since,
+                              until,
+                              compareSince,
+                              compareUntil,
+                              businessId,
+                              adAccountId,
+                              whatsappClassification,
+                            })}
+                          >
+                            {row.name}
+                          </Link>
+                        </strong>
+                        <span>{row.campaignName}</span>
+                        {reportStatusChip(row.status)}
+                      </td>
+                      <PerformanceMetricsCells row={row} />
+                      <td>
+                        {canSyncMetaReports ? (
+                          <ReviewActions level="adset" id={row.id} />
+                        ) : (
+                          <span className="tag">{noReviewPermission}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
                     <td className="performance-name-cell">
                       <strong>
-                        <Link
-                          href={leadsHref({
-                            campaignId: row.campaignId,
-                            adSetId: row.adSetId,
-                            adId: row.id,
-                            since,
-                            until,
-                            compareSince,
-                            compareUntil,
-                            businessId,
-                            adAccountId,
-                            whatsappClassification,
-                          })}
-                        >
-                          {row.name}
-                        </Link>
+                        {adSetReports?.state === "error"
+                          ? "Nao foi possivel carregar conjuntos"
+                          : "Nenhum conjunto sincronizado"}
                       </strong>
                       <span>
-                        {row.campaignName} / {row.adSetName}
+                        {adSetReports?.state === "error"
+                          ? "Confira a API antes de analisar conjuntos."
+                          : syncAdSetHint}
                       </span>
-                      {reportStatusChip(row.status)}
                     </td>
-                    <PerformanceMetricsCells row={row} />
-                    <td>
-                      {canSyncMetaReports ? (
-                        <ReviewActions level="ad" id={row.id} />
-                      ) : (
-                        <span className="tag">{noReviewPermission}</span>
-                      )}
-                    </td>
+                    <EmptyPerformanceCells />
+                    <td>-</td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="performance-name-cell">
-                    <strong>
-                      {adReports.state === "error"
-                        ? "Nao foi possivel carregar anuncios"
-                        : "Nenhum anuncio sincronizado"}
-                    </strong>
-                    <span>
-                      {adReports.state === "error"
-                        ? "Confira a API antes de analisar anuncios."
-                        : syncAdHint}
-                    </span>
-                  </td>
-                  <EmptyPerformanceCells />
-                  <td>-</td>
-                </tr>
-              )}
-            </tbody>
-            <PerformanceSummaryFooter copy={adSummaryCopy} rows={adRows} />
-          </table>
+                )}
+              </tbody>
+              <PerformanceSummaryFooter
+                copy={adSetSummaryCopy}
+                pagination={pagination}
+                rows={adSetRows}
+              />
+            </table>
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <details
-        className="surface-panel meta-diagnostic-panel"
-        open={structureFiltersApplied}
-      >
-        <summary className="meta-diagnostic-summary">
-          <span className="meta-diagnostic-copy">
-            <span className="eyebrow">Diagnostico da sincronizacao Meta</span>
-            <strong>Estrutura tecnica recolhida</strong>
-            <span>
-              A hierarquia bruta da Meta fica aqui para conferencia tecnica. Os
-              relatorios principais acima continuam sendo a fonte de analise.
+      {activeView === "ads" ? (
+        <div className="surface-panel">
+          <span className="eyebrow">Anuncios</span>
+          <h2>Performance por anuncio</h2>
+          <p className="muted">
+            Insights Meta por anuncio sincronizados com leads reais e eventos de
+            conversao.
+          </p>
+          <div className="table-wrap report-table-scroll">
+            <table className="performance-table">
+              <thead>
+                <tr>
+                  <th>Anuncio</th>
+                  <PerformanceMetricHeaders />
+                  <th>Revisao WhatsApp</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adRows.length > 0 ? (
+                  adRows.map((row) => (
+                    <tr key={row.id}>
+                      <td className="performance-name-cell">
+                        <strong>
+                          <Link
+                            href={leadsHref({
+                              campaignId: row.campaignId,
+                              adSetId: row.adSetId,
+                              adId: row.id,
+                              since,
+                              until,
+                              compareSince,
+                              compareUntil,
+                              businessId,
+                              adAccountId,
+                              whatsappClassification,
+                            })}
+                          >
+                            {row.name}
+                          </Link>
+                        </strong>
+                        <span>
+                          {row.campaignName} / {row.adSetName}
+                        </span>
+                        {reportStatusChip(row.status)}
+                      </td>
+                      <PerformanceMetricsCells row={row} />
+                      <td>
+                        {canSyncMetaReports ? (
+                          <ReviewActions level="ad" id={row.id} />
+                        ) : (
+                          <span className="tag">{noReviewPermission}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="performance-name-cell">
+                      <strong>
+                        {adReports?.state === "error"
+                          ? "Nao foi possivel carregar anuncios"
+                          : "Nenhum anuncio sincronizado"}
+                      </strong>
+                      <span>
+                        {adReports?.state === "error"
+                          ? "Confira a API antes de analisar anuncios."
+                          : syncAdHint}
+                      </span>
+                    </td>
+                    <EmptyPerformanceCells />
+                    <td>-</td>
+                  </tr>
+                )}
+              </tbody>
+              <PerformanceSummaryFooter
+                copy={adSummaryCopy}
+                pagination={pagination}
+                rows={adRows}
+              />
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      <ReportPagination
+        copy={activeCopy}
+        filters={reportFilters}
+        pagination={pagination}
+        view={activeView}
+      />
+
+      {shouldLoadMetaStructure ? (
+        <details className="surface-panel meta-diagnostic-panel" open>
+          <summary className="meta-diagnostic-summary">
+            <span className="meta-diagnostic-copy">
+              <span className="eyebrow">Diagnostico da sincronizacao Meta</span>
+              <strong>Estrutura tecnica recolhida</strong>
+              <span>
+                A hierarquia bruta da Meta fica aqui para conferencia tecnica.
+                Os relatorios principais acima continuam sendo a fonte de
+                analise.
+              </span>
             </span>
-          </span>
-          <span className="button ghost meta-diagnostic-action">
-            Ver estrutura tecnica
-          </span>
-        </summary>
+            <span className="button ghost meta-diagnostic-action">
+              Ver estrutura tecnica
+            </span>
+          </summary>
 
-        <div
-          className="meta-diagnostic-stats"
-          aria-label="Resumo da estrutura Meta sincronizada"
-        >
-          <span>
-            <strong>{metaSummary.campaigns}</strong>
-            <small>
-              {syncedCountLabel(
-                metaSummary.campaigns,
-                "campanha sincronizada",
-                "campanhas sincronizadas",
-              )}
-            </small>
-          </span>
-          <span>
-            <strong>{metaSummary.adSets}</strong>
-            <small>
-              {syncedCountLabel(
-                metaSummary.adSets,
-                "conjunto sincronizado",
-                "conjuntos sincronizados",
-              )}
-            </small>
-          </span>
-          <span>
-            <strong>{metaSummary.ads}</strong>
-            <small>
-              {syncedCountLabel(
-                metaSummary.ads,
-                "anuncio sincronizado",
-                "anuncios sincronizados",
-              )}
-            </small>
-          </span>
-          <span>
-            <strong>{metaSummary.activeAccounts}</strong>
-            <small>
-              {syncedCountLabel(
-                metaSummary.activeAccounts,
-                "conta ativa",
-                "contas ativas",
-              )}
-            </small>
-          </span>
-          <span>
-            <strong>{syncDateLabel(metaSummary.lastSyncedAt)}</strong>
-            <small>ultima sincronizacao</small>
-          </span>
-        </div>
-
-        <form
-          className="filter-bar meta-structure-filters"
-          aria-label="Filtros da estrutura tecnica Meta"
-          action="/reports"
-        >
-          <input type="hidden" name="since" value={since ?? ""} />
-          <input type="hidden" name="until" value={until ?? ""} />
-          <input type="hidden" name="compareSince" value={compareSince ?? ""} />
-          <input type="hidden" name="compareUntil" value={compareUntil ?? ""} />
-          <input type="hidden" name="businessId" value={businessId ?? ""} />
-          <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
-          <input type="hidden" name="nameScope" value={nameScope ?? ""} />
-          <input type="hidden" name="nameContains" value={nameContains ?? ""} />
-          <input type="hidden" name="status" value={status ?? ""} />
-          <input
-            type="hidden"
-            name="whatsappClassification"
-            value={whatsappClassification ?? ""}
-          />
-          <select
-            className="filter-control"
-            name="structureNameScope"
-            aria-label="Tipo de filtro da estrutura tecnica"
-            defaultValue={structureFilters.nameScope}
+          <div
+            className="meta-diagnostic-stats"
+            aria-label="Resumo da estrutura Meta sincronizada"
           >
-            <option value="campaign">Campanha contem</option>
-            <option value="adset">Conjunto contem</option>
-            <option value="ad">Anuncio contem</option>
-          </select>
-          <input
-            className="filter-control"
-            placeholder="Filtrar estrutura por nome"
-            aria-label="Texto contido no nome da estrutura"
-            name="structureNameContains"
-            defaultValue={structureFilters.nameContains ?? ""}
-          />
-          <select
-            className="filter-control"
-            name="structureStatus"
-            aria-label="Filtrar status da estrutura tecnica"
-            defaultValue={structureFilters.status}
-          >
-            <option value="all">Todos os status</option>
-            <option value="active">Ativos</option>
-            <option value="inactive">Inativos</option>
-          </select>
-          <button className="button" type="submit">
-            Filtrar estrutura
-          </button>
-          {structureFiltersApplied ? (
-            <Link className="button ghost" href={clearStructureHref}>
-              Limpar filtros
-            </Link>
-          ) : null}
-        </form>
+            <span>
+              <strong>{metaSummary.campaigns}</strong>
+              <small>
+                {syncedCountLabel(
+                  metaSummary.campaigns,
+                  "campanha sincronizada",
+                  "campanhas sincronizadas",
+                )}
+              </small>
+            </span>
+            <span>
+              <strong>{metaSummary.adSets}</strong>
+              <small>
+                {syncedCountLabel(
+                  metaSummary.adSets,
+                  "conjunto sincronizado",
+                  "conjuntos sincronizados",
+                )}
+              </small>
+            </span>
+            <span>
+              <strong>{metaSummary.ads}</strong>
+              <small>
+                {syncedCountLabel(
+                  metaSummary.ads,
+                  "anuncio sincronizado",
+                  "anuncios sincronizados",
+                )}
+              </small>
+            </span>
+            <span>
+              <strong>{metaSummary.activeAccounts}</strong>
+              <small>
+                {syncedCountLabel(
+                  metaSummary.activeAccounts,
+                  "conta ativa",
+                  "contas ativas",
+                )}
+              </small>
+            </span>
+            <span>
+              <strong>{syncDateLabel(metaSummary.lastSyncedAt)}</strong>
+              <small>ultima sincronizacao</small>
+            </span>
+          </div>
 
-        <div className="table-wrap report-table-scroll meta-structure-scroll">
-          <table className="meta-structure-table">
-            <thead>
-              <tr>
-                <th>Campanha</th>
-                <th>Conjunto</th>
-                <th>Anuncio</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredMetaStructureRows.length ? (
-                filteredMetaStructureRows.map((row) => (
-                  <tr key={row.key}>
+          <form
+            className="filter-bar meta-structure-filters"
+            aria-label="Filtros da estrutura tecnica Meta"
+            action="/reports"
+          >
+            <input type="hidden" name="since" value={since ?? ""} />
+            <input type="hidden" name="until" value={until ?? ""} />
+            <input
+              type="hidden"
+              name="compareSince"
+              value={compareSince ?? ""}
+            />
+            <input
+              type="hidden"
+              name="compareUntil"
+              value={compareUntil ?? ""}
+            />
+            <input type="hidden" name="businessId" value={businessId ?? ""} />
+            <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
+            <input type="hidden" name="nameScope" value={nameScope ?? ""} />
+            <input
+              type="hidden"
+              name="nameContains"
+              value={nameContains ?? ""}
+            />
+            <input type="hidden" name="status" value={status ?? ""} />
+            <input
+              type="hidden"
+              name="whatsappClassification"
+              value={whatsappClassification ?? ""}
+            />
+            <select
+              className="filter-control"
+              name="structureNameScope"
+              aria-label="Tipo de filtro da estrutura tecnica"
+              defaultValue={structureFilters.nameScope}
+            >
+              <option value="campaign">Campanha contem</option>
+              <option value="adset">Conjunto contem</option>
+              <option value="ad">Anuncio contem</option>
+            </select>
+            <input
+              className="filter-control"
+              placeholder="Filtrar estrutura por nome"
+              aria-label="Texto contido no nome da estrutura"
+              name="structureNameContains"
+              defaultValue={structureFilters.nameContains ?? ""}
+            />
+            <select
+              className="filter-control"
+              name="structureStatus"
+              aria-label="Filtrar status da estrutura tecnica"
+              defaultValue={structureFilters.status}
+            >
+              <option value="all">Todos os status</option>
+              <option value="active">Ativos</option>
+              <option value="inactive">Inativos</option>
+            </select>
+            <button className="button" type="submit">
+              Filtrar estrutura
+            </button>
+            {structureFiltersApplied ? (
+              <Link className="button ghost" href={clearStructureHref}>
+                Limpar filtros
+              </Link>
+            ) : null}
+          </form>
+
+          <div className="table-wrap report-table-scroll meta-structure-scroll">
+            <table className="meta-structure-table">
+              <thead>
+                <tr>
+                  <th>Campanha</th>
+                  <th>Conjunto</th>
+                  <th>Anuncio</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMetaStructureRows.length ? (
+                  filteredMetaStructureRows.map((row) => (
+                    <tr key={row.key}>
+                      <td>
+                        <strong>{row.campaignName}</strong>
+                        <span>{row.campaignObjective ?? "sem objetivo"}</span>
+                      </td>
+                      <td>
+                        <strong>{row.adSetName}</strong>
+                        <span>{row.adSetId}</span>
+                      </td>
+                      <td>
+                        <strong>{row.adName}</strong>
+                        <span>{row.adId ?? "sem anuncio"}</span>
+                      </td>
+                      <td>
+                        <span
+                          className={`event-chip${
+                            metaStructureRowIsActive(row) ? "" : " warn"
+                          }`}
+                        >
+                          {metaStatusLabel(row.status)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
                     <td>
-                      <strong>{row.campaignName}</strong>
-                      <span>{row.campaignObjective ?? "sem objetivo"}</span>
+                      <strong>{emptyStructureTitle}</strong>
+                      <span>{emptyStructureHint}</span>
                     </td>
+                    <td>sem conjunto</td>
+                    <td>sem anuncio</td>
                     <td>
-                      <strong>{row.adSetName}</strong>
-                      <span>{row.adSetId}</span>
-                    </td>
-                    <td>
-                      <strong>{row.adName}</strong>
-                      <span>{row.adId ?? "sem anuncio"}</span>
-                    </td>
-                    <td>
-                      <span
-                        className={`event-chip${
-                          metaStructureRowIsActive(row) ? "" : " warn"
-                        }`}
-                      >
-                        {metaStatusLabel(row.status)}
-                      </span>
+                      <span className="event-chip warn">aguardando sync</span>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td>
-                    <strong>{emptyStructureTitle}</strong>
-                    <span>{emptyStructureHint}</span>
-                  </td>
-                  <td>sem conjunto</td>
-                  <td>sem anuncio</td>
-                  <td>
-                    <span className="event-chip warn">aguardando sync</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </details>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ) : (
+        <section className="surface-panel meta-diagnostic-collapsed">
+          <div className="meta-diagnostic-copy">
+            <span className="eyebrow">Diagnostico da sincronizacao Meta</span>
+            <strong>Estrutura tecnica sob demanda</strong>
+            <span>
+              Carregue a hierarquia bruta somente quando precisar auditar a
+              sincronizacao. Ela nao bloqueia mais a abertura dos relatorios.
+            </span>
+          </div>
+          <Link className="button ghost" href={diagnosticHref}>
+            Carregar diagnostico
+          </Link>
+        </section>
+      )}
     </section>
   );
 }

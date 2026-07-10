@@ -1,7 +1,9 @@
 import { Module } from "@nestjs/common";
+import { APP_INTERCEPTOR } from "@nestjs/core";
 import { AuthModule } from "./auth/auth.module";
 import { BillingModule } from "./billing/billing.module";
 import { PrismaModule } from "./common/prisma/prisma.module";
+import { RequestDurationInterceptor } from "./common/http/request-duration.interceptor";
 import { QueueModule } from "./common/queue/queue.module";
 import { RuntimeModule } from "./common/runtime/runtime.module";
 import { ConversionRulesModule } from "./conversion-rules/conversion-rules.module";
@@ -27,9 +29,15 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     ConversionRulesModule,
     LeadsModule,
     ReportingModule,
-    WebhooksModule
+    WebhooksModule,
   ],
   controllers: [HealthController],
-  providers: [HealthService]
+  providers: [
+    HealthService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: RequestDurationInterceptor,
+    },
+  ],
 })
 export class AppModule {}

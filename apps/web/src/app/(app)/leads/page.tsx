@@ -1,4 +1,4 @@
-import type { LeadListItemDto } from "@wpptrack/shared";
+import type { LeadListItemDto, LeadListPageDto } from "@wpptrack/shared";
 import Link from "next/link";
 import { serverApiFetch } from "../../../lib/server-api";
 
@@ -6,10 +6,11 @@ type LeadsSearchParams = Record<string, string | string[] | undefined>;
 
 type LeadsResult = {
   leads: LeadListItemDto[];
+  pagination: LeadListPageDto["pagination"];
   state: "real" | "empty" | "error";
 };
 
-async function getLeads(filters: {
+type LeadFilters = {
   search?: string;
   status?: string;
   eventName?: string;
@@ -19,66 +20,69 @@ async function getLeads(filters: {
   adId?: string;
   since?: string;
   until?: string;
-}): Promise<LeadsResult> {
+  page: number;
+  pageSize: number;
+};
+
+async function getLeads(filters: LeadFilters): Promise<LeadsResult> {
   try {
-    const params = new URLSearchParams();
-
-    if (filters.search) {
-      params.set("search", filters.search);
-    }
-
-    if (filters.status) {
-      params.set("status", filters.status);
-    }
-
-    if (filters.eventName) {
-      params.set("eventName", filters.eventName);
-    }
-
-    if (filters.label) {
-      params.set("label", filters.label);
-    }
-
-    if (filters.campaignId) {
-      params.set("campaignId", filters.campaignId);
-    }
-
-    if (filters.adSetId) {
-      params.set("adSetId", filters.adSetId);
-    }
-
-    if (filters.adId) {
-      params.set("adId", filters.adId);
-    }
-
-    if (filters.since) {
-      params.set("since", filters.since);
-    }
-
-    if (filters.until) {
-      params.set("until", filters.until);
-    }
-
-    const query = params.toString();
-
-    const leads = await serverApiFetch<LeadListItemDto[]>(
-      query ? `/leads?${query}` : "/leads"
+    const query = leadQuery(filters);
+    const response = await serverApiFetch<LeadListPageDto>(
+      `/leads/page?${query}`,
     );
 
     return {
-      leads,
-      state: leads.length > 0 ? "real" : "empty"
+      leads: response.items,
+      pagination: response.pagination,
+      state: response.items.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       leads: [],
-      state: "error"
+      pagination: {
+        page: filters.page,
+        pageSize: filters.pageSize,
+        totalItems: 0,
+        totalPages: 0,
+      },
+      state: "error",
     };
   }
 }
 
+function leadQuery(filters: LeadFilters, page = filters.page): string {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries({
+    search: filters.search,
+    status: filters.status,
+    eventName: filters.eventName,
+    label: filters.label,
+    campaignId: filters.campaignId,
+    adSetId: filters.adSetId,
+    adId: filters.adId,
+    since: filters.since,
+    until: filters.until,
+  })) {
+    if (value) {
+      params.set(key, value);
+    }
+  }
+
+  params.set("page", String(page));
+  params.set("pageSize", String(filters.pageSize));
+
+  return params.toString();
+}
+
+function positiveIntegerParam(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function asStringParam(
-  value: string | string[] | undefined
+  value: string | string[] | undefined,
 ): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -89,7 +93,7 @@ function statusLabel(status: LeadListItemDto["status"]): string {
     active: "Atendimento ativo",
     qualified: "Lead qualificado",
     converted: "Compra atribuida",
-    lost: "Perdido"
+    lost: "Perdido",
   };
 
   return labels[status];
@@ -104,12 +108,12 @@ function lastTouchLabel(value: string | null): string {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    month: "2-digit"
+    month: "2-digit",
   });
 }
 
 export default async function LeadsPage({
-  searchParams
+  searchParams,
 }: {
   searchParams?: Promise<LeadsSearchParams>;
 }) {
@@ -123,8 +127,18 @@ export default async function LeadsPage({
   const adId = asStringParam(resolvedSearchParams.adId);
   const since = asStringParam(resolvedSearchParams.since);
   const until = asStringParam(resolvedSearchParams.until);
-  const hasReportFilter = Boolean(campaignId || adSetId || adId || since || until);
-  const result = await getLeads({
+  const page = positiveIntegerParam(
+    asStringParam(resolvedSearchParams.page),
+    1,
+  );
+  const pageSize = Math.min(
+    positiveIntegerParam(asStringParam(resolvedSearchParams.pageSize), 25),
+    100,
+  );
+  const hasReportFilter = Boolean(
+    campaignId || adSetId || adId || since || until,
+  );
+  const leadFilters: LeadFilters = {
     search,
     status,
     eventName,
@@ -133,8 +147,11 @@ export default async function LeadsPage({
     adSetId,
     adId,
     since,
-    until
-  });
+    until,
+    page,
+    pageSize,
+  };
+  const result = await getLeads(leadFilters);
   const { leads } = result;
   const pendingCount = leads.filter((lead) => !lead.lastEventName).length;
   const emptyTitle =
@@ -152,38 +169,68 @@ export default async function LeadsPage({
         <div>
           <span className="eyebrow">Leads</span>
           <h1>Leads rastreados pelo WhatsApp</h1>
-          <p>Busca por nome ou telefone, filtros por campanha, etiquetas e eventos enviados.</p>
+          <p>
+            Busca por nome ou telefone, filtros por campanha, etiquetas e
+            eventos enviados.
+          </p>
         </div>
         <div className="header-actions">
           {result.state === "error" ? (
             <span className="status-chip warn">API indisponivel</span>
           ) : null}
-          <span className="status-chip">{leads.length} conversas reais</span>
+          <span className="status-chip">
+            {result.pagination.totalItems} conversas reais
+          </span>
           <span className="status-chip warn">{pendingCount} pendencias</span>
         </div>
       </header>
 
-      <form className="filter-bar" aria-label="Filtros de leads" action="/leads">
-        <input className="filter-control" name="search" placeholder="Buscar lead" defaultValue={search} />
-        <select className="filter-control" name="status" defaultValue={status ?? ""}>
+      <form
+        className="filter-bar"
+        aria-label="Filtros de leads"
+        action="/leads"
+      >
+        <input type="hidden" name="pageSize" value={pageSize} />
+        <input
+          className="filter-control"
+          name="search"
+          placeholder="Buscar lead"
+          defaultValue={search}
+        />
+        <select
+          className="filter-control"
+          name="status"
+          defaultValue={status ?? ""}
+        >
           <option value="">Todos os status</option>
           <option value="active">Ativos</option>
           <option value="qualified">Qualificados</option>
           <option value="converted">Convertidos</option>
         </select>
-        <select className="filter-control" name="eventName" defaultValue={eventName ?? ""}>
+        <select
+          className="filter-control"
+          name="eventName"
+          defaultValue={eventName ?? ""}
+        >
           <option value="">Todos os eventos</option>
           <option value="LeadSubmitted">LeadSubmitted</option>
           <option value="QualifiedLead">QualifiedLead</option>
           <option value="Purchase">Purchase</option>
         </select>
-        <input className="filter-control" name="label" placeholder="Etiqueta" defaultValue={label} />
+        <input
+          className="filter-control"
+          name="label"
+          placeholder="Etiqueta"
+          defaultValue={label}
+        />
         <input type="hidden" name="campaignId" value={campaignId ?? ""} />
         <input type="hidden" name="adSetId" value={adSetId ?? ""} />
         <input type="hidden" name="adId" value={adId ?? ""} />
         <input type="hidden" name="since" value={since ?? ""} />
         <input type="hidden" name="until" value={until ?? ""} />
-        <button className="button" type="submit">Filtrar</button>
+        <button className="button" type="submit">
+          Filtrar
+        </button>
       </form>
       {hasReportFilter ? (
         <p className="muted">
@@ -224,7 +271,9 @@ export default async function LeadsPage({
                     ) : null}
                   </td>
                   <td>
-                    <span className={`event-chip${lead.lastEventName ? "" : " warn"}`}>
+                    <span
+                      className={`event-chip${lead.lastEventName ? "" : " warn"}`}
+                    >
                       {lead.lastEventName ?? "Sem evento"}
                     </span>
                   </td>
@@ -244,6 +293,40 @@ export default async function LeadsPage({
           </tbody>
         </table>
       </div>
+
+      <nav className="report-pagination" aria-label="Paginacao de leads">
+        <span>
+          Pagina {result.pagination.page} de{" "}
+          {Math.max(result.pagination.totalPages, 1)} ·{" "}
+          {result.pagination.totalItems} leads
+        </span>
+        <div>
+          {result.pagination.page > 1 ? (
+            <Link
+              className="button ghost"
+              href={`/leads?${leadQuery(leadFilters, result.pagination.page - 1)}`}
+            >
+              Anterior
+            </Link>
+          ) : (
+            <span className="button ghost disabled" aria-disabled="true">
+              Anterior
+            </span>
+          )}
+          {result.pagination.page < result.pagination.totalPages ? (
+            <Link
+              className="button ghost"
+              href={`/leads?${leadQuery(leadFilters, result.pagination.page + 1)}`}
+            >
+              Proxima
+            </Link>
+          ) : (
+            <span className="button ghost disabled" aria-disabled="true">
+              Proxima
+            </span>
+          )}
+        </div>
+      </nav>
     </section>
   );
 }

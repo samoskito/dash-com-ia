@@ -44,6 +44,13 @@ export const reportFunnelStepSchema = z.object({
   unavailableReason: z.string().trim().min(1).optional(),
 });
 
+export const reportPaginationSchema = z.object({
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  totalItems: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
 export const campaignReportRowSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -81,6 +88,7 @@ export const reportOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
   campaigns: z.array(campaignReportRowSchema),
+  pagination: reportPaginationSchema.optional(),
 });
 
 const reportMetricShape = campaignReportRowSchema.omit({
@@ -100,6 +108,7 @@ export const adSetReportOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
   adSets: z.array(adSetReportRowSchema),
+  pagination: reportPaginationSchema.optional(),
 });
 
 export const adReportRowSchema = z.object({
@@ -116,6 +125,7 @@ export const adReportOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
   ads: z.array(adReportRowSchema),
+  pagination: reportPaginationSchema.optional(),
 });
 
 export const metaAdReportSchema = z.object({
@@ -197,6 +207,7 @@ export type MetaCampaignStructureDto = z.infer<
 export type MetaStructureReportDto = z.infer<typeof metaStructureReportSchema>;
 export type ReportFunnelStepKeyDto = z.infer<typeof reportFunnelStepKeySchema>;
 export type ReportFunnelStepDto = z.infer<typeof reportFunnelStepSchema>;
+export type ReportPaginationDto = z.infer<typeof reportPaginationSchema>;
 export type ConversionAuditEventDto = z.infer<
   typeof conversionAuditEventSchema
 >;

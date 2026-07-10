@@ -60,7 +60,7 @@ The recovery starts from these verified defects:
 
 | Order | Block | Status | Exit condition |
 | --- | --- | --- | --- |
-| 0 | Performance and critical regressions | Next | Navigation and critical actions meet the acceptance criteria below |
+| 0 | Performance and critical regressions | Implemented locally; production review pending | Navigation and critical actions meet the acceptance criteria below |
 | 1 | Overview | Pending | Product owner approves the complete Overview |
 | 2 | Leads | Pending | Product owner approves list, filters and lead journey |
 | 3 | Reports | Pending | Product owner approves Campaigns, Ad Sets, Ads and Meta diagnostic |
@@ -95,6 +95,28 @@ This order supersedes the older immediate next step of returning to the real Uaz
 - The Meta connect/reconnect action is visible whenever the role allows integration management.
 - Automated tests cover period defaults, permission/error state and aggregated report loading.
 - Production diagnostics make a future slow endpoint identifiable without guessing whether the VPS is at fault.
+
+### Implementation status - 2026-07-10
+
+Implemented and verified locally:
+
+- The API now resolves a real seven-day `since`/`until` period whenever report dates are omitted.
+- Report reads apply the period to conversion events and lead occurrence dates instead of loading all history.
+- Campaigns, ad sets, ads and leads expose paginated reads; Reports loads only the active level and loads the technical Meta structure only on demand.
+- Metric events and leads are loaded only for the entity IDs on the active report page.
+- Database indexes were added in migration `20260710113000_report_read_indexes` for lead periods, active reporting accounts and Meta hierarchy filters.
+- The product shell has a route loading boundary and keeps navigation visible while page data resolves.
+- The current workspace read is request-deduplicated across layout, Reports, Integrations and Settings.
+- Slow API requests, slow web-to-API reads and slow report reads now emit duration diagnostics with configurable thresholds.
+- Uazapi instance status and label reads have a bounded wait in the web layer so a provider cannot freeze the whole route.
+- Meta API failure, unavailable permissions and an actual denied role are distinct states. A temporary workspace-read failure no longer removes the Meta connect/reconnect action; the backend remains the final authorization authority.
+- Local warm-route measurements with PostgreSQL and Redis running: Overview 93 ms, Reports 152 ms, Leads 106 ms and Integrations 165 ms in Next development mode. First requests included route compilation and are not production latency measurements.
+- Verification passed: 522 automated tests, all package typechecks, forced uncached production build, Prisma validation and local migration deployment.
+
+Still required before Block 1:
+
+- Deploy this block and verify navigation/route durations against the real production dataset and infrastructure.
+- Product owner reviews the loading feedback, Meta action states and production timings.
 
 ## 7. Block 1 - Overview
 
@@ -252,4 +274,4 @@ For every block:
 
 ## 12. Current Next Action
 
-Start **Block 0 - Performance and Critical Regressions**. Do not begin the Overview redesign until Block 0 is verified and its regressions are closed.
+Deploy and review **Block 0 - Performance and Critical Regressions** with the real production dataset. Do not begin the Overview redesign until that review is approved.

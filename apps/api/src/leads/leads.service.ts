@@ -3,8 +3,9 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type {
   LeadDetailDto,
   LeadListItemDto,
+  LeadListPageDto,
   LeadListQueryDto,
-  LeadStatusDto
+  LeadStatusDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 
@@ -93,76 +94,104 @@ export class LeadsService {
 
   async listLeads(
     workspaceId: string,
-    query: LeadListQueryDto
+    query: LeadListQueryDto,
   ): Promise<LeadListItemDto[]> {
+    const page = await this.listLeadsPage(workspaceId, query);
+
+    return page.items;
+  }
+
+  async listLeadsPage(
+    workspaceId: string,
+    query: LeadListQueryDto,
+  ): Promise<LeadListPageDto> {
     const createdAtRange = this.createdAtRange(query);
-    const leads = (await this.prisma.lead.findMany({
-      where: {
-        workspaceId,
-        ...(query.status ? { status: query.status } : {}),
-        ...(query.label ? { labels: { has: query.label } } : {}),
-        ...(query.campaignId ? { campaignId: query.campaignId } : {}),
-        ...(query.adSetId ? { adSetId: query.adSetId } : {}),
-        ...(query.adId ? { adId: query.adId } : {}),
-        ...(createdAtRange ? { createdAt: createdAtRange } : {}),
-        ...(query.search
-          ? {
-              OR: [
-                {
-                  name: {
-                    contains: query.search,
-                    mode: "insensitive"
-                  }
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? query.limit ?? 50;
+    const eventLeadIds = query.eventName
+      ? await this.leadIdsForEvent(workspaceId, query.eventName)
+      : null;
+
+    if (eventLeadIds && eventLeadIds.length === 0) {
+      return {
+        items: [],
+        pagination: { page, pageSize, totalItems: 0, totalPages: 0 },
+      };
+    }
+
+    const where = {
+      workspaceId,
+      ...(eventLeadIds ? { id: { in: eventLeadIds } } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.label ? { labels: { has: query.label } } : {}),
+      ...(query.campaignId ? { campaignId: query.campaignId } : {}),
+      ...(query.adSetId ? { adSetId: query.adSetId } : {}),
+      ...(query.adId ? { adId: query.adId } : {}),
+      ...(createdAtRange ? { createdAt: createdAtRange } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              {
+                name: {
+                  contains: query.search,
+                  mode: "insensitive" as const,
                 },
-                {
-                  phoneDisplay: {
-                    contains: query.search,
-                    mode: "insensitive"
-                  }
-                }
-              ]
-            }
-          : {})
-      },
-      orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
-      take: query.limit
-    })) as LeadRecord[];
+              },
+              {
+                phoneDisplay: {
+                  contains: query.search,
+                  mode: "insensitive" as const,
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+    const [leads, totalItems] = (await Promise.all([
+      this.prisma.lead.findMany({
+        where,
+        orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.lead.count({ where }),
+    ])) as [LeadRecord[], number];
     const leadIds = leads.map((lead) => lead.id);
     const campaignIds = Array.from(
-      new Set(leads.map((lead) => lead.campaignId).filter(Boolean))
+      new Set(leads.map((lead) => lead.campaignId).filter(Boolean)),
     ) as string[];
     const [conversionLogs, campaigns] = await Promise.all([
       leadIds.length
         ? (this.prisma.conversionEventLog.findMany({
             where: {
               workspaceId,
-              leadId: { in: leadIds }
+              leadId: { in: leadIds },
             },
             orderBy: { createdAt: "desc" },
             select: {
               leadId: true,
               eventName: true,
-              createdAt: true
-            }
+              createdAt: true,
+            },
           }) as Promise<ConversionLogRecord[]>)
         : Promise.resolve([]),
       campaignIds.length
         ? (this.prisma.metaCampaign.findMany({
             where: {
               workspaceId,
-              campaignId: { in: campaignIds }
+              campaignId: { in: campaignIds },
             },
             select: {
               campaignId: true,
-              name: true
-            }
+              name: true,
+            },
           }) as Promise<CampaignRecord[]>)
-        : Promise.resolve([])
+        : Promise.resolve([]),
     ]);
     const latestEventByLead = new Map<string, string>();
     const eventsByLead = new Map<string, Set<string>>();
     const campaignNameById = new Map(
-      campaigns.map((campaign) => [campaign.campaignId, campaign.name])
+      campaigns.map((campaign) => [campaign.campaignId, campaign.name]),
     );
 
     for (const log of conversionLogs) {
@@ -177,30 +206,51 @@ export class LeadsService {
       }
     }
 
-    return leads
-      .filter((lead) =>
-        query.eventName
-          ? eventsByLead.get(lead.id)?.has(query.eventName) === true
-          : true
-      )
-      .map((lead) =>
+    return {
+      items: leads.map((lead) =>
         this.toDto(
           lead,
           latestEventByLead.get(lead.id) ?? null,
-          lead.campaignId ? campaignNameById.get(lead.campaignId) ?? null : null
-        )
-      );
+          lead.campaignId
+            ? (campaignNameById.get(lead.campaignId) ?? null)
+            : null,
+        ),
+      ),
+      pagination: {
+        page,
+        pageSize,
+        totalItems,
+        totalPages: totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0,
+      },
+    };
+  }
+
+  private async leadIdsForEvent(
+    workspaceId: string,
+    eventName: string,
+  ): Promise<string[]> {
+    const events = (await this.prisma.conversionEventLog.findMany({
+      where: {
+        workspaceId,
+        eventName,
+        leadId: { not: null },
+      },
+      select: { leadId: true },
+      distinct: ["leadId"],
+    })) as Array<{ leadId: string | null }>;
+
+    return events.flatMap((event) => (event.leadId ? [event.leadId] : []));
   }
 
   async getLeadDetail(
     workspaceId: string,
-    leadId: string
+    leadId: string,
   ): Promise<LeadDetailDto> {
     const lead = (await this.prisma.lead.findFirst({
       where: {
         id: leadId,
-        workspaceId
-      }
+        workspaceId,
+      },
     })) as LeadRecord | null;
 
     if (!lead) {
@@ -212,7 +262,7 @@ export class LeadsService {
         this.prisma.conversionEventLog.findMany({
           where: {
             workspaceId,
-            OR: [{ leadId: lead.id }, { phoneHash: lead.phoneHash }]
+            OR: [{ leadId: lead.id }, { phoneHash: lead.phoneHash }],
           },
           orderBy: { createdAt: "desc" },
           select: {
@@ -229,13 +279,13 @@ export class LeadsService {
             errorCode: true,
             errorMessage: true,
             sentAt: true,
-            createdAt: true
-          }
+            createdAt: true,
+          },
         }) as Promise<ConversionLogRecord[]>,
         this.prisma.webhookLog.findMany({
           where: {
             workspaceId,
-            OR: [{ leadId: lead.id }, { phoneHash: lead.phoneHash }]
+            OR: [{ leadId: lead.id }, { phoneHash: lead.phoneHash }],
           },
           orderBy: { receivedAt: "desc" },
           select: {
@@ -246,45 +296,45 @@ export class LeadsService {
             errorCode: true,
             errorMessage: true,
             receivedAt: true,
-            processedAt: true
-          }
+            processedAt: true,
+          },
         }) as Promise<WebhookLogRecord[]>,
         lead.campaignId
           ? (this.prisma.metaCampaign.findMany({
               where: {
                 workspaceId,
-                campaignId: { in: [lead.campaignId] }
+                campaignId: { in: [lead.campaignId] },
               },
               select: {
                 campaignId: true,
-                name: true
-              }
+                name: true,
+              },
             }) as Promise<CampaignRecord[]>)
           : Promise.resolve([]),
         lead.adSetId
           ? (this.prisma.metaAdSet.findMany({
               where: {
                 workspaceId,
-                adSetId: { in: [lead.adSetId] }
+                adSetId: { in: [lead.adSetId] },
               },
               select: {
                 adSetId: true,
-                name: true
-              }
+                name: true,
+              },
             }) as Promise<AdSetRecord[]>)
           : Promise.resolve([]),
         lead.adId
           ? (this.prisma.metaAd.findMany({
               where: {
                 workspaceId,
-                adId: { in: [lead.adId] }
+                adId: { in: [lead.adId] },
               },
               select: {
                 adId: true,
-                name: true
-              }
+                name: true,
+              },
             }) as Promise<AdRecord[]>)
-          : Promise.resolve([])
+          : Promise.resolve([]),
       ]);
     const campaignName = campaigns[0]?.name ?? null;
     const latestEventName = conversionLogs[0]?.eventName ?? null;
@@ -294,7 +344,7 @@ export class LeadsService {
       attribution: {
         campaignName,
         adSetName: adSets[0]?.name ?? null,
-        adName: ads[0]?.name ?? null
+        adName: ads[0]?.name ?? null,
       },
       conversionEvents: conversionLogs.map((event) => ({
         id: event.id ?? "",
@@ -308,7 +358,7 @@ export class LeadsService {
         errorCode: event.errorCode ?? null,
         errorMessage: event.errorMessage ?? null,
         sentAt: event.sentAt?.toISOString() ?? null,
-        createdAt: event.createdAt.toISOString()
+        createdAt: event.createdAt.toISOString(),
       })),
       webhookEvents: webhookLogs.map((event) => ({
         id: event.id,
@@ -318,13 +368,13 @@ export class LeadsService {
         errorCode: event.errorCode,
         errorMessage: event.errorMessage,
         receivedAt: event.receivedAt.toISOString(),
-        processedAt: event.processedAt?.toISOString() ?? null
-      }))
+        processedAt: event.processedAt?.toISOString() ?? null,
+      })),
     };
   }
 
   async upsertFromWhatsappWebhook(
-    input: UpsertWhatsappLeadInput
+    input: UpsertWhatsappLeadInput,
   ): Promise<{ id: string } | null> {
     const phoneHash = input.phoneHash ?? this.hashPhone(input.phone);
 
@@ -338,8 +388,8 @@ export class LeadsService {
       where: {
         workspaceId_phoneHash: {
           workspaceId: input.workspaceId,
-          phoneHash
-        }
+          phoneHash,
+        },
       },
       create: {
         workspaceId: input.workspaceId,
@@ -356,7 +406,7 @@ export class LeadsService {
         ctwaClid: input.ctwaClid ?? null,
         ctwaSourceUrl: input.ctwaSourceUrl ?? null,
         firstMessageAt: occurredAt,
-        lastMessageAt: occurredAt
+        lastMessageAt: occurredAt,
       },
       update: {
         whatsappInstanceId: input.whatsappInstanceId ?? undefined,
@@ -369,11 +419,11 @@ export class LeadsService {
         adId: input.adId ?? undefined,
         ctwaClid: input.ctwaClid ?? undefined,
         ctwaSourceUrl: input.ctwaSourceUrl ?? undefined,
-        lastMessageAt: occurredAt
+        lastMessageAt: occurredAt,
       },
       select: {
-        id: true
-      }
+        id: true,
+      },
     });
 
     return lead;
@@ -382,7 +432,7 @@ export class LeadsService {
   private toDto(
     lead: LeadRecord,
     lastEventName: string | null,
-    campaignName: string | null
+    campaignName: string | null,
   ): LeadListItemDto {
     return {
       id: lead.id,
@@ -402,30 +452,26 @@ export class LeadsService {
       firstMessageAt: lead.firstMessageAt?.toISOString() ?? null,
       lastMessageAt: lead.lastMessageAt?.toISOString() ?? null,
       createdAt: lead.createdAt.toISOString(),
-      updatedAt: lead.updatedAt.toISOString()
+      updatedAt: lead.updatedAt.toISOString(),
     };
   }
 
   private createdAtRange(
-    query: Pick<LeadListQueryDto, "since" | "until">
+    query: Pick<LeadListQueryDto, "since" | "until">,
   ): { gte?: Date; lte?: Date } | null {
     if (!query.since && !query.until) {
       return null;
     }
 
     return {
-      ...(query.since
-        ? { gte: new Date(`${query.since}T00:00:00.000Z`) }
-        : {}),
-      ...(query.until
-        ? { lte: new Date(`${query.until}T23:59:59.999Z`) }
-        : {})
+      ...(query.since ? { gte: new Date(`${query.since}T00:00:00.000Z`) } : {}),
+      ...(query.until ? { lte: new Date(`${query.until}T23:59:59.999Z`) } : {}),
     };
   }
 
   private statusFromEvent(
     status: LeadStatusDto,
-    eventName: string | null
+    eventName: string | null,
   ): LeadStatusDto {
     if (eventName === "Purchase") {
       return "converted";
@@ -498,9 +544,7 @@ export class LeadsService {
       return undefined;
     }
 
-    const normalized = labels
-      .map((label) => label.trim())
-      .filter(Boolean);
+    const normalized = labels.map((label) => label.trim()).filter(Boolean);
 
     return Array.from(new Set(normalized));
   }
