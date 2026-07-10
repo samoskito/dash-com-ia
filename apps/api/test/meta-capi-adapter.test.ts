@@ -169,12 +169,18 @@ describe("meta capi adapter", () => {
     await adapter.sendEvent(
       baseInput({
         eventName: "Purchase",
+        dedupeKey: "purchase_event_1",
         valueCents: 12345,
         currency: "BRL",
         contentName: "Plano Pro",
         customData: {
-          order_id: "order_1",
-          num_items: 2
+          contents: [
+            {
+              id: "plan_pro",
+              quantity: 2,
+              item_price: 61.725
+            }
+          ]
         }
       })
     );
@@ -187,7 +193,15 @@ describe("meta capi adapter", () => {
         value: 123.45,
         currency: "BRL",
         content_name: "Plano Pro",
-        order_id: "order_1",
+        order_id: "purchase_event_1",
+        content_type: "product",
+        contents: [
+          {
+            id: "plan_pro",
+            quantity: 2,
+            item_price: 61.725
+          }
+        ],
         num_items: 2
       }
     });

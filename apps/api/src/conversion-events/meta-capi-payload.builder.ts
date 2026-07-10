@@ -38,8 +38,14 @@ export type MetaCapiPayload = {
 export function buildMetaCapiPayload(
   input: MetaCapiPayloadInput
 ): MetaCapiPayload {
+  const baseCustomData = input.customData ?? {};
+  const purchaseDefaults =
+    input.eventName === "Purchase"
+      ? buildPurchaseCustomDataDefaults(input.eventId, baseCustomData)
+      : {};
   const customData: ConversionEventCustomDataDto = {
-    ...(input.customData ?? {}),
+    ...baseCustomData,
+    ...purchaseDefaults,
     ad_id: input.adId,
     ...(typeof input.valueCents === "number"
       ? { value: input.valueCents / 100 }
@@ -66,4 +72,32 @@ export function buildMetaCapiPayload(
     ],
     ...(input.testEventCode ? { test_event_code: input.testEventCode } : {})
   };
+}
+
+function buildPurchaseCustomDataDefaults(
+  eventId: string,
+  customData: ConversionEventCustomDataDto
+): Partial<ConversionEventCustomDataDto> {
+  const defaults: Partial<ConversionEventCustomDataDto> = {};
+
+  if (!customData.order_id) {
+    defaults.order_id = eventId;
+  }
+
+  if (!customData.contents?.length) {
+    return defaults;
+  }
+
+  if (!customData.content_type) {
+    defaults.content_type = "product";
+  }
+
+  if (customData.num_items == null) {
+    defaults.num_items = customData.contents.reduce(
+      (total, item) => total + (item.quantity ?? 1),
+      0
+    );
+  }
+
+  return defaults;
 }

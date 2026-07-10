@@ -117,6 +117,53 @@ describe("Meta CAPI payload builder", () => {
     });
   });
 
+  it("fills R100-style Purchase item metadata when missing", () => {
+    const payload = buildMetaCapiPayload({
+      eventName: "Purchase",
+      eventTime: new Date("2026-07-09T12:00:00.000Z"),
+      eventId: "workspace_1:lead_1:rule_1:Purchase:ad_1",
+      phoneHash: "phone_hash_1",
+      ctwaClid: "clid_1",
+      pageId: "page_1",
+      adId: "ad_1",
+      valueCents: 19900,
+      currency: "BRL",
+      contentName: "Plano mensal",
+      customData: {
+        contents: [
+          {
+            id: "plan_1",
+            quantity: 2,
+            item_price: 99.5
+          },
+          {
+            id: "setup_1"
+          }
+        ]
+      }
+    });
+
+    expect(payload.data[0].custom_data).toMatchObject({
+      ad_id: "ad_1",
+      value: 199,
+      currency: "BRL",
+      content_name: "Plano mensal",
+      order_id: "workspace_1:lead_1:rule_1:Purchase:ad_1",
+      content_type: "product",
+      contents: [
+        {
+          id: "plan_1",
+          quantity: 2,
+          item_price: 99.5
+        },
+        {
+          id: "setup_1"
+        }
+      ],
+      num_items: 3
+    });
+  });
+
   it("adds test_event_code at the top level when provided", () => {
     const payload = buildMetaCapiPayload({
       eventName: "LeadSubmitted",
