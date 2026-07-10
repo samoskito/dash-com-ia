@@ -613,6 +613,7 @@ Proximo passo operacional:
 - Testes automatizados ja executados para a etapa CAPI/paridade R100: `meta-capi-payload-builder.test.ts`, `meta-capi-adapter.test.ts`, `conversion-events-service.test.ts` e `pnpm --filter @wpptrack/api typecheck` passaram antes do commit `a31a7df feat: align capi purchase payload with r100`.
 - Decisao operacional em 2026-07-10: o teste real com Uazapi/CAPI (`ctwa_clid`, `ad_id`, payload real de webhook e envio real para Meta) sera feito mais para frente, quando a plataforma estiver mais pronta. Esse teste nao deve bloquear a continuidade do desenvolvimento; se o payload real vier diferente, ajustar o parser depois com base no dado real.
 - Ordem aprovada para continuidade: 1) criar a spec do modulo de formulas e metricas finais de relatorios; 2) implementar um motor backend centralizado de metricas; 3) aplicar esse motor nos relatorios de visao geral, campanhas, conjuntos e anuncios; 4) depois voltar para o teste real Uazapi/CAPI e corrigir qualquer ajuste fino de payload.
+- Spec de formulas e metricas finais aprovada e escrita em 2026-07-10: `docs/superpowers/specs/2026-07-10-wpptrack-reporting-metrics-formulas-design.md`. Decisoes centrais: telefone normalizado do WhatsApp e a identidade principal do lead; `LeadSubmitted` aparece como `Conversas reais iniciadas`; `QualifiedLead` aparece como `Lead qualificado`; `Purchase` aparece como `Compras`; organico entra na saude geral do negocio sem contaminar ROAS/custos de midia; primeira compra e recompra sao separadas por telefone; ROAS principal tem duas visoes, `ROAS de aquisicao` e `ROAS com recompra`; evento real conta no dashboard mesmo se o envio para Meta falhar, e falhas entram na auditoria de eventos Meta.
 
 ## Perguntas Abertas
 
@@ -620,12 +621,10 @@ Proximo passo operacional:
 2. Evoluir seguranca operacional da autenticacao propria: politicas de rate limit, auditoria de login, rotacao/expiracao refinada de sessoes e revisao de hardening antes de producao.
 3. Validar em ambiente real o contrato Uazapi para eventos de etiqueta no WhatsApp Business e ajustar o adapter conforme payload oficial observado.
 4. Validar detalhes do app Meta existente: app id, permissoes, produtos ativos, URLs de callback, modo live/dev e limites.
-5. Quais metricas de trafego sao obrigatorias na primeira versao robusta?
-6. Confirmar formulas finais das metricas de funil: conversas Meta, conversa real, LeadSubmitted, QualifiedLead, Purchase e custos por etapa.
-7. Confirmar se a marca d'agua fixa deve aparecer para todos os clientes, somente em planos especificos ou ficar fora do SaaS final.
-8. Detalhar planos por numero de instancias WhatsApp, ciclo de cobranca Asaas, cobranca antecipada de nova instancia, inadimplencia, NF, split percentual e backoffice interno de split.
-9. Detalhar convites para membros do workspace e matriz inicial de permissoes para owner/admin/member.
-10. Definir quando ativar IA de analise de conversa e quais provedores/modelos usar no futuro.
+5. Confirmar se a marca d'agua fixa deve aparecer para todos os clientes, somente em planos especificos ou ficar fora do SaaS final.
+6. Detalhar planos por numero de instancias WhatsApp, ciclo de cobranca Asaas, cobranca antecipada de nova instancia, inadimplencia, NF, split percentual e backoffice interno de split.
+7. Detalhar convites para membros do workspace e matriz inicial de permissoes para owner/admin/member.
+8. Definir quando ativar IA de analise de conversa e quais provedores/modelos usar no futuro.
 
 ## Regras para Futuras Conversas
 
