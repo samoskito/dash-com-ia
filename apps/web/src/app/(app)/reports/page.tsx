@@ -35,9 +35,20 @@ type ReportTotals = {
   spendCents: number;
   metaConversationsStarted: number;
   realConversations: number;
-  leadSubmitted: number;
+  organicLeads: number;
+  totalReceived: number;
+  trackingRate: number | null;
   qualifiedLead: number;
-  purchase: number;
+  purchases: number;
+  firstPurchases: number;
+  repurchases: number;
+  trafficRevenueCents: number;
+  organicRevenueCents: number;
+  totalRevenueCents: number;
+  firstPurchaseRevenueCents: number;
+  repurchaseRevenueCents: number;
+  roasAcquisition: number | null;
+  roasWithRepurchase: number | null;
 };
 type MetaStructureSummary = {
   campaigns: number;
@@ -103,6 +114,25 @@ function money(cents: number | null) {
     currency: "BRL",
     style: "currency",
   });
+}
+
+function roas(value: number | null) {
+  if (value === null) {
+    return "-";
+  }
+
+  return `${value.toLocaleString("pt-BR", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  })}x`;
+}
+
+function percent(value: number | null) {
+  if (value === null) {
+    return "-";
+  }
+
+  return `${Math.round(value * 100)}%`;
 }
 
 function metaStatusLabel(status: string | null | undefined) {
@@ -536,18 +566,25 @@ function PerformanceMetricsCells({ row }: { row: PerformanceRow }) {
         <span>{money(row.costPerRealConversationCents)}</span>
       </td>
       <td>
-        {row.leadSubmitted}
-        <span>{money(row.costPerLeadSubmittedCents)}</span>
+        {row.totalReceived}
+        <span>{percent(row.trackingRate)}</span>
       </td>
       <td>
         {row.qualifiedLead}
         <span>{money(row.costPerQualifiedLeadCents)}</span>
       </td>
       <td>
-        {row.purchase}
+        {row.purchases}
         <span>{money(row.costPerPurchaseCents)}</span>
       </td>
-      <td>{row.roas === null ? "-" : `${row.roas}x`}</td>
+      <td>{row.firstPurchases}</td>
+      <td>{row.repurchases}</td>
+      <td>{row.organicLeads}</td>
+      <td>{money(row.trafficRevenueCents)}</td>
+      <td>{money(row.organicRevenueCents)}</td>
+      <td>{money(row.totalRevenueCents)}</td>
+      <td>{roas(row.roasAcquisition)}</td>
+      <td>{roas(row.roasWithRepurchase)}</td>
     </>
   );
 }
@@ -571,31 +608,99 @@ function EmptyPerformanceCells() {
       <td>
         0<span>-</span>
       </td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+      <td>{money(0)}</td>
+      <td>{money(0)}</td>
+      <td>{money(0)}</td>
+      <td>-</td>
       <td>-</td>
     </>
   );
 }
 
+function weightedRoas(
+  rows: PerformanceRow[],
+  selectRoas: (row: PerformanceRow) => number | null,
+): number | null {
+  const weighted = rows.reduce(
+    (total, row) => {
+      const value = selectRoas(row);
+
+      if (value === null || row.spendCents === 0) {
+        return total;
+      }
+
+      return {
+        spendCents: total.spendCents + row.spendCents,
+        revenueBasis: total.revenueBasis + value * row.spendCents,
+      };
+    },
+    { revenueBasis: 0, spendCents: 0 },
+  );
+
+  return weighted.spendCents > 0
+    ? weighted.revenueBasis / weighted.spendCents
+    : null;
+}
+
 function reportTotals(rows: PerformanceRow[]): ReportTotals {
-  return rows.reduce(
+  const totals = rows.reduce<ReportTotals>(
     (totals, row) => ({
       spendCents: totals.spendCents + (row.spendCents ?? 0),
       metaConversationsStarted:
         totals.metaConversationsStarted + row.metaConversationsStarted,
       realConversations: totals.realConversations + row.realConversations,
-      leadSubmitted: totals.leadSubmitted + row.leadSubmitted,
+      organicLeads: totals.organicLeads + row.organicLeads,
+      totalReceived: totals.totalReceived + row.totalReceived,
+      trackingRate: null,
       qualifiedLead: totals.qualifiedLead + row.qualifiedLead,
-      purchase: totals.purchase + row.purchase,
+      purchases: totals.purchases + row.purchases,
+      firstPurchases: totals.firstPurchases + row.firstPurchases,
+      repurchases: totals.repurchases + row.repurchases,
+      trafficRevenueCents:
+        totals.trafficRevenueCents + row.trafficRevenueCents,
+      organicRevenueCents:
+        totals.organicRevenueCents + row.organicRevenueCents,
+      totalRevenueCents: totals.totalRevenueCents + row.totalRevenueCents,
+      firstPurchaseRevenueCents:
+        totals.firstPurchaseRevenueCents + row.firstPurchaseRevenueCents,
+      repurchaseRevenueCents:
+        totals.repurchaseRevenueCents + row.repurchaseRevenueCents,
+      roasAcquisition: null,
+      roasWithRepurchase: null,
     }),
     {
       spendCents: 0,
       metaConversationsStarted: 0,
       realConversations: 0,
-      leadSubmitted: 0,
+      organicLeads: 0,
+      totalReceived: 0,
+      trackingRate: null,
       qualifiedLead: 0,
-      purchase: 0,
+      purchases: 0,
+      firstPurchases: 0,
+      repurchases: 0,
+      trafficRevenueCents: 0,
+      organicRevenueCents: 0,
+      totalRevenueCents: 0,
+      firstPurchaseRevenueCents: 0,
+      repurchaseRevenueCents: 0,
+      roasAcquisition: null,
+      roasWithRepurchase: null,
     },
   );
+
+  return {
+    ...totals,
+    trackingRate:
+      totals.totalReceived > 0
+        ? totals.realConversations / totals.totalReceived
+        : null,
+    roasAcquisition: weightedRoas(rows, (row) => row.roasAcquisition),
+    roasWithRepurchase: weightedRoas(rows, (row) => row.roasWithRepurchase),
+  };
 }
 
 function metaStructureSummary(
@@ -804,10 +909,41 @@ function SummaryMetricsCells({ totals }: { totals: ReportTotals }) {
       <td>{money(totals.spendCents)}</td>
       <td>{totals.metaConversationsStarted}</td>
       <td>{totals.realConversations}</td>
-      <td>{totals.leadSubmitted}</td>
+      <td>
+        {totals.totalReceived}
+        <span>{percent(totals.trackingRate)}</span>
+      </td>
       <td>{totals.qualifiedLead}</td>
-      <td>{totals.purchase}</td>
-      <td>-</td>
+      <td>{totals.purchases}</td>
+      <td>{totals.firstPurchases}</td>
+      <td>{totals.repurchases}</td>
+      <td>{totals.organicLeads}</td>
+      <td>{money(totals.trafficRevenueCents)}</td>
+      <td>{money(totals.organicRevenueCents)}</td>
+      <td>{money(totals.totalRevenueCents)}</td>
+      <td>{roas(totals.roasAcquisition)}</td>
+      <td>{roas(totals.roasWithRepurchase)}</td>
+    </>
+  );
+}
+
+function PerformanceMetricHeaders() {
+  return (
+    <>
+      <th>Investimento</th>
+      <th>Conversas Meta</th>
+      <th>Conversas reais</th>
+      <th>Total recebido</th>
+      <th>Lead qualificado</th>
+      <th>Compras</th>
+      <th>Primeira compra</th>
+      <th>Recompra</th>
+      <th>Leads organicos</th>
+      <th>Receita trafego</th>
+      <th>Receita organica</th>
+      <th>Receita total</th>
+      <th>ROAS aquisicao</th>
+      <th>ROAS com recompra</th>
     </>
   );
 }
@@ -848,6 +984,17 @@ function deltaLabel(current: number, previous: number): string {
   return `${sign}${Math.round(delta)}%`;
 }
 
+function comparisonDeltaLabel(
+  current: number | null,
+  previous: number | null,
+): string {
+  if (current === null || previous === null) {
+    return "-";
+  }
+
+  return deltaLabel(current, previous);
+}
+
 function ComparisonMetric({
   label,
   current,
@@ -855,16 +1002,20 @@ function ComparisonMetric({
   format = String,
 }: {
   label: string;
-  current: number;
-  previous: number;
+  current: number | null;
+  previous: number | null;
   format?: (value: number) => string;
 }) {
+  const currentValue = current === null ? "-" : format(current);
+  const previousValue = previous === null ? "-" : format(previous);
+
   return (
     <div className="metric-card">
       <span className="micro-label">{label}</span>
-      <strong>{format(current)}</strong>
+      <strong>{currentValue}</strong>
       <span>
-        Periodo comparado {format(previous)} / {deltaLabel(current, previous)}
+        Periodo comparado {previousValue} /{" "}
+        {comparisonDeltaLabel(current, previous)}
       </span>
     </div>
   );
@@ -1117,19 +1268,59 @@ export default async function ReportsPage({
               previous={comparisonTotals.realConversations}
             />
             <ComparisonMetric
-              label="LeadSubmitted"
-              current={currentTotals.leadSubmitted}
-              previous={comparisonTotals.leadSubmitted}
-            />
-            <ComparisonMetric
-              label="QualifiedLead"
+              label="Lead qualificado"
               current={currentTotals.qualifiedLead}
               previous={comparisonTotals.qualifiedLead}
             />
             <ComparisonMetric
-              label="Purchase"
-              current={currentTotals.purchase}
-              previous={comparisonTotals.purchase}
+              label="Compras"
+              current={currentTotals.purchases}
+              previous={comparisonTotals.purchases}
+            />
+            <ComparisonMetric
+              label="Primeira compra"
+              current={currentTotals.firstPurchases}
+              previous={comparisonTotals.firstPurchases}
+            />
+            <ComparisonMetric
+              label="Recompra"
+              current={currentTotals.repurchases}
+              previous={comparisonTotals.repurchases}
+            />
+            <ComparisonMetric
+              label="Leads organicos"
+              current={currentTotals.organicLeads}
+              previous={comparisonTotals.organicLeads}
+            />
+            <ComparisonMetric
+              label="Receita trafego"
+              current={currentTotals.trafficRevenueCents}
+              previous={comparisonTotals.trafficRevenueCents}
+              format={money}
+            />
+            <ComparisonMetric
+              label="Receita organica"
+              current={currentTotals.organicRevenueCents}
+              previous={comparisonTotals.organicRevenueCents}
+              format={money}
+            />
+            <ComparisonMetric
+              label="Receita total"
+              current={currentTotals.totalRevenueCents}
+              previous={comparisonTotals.totalRevenueCents}
+              format={money}
+            />
+            <ComparisonMetric
+              label="ROAS aquisicao"
+              current={currentTotals.roasAcquisition}
+              previous={comparisonTotals.roasAcquisition}
+              format={roas}
+            />
+            <ComparisonMetric
+              label="ROAS com recompra"
+              current={currentTotals.roasWithRepurchase}
+              previous={comparisonTotals.roasWithRepurchase}
+              format={roas}
             />
           </div>
         </div>
@@ -1140,13 +1331,7 @@ export default async function ReportsPage({
           <thead>
             <tr>
               <th>Campanha</th>
-              <th>Investimento</th>
-              <th>Conversas Meta</th>
-              <th>Conversas reais</th>
-              <th>LeadSubmitted</th>
-              <th>QualifiedLead</th>
-              <th>Purchase</th>
-              <th>ROAS</th>
+              <PerformanceMetricHeaders />
               <th>Revisao WhatsApp</th>
             </tr>
           </thead>
@@ -1218,13 +1403,7 @@ export default async function ReportsPage({
             <thead>
               <tr>
                 <th>Conjunto</th>
-                <th>Investimento</th>
-                <th>Conversas Meta</th>
-                <th>Conversas reais</th>
-                <th>LeadSubmitted</th>
-                <th>QualifiedLead</th>
-                <th>Purchase</th>
-                <th>ROAS</th>
+                <PerformanceMetricHeaders />
                 <th>Revisao WhatsApp</th>
               </tr>
             </thead>
@@ -1302,13 +1481,7 @@ export default async function ReportsPage({
             <thead>
               <tr>
                 <th>Anuncio</th>
-                <th>Investimento</th>
-                <th>Conversas Meta</th>
-                <th>Conversas reais</th>
-                <th>LeadSubmitted</th>
-                <th>QualifiedLead</th>
-                <th>Purchase</th>
-                <th>ROAS</th>
+                <PerformanceMetricHeaders />
                 <th>Revisao WhatsApp</th>
               </tr>
             </thead>

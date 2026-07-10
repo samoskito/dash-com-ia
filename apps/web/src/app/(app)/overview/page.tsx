@@ -1,4 +1,8 @@
-import type { CampaignReportRowDto, ReportOverviewDto } from "@wpptrack/shared";
+import type {
+  CampaignReportRowDto,
+  ReportFunnelStepDto,
+  ReportOverviewDto
+} from "@wpptrack/shared";
 import { serverApiFetch } from "../../../lib/server-api";
 
 type OverviewFetchState = "real" | "empty" | "error";
@@ -48,15 +52,47 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
     (total, campaign) => total + campaign.realConversations,
     0
   );
-  const leadSubmitted = campaigns.reduce(
-    (total, campaign) => total + campaign.leadSubmitted,
+  const organicLeads = campaigns.reduce(
+    (total, campaign) => total + campaign.organicLeads,
+    0
+  );
+  const totalReceived = campaigns.reduce(
+    (total, campaign) => total + campaign.totalReceived,
     0
   );
   const qualifiedLead = campaigns.reduce(
     (total, campaign) => total + campaign.qualifiedLead,
     0
   );
-  const purchase = campaigns.reduce((total, campaign) => total + campaign.purchase, 0);
+  const purchases = campaigns.reduce((total, campaign) => total + campaign.purchases, 0);
+  const firstPurchases = campaigns.reduce(
+    (total, campaign) => total + campaign.firstPurchases,
+    0
+  );
+  const repurchases = campaigns.reduce(
+    (total, campaign) => total + campaign.repurchases,
+    0
+  );
+  const trafficRevenueCents = campaigns.reduce(
+    (total, campaign) => total + campaign.trafficRevenueCents,
+    0
+  );
+  const organicRevenueCents = campaigns.reduce(
+    (total, campaign) => total + campaign.organicRevenueCents,
+    0
+  );
+  const totalRevenueCents = trafficRevenueCents + organicRevenueCents;
+  const firstPurchaseRevenueCents = campaigns.reduce(
+    (total, campaign) => total + campaign.firstPurchaseRevenueCents,
+    0
+  );
+  const repurchaseRevenueCents = campaigns.reduce(
+    (total, campaign) => total + campaign.repurchaseRevenueCents,
+    0
+  );
+  const visibleFunnelKeys = new Set(
+    campaigns.flatMap((campaign) => campaign.funnelSteps.map((step) => step.key))
+  );
 
   return {
     id: "all_campaigns",
@@ -72,13 +108,76 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
     costPerMetaConversationCents: costPer(spendCents, metaConversationsStarted),
     realConversations,
     costPerRealConversationCents: costPer(spendCents, realConversations),
-    leadSubmitted,
-    costPerLeadSubmittedCents: costPer(spendCents, leadSubmitted),
+    organicLeads,
+    totalReceived,
+    trackingRate: ratio(realConversations, totalReceived),
     qualifiedLead,
     costPerQualifiedLeadCents: costPer(spendCents, qualifiedLead),
-    purchase,
-    costPerPurchaseCents: costPer(spendCents, purchase),
-    roas: null
+    purchases,
+    firstPurchases,
+    repurchases,
+    costPerPurchaseCents: costPer(spendCents, purchases),
+    trafficRevenueCents,
+    organicRevenueCents,
+    totalRevenueCents,
+    firstPurchaseRevenueCents,
+    repurchaseRevenueCents,
+    roasAcquisition: weightedRoas(
+      campaigns,
+      (campaign) => campaign.roasAcquisition
+    ),
+    roasWithRepurchase: weightedRoas(
+      campaigns,
+      (campaign) => campaign.roasWithRepurchase
+    ),
+    funnelSteps: [
+      funnelStep(
+        "real_conversations",
+        "Conversas reais iniciadas",
+        realConversations,
+        costPer(spendCents, realConversations)
+      ),
+      ...(visibleFunnelKeys.has("qualified_lead") || qualifiedLead > 0
+        ? [
+            funnelStep(
+              "qualified_lead",
+              "Lead qualificado",
+              qualifiedLead,
+              costPer(spendCents, qualifiedLead)
+            )
+          ]
+        : []),
+      ...(visibleFunnelKeys.has("purchase") || purchases > 0
+        ? [
+            funnelStep(
+              "purchase",
+              "Compras",
+              purchases,
+              costPer(spendCents, purchases)
+            )
+          ]
+        : []),
+      ...(visibleFunnelKeys.has("first_purchase") || firstPurchases > 0
+        ? [
+            funnelStep(
+              "first_purchase",
+              "Primeira compra",
+              firstPurchases,
+              costPer(spendCents, firstPurchases)
+            )
+          ]
+        : []),
+      ...(visibleFunnelKeys.has("repurchase") || repurchases > 0
+        ? [
+            funnelStep(
+              "repurchase",
+              "Recompra",
+              repurchases,
+              costPer(spendCents, repurchases)
+            )
+          ]
+        : [])
+    ]
   };
 }
 
@@ -86,21 +185,72 @@ function costPer(spendCents: number, count: number): number | null {
   return count > 0 ? Math.floor(spendCents / count) : null;
 }
 
+function ratio(part: number, total: number): number | null {
+  return total > 0 ? part / total : null;
+}
+
+function weightedRoas(
+  campaigns: CampaignReportRowDto[],
+  selectRoas: (campaign: CampaignReportRowDto) => number | null
+): number | null {
+  const weighted = campaigns.reduce(
+    (total, campaign) => {
+      const value = selectRoas(campaign);
+
+      if (value === null || campaign.spendCents === 0) {
+        return total;
+      }
+
+      return {
+        revenueBasis: total.revenueBasis + value * campaign.spendCents,
+        spendCents: total.spendCents + campaign.spendCents
+      };
+    },
+    { revenueBasis: 0, spendCents: 0 }
+  );
+
+  return weighted.spendCents > 0
+    ? weighted.revenueBasis / weighted.spendCents
+    : null;
+}
+
 function percent(part: number, total: number): number {
   return total > 0 ? Math.round((part / total) * 100) : 0;
+}
+
+function ratePercent(rate: number | null): number {
+  return rate === null ? 0 : Math.round(rate * 100);
+}
+
+function ratioLabel(value: number | null): string {
+  return value === null ? "-" : `${value.toFixed(2)}x`;
 }
 
 function funnelWidth(part: number, total: number): string {
   return `${Math.max(percent(part, total), part > 0 ? 3 : 0)}%`;
 }
 
+function funnelStep(
+  key: ReportFunnelStepDto["key"],
+  label: ReportFunnelStepDto["label"],
+  value: number,
+  costCents: number | null
+): ReportFunnelStepDto {
+  return {
+    key,
+    label,
+    value,
+    costCents
+  };
+}
+
 export default async function OverviewPage() {
   const { report, state: reportState } = await getOverviewReport();
   const campaigns = report.campaigns;
   const campaign = sumCampaigns(campaigns);
-  const trackedRate = percent(campaign.realConversations, campaign.metaConversationsStarted);
-  const leadRate = percent(campaign.leadSubmitted, campaign.realConversations);
-  const purchaseRate = percent(campaign.purchase, campaign.leadSubmitted);
+  const trackedRate = ratePercent(campaign.trackingRate);
+  const qualifiedRate = percent(campaign.qualifiedLead, campaign.realConversations);
+  const purchaseRate = percent(campaign.purchases, campaign.realConversations);
 
   return (
     <section className="page-stack">
@@ -126,8 +276,8 @@ export default async function OverviewPage() {
       <div className="metric-grid">
         <Metric label="Conversas Meta" value={String(campaign.metaConversationsStarted)} delta={report.rangeLabel} />
         <Metric label="Conversas reais" value={String(campaign.realConversations)} delta={`${trackedRate}% conciliadas`} />
-        <Metric label="LeadSubmitted" value={String(campaign.leadSubmitted)} delta={`${leadRate}% das conversas reais`} />
-        <Metric label="Purchase" value={String(campaign.purchase)} delta={`${purchaseRate}% dos leads`} />
+        <Metric label="Receita trafego" value={money(campaign.trafficRevenueCents)} delta={`ROAS ${ratioLabel(campaign.roasAcquisition)}`} />
+        <Metric label="Compras" value={String(campaign.purchases)} delta={`${campaign.firstPurchases} primeira compra, ${campaign.repurchases} recompra`} />
       </div>
 
       <div className="panel-grid">
@@ -144,31 +294,19 @@ export default async function OverviewPage() {
             {reportState === "error"
               ? "Confira a API antes de analisar performance."
               : campaigns.length > 0
-              ? `Investimento de ${money(campaign.spendCents)} gerou ${campaign.realConversations} conversas reais, ${campaign.leadSubmitted} leads e ${campaign.purchase} compras atribuidas.`
+              ? `Investimento de ${money(campaign.spendCents)} gerou ${campaign.realConversations} conversas reais, ${campaign.organicLeads} conversas organicas e ${money(campaign.totalRevenueCents)} em receita total.`
               : "Nenhuma campanha sincronizada. Use Sincronizar Meta em Relatorios para carregar dados reais."}
           </p>
           <div className="funnel-row" aria-label="Resumo do funil">
             <FunnelStep label="Meta conv." value={campaign.metaConversationsStarted} width="100%" />
-            <FunnelStep
-              label="Conversa real"
-              value={campaign.realConversations}
-              width={funnelWidth(campaign.realConversations, campaign.metaConversationsStarted)}
-            />
-            <FunnelStep
-              label="LeadSubmitted"
-              value={campaign.leadSubmitted}
-              width={funnelWidth(campaign.leadSubmitted, campaign.metaConversationsStarted)}
-            />
-            <FunnelStep
-              label="QualifiedLead"
-              value={campaign.qualifiedLead}
-              width={funnelWidth(campaign.qualifiedLead, campaign.metaConversationsStarted)}
-            />
-            <FunnelStep
-              label="Purchase"
-              value={campaign.purchase}
-              width={funnelWidth(campaign.purchase, campaign.metaConversationsStarted)}
-            />
+            {campaign.funnelSteps.map((step) => (
+              <FunnelStep
+                key={step.key}
+                label={step.label}
+                value={step.value}
+                width={funnelWidth(step.value, campaign.metaConversationsStarted)}
+              />
+            ))}
           </div>
           <div className="chip-row" aria-label="Campanhas no recorte">
             {campaigns.length > 0 ? (
@@ -188,8 +326,10 @@ export default async function OverviewPage() {
           <h2>Sinal sem ruido</h2>
           <div className="quality-list">
             <QualityItem label="Conversas reais sobre Meta" value={`${trackedRate}%`} />
-            <QualityItem label="Leads sobre conversas reais" value={`${leadRate}%`} />
-            <QualityItem label="Compras sobre leads" value={`${purchaseRate}%`} />
+            <QualityItem label="Leads qualificados sobre conversas" value={`${qualifiedRate}%`} />
+            <QualityItem label="Compras sobre conversas reais" value={`${purchaseRate}%`} />
+            <QualityItem label="Receita organica" value={money(campaign.organicRevenueCents)} />
+            <QualityItem label="ROAS com recompra" value={ratioLabel(campaign.roasWithRepurchase)} />
             <QualityItem
               label="Custo por conversa real"
               value={money(campaign.costPerRealConversationCents)}

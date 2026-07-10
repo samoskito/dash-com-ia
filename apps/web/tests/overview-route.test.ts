@@ -7,6 +7,59 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function reportMetrics(overrides: Record<string, unknown> = {}) {
+  const metrics = {
+    spendCents: 10000,
+    metaConversationsStarted: 10,
+    costPerMetaConversationCents: 1000,
+    realConversations: 6,
+    costPerRealConversationCents: 1666,
+    organicLeads: 2,
+    totalReceived: 8,
+    trackingRate: 0.75,
+    qualifiedLead: 1,
+    costPerQualifiedLeadCents: 10000,
+    purchases: 1,
+    firstPurchases: 1,
+    repurchases: 0,
+    costPerPurchaseCents: 10000,
+    trafficRevenueCents: 30000,
+    organicRevenueCents: 5000,
+    totalRevenueCents: 35000,
+    firstPurchaseRevenueCents: 30000,
+    repurchaseRevenueCents: 0,
+    roasAcquisition: 3,
+    roasWithRepurchase: 3,
+    funnelSteps: [
+      {
+        key: "real_conversations",
+        label: "Conversas reais iniciadas",
+        value: 6,
+        costCents: 1666
+      },
+      {
+        key: "qualified_lead",
+        label: "Lead qualificado",
+        value: 1,
+        costCents: 10000
+      },
+      {
+        key: "purchase",
+        label: "Compras",
+        value: 1,
+        costCents: 10000
+      },
+      {
+        key: "first_purchase",
+        label: "Primeira compra",
+        value: 1
+      }
+    ]
+  };
+
+  return { ...metrics, ...overrides };
+}
+
 describe("overview route", () => {
   it("renders aggregated campaign metrics returned by the backend", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
@@ -19,35 +72,40 @@ describe("overview route", () => {
               id: "cmp_1",
               name: "Campanha Real",
               status: "active",
-              spendCents: 10000,
-              metaConversationsStarted: 10,
-              costPerMetaConversationCents: 1000,
-              realConversations: 6,
-              costPerRealConversationCents: 1666,
-              leadSubmitted: 2,
-              costPerLeadSubmittedCents: 5000,
-              qualifiedLead: 1,
-              costPerQualifiedLeadCents: 10000,
-              purchase: 1,
-              costPerPurchaseCents: 10000,
-              roas: null
+              ...reportMetrics()
             },
             {
               id: "cmp_2",
               name: "Segunda Campanha",
               status: "paused",
-              spendCents: 5000,
-              metaConversationsStarted: 5,
-              costPerMetaConversationCents: 1000,
-              realConversations: 2,
-              costPerRealConversationCents: 2500,
-              leadSubmitted: 1,
-              costPerLeadSubmittedCents: 5000,
-              qualifiedLead: 0,
-              costPerQualifiedLeadCents: null,
-              purchase: 0,
-              costPerPurchaseCents: null,
-              roas: null
+              ...reportMetrics({
+                spendCents: 5000,
+                metaConversationsStarted: 5,
+                realConversations: 2,
+                costPerRealConversationCents: 2500,
+                organicLeads: 1,
+                totalReceived: 3,
+                trackingRate: 2 / 3,
+                qualifiedLead: 0,
+                costPerQualifiedLeadCents: null,
+                purchases: 0,
+                firstPurchases: 0,
+                costPerPurchaseCents: null,
+                trafficRevenueCents: 0,
+                organicRevenueCents: 0,
+                totalRevenueCents: 0,
+                firstPurchaseRevenueCents: 0,
+                roasAcquisition: 0,
+                roasWithRepurchase: 0,
+                funnelSteps: [
+                  {
+                    key: "real_conversations",
+                    label: "Conversas reais iniciadas",
+                    value: 2,
+                    costCents: 2500
+                  }
+                ]
+              })
             }
           ]
         }),
@@ -67,8 +125,11 @@ describe("overview route", () => {
     expect(html).toContain("Segunda Campanha");
     expect(html).toContain(">15<");
     expect(html).toContain(">8<");
-    expect(html).toContain(">3<");
+    expect(html).toContain("3 conversas organicas");
+    expect(html).toContain("Receita trafego");
+    expect(html).toContain("Receita organica");
     expect(html).toContain(">1<");
+    expect(html).not.toContain("LeadSubmitted");
     expect(html).not.toContain("Black Friday WhatsApp");
   });
 
