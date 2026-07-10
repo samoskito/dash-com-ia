@@ -31,6 +31,7 @@ export type RecordRuleMatchesInput = {
   currency?: string | null;
   contentName?: string | null;
   customData?: ConversionEventCustomDataDto;
+  eventOccurredAt?: Date | string | null;
 };
 
 export type RecordRuleMatchesResult = {
@@ -48,6 +49,10 @@ type ConversionEventLogRecord = {
   eventName: ConversionEventNameDto;
   status: string;
   phoneHash: string | null;
+  eventOccurredAt: Date;
+  customerIdentityKey: string | null;
+  businessSource: string;
+  purchaseKind: string | null;
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
@@ -83,6 +88,7 @@ type RecordAutomaticLeadSubmittedInput = {
   adSetId?: string;
   adId?: string;
   ctwaClid?: string;
+  eventOccurredAt?: Date | string | null;
 };
 
 export type SendManualTestEventInput = ConversionEventTestInputDto;
@@ -156,11 +162,22 @@ export class ConversionEventsService {
           : rule.defaultItems
             ? ({ contents: rule.defaultItems } as Prisma.InputJsonValue)
             : Prisma.JsonNull;
+      const eventOccurredAt = this.resolveEventOccurredAt(input.eventOccurredAt);
+      const customerIdentityKey = this.resolveCustomerIdentityKey(input.phoneHash);
+      const purchaseKind = await this.resolvePurchaseKind({
+        workspaceId: input.workspaceId,
+        eventName: rule.eventName,
+        customerIdentityKey
+      });
       const log = await this.prisma.conversionEventLog.create({
         data: {
           workspaceId: input.workspaceId,
           leadId: input.leadId ?? null,
           phoneHash: input.phoneHash ?? null,
+          eventOccurredAt,
+          customerIdentityKey,
+          businessSource: "paid",
+          purchaseKind,
           sourceTrigger: rule.triggerType,
           eventName: rule.eventName,
           status: initialStatus.status,
@@ -212,11 +229,17 @@ export class ConversionEventsService {
       ctwaClid: input.ctwaClid,
       valueCents: null
     });
+    const eventOccurredAt = this.resolveEventOccurredAt(input.eventOccurredAt);
+    const customerIdentityKey = this.resolveCustomerIdentityKey(input.phoneHash);
     const log = await this.prisma.conversionEventLog.create({
       data: {
         workspaceId: input.workspaceId,
         leadId: input.leadId ?? null,
         phoneHash: input.phoneHash ?? null,
+        eventOccurredAt,
+        customerIdentityKey,
+        businessSource: "paid",
+        purchaseKind: null,
         sourceTrigger: "auto_lead",
         eventName: "LeadSubmitted",
         status: initialStatus.status,
@@ -275,11 +298,17 @@ export class ConversionEventsService {
       ctwaClid: input.ctwaClid,
       valueCents: input.valueCents ?? null
     });
+    const eventOccurredAt = this.resolveEventOccurredAt();
+    const customerIdentityKey = this.resolveCustomerIdentityKey(input.phoneHash);
     const log = await this.prisma.conversionEventLog.create({
       data: {
         workspaceId: input.workspaceId,
         leadId: input.leadId ?? null,
         phoneHash: input.phoneHash,
+        eventOccurredAt,
+        customerIdentityKey,
+        businessSource: "paid",
+        purchaseKind: null,
         sourceTrigger: "manual_test",
         eventName: input.eventName,
         status: initialStatus.status,
@@ -348,6 +377,7 @@ export class ConversionEventsService {
       currency: log.currency,
       contentName: log.contentName,
       customData: log.customData as ConversionEventCustomDataDto | null,
+      eventTime: log.eventOccurredAt,
       testEventCode: options.testEventCode ?? null
     });
     const integrationLogId = await this.recordMetaCapiIntegrationLog(
@@ -585,6 +615,49 @@ export class ConversionEventsService {
       rule.eventName,
       input.adId ?? "missing_ad"
     ].join(":");
+  }
+
+  private resolveEventOccurredAt(value?: Date | string | null): Date {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value;
+    }
+
+    if (typeof value === "string") {
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+
+    return new Date();
+  }
+
+  private resolveCustomerIdentityKey(phoneHash?: string | null): string | null {
+    const normalized = phoneHash?.trim();
+    return normalized ? normalized : null;
+  }
+
+  private async resolvePurchaseKind(input: {
+    workspaceId: string;
+    eventName: ConversionEventNameDto;
+    customerIdentityKey: string | null;
+  }): Promise<"first_purchase" | "repurchase" | null> {
+    if (input.eventName !== "Purchase" || !input.customerIdentityKey) {
+      return null;
+    }
+
+    const previousPurchases = await this.prisma.conversionEventLog.count({
+      where: {
+        workspaceId: input.workspaceId,
+        eventName: "Purchase",
+        customerIdentityKey: input.customerIdentityKey,
+        sourceTrigger: {
+          not: "manual_test"
+        }
+      }
+    });
+
+    return previousPurchases === 0 ? "first_purchase" : "repurchase";
   }
 
   private resolveInitialStatus(input: {

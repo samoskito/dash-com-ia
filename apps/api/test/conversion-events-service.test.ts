@@ -8,7 +8,8 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
     integrationLogs: [] as Array<Record<string, unknown>>,
     diagnosticEvents: [] as Array<Record<string, unknown>>,
     logs: [] as Array<Record<string, unknown>>,
-    destinations: [] as Array<Record<string, unknown>>
+    destinations: [] as Array<Record<string, unknown>>,
+    countQueries: [] as Array<Record<string, unknown>>
   };
   const prisma = {
     metaConversionDestination: {
@@ -43,6 +44,25 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
             where.id.in.includes(String(log.id)) &&
             (where.status === undefined || log.status === where.status)
         ),
+      count: async ({
+        where
+      }: {
+        where: {
+          workspaceId?: string;
+          eventName?: string;
+          customerIdentityKey?: string;
+        };
+      }) =>
+        {
+          db.countQueries.push(where);
+          return db.logs.filter(
+            (log) =>
+              (where.workspaceId === undefined || log.workspaceId === where.workspaceId) &&
+              (where.eventName === undefined || log.eventName === where.eventName) &&
+              (where.customerIdentityKey === undefined ||
+                log.customerIdentityKey === where.customerIdentityKey)
+          ).length;
+        },
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const log = {
           id: `conversion_${db.logs.length + 1}`,
@@ -172,6 +192,118 @@ describe("conversion events service", () => {
       pixelId: null,
       adId: "ad_1"
     });
+  });
+
+  it("persists reporting occurrence fields for automatic LeadSubmitted events", async () => {
+    const { db, service } = createHarness();
+
+    await service.recordAutomaticLeadSubmitted({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1"
+    });
+
+    expect(db.logs[0]).toMatchObject({
+      eventName: "LeadSubmitted",
+      eventOccurredAt: expect.any(Date),
+      customerIdentityKey: "phone_hash_1",
+      businessSource: "paid",
+      purchaseKind: null
+    });
+  });
+
+  it("classifies purchases by first purchase per workspace customer identity", async () => {
+    const { db, service } = createHarness();
+    const firstOccurredAt = new Date("2026-07-02T10:15:00.000Z");
+    const secondOccurredAt = new Date("2026-07-03T10:15:00.000Z");
+    const purchaseRule = {
+      id: "rule_purchase",
+      workspaceId: "workspace_1",
+      name: "Compra",
+      triggerType: "keyword" as const,
+      triggerValue: "comprar",
+      matchMode: "contains" as const,
+      eventName: "Purchase" as const,
+      pixelId: "pixel_1",
+      defaultValueCents: 19900,
+      active: true,
+      createdAt: "2026-07-02T03:00:00.000Z",
+      updatedAt: "2026-07-02T03:00:00.000Z"
+    };
+
+    await service.recordRuleMatches({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      eventOccurredAt: firstOccurredAt,
+      rules: [purchaseRule]
+    });
+    await service.recordRuleMatches({
+      workspaceId: "workspace_1",
+      leadId: "lead_2",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      eventOccurredAt: secondOccurredAt,
+      rules: [{ ...purchaseRule, id: "rule_purchase_2" }]
+    });
+
+    expect(db.logs[0]).toMatchObject({
+      eventName: "Purchase",
+      eventOccurredAt: firstOccurredAt,
+      customerIdentityKey: "phone_hash_1",
+      businessSource: "paid",
+      purchaseKind: "first_purchase"
+    });
+    expect(db.logs[1]).toMatchObject({
+      eventName: "Purchase",
+      eventOccurredAt: secondOccurredAt,
+      customerIdentityKey: "phone_hash_1",
+      businessSource: "paid",
+      purchaseKind: "repurchase"
+    });
+  });
+
+  it("keeps purchaseKind null and skips classification when Purchase has no customer identity", async () => {
+    const { db, service } = createHarness();
+
+    await service.recordRuleMatches({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      rules: [
+        {
+          id: "rule_purchase",
+          workspaceId: "workspace_1",
+          name: "Compra",
+          triggerType: "keyword",
+          triggerValue: "comprar",
+          matchMode: "contains",
+          eventName: "Purchase",
+          pixelId: "pixel_1",
+          defaultValueCents: 19900,
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        }
+      ]
+    });
+
+    expect(db.logs[0]).toMatchObject({
+      eventName: "Purchase",
+      phoneHash: null,
+      customerIdentityKey: null,
+      businessSource: "paid",
+      purchaseKind: null
+    });
+    expect(db.countQueries).toEqual([]);
   });
 
   it("blocks Purchase without value as pending_value", async () => {

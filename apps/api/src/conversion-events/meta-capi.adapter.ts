@@ -30,6 +30,7 @@ export type MetaCapiSendEventInput = {
   currency?: string | null;
   contentName?: string | null;
   customData?: ConversionEventCustomDataDto | null;
+  eventTime?: Date | null;
   testEventCode?: string | null;
 };
 
@@ -105,7 +106,7 @@ export class MetaCapiAdapter {
         body: JSON.stringify(
           buildMetaCapiPayload({
             eventName: input.eventName,
-            eventTime: new Date(),
+            eventTime: input.eventTime ?? new Date(),
             eventId: input.dedupeKey,
             phoneHash,
             ctwaClid,

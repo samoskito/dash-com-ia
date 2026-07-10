@@ -320,6 +320,10 @@ model ConversionEventLog {
   ctwaClid                String?
   attributionStatus       String?
   dedupeKey               String?   @unique
+  eventOccurredAt         DateTime  @default(now())
+  customerIdentityKey     String?
+  businessSource          String    @default("paid")
+  purchaseKind            String?
   sentAt                  DateTime?
   providerResponseSummary Json?
   customData              Json?
@@ -335,6 +339,8 @@ model ConversionEventLog {
   diagnosticEvents DiagnosticEvent[]
 
   @@index([workspaceId, status, createdAt])
+  @@index([workspaceId, eventOccurredAt])
+  @@index([workspaceId, eventName, eventOccurredAt])
   @@index([leadId])
 }
 

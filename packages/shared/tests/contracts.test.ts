@@ -7,6 +7,8 @@ import {
   canViewReports,
   campaignReportRowSchema,
   clientNavigation,
+  conversionAuditEventSchema,
+  conversionAuditOverviewSchema,
   conversionEventErrorCodeSchema,
   conversionEventLogStatusSchema,
   conversionEventNameSchema,
@@ -30,6 +32,7 @@ import {
   diagnosticRetryInputSchema,
   diagnosticRetryResultSchema,
   diagnosticWebhookPayloadSchema,
+  funnelMetricKeys,
   integrationHealthSchema,
   integrationHealthSummarySchema,
   integrationPipelineOverviewSchema,
@@ -82,6 +85,60 @@ import {
 } from "../src";
 
 describe("shared contracts", () => {
+  const approvedReportMetrics = {
+    spendCents: 120000,
+    metaConversationsStarted: 100,
+    costPerMetaConversationCents: 1200,
+    realConversations: 80,
+    costPerRealConversationCents: 1500,
+    organicLeads: 10,
+    totalReceived: 90,
+    trackingRate: 0.8889,
+    qualifiedLead: 12,
+    costPerQualifiedLeadCents: 10000,
+    purchases: 5,
+    firstPurchases: 3,
+    repurchases: 2,
+    costPerPurchaseCents: 24000,
+    trafficRevenueCents: 450000,
+    organicRevenueCents: 50000,
+    totalRevenueCents: 500000,
+    firstPurchaseRevenueCents: 300000,
+    repurchaseRevenueCents: 200000,
+    roasAcquisition: 3.75,
+    roasWithRepurchase: 4.1667,
+    funnelSteps: [
+      {
+        key: "real_conversations",
+        label: "Conversas reais iniciadas",
+        value: 80,
+        costCents: 1500
+      },
+      {
+        key: "qualified_lead",
+        label: "Lead qualificado",
+        value: 12,
+        costCents: 10000
+      },
+      {
+        key: "purchase",
+        label: "Compras",
+        value: 5,
+        costCents: 24000
+      },
+      {
+        key: "first_purchase",
+        label: "Primeira compra",
+        value: 3
+      },
+      {
+        key: "repurchase",
+        label: "Recompra",
+        value: 2
+      }
+    ]
+  };
+
   it("does not include Clientes in client navigation", () => {
     expect(clientNavigation.map((item) => item.label)).not.toContain("Clientes");
   });
@@ -103,44 +160,48 @@ describe("shared contracts", () => {
       adAccountId: "act_123",
       adAccountName: "Conta WhatsApp",
       whatsappClassification: "auto_whatsapp",
-      spendCents: 120000,
-      metaConversationsStarted: 100,
-      costPerMetaConversationCents: 1200,
-      realConversations: 80,
-      costPerRealConversationCents: 1500,
+      ...approvedReportMetrics,
       leadSubmitted: 30,
-      costPerLeadSubmittedCents: 4000,
-      qualifiedLead: 12,
-      costPerQualifiedLeadCents: 10000,
       purchase: 3,
-      costPerPurchaseCents: 40000,
       roas: 4.2
     });
 
-    expect(parsed.purchase).toBe(3);
+    expect(parsed.purchases).toBe(5);
+    expect(parsed.firstPurchases).toBe(3);
+    expect(parsed.repurchases).toBe(2);
+    expect(parsed.totalRevenueCents).toBe(500000);
+    expect(parsed.funnelSteps.map((step) => step.key)).toEqual([
+      "real_conversations",
+      "qualified_lead",
+      "purchase",
+      "first_purchase",
+      "repurchase"
+    ]);
+    expect("leadSubmitted" in parsed).toBe(false);
+    expect("purchase" in parsed).toBe(false);
+    expect("roas" in parsed).toBe(false);
   });
 
-  it("validates legacy campaign report rows without Meta account metadata", () => {
+  it("validates campaign report rows without Meta account metadata", () => {
     const parsed = campaignReportRowSchema.parse({
       id: "cmp_1",
       name: "Black Friday WhatsApp",
       status: "active",
-      spendCents: 120000,
-      metaConversationsStarted: 100,
-      costPerMetaConversationCents: 1200,
-      realConversations: 80,
-      costPerRealConversationCents: 1500,
-      leadSubmitted: 30,
-      costPerLeadSubmittedCents: 4000,
-      qualifiedLead: 12,
-      costPerQualifiedLeadCents: 10000,
-      purchase: 3,
-      costPerPurchaseCents: 40000,
-      roas: 4.2
+      ...approvedReportMetrics
     });
 
-    expect(parsed.purchase).toBe(3);
+    expect(parsed.purchases).toBe(5);
     expect(parsed.whatsappClassification).toBeUndefined();
+  });
+
+  it("exports approved dynamic funnel metric keys", () => {
+    expect(funnelMetricKeys).toEqual([
+      "real_conversations",
+      "qualified_lead",
+      "purchase",
+      "first_purchase",
+      "repurchase"
+    ]);
   });
 
   it("validates Meta conversion destination and reporting accounts", () => {
@@ -183,21 +244,11 @@ describe("shared contracts", () => {
       adAccountId: "act_123",
       adAccountName: "Conta WhatsApp",
       whatsappClassification: "auto_whatsapp",
-      spendCents: 10000,
-      metaConversationsStarted: 2,
-      costPerMetaConversationCents: 5000,
-      realConversations: 1,
-      costPerRealConversationCents: 10000,
-      leadSubmitted: 1,
-      costPerLeadSubmittedCents: 10000,
-      qualifiedLead: 0,
-      costPerQualifiedLeadCents: null,
-      purchase: 0,
-      costPerPurchaseCents: null,
-      roas: null
+      ...approvedReportMetrics
     });
 
     expect(row.whatsappClassification).toBe("auto_whatsapp");
+    expect(row.trackingRate).toBe(0.8889);
   });
 
   it("validates manual WhatsApp classification override input", () => {
@@ -253,18 +304,7 @@ describe("shared contracts", () => {
           adAccountId: "act_123",
           adAccountName: "Conta WhatsApp",
           whatsappClassification: "auto_whatsapp",
-          spendCents: 0,
-          metaConversationsStarted: 0,
-          costPerMetaConversationCents: null,
-          realConversations: 2,
-          costPerRealConversationCents: null,
-          leadSubmitted: 1,
-          costPerLeadSubmittedCents: null,
-          qualifiedLead: 1,
-          costPerQualifiedLeadCents: null,
-          purchase: 1,
-          costPerPurchaseCents: null,
-          roas: null
+          ...approvedReportMetrics
         }
       ]
     });
@@ -285,24 +325,17 @@ describe("shared contracts", () => {
           adAccountId: "act_123",
           adAccountName: "Conta WhatsApp",
           whatsappClassification: "creative_whatsapp",
-          spendCents: 0,
-          metaConversationsStarted: 0,
-          costPerMetaConversationCents: null,
-          realConversations: 2,
-          costPerRealConversationCents: null,
-          leadSubmitted: 1,
-          costPerLeadSubmittedCents: null,
-          qualifiedLead: 1,
-          costPerQualifiedLeadCents: null,
-          purchase: 1,
-          costPerPurchaseCents: null,
-          roas: null
+          ...approvedReportMetrics
         }
       ]
     });
 
     expect(adSets.adSets[0]?.campaignName).toBe("Black Friday WhatsApp");
+    expect(adSets.adSets[0]?.funnelSteps[0]?.label).toBe(
+      "Conversas reais iniciadas"
+    );
     expect(ads.ads[0]?.adSetName).toBe("Publico quente");
+    expect(ads.ads[0]?.roasWithRepurchase).toBe(4.1667);
   });
 
   it("validates Meta campaign/adset/ad structure reports", () => {
@@ -1250,6 +1283,55 @@ describe("shared contracts", () => {
     expect(conversionEventErrorCodeSchema.parse("MetaCapiRejected")).toBe(
       "MetaCapiRejected"
     );
+  });
+
+  it("validates conversion audit report events", () => {
+    const event = conversionAuditEventSchema.parse({
+      id: "audit_event_1",
+      eventName: "Purchase",
+      eventLabel: "Compras",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      pixelId: "pixel_1",
+      pageId: "page_1",
+      occurredAt: "2026-07-02T03:00:00.000Z",
+      sentAt: "2026-07-02T03:01:00.000Z",
+      status: "sent",
+      providerResponseSummary: "events_received: 1",
+      errorCode: null,
+      errorMessage: null
+    });
+    const overview = conversionAuditOverviewSchema.parse({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      events: [
+        event,
+        {
+          id: "audit_event_2",
+          eventName: "QualifiedLead",
+          eventLabel: "Lead qualificado",
+          leadId: null,
+          phoneHash: "phone_hash_2",
+          campaignId: null,
+          adSetId: null,
+          adId: null,
+          pixelId: "pixel_1",
+          pageId: null,
+          occurredAt: "2026-07-02T04:00:00.000Z",
+          sentAt: null,
+          status: "error",
+          providerResponseSummary: null,
+          errorCode: "MetaCapiRejected",
+          errorMessage: "Invalid match key"
+        }
+      ]
+    });
+
+    expect(event.eventLabel).toBe("Compras");
+    expect(overview.events[1]?.errorCode).toBe("MetaCapiRejected");
   });
 
   it("validates conversion rules with value defaults for Purchase", () => {

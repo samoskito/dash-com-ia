@@ -1,6 +1,10 @@
 import { z } from "zod";
 
+import { conversionEventLogStatusSchema } from "./conversion-events";
+
 const moneyCentsSchema = z.number().int().nonnegative();
+const nonnegativeIntSchema = z.number().int().nonnegative();
+const nonnegativeRateSchema = z.number().nonnegative();
 
 export const metaWhatsappClassificationSchema = z.enum([
   "auto_whatsapp",
@@ -18,6 +22,28 @@ export const metaWhatsappOverrideInputSchema = z.object({
   override: z.enum(["manual_include", "manual_exclude"]).nullable(),
 });
 
+export const reportFunnelStepKeySchema = z.enum([
+  "real_conversations",
+  "qualified_lead",
+  "purchase",
+  "first_purchase",
+  "repurchase",
+]);
+
+export const reportFunnelStepSchema = z.object({
+  key: reportFunnelStepKeySchema,
+  label: z.enum([
+    "Conversas reais iniciadas",
+    "Lead qualificado",
+    "Compras",
+    "Primeira compra",
+    "Recompra",
+  ]),
+  value: nonnegativeIntSchema,
+  costCents: moneyCentsSchema.nullable().optional(),
+  unavailableReason: z.string().trim().min(1).optional(),
+});
+
 export const campaignReportRowSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -28,17 +54,27 @@ export const campaignReportRowSchema = z.object({
   adAccountName: z.string().min(1).nullable().optional(),
   whatsappClassification: metaWhatsappClassificationSchema.optional(),
   spendCents: moneyCentsSchema,
-  metaConversationsStarted: z.number().int().nonnegative(),
+  metaConversationsStarted: nonnegativeIntSchema,
   costPerMetaConversationCents: moneyCentsSchema.nullable(),
-  realConversations: z.number().int().nonnegative(),
+  realConversations: nonnegativeIntSchema,
   costPerRealConversationCents: moneyCentsSchema.nullable(),
-  leadSubmitted: z.number().int().nonnegative(),
-  costPerLeadSubmittedCents: moneyCentsSchema.nullable(),
-  qualifiedLead: z.number().int().nonnegative(),
+  organicLeads: nonnegativeIntSchema,
+  totalReceived: nonnegativeIntSchema,
+  trackingRate: nonnegativeRateSchema.nullable(),
+  qualifiedLead: nonnegativeIntSchema,
   costPerQualifiedLeadCents: moneyCentsSchema.nullable(),
-  purchase: z.number().int().nonnegative(),
+  purchases: nonnegativeIntSchema,
+  firstPurchases: nonnegativeIntSchema,
+  repurchases: nonnegativeIntSchema,
   costPerPurchaseCents: moneyCentsSchema.nullable(),
-  roas: z.number().nonnegative().nullable(),
+  trafficRevenueCents: moneyCentsSchema,
+  organicRevenueCents: moneyCentsSchema,
+  totalRevenueCents: moneyCentsSchema,
+  firstPurchaseRevenueCents: moneyCentsSchema,
+  repurchaseRevenueCents: moneyCentsSchema,
+  roasAcquisition: nonnegativeRateSchema.nullable(),
+  roasWithRepurchase: nonnegativeRateSchema.nullable(),
+  funnelSteps: z.array(reportFunnelStepSchema),
 });
 
 export const reportOverviewSchema = z.object({
@@ -111,6 +147,31 @@ export const metaStructureReportSchema = z.object({
   campaigns: z.array(metaCampaignStructureSchema),
 });
 
+export const conversionAuditEventSchema = z.object({
+  id: z.string().min(1),
+  eventName: z.string().min(1),
+  eventLabel: z.string().min(1),
+  leadId: z.string().min(1).nullable(),
+  phoneHash: z.string().min(1).nullable(),
+  campaignId: z.string().min(1).nullable(),
+  adSetId: z.string().min(1).nullable(),
+  adId: z.string().min(1).nullable(),
+  pixelId: z.string().min(1).nullable(),
+  pageId: z.string().min(1).nullable(),
+  occurredAt: z.string().min(1),
+  sentAt: z.string().min(1).nullable(),
+  status: conversionEventLogStatusSchema,
+  providerResponseSummary: z.string().min(1).nullable(),
+  errorCode: z.string().min(1).nullable(),
+  errorMessage: z.string().min(1).nullable(),
+});
+
+export const conversionAuditOverviewSchema = z.object({
+  workspaceId: z.string().min(1),
+  rangeLabel: z.string().min(1),
+  events: z.array(conversionAuditEventSchema),
+});
+
 export const reportFiltersSchema = z.object({
   businessId: z.string().min(1).optional(),
   adAccountId: z.string().min(1).optional(),
@@ -134,6 +195,14 @@ export type MetaCampaignStructureDto = z.infer<
   typeof metaCampaignStructureSchema
 >;
 export type MetaStructureReportDto = z.infer<typeof metaStructureReportSchema>;
+export type ReportFunnelStepKeyDto = z.infer<typeof reportFunnelStepKeySchema>;
+export type ReportFunnelStepDto = z.infer<typeof reportFunnelStepSchema>;
+export type ConversionAuditEventDto = z.infer<
+  typeof conversionAuditEventSchema
+>;
+export type ConversionAuditOverviewDto = z.infer<
+  typeof conversionAuditOverviewSchema
+>;
 export type MetaWhatsappClassificationDto = z.infer<
   typeof metaWhatsappClassificationSchema
 >;

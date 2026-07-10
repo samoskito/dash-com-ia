@@ -1,20 +1,28 @@
 export const funnelMetricKeys = [
-  "metaConversationsStarted",
-  "realConversations",
-  "leadSubmitted",
-  "qualifiedLead",
-  "purchase"
+  "real_conversations",
+  "qualified_lead",
+  "purchase",
+  "first_purchase",
+  "repurchase"
 ] as const;
 
 export type FunnelMetricKey = (typeof funnelMetricKeys)[number];
 
+export const funnelMetricLabels: Record<FunnelMetricKey, string> = {
+  real_conversations: "Conversas reais iniciadas",
+  qualified_lead: "Lead qualificado",
+  purchase: "Compras",
+  first_purchase: "Primeira compra",
+  repurchase: "Recompra"
+};
+
 export type MoneyCents = number;
 
 export interface ReportMetric {
-  key: string;
+  key: FunnelMetricKey;
   label: string;
   value: number;
-  costCents?: MoneyCents;
+  costCents?: MoneyCents | null;
   unavailableReason?: string;
 }
 
@@ -27,11 +35,21 @@ export interface CampaignReportRow {
   costPerMetaConversationCents: MoneyCents | null;
   realConversations: number;
   costPerRealConversationCents: MoneyCents | null;
-  leadSubmitted: number;
-  costPerLeadSubmittedCents: MoneyCents | null;
+  organicLeads: number;
+  totalReceived: number;
+  trackingRate: number | null;
   qualifiedLead: number;
   costPerQualifiedLeadCents: MoneyCents | null;
-  purchase: number;
+  purchases: number;
+  firstPurchases: number;
+  repurchases: number;
   costPerPurchaseCents: MoneyCents | null;
-  roas: number | null;
+  trafficRevenueCents: MoneyCents;
+  organicRevenueCents: MoneyCents;
+  totalRevenueCents: MoneyCents;
+  firstPurchaseRevenueCents: MoneyCents;
+  repurchaseRevenueCents: MoneyCents;
+  roasAcquisition: number | null;
+  roasWithRepurchase: number | null;
+  funnelSteps: ReportMetric[];
 }
