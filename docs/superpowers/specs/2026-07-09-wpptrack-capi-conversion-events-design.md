@@ -35,6 +35,7 @@ O WppTrack deve reaproveitar os principios, nao copiar literalmente a arquitetur
 - O destino CAPI e unico por workspace: Pixel principal + Pagina Facebook principal em `MetaConversionDestination`.
 - As multiplas contas/BMs servem para relatorios, nao para multiplos Pixels de conversao.
 - `page_id` e obrigatorio para o destino operacional do evento Business Messaging.
+- Decisao de fase: enquanto o WhatsApp operacional for Uazapi/API nao oficial, o envio CAPI seguira o contrato validado no R100 WPP/N8n com `page_id`. `whatsapp_business_account_id`/WABA fica fora desta fase e so entra quando a integracao WhatsApp Cloud API oficial for implementada.
 - `ctwa_clid` deve ser capturado e enviado quando a Uazapi fornecer esse dado. Se nao existir, o evento pode ficar bloqueado ou ser enviado apenas quando a Meta aceitar o caso sem CTWA, conforme configuracao futura.
 - `LeadSubmitted` deve poder ser disparado automaticamente no primeiro lead CTWA elegivel, com deduplicacao.
 - `QualifiedLead`, `Purchase` e demais eventos devem ser disparados por regras de palavra-chave ou etiqueta.
