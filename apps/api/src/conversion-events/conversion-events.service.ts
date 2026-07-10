@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
+  ConversionEventCustomDataDto,
   ConversionEventNameDto,
   ConversionRuleDto
 } from "@wpptrack/shared";
@@ -10,6 +11,7 @@ import {
   MetaCapiAdapter,
   type MetaCapiSendEventErrorCode
 } from "./meta-capi.adapter";
+import { isConversionEventRequiringValue } from "./conversion-event-registry";
 
 export type RecordRuleMatchesInput = {
   workspaceId: string;
@@ -19,6 +21,11 @@ export type RecordRuleMatchesInput = {
   campaignId?: string;
   adSetId?: string;
   adId?: string;
+  ctwaClid?: string;
+  valueCents?: number | null;
+  currency?: string | null;
+  contentName?: string | null;
+  customData?: ConversionEventCustomDataDto;
 };
 
 export type RecordRuleMatchesResult = {
@@ -32,13 +39,36 @@ type ConversionEventLogRecord = {
   leadId: string | null;
   pixelId: string | null;
   pageId: string | null;
+  eventId: string | null;
   eventName: ConversionEventNameDto;
   status: string;
   phoneHash: string | null;
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
+  ctwaClid: string | null;
   dedupeKey: string | null;
+  customData: Prisma.JsonValue | null;
+  valueCents: number | null;
+  currency: string | null;
+  contentName: string | null;
+  errorCode: string | null;
+};
+
+type InitialStatus = {
+  status: "pending_meta_context" | "pending_value" | "ready_to_send";
+  errorCode: "MissingAdId" | "MissingCtwaClid" | "EventValueMissing" | null;
+  errorMessage: string | null;
+};
+
+type RecordAutomaticLeadSubmittedInput = {
+  workspaceId: string;
+  leadId?: string;
+  phoneHash?: string;
+  campaignId?: string;
+  adSetId?: string;
+  adId?: string;
+  ctwaClid?: string;
 };
 
 type MetaIntegrationCapiTokenRecord = {
@@ -81,7 +111,6 @@ export class ConversionEventsService {
     const duplicates: string[] = [];
 
     for (const rule of input.rules) {
-      const status = input.adId ? "ready_to_send" : "pending_meta_context";
       const dedupeKey = this.buildDedupeKey(input, rule);
       const existing = (await this.prisma.conversionEventLog.findUnique({
         where: { dedupeKey }
@@ -92,6 +121,19 @@ export class ConversionEventsService {
         continue;
       }
 
+      const valueCents = input.valueCents ?? rule.defaultValueCents ?? null;
+      const initialStatus = this.resolveInitialStatus({
+        eventName: rule.eventName,
+        adId: input.adId,
+        ctwaClid: input.ctwaClid,
+        valueCents
+      });
+      const customData =
+        input.customData !== undefined
+          ? (input.customData as Prisma.InputJsonValue)
+          : rule.defaultItems
+            ? ({ contents: rule.defaultItems } as Prisma.InputJsonValue)
+            : Prisma.JsonNull;
       const log = await this.prisma.conversionEventLog.create({
         data: {
           workspaceId: input.workspaceId,
@@ -99,13 +141,21 @@ export class ConversionEventsService {
           phoneHash: input.phoneHash ?? null,
           sourceTrigger: rule.triggerType,
           eventName: rule.eventName,
-          status,
+          status: initialStatus.status,
           pixelId: rule.pixelId,
+          eventId: dedupeKey,
           campaignId: input.campaignId ?? null,
           adSetId: input.adSetId ?? null,
           adId: input.adId ?? null,
+          ctwaClid: input.ctwaClid ?? null,
           attributionStatus: input.adId ? "attributed" : "missing_ad_id",
-          dedupeKey
+          dedupeKey,
+          valueCents,
+          currency: input.currency ?? rule.defaultCurrency ?? null,
+          contentName: input.contentName ?? rule.defaultContentName ?? null,
+          customData,
+          errorCode: initialStatus.errorCode,
+          errorMessage: initialStatus.errorMessage
         }
       });
 
@@ -115,12 +165,82 @@ export class ConversionEventsService {
     return { created, duplicates };
   }
 
+  async recordAutomaticLeadSubmitted(
+    input: RecordAutomaticLeadSubmittedInput
+  ): Promise<RecordRuleMatchesResult> {
+    const subject = input.leadId ?? input.phoneHash ?? "unknown";
+    const dedupeKey = [
+      input.workspaceId,
+      subject,
+      "auto_lead",
+      "LeadSubmitted",
+      input.adId ?? "missing_ad"
+    ].join(":");
+    const existing = (await this.prisma.conversionEventLog.findUnique({
+      where: { dedupeKey }
+    })) as ConversionEventLogRecord | null;
+
+    if (existing) {
+      return { created: [], duplicates: [existing.id] };
+    }
+
+    const initialStatus = this.resolveInitialStatus({
+      eventName: "LeadSubmitted",
+      adId: input.adId,
+      ctwaClid: input.ctwaClid,
+      valueCents: null
+    });
+    const log = await this.prisma.conversionEventLog.create({
+      data: {
+        workspaceId: input.workspaceId,
+        leadId: input.leadId ?? null,
+        phoneHash: input.phoneHash ?? null,
+        sourceTrigger: "auto_lead",
+        eventName: "LeadSubmitted",
+        status: initialStatus.status,
+        pixelId: null,
+        eventId: dedupeKey,
+        campaignId: input.campaignId ?? null,
+        adSetId: input.adSetId ?? null,
+        adId: input.adId ?? null,
+        ctwaClid: input.ctwaClid ?? null,
+        attributionStatus: input.adId ? "attributed" : "missing_ad_id",
+        dedupeKey,
+        valueCents: null,
+        currency: null,
+        contentName: null,
+        customData: Prisma.JsonNull,
+        errorCode: initialStatus.errorCode,
+        errorMessage: initialStatus.errorMessage
+      }
+    });
+
+    return { created: [log.id], duplicates: [] };
+  }
+
+  async listReadyLogIds(logIds: string[]): Promise<string[]> {
+    if (logIds.length === 0) {
+      return [];
+    }
+
+    const logs = (await this.prisma.conversionEventLog.findMany({
+      where: {
+        id: { in: logIds },
+        status: "ready_to_send"
+      },
+      select: { id: true }
+    })) as Array<{ id: string }>;
+
+    return logs.map((log) => log.id);
+  }
+
   async sendReadyEvent(logId: string): Promise<SendReadyEventResult> {
     const log = (await this.prisma.conversionEventLog.findUnique({
       where: { id: logId }
     })) as ConversionEventLogRecord | null;
 
-    if (!log || log.status !== "ready_to_send" || !log.dedupeKey) {
+    const eventId = log?.eventId ?? log?.dedupeKey ?? null;
+    if (!log || log.status !== "ready_to_send" || !eventId) {
       return {
         conversionEventLogId: logId,
         workspaceId: null,
@@ -140,14 +260,14 @@ export class ConversionEventsService {
       pixelId: resolvedDestination.pixelId,
       pageId: resolvedDestination.pageId,
       eventName: log.eventName,
-      dedupeKey: log.dedupeKey,
+      dedupeKey: eventId,
       phoneHash: log.phoneHash,
       adId: log.adId,
-      ctwaClid: null,
-      valueCents: null,
-      currency: null,
-      contentName: null,
-      customData: null,
+      ctwaClid: log.ctwaClid,
+      valueCents: log.valueCents,
+      currency: log.currency,
+      contentName: log.contentName,
+      customData: log.customData as ConversionEventCustomDataDto | null,
       testEventCode: null
     });
     const integrationLogId = await this.recordMetaCapiIntegrationLog(
@@ -285,9 +405,14 @@ export class ConversionEventsService {
             eventName: log.eventName,
             pixelId: destination.pixelId,
             pageId: destination.pageId,
+            eventId: log.eventId,
             dedupeKey: log.dedupeKey,
             phoneHash: log.phoneHash,
             adId: log.adId,
+            ctwaClid: log.ctwaClid,
+            valueCents: log.valueCents,
+            currency: log.currency,
+            contentName: log.contentName,
             errorCode: result.errorCode
           } as Prisma.InputJsonValue,
           responseSummary:
@@ -350,6 +475,7 @@ export class ConversionEventsService {
             eventName: log.eventName,
             pixelId: destination.pixelId,
             pageId: destination.pageId,
+            eventId: log.eventId,
             status: result.status,
             errorCode: result.errorCode,
             errorMessage: result.errorMessage
@@ -373,5 +499,45 @@ export class ConversionEventsService {
       rule.eventName,
       input.adId ?? "missing_ad"
     ].join(":");
+  }
+
+  private resolveInitialStatus(input: {
+    eventName: ConversionEventNameDto;
+    adId?: string | null;
+    ctwaClid?: string | null;
+    valueCents?: number | null;
+  }): InitialStatus {
+    if (!input.adId) {
+      return {
+        status: "pending_meta_context",
+        errorCode: "MissingAdId",
+        errorMessage: "Meta CAPI ad id not available"
+      };
+    }
+
+    if (!input.ctwaClid) {
+      return {
+        status: "pending_meta_context",
+        errorCode: "MissingCtwaClid",
+        errorMessage: "Meta CAPI ctwa_clid not available"
+      };
+    }
+
+    if (
+      isConversionEventRequiringValue(input.eventName) &&
+      input.valueCents == null
+    ) {
+      return {
+        status: "pending_value",
+        errorCode: "EventValueMissing",
+        errorMessage: "Conversion event value is required"
+      };
+    }
+
+    return {
+      status: "ready_to_send",
+      errorCode: null,
+      errorMessage: null
+    };
   }
 }

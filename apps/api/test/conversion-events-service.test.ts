@@ -36,6 +36,12 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
             (where.id !== undefined && log.id === where.id) ||
             (where.dedupeKey !== undefined && log.dedupeKey === where.dedupeKey)
         ) ?? null,
+      findMany: async ({ where }: { where: { id: { in: string[] }; status?: string } }) =>
+        db.logs.filter(
+          (log) =>
+            where.id.in.includes(String(log.id)) &&
+            (where.status === undefined || log.status === where.status)
+        ),
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const log = {
           id: `conversion_${db.logs.length + 1}`,
@@ -112,6 +118,7 @@ describe("conversion events service", () => {
       leadId: "lead_1",
       phoneHash: "phone_hash_1",
       adId: "ad_1",
+      ctwaClid: "clid_1",
       rules: [
         {
           id: "rule_1",
@@ -135,6 +142,7 @@ describe("conversion events service", () => {
           matchMode: "exact",
           eventName: "Purchase",
           pixelId: null,
+          defaultValueCents: 19900,
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
           updatedAt: "2026-07-02T03:00:00.000Z"
@@ -161,6 +169,77 @@ describe("conversion events service", () => {
     });
   });
 
+  it("blocks Purchase without value as pending_value", async () => {
+    const { db, service } = createHarness();
+
+    const result = await service.recordRuleMatches({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      rules: [
+        {
+          id: "rule_1",
+          workspaceId: "workspace_1",
+          name: "Compra",
+          triggerType: "whatsapp_label",
+          triggerValue: "Venda fechada",
+          matchMode: "exact",
+          eventName: "Purchase",
+          pixelId: "pixel_1",
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        }
+      ]
+    });
+
+    expect(result.created).toEqual(["conversion_1"]);
+    expect(db.logs[0]).toMatchObject({
+      eventName: "Purchase",
+      status: "pending_value",
+      errorCode: "EventValueMissing",
+      errorMessage: "Conversion event value is required",
+      valueCents: null
+    });
+  });
+
+  it("records automatic LeadSubmitted once and dedupes the second call", async () => {
+    const { db, service } = createHarness();
+    const input = {
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1"
+    };
+
+    const first = await service.recordAutomaticLeadSubmitted(input);
+    const second = await service.recordAutomaticLeadSubmitted(input);
+
+    expect(first.created).toEqual(["conversion_1"]);
+    expect(first.duplicates).toEqual([]);
+    expect(second.created).toEqual([]);
+    expect(second.duplicates).toEqual(["conversion_1"]);
+    expect(db.logs).toHaveLength(1);
+    expect(db.logs[0]).toMatchObject({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      sourceTrigger: "auto_lead",
+      eventName: "LeadSubmitted",
+      status: "ready_to_send",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      dedupeKey: "workspace_1:lead_1:auto_lead:LeadSubmitted:ad_1"
+    });
+  });
+
   it("sends ready conversion logs to Meta CAPI and stores provider response", async () => {
     const adapter = {
       calls: [] as Array<Record<string, unknown>>,
@@ -183,15 +262,22 @@ describe("conversion events service", () => {
       leadId: "lead_1",
       phoneHash: "phone_hash_1",
       adId: "ad_1",
+      ctwaClid: "clid_1",
+      valueCents: 19900,
+      currency: "BRL",
+      contentName: "Plano mensal",
+      customData: {
+        order_id: "order_1"
+      },
       rules: [
         {
           id: "rule_1",
           workspaceId: "workspace_1",
-          name: "Lead qualificado",
+          name: "Compra",
           triggerType: "keyword",
           triggerValue: "quero comprar",
           matchMode: "contains",
-          eventName: "QualifiedLead",
+          eventName: "Purchase",
           pixelId: "pixel_1",
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
@@ -219,11 +305,15 @@ describe("conversion events service", () => {
       accessToken: "workspace-oauth-token",
       pixelId: "pixel_1",
       pageId: null,
-      ctwaClid: null,
-      valueCents: null,
-      currency: null,
-      contentName: null,
-      customData: null,
+      eventName: "Purchase",
+      dedupeKey: "workspace_1:lead_1:rule_1:Purchase:ad_1",
+      ctwaClid: "clid_1",
+      valueCents: 19900,
+      currency: "BRL",
+      contentName: "Plano mensal",
+      customData: {
+        order_id: "order_1"
+      },
       testEventCode: null
     });
     expect(db.integrationLogs).toContainEqual(
@@ -268,6 +358,7 @@ describe("conversion events service", () => {
       leadId: "lead_1",
       phoneHash: "phone_hash_1",
       adId: "ad_1",
+      ctwaClid: "clid_1",
       rules: [
         {
           id: "rule_1",
@@ -301,7 +392,7 @@ describe("conversion events service", () => {
     });
   });
 
-  it("stores and surfaces MissingCtwaClid when the adapter blocks the service placeholder send", async () => {
+  it("stores MissingCtwaClid before attempting to send", async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(
         JSON.stringify({
@@ -347,57 +438,17 @@ describe("conversion events service", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       conversionEventLogId: "conversion_1",
-      workspaceId: "workspace_1",
-      status: "not_configured"
+      workspaceId: null,
+      status: "skipped"
     });
     expect(db.logs[0]).toMatchObject({
-      status: "not_configured",
-      pixelId: "workspace_pixel_1",
-      pageId: "page_1",
+      status: "pending_meta_context",
+      pixelId: "pixel_1",
       errorMessage: "Meta CAPI ctwa_clid not available",
       errorCode: "MissingCtwaClid"
     });
-    expect(db.integrationLogs).toContainEqual(
-      expect.objectContaining({
-        id: "integration_1",
-        workspaceId: "workspace_1",
-        source: "meta",
-        operation: "meta.capi.send_event",
-        status: "blocked",
-        providerErrorCode: "MissingCtwaClid",
-        providerErrorMessage: "Meta CAPI ctwa_clid not available",
-        campaignId: "cmp_1",
-        adSetId: "adset_1",
-        adId: "ad_1"
-      })
-    );
-    expect(db.integrationLogs[0].requestSummary).toMatchObject({
-      pixelId: "workspace_pixel_1",
-      pageId: "page_1",
-      errorCode: "MissingCtwaClid"
-    });
-    expect(db.diagnosticEvents).toContainEqual(
-      expect.objectContaining({
-        workspaceId: "workspace_1",
-        source: "meta",
-        eventType: "meta.capi.send_event",
-        severity: "warning",
-        status: "blocked",
-        integrationLogId: "integration_1",
-        conversionEventLogId: "conversion_1",
-        campaignId: "cmp_1",
-        adSetId: "adset_1",
-        adId: "ad_1",
-        errorCode: "MissingCtwaClid"
-      })
-    );
-    expect(db.diagnosticEvents[0].summaryPayload).toMatchObject({
-      pixelId: "workspace_pixel_1",
-      pageId: "page_1",
-      errorMessage: "Meta CAPI ctwa_clid not available",
-      errorCode: "MissingCtwaClid"
-    });
-    expect(JSON.stringify(db.diagnosticEvents)).not.toContain("secret");
+    expect(db.integrationLogs).toEqual([]);
+    expect(db.diagnosticEvents).toEqual([]);
   });
 
   it("does not create duplicate conversion logs for the same dedupe key", async () => {
@@ -431,5 +482,57 @@ describe("conversion events service", () => {
     expect(second.created).toEqual([]);
     expect(second.duplicates).toEqual(["conversion_1"]);
     expect(db.logs).toHaveLength(1);
+  });
+
+  it("lists only ready conversion log ids", async () => {
+    const { service } = createHarness();
+    await service.recordRuleMatches({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      rules: [
+        {
+          id: "rule_1",
+          workspaceId: "workspace_1",
+          name: "Lead qualificado",
+          triggerType: "keyword",
+          triggerValue: "quero comprar",
+          matchMode: "contains",
+          eventName: "QualifiedLead",
+          pixelId: "pixel_1",
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        }
+      ]
+    });
+    await service.recordRuleMatches({
+      workspaceId: "workspace_1",
+      leadId: "lead_2",
+      phoneHash: "phone_hash_2",
+      adId: "ad_1",
+      ctwaClid: "clid_2",
+      rules: [
+        {
+          id: "rule_2",
+          workspaceId: "workspace_1",
+          name: "Compra",
+          triggerType: "keyword",
+          triggerValue: "comprar",
+          matchMode: "contains",
+          eventName: "Purchase",
+          pixelId: "pixel_1",
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        }
+      ]
+    });
+
+    await expect(
+      service.listReadyLogIds(["conversion_1", "conversion_2", "missing"])
+    ).resolves.toEqual(["conversion_1"]);
   });
 });
