@@ -134,10 +134,6 @@ export const externalDataConnectorSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 
-export const externalDataConnectorListSchema = z.array(
-  externalDataConnectorSchema,
-);
-
 export const externalConnectionTestResultSchema = z.object({
   ok: z.boolean(),
   status: z.enum(["connected", "failed"]),
@@ -171,6 +167,13 @@ export const externalConnectorHealthSchema = z.object({
     pending: z.number().int().nonnegative(),
   }),
 });
+
+export const externalConnectorHealthListSchema = z.array(
+  externalConnectorHealthSchema,
+);
+
+export const externalDataConnectorListSchema =
+  externalConnectorHealthListSchema;
 
 export type ExternalConnectorProviderDto = z.infer<
   typeof externalConnectorProviderSchema

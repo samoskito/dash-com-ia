@@ -1,11 +1,16 @@
 import type {
   BackofficeClientWorkspaceDto,
   ExternalConnectionTestResultDto,
-  ExternalDataConnectorDto,
+  ExternalConnectorHealthDto,
   PlatformUserDto
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import {
+  BackofficeActionForm,
+  type BackofficeActionState
+} from "../../../../components/backoffice-action-form";
+import { ExternalConnectorRow } from "../../../../components/external-connector-row";
 import { PendingSubmitButton } from "../../../../components/pending-submit-button";
 import { SecurePasswordInput } from "../../../../components/secure-password-input";
 import { serverApiFetch } from "../../../../lib/server-api";
@@ -26,13 +31,10 @@ type PlatformSession = {
   };
 };
 
-async function getClientWorkspaces(): Promise<
-  ResourceResult<BackofficeClientWorkspaceDto[]>
-> {
+async function getClientWorkspaces(): Promise<ResourceResult<BackofficeClientWorkspaceDto[]>> {
   try {
-    const workspaces = await serverApiFetch<BackofficeClientWorkspaceDto[]>(
-      "/backoffice/workspaces"
-    );
+    const workspaces =
+      await serverApiFetch<BackofficeClientWorkspaceDto[]>("/backoffice/workspaces");
 
     return {
       data: workspaces,
@@ -43,11 +45,9 @@ async function getClientWorkspaces(): Promise<
   }
 }
 
-async function getExternalConnectors(): Promise<
-  ResourceResult<ExternalDataConnectorDto[]>
-> {
+async function getExternalConnectors(): Promise<ResourceResult<ExternalConnectorHealthDto[]>> {
   try {
-    const connectors = await serverApiFetch<ExternalDataConnectorDto[]>(
+    const connectors = await serverApiFetch<ExternalConnectorHealthDto[]>(
       "/backoffice/external-data/connectors"
     );
 
@@ -62,9 +62,7 @@ async function getExternalConnectors(): Promise<
 
 async function getPlatformUsers(): Promise<ResourceResult<PlatformUserDto[]>> {
   try {
-    const users = await serverApiFetch<PlatformUserDto[]>(
-      "/backoffice/platform-users"
-    );
+    const users = await serverApiFetch<PlatformUserDto[]>("/backoffice/platform-users");
 
     return {
       data: users,
@@ -88,7 +86,23 @@ function actionRedirect(message: string, type: "success" | "error" = "success") 
   redirect(`/backoffice/clients?${params.toString()}`);
 }
 
-async function provisionClient(formData: FormData) {
+function actionResult(
+  status: "success" | "error",
+  message: string,
+  syncRequest?: BackofficeActionState["syncRequest"]
+): BackofficeActionState {
+  return {
+    status,
+    message,
+    nonce: Date.now(),
+    ...(syncRequest ? { syncRequest } : {})
+  };
+}
+
+async function provisionClient(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
   "use server";
 
   try {
@@ -103,10 +117,10 @@ async function provisionClient(formData: FormData) {
     });
     revalidatePath("/backoffice/clients");
   } catch {
-    actionRedirect("Nao foi possivel criar o cliente", "error");
+    return actionResult("error", "Nao foi possivel criar o cliente");
   }
 
-  actionRedirect("Cliente e administrador criados com sucesso");
+  return actionResult("success", "Cliente e administrador criados com sucesso");
 }
 
 async function startSupportAccess(formData: FormData) {
@@ -126,7 +140,10 @@ async function startSupportAccess(formData: FormData) {
   redirect("/overview");
 }
 
-async function createPlatformUser(formData: FormData) {
+async function createPlatformUser(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
   "use server";
 
   try {
@@ -141,18 +158,19 @@ async function createPlatformUser(formData: FormData) {
     });
     revalidatePath("/backoffice/clients");
   } catch {
-    actionRedirect("Nao foi possivel criar o usuario da plataforma", "error");
+    return actionResult("error", "Nao foi possivel criar o usuario da plataforma");
   }
 
-  actionRedirect("Usuario interno criado com sucesso");
+  return actionResult("success", "Usuario interno criado com sucesso");
 }
 
-async function createExternalConnector(formData: FormData) {
+async function createExternalConnector(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
   "use server";
 
-  const averageValue = Number(
-    String(formData.get("purchaseAverageValue") ?? "").replace(",", ".")
-  );
+  const averageValue = Number(String(formData.get("purchaseAverageValue") ?? "").replace(",", "."));
 
   try {
     await serverApiFetch("/backoffice/external-data/connectors", {
@@ -174,21 +192,22 @@ async function createExternalConnector(formData: FormData) {
         shadowMode: true,
         capiSendEnabled: false,
         purchaseAverageValueCents:
-          Number.isFinite(averageValue) && averageValue > 0
-            ? Math.round(averageValue * 100)
-            : null,
+          Number.isFinite(averageValue) && averageValue > 0 ? Math.round(averageValue * 100) : null,
         defaultCurrency: "BRL"
       })
     });
     revalidatePath("/backoffice/clients");
   } catch {
-    actionRedirect("Nao foi possivel salvar o conector", "error");
+    return actionResult("error", "Nao foi possivel salvar o conector");
   }
 
-  actionRedirect("Conector salvo em modo sombra");
+  return actionResult("success", "Conector salvo em modo sombra");
 }
 
-async function testExternalConnector(formData: FormData) {
+async function testExternalConnector(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
   "use server";
 
   const connectorId = String(formData.get("connectorId") ?? "");
@@ -202,17 +221,20 @@ async function testExternalConnector(formData: FormData) {
     connectionOk = result.ok;
     revalidatePath("/backoffice/clients");
   } catch {
-    actionRedirect("Nao foi possivel testar o conector", "error");
+    return actionResult("error", "Nao foi possivel testar o conector");
   }
 
   if (!connectionOk) {
-    actionRedirect("Conexao recusada ou views obrigatorias ausentes", "error");
+    return actionResult("error", "Conexao recusada ou views obrigatorias ausentes");
   }
 
-  actionRedirect("Conexao e views validadas");
+  return actionResult("success", "Conexao e views validadas");
 }
 
-async function activateExternalConnector(formData: FormData) {
+async function activateExternalConnector(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
   "use server";
 
   const connectorId = String(formData.get("connectorId") ?? "");
@@ -232,16 +254,20 @@ async function activateExternalConnector(formData: FormData) {
     );
     revalidatePath("/backoffice/clients");
   } catch {
-    actionRedirect("Nao foi possivel ativar o conector", "error");
+    return actionResult("error", "Nao foi possivel ativar o conector");
   }
 
-  actionRedirect("Sincronizacao automatica ativada em modo sombra");
+  return actionResult("success", "Sincronizacao automatica ativada em modo sombra");
 }
 
-async function syncExternalConnector(formData: FormData) {
+async function syncExternalConnector(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
   "use server";
 
   const connectorId = String(formData.get("connectorId") ?? "");
+  const requestedAt = Date.now();
 
   try {
     await serverApiFetch(
@@ -253,33 +279,32 @@ async function syncExternalConnector(formData: FormData) {
     );
     revalidatePath("/backoffice/clients");
   } catch {
-    actionRedirect("Nao foi possivel iniciar a sincronizacao", "error");
+    return actionResult("error", "Nao foi possivel iniciar a sincronizacao");
   }
 
-  actionRedirect("Sincronizacao adicionada a fila");
+  return actionResult("success", "Sincronizacao adicionada a fila", {
+    connectorId,
+    requestedAt
+  });
+}
+
+async function getExternalConnectorHealth(
+  connectorId: string
+): Promise<ExternalConnectorHealthDto | null> {
+  "use server";
+
+  try {
+    return await serverApiFetch<ExternalConnectorHealthDto>(
+      `/backoffice/external-data/connectors/${encodeURIComponent(connectorId)}/health`
+    );
+  } catch {
+    return null;
+  }
 }
 
 function stringParam(value: string | string[] | undefined): string | null {
   const resolved = Array.isArray(value) ? value[0] : value;
   return resolved?.trim() || null;
-}
-
-function formatDate(value: string | null): string {
-  return value
-    ? new Date(value).toLocaleString("pt-BR")
-    : "Ainda nao executado";
-}
-
-function connectorStatusLabel(connector: ExternalDataConnectorDto): string {
-  if (connector.lastConnectionStatus === "connected") {
-    return connector.status === "active" ? "Ativo" : "Conexao validada";
-  }
-
-  if (connector.lastConnectionStatus === "failed") {
-    return "Falha na conexao";
-  }
-
-  return "Aguardando teste";
 }
 
 export default async function BackofficeClientsPage({
@@ -288,24 +313,21 @@ export default async function BackofficeClientsPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
-  const [workspacesResult, connectorsResult, platformUsersResult, session] =
-    await Promise.all([
-      getClientWorkspaces(),
-      getExternalConnectors(),
-      getPlatformUsers(),
-      getPlatformSession()
-    ]);
+  const [workspacesResult, connectorsResult, platformUsersResult, session] = await Promise.all([
+    getClientWorkspaces(),
+    getExternalConnectors(),
+    getPlatformUsers(),
+    getPlatformSession()
+  ]);
   const workspaces = workspacesResult.data;
-  const connectors = connectorsResult.data;
+  const connectorHealth = connectorsResult.data;
   const platformUsers = platformUsersResult.data;
-  const workspaceNames = new Map(
-    workspaces.map((workspace) => [workspace.id, workspace.name])
-  );
+  const workspaceNames = new Map(workspaces.map((workspace) => [workspace.id, workspace.name]));
   const notice = stringParam(resolvedSearchParams.notice);
   const noticeType = stringParam(resolvedSearchParams.noticeType);
   const isPlatformOwner = session?.user.platformRole === "platform_owner";
-  const activeConnectors = connectors.filter(
-    (connector) => connector.status === "active"
+  const activeConnectors = connectorHealth.filter(
+    ({ connector }) => connector.status === "active"
   ).length;
 
   return (
@@ -314,28 +336,20 @@ export default async function BackofficeClientsPage({
         <div>
           <span className="eyebrow">Operacao da plataforma</span>
           <h1>Clientes e acessos</h1>
-          <p>
-            Provisionamento isolado, suporte auditado e fontes externas por
-            workspace.
-          </p>
+          <p>Provisionamento isolado, suporte auditado e fontes externas por workspace.</p>
         </div>
         <div className="header-actions">
           <a className="button ghost" href="/backoffice">
             Voltar ao backoffice
           </a>
           <span className="status-chip">
-            {session?.user.platformRole === "platform_owner"
-              ? "Platform Owner"
-              : "Operador"}
+            {session?.user.platformRole === "platform_owner" ? "Platform Owner" : "Operador"}
           </span>
         </div>
       </header>
 
       {notice ? (
-        <div
-          className={`action-notice${noticeType === "error" ? " error" : ""}`}
-          role="status"
-        >
+        <div className={`action-notice${noticeType === "error" ? " error" : ""}`} role="status">
           <strong>{noticeType === "error" ? "Acao nao concluida" : "Concluido"}</strong>
           <span>{notice}</span>
         </div>
@@ -364,10 +378,12 @@ export default async function BackofficeClientsPage({
         <section className="surface-panel client-provision-panel">
           <span className="eyebrow">Novo cliente</span>
           <h2>Provisionar workspace</h2>
-          <p className="muted">
-            Cria o ambiente e o primeiro administrador em uma unica operacao.
-          </p>
-          <form className="client-admin-form" action={provisionClient}>
+          <p className="muted">Cria o ambiente e o primeiro administrador em uma unica operacao.</p>
+          <BackofficeActionForm
+            className="client-admin-form"
+            action={provisionClient}
+            resetOnSuccess
+          >
             <label>
               Nome do workspace
               <input name="workspaceName" required minLength={2} />
@@ -380,28 +396,24 @@ export default async function BackofficeClientsPage({
               Email do administrador
               <input name="ownerEmail" type="email" required />
             </label>
-            <SecurePasswordInput
-              label="Senha inicial"
-              name="ownerPassword"
-            />
+            <SecurePasswordInput label="Senha inicial" name="ownerPassword" />
             <div className="form-command-row">
               <span>O cliente podera convidar a propria equipe depois.</span>
-              <PendingSubmitButton
-                label="Criar cliente"
-                pendingLabel="Criando cliente..."
-              />
+              <PendingSubmitButton label="Criar cliente" pendingLabel="Criando cliente..." />
             </div>
-          </form>
+          </BackofficeActionForm>
         </section>
 
         <section className="surface-panel platform-team-panel">
           <span className="eyebrow">Equipe interna</span>
           <h2>Acesso global</h2>
-          <p className="muted">
-            Usuarios internos nao aparecem nas equipes dos clientes.
-          </p>
+          <p className="muted">Usuarios internos nao aparecem nas equipes dos clientes.</p>
           {isPlatformOwner ? (
-            <form className="client-admin-form" action={createPlatformUser}>
+            <BackofficeActionForm
+              className="client-admin-form"
+              action={createPlatformUser}
+              resetOnSuccess
+            >
               <label>
                 Nome
                 <input name="name" required minLength={2} />
@@ -426,7 +438,7 @@ export default async function BackofficeClientsPage({
                   className="button ghost"
                 />
               </div>
-            </form>
+            </BackofficeActionForm>
           ) : (
             <div className="empty-state compact">
               <strong>Gestao restrita</strong>
@@ -525,20 +537,26 @@ export default async function BackofficeClientsPage({
             <span className="eyebrow">Fontes externas</span>
             <h2>Conectores MySQL</h2>
             <p className="muted">
-              Credenciais criptografadas, leitura incremental e CAPI desligada
-              durante a reconciliacao.
+              Credenciais criptografadas, leitura incremental e CAPI desligada durante a
+              reconciliacao.
             </p>
           </div>
           <span className="status-chip">Somente leitura</span>
         </div>
 
-        <details className="connector-create-disclosure" open={!connectors.length}>
+        <details className="connector-create-disclosure" open={!connectorHealth.length}>
           <summary>Adicionar conector</summary>
-          <form className="connector-form" action={createExternalConnector}>
+          <BackofficeActionForm
+            className="connector-form"
+            action={createExternalConnector}
+            resetOnSuccess
+          >
             <label>
               Workspace
               <select name="workspaceId" required defaultValue="">
-                <option value="" disabled>Selecione o cliente</option>
+                <option value="" disabled>
+                  Selecione o cliente
+                </option>
                 {workspaces.map((workspace) => (
                   <option value={workspace.id} key={workspace.id}>
                     {workspace.name}
@@ -581,76 +599,27 @@ export default async function BackofficeClientsPage({
             </label>
             <label>
               Ticket medio estimado
-              <input
-                name="purchaseAverageValue"
-                inputMode="decimal"
-                placeholder="0,00"
-              />
+              <input name="purchaseAverageValue" inputMode="decimal" placeholder="0,00" />
             </label>
             <div className="form-command-row connector-command-row">
               <span>O conector nasce inativo e em modo sombra.</span>
-              <PendingSubmitButton
-                label="Salvar conector"
-                pendingLabel="Criptografando..."
-              />
+              <PendingSubmitButton label="Salvar conector" pendingLabel="Criptografando..." />
             </div>
-          </form>
+          </BackofficeActionForm>
         </details>
 
         <div className="connector-list">
-          {connectors.length ? (
-            connectors.map((connector) => (
-              <article key={connector.id} className="connector-row">
-                <div className="connector-identity">
-                  <span className="micro-label">
-                    {workspaceNames.get(connector.workspaceId) ?? "Workspace"}
-                  </span>
-                  <strong>{connector.name}</strong>
-                  <small>{connector.provider} - SSL {connector.sslMode}</small>
-                </div>
-                <div className="connector-health-copy">
-                  <span
-                    className={`event-chip${
-                      connector.lastConnectionStatus === "failed" ? " warn" : ""
-                    }`}
-                  >
-                    {connectorStatusLabel(connector)}
-                  </span>
-                  <small>Teste: {formatDate(connector.lastConnectionTestAt)}</small>
-                  <small>Sync: {formatDate(connector.lastSyncCompletedAt)}</small>
-                </div>
-                <div className="connector-actions">
-                  <form action={testExternalConnector}>
-                    <input type="hidden" name="connectorId" value={connector.id} />
-                    <PendingSubmitButton
-                      label="Testar"
-                      pendingLabel="Testando..."
-                      className="button ghost compact-button"
-                    />
-                  </form>
-                  {connector.lastConnectionStatus === "connected" &&
-                  connector.status !== "active" ? (
-                    <form action={activateExternalConnector}>
-                      <input type="hidden" name="connectorId" value={connector.id} />
-                      <PendingSubmitButton
-                        label="Ativar sombra"
-                        pendingLabel="Ativando..."
-                        className="button ghost compact-button"
-                      />
-                    </form>
-                  ) : null}
-                  {connector.status === "active" ? (
-                    <form action={syncExternalConnector}>
-                      <input type="hidden" name="connectorId" value={connector.id} />
-                      <PendingSubmitButton
-                        label="Sincronizar"
-                        pendingLabel="Enfileirando..."
-                        className="button compact-button"
-                      />
-                    </form>
-                  ) : null}
-                </div>
-              </article>
+          {connectorHealth.length ? (
+            connectorHealth.map((health) => (
+              <ExternalConnectorRow
+                key={health.connector.id}
+                initialHealth={health}
+                workspaceName={workspaceNames.get(health.connector.workspaceId) ?? "Workspace"}
+                testAction={testExternalConnector}
+                activateAction={activateExternalConnector}
+                syncAction={syncExternalConnector}
+                loadHealthAction={getExternalConnectorHealth}
+              />
             ))
           ) : (
             <div className="empty-state compact">

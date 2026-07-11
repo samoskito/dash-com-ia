@@ -2,7 +2,7 @@
 
 Date: 2026-07-11
 
-Status: Implemented locally on 2026-07-11; production migration, customer MySQL setup and shadow reconciliation remain pending.
+Status: Deployed and configured for Barbieri on 2026-07-11; first shadow sync was requested and reconciliation remains pending.
 
 Design source: `docs/superpowers/specs/2026-07-11-wpptrack-external-mysql-kinbox-data-foundation-design.md`
 
@@ -18,11 +18,12 @@ Implement Block 0.5 so WppTrack can securely backfill standardized external MySQ
 - Kinbox daily Purchase deduplication is isolated in the provider policy. Other providers accept multiple same-day purchases when a stable event or transaction ID exists.
 - Incremental BullMQ worker, deterministic active-job protection, automatic scheduling, JobAttempt and IntegrationLog observability are implemented.
 - Platform-admin endpoints for create, update, test, sync and health are implemented.
+- Connector listings aggregate imported, duplicate, rejected and pending records in one database query; the backoffice follows a manual sync until completion without reloading the page or moving its scroll position.
 - Standard MySQL ledger/views and an exact n8n dual-write/cutover guide are available under `docs/setup/external-mysql/`.
 - Reporting contracts expose estimated revenue provenance through `valueSource`, `estimatedRevenueCents` and `hasEstimatedRevenue`.
-- Verification passed: 408 API tests, 54 shared-contract tests, API/shared/web typechecks, API build, web production build, Prisma validation and `git diff --check`.
+- Verification passed after the backoffice observability pass: 429 API tests, 87 web tests, 54 shared-contract tests, API/shared/web typechecks, API build, web production build, Prisma validation, responsive review at 1440/390 px and `git diff --check`.
 
-The code is complete for local review. Block 0.5 is not operationally complete until the migration is deployed, the customer MySQL views/read-only account are created and shadow counts are reconciled.
+The migration, customer views, read-only account, network allowlist and connector are live for Barbieri. Block 0.5 is not operationally complete until the first shadow result is visible in production and its imported totals are reconciled against the external MySQL source.
 
 ## Guardrails
 

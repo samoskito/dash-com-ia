@@ -1,14 +1,10 @@
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  NotFoundException
-} from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
   externalConnectorProviderSchema,
   externalConnectorSslModeSchema,
   externalConnectorStatusSchema,
+  externalConnectorHealthSchema,
   externalDataConnectorSchema,
   externalMysqlCredentialsInputSchema,
   type ExternalConnectionTestResultDto,
@@ -68,14 +64,23 @@ export class ExternalDataService {
     private readonly syncQueue: ExternalSyncQueueService
   ) {}
 
-  async listConnectors(workspaceId?: string): Promise<ExternalDataConnectorDto[]> {
+  async listConnectors(workspaceId?: string): Promise<ExternalConnectorHealthDto[]> {
     const connectors = (await this.prisma.externalDataConnector.findMany({
       where: workspaceId ? { workspaceId } : undefined,
       include: { cursors: { orderBy: { stream: "asc" } } },
       orderBy: [{ workspaceId: "asc" }, { createdAt: "desc" }]
     })) as ConnectorWithCursors[];
 
-    return connectors.map((connector) => this.toDto(connector));
+    const totalsByConnector = await this.ingestionTotals(
+      connectors.map((connector) => connector.id)
+    );
+
+    return connectors.map((connector) =>
+      externalConnectorHealthSchema.parse({
+        connector: this.toDto(connector),
+        totals: totalsByConnector.get(connector.id) ?? this.emptyIngestionTotals()
+      })
+    );
   }
 
   async createConnector(
@@ -131,9 +136,7 @@ export class ExternalDataService {
     const enablesReading = input.status === "active" || input.syncEnabled === true;
 
     if (enablesReading && current.lastConnectionStatus !== "connected") {
-      throw new BadRequestException(
-        "Teste a conexao e as views antes de ativar a sincronizacao"
-      );
+      throw new BadRequestException("Teste a conexao e as views antes de ativar a sincronizacao");
     }
 
     const data: Prisma.ExternalDataConnectorUpdateInput = {
@@ -143,15 +146,11 @@ export class ExternalDataService {
       ...(input.sslMode !== undefined ? { sslMode: input.sslMode } : {}),
       ...(input.syncEnabled !== undefined ? { syncEnabled: input.syncEnabled } : {}),
       ...(input.shadowMode !== undefined ? { shadowMode: input.shadowMode } : {}),
-      ...(input.capiSendEnabled !== undefined
-        ? { capiSendEnabled: input.capiSendEnabled }
-        : {}),
+      ...(input.capiSendEnabled !== undefined ? { capiSendEnabled: input.capiSendEnabled } : {}),
       ...(input.purchaseAverageValueCents !== undefined
         ? { purchaseAverageValueCents: input.purchaseAverageValueCents }
         : {}),
-      ...(input.defaultCurrency !== undefined
-        ? { defaultCurrency: input.defaultCurrency }
-        : {})
+      ...(input.defaultCurrency !== undefined ? { defaultCurrency: input.defaultCurrency } : {})
     };
 
     if (input.credentials) {
@@ -251,32 +250,57 @@ export class ExternalDataService {
 
   async getHealth(connectorId: string): Promise<ExternalConnectorHealthDto> {
     const connector = await this.getConnector(connectorId);
-    const records = await this.prisma.externalIngestionRecord.findMany({
-      where: { connectorId },
-      select: { status: true, duplicateCount: true }
+    const totalsByConnector = await this.ingestionTotals([connectorId]);
+
+    return externalConnectorHealthSchema.parse({
+      connector: this.toDto(connector),
+      totals: totalsByConnector.get(connectorId) ?? this.emptyIngestionTotals()
     });
-    const totals = {
+  }
+
+  private async ingestionTotals(
+    connectorIds: string[]
+  ): Promise<Map<string, ExternalConnectorHealthDto["totals"]>> {
+    const totalsByConnector = new Map<string, ExternalConnectorHealthDto["totals"]>();
+
+    if (!connectorIds.length) {
+      return totalsByConnector;
+    }
+
+    const groups = await this.prisma.externalIngestionRecord.groupBy({
+      by: ["connectorId", "status"],
+      where: { connectorId: { in: connectorIds } },
+      _count: { _all: true },
+      _sum: { duplicateCount: true }
+    });
+
+    for (const group of groups) {
+      const totals = totalsByConnector.get(group.connectorId) ?? this.emptyIngestionTotals();
+      totals.duplicates += Math.max(0, group._sum.duplicateCount ?? 0);
+
+      if (group.status === "imported") {
+        totals.imported += group._count._all;
+      } else if (group.status === "duplicate") {
+        totals.duplicates += group._count._all;
+      } else if (group.status === "rejected") {
+        totals.rejected += group._count._all;
+      } else if (["pending", "pending_delivery"].includes(group.status)) {
+        totals.pending += group._count._all;
+      }
+
+      totalsByConnector.set(group.connectorId, totals);
+    }
+
+    return totalsByConnector;
+  }
+
+  private emptyIngestionTotals(): ExternalConnectorHealthDto["totals"] {
+    return {
       imported: 0,
       duplicates: 0,
       rejected: 0,
       pending: 0
     };
-
-    for (const record of records) {
-      totals.duplicates += Math.max(0, record.duplicateCount);
-
-      if (record.status === "imported") {
-        totals.imported += 1;
-      } else if (record.status === "duplicate") {
-        totals.duplicates += 1;
-      } else if (record.status === "rejected") {
-        totals.rejected += 1;
-      } else if (["pending", "pending_delivery"].includes(record.status)) {
-        totals.pending += 1;
-      }
-    }
-
-    return { connector: this.toDto(connector), totals };
   }
 
   private async getConnector(connectorId: string): Promise<ConnectorWithCursors> {

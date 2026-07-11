@@ -1506,6 +1506,40 @@ td span {
   color: var(--warning);
 }
 
+.action-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 80;
+  display: grid;
+  gap: 3px;
+  width: min(380px, calc(100vw - 32px));
+  padding: 13px 15px;
+  border: 1px solid rgba(66, 240, 168, 0.38);
+  border-radius: 6px;
+  background: rgba(7, 27, 23, 0.98);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34);
+}
+
+.action-toast strong {
+  color: var(--signal);
+  font-size: 13px;
+}
+
+.action-toast span {
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.action-toast.error {
+  border-color: rgba(255, 190, 71, 0.42);
+}
+
+.action-toast.error strong {
+  color: var(--warning);
+}
+
 .client-admin-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1705,7 +1739,7 @@ td span {
 
 .connector-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.1fr) minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(210px, 0.9fr) minmax(390px, 1.6fr) auto;
   gap: 20px;
   align-items: center;
   padding: 16px 0;
@@ -1739,6 +1773,65 @@ td span {
 
 .connector-health-copy .event-chip {
   justify-self: start;
+}
+
+.connector-status-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.connector-status-line strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.connector-status-line .sync-failed,
+.sync-error-code {
+  color: var(--warning);
+}
+
+.connector-sync-totals {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(72px, 1fr));
+  margin-top: 7px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.connector-sync-totals > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 10px;
+  border-right: 1px solid var(--border);
+}
+
+.connector-sync-totals > span:first-child {
+  padding-left: 0;
+}
+
+.connector-sync-totals > span:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
+.connector-sync-totals small {
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.connector-sync-totals strong {
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.2;
 }
 
 .connector-actions {
@@ -1795,6 +1888,25 @@ td span {
   .connector-command-row,
   .form-command-row {
     grid-column: 1;
+  }
+
+  .connector-sync-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 10px;
+  }
+
+  .connector-sync-totals > span:nth-child(2) {
+    padding-right: 0;
+    border-right: 0;
+  }
+
+  .connector-sync-totals > span:nth-child(3) {
+    padding-left: 0;
+  }
+
+  .action-toast {
+    right: 16px;
+    bottom: 16px;
   }
 }
 

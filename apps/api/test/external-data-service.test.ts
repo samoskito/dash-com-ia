@@ -3,6 +3,81 @@ import { describe, expect, it, vi } from "vitest";
 import { ExternalDataService } from "../src/external-data/external-data.service";
 
 describe("ExternalDataService", () => {
+  it("lists connectors with aggregated ingestion totals", async () => {
+    const now = new Date("2026-07-11T15:00:00.000Z");
+    const prisma = {
+      externalDataConnector: {
+        findMany: vi.fn(async () => [
+          {
+            id: "connector_1",
+            workspaceId: "workspace_1",
+            name: "Cliente Barbieri",
+            provider: "kinbox_mysql",
+            status: "active",
+            timezone: "America/Sao_Paulo",
+            sslMode: "required",
+            credentialsEncrypted: "ciphertext",
+            credentialsIv: "iv",
+            credentialsTag: "tag",
+            syncEnabled: true,
+            shadowMode: true,
+            capiSendEnabled: false,
+            purchaseAverageValueCents: 400_000,
+            defaultCurrency: "BRL",
+            lastConnectionTestAt: now,
+            lastConnectionStatus: "connected",
+            lastSyncStartedAt: now,
+            lastSyncCompletedAt: now,
+            lastSyncStatus: "completed",
+            lastSyncErrorCode: null,
+            cursors: [],
+            createdAt: now,
+            updatedAt: now
+          }
+        ])
+      },
+      externalIngestionRecord: {
+        groupBy: vi.fn(async () => [
+          {
+            connectorId: "connector_1",
+            status: "imported",
+            _count: { _all: 116 },
+            _sum: { duplicateCount: 2 }
+          },
+          {
+            connectorId: "connector_1",
+            status: "rejected",
+            _count: { _all: 1 },
+            _sum: { duplicateCount: 0 }
+          }
+        ])
+      }
+    };
+    const service = new ExternalDataService(prisma as never, {} as never, {} as never, {} as never);
+
+    const result = await service.listConnectors();
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      connector: {
+        id: "connector_1",
+        lastSyncStatus: "completed"
+      },
+      totals: {
+        imported: 116,
+        duplicates: 2,
+        rejected: 1,
+        pending: 0
+      }
+    });
+    expect(prisma.externalIngestionRecord.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        by: ["connectorId", "status"],
+        where: { connectorId: { in: ["connector_1"] } }
+      })
+    );
+  });
+
   it("creates an encrypted connector and never returns credential material", async () => {
     const now = new Date("2026-07-11T15:00:00.000Z");
     const prisma = {
@@ -76,9 +151,7 @@ describe("ExternalDataService", () => {
         action: "external_connector.created"
       })
     });
-    expect(JSON.stringify(prisma.auditLog.create.mock.calls)).not.toContain(
-      "strong-password"
-    );
+    expect(JSON.stringify(prisma.auditLog.create.mock.calls)).not.toContain("strong-password");
   });
 
   it("does not activate synchronization before a successful connection test", async () => {
@@ -115,19 +188,10 @@ describe("ExternalDataService", () => {
         update
       }
     };
-    const service = new ExternalDataService(
-      prisma as never,
-      {} as never,
-      {} as never,
-      {} as never
-    );
+    const service = new ExternalDataService(prisma as never, {} as never, {} as never, {} as never);
 
     await expect(
-      service.updateConnector(
-        "connector_1",
-        { status: "active", syncEnabled: true },
-        "admin_1"
-      )
+      service.updateConnector("connector_1", { status: "active", syncEnabled: true }, "admin_1")
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(update).not.toHaveBeenCalled();
   });

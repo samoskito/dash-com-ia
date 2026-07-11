@@ -33,28 +33,36 @@ describe("backoffice clients route", () => {
       } else if (url.endsWith("/backoffice/external-data/connectors")) {
         body = [
           {
-            id: "connector_1",
-            workspaceId: "workspace_barbieri",
-            name: "MySQL Barbieri",
-            provider: "kinbox_mysql",
-            status: "draft",
-            timezone: "America/Sao_Paulo",
-            sslMode: "required",
-            syncEnabled: false,
-            shadowMode: true,
-            capiSendEnabled: false,
-            purchaseAverageValueCents: null,
-            defaultCurrency: "BRL",
-            hasCredentials: true,
-            lastConnectionTestAt: null,
-            lastConnectionStatus: null,
-            lastSyncStartedAt: null,
-            lastSyncCompletedAt: null,
-            lastSyncStatus: null,
-            lastSyncErrorCode: null,
-            cursors: [],
-            createdAt: "2026-07-11T18:00:00.000Z",
-            updatedAt: "2026-07-11T18:00:00.000Z"
+            connector: {
+              id: "connector_1",
+              workspaceId: "workspace_barbieri",
+              name: "MySQL Barbieri",
+              provider: "kinbox_mysql",
+              status: "active",
+              timezone: "America/Sao_Paulo",
+              sslMode: "required",
+              syncEnabled: true,
+              shadowMode: true,
+              capiSendEnabled: false,
+              purchaseAverageValueCents: null,
+              defaultCurrency: "BRL",
+              hasCredentials: true,
+              lastConnectionTestAt: "2026-07-11T18:00:00.000Z",
+              lastConnectionStatus: "connected",
+              lastSyncStartedAt: "2026-07-11T18:01:00.000Z",
+              lastSyncCompletedAt: "2026-07-11T18:02:00.000Z",
+              lastSyncStatus: "completed",
+              lastSyncErrorCode: null,
+              cursors: [],
+              createdAt: "2026-07-11T18:00:00.000Z",
+              updatedAt: "2026-07-11T18:02:00.000Z"
+            },
+            totals: {
+              imported: 116,
+              duplicates: 0,
+              rejected: 0,
+              pending: 0
+            }
           }
         ];
       } else if (url.endsWith("/backoffice/platform-users")) {
@@ -93,6 +101,9 @@ describe("backoffice clients route", () => {
     expect(html).toContain("Provisionar workspace");
     expect(html).toContain("Cliente Barbieri");
     expect(html).toContain("MySQL Barbieri");
+    expect(html).toContain("Sincronizacao concluida");
+    expect(html).toContain("Importados");
+    expect(html).toContain(">116<");
     expect(html).toContain("Acessar");
     expect(html).toContain("Salvar conector");
     expect(html).not.toContain("credentialsEncrypted");
