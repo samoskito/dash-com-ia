@@ -86,7 +86,7 @@ describe("external MySQL adapter", () => {
   });
 
   it("maps incremental event rows and keeps the query bounded", async () => {
-    const query = vi.fn(async () => [
+    const queryMock = vi.fn(async (_input: unknown) => [
       [
         {
           externalRowId: "42",
@@ -113,7 +113,8 @@ describe("external MySQL adapter", () => {
         }
       ],
       []
-    ]) as unknown as ExternalMysqlConnection["query"];
+    ]);
+    const query = queryMock as unknown as ExternalMysqlConnection["query"];
     const { adapter } = adapterWithQuery(query);
 
     const rows = await adapter.readEventsPage(
@@ -135,6 +136,9 @@ describe("external MySQL adapter", () => {
         timeout: 3000
       })
     );
+    const queryInput = queryMock.mock.calls[0]?.[0] as { sql: string };
+    expect(queryInput.sql).toContain("CAST(external_row_id AS CHAR) > ?");
+    expect(queryInput.sql).not.toContain("UNSIGNED");
   });
 
   it("sanitizes connection errors", async () => {

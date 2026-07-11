@@ -2,23 +2,6 @@
 -- Replace every {{CLIENT_SUFFIX}} before running this script.
 -- Run with an operator account. WppTrack itself must use a read-only account.
 
-SET @legacy_table = 'whatsapp_anuncio_{{CLIENT_SUFFIX}}';
-SET @row_id_exists = (
-  SELECT COUNT(*)
-    FROM information_schema.COLUMNS
-   WHERE TABLE_SCHEMA = DATABASE()
-     AND TABLE_NAME = @legacy_table
-     AND COLUMN_NAME = 'wpptrack_row_id'
-);
-SET @add_row_id_sql = IF(
-  @row_id_exists > 0,
-  'SELECT 1',
-  'ALTER TABLE `whatsapp_anuncio_{{CLIENT_SUFFIX}}` ADD COLUMN `wpptrack_row_id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, ADD UNIQUE KEY `uk_wpptrack_row_id` (`wpptrack_row_id`)'
-);
-PREPARE add_row_id_statement FROM @add_row_id_sql;
-EXECUTE add_row_id_statement;
-DEALLOCATE PREPARE add_row_id_statement;
-
 CREATE TABLE IF NOT EXISTS `wpptrack_tracking_events` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `dedupe_key` VARCHAR(255) NOT NULL,
@@ -57,7 +40,7 @@ CREATE TABLE IF NOT EXISTS `wpptrack_tracking_events` (
 
 CREATE OR REPLACE VIEW `vw_wpptrack_leads` AS
 SELECT
-  wa.`wpptrack_row_id` AS `external_row_id`,
+  SHA2(CONCAT('lead:', wa.`telefone`), 256) AS `external_row_id`,
   COALESCE(NULLIF(wa.`lid`, ''), NULLIF(wa.`id_transacao`, ''), wa.`telefone`) AS `external_lead_id`,
   wa.`telefone` AS `phone`,
   NULLIF(TRIM(CONCAT_WS(' ', wa.`nome`, wa.`sobrenome`)), '') AS `name`,
@@ -78,7 +61,7 @@ FROM `whatsapp_anuncio_{{CLIENT_SUFFIX}}` wa;
 
 CREATE OR REPLACE VIEW `vw_wpptrack_events` AS
 SELECT
-  e.`id` AS `external_row_id`,
+  LPAD(CAST(e.`id` AS CHAR), 20, '0') AS `external_row_id`,
   e.`dedupe_key`,
   e.`provider`,
   e.`event_type`,

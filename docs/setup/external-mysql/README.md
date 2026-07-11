@@ -19,7 +19,7 @@ This foundation imports WhatsApp data from the standardized customer MySQL witho
 6. Test the connection, activate the connector and run the first sync in shadow mode.
 7. Compare counts before enabling CAPI delivery from WppTrack.
 
-The schema adds a stable numeric cursor to the legacy lead table. It does not alter or delete existing lead fields.
+The schema derives a stable cursor inside the read-only views. It does not alter, lock, delete or overwrite the existing lead table.
 
 ## n8n dual-write contract
 

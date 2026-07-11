@@ -165,8 +165,8 @@ export class ExternalMysqlAdapter {
            status,
            updated_at AS updatedAt
          FROM ${leadsView}
-        WHERE (updated_at > ? OR (updated_at = ? AND external_row_id > CAST(? AS UNSIGNED)))
-        ORDER BY updated_at ASC, external_row_id ASC
+        WHERE (updated_at > ? OR (updated_at = ? AND CAST(external_row_id AS CHAR) > ?))
+        ORDER BY updated_at ASC, CAST(external_row_id AS CHAR) ASC
         LIMIT ?`,
         this.cursorValues(cursor, limit)
       );
@@ -207,8 +207,8 @@ export class ExternalMysqlAdapter {
            duplicate_count AS duplicateCount,
            updated_at AS updatedAt
          FROM ${eventsView}
-        WHERE (updated_at > ? OR (updated_at = ? AND external_row_id > CAST(? AS UNSIGNED)))
-        ORDER BY updated_at ASC, external_row_id ASC
+        WHERE (updated_at > ? OR (updated_at = ? AND CAST(external_row_id AS CHAR) > ?))
+        ORDER BY updated_at ASC, CAST(external_row_id AS CHAR) ASC
         LIMIT ?`,
         this.cursorValues(cursor, limit)
       );
