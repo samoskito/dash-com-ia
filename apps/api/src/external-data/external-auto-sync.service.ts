@@ -49,8 +49,11 @@ export class ExternalAutoSyncService
         });
     };
 
-    this.initialTimer = setTimeout(run, config.initialDelayMs);
-    this.timer = setInterval(run, config.intervalMs);
+    this.initialTimer = setTimeout(() => {
+      this.initialTimer = null;
+      run();
+      this.timer = setInterval(run, config.intervalMs);
+    }, config.initialDelayMs);
   }
 
   onModuleDestroy(): void {
