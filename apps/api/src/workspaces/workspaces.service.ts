@@ -106,7 +106,8 @@ export class WorkspacesService {
     return {
       ...workspace,
       permissions: this.getPermissions(workspace.role),
-      accessMode: isPlatformSupport ? "platform_support" : "member"
+      accessMode: isPlatformSupport ? "platform_support" : "member",
+      platformRole: authenticated.user.platformRole ?? null
     };
   }
 
@@ -331,7 +332,8 @@ export class WorkspacesService {
       role: workspace.role,
       operationalStatus: workspace.operationalStatus,
       permissions: workspace.permissions,
-      accessMode: workspace.accessMode
+      accessMode: workspace.accessMode,
+      platformRole: workspace.platformRole
     };
   }
 

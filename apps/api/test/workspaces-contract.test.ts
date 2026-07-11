@@ -142,4 +142,32 @@ describe("workspace contracts", () => {
       })
     ).toThrow(ForbiddenException);
   });
+
+  it("exposes platform authority without changing workspace membership", () => {
+    const service = new WorkspacesService(prisma as never);
+
+    const workspace = service.getCurrentWorkspace({
+      user: {
+        id: "user_owner",
+        email: "owner@wpptrack.com",
+        name: "Owner",
+        authProvider: "email",
+        emailVerifiedAt: null,
+        platformRole: "platform_owner"
+      },
+      workspaces: [
+        {
+          id: "workspace_owner",
+          name: "Workspace do Owner",
+          slug: "workspace-owner",
+          role: "owner",
+          operationalStatus: "active"
+        }
+      ]
+    });
+
+    expect(workspace.platformRole).toBe("platform_owner");
+    expect(workspace.accessMode).toBe("member");
+    expect(workspace.role).toBe("owner");
+  });
 });

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { workspaceRoles } from "../roles";
+import { platformRoles, workspaceRoles } from "../roles";
 
 export const workspaceOperationalStatuses = ["active", "blocked"] as const;
 
@@ -20,7 +20,8 @@ export const workspaceSchema = z.object({
 
 export const currentWorkspaceSchema = workspaceSchema.extend({
   permissions: workspacePermissionsSchema,
-  accessMode: z.enum(["member", "platform_support"]).optional()
+  accessMode: z.enum(["member", "platform_support"]).optional(),
+  platformRole: z.enum(platformRoles).nullable().optional()
 });
 
 export const workspaceUpdateInputSchema = z.object({

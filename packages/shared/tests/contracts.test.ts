@@ -757,6 +757,7 @@ describe("shared contracts", () => {
       slug: "comunidade-nod",
       role: "owner",
       operationalStatus: "blocked",
+      platformRole: "platform_owner",
       permissions: {
         canInviteMembers: true,
         canManageBilling: true,
@@ -796,6 +797,7 @@ describe("shared contracts", () => {
 
     expect(workspace.permissions.canManageBilling).toBe(true);
     expect(workspace.operationalStatus).toBe("blocked");
+    expect(workspace.platformRole).toBe("platform_owner");
     expect(member.role).toBe("owner");
     expect(inviteInput.email).toBe("admin@wpptrack.com");
     expect(invite.status).toBe("pending");

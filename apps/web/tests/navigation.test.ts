@@ -31,6 +31,33 @@ describe("navigation", () => {
 
     expect(html).toContain("Panel content");
     expect(html).not.toContain("Clientes");
+    expect(html).not.toContain("/backoffice/clients");
+  });
+
+  it("adds platform administration only for platform users", () => {
+    const html = renderToStaticMarkup(
+      createElement(AppShell, {
+        workspace: {
+          id: "workspace_owner",
+          name: "Workspace do Owner",
+          slug: "workspace-owner",
+          role: "owner",
+          operationalStatus: "active",
+          platformRole: "platform_owner",
+          permissions: {
+            canInviteMembers: true,
+            canManageBilling: true,
+            canManageIntegrations: true,
+            canViewReports: true,
+          },
+        },
+        children: createElement("p", null, "Panel content"),
+      }),
+    );
+
+    expect(html).toContain("Plataforma");
+    expect(html).toContain("Backoffice");
+    expect(html).toContain('href="/backoffice/clients"');
   });
 
   it("renders a sidebar collapse control for dense report screens", () => {

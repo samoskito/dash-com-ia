@@ -67,7 +67,7 @@ export function AppShell({
           <strong>{workspace?.name ?? "Workspace indisponivel"}</strong>
           <small>
             {workspace
-              ? `${workspace.slug} · ${workspace.role}`
+              ? `${workspace.slug} - ${workspace.role}`
               : "Sessao autenticada"}
           </small>
         </section>
@@ -83,6 +83,21 @@ export function AppShell({
             </Link>
           ))}
         </nav>
+
+        {workspace?.platformRole ? (
+          <nav
+            className="sidebar-nav platform-sidebar-nav"
+            aria-label="Administracao da plataforma"
+          >
+            <p className="nav-label">Plataforma</p>
+            <Link href="/backoffice/clients" title="Backoffice">
+              <span className="nav-short" aria-hidden="true">
+                P
+              </span>
+              <span className="nav-text">Backoffice</span>
+            </Link>
+          </nav>
+        ) : null}
 
         <section className="health-panel" aria-label="Conta">
           <p className="nav-label">Conta</p>

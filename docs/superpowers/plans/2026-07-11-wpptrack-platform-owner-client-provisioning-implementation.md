@@ -22,6 +22,7 @@ Spec: `docs/superpowers/specs/2026-07-11-wpptrack-platform-owner-client-provisio
 
 - Persistent `platform_owner` and `platform_operator` roles in PostgreSQL.
 - Per-session support workspace with explicit banner and audited entry/exit.
+- Product sidebar exposes `Plataforma > Backoffice` only when the authenticated session has a persistent platform role.
 - Atomic customer workspace + first owner provisioning without exposing the initial password.
 - Platform team management isolated from customer memberships.
 - Private MySQL connector creation, connection test, shadow activation and manual sync by workspace.
