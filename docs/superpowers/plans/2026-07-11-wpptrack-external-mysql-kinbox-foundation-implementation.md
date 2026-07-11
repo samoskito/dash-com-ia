@@ -2,7 +2,7 @@
 
 Date: 2026-07-11
 
-Status: Deployed and configured for Barbieri on 2026-07-11; first shadow sync was requested and reconciliation remains pending.
+Status: Deployed and configured for Barbieri on 2026-07-11; lead backfill reconciled at 125/125 and n8n event dual-write remains pending.
 
 Design source: `docs/superpowers/specs/2026-07-11-wpptrack-external-mysql-kinbox-data-foundation-design.md`
 
@@ -23,7 +23,7 @@ Implement Block 0.5 so WppTrack can securely backfill standardized external MySQ
 - Reporting contracts expose estimated revenue provenance through `valueSource`, `estimatedRevenueCents` and `hasEstimatedRevenue`.
 - Verification passed after the backoffice observability pass: 429 API tests, 87 web tests, 54 shared-contract tests, API/shared/web typechecks, API build, web production build, Prisma validation, responsive review at 1440/390 px and `git diff --check`.
 
-The migration, customer views, read-only account, network allowlist and connector are live for Barbieri. Block 0.5 is not operationally complete until the first shadow result is visible in production and its imported totals are reconciled against the external MySQL source.
+The migration, customer views, read-only account, network allowlist and connector are live for Barbieri. The first production shadow backfill reached exact parity with `vw_wpptrack_leads` at 125 records. Block 0.5 now advances to append-only event dual-write and reconciliation without disabling the current n8n Meta delivery.
 
 ## Guardrails
 
