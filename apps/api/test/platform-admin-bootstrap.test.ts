@@ -9,6 +9,7 @@ type UserRecord = {
   email: string;
   name: string;
   passwordHash: string;
+  platformRole: "platform_owner" | null;
   memberships: Array<{ workspaceId: string; role: "owner" }>;
 };
 
@@ -47,6 +48,7 @@ function createHarness() {
         email: data.email,
         name: data.name,
         passwordHash: data.passwordHash,
+        platformRole: "platform_owner",
         memberships: []
       };
       users.push(user);
@@ -66,6 +68,7 @@ function createHarness() {
 
       user.name = data.name;
       user.passwordHash = data.passwordHash;
+      user.platformRole = "platform_owner";
 
       return user;
     }
@@ -141,6 +144,7 @@ describe("platform admin bootstrap", () => {
     expect(users[0]).toMatchObject({
       email: "dono@wpptrack.com",
       passwordHash: "hashed:strong-password",
+      platformRole: "platform_owner",
       memberships: [{ workspaceId: "workspace_1", role: "owner" }]
     });
     expect(workspaces[0]).toMatchObject({

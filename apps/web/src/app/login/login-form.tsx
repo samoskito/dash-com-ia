@@ -21,11 +21,15 @@ export function LoginForm({ initialError = null }: { initialError?: string | nul
     });
 
     try {
-      await apiFetch("/auth/login", {
+      const session = await apiFetch<{
+        user: { platformRole?: string | null };
+      }>("/auth/login", {
         method: "POST",
         body: JSON.stringify(payload)
       });
-      window.location.href = "/overview";
+      window.location.href = session.user.platformRole
+        ? "/backoffice/clients"
+        : "/overview";
     } catch {
       setError("Nao foi possivel autenticar. Confira os dados e tente novamente.");
       setLoading(false);

@@ -4,15 +4,44 @@ import request from "supertest";
 import { PlatformAdminService } from "../src/auth/platform-admin.service";
 import { BackofficeWorkspacesController } from "../src/workspaces/backoffice-workspaces.controller";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
+import { PlatformWorkspaceAccessService } from "../src/workspaces/platform-workspace-access.service";
 
 async function createApp() {
   const platformAdminService = {
     assertPlatformAdmin: vi.fn(async () => ({
       id: "user_1",
-      email: "owner@wpptrack.com"
+      email: "owner@wpptrack.com",
+      role: "platform_owner"
     }))
   };
   const workspacesService = {
+    listClientWorkspaces: vi.fn(async () => [
+      {
+        id: "workspace_1",
+        name: "Comunidade NOD",
+        slug: "comunidade-nod",
+        operationalStatus: "active",
+        createdAt: "2026-07-02T03:00:00.000Z",
+        owners: [
+          { id: "client_1", name: "Cliente", email: "cliente@empresa.com" }
+        ],
+        connectorCount: 1
+      }
+    ]),
+    provisionClientWorkspace: vi.fn(async () => ({
+      workspace: {
+        id: "workspace_3",
+        name: "Barbieri",
+        slug: "barbieri",
+        operationalStatus: "active"
+      },
+      owner: {
+        id: "client_3",
+        name: "Cliente Barbieri",
+        email: "cliente@barbieri.com.br",
+        role: "owner"
+      }
+    })),
     listBillingConfigurations: vi.fn(async () => [
       {
         id: "workspace_1",
@@ -64,20 +93,107 @@ async function createApp() {
       }
     ])
   };
+  const platformWorkspaceAccessService = {
+    start: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      workspaceName: "Comunidade NOD",
+      workspaceSlug: "comunidade-nod",
+      startedAt: "2026-07-11T18:00:00.000Z"
+    })),
+    stop: vi.fn(async () => ({ ok: true }))
+  };
   const moduleRef = await Test.createTestingModule({
     controllers: [BackofficeWorkspacesController],
     providers: [
       { provide: PlatformAdminService, useValue: platformAdminService },
-      { provide: WorkspacesService, useValue: workspacesService }
+      { provide: WorkspacesService, useValue: workspacesService },
+      {
+        provide: PlatformWorkspaceAccessService,
+        useValue: platformWorkspaceAccessService
+      }
     ]
   }).compile();
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, platformAdminService, workspacesService };
+  return {
+    app,
+    platformAdminService,
+    platformWorkspaceAccessService,
+    workspacesService
+  };
 }
 
 describe("backoffice workspaces controller", () => {
+  it("lists customer workspaces for platform operators", async () => {
+    const { app, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/backoffice/workspaces")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body[0].owners[0].email).toBe("cliente@empresa.com");
+      });
+
+    expect(workspacesService.listClientWorkspaces).toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("provisions an isolated workspace and its first owner", async () => {
+    const { app, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/backoffice/workspaces")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        workspaceName: "Barbieri",
+        ownerName: "Cliente Barbieri",
+        ownerEmail: "cliente@barbieri.com.br",
+        ownerPassword: "temporary-strong-password"
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.workspace.slug).toBe("barbieri");
+        expect(body.owner.role).toBe("owner");
+        expect(JSON.stringify(body)).not.toContain("password");
+      });
+
+    expect(workspacesService.provisionClientWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerEmail: "cliente@barbieri.com.br" }),
+      "user_1"
+    );
+    await app.close();
+  });
+
+  it("starts and ends an audited support workspace context", async () => {
+    const { app, platformWorkspaceAccessService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/backoffice/workspaces/workspace_1/support-access")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+      });
+    await request(app.getHttpServer())
+      .delete("/backoffice/workspaces/support-access")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect({ ok: true });
+
+    expect(platformWorkspaceAccessService.start).toHaveBeenCalledWith(
+      "refresh-token",
+      "workspace_1",
+      expect.objectContaining({ id: "user_1" })
+    );
+    expect(platformWorkspaceAccessService.stop).toHaveBeenCalledWith(
+      "refresh-token",
+      expect.objectContaining({ id: "user_1" })
+    );
+    await app.close();
+  });
+
   it("returns workspace billing configuration for platform admins", async () => {
     const { app, platformAdminService, workspacesService } = await createApp();
 

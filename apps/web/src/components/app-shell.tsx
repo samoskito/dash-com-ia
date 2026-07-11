@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { LogoutButton } from "./logout-button";
+import { exitPlatformSupportAccess } from "../app/actions/platform-support";
 
 const sidebarStorageKey = "wpptrack-sidebar-collapsed";
 
@@ -99,7 +100,22 @@ export function AppShell({
           <LogoutButton />
         </section>
       </aside>
-      <main className="content">{children}</main>
+      <main className="content">
+        {workspace?.accessMode === "platform_support" ? (
+          <div className="support-context-bar" role="status">
+            <div>
+              <span>Acesso de suporte</span>
+              <strong>{workspace.name}</strong>
+            </div>
+            <form action={exitPlatformSupportAccess}>
+              <button className="button ghost" type="submit">
+                Encerrar acesso
+              </button>
+            </form>
+          </div>
+        ) : null}
+        {children}
+      </main>
     </div>
   );
 }

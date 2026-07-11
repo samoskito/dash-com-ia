@@ -1,3 +1,4 @@
+import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { ExternalDataService } from "../src/external-data/external-data.service";
 
@@ -78,5 +79,56 @@ describe("ExternalDataService", () => {
     expect(JSON.stringify(prisma.auditLog.create.mock.calls)).not.toContain(
       "strong-password"
     );
+  });
+
+  it("does not activate synchronization before a successful connection test", async () => {
+    const now = new Date("2026-07-11T15:00:00.000Z");
+    const update = vi.fn();
+    const prisma = {
+      externalDataConnector: {
+        findUnique: vi.fn(async () => ({
+          id: "connector_1",
+          workspaceId: "workspace_1",
+          name: "Cliente Barbieri",
+          provider: "kinbox_mysql",
+          status: "draft",
+          timezone: "America/Sao_Paulo",
+          sslMode: "required",
+          credentialsEncrypted: "ciphertext",
+          credentialsIv: "iv",
+          credentialsTag: "tag",
+          syncEnabled: false,
+          shadowMode: true,
+          capiSendEnabled: false,
+          purchaseAverageValueCents: null,
+          defaultCurrency: "BRL",
+          lastConnectionTestAt: null,
+          lastConnectionStatus: null,
+          lastSyncStartedAt: null,
+          lastSyncCompletedAt: null,
+          lastSyncStatus: null,
+          lastSyncErrorCode: null,
+          cursors: [],
+          createdAt: now,
+          updatedAt: now
+        })),
+        update
+      }
+    };
+    const service = new ExternalDataService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+
+    await expect(
+      service.updateConnector(
+        "connector_1",
+        { status: "active", syncEnabled: true },
+        "admin_1"
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(update).not.toHaveBeenCalled();
   });
 });

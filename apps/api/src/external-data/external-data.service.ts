@@ -128,6 +128,14 @@ export class ExternalDataService {
   ): Promise<ExternalDataConnectorDto> {
     const current = await this.getConnector(connectorId);
     const before = this.toDto(current);
+    const enablesReading = input.status === "active" || input.syncEnabled === true;
+
+    if (enablesReading && current.lastConnectionStatus !== "connected") {
+      throw new BadRequestException(
+        "Teste a conexao e as views antes de ativar a sincronizacao"
+      );
+    }
+
     const data: Prisma.ExternalDataConnectorUpdateInput = {
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),

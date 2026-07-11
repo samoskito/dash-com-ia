@@ -1,4 +1,4 @@
-import type { WorkspaceDto } from "@wpptrack/shared";
+import type { PlatformRole, WorkspaceDto } from "@wpptrack/shared";
 
 export type AuthenticatedUser = {
   user: {
@@ -7,6 +7,13 @@ export type AuthenticatedUser = {
     name: string | null;
     authProvider: string;
     emailVerifiedAt: Date | null;
+    platformRole?: PlatformRole | null;
   };
   workspaces: WorkspaceDto[];
+  supportContext?: {
+    workspaceId: string;
+    workspaceName: string;
+    workspaceSlug: string;
+    startedAt: string;
+  } | null;
 };

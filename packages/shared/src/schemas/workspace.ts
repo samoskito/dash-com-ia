@@ -19,7 +19,8 @@ export const workspaceSchema = z.object({
 });
 
 export const currentWorkspaceSchema = workspaceSchema.extend({
-  permissions: workspacePermissionsSchema
+  permissions: workspacePermissionsSchema,
+  accessMode: z.enum(["member", "platform_support"]).optional()
 });
 
 export const workspaceUpdateInputSchema = z.object({

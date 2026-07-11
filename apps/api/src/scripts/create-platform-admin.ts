@@ -29,12 +29,6 @@ async function main() {
       name: args.name ?? args.email.split("@")[0] ?? "Administrador",
       workspaceName: args.workspaceName
     });
-    const allowedEmails = new Set(
-      (process.env.WPPTRACK_PLATFORM_ADMIN_EMAILS ?? "")
-        .split(",")
-        .map((email) => email.trim().toLowerCase())
-        .filter(Boolean)
-    );
 
     console.log(
       JSON.stringify(
@@ -43,20 +37,15 @@ async function main() {
           email: result.email,
           userId: result.userId,
           workspaceId: result.workspaceId,
+          platformRole: result.platformRole,
           createdUser: result.createdUser,
           createdWorkspace: result.createdWorkspace,
-          platformAllowlistConfigured: allowedEmails.has(result.email)
+          authorization: "persistent_platform_owner"
         },
         null,
         2
       )
     );
-
-    if (!allowedEmails.has(result.email)) {
-      console.log(
-        "Aviso: inclua este email em WPPTRACK_PLATFORM_ADMIN_EMAILS para liberar o backoffice."
-      );
-    }
   } finally {
     await prisma.$disconnect();
   }

@@ -11,6 +11,7 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  NotFoundException,
   Optional,
   UnauthorizedException
 } from "@nestjs/common";
@@ -28,8 +29,13 @@ import type {
   PasswordResetConfirmInputDto,
   PasswordResetRequestDto,
   PasswordResetRequestInputDto,
+  PlatformRole,
+  PlatformUserProvisionInputDto,
+  PlatformUserRoleUpdateInputDto,
+  PlatformUserDto,
   RegisterDto
 } from "@wpptrack/shared";
+import { platformUserListSchema, platformUserSchema } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import {
   RUNTIME_ENV,
@@ -67,6 +73,7 @@ type EmailLoginUserRecord = {
   authProvider?: string;
   googleId?: string | null;
   emailVerifiedAt?: Date | null;
+  platformRole?: PlatformRole | null;
   memberships: WorkspaceMembershipRecord[];
 };
 
@@ -77,6 +84,13 @@ type AuthSessionRecord = {
   userId?: string;
   revokedAt: Date | null;
   expiresAt: Date;
+  supportWorkspaceStartedAt?: Date | null;
+  supportWorkspace?: {
+    id: string;
+    name: string;
+    slug: string;
+    operationalStatus?: AuthenticatedUser["workspaces"][number]["operationalStatus"];
+  } | null;
   user: SessionUserRecord;
 };
 
@@ -239,7 +253,8 @@ export class AuthService {
               }
             }
           }
-        }
+        },
+        supportWorkspace: true
       }
     })) as AuthSessionRecord | null;
 
@@ -251,7 +266,174 @@ export class AuthService {
       throw this.invalidCredentials();
     }
 
-    return this.toAuthenticatedUser(session.user);
+    return this.toAuthenticatedUser(
+      session.user,
+      session.supportWorkspace ?? null,
+      session.supportWorkspaceStartedAt ?? null
+    );
+  }
+
+  async setSupportWorkspace(
+    refreshToken: string,
+    workspaceId: string | null
+  ): Promise<void> {
+    const refreshHash = this.hashRefreshToken(refreshToken);
+    const result = await this.prisma.authSession.updateMany({
+      where: {
+        refreshHash,
+        revokedAt: null,
+        expiresAt: { gt: new Date() }
+      },
+      data: {
+        supportWorkspaceId: workspaceId,
+        supportWorkspaceStartedAt: workspaceId ? new Date() : null
+      }
+    });
+
+    if (result.count === 0) {
+      throw this.invalidCredentials();
+    }
+  }
+
+  async listPlatformUsers(): Promise<PlatformUserDto[]> {
+    const users = await this.prisma.user.findMany({
+      where: { platformRole: { not: null } },
+      orderBy: [{ platformRole: "asc" }, { createdAt: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        platformRole: true,
+        createdAt: true
+      }
+    });
+
+    return platformUserListSchema.parse(
+      users.map((user) => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.platformRole,
+        createdAt: user.createdAt.toISOString()
+      }))
+    );
+  }
+
+  async provisionPlatformUser(
+    input: PlatformUserProvisionInputDto,
+    actorUserId: string
+  ): Promise<PlatformUserDto> {
+    const existing = await this.prisma.user.findUnique({
+      where: { email: input.email },
+      select: { id: true }
+    });
+
+    if (existing) {
+      throw new ConflictException("Email ja cadastrado");
+    }
+
+    const passwordHash = await this.passwordService.hash(input.password);
+    const user = await this.prisma.user.create({
+      data: {
+        name: input.name,
+        email: input.email,
+        passwordHash,
+        authProvider: "email",
+        emailVerifiedAt: new Date(),
+        platformRole: input.role
+      }
+    });
+
+    await this.safeCreateAuditLog({
+      workspaceId: null,
+      actorUserId,
+      actorType: "platform_owner",
+      action: "platform_user.created",
+      targetType: "User",
+      targetId: user.id,
+      reason: null,
+      sourceIp: null,
+      resultStatus: "success",
+      beforeSummary: null,
+      afterSummary: {
+        email: user.email,
+        platformRole: user.platformRole
+      }
+    });
+
+    return platformUserSchema.parse({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.platformRole,
+      createdAt: user.createdAt.toISOString()
+    });
+  }
+
+  async updatePlatformUserRole(
+    userId: string,
+    input: PlatformUserRoleUpdateInputDto,
+    actorUserId: string
+  ): Promise<PlatformUserDto | { id: string; role: null }> {
+    const target = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        platformRole: true,
+        createdAt: true
+      }
+    });
+
+    if (!target) {
+      throw new NotFoundException("Usuario nao encontrado");
+    }
+
+    if (target.id === actorUserId && input.role !== "platform_owner") {
+      throw new ConflictException("O proprietario nao pode remover o proprio acesso");
+    }
+
+    if (target.platformRole === "platform_owner" && input.role !== "platform_owner") {
+      const ownerCount = await this.prisma.user.count({
+        where: { platformRole: "platform_owner" }
+      });
+
+      if (ownerCount <= 1) {
+        throw new ConflictException("A plataforma precisa manter ao menos um proprietario");
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: target.id },
+      data: { platformRole: input.role }
+    });
+
+    await this.safeCreateAuditLog({
+      workspaceId: null,
+      actorUserId,
+      actorType: "platform_owner",
+      action: "platform_user.role_updated",
+      targetType: "User",
+      targetId: target.id,
+      reason: null,
+      sourceIp: null,
+      resultStatus: "success",
+      beforeSummary: { platformRole: target.platformRole },
+      afterSummary: { platformRole: updated.platformRole }
+    });
+
+    if (!updated.platformRole) {
+      return { id: updated.id, role: null };
+    }
+
+    return platformUserSchema.parse({
+      id: updated.id,
+      name: updated.name,
+      email: updated.email,
+      role: updated.platformRole,
+      createdAt: updated.createdAt.toISOString()
+    });
   }
 
   async logout(refreshToken: string): Promise<void> {
@@ -612,7 +794,7 @@ export class AuthService {
     });
 
     return {
-      ...this.toAuthenticatedUser(user),
+      ...this.toAuthenticatedUser(user, null, null),
       refreshToken,
       expiresAt
     };
@@ -823,26 +1005,82 @@ export class AuthService {
     return candidate;
   }
 
-  private toAuthenticatedUser(user: EmailLoginUserRecord): AuthenticatedUser {
+  private toAuthenticatedUser(
+    user: EmailLoginUserRecord,
+    supportWorkspace: AuthSessionRecord["supportWorkspace"] = null,
+    supportWorkspaceStartedAt: Date | null = null
+  ): AuthenticatedUser {
+    const platformRole = this.resolvePlatformRole(user);
+    const activeSupportWorkspace = platformRole ? supportWorkspace : null;
+    const memberWorkspaces = user.memberships.map((membership) => ({
+      id: membership.workspace.id,
+      name: membership.workspace.name,
+      slug: membership.workspace.slug,
+      role: membership.role,
+      operationalStatus:
+        membership.workspace.operationalStatus === "blocked"
+          ? "blocked" as const
+          : "active" as const
+    }));
+    const supportContext =
+      activeSupportWorkspace
+        ? {
+            workspaceId: activeSupportWorkspace.id,
+            workspaceName: activeSupportWorkspace.name,
+            workspaceSlug: activeSupportWorkspace.slug,
+            startedAt: (
+              supportWorkspaceStartedAt ?? new Date()
+            ).toISOString()
+          }
+        : null;
+    const workspaces = supportContext && activeSupportWorkspace
+      ? [
+          {
+            id: activeSupportWorkspace.id,
+            name: activeSupportWorkspace.name,
+            slug: activeSupportWorkspace.slug,
+            role: "owner" as const,
+            operationalStatus:
+              activeSupportWorkspace.operationalStatus === "blocked"
+                ? "blocked" as const
+                : "active" as const
+          },
+          ...memberWorkspaces.filter(
+            (workspace) => workspace.id !== activeSupportWorkspace.id
+          )
+        ]
+      : memberWorkspaces;
+
     return {
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
         authProvider: user.authProvider ?? "email",
-        emailVerifiedAt: user.emailVerifiedAt ?? null
+        emailVerifiedAt: user.emailVerifiedAt ?? null,
+        platformRole
       },
-      workspaces: user.memberships.map((membership) => ({
-        id: membership.workspace.id,
-        name: membership.workspace.name,
-        slug: membership.workspace.slug,
-        role: membership.role,
-        operationalStatus:
-          membership.workspace.operationalStatus === "blocked"
-            ? "blocked"
-            : "active"
-      }))
+      workspaces,
+      supportContext
     };
+  }
+
+  private resolvePlatformRole(user: EmailLoginUserRecord): PlatformRole | null {
+    if (
+      user.platformRole === "platform_owner" ||
+      user.platformRole === "platform_operator"
+    ) {
+      return user.platformRole;
+    }
+
+    const email = this.normalizeEmail(user.email);
+    const isAllowlisted = (this.env.WPPTRACK_PLATFORM_ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((candidate) => this.normalizeEmail(candidate))
+      .filter(Boolean)
+      .includes(email);
+
+    return isAllowlisted ? "platform_owner" : null;
   }
 
   private normalizeEmail(email: string): string {

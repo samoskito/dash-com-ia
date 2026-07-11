@@ -37,6 +37,7 @@ export type PlatformAdminBootstrapResult = {
   email: string;
   userId: string;
   workspaceId: string;
+  platformRole: "platform_owner";
   createdUser: boolean;
   createdWorkspace: boolean;
 };
@@ -69,7 +70,8 @@ export async function bootstrapPlatformAdminUser(
           name,
           passwordHash,
           authProvider: "email",
-          emailVerifiedAt: new Date()
+          emailVerifiedAt: new Date(),
+          platformRole: "platform_owner"
         },
         include: { memberships: true }
       });
@@ -80,6 +82,7 @@ export async function bootstrapPlatformAdminUser(
           email,
           userId: updated.id,
           workspaceId: membership.workspaceId,
+          platformRole: "platform_owner",
           createdUser: false,
           createdWorkspace: false
         };
@@ -98,6 +101,7 @@ export async function bootstrapPlatformAdminUser(
         email,
         userId: updated.id,
         workspaceId: workspace.id,
+        platformRole: "platform_owner",
         createdUser: false,
         createdWorkspace: true
       };
@@ -109,7 +113,8 @@ export async function bootstrapPlatformAdminUser(
         email,
         name,
         passwordHash,
-        emailVerifiedAt: new Date()
+        emailVerifiedAt: new Date(),
+        platformRole: "platform_owner"
       },
       include: { memberships: true }
     });
@@ -125,6 +130,7 @@ export async function bootstrapPlatformAdminUser(
       email,
       userId: user.id,
       workspaceId: workspace.id,
+      platformRole: "platform_owner",
       createdUser: true,
       createdWorkspace: true
     };

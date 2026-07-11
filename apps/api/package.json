@@ -10,6 +10,7 @@
     "start": "node dist/apps/api/src/main.js",
     "start:prod": "node dist/apps/api/src/main.js",
     "platform-admin:create": "node dist/apps/api/src/scripts/create-platform-admin.js",
+    "platform-owner:promote": "node dist/apps/api/src/scripts/promote-platform-owner.js",
     "test": "vitest run",
     "lint": "tsc -p tsconfig.json --noEmit",
     "pretypecheck": "pnpm run prisma:generate",

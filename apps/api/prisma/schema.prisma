@@ -13,6 +13,11 @@ enum WorkspaceRole {
   member
 }
 
+enum PlatformRole {
+  platform_owner
+  platform_operator
+}
+
 enum AuthProvider {
   email
   google
@@ -115,15 +120,16 @@ enum AuthActionTokenType {
 }
 
 model User {
-  id              String       @id @default(cuid())
-  email           String       @unique
+  id              String        @id @default(cuid())
+  email           String        @unique
   name            String?
   passwordHash    String?
-  authProvider    AuthProvider @default(email)
-  googleId        String?      @unique
+  authProvider    AuthProvider  @default(email)
+  googleId        String?       @unique
   emailVerifiedAt DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  platformRole    PlatformRole?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   memberships  WorkspaceMember[]
   sessions     AuthSession[]
@@ -163,6 +169,7 @@ model Workspace {
   metaAds                     MetaAd[]
   externalDataConnectors      ExternalDataConnector[]
   externalIngestionRecords    ExternalIngestionRecord[]
+  supportSessions             AuthSession[]                @relation("AuthSessionSupportWorkspace")
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
@@ -205,18 +212,22 @@ model WhatsappInstance {
 }
 
 model AuthSession {
-  id          String    @id @default(cuid())
-  userId      String
-  refreshHash String    @unique
-  userAgent   String?
-  ipAddress   String?
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  createdAt   DateTime  @default(now())
+  id                        String    @id @default(cuid())
+  userId                    String
+  supportWorkspaceId        String?
+  supportWorkspaceStartedAt DateTime?
+  refreshHash               String    @unique
+  userAgent                 String?
+  ipAddress                 String?
+  expiresAt                 DateTime
+  revokedAt                 DateTime?
+  createdAt                 DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  user             User       @relation(fields: [userId], references: [id])
+  supportWorkspace Workspace? @relation("AuthSessionSupportWorkspace", fields: [supportWorkspaceId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([supportWorkspaceId])
 }
 
 model AuthActionToken {
@@ -767,25 +778,25 @@ model MetaReportingAccount {
 }
 
 model MetaCampaign {
-  id                         String                      @id @default(cuid())
-  workspaceId                String
-  businessId                 String?
-  adAccountId                String
-  campaignId                 String
-  name                       String
-  status                     String?
-  effectiveStatus            String?
-  objective                  String?
-  whatsappClassification     MetaWhatsappClassification  @default(not_whatsapp)
-  classificationSource       String?
-  classificationOverride     MetaWhatsappClassification?
-  spendCents                 Int                         @default(0)
-  impressions                Int                         @default(0)
-  clicks                     Int                         @default(0)
-  metaConversationsStarted   Int                         @default(0)
-  lastSyncedAt               DateTime?
-  createdAt                  DateTime                    @default(now())
-  updatedAt                  DateTime                    @updatedAt
+  id                       String                      @id @default(cuid())
+  workspaceId              String
+  businessId               String?
+  adAccountId              String
+  campaignId               String
+  name                     String
+  status                   String?
+  effectiveStatus          String?
+  objective                String?
+  whatsappClassification   MetaWhatsappClassification  @default(not_whatsapp)
+  classificationSource     String?
+  classificationOverride   MetaWhatsappClassification?
+  spendCents               Int                         @default(0)
+  impressions              Int                         @default(0)
+  clicks                   Int                         @default(0)
+  metaConversationsStarted Int                         @default(0)
+  lastSyncedAt             DateTime?
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 
@@ -796,26 +807,26 @@ model MetaCampaign {
 }
 
 model MetaAdSet {
-  id                         String                      @id @default(cuid())
-  workspaceId                String
-  businessId                 String?
-  adAccountId                String?
-  campaignId                 String
-  adSetId                    String
-  name                       String
-  status                     String?
-  effectiveStatus            String?
-  destinationType            String?
-  whatsappClassification     MetaWhatsappClassification  @default(not_whatsapp)
-  classificationSource       String?
-  classificationOverride     MetaWhatsappClassification?
-  spendCents                 Int                         @default(0)
-  impressions                Int                         @default(0)
-  clicks                     Int                         @default(0)
-  metaConversationsStarted   Int                         @default(0)
-  lastSyncedAt               DateTime?
-  createdAt                  DateTime                    @default(now())
-  updatedAt                  DateTime                    @updatedAt
+  id                       String                      @id @default(cuid())
+  workspaceId              String
+  businessId               String?
+  adAccountId              String?
+  campaignId               String
+  adSetId                  String
+  name                     String
+  status                   String?
+  effectiveStatus          String?
+  destinationType          String?
+  whatsappClassification   MetaWhatsappClassification  @default(not_whatsapp)
+  classificationSource     String?
+  classificationOverride   MetaWhatsappClassification?
+  spendCents               Int                         @default(0)
+  impressions              Int                         @default(0)
+  clicks                   Int                         @default(0)
+  metaConversationsStarted Int                         @default(0)
+  lastSyncedAt             DateTime?
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 
@@ -826,29 +837,29 @@ model MetaAdSet {
 }
 
 model MetaAd {
-  id                         String                      @id @default(cuid())
-  workspaceId                String
-  businessId                 String?
-  adAccountId                String?
-  campaignId                 String
-  adSetId                    String
-  adId                       String
-  name                       String
-  status                     String?
-  effectiveStatus            String?
-  destinationType            String?
-  creativeId                 String?
-  callToActionType           String?
-  whatsappClassification     MetaWhatsappClassification  @default(not_whatsapp)
-  classificationSource       String?
-  classificationOverride     MetaWhatsappClassification?
-  spendCents                 Int                         @default(0)
-  impressions                Int                         @default(0)
-  clicks                     Int                         @default(0)
-  metaConversationsStarted   Int                         @default(0)
-  lastSyncedAt               DateTime?
-  createdAt                  DateTime                    @default(now())
-  updatedAt                  DateTime                    @updatedAt
+  id                       String                      @id @default(cuid())
+  workspaceId              String
+  businessId               String?
+  adAccountId              String?
+  campaignId               String
+  adSetId                  String
+  adId                     String
+  name                     String
+  status                   String?
+  effectiveStatus          String?
+  destinationType          String?
+  creativeId               String?
+  callToActionType         String?
+  whatsappClassification   MetaWhatsappClassification  @default(not_whatsapp)
+  classificationSource     String?
+  classificationOverride   MetaWhatsappClassification?
+  spendCents               Int                         @default(0)
+  impressions              Int                         @default(0)
+  clicks                   Int                         @default(0)
+  metaConversationsStarted Int                         @default(0)
+  lastSyncedAt             DateTime?
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 

@@ -1,16 +1,23 @@
 import { randomBytes, createHash } from "node:crypto";
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
-  NotFoundException
+  NotFoundException,
+  Optional
 } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
+  backofficeClientWorkspaceListSchema,
   canManageIntegrations,
   canManageWorkspaceBilling,
   canViewReports,
+  clientWorkspaceProvisionResultSchema,
+  type BackofficeClientWorkspaceDto,
+  type ClientWorkspaceProvisionInputDto,
+  type ClientWorkspaceProvisionResultDto,
   type CurrentWorkspaceDto,
   type BackofficeWhatsappInstanceDto,
   type WorkspaceBillingDto,
@@ -25,6 +32,7 @@ import {
   type WorkspaceRole
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { PasswordService } from "../auth/password.service";
 import type { AuthenticatedUser } from "../auth/session.types";
 
 export type WorkspacePermissions = {
@@ -65,7 +73,12 @@ type BackofficeWhatsappInstanceRecord = {
 
 @Injectable()
 export class WorkspacesService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Optional()
+    @Inject(PasswordService)
+    private readonly passwordService: PasswordService = new PasswordService()
+  ) {}
 
   getPermissions(role: WorkspaceRole): WorkspacePermissions {
     return {
@@ -83,14 +96,158 @@ export class WorkspacesService {
       throw new NotFoundException("Workspace nao encontrado");
     }
 
-    if (workspace.operationalStatus === "blocked") {
+    const isPlatformSupport =
+      authenticated.supportContext?.workspaceId === workspace.id;
+
+    if (workspace.operationalStatus === "blocked" && !isPlatformSupport) {
       throw new ForbiddenException("Workspace bloqueado operacionalmente");
     }
 
     return {
       ...workspace,
-      permissions: this.getPermissions(workspace.role)
+      permissions: this.getPermissions(workspace.role),
+      accessMode: isPlatformSupport ? "platform_support" : "member"
     };
+  }
+
+  async listClientWorkspaces(): Promise<BackofficeClientWorkspaceDto[]> {
+    const workspaces = await this.prisma.workspace.findMany({
+      include: {
+        members: {
+          where: { role: "owner" },
+          include: {
+            user: {
+              select: { id: true, name: true, email: true }
+            }
+          },
+          orderBy: { createdAt: "asc" }
+        },
+        _count: {
+          select: { externalDataConnectors: true }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    return backofficeClientWorkspaceListSchema.parse(
+      workspaces.map((workspace) => ({
+        id: workspace.id,
+        name: workspace.name,
+        slug: workspace.slug,
+        operationalStatus: workspace.operationalStatus,
+        createdAt: workspace.createdAt.toISOString(),
+        owners: workspace.members.map((member) => ({
+          id: member.user.id,
+          name: member.user.name,
+          email: member.user.email
+        })),
+        connectorCount: workspace._count.externalDataConnectors
+      }))
+    );
+  }
+
+  async provisionClientWorkspace(
+    input: ClientWorkspaceProvisionInputDto,
+    actorUserId: string
+  ): Promise<ClientWorkspaceProvisionResultDto> {
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: input.ownerEmail },
+      select: { id: true }
+    });
+
+    if (existingUser) {
+      throw new ConflictException("Email do administrador ja cadastrado");
+    }
+
+    const passwordHash = await this.passwordService.hash(input.ownerPassword);
+    const result = await this.prisma.$transaction(async (tx) => {
+      const slug = await this.resolveWorkspaceSlug(tx, input.workspaceName);
+      const workspace = await tx.workspace.create({
+        data: {
+          name: input.workspaceName,
+          slug
+        }
+      });
+      const owner = await tx.user.create({
+        data: {
+          name: input.ownerName,
+          email: input.ownerEmail,
+          passwordHash,
+          authProvider: "email",
+          emailVerifiedAt: new Date()
+        }
+      });
+
+      await tx.workspaceMember.create({
+        data: {
+          workspaceId: workspace.id,
+          userId: owner.id,
+          role: "owner"
+        }
+      });
+      await tx.auditLog.create({
+        data: {
+          workspaceId: workspace.id,
+          actorUserId,
+          actorType: "platform_admin",
+          action: "workspace.client_provisioned",
+          targetType: "Workspace",
+          targetId: workspace.id,
+          resultStatus: "success",
+          beforeSummary: Prisma.JsonNull,
+          afterSummary: {
+            workspaceName: workspace.name,
+            workspaceSlug: workspace.slug,
+            ownerUserId: owner.id,
+            ownerEmail: owner.email
+          }
+        }
+      });
+
+      return { workspace, owner };
+    });
+
+    return clientWorkspaceProvisionResultSchema.parse({
+      workspace: {
+        id: result.workspace.id,
+        name: result.workspace.name,
+        slug: result.workspace.slug,
+        operationalStatus: result.workspace.operationalStatus
+      },
+      owner: {
+        id: result.owner.id,
+        name: result.owner.name,
+        email: result.owner.email,
+        role: "owner"
+      }
+    });
+  }
+
+  private async resolveWorkspaceSlug(
+    prisma: Prisma.TransactionClient,
+    workspaceName: string
+  ): Promise<string> {
+    const baseSlug = this.slugify(workspaceName);
+    let candidate = baseSlug;
+    let suffix = 2;
+
+    while (await prisma.workspace.findUnique({ where: { slug: candidate } })) {
+      candidate = `${baseSlug}-${suffix}`;
+      suffix += 1;
+    }
+
+    return candidate;
+  }
+
+  private slugify(value: string): string {
+    const slug = value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+    return slug || "workspace";
   }
 
   async listMembers(workspaceId: string): Promise<WorkspaceMemberDto[]> {
@@ -173,7 +330,8 @@ export class WorkspacesService {
       ...updated,
       role: workspace.role,
       operationalStatus: workspace.operationalStatus,
-      permissions: workspace.permissions
+      permissions: workspace.permissions,
+      accessMode: workspace.accessMode
     };
   }
 

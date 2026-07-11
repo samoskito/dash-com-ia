@@ -12,5 +12,8 @@ describe("api package scripts", () => {
     expect(packageJson.scripts.dev).toContain("ts-node/register");
     expect(packageJson.scripts.dev).toContain("src/main.ts");
     expect(packageJson.scripts.start).toBe("node dist/apps/api/src/main.js");
+    expect(packageJson.scripts["platform-owner:promote"]).toBe(
+      "node dist/apps/api/src/scripts/promote-platform-owner.js"
+    );
   });
 });

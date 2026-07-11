@@ -339,4 +339,4 @@ For every block:
 
 ## 14. Current Next Action
 
-Deploy the completed **Block 0.5 - External MySQL/Kinbox Data Foundation**, create the standard ledger/views and read-only MySQL account for the first customer, then run and reconcile the shadow sync. Resume **Block 1 - Overview** only after real-data parity is accepted. Production observation of Block 0 remains open and does not block this validation.
+Complete the approved **Platform Owner and Client Provisioning** slice so Barbieri can be created as an isolated customer workspace before its connector is registered. Then register the validated read-only MySQL connector, run and reconcile the shadow sync, and resume **Block 1 - Overview** only after real-data parity is accepted. Production observation of Block 0 remains open and does not block this validation.

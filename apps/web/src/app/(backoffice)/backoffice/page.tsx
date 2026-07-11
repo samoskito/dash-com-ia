@@ -939,6 +939,9 @@ export default async function BackofficePage({
           <p>Financeiro, split, workspaces e Central de Diagnostico operacional.</p>
         </div>
         <div className="header-actions">
+          <a className="button ghost" href="/backoffice/clients">
+            Clientes e acessos
+          </a>
           <span className={`status-chip${hasBackofficeError ? " warn" : ""}`}>
             {hasBackofficeError ? "API indisponivel" : "Backoffice conectado"}
           </span>

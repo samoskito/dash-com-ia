@@ -73,6 +73,32 @@ describe("navigation", () => {
     expect(html).not.toContain("Pixel ativo");
   });
 
+  it("makes platform support access explicit and reversible", () => {
+    const html = renderToStaticMarkup(
+      createElement(AppShell, {
+        workspace: {
+          id: "workspace_barbieri",
+          name: "Barbieri",
+          slug: "barbieri",
+          role: "owner",
+          operationalStatus: "active",
+          accessMode: "platform_support",
+          permissions: {
+            canInviteMembers: true,
+            canManageBilling: true,
+            canManageIntegrations: true,
+            canViewReports: true,
+          },
+        },
+        children: createElement("p", null, "Panel content"),
+      }),
+    );
+
+    expect(html).toContain("Acesso de suporte");
+    expect(html).toContain("Barbieri");
+    expect(html).toContain("Encerrar acesso");
+  });
+
   it("keeps internal backoffice separate", () => {
     expect(backofficeNavigation.map((item) => item.id)).toEqual([
       "workspaces",
