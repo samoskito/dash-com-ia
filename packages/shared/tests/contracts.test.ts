@@ -24,6 +24,10 @@ import {
   emailVerificationConfirmInputSchema,
   emailVerificationConfirmSchema,
   emailVerificationStartSchema,
+  externalConnectionTestResultSchema,
+  externalDataConnectorCreateInputSchema,
+  externalDataConnectorSchema,
+  externalDataConnectorUpdateInputSchema,
   currentWorkspaceSchema,
   diagnosticConversionEventTestInputSchema,
   diagnosticEventCreateSchema,
@@ -1416,5 +1420,74 @@ describe("shared contracts", () => {
     expect(update.active).toBe(false);
     expect(rule.triggerType).toBe("whatsapp_label");
     expect(evaluation.labels).toEqual(["Venda fechada"]);
+  });
+
+  it("validates external MySQL connector inputs without leaking credentials", () => {
+    const create = externalDataConnectorCreateInputSchema.parse({
+      workspaceId: "workspace_1",
+      name: "Kinbox Barbieri",
+      provider: "kinbox_mysql",
+      timezone: "America/Sao_Paulo",
+      sslMode: "required",
+      credentials: {
+        host: "mysql.internal",
+        port: 3306,
+        database: "tracking",
+        username: "wpptrack_reader",
+        password: "secret-value"
+      },
+      shadowMode: true,
+      purchaseAverageValueCents: 400000,
+      defaultCurrency: "brl"
+    });
+    const connector = externalDataConnectorSchema.parse({
+      id: "connector_1",
+      workspaceId: create.workspaceId,
+      name: create.name,
+      provider: create.provider,
+      status: "draft",
+      timezone: create.timezone,
+      sslMode: create.sslMode,
+      syncEnabled: false,
+      shadowMode: true,
+      capiSendEnabled: false,
+      purchaseAverageValueCents: create.purchaseAverageValueCents,
+      defaultCurrency: create.defaultCurrency,
+      hasCredentials: true,
+      lastConnectionTestAt: null,
+      lastConnectionStatus: null,
+      lastSyncStartedAt: null,
+      lastSyncCompletedAt: null,
+      lastSyncStatus: null,
+      lastSyncErrorCode: null,
+      cursors: [],
+      createdAt: "2026-07-11T17:00:00.000Z",
+      updatedAt: "2026-07-11T17:00:00.000Z"
+    });
+
+    expect(create.defaultCurrency).toBe("BRL");
+    expect(connector).not.toHaveProperty("credentials");
+    expect(connector).not.toHaveProperty("password");
+  });
+
+  it("rejects unsafe external connector updates and validates safe health results", () => {
+    expect(() =>
+      externalDataConnectorUpdateInputSchema.parse({
+        timezone: "Not/A_Timezone"
+      })
+    ).toThrow();
+    expect(() => externalDataConnectorUpdateInputSchema.parse({})).toThrow();
+
+    const result = externalConnectionTestResultSchema.parse({
+      ok: true,
+      status: "connected",
+      latencyMs: 42,
+      leadsViewAvailable: true,
+      eventsViewAvailable: true,
+      errorCode: null,
+      message: "Conexao estabelecida"
+    });
+
+    expect(result.latencyMs).toBe(42);
   });
 });

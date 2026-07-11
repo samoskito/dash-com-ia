@@ -11,3 +11,4 @@ export * from "./schemas/diagnostics";
 export * from "./schemas/billing";
 export * from "./schemas/conversion-rules";
 export * from "./schemas/leads";
+export * from "./schemas/external-data-connectors";

@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { conversionEventTestInputSchema } from "./conversion-events";
 
-export const diagnosticSources = ["meta", "uazapi", "asaas", "internal"] as const;
+export const diagnosticSources = [
+  "meta",
+  "uazapi",
+  "asaas",
+  "external_mysql",
+  "internal"
+] as const;
 export const diagnosticSeverities = [
   "info",
   "warning",
@@ -253,6 +259,10 @@ export const diagnosticConversionEventLogSchema = z.object({
   dedupeKey: z.string().nullable(),
   ctwaClid: z.string().nullable(),
   valueCents: z.number().int().nullable(),
+  valueSource: z
+    .enum(["actual", "configured_average", "manual"])
+    .nullable()
+    .default(null),
   currency: z.string().nullable(),
   contentName: z.string().nullable(),
   customData: z.record(z.unknown()).nullable(),

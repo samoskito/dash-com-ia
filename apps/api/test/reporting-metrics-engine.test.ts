@@ -340,4 +340,24 @@ describe("ReportingMetricsEngine", () => {
     expect(metrics.roasAcquisition).toBe(1);
     expect(metrics.roasWithRepurchase).toBe(1);
   });
+
+  it("labels revenue calculated from the configured average purchase value", () => {
+    const metrics = engine.calculate({
+      events: [
+        event({
+          campaignId: "cmp_1",
+          id: "estimated_purchase",
+          valueCents: 400000,
+          valueSource: "configured_average",
+        }),
+      ],
+      insight,
+      leads: [lead({ campaignId: "cmp_1" })],
+      scope: { campaignId: "cmp_1" },
+    });
+
+    expect(metrics.totalRevenueCents).toBe(400000);
+    expect(metrics.estimatedRevenueCents).toBe(400000);
+    expect(metrics.hasEstimatedRevenue).toBe(true);
+  });
 });

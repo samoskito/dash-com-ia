@@ -58,15 +58,19 @@ The recovery starts from these verified defects:
 
 ## 5. Locked Execution Order
 
-| Order | Block | Status | Exit condition |
-| --- | --- | --- | --- |
-| 0 | Performance and critical regressions | Implemented locally; production review pending | Navigation and critical actions meet the acceptance criteria below |
-| 1 | Overview | Pending | Product owner approves the complete Overview |
-| 2 | Leads | Pending | Product owner approves list, filters and lead journey |
-| 3 | Reports | Pending | Product owner approves Campaigns, Ad Sets, Ads and Meta diagnostic |
-| 4 | Integrations, Settings and Meta Event Audit | Pending | Product owner approves operational setup and audit workflows |
+| Order | Block                                                  | Status                                             | Exit condition                                                                                            |
+| ----- | ------------------------------------------------------ | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 0     | Performance and critical regressions                   | Implemented locally; production review pending     | Navigation and critical actions meet the acceptance criteria below                                        |
+| 0.5   | External MySQL/Kinbox data foundation                  | Implemented locally; deploy/shadow validation pending | Standard event ledger, secure connector, historical backfill and shadow sync are validated with real data |
+| 1     | Overview                                               | Pending                                            | Product owner approves the complete Overview                                                              |
+| 2     | Leads                                                  | Pending                                            | Product owner approves list, filters and lead journey                                                     |
+| 3     | Reports                                                | Pending                                            | Product owner approves Campaigns, Ad Sets, Ads and Meta diagnostic                                        |
+| 4     | Integrations, Settings and Meta Event Audit            | Pending                                            | Product owner approves operational setup and audit workflows                                              |
+| 5     | External connector productization and native providers | Planned after Block 4                              | Product owner approves self-service connectors and the first native provider beyond Uazapi                |
 
 This order supersedes the older immediate next step of returning to the real Uazapi/CAPI payload test after the reporting engine. The real Uazapi/CAPI test remains recorded and mandatory, but stays deferred until the platform is sufficiently complete for end-to-end validation.
+
+The data foundation portion of the external connector was promoted to Block 0.5 after real MySQL, Meta and Kinbox evidence showed that Overview, Leads and Reports need real WhatsApp data for reliable validation. The customer-facing productization and native-provider expansion remain Block 5 after the page-recovery blocks.
 
 ## 6. Block 0 - Performance and Critical Regressions
 
@@ -118,7 +122,56 @@ Still required before Block 1:
 - Deploy this block and verify navigation/route durations against the real production dataset and infrastructure.
 - Product owner reviews the loading feedback, Meta action states and production timings.
 
-## 7. Block 1 - Overview
+## 7. Block 0.5 - External MySQL/Kinbox Data Foundation
+
+This block runs before Overview so the approved pages can be validated with real WhatsApp conversations and conversion events. It adds an alternative data source for customers who already operate WhatsApp through another provider or an official API workflow and persist the resulting data in MySQL. It does not replace Uazapi or the future WhatsApp Cloud API adapter.
+
+### Objective
+
+Allow a workspace to import leads, conversations, WhatsApp attribution and conversion events from a customer-owned MySQL database while preserving the same internal WppTrack models, formulas, dashboards and audit behavior used by native providers.
+
+### Architecture constraints
+
+1. MySQL is accessed only by the WppTrack backend. The browser never receives database credentials or opens a direct database connection.
+2. Every connector belongs to a workspace and uses a dedicated read-only MySQL user. TLS and network allowlisting are required whenever the source supports them.
+3. Credentials are encrypted at rest, redacted from logs and never stored in repository files.
+4. Each external schema receives an explicit mapping adapter into the canonical WppTrack ingestion model. The product must not assume that every customer database has the same tables or column names.
+5. Imported records enter the existing lead, attribution, conversion and diagnostic pipeline with a source identifier such as `external_mysql`; reports must not need provider-specific formulas.
+6. Initial backfill and recurring incremental synchronization run asynchronously through queues. A stable cursor, such as `updated_at` plus primary key, must be defined from the real schema.
+7. Imports are idempotent and resumable. Reprocessing the same source row cannot create duplicate leads, conversations or conversion events.
+8. WppTrack never writes business data back to the customer database in this block.
+9. Connector health exposes the last successful sync, current cursor, imported/rejected counts and safe error summaries for non-technical support and backoffice diagnosis.
+10. Direct Meta OAuth/Graph API remains the source of truth for current campaign metrics. The external `facebook_ads_*` table is optional and can only be used for legacy backfill before an explicit cutover date or for controlled reconciliation.
+11. External provider event names are audit metadata, not business logic. Each connector route or n8n workflow maps explicitly to the canonical WppTrack event type.
+12. Values supplied from a workspace-configured average are snapshotted on ingestion and marked as estimated through a value-source field. Actual values, when available in future connectors, take precedence.
+13. Kinbox `QualifiedLead` is accepted once per connector and lead identity. Kinbox `Purchase`, when no provider transaction ID exists, is accepted once per connector, lead identity and workspace-local calendar date.
+14. A Kinbox purchase on a later local date is a new event and can be classified as a repurchase. Same-day repeats remain visible in ingestion audit but cannot create another business conversion.
+15. Generated transaction/event IDs are derived from the persisted idempotency key and reused across retries. Calendar-day keys use the workspace timezone, never the API server timezone implicitly.
+16. The current n8n Meta send is replaced only after a shadow-import reconciliation. No external report consumes the legacy Kinbox purchase snapshot, so the append-only event ledger can become authoritative without preserving a Looker-specific contract.
+17. The legacy `whatsapp_anuncio_*` table remains a historical lead snapshot for initial backfill. New qualification and purchase history is sourced from the standard append-only event ledger.
+18. The one-purchase-per-local-day rule belongs only to the Kinbox adapter for this payload contract. It is not a global `Purchase` rule. Other providers can accept multiple same-day purchases whenever a stable provider event ID or transaction ID distinguishes them.
+
+### Discovery gate
+
+The standard structure-only MySQL dump, official Meta/Kinbox payloads and the active n8n Purchase workflow were reviewed on 2026-07-11. No external automation or report consumes the current purchase snapshot. The discovery phase is complete and the consolidated design is approved. Credentials and production rows must never be requested in chat.
+
+### Acceptance criteria
+
+- A workspace can enable or disable its connector without affecting other workspaces or native Uazapi instances.
+- A read-only connection test reports a clear success or actionable failure.
+- Backfill and incremental sync complete without duplicates and resume safely after interruption.
+- Phone identity, conversation dates, CTWA/Meta attribution, labels and conversion events are normalized whenever those values exist in the source.
+- Overview, Leads, Reports and Meta Event Audit consume the imported data through the same contracts used by native ingestion.
+- Missing optional source fields are shown as unavailable and are never invented.
+- Secrets and raw customer data do not appear in frontend payloads, logs or diagnostics.
+
+### Explicit non-goals for the first version
+
+- Automatically understanding arbitrary MySQL schemas without an approved mapping.
+- Writing statuses, labels or conversion results back into the customer's MySQL database.
+- Replacing Uazapi, Meta OAuth or the planned official WhatsApp provider adapter.
+
+## 8. Block 1 - Overview
 
 ### Information architecture
 
@@ -157,7 +210,7 @@ Metrics are organized by category instead of one undifferentiated card wall:
 - Paid and organic revenue are visible without contaminating media cost or ROAS.
 - The product owner approves desktop and mobile screenshots before Block 2 starts.
 
-## 8. Block 2 - Leads
+## 9. Block 2 - Leads
 
 ### Scope
 
@@ -181,7 +234,7 @@ Metrics are organized by category instead of one undifferentiated card wall:
 - Lead detail explains attribution and event delivery without exposing secrets.
 - Empty, loading, error and no-results states are different.
 
-## 9. Block 3 - Reports
+## 10. Block 3 - Reports
 
 ### Structure
 
@@ -221,7 +274,7 @@ Aggregate organic health may appear above the tables, but organic fields must no
 - Summary values follow the approved formulas.
 - The Meta diagnostic remains secondary and visually stable.
 
-## 10. Block 4 - Integrations, Settings and Meta Event Audit
+## 11. Block 4 - Integrations, Settings and Meta Event Audit
 
 Execute Block 4 in this internal order:
 
@@ -257,7 +310,19 @@ Execute Block 4 in this internal order:
 - Event configuration controls which dynamic funnel stages appear.
 - Audit allows a non-technical operator to understand what worked and what failed.
 
-## 11. Delivery Protocol Per Block
+## 12. Block 5 - External Connector Productization and Native Providers
+
+After Blocks 1 through 4, evolve the approved data foundation into a customer-facing connector platform:
+
+- Self-service connector configuration and health inside Integrations.
+- Versioned provider adapters using the same canonical event contract.
+- Native Meta WhatsApp/Cloud API ingestion with raw-body signature verification.
+- Native Kinbox ingestion when its webhook contract and authentication are production-ready.
+- Additional WhatsApp provider adapters without changing dashboards or reporting formulas.
+- Provider-specific idempotency policies; no global daily Purchase restriction.
+- Removal of n8n as a required runtime dependency for customers using native adapters.
+
+## 13. Delivery Protocol Per Block
 
 For every block:
 
@@ -272,6 +337,6 @@ For every block:
 9. Present the block for product-owner review.
 10. Commit and deploy only the reviewed block before advancing.
 
-## 12. Current Next Action
+## 14. Current Next Action
 
-Deploy and review **Block 0 - Performance and Critical Regressions** with the real production dataset. Do not begin the Overview redesign until that review is approved.
+Deploy the completed **Block 0.5 - External MySQL/Kinbox Data Foundation**, create the standard ledger/views and read-only MySQL account for the first customer, then run and reconcile the shadow sync. Resume **Block 1 - Overview** only after real-data parity is accepted. Production observation of Block 0 remains open and does not block this validation.

@@ -42,6 +42,7 @@ enum DiagnosticSource {
   meta
   uazapi
   asaas
+  external_mysql
   internal
 }
 
@@ -160,6 +161,8 @@ model Workspace {
   metaCampaigns               MetaCampaign[]
   metaAdSets                  MetaAdSet[]
   metaAds                     MetaAd[]
+  externalDataConnectors      ExternalDataConnector[]
+  externalIngestionRecords    ExternalIngestionRecord[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
@@ -324,6 +327,9 @@ model ConversionEventLog {
   customerIdentityKey     String?
   businessSource          String    @default("paid")
   purchaseKind            String?
+  valueSource             String?
+  externalConnectorId     String?
+  sourceEventId           String?
   sentAt                  DateTime?
   providerResponseSummary Json?
   customData              Json?
@@ -335,13 +341,95 @@ model ConversionEventLog {
   jobId                   String?
   createdAt               DateTime  @default(now())
 
-  workspace        Workspace?        @relation(fields: [workspaceId], references: [id])
-  diagnosticEvents DiagnosticEvent[]
+  workspace         Workspace?             @relation(fields: [workspaceId], references: [id])
+  externalConnector ExternalDataConnector? @relation(fields: [externalConnectorId], references: [id], onDelete: SetNull)
+  diagnosticEvents  DiagnosticEvent[]
 
   @@index([workspaceId, status, createdAt])
   @@index([workspaceId, eventOccurredAt])
   @@index([workspaceId, eventName, eventOccurredAt])
   @@index([leadId])
+  @@index([externalConnectorId, sourceEventId])
+}
+
+model ExternalDataConnector {
+  id                        String    @id @default(cuid())
+  workspaceId               String
+  name                      String
+  provider                  String
+  status                    String    @default("draft")
+  timezone                  String    @default("America/Sao_Paulo")
+  sslMode                   String    @default("required")
+  credentialsEncrypted      String
+  credentialsIv             String
+  credentialsTag            String
+  syncEnabled               Boolean   @default(false)
+  shadowMode                Boolean   @default(true)
+  capiSendEnabled           Boolean   @default(false)
+  purchaseAverageValueCents Int?
+  defaultCurrency           String?   @default("BRL")
+  lastConnectionTestAt      DateTime?
+  lastConnectionStatus      String?
+  lastSyncStartedAt         DateTime?
+  lastSyncCompletedAt       DateTime?
+  lastSyncStatus            String?
+  lastSyncErrorCode         String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  workspace        Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  cursors          ExternalSyncCursor[]
+  ingestionRecords ExternalIngestionRecord[]
+  conversionEvents ConversionEventLog[]
+
+  @@index([workspaceId, status])
+  @@index([syncEnabled, status, updatedAt])
+}
+
+model ExternalSyncCursor {
+  id             String    @id @default(cuid())
+  connectorId    String
+  stream         String
+  lastExternalId String?
+  lastUpdatedAt  DateTime?
+  lastSyncedAt   DateTime?
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  connector ExternalDataConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@unique([connectorId, stream])
+  @@index([connectorId, lastSyncedAt])
+}
+
+model ExternalIngestionRecord {
+  id                   String    @id @default(cuid())
+  workspaceId          String
+  connectorId          String
+  stream               String
+  externalRowId        String
+  dedupeKey            String    @unique
+  eventType            String?
+  status               String
+  occurredAt           DateTime?
+  leadId               String?
+  conversionEventLogId String?
+  duplicateCount       Int       @default(0)
+  errorCode            String?
+  errorMessage         String?
+  summaryPayload       Json?
+  firstReceivedAt      DateTime  @default(now())
+  lastReceivedAt       DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  workspace Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connector ExternalDataConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@index([connectorId, stream, externalRowId])
+  @@index([workspaceId, status, occurredAt])
+  @@index([conversionEventLogId])
 }
 
 model JobAttempt {

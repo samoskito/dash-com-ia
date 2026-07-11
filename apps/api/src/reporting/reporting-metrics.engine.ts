@@ -32,6 +32,7 @@ export type ReportingMetricEvent = {
   eventOccurredAt: Date;
   status: string;
   valueCents: number | null;
+  valueSource?: string | null;
   currency: string | null;
   purchaseKind?: string | null;
 };
@@ -79,6 +80,8 @@ export type ReportingMetricsResult = {
   totalRevenueCents: number;
   firstPurchaseRevenueCents: number;
   repurchaseRevenueCents: number;
+  estimatedRevenueCents: number;
+  hasEstimatedRevenue: boolean;
   roasAcquisition: number | null;
   roasWithRepurchase: number | null;
   funnelSteps: ReportingFunnelStep[];
@@ -150,6 +153,11 @@ export class ReportingMetricsEngine {
     const trafficRepurchaseRevenueCents = this.sumPurchaseValue(
       trafficPurchases.filter((purchase) => purchase.kind === "repurchase"),
     );
+    const estimatedRevenueCents = this.sumPurchaseValue(
+      purchases.filter(
+        (purchase) => purchase.event.valueSource === "configured_average",
+      ),
+    );
 
     return {
       spendCents,
@@ -178,6 +186,8 @@ export class ReportingMetricsEngine {
       totalRevenueCents: trafficRevenueCents + organicRevenueCents,
       firstPurchaseRevenueCents,
       repurchaseRevenueCents,
+      estimatedRevenueCents,
+      hasEstimatedRevenue: estimatedRevenueCents > 0,
       roasAcquisition: this.roas(trafficFirstPurchaseRevenueCents, spendCents),
       roasWithRepurchase: this.roas(
         trafficFirstPurchaseRevenueCents + trafficRepurchaseRevenueCents,

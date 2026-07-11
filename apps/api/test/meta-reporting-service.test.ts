@@ -513,6 +513,7 @@ describe("meta reporting service", () => {
         providerResponseSummary: "events_received: 1",
         errorCode: null,
         errorMessage: null,
+        valueSource: null,
       },
       {
         id: "conversion_2",
@@ -562,6 +563,7 @@ describe("meta reporting service", () => {
           providerResponseSummary: "events_received: 1",
           errorCode: null,
           errorMessage: null,
+          valueSource: null,
         },
         {
           id: "conversion_2",
@@ -580,6 +582,7 @@ describe("meta reporting service", () => {
           providerResponseSummary: null,
           errorCode: "EventValueMissing",
           errorMessage: "Conversion event value is required",
+          valueSource: null,
         },
       ],
     });
@@ -610,6 +613,7 @@ describe("meta reporting service", () => {
         providerResponseSummary: true,
         errorCode: true,
         errorMessage: true,
+        valueSource: true,
       },
     });
   });
@@ -1209,6 +1213,8 @@ describe("meta reporting service", () => {
           totalRevenueCents: 100000,
           firstPurchaseRevenueCents: 100000,
           repurchaseRevenueCents: 0,
+          estimatedRevenueCents: 0,
+          hasEstimatedRevenue: false,
           roasAcquisition: 100000 / 60000,
           roasWithRepurchase: 100000 / 60000,
           funnelSteps: [
@@ -2100,6 +2106,8 @@ describe("meta reporting service", () => {
           totalRevenueCents: 100000,
           firstPurchaseRevenueCents: 100000,
           repurchaseRevenueCents: 0,
+          estimatedRevenueCents: 0,
+          hasEstimatedRevenue: false,
           roasAcquisition: 100000 / 60000,
           roasWithRepurchase: 100000 / 60000,
           funnelSteps: [
@@ -2181,6 +2189,8 @@ describe("meta reporting service", () => {
           totalRevenueCents: 100000,
           firstPurchaseRevenueCents: 100000,
           repurchaseRevenueCents: 0,
+          estimatedRevenueCents: 0,
+          hasEstimatedRevenue: false,
           roasAcquisition: 100000 / 30000,
           roasWithRepurchase: 100000 / 30000,
           funnelSteps: [

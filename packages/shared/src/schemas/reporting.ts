@@ -79,6 +79,8 @@ export const campaignReportRowSchema = z.object({
   totalRevenueCents: moneyCentsSchema,
   firstPurchaseRevenueCents: moneyCentsSchema,
   repurchaseRevenueCents: moneyCentsSchema,
+  estimatedRevenueCents: moneyCentsSchema.default(0),
+  hasEstimatedRevenue: z.boolean().default(false),
   roasAcquisition: nonnegativeRateSchema.nullable(),
   roasWithRepurchase: nonnegativeRateSchema.nullable(),
   funnelSteps: z.array(reportFunnelStepSchema),
@@ -174,6 +176,10 @@ export const conversionAuditEventSchema = z.object({
   providerResponseSummary: z.string().min(1).nullable(),
   errorCode: z.string().min(1).nullable(),
   errorMessage: z.string().min(1).nullable(),
+  valueSource: z
+    .enum(["actual", "configured_average", "manual"])
+    .nullable()
+    .default(null),
 });
 
 export const conversionAuditOverviewSchema = z.object({

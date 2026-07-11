@@ -25,6 +25,7 @@
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.79.2",
     "ioredis": "^5.11.1",
+    "mysql2": "^3.14.5",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^3.23.8"

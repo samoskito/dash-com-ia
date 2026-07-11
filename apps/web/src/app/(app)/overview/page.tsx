@@ -92,6 +92,10 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
     (total, campaign) => total + campaign.repurchaseRevenueCents,
     0
   );
+  const estimatedRevenueCents = campaigns.reduce(
+    (total, campaign) => total + campaign.estimatedRevenueCents,
+    0
+  );
   const visibleFunnelKeys = new Set(
     campaigns.flatMap((campaign) => campaign.funnelSteps.map((step) => step.key))
   );
@@ -124,6 +128,8 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
     totalRevenueCents,
     firstPurchaseRevenueCents,
     repurchaseRevenueCents,
+    estimatedRevenueCents,
+    hasEstimatedRevenue: estimatedRevenueCents > 0,
     roasAcquisition: weightedRoas(
       campaigns,
       (campaign) => campaign.roasAcquisition

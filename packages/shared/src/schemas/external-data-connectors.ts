@@ -1,0 +1,212 @@
+import { z } from "zod";
+
+export const externalConnectorProviders = ["kinbox_mysql"] as const;
+export const externalConnectorStatuses = [
+  "draft",
+  "active",
+  "disabled",
+  "error",
+] as const;
+export const externalConnectorSslModes = [
+  "disabled",
+  "required",
+  "verify_identity",
+] as const;
+export const externalSyncStreams = ["leads", "events"] as const;
+export const canonicalTrackingEventTypes = [
+  "conversation_started",
+  "qualified_lead",
+  "purchase",
+] as const;
+export const conversionValueSources = [
+  "actual",
+  "configured_average",
+  "manual",
+] as const;
+
+export const externalConnectorProviderSchema = z.enum(
+  externalConnectorProviders,
+);
+export const externalConnectorStatusSchema = z.enum(externalConnectorStatuses);
+export const externalConnectorSslModeSchema = z.enum(externalConnectorSslModes);
+export const externalSyncStreamSchema = z.enum(externalSyncStreams);
+export const canonicalTrackingEventTypeSchema = z.enum(
+  canonicalTrackingEventTypes,
+);
+export const conversionValueSourceSchema = z.enum(conversionValueSources);
+
+const timezoneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .superRefine((value, ctx) => {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Timezone invalido",
+      });
+    }
+  });
+
+const currencySchema = z
+  .string()
+  .trim()
+  .length(3)
+  .transform((value) => value.toUpperCase());
+
+export const externalMysqlCredentialsInputSchema = z.object({
+  host: z.string().trim().min(1).max(255),
+  port: z.coerce.number().int().min(1).max(65_535).default(3306),
+  database: z.string().trim().min(1).max(128),
+  username: z.string().trim().min(1).max(128),
+  password: z.string().min(1).max(1_024),
+  sslCa: z.string().min(1).max(65_535).optional(),
+});
+
+export const externalDataConnectorCreateInputSchema = z.object({
+  workspaceId: z.string().min(1),
+  name: z.string().trim().min(2).max(120),
+  provider: externalConnectorProviderSchema.default("kinbox_mysql"),
+  timezone: timezoneSchema.default("America/Sao_Paulo"),
+  sslMode: externalConnectorSslModeSchema.default("required"),
+  credentials: externalMysqlCredentialsInputSchema,
+  syncEnabled: z.boolean().default(false),
+  shadowMode: z.boolean().default(true),
+  capiSendEnabled: z.boolean().default(false),
+  purchaseAverageValueCents: z.number().int().positive().nullable().optional(),
+  defaultCurrency: currencySchema.default("BRL"),
+});
+
+export const externalDataConnectorUpdateInputSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120).optional(),
+    status: externalConnectorStatusSchema.optional(),
+    timezone: timezoneSchema.optional(),
+    sslMode: externalConnectorSslModeSchema.optional(),
+    credentials: externalMysqlCredentialsInputSchema.partial().optional(),
+    syncEnabled: z.boolean().optional(),
+    shadowMode: z.boolean().optional(),
+    capiSendEnabled: z.boolean().optional(),
+    purchaseAverageValueCents: z
+      .number()
+      .int()
+      .positive()
+      .nullable()
+      .optional(),
+    defaultCurrency: currencySchema.optional(),
+  })
+  .refine((input) => Object.keys(input).length > 0, {
+    message: "Informe ao menos uma alteracao",
+  });
+
+export const externalSyncCursorSchema = z.object({
+  stream: externalSyncStreamSchema,
+  lastExternalId: z.string().nullable(),
+  lastUpdatedAt: z.string().datetime().nullable(),
+  lastSyncedAt: z.string().datetime().nullable(),
+});
+
+export const externalDataConnectorSchema = z.object({
+  id: z.string().min(1),
+  workspaceId: z.string().min(1),
+  name: z.string().min(1),
+  provider: externalConnectorProviderSchema,
+  status: externalConnectorStatusSchema,
+  timezone: z.string().min(1),
+  sslMode: externalConnectorSslModeSchema,
+  syncEnabled: z.boolean(),
+  shadowMode: z.boolean(),
+  capiSendEnabled: z.boolean(),
+  purchaseAverageValueCents: z.number().int().positive().nullable(),
+  defaultCurrency: z.string().length(3).nullable(),
+  hasCredentials: z.literal(true),
+  lastConnectionTestAt: z.string().datetime().nullable(),
+  lastConnectionStatus: z.string().nullable(),
+  lastSyncStartedAt: z.string().datetime().nullable(),
+  lastSyncCompletedAt: z.string().datetime().nullable(),
+  lastSyncStatus: z.string().nullable(),
+  lastSyncErrorCode: z.string().nullable(),
+  cursors: z.array(externalSyncCursorSchema),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const externalDataConnectorListSchema = z.array(
+  externalDataConnectorSchema,
+);
+
+export const externalConnectionTestResultSchema = z.object({
+  ok: z.boolean(),
+  status: z.enum(["connected", "failed"]),
+  latencyMs: z.number().int().nonnegative(),
+  leadsViewAvailable: z.boolean(),
+  eventsViewAvailable: z.boolean(),
+  errorCode: z.string().nullable(),
+  message: z.string().min(1),
+});
+
+export const externalSyncInputSchema = z.object({
+  streams: z
+    .array(externalSyncStreamSchema)
+    .min(1)
+    .default(["leads", "events"]),
+});
+
+export const externalSyncQueuedResultSchema = z.object({
+  connectorId: z.string().min(1),
+  streams: z.array(externalSyncStreamSchema).min(1),
+  jobId: z.string().min(1),
+  status: z.literal("queued"),
+});
+
+export const externalConnectorHealthSchema = z.object({
+  connector: externalDataConnectorSchema,
+  totals: z.object({
+    imported: z.number().int().nonnegative(),
+    duplicates: z.number().int().nonnegative(),
+    rejected: z.number().int().nonnegative(),
+    pending: z.number().int().nonnegative(),
+  }),
+});
+
+export type ExternalConnectorProviderDto = z.infer<
+  typeof externalConnectorProviderSchema
+>;
+export type ExternalConnectorStatusDto = z.infer<
+  typeof externalConnectorStatusSchema
+>;
+export type ExternalConnectorSslModeDto = z.infer<
+  typeof externalConnectorSslModeSchema
+>;
+export type ExternalSyncStreamDto = z.infer<typeof externalSyncStreamSchema>;
+export type CanonicalTrackingEventTypeDto = z.infer<
+  typeof canonicalTrackingEventTypeSchema
+>;
+export type ConversionValueSourceDto = z.infer<
+  typeof conversionValueSourceSchema
+>;
+export type ExternalMysqlCredentialsInputDto = z.infer<
+  typeof externalMysqlCredentialsInputSchema
+>;
+export type ExternalDataConnectorCreateInputDto = z.infer<
+  typeof externalDataConnectorCreateInputSchema
+>;
+export type ExternalDataConnectorUpdateInputDto = z.infer<
+  typeof externalDataConnectorUpdateInputSchema
+>;
+export type ExternalDataConnectorDto = z.infer<
+  typeof externalDataConnectorSchema
+>;
+export type ExternalConnectionTestResultDto = z.infer<
+  typeof externalConnectionTestResultSchema
+>;
+export type ExternalSyncInputDto = z.infer<typeof externalSyncInputSchema>;
+export type ExternalSyncQueuedResultDto = z.infer<
+  typeof externalSyncQueuedResultSchema
+>;
+export type ExternalConnectorHealthDto = z.infer<
+  typeof externalConnectorHealthSchema
+>;

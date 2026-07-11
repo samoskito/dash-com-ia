@@ -157,6 +157,7 @@ type ConversionEventLogRecord = {
   dedupeKey: string | null;
   ctwaClid: string | null;
   valueCents: number | null;
+  valueSource: "actual" | "configured_average" | "manual" | null;
   currency: string | null;
   contentName: string | null;
   customData?: unknown;
@@ -1309,6 +1310,7 @@ export class DiagnosticsService {
       dedupeKey: log.dedupeKey,
       ctwaClid: this.maskCtwaClid(log.ctwaClid),
       valueCents: log.valueCents,
+      valueSource: log.valueSource,
       currency: log.currency,
       contentName: log.contentName,
       customData: this.payloadRecord(

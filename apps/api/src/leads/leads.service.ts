@@ -86,6 +86,10 @@ export type UpsertWhatsappLeadInput = {
   ctwaClid?: string;
   ctwaSourceUrl?: string;
   occurredAt?: Date;
+  firstMessageAt?: Date;
+  lastMessageAt?: Date;
+  recordMessageTimestamps?: boolean;
+  preserveExistingSource?: boolean;
 };
 
 @Injectable()
@@ -383,6 +387,9 @@ export class LeadsService {
     }
 
     const occurredAt = input.occurredAt ?? new Date();
+    const recordMessageTimestamps = input.recordMessageTimestamps !== false;
+    const firstMessageAt = input.firstMessageAt ?? occurredAt;
+    const lastMessageAt = input.lastMessageAt ?? occurredAt;
     const labels = this.normalizeLabels(input.labels);
     const lead = await this.prisma.lead.upsert({
       where: {
@@ -405,21 +412,25 @@ export class LeadsService {
         adId: input.adId ?? null,
         ctwaClid: input.ctwaClid ?? null,
         ctwaSourceUrl: input.ctwaSourceUrl ?? null,
-        firstMessageAt: occurredAt,
-        lastMessageAt: occurredAt,
+        firstMessageAt: recordMessageTimestamps ? firstMessageAt : null,
+        lastMessageAt: recordMessageTimestamps ? lastMessageAt : null,
       },
       update: {
         whatsappInstanceId: input.whatsappInstanceId ?? undefined,
         name: input.name ?? undefined,
         phoneDisplay: this.maskPhone(input.phone) ?? undefined,
-        source: input.source ?? undefined,
+        source: input.preserveExistingSource ? undefined : input.source ?? undefined,
         labels: labels ?? undefined,
         campaignId: input.campaignId ?? undefined,
         adSetId: input.adSetId ?? undefined,
         adId: input.adId ?? undefined,
         ctwaClid: input.ctwaClid ?? undefined,
         ctwaSourceUrl: input.ctwaSourceUrl ?? undefined,
-        lastMessageAt: occurredAt,
+        firstMessageAt:
+          recordMessageTimestamps && input.firstMessageAt
+            ? firstMessageAt
+            : undefined,
+        lastMessageAt: recordMessageTimestamps ? lastMessageAt : undefined,
       },
       select: {
         id: true,

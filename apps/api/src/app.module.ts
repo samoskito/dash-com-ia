@@ -8,6 +8,7 @@ import { QueueModule } from "./common/queue/queue.module";
 import { RuntimeModule } from "./common/runtime/runtime.module";
 import { ConversionRulesModule } from "./conversion-rules/conversion-rules.module";
 import { DiagnosticsModule } from "./diagnostics/diagnostics.module";
+import { ExternalDataModule } from "./external-data/external-data.module";
 import { HealthController } from "./health/health.controller";
 import { HealthService } from "./health/health.service";
 import { IntegrationsModule } from "./integrations/integrations.module";
@@ -24,6 +25,7 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     AuthModule,
     WorkspacesModule,
     DiagnosticsModule,
+    ExternalDataModule,
     IntegrationsModule,
     BillingModule,
     ConversionRulesModule,

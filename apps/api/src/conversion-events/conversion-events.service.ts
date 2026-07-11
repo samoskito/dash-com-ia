@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type {
+  ConversionValueSourceDto,
   ConversionEventCustomDataDto,
   ConversionEventNameDto,
   ConversionEventTestInputDto,
@@ -63,6 +64,34 @@ type ConversionEventLogRecord = {
   currency: string | null;
   contentName: string | null;
   errorCode: string | null;
+};
+
+export type RecordExternalConversionInput = {
+  workspaceId: string;
+  externalConnectorId: string;
+  sourceEventId: string;
+  sourceTrigger: string;
+  eventName: "LeadSubmitted" | "QualifiedLead" | "Purchase";
+  eventId: string;
+  dedupeKey: string;
+  leadId?: string | null;
+  phoneHash: string;
+  businessSource: "paid" | "organic";
+  campaignId?: string | null;
+  adSetId?: string | null;
+  adId?: string | null;
+  ctwaClid?: string | null;
+  valueCents?: number | null;
+  valueSource?: ConversionValueSourceDto | null;
+  currency?: string | null;
+  contentName?: string | null;
+  eventOccurredAt: Date;
+};
+
+export type RecordExternalConversionResult = {
+  conversionEventLogId: string;
+  status: "created" | "duplicate";
+  deliveryStatus: string;
 };
 
 type InitialStatus = {
@@ -261,6 +290,92 @@ export class ConversionEventsService {
     });
 
     return { created: [log.id], duplicates: [] };
+  }
+
+  async recordExternalConversion(
+    input: RecordExternalConversionInput
+  ): Promise<RecordExternalConversionResult> {
+    const existing = (await this.prisma.conversionEventLog.findUnique({
+      where: { dedupeKey: input.dedupeKey }
+    })) as ConversionEventLogRecord | null;
+
+    if (existing) {
+      return {
+        conversionEventLogId: existing.id,
+        status: "duplicate",
+        deliveryStatus: existing.status
+      };
+    }
+
+    const initialStatus = this.resolveInitialStatus({
+      eventName: input.eventName,
+      adId: input.adId,
+      ctwaClid: input.ctwaClid,
+      valueCents: input.valueCents
+    });
+    const purchaseKind = await this.resolvePurchaseKind({
+      workspaceId: input.workspaceId,
+      eventName: input.eventName,
+      customerIdentityKey: input.phoneHash
+    });
+
+    try {
+      const log = await this.prisma.conversionEventLog.create({
+        data: {
+          workspaceId: input.workspaceId,
+          externalConnectorId: input.externalConnectorId,
+          sourceEventId: input.sourceEventId,
+          leadId: input.leadId ?? null,
+          phoneHash: input.phoneHash,
+          eventOccurredAt: input.eventOccurredAt,
+          customerIdentityKey: input.phoneHash,
+          businessSource: input.businessSource,
+          purchaseKind,
+          valueSource: input.valueSource ?? null,
+          sourceTrigger: input.sourceTrigger,
+          eventName: input.eventName,
+          status: initialStatus.status,
+          pixelId: null,
+          eventId: input.eventId,
+          campaignId: input.campaignId ?? null,
+          adSetId: input.adSetId ?? null,
+          adId: input.adId ?? null,
+          ctwaClid: input.ctwaClid ?? null,
+          attributionStatus: input.adId ? "attributed" : "organic_or_unattributed",
+          dedupeKey: input.dedupeKey,
+          valueCents: input.valueCents ?? null,
+          currency: input.currency ?? null,
+          contentName: input.contentName ?? null,
+          customData: Prisma.JsonNull,
+          errorCode: initialStatus.errorCode,
+          errorMessage: initialStatus.errorMessage
+        }
+      });
+
+      return {
+        conversionEventLogId: log.id,
+        status: "created",
+        deliveryStatus: log.status
+      };
+    } catch (error) {
+      if (!this.isUniqueConstraintError(error)) {
+        throw error;
+      }
+
+      const duplicate = (await this.prisma.conversionEventLog.findUnique({
+        where: { dedupeKey: input.dedupeKey }
+      })) as ConversionEventLogRecord | null;
+
+      if (!duplicate) {
+        throw error;
+      }
+
+      return {
+        conversionEventLogId: duplicate.id,
+        status: "duplicate",
+        deliveryStatus: duplicate.status
+      };
+    }
   }
 
   async listReadyLogIds(logIds: string[]): Promise<string[]> {
@@ -635,6 +750,15 @@ export class ConversionEventsService {
   private resolveCustomerIdentityKey(phoneHash?: string | null): string | null {
     const normalized = phoneHash?.trim();
     return normalized ? normalized : null;
+  }
+
+  private isUniqueConstraintError(error: unknown): boolean {
+    return Boolean(
+      error &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: unknown }).code === "P2002"
+    );
   }
 
   private async resolvePurchaseKind(input: {

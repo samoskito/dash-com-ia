@@ -174,6 +174,7 @@ type ConversionAuditEventRecord = {
   providerResponseSummary: unknown;
   errorCode: string | null;
   errorMessage: string | null;
+  valueSource: "actual" | "configured_average" | "manual" | null;
 };
 
 type LeadRecord = ReportingMetricLead;
@@ -750,6 +751,7 @@ export class MetaReportingService {
         providerResponseSummary: true,
         errorCode: true,
         errorMessage: true,
+        valueSource: true,
       },
     })) as ConversionAuditEventRecord[];
 
@@ -775,6 +777,7 @@ export class MetaReportingService {
         ),
         errorCode: event.errorCode,
         errorMessage: event.errorMessage,
+        valueSource: event.valueSource ?? null,
       })),
     };
   }
@@ -1790,6 +1793,7 @@ export class MetaReportingService {
         eventOccurredAt: true,
         status: true,
         valueCents: true,
+        valueSource: true,
         currency: true,
         purchaseKind: true,
       },
