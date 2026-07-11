@@ -30,7 +30,9 @@ describe("backoffice clients route", () => {
             connectorCount: 1
           }
         ];
-      } else if (url.endsWith("/backoffice/external-data/connectors")) {
+      } else if (
+        url.endsWith("/backoffice/external-data/connectors?includeHealth=true")
+      ) {
         body = [
           {
             connector: {

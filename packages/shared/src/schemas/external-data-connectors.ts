@@ -172,8 +172,9 @@ export const externalConnectorHealthListSchema = z.array(
   externalConnectorHealthSchema,
 );
 
-export const externalDataConnectorListSchema =
-  externalConnectorHealthListSchema;
+export const externalDataConnectorListSchema = z.array(
+  externalDataConnectorSchema,
+);
 
 export type ExternalConnectorProviderDto = z.infer<
   typeof externalConnectorProviderSchema

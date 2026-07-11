@@ -1,6 +1,7 @@
 import type {
   BackofficeClientWorkspaceDto,
   ExternalConnectionTestResultDto,
+  ExternalDataConnectorDto,
   ExternalConnectorHealthDto,
   PlatformUserDto
 } from "@wpptrack/shared";
@@ -47,8 +48,18 @@ async function getClientWorkspaces(): Promise<ResourceResult<BackofficeClientWor
 
 async function getExternalConnectors(): Promise<ResourceResult<ExternalConnectorHealthDto[]>> {
   try {
-    const connectors = await serverApiFetch<ExternalConnectorHealthDto[]>(
-      "/backoffice/external-data/connectors"
+    const response = await serverApiFetch<
+      Array<ExternalConnectorHealthDto | ExternalDataConnectorDto>
+    >(
+      "/backoffice/external-data/connectors?includeHealth=true"
+    );
+    const connectors = response.map((item) =>
+      "connector" in item
+        ? item
+        : {
+            connector: item,
+            totals: { imported: 0, duplicates: 0, rejected: 0, pending: 0 }
+          }
     );
 
     return {

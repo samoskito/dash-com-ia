@@ -55,7 +55,12 @@ describe("ExternalDataService", () => {
     };
     const service = new ExternalDataService(prisma as never, {} as never, {} as never, {} as never);
 
-    const result = await service.listConnectors();
+    const compatibleResult = await service.listConnectors();
+
+    expect(compatibleResult[0]).toMatchObject({ id: "connector_1" });
+    expect(prisma.externalIngestionRecord.groupBy).not.toHaveBeenCalled();
+
+    const result = await service.listConnectors(undefined, true);
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({

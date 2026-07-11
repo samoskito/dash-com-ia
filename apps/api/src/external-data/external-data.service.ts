@@ -64,12 +64,19 @@ export class ExternalDataService {
     private readonly syncQueue: ExternalSyncQueueService
   ) {}
 
-  async listConnectors(workspaceId?: string): Promise<ExternalConnectorHealthDto[]> {
+  async listConnectors(
+    workspaceId?: string,
+    includeHealth = false
+  ): Promise<ExternalDataConnectorDto[] | ExternalConnectorHealthDto[]> {
     const connectors = (await this.prisma.externalDataConnector.findMany({
       where: workspaceId ? { workspaceId } : undefined,
       include: { cursors: { orderBy: { stream: "asc" } } },
       orderBy: [{ workspaceId: "asc" }, { createdAt: "desc" }]
     })) as ConnectorWithCursors[];
+
+    if (!includeHealth) {
+      return connectors.map((connector) => this.toDto(connector));
+    }
 
     const totalsByConnector = await this.ingestionTotals(
       connectors.map((connector) => connector.id)

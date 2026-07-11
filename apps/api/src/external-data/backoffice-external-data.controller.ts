@@ -30,10 +30,14 @@ export class BackofficeExternalDataController {
   @Get()
   async list(
     @AuthToken() refreshToken: string,
-    @Query("workspaceId") workspaceId?: string
+    @Query("workspaceId") workspaceId?: string,
+    @Query("includeHealth") includeHealth?: string
   ) {
     await this.platformAdminService.assertPlatformAdmin(refreshToken);
-    return this.externalDataService.listConnectors(workspaceId?.trim() || undefined);
+    return this.externalDataService.listConnectors(
+      workspaceId?.trim() || undefined,
+      ["1", "true"].includes(includeHealth?.trim().toLowerCase() ?? "")
+    );
   }
 
   @Post()
