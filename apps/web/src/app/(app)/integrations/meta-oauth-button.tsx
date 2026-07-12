@@ -1,6 +1,10 @@
 "use client";
 
-import type { IntegrationStartActionDto } from "@wpptrack/shared";
+import type {
+  IntegrationStartActionDto,
+  MetaAssetsDto,
+  MetaConnectionDto
+} from "@wpptrack/shared";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { apiBaseUrl, apiFetch } from "../../../lib/api";
@@ -15,6 +19,34 @@ type MetaOAuthMessage = {
   status?: "success" | "error";
   message?: string;
 };
+
+type MetaOAuthApiFetch = (
+  path: string,
+  init?: RequestInit
+) => Promise<unknown>;
+
+export async function refreshMetaAssetsAfterOAuth(
+  fetcher: MetaOAuthApiFetch = apiFetch
+): Promise<MetaAssetsDto> {
+  const connection = (await fetcher(
+    "/integrations/meta/connection"
+  )) as MetaConnectionDto;
+
+  if (connection.status !== "connected") {
+    throw new Error("MetaOAuthConnectionNotPersisted");
+  }
+
+  const assets = (await fetcher("/integrations/meta/assets/refresh", {
+    method: "POST",
+    body: JSON.stringify({ businessId: null })
+  })) as MetaAssetsDto;
+
+  if (assets.status !== "connected") {
+    throw new Error(assets.syncError ?? "MetaAssetsRefreshFailed");
+  }
+
+  return assets;
+}
 
 export function originFromUrl(value: string): string | null {
   try {
@@ -59,6 +91,7 @@ export function MetaOAuthButton({
 }: MetaOAuthButtonProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [loadingLabel, setLoadingLabel] = useState("Abrindo Facebook...");
   const [message, setMessage] = useState<string | null>(null);
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const popupCheckRef = useRef<number | null>(null);
@@ -92,15 +125,33 @@ export function MetaOAuthButton({
 
       clearPopupChecker();
       allowedOriginsRef.current = null;
+
+      if (payload.status === "success") {
+        setLoading(true);
+        setLoadingLabel("Carregando ativos Meta...");
+        setMessage(null);
+        void refreshMetaAssetsAfterOAuth()
+          .then(() => {
+            window.location.assign(
+              "/integrations?notice=meta-assets-refreshed"
+            );
+          })
+          .catch(() => {
+            setLoading(false);
+            setLoadingLabel("Abrindo Facebook...");
+            setMessageTone("error");
+            setMessage(
+              "A conta foi autorizada, mas nao foi possivel carregar os ativos Meta. Atualize a pagina e tente novamente."
+            );
+            router.refresh();
+          });
+        return;
+      }
+
       setLoading(false);
-      setMessageTone(payload.status === "success" ? "success" : "error");
-      setMessage(
-        payload.message ??
-          (payload.status === "success"
-            ? "Conexao Meta realizada com sucesso."
-            : "Falha ao conectar com Meta.")
-      );
-      router.refresh();
+      setLoadingLabel("Abrindo Facebook...");
+      setMessageTone("error");
+      setMessage(payload.message ?? "Falha ao conectar com Meta.");
     };
 
     window.addEventListener("message", onMessage);
@@ -117,6 +168,7 @@ export function MetaOAuthButton({
     }
 
     setLoading(true);
+    setLoadingLabel("Abrindo Facebook...");
     setMessage(null);
 
     try {
@@ -177,6 +229,7 @@ export function MetaOAuthButton({
           clearPopupChecker();
           allowedOriginsRef.current = null;
           setLoading(false);
+          setLoadingLabel("Abrindo Facebook...");
           setMessageTone("error");
           setMessage(
             "Janela da Meta fechada. Se a conexao nao aparecer, recarregue a pagina e confira se app e API estao no mesmo ambiente."
@@ -187,6 +240,7 @@ export function MetaOAuthButton({
     } catch {
       allowedOriginsRef.current = null;
       setLoading(false);
+      setLoadingLabel("Abrindo Facebook...");
       setMessageTone("error");
       setMessage("Erro ao iniciar conexao com Meta.");
     }
@@ -201,7 +255,7 @@ export function MetaOAuthButton({
         type="button"
       >
         {loading
-          ? "Abrindo Facebook..."
+          ? loadingLabel
           : connected
             ? "Trocar conta Meta"
             : "Conectar com Facebook/Meta"}

@@ -205,7 +205,7 @@ describe("meta connections service", () => {
     });
   });
 
-  it("refreshes businesses without fanning out ad accounts and pixels before a BM is selected", async () => {
+  it("refreshes businesses and preloads only the first BM assets", async () => {
     const { service } = createHarness();
     const metaAdapter = {
       listBusinesses: vi.fn(async () => [
@@ -271,6 +271,18 @@ describe("meta connections service", () => {
                   code: "9999999999"
                 }
               ]
+      ),
+      listBusinessPages: vi.fn(
+        async ({ businessId }: { businessId: string }) =>
+          businessId === "business_1"
+            ? [
+                {
+                  id: "page_1",
+                  businessId: "business_1",
+                  name: "Pagina Principal"
+                }
+              ]
+            : []
       )
     };
 
@@ -291,8 +303,17 @@ describe("meta connections service", () => {
       workspaceId: "workspace_1",
       status: "connected",
       businesses: [{ name: "BM Principal" }, { name: "BM Secundario" }],
-      adAccounts: [],
-      pixels: [],
+      adAccounts: [
+        { businessId: "business_1", name: "Conta WhatsApp" },
+        { businessId: "business_1", name: "Conta Remarketing" }
+      ],
+      pixels: [
+        { businessId: "business_1", name: "Pixel Loja", code: null },
+        { businessId: "business_1", name: "Pixel Remarketing", code: null }
+      ],
+      pages: [
+        { businessId: "business_1", name: "Pagina Principal" }
+      ],
       selection: {
         businessId: null,
         adAccountId: null,
@@ -303,8 +324,21 @@ describe("meta connections service", () => {
     expect(metaAdapter.listBusinesses).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token"
     });
-    expect(metaAdapter.listOwnedAdAccounts).not.toHaveBeenCalled();
-    expect(metaAdapter.listBusinessPixels).not.toHaveBeenCalled();
+    expect(metaAdapter.listOwnedAdAccounts).toHaveBeenCalledWith({
+      accessToken: "EAAB-secret-token",
+      businessId: "business_1"
+    });
+    expect(metaAdapter.listBusinessPixels).toHaveBeenCalledWith({
+      accessToken: "EAAB-secret-token",
+      businessId: "business_1"
+    });
+    expect(metaAdapter.listBusinessPages).toHaveBeenCalledWith({
+      accessToken: "EAAB-secret-token",
+      businessId: "business_1"
+    });
+    expect(metaAdapter.listOwnedAdAccounts).not.toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: "business_2" })
+    );
     expect(JSON.stringify(assets)).not.toContain("EAAB-secret-token");
   });
 
@@ -701,6 +735,60 @@ describe("meta connections service", () => {
     expect(metaAdapter.listBusinessPages).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
       businessId: "business_2"
+    });
+  });
+
+  it("keeps available assets and reports partial Meta permission failures", async () => {
+    const { service } = createHarness();
+    const metaAdapter = {
+      listBusinesses: vi.fn(async () => [
+        {
+          id: "business_1",
+          name: "BM Principal",
+          verificationStatus: "verified"
+        }
+      ]),
+      listOwnedAdAccounts: vi.fn(async () => [
+        {
+          id: "act_123",
+          name: "Conta WhatsApp",
+          accountStatus: "1",
+          currency: "BRL",
+          timezoneName: "America/Sao_Paulo"
+        }
+      ]),
+      listBusinessPixels: vi.fn(async () => {
+        throw new Error("Permissions error");
+      }),
+      listBusinessPages: vi.fn(async () => [
+        {
+          id: "page_1",
+          businessId: "business_1",
+          name: "Pagina Principal"
+        }
+      ])
+    };
+
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_1",
+      accessToken: "EAAB-secret-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read"]
+    });
+
+    const assets = await service.refreshAssets(
+      "workspace_1",
+      metaAdapter as never
+    );
+
+    expect(assets).toMatchObject({
+      status: "connected",
+      adAccounts: [{ businessId: "business_1", id: "act_123" }],
+      pixels: [],
+      pages: [{ businessId: "business_1", id: "page_1" }],
+      syncError:
+        "A Meta nao permitiu carregar Pixels para o BM selecionado."
     });
   });
 

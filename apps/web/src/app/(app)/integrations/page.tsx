@@ -17,6 +17,7 @@ import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { MetaConversionDestinationForm } from "./meta-conversion-destination-form";
+import { resolveMetaStatus } from "./meta-connection-state";
 import { MetaOAuthButton } from "./meta-oauth-button";
 import { MetaReportingAccountsForm } from "./meta-reporting-accounts-form";
 
@@ -665,6 +666,24 @@ function metaAssetsDetail(
   }
 
   if (
+    metaAssets.lastSyncedAt &&
+    metaAssets.status === "connected" &&
+    metaAssets.businesses.length === 0
+  ) {
+    return "A Meta nao retornou nenhum BM para este usuario. Confirme o acesso ao Business Manager e conecte novamente.";
+  }
+
+  if (
+    metaAssets.lastSyncedAt &&
+    metaAssets.businesses.length > 0 &&
+    metaAssets.adAccounts.length === 0 &&
+    metaAssets.pixels.length === 0 &&
+    (metaAssets.pages ?? []).length === 0
+  ) {
+    return "Os BMs foram carregados, mas o BM selecionado nao retornou conta de anuncio, Pixel ou Pagina. Selecione outro BM ou revise as permissoes Meta.";
+  }
+
+  if (
     metaAssets.businesses.length === 0 &&
     metaAssets.adAccounts.length === 0 &&
     metaAssets.pixels.length === 0
@@ -749,7 +768,10 @@ export default async function IntegrationsPage({
     pipelineResult.state,
     workspaceResult.state,
   ].includes("error");
-  const metaStatus = metaAssets?.status ?? metaConnection?.status;
+  const metaStatus = resolveMetaStatus(
+    metaConnection?.status,
+    metaAssets?.status,
+  );
   const activeReportingAccounts = (metaAssets?.reportingAccounts ?? []).filter(
     (account) => account.active,
   ).length;
@@ -873,7 +895,7 @@ export default async function IntegrationsPage({
             </p>
           </div>
           {canManageIntegrations || workspacePermissionsUnavailable ? (
-            <div className="header-actions">
+            <div className="meta-connection-actions">
               <MetaOAuthButton connected={metaStatus === "connected"} />
               {canManageIntegrations ? (
                 <form action={refreshMetaAssets}>

@@ -253,53 +253,81 @@ export class MetaConnectionsService {
         tokenTag: connection.tokenTag
       });
       const businesses = await metaAdapter.listBusinesses({ accessToken });
-      const selectedBusinessId =
+      const preferredBusinessId =
         requestedBusinessId?.trim() || connection.selectedBusinessId;
-      const selectedBusinessExists = businesses.some(
-        (business) => business.id === selectedBusinessId
-      );
-      const [adAccounts, pixels, pages] =
-        selectedBusinessId && selectedBusinessExists
-          ? await Promise.all([
-              metaAdapter
-                .listOwnedAdAccounts({
-                  accessToken,
-                  businessId: selectedBusinessId
-                })
-                .then((items) =>
-                  items.map((adAccount) => ({
-                    ...adAccount,
-                    businessId: adAccount.businessId ?? selectedBusinessId
-                  }))
-                )
-                .catch(() => []),
-              metaAdapter
-                .listBusinessPixels({
-                  accessToken,
-                  businessId: selectedBusinessId
-                })
-                .then((items) =>
-                  items.map((pixel) => ({
-                    ...pixel,
-                    businessId: pixel.businessId ?? selectedBusinessId,
-                    code: null
-                  }))
-                )
-                .catch(() => []),
-              metaAdapter
-                .listBusinessPages({
-                  accessToken,
-                  businessId: selectedBusinessId
-                })
-                .then((items) =>
-                  items.map((page) => ({
-                    ...page,
-                    businessId: page.businessId ?? selectedBusinessId
-                  }))
-                )
-                .catch(() => [])
-            ])
-          : [[], [], []];
+      const selectedBusinessId = businesses.some(
+        (business) => business.id === preferredBusinessId
+      )
+        ? preferredBusinessId
+        : businesses[0]?.id ?? null;
+      const selectedBusinessExists = Boolean(selectedBusinessId);
+      let adAccounts: MetaAdAccountAssetDto[] = [];
+      let pixels: MetaPixelAssetDto[] = [];
+      let pages: MetaPageAssetDto[] = [];
+      let businessSyncError: string | null = null;
+
+      if (selectedBusinessId && selectedBusinessExists) {
+        const [adAccountResult, pixelResult, pageResult] =
+          await Promise.allSettled([
+            metaAdapter
+              .listOwnedAdAccounts({
+                accessToken,
+                businessId: selectedBusinessId
+              })
+              .then((items) =>
+                items.map((adAccount) => ({
+                  ...adAccount,
+                  businessId: adAccount.businessId ?? selectedBusinessId
+                }))
+              ),
+            metaAdapter
+              .listBusinessPixels({
+                accessToken,
+                businessId: selectedBusinessId
+              })
+              .then((items) =>
+                items.map((pixel) => ({
+                  ...pixel,
+                  businessId: pixel.businessId ?? selectedBusinessId,
+                  code: null
+                }))
+              ),
+            metaAdapter
+              .listBusinessPages({
+                accessToken,
+                businessId: selectedBusinessId
+              })
+              .then((items) =>
+                items.map((page) => ({
+                  ...page,
+                  businessId: page.businessId ?? selectedBusinessId
+                }))
+              )
+          ]);
+        const failedAssets: string[] = [];
+
+        if (adAccountResult.status === "fulfilled") {
+          adAccounts = adAccountResult.value;
+        } else {
+          failedAssets.push("contas de anuncio");
+        }
+
+        if (pixelResult.status === "fulfilled") {
+          pixels = pixelResult.value;
+        } else {
+          failedAssets.push("Pixels");
+        }
+
+        if (pageResult.status === "fulfilled") {
+          pages = pageResult.value;
+        } else {
+          failedAssets.push("paginas");
+        }
+
+        businessSyncError = failedAssets.length
+          ? `A Meta nao permitiu carregar ${failedAssets.join(", ")} para o BM selecionado.`
+          : null;
+      }
       const status = this.toStatus(connection.status);
       const rootSnapshot = await this.upsertAssetSnapshot({
         workspaceId,
@@ -324,7 +352,7 @@ export class MetaConnectionsService {
               adAccounts,
               pixels,
               pages,
-              syncError: null,
+              syncError: businessSyncError,
               syncedAt
             })
           : null;

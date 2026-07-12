@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   metaOAuthAllowedOrigins,
   metaOAuthCallbackOrigin,
-  originFromUrl
+  originFromUrl,
+  refreshMetaAssetsAfterOAuth
 } from "../src/app/(app)/integrations/meta-oauth-button";
 
 describe("MetaOAuthButton helpers", () => {
@@ -40,5 +41,40 @@ describe("MetaOAuthButton helpers", () => {
     });
 
     expect([...origins]).toEqual(["http://localhost:3000"]);
+  });
+
+  it("confirms the OAuth connection and refreshes Meta assets", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "connected" })
+      .mockResolvedValueOnce({
+        status: "connected",
+        businesses: [{ id: "business_1", name: "BM Principal" }]
+      });
+
+    await expect(refreshMetaAssetsAfterOAuth(fetcher)).resolves.toMatchObject({
+      businesses: [{ id: "business_1" }]
+    });
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "/integrations/meta/connection"
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "/integrations/meta/assets/refresh",
+      {
+        method: "POST",
+        body: JSON.stringify({ businessId: null })
+      }
+    );
+  });
+
+  it("does not report success before the OAuth connection is persisted", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce({ status: "not_connected" });
+
+    await expect(refreshMetaAssetsAfterOAuth(fetcher)).rejects.toThrow(
+      "MetaOAuthConnectionNotPersisted"
+    );
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

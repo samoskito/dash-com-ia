@@ -6,6 +6,7 @@ import {
   metaAdAccountsForBusiness,
   metaPixelsForBusiness,
 } from "../src/app/(app)/integrations/meta-assets-form";
+import { resolveMetaStatus } from "../src/app/(app)/integrations/meta-connection-state";
 import { metaReportingAccountsForBusiness } from "../src/app/(app)/integrations/meta-reporting-accounts-form";
 
 vi.mock("next/navigation", () => ({
@@ -20,6 +21,10 @@ afterEach(() => {
 });
 
 describe("integrations route", () => {
+  it("uses the persisted OAuth status before a stale asset status", () => {
+    expect(resolveMetaStatus("connected", "not_connected")).toBe("connected");
+  });
+
   it("renders whatsapp instances with connection actions", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(

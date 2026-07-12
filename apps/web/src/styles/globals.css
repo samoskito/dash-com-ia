@@ -2800,6 +2800,14 @@ th {
   min-width: 220px;
 }
 
+.meta-connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .action-note {
   display: block;
   margin-top: 8px;
@@ -2828,6 +2836,11 @@ th {
   .meta-oauth-action {
     justify-items: stretch;
     min-width: 0;
+  }
+
+  .meta-connection-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .button,
