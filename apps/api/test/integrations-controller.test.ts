@@ -367,6 +367,21 @@ describe("integrations controller", () => {
     await app.close();
   });
 
+  it("rejects Meta OAuth start when the displayed workspace changed", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/meta/start?workspaceId=workspace_barbieri")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(409)
+      .expect(({ body }) => {
+        expect(body.message).toContain("workspace da sessao mudou");
+      });
+
+    expect(service.getMetaStartAction).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it("rejects Meta OAuth start for workspace members", async () => {
     const { app, service } = await createApp("member");
 

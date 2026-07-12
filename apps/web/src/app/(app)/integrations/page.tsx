@@ -21,6 +21,10 @@ import {
   metaAssetsRefreshSucceeded,
   resolveMetaStatus,
 } from "./meta-connection-state";
+import {
+  completeMetaOAuthForCurrentWorkspace,
+  startMetaOAuthForCurrentWorkspace,
+} from "./meta-oauth-actions";
 import { MetaOAuthButton } from "./meta-oauth-button";
 import { MetaReportingAccountsForm } from "./meta-reporting-accounts-form";
 
@@ -907,7 +911,11 @@ export default async function IntegrationsPage({
           </div>
           {canManageIntegrations || workspacePermissionsUnavailable ? (
             <div className="meta-connection-actions">
-              <MetaOAuthButton connected={metaStatus === "connected"} />
+              <MetaOAuthButton
+                completeOAuthAction={completeMetaOAuthForCurrentWorkspace}
+                connected={metaStatus === "connected"}
+                startOAuthAction={startMetaOAuthForCurrentWorkspace}
+              />
               {canManageIntegrations ? (
                 <form action={refreshMetaAssets}>
                   <input

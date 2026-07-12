@@ -2,17 +2,18 @@
 
 import type {
   IntegrationStartActionDto,
-  MetaAssetsDto,
-  MetaConnectionDto
+  MetaAssetsDto
 } from "@wpptrack/shared";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { apiBaseUrl, apiFetch } from "../../../lib/api";
+import { apiBaseUrl } from "../../../lib/api";
 import { metaAssetsRefreshSucceeded } from "./meta-connection-state";
 
 type MetaOAuthButtonProps = {
   connected: boolean;
   disabled?: boolean;
+  startOAuthAction: () => Promise<IntegrationStartActionDto>;
+  completeOAuthAction: () => Promise<MetaAssetsDto>;
 };
 
 type MetaOAuthMessage = {
@@ -21,26 +22,19 @@ type MetaOAuthMessage = {
   message?: string;
 };
 
-type MetaOAuthApiFetch = (
-  path: string,
-  init?: RequestInit
-) => Promise<unknown>;
+type MetaOAuthStartAction = () => Promise<IntegrationStartActionDto>;
+type MetaOAuthCompleteAction = () => Promise<MetaAssetsDto>;
+
+export async function loadMetaOAuthStartAction(
+  startOAuthAction: MetaOAuthStartAction
+): Promise<IntegrationStartActionDto> {
+  return startOAuthAction();
+}
 
 export async function refreshMetaAssetsAfterOAuth(
-  fetcher: MetaOAuthApiFetch = apiFetch
+  completeOAuthAction: MetaOAuthCompleteAction
 ): Promise<MetaAssetsDto> {
-  const connection = (await fetcher(
-    "/integrations/meta/connection"
-  )) as MetaConnectionDto;
-
-  if (connection.status !== "connected") {
-    throw new Error("MetaOAuthConnectionNotPersisted");
-  }
-
-  const assets = (await fetcher("/integrations/meta/assets/refresh", {
-    method: "POST",
-    body: JSON.stringify({ businessId: null })
-  })) as MetaAssetsDto;
+  const assets = await completeOAuthAction();
 
   if (!metaAssetsRefreshSucceeded(assets)) {
     throw new Error(assets.syncError ?? "MetaAssetsRefreshFailed");
@@ -88,7 +82,9 @@ export function metaOAuthAllowedOrigins(input: {
 
 export function MetaOAuthButton({
   connected,
-  disabled = false
+  disabled = false,
+  startOAuthAction,
+  completeOAuthAction
 }: MetaOAuthButtonProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -131,7 +127,7 @@ export function MetaOAuthButton({
         setLoading(true);
         setLoadingLabel("Carregando ativos Meta...");
         setMessage(null);
-        void refreshMetaAssetsAfterOAuth()
+        void refreshMetaAssetsAfterOAuth(completeOAuthAction)
           .then(() => {
             window.location.assign(
               "/integrations?notice=meta-assets-refreshed"
@@ -161,7 +157,7 @@ export function MetaOAuthButton({
       clearPopupChecker();
       window.removeEventListener("message", onMessage);
     };
-  }, [router]);
+  }, [completeOAuthAction, router]);
 
   const startOAuth = async () => {
     if (disabled || loading) {
@@ -173,9 +169,7 @@ export function MetaOAuthButton({
     setMessage(null);
 
     try {
-      const action = await apiFetch<IntegrationStartActionDto>(
-        "/integrations/meta/start"
-      );
+      const action = await loadMetaOAuthStartAction(startOAuthAction);
 
       if (!action.href) {
         allowedOriginsRef.current = null;

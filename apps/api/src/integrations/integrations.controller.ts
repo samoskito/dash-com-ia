@@ -57,8 +57,20 @@ export class IntegrationsController {
   }
 
   @Get("meta/start")
-  async startMeta(@AuthToken() refreshToken: string) {
+  async startMeta(
+    @AuthToken() refreshToken: string,
+    @Query("workspaceId") expectedWorkspaceId?: string
+  ) {
     const workspace = await this.getCurrentWorkspace(refreshToken);
+
+    if (
+      expectedWorkspaceId &&
+      expectedWorkspaceId.trim() !== workspace.id
+    ) {
+      throw new ConflictException(
+        "O workspace da sessao mudou. Recarregue a pagina antes de conectar a Meta"
+      );
+    }
 
     if (!canManageIntegrations(workspace.role)) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");

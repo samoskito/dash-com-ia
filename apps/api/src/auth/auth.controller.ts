@@ -117,7 +117,7 @@ export class AuthController {
     @Res({ passthrough: true }) response: CookieResponse
   ) {
     await this.authService.logout(extractAuthToken(request));
-    response.clearCookie(sessionCookieName, this.sessionCookieClearOptions());
+    this.clearSessionCookies(response);
 
     return { ok: true };
   }
@@ -206,6 +206,18 @@ export class AuthController {
       path: "/",
       ...this.sharedCookieDomainOption()
     });
+
+    if (this.sharedCookieDomainOption().domain) {
+      response.clearCookie(sessionCookieName, { path: "/" });
+    }
+  }
+
+  private clearSessionCookies(response: CookieResponse): void {
+    response.clearCookie(sessionCookieName, this.sessionCookieClearOptions());
+
+    if (this.sharedCookieDomainOption().domain) {
+      response.clearCookie(sessionCookieName, { path: "/" });
+    }
   }
 
   private sessionCookieClearOptions(): { path: string; domain?: string } {

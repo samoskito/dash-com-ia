@@ -192,10 +192,22 @@ describe("auth controller", () => {
       })
       .expect(200)
       .expect(({ headers }) => {
-        const cookie = headers["set-cookie"]?.[0] ?? "";
-        expect(cookie).toContain("wpptrack_session=");
-        expect(cookie).toContain("Domain=.rastrack.app");
-        expect(cookie).toContain("Secure");
+        const setCookie = headers["set-cookie"];
+        const cookies = Array.isArray(setCookie)
+          ? setCookie
+          : [setCookie ?? ""];
+        const sharedCookie = cookies.find((cookie) =>
+          cookie.includes("Domain=.rastrack.app")
+        );
+        const legacyCookieCleanup = cookies.find(
+          (cookie) =>
+            cookie.includes("wpptrack_session=;") &&
+            !cookie.includes("Domain=")
+        );
+
+        expect(sharedCookie).toContain("wpptrack_session=");
+        expect(sharedCookie).toContain("Secure");
+        expect(legacyCookieCleanup).toBeDefined();
       });
 
     await app.close();
@@ -248,9 +260,24 @@ describe("auth controller", () => {
       .set("Authorization", `Bearer ${authPayload.refreshToken}`)
       .expect(200)
       .expect(({ headers }) => {
-        const cookie = headers["set-cookie"]?.[0] ?? "";
-        expect(cookie).toContain("wpptrack_session=;");
-        expect(cookie).toContain("Domain=.rastrack.app");
+        const setCookie = headers["set-cookie"];
+        const cookies = Array.isArray(setCookie)
+          ? setCookie
+          : [setCookie ?? ""];
+        expect(
+          cookies.some(
+            (cookie) =>
+              cookie.includes("wpptrack_session=;") &&
+              cookie.includes("Domain=.rastrack.app")
+          )
+        ).toBe(true);
+        expect(
+          cookies.some(
+            (cookie) =>
+              cookie.includes("wpptrack_session=;") &&
+              !cookie.includes("Domain=")
+          )
+        ).toBe(true);
       });
 
     await app.close();
