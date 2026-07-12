@@ -82,7 +82,7 @@
       },
       "type": "n8n-nodes-base.filter",
       "typeVersion": 2.2,
-      "position": [3680, 496],
+      "position": [3456, 496],
       "id": "40fcfb67-b0cd-4c41-80de-15bf12d03a95",
       "name": "Filter"
     },
@@ -257,7 +257,7 @@
       },
       "type": "n8n-nodes-base.mySql",
       "typeVersion": 2.4,
-      "position": [3456, 496],
+      "position": [3680, 496],
       "id": "1f83b90d-28cf-4699-acd7-6586a4bfdd4a",
       "name": "Inserir ou atualizar Lead no Banco",
       "alwaysOutputData": false,
@@ -557,7 +557,7 @@
     },
     {
       "parameters": {
-        "content": "# Meta Oficial -> WppTrack\n\n1. O POST e aceito sem validacao de assinatura HMAC.\n2. Toda entrega e salva no inbox antes do ACK 200.\n3. O payload JSON normal do Webhook alimenta a normalizacao.\n4. wpptrack_test_mode executa um dry-run sem efeitos de producao.\n5. Cada messages[].id gera no maximo um conversation_started.\n6. Retries incrementam duplicate_count e nao repetem o fluxo legado.\n7. O LeadSubmitted legado continua apenas para mensagens com CTWA durante a sombra.",
+        "content": "# Meta Oficial -> WppTrack\n\n1. O POST e aceito sem validacao de assinatura HMAC.\n2. Toda entrega e salva no inbox antes do ACK 200.\n3. O payload JSON normal do Webhook alimenta a normalizacao.\n4. wpptrack_test_mode executa um dry-run sem efeitos de producao.\n5. Cada messages[].id gera no maximo um conversation_started.\n6. Retries incrementam duplicate_count e nao repetem o fluxo legado.\n7. A tabela legada e o LeadSubmitted continuam apenas para mensagens com CTWA durante a sombra.",
         "height": 336,
         "width": 1104
       },
@@ -723,17 +723,6 @@
       "main": [
         [
           {
-            "node": "Inserir ou atualizar Lead no Banco",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Inserir ou atualizar Lead no Banco": {
-      "main": [
-        [
-          {
             "node": "Filter",
             "type": "main",
             "index": 0
@@ -742,6 +731,17 @@
       ]
     },
     "Filter": {
+      "main": [
+        [
+          {
+            "node": "Inserir ou atualizar Lead no Banco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inserir ou atualizar Lead no Banco": {
       "main": [
         [
           {

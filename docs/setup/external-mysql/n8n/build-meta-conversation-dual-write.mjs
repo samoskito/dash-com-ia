@@ -841,7 +841,7 @@ const stickyNote = {
 4. wpptrack_test_mode dentro do body assinado executa um dry-run sem efeitos de producao.
 5. Cada messages[].id gera no maximo um conversation_started.
 6. Retries incrementam duplicate_count e nao repetem o fluxo legado.
-7. O LeadSubmitted legado continua apenas para mensagens com CTWA durante a sombra.`,
+7. A tabela legada e o LeadSubmitted continuam apenas para mensagens com CTWA durante a sombra.`,
     height: 336,
     width: 1104,
   },
@@ -880,8 +880,8 @@ workflow.nodes.push(
 setPosition(postWebhook, 320, 576);
 setPosition(editFields, 3904, 496);
 setPosition(waitNode, 4128, 496);
-setPosition(legacyUpsert, 4352, 496);
-setPosition(paidFilter, 4576, 496);
+setPosition(paidFilter, 4352, 496);
+setPosition(legacyUpsert, 4576, 496);
 setPosition(timezoneNode, 4800, 496);
 setPosition(timestampNode, 5024, 496);
 setPosition(phoneHashNode, 5248, 496);
@@ -961,12 +961,12 @@ workflow.connections = {
     main: [[connection("Wait1")]],
   },
   Wait1: {
-    main: [[connection("Inserir ou atualizar Lead no Banco")]],
-  },
-  "Inserir ou atualizar Lead no Banco": {
     main: [[connection("Filter")]],
   },
   Filter: {
+    main: [[connection("Inserir ou atualizar Lead no Banco")]],
+  },
+  "Inserir ou atualizar Lead no Banco": {
     main: [[connection("Acerta Fuso")]],
   },
   "Acerta Fuso": {

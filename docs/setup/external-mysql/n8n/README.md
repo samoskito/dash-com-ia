@@ -108,7 +108,7 @@ The artifact:
 - preserves the original message timestamp, phone, `ctwa_clid`, `source_id` as `ad_id`, and `source_url`;
 - accepts the first known organic contact but ignores later organic messages as new conversations;
 - increments `duplicate_count` for a repeated `wamid` without repeating the legacy upsert or CAPI send;
-- keeps legacy `LeadSubmitted` only for paid CTWA messages during shadow reconciliation and adds a stable `event_id` based on the `wamid`;
+- keeps the legacy `whatsapp_anuncio_barbieri` upsert and `LeadSubmitted` only for paid CTWA messages during shadow reconciliation, with the CTWA filter before the legacy write and a stable `event_id` based on the `wamid`;
 - acknowledges valid status-only payloads without creating an event;
 - recognizes `wpptrack_test_mode=true` and routes it to a no-side-effect dry-run result;
 - removes production `pinData`, the disconnected subscription node with an inline Meta token, workflow/webhook IDs and n8n credential IDs;

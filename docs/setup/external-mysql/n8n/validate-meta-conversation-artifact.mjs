@@ -154,6 +154,19 @@ assert.match(
   node("Registrar conversation_started").parameters.query,
   /WHERE \$10 = 1/,
 );
+assert.match(
+  node("Filter").parameters.conditions.conditions[0].leftValue,
+  /ctwaclid/,
+);
+assert.equal(workflow.connections.Wait1.main[0][0].node, "Filter");
+assert.equal(
+  workflow.connections.Filter.main[0][0].node,
+  "Inserir ou atualizar Lead no Banco",
+);
+assert.equal(
+  workflow.connections["Inserir ou atualizar Lead no Banco"].main[0][0].node,
+  "Acerta Fuso",
+);
 assert.deepEqual(
   workflow.connections["Modo de teste seguro?"].main.map(
     (branch) => branch[0]?.node,
@@ -388,6 +401,7 @@ console.log(
         "deterministic_delivery_retry_key",
         "batched_messages",
         "first_organic_contact",
+        "ctwa_gate_before_legacy_write",
         "later_organic_message_ignored",
         "same_wamid_retry_ledger_only",
         "status_only_acknowledged",

@@ -183,8 +183,8 @@ setPosition("Registrar conversation_started", 2560, 496);
 setPosition("Continuar fluxo legado", 2784, 496);
 setPosition("Edit Fields", 3008, 496);
 setPosition("Wait1", 3232, 496);
-setPosition("Inserir ou atualizar Lead no Banco", 3456, 496);
-setPosition("Filter", 3680, 496);
+setPosition("Filter", 3456, 496);
+setPosition("Inserir ou atualizar Lead no Banco", 3680, 496);
 setPosition("Acerta Fuso", 3904, 496);
 setPosition("Gera Timestamp", 4128, 496);
 setPosition("[HASH] Phone1", 4352, 496);
@@ -205,7 +205,7 @@ requireNode("Contrato Meta Oficial WppTrack").parameters.content =
 4. wpptrack_test_mode executa um dry-run sem efeitos de producao.
 5. Cada messages[].id gera no maximo um conversation_started.
 6. Retries incrementam duplicate_count e nao repetem o fluxo legado.
-7. O LeadSubmitted legado continua apenas para mensagens com CTWA durante a sombra.`;
+7. A tabela legada e o LeadSubmitted continuam apenas para mensagens com CTWA durante a sombra.`;
 
 workflow.name = workflow.name.replace(
   / - (?:durable inbox|pre-validation inbox|sem validacao HMAC)$/,
