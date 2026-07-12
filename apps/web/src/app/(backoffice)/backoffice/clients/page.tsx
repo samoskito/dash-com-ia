@@ -278,14 +278,19 @@ async function syncExternalConnector(
   "use server";
 
   const connectorId = String(formData.get("connectorId") ?? "");
+  const reimportLeads = String(formData.get("reimportLeads") ?? "") === "true";
   const requestedAt = Date.now();
 
   try {
     await serverApiFetch(
-      `/backoffice/external-data/connectors/${encodeURIComponent(connectorId)}/sync`,
+      `/backoffice/external-data/connectors/${encodeURIComponent(connectorId)}/${
+        reimportLeads ? "reimport-leads" : "sync"
+      }`,
       {
         method: "POST",
-        body: JSON.stringify({ streams: ["leads", "events"] })
+        ...(reimportLeads
+          ? {}
+          : { body: JSON.stringify({ streams: ["leads", "events"] }) })
       }
     );
     revalidatePath("/backoffice/clients");
@@ -293,10 +298,13 @@ async function syncExternalConnector(
     return actionResult("error", "Nao foi possivel iniciar a sincronizacao");
   }
 
-  return actionResult("success", "Sincronizacao adicionada a fila", {
-    connectorId,
-    requestedAt
-  });
+  return actionResult(
+    "success",
+    reimportLeads
+      ? "Reimportacao de leads adicionada a fila"
+      : "Sincronizacao adicionada a fila",
+    { connectorId, requestedAt }
+  );
 }
 
 async function getExternalConnectorHealth(

@@ -2,7 +2,7 @@
 
 Date: 2026-07-11
 
-Status: Deployed and configured for Barbieri on 2026-07-11; lead backfill reconciled at 125/125 and n8n event dual-write remains pending.
+Status: Deployed and configured for Barbieri on 2026-07-11; lead backfill reconciled at 125/125. QualifiedLead and Purchase are active awaiting first-event reconciliation. On 2026-07-12 the official Meta replacement was rebuilt without POST HMAC by explicit operator decision, passed the no-side-effect real-payload test on both test and production URLs, replaced the old active workflow, and now awaits its first real-lead reconciliation before WppTrack CAPI cutover.
 
 Design source: `docs/superpowers/specs/2026-07-11-wpptrack-external-mysql-kinbox-data-foundation-design.md`
 
@@ -20,6 +20,8 @@ Implement Block 0.5 so WppTrack can securely backfill standardized external MySQ
 - Platform-admin endpoints for create, update, test, sync and health are implemented.
 - Connector listings aggregate imported, duplicate, rejected and pending records in one database query; the backoffice follows a manual sync until completion without reloading the page or moving its scroll position.
 - Standard MySQL ledger/views and an exact n8n dual-write/cutover guide are available under `docs/setup/external-mysql/`.
+- The reviewed Kinbox QualifiedLead export now has a reproducible sanitizer and an inactive import artifact that writes the canonical append-only event before existing side effects while preserving the current Meta delivery for shadow reconciliation.
+- The reviewed Kinbox Purchase export now has a sanitized replacement with daily provider-specific deduplication, a value-free ledger record and a daily stable event ID for the temporary Meta delivery.
 - Reporting contracts expose estimated revenue provenance through `valueSource`, `estimatedRevenueCents` and `hasEstimatedRevenue`.
 - Verification passed after the backoffice observability pass: 429 API tests, 87 web tests, 54 shared-contract tests, API/shared/web typechecks, API build, web production build, Prisma validation, responsive review at 1440/390 px and `git diff --check`.
 
@@ -178,6 +180,10 @@ All routes require platform-admin authentication. Create/update audit logs; DTOs
 - Create `docs/setup/external-mysql/kinbox-standard-schema.sql`.
 - Create `docs/setup/external-mysql/README.md`.
 - Create sanitized n8n workflow artifacts or exact patch guides for Purchase, QualifiedLead and official Meta conversation intake.
+- QualifiedLead artifact completed and activated from `docs/setup/external-mysql/n8n/kinbox-qualified-lead-dual-write.json`; first-event reconciliation is pending.
+- Purchase artifact completed and activated from `docs/setup/external-mysql/n8n/kinbox-purchase-dual-write.json`; first-event reconciliation is pending.
+- The Uazapi/Wesley `Etapa 4 - Recebimento de Mensagens` export remains rejected as the Barbieri source.
+- Official Meta conversation artifact completed at `docs/setup/external-mysql/n8n/meta-conversation-started-dual-write.json` from the correct `Etapa 2 - [Meta] Recebimento de Mensagem` export. After the first HMAC-based replacement rejected a real delivery with `401`, the old workflow was restored. By explicit operator decision on 2026-07-12, the replacement now has no POST HMAC, App Secret, raw-binary dependency or `401` branch. It stores the normal JSON payload in `wpptrack_webhook_inbox` before ACK 200, then normalizes and writes the append-only event before legacy effects. The safe test accepts a captured real payload without credentials and stops before ledger, lead and CAPI writes. The controlled n8n swap and first-event reconciliation remain pending.
 
 ### SQL
 

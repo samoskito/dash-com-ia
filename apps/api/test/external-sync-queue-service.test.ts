@@ -45,4 +45,25 @@ describe("ExternalSyncQueueService", () => {
     expect(remove).toHaveBeenCalledOnce();
     expect(add).toHaveBeenCalledOnce();
   });
+
+  it("marks a queued lead reimport as a projection refresh", async () => {
+    const add = vi.fn(async (_name, _payload, options) => ({ id: options.jobId }));
+    const queue = {
+      getJob: vi.fn(async () => null),
+      add
+    };
+    const service = new ExternalSyncQueueService(queue as never);
+
+    await service.enqueueSync({
+      connectorId: "connector_1",
+      streams: ["leads"],
+      projectionRefresh: true
+    });
+
+    expect(add).toHaveBeenCalledWith(
+      "sync-external-data",
+      expect.objectContaining({ projectionRefresh: true }),
+      expect.any(Object)
+    );
+  });
 });

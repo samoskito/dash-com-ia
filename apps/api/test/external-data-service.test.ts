@@ -200,4 +200,41 @@ describe("ExternalDataService", () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(update).not.toHaveBeenCalled();
   });
+
+  it("queues an idempotent lead projection refresh", async () => {
+    const enqueueSync = vi.fn(async () => ({
+      connectorId: "connector_1",
+      streams: ["leads"] as const,
+      jobId: "external-data-sync_connector_1_leads",
+      status: "queued" as const
+    }));
+    const prisma = {
+      externalDataConnector: {
+        findUnique: vi.fn(async () => ({
+          id: "connector_1",
+          workspaceId: "workspace_1",
+          status: "active",
+          lastSyncStatus: "completed",
+          cursors: []
+        }))
+      },
+      auditLog: { create: vi.fn(async () => ({})) }
+    };
+    const service = new ExternalDataService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      { enqueueSync } as never
+    );
+
+    const result = await service.enqueueLeadsReimport("connector_1", "admin_1");
+
+    expect(enqueueSync).toHaveBeenCalledWith({
+      connectorId: "connector_1",
+      streams: ["leads"],
+      projectionRefresh: true,
+      requestedByUserId: "admin_1"
+    });
+    expect(result.status).toBe("queued");
+  });
 });

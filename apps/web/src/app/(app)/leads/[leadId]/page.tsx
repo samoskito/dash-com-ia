@@ -1,5 +1,6 @@
 import type { LeadDetailDto } from "@wpptrack/shared";
 import Link from "next/link";
+import { formatDateTime } from "../../../../lib/date-time";
 import { serverApiFetch } from "../../../../lib/server-api";
 
 type LeadDetailParams = {
@@ -30,7 +31,7 @@ function dateTime(value: string | null) {
     return "-";
   }
 
-  return new Date(value).toLocaleString("pt-BR", {
+  return formatDateTime(value, {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
@@ -83,7 +84,6 @@ export default async function LeadDetailPage({
         </div>
         <div className="header-actions">
           <span className="status-chip">{lead.status}</span>
-          <span className="status-chip warn">Score {lead.score}</span>
           <Link className="button" href="/leads">Voltar</Link>
         </div>
       </header>

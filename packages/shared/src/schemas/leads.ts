@@ -45,7 +45,6 @@ export const leadListItemSchema = z.object({
   adSetId: z.string().min(1).nullable(),
   adId: z.string().min(1).nullable(),
   lastEventName: z.string().min(1).nullable(),
-  score: z.number().int().min(0).max(100),
   firstMessageAt: z.string().datetime().nullable(),
   lastMessageAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),

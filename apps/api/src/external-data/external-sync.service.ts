@@ -68,7 +68,8 @@ export class ExternalSyncService {
 
   async syncConnector(
     connectorId: string,
-    requestedStreams: ExternalSyncStreamDto[]
+    requestedStreams: ExternalSyncStreamDto[],
+    options: { projectionRefresh?: boolean } = {}
   ): Promise<ExternalConnectorSyncResult> {
     const connector = (await this.prisma.externalDataConnector.findUnique({
       where: { id: connectorId }
@@ -83,6 +84,7 @@ export class ExternalSyncService {
     }
 
     const streams = this.normalizeStreams(requestedStreams);
+    const projectionRefresh = options.projectionRefresh === true;
     const credentials = this.credentialEncryption.decrypt(connector);
     const sslMode = externalConnectorSslModeSchema.parse(connector.sslMode);
     const context = this.connectorContext(connector);
@@ -102,13 +104,14 @@ export class ExternalSyncService {
       data: {
         workspaceId: connector.workspaceId,
         source: "external_mysql",
-        operation: "incremental_sync",
+        operation: projectionRefresh ? "lead_projection_refresh" : "incremental_sync",
         status: "running",
         startedAt,
         requestSummary: {
           connectorId: connector.id,
           provider: connector.provider,
-          streams
+          streams,
+          projectionRefresh
         } as Prisma.InputJsonValue
       },
       select: { id: true }
@@ -118,7 +121,12 @@ export class ExternalSyncService {
       for (const stream of streams) {
         const streamCounts =
           stream === "leads"
-            ? await this.syncLeads(connector, credentials, sslMode)
+            ? await this.syncLeads(
+                connector,
+                credentials,
+                sslMode,
+                projectionRefresh
+              )
             : await this.syncEvents(context, credentials, sslMode);
         this.addCounts(counts, streamCounts);
       }
@@ -189,11 +197,14 @@ export class ExternalSyncService {
   private async syncLeads(
     connector: ConnectorRecord,
     credentials: ReturnType<ExternalCredentialEncryptionService["decrypt"]>,
-    sslMode: ReturnType<typeof externalConnectorSslModeSchema.parse>
+    sslMode: ReturnType<typeof externalConnectorSslModeSchema.parse>,
+    projectionRefresh = false
   ): Promise<ExternalSyncCounts> {
     const counts = this.emptyCounts();
     const batchSize = this.rowBatchSize();
-    let cursor = await this.getCursor(connector.id, "leads");
+    let cursor = projectionRefresh
+      ? { lastExternalId: null, lastUpdatedAt: null }
+      : await this.getCursor(connector.id, "leads");
 
     while (true) {
       const rows = await this.mysqlAdapter.readLeadsPage(
@@ -205,13 +216,15 @@ export class ExternalSyncService {
       counts.read += rows.length;
 
       for (const row of rows) {
-        const status = await this.ingestLead(connector, row);
+        const status = await this.ingestLead(connector, row, projectionRefresh);
         counts[status] += 1;
       }
 
       if (rows.length > 0) {
-        cursor = await this.advanceCursor(connector.id, "leads", rows.at(-1)!);
-      } else {
+        cursor = projectionRefresh
+          ? this.cursorFromRow(rows.at(-1)!)
+          : await this.advanceCursor(connector.id, "leads", rows.at(-1)!);
+      } else if (!projectionRefresh) {
         await this.touchCursor(connector.id, "leads", cursor);
       }
 
@@ -263,7 +276,8 @@ export class ExternalSyncService {
 
   private async ingestLead(
     connector: ConnectorRecord,
-    row: ExternalLeadRow
+    row: ExternalLeadRow,
+    projectionRefresh = false
   ): Promise<"imported" | "duplicates" | "rejected"> {
     const sourceRowKey = `external-row:${connector.id}:leads:${row.externalRowId}`;
 
@@ -295,6 +309,11 @@ export class ExternalSyncService {
         where: { id: lead.id },
         data: { status: this.leadStatus(row) }
       });
+
+      if (projectionRefresh) {
+        return "imported";
+      }
+
       const existing = await this.prisma.externalIngestionRecord.findUnique({
         where: { dedupeKey: sourceRowKey },
         select: { id: true, duplicateCount: true }
@@ -333,6 +352,10 @@ export class ExternalSyncService {
 
       return existing ? "duplicates" : "imported";
     } catch (error) {
+      if (projectionRefresh) {
+        return "rejected";
+      }
+
       await this.prisma.externalIngestionRecord.upsert({
         where: { dedupeKey: sourceRowKey },
         create: {
@@ -370,6 +393,16 @@ export class ExternalSyncService {
     });
 
     return cursor ?? { lastExternalId: null, lastUpdatedAt: null };
+  }
+
+  private cursorFromRow(row: {
+    externalRowId: string;
+    updatedAt: string;
+  }): ExternalSyncCursorValue {
+    return {
+      lastExternalId: row.externalRowId,
+      lastUpdatedAt: this.parseExternalDate(row.updatedAt)
+    };
   }
 
   private async advanceCursor(

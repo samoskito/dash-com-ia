@@ -255,6 +255,37 @@ export class ExternalDataService {
     return result;
   }
 
+  async enqueueLeadsReimport(
+    connectorId: string,
+    actorUserId: string
+  ): Promise<ExternalSyncQueuedResultDto> {
+    const connector = await this.getConnector(connectorId);
+
+    if (connector.status !== "active") {
+      throw new BadRequestException("Ative o conector antes de reimportar");
+    }
+
+    if (connector.lastSyncStatus === "running") {
+      throw new BadRequestException("Aguarde a sincronizacao atual terminar");
+    }
+
+    const result = await this.syncQueue.enqueueSync({
+      connectorId,
+      streams: ["leads"],
+      projectionRefresh: true,
+      requestedByUserId: actorUserId
+    });
+    await this.createAudit({
+      workspaceId: connector.workspaceId,
+      actorUserId,
+      action: "external_connector.leads_reimport_requested",
+      targetId: connector.id,
+      afterSummary: { streams: result.streams, jobId: result.jobId }
+    });
+
+    return result;
+  }
+
   async getHealth(connectorId: string): Promise<ExternalConnectorHealthDto> {
     const connector = await this.getConnector(connectorId);
     const totalsByConnector = await this.ingestionTotals([connectorId]);

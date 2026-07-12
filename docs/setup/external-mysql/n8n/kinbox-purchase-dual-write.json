@@ -1,0 +1,534 @@
+{
+  "name": "Etapa 4 - [Kinbox] Purchase - dual-write WppTrack",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "purchase",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        384,
+        0
+      ],
+      "id": "bc2b19d9-cc15-4abb-a6aa-b337f1a84795",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": {
+          "__rl": true,
+          "value": "whatsapp_anuncio_barbieri",
+          "mode": "list",
+          "cachedResultName": "whatsapp_anuncio_barbieri"
+        },
+        "where": {
+          "values": [
+            {
+              "column": "telefone",
+              "value": "={{ $node[\"Edit Fields\"].json[\"telefone\"] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        1088,
+        0
+      ],
+      "id": "f47b3763-8cb0-496c-8df0-dd17e318b1af",
+      "name": "Busca Telefone",
+      "alwaysOutputData": false,
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "316283aa-e99c-47c1-a22e-21441b8bc489",
+              "name": "=data_compra",
+              "value": "={{ $now.setZone(\"America/Sao_Paulo\").toFormat(\"yyyy-MM-dd\") }}",
+              "type": "string"
+            },
+            {
+              "id": "31b8a2f1-6f37-47ee-83af-44212adbbc4d",
+              "name": "telefone",
+              "value": "={{ String($json[\"body\"][\"phone\"] || \"\").replace(/\\D/g, \"\") }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6e67e792-2076-4477-a281-f4ff13e40a14",
+      "name": "Edit Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        624,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "type": "SHA256",
+        "value": "={{ $node[\"Busca Telefone\"].json[\"telefone\"] }}",
+        "dataPropertyName": "dataPhone"
+      },
+      "id": "41ebd2a6-3898-45d9-b781-8fafd3370a3e",
+      "name": "[HASH] Phone1",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "includeInputFields": true,
+          "timezone": "America/Sao_Paulo"
+        }
+      },
+      "id": "6a84a202-242c-4e1c-b3ed-eff0c6fd8c05",
+      "name": "Acerta Fuso",
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "formatDate",
+        "date": "={{ $json[\"currentDate\"] }}",
+        "format": "X",
+        "outputFieldName": "dataTimestamp",
+        "options": {
+          "includeInputFields": true
+        }
+      },
+      "id": "e198fd4d-cedf-455d-b894-8352bf9e09a5",
+      "name": "Gera Timestamp",
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v25.0/{{ $json[\"dataset\"][\"0\"] }}/events",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "access_token",
+              "value": "={{ $node[\"Buscar tokens\"].json[\"token\"] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": [\n    {\n      \"action_source\": \"business_messaging\",\n      \"event_name\": \"Purchase\",\n      \"event_time\": {{ $node[\"Gera Timestamp\"].json[\"dataTimestamp\"] }},\n      \"event_id\": \"purchase_{{ $node[\"[HASH] Phone1\"].json[\"dataPhone\"] }}_{{ $node[\"Edit Fields\"].json[\"data_compra\"] }}\",\n      \"messaging_channel\": \"whatsapp\",\n      \"user_data\": {\n        \"ph\": \"{{ $node[\"[HASH] Phone1\"].json[\"dataPhone\"] }}\",\n        \"ctwa_clid\": \"{{ $node[\"Busca Telefone\"].json[\"ctwaclid\"] }}\",\n        \"page_id\": \"{{ $json[\"page\"][\"0\"] }}\"\n      },\n      \"custom_data\": {\n        \"currency\": \"BRL\",\n        \"value\": 4000\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "d6645874-4dd7-403e-8679-840c55d90058",
+      "name": "Enviar o purchase para a Meta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2848,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": {
+          "__rl": true,
+          "value": "whatsapp_anuncio_barbieri",
+          "mode": "list",
+          "cachedResultName": "whatsapp_anuncio_barbieri"
+        },
+        "columnToMatchOn": "telefone",
+        "options": {
+          "replaceEmptyStrings": true
+        }
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        3264,
+        0
+      ],
+      "id": "b9df753f-9617-4805-8925-e9cef1eabb2c",
+      "name": "Update rows in a table1",
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "abfac6d2-a859-4995-acfd-64e1695b80cd",
+              "name": "telefone",
+              "value": "={{ $node[\"Edit Fields\"].json[\"telefone\"] }}",
+              "type": "string"
+            },
+            {
+              "id": "450ab954-0f0b-4a51-8d83-d533b22a7166",
+              "name": "status",
+              "value": "Comprou",
+              "type": "string"
+            },
+            {
+              "id": "b7e6fab8-c043-4e10-8c6a-f889fabc40e9",
+              "name": "valor_venda",
+              "value": "=4000",
+              "type": "string"
+            },
+            {
+              "id": "bd8a647d-337f-4e92-a390-8f9c6c22d02c",
+              "name": "moeda",
+              "value": "BRL",
+              "type": "string"
+            },
+            {
+              "id": "1f3f1b09-8d9f-409f-902e-1ae668992aae",
+              "name": "plataforma",
+              "value": "WhatsApp",
+              "type": "string"
+            },
+            {
+              "id": "414e39b1-6ec0-405c-8e32-a0e51c8eb26b",
+              "name": "data_compra",
+              "value": "={{ $node[\"Edit Fields\"].json[\"data_compra\"] }}",
+              "type": "string"
+            },
+            {
+              "id": "96b0ed1c-b4b6-4aae-a945-b56e665178e4",
+              "name": "processado",
+              "value": "P",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3056,
+        0
+      ],
+      "id": "6349e728-3574-424e-8276-18cc2d8b28f2",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v25.0/{{ $node[\"Busca Telefone\"].json[\"source_id\"] }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "access_token",
+              "value": "={{ $node[\"Loop Over Items\"].json[\"token\"] }}"
+            },
+            {
+              "name": "fields",
+              "value": "tracking_specs"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "634b6643-7a18-46c7-b07b-f10038412afe",
+      "name": "Busca Pixel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2432,
+        16
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Função para procurar \"dataset\" e \"page\"\nfunction findDatasetAndPage(jsonObj) {\n    let result = {\n        dataset: [],\n        page: []\n    };\n\n    function searchInObject(obj) {\n        if (obj && typeof obj === 'object') {\n            // Coleta \"dataset\" e fallback para \"fb_pixel\"\n            if (obj['dataset']) {\n                result.dataset.push(...obj['dataset']);\n            } else if (obj['fb_pixel']) {\n                result.dataset.push(...obj['fb_pixel']);\n            }\n\n            // Coleta \"page\" apenas\n            if (obj['page']) {\n                result.page.push(...obj['page']);\n            }\n\n            // Percorre os sub-objetos e arrays recursivamente\n            for (let key in obj) {\n                if (obj.hasOwnProperty(key) && typeof obj[key] === 'object') {\n                    searchInObject(obj[key]);\n                }\n            }\n        }\n    }\n\n    searchInObject(jsonObj);\n    return result;\n}\n\n// A entrada do n8n geralmente vem em um formato específico. Pegue os dados de entrada.\nconst inputData = $input.all();\n\nlet finalResult = [];\n\ninputData.forEach(item => {\n    // Use a função para procurar os valores de \"dataset\" e \"page\"\n    const datasetsAndPages = findDatasetAndPage(item.json);\n    \n    // Adiciona os resultados encontrados apenas se houver pelo menos um dataset ou page\n    if (datasetsAndPages.dataset.length > 0 || datasetsAndPages.page.length > 0) {\n        finalResult.push({ json: datasetsAndPages });\n    }\n});\n\n// Retorna os dados no formato esperado pelo n8n\nreturn finalResult;"
+      },
+      "id": "1e45dbad-7336-4ba6-bf80-d9946ba7a0e8",
+      "name": "Filtra page_id e pixel_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": {
+          "__rl": true,
+          "value": "contas_anuncio_barbieri",
+          "mode": "list",
+          "cachedResultName": "contas_anuncio_barbieri"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1968,
+        0
+      ],
+      "id": "5dbf6322-5ef5-4a7a-b7b9-1dae77ffa6b8",
+      "name": "Buscar tokens",
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2192,
+        0
+      ],
+      "id": "f067e5b9-d18b-4ee3-98dd-db902ae4ae22",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO wpptrack_tracking_events (\n  dedupe_key,\n  provider,\n  event_type,\n  source_event_name,\n  external_lead_id,\n  phone,\n  occurred_at,\n  event_local_date,\n  ad_id,\n  ctwa_clid,\n  source_url,\n  value_cents,\n  currency,\n  value_source\n) VALUES (\n  CONCAT('kinbox:purchase:', $1, ':', $4),\n  'kinbox_mysql',\n  'purchase',\n  NULLIF($2, ''),\n  NULLIF($3, ''),\n  $1,\n  UTC_TIMESTAMP(3),\n  $4,\n  NULLIF($5, ''),\n  NULLIF($6, ''),\n  NULLIF($7, ''),\n  NULL,\n  'BRL',\n  NULL\n)\nON DUPLICATE KEY UPDATE\n  duplicate_count = duplicate_count + 1,\n  updated_at = CURRENT_TIMESTAMP(3);",
+        "options": {
+          "queryReplacement": "={{ [\n  $node[\"Edit Fields\"].json[\"telefone\"],\n  $node[\"Webhook\"].json[\"body\"][\"event_name\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"lead_id\"] || $node[\"Webhook\"].json[\"body\"][\"external_id\"] || $node[\"Edit Fields\"].json[\"telefone\"],\n  $node[\"Edit Fields\"].json[\"data_compra\"],\n  $node[\"Webhook\"].json[\"body\"][\"source_id\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"ctwa_clid\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"source_url\"] || \"\"\n] }}"
+        }
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        848,
+        0
+      ],
+      "id": "9124e684-63bc-40bd-b50b-2ebed9378c5a",
+      "name": "Registrar evento de compra",
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "# Dual-write WppTrack\n\n1. O Purchase e salvo antes do envio para a Meta.\n2. A chave Kinbox aceita uma compra por telefone e dia local.\n3. O ledger nao inventa valor real; o WppTrack aplica o ticket configurado.\n4. O envio Meta legado permanece ativo durante a reconciliacao.",
+        "height": 304,
+        "width": 528
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1664,
+        -352
+      ],
+      "typeVersion": 1,
+      "id": "d33d1ab0-f79b-4b41-ac43-20b5f8b08f2a",
+      "name": "Regra de compra Kinbox"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Busca Telefone": {
+      "main": [
+        [
+          {
+            "node": "Acerta Fuso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Registrar evento de compra",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[HASH] Phone1": {
+      "main": [
+        [
+          {
+            "node": "Buscar tokens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acerta Fuso": {
+      "main": [
+        [
+          {
+            "node": "Gera Timestamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gera Timestamp": {
+      "main": [
+        [
+          {
+            "node": "[HASH] Phone1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar o purchase para a Meta": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        [
+          {
+            "node": "Update rows in a table1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Busca Pixel": {
+      "main": [
+        [
+          {
+            "node": "Filtra page_id e pixel_id",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar tokens": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Busca Pixel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtra page_id e pixel_id": {
+      "main": [
+        [
+          {
+            "node": "Enviar o purchase para a Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar evento de compra": {
+      "main": [
+        [
+          {
+            "node": "Busca Telefone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}

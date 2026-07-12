@@ -7,6 +7,7 @@ import type {
   WorkspaceMemberDto
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
+import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 
@@ -175,6 +176,7 @@ function shortDate(value: string): string {
   return new Date(value).toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
+    timeZone: displayTimeZone,
     year: "numeric"
   });
 }

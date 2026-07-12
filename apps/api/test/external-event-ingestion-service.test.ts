@@ -10,7 +10,7 @@ const connector = {
   shadowMode: true,
   capiSendEnabled: false,
   purchaseAverageValueCents: 400_000,
-  defaultCurrency: "BRL"
+  defaultCurrency: "BRL",
 };
 
 const row: ExternalEventRow = {
@@ -34,7 +34,7 @@ const row: ExternalEventRow = {
   currency: null,
   valueSource: null,
   duplicateCount: 0,
-  updatedAt: "2026-07-11 14:00:01.000"
+  updatedAt: "2026-07-11 14:00:01.000",
 };
 
 function createHarness(overrides?: {
@@ -47,7 +47,7 @@ function createHarness(overrides?: {
       findUnique: vi.fn(async () => null),
       create: vi.fn(async () => ({ id: "ingestion_1" })),
       update: vi.fn(async () => ({})),
-      upsert: vi.fn(async () => ({}))
+      upsert: vi.fn(async () => ({})),
     },
     lead: {
       findUnique: vi.fn(async () => ({
@@ -56,43 +56,44 @@ function createHarness(overrides?: {
         campaignId: null,
         adSetId: null,
         adId: "120012345678",
-        ctwaClid: "ctwa_1"
+        ctwaClid: "ctwa_1",
       })),
-      update: vi.fn(async () => ({}))
-    }
+      update: vi.fn(async () => ({})),
+    },
   };
   const leadsService = {
-    upsertFromWhatsappWebhook: vi.fn(async () => ({ id: "lead_1" }))
+    upsertFromWhatsappWebhook: vi.fn(async () => ({ id: "lead_1" })),
   };
   const conversionEventsService = {
     recordExternalConversion: vi.fn(async () => ({
       conversionEventLogId: "conversion_1",
       status: "created" as const,
-      deliveryStatus: "ready_to_send"
-    }))
+      deliveryStatus: "ready_to_send",
+    })),
   };
   const conversionQueue = {
     enqueueSend: overrides?.enqueueError
       ? vi.fn(async () => Promise.reject(overrides.enqueueError))
-      : vi.fn(async () => ({ status: "queued" }))
+      : vi.fn(async () => ({ status: "queued" })),
   };
   const service = new ExternalEventIngestionService(
     prisma as never,
     leadsService as never,
     conversionEventsService as never,
-    conversionQueue as never
+    conversionQueue as never,
   );
 
   return {
     connector: {
       ...connector,
       shadowMode: overrides?.shadowMode ?? connector.shadowMode,
-      capiSendEnabled: overrides?.capiSendEnabled ?? connector.capiSendEnabled
+      capiSendEnabled: overrides?.capiSendEnabled ?? connector.capiSendEnabled,
     },
     conversionEventsService,
     conversionQueue,
+    leadsService,
     prisma,
-    service
+    service,
   };
 }
 
@@ -104,18 +105,18 @@ describe("ExternalEventIngestionService", () => {
     expect(result).toMatchObject({
       status: "imported",
       queued: false,
-      conversionEventLogId: "conversion_1"
+      conversionEventLogId: "conversion_1",
     });
     expect(harness.conversionQueue.enqueueSend).not.toHaveBeenCalled();
     expect(
-      harness.conversionEventsService.recordExternalConversion
+      harness.conversionEventsService.recordExternalConversion,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "Purchase",
         valueCents: 400_000,
         valueSource: "configured_average",
-        currency: "BRL"
-      })
+        currency: "BRL",
+      }),
     );
   });
 
@@ -123,23 +124,25 @@ describe("ExternalEventIngestionService", () => {
     const harness = createHarness({
       shadowMode: false,
       capiSendEnabled: true,
-      enqueueError: new Error("redis unavailable")
+      enqueueError: new Error("redis unavailable"),
     });
     const result = await harness.service.ingest(harness.connector, row);
 
     expect(result).toMatchObject({
       status: "imported",
       queued: false,
-      errorCode: "ExternalCapiQueueFailed"
+      errorCode: "ExternalCapiQueueFailed",
     });
     expect(harness.prisma.externalIngestionRecord.update).toHaveBeenCalledWith({
       where: { id: "ingestion_1" },
       data: expect.objectContaining({
         status: "pending_delivery",
-        errorCode: "ExternalCapiQueueFailed"
-      })
+        errorCode: "ExternalCapiQueueFailed",
+      }),
     });
-    expect(harness.prisma.externalIngestionRecord.upsert).not.toHaveBeenCalled();
+    expect(
+      harness.prisma.externalIngestionRecord.upsert,
+    ).not.toHaveBeenCalled();
   });
 
   it("uses the row provider policy so another integration can keep same-day transactions", async () => {
@@ -148,20 +151,24 @@ describe("ExternalEventIngestionService", () => {
     const providerRow = {
       ...row,
       provider: "commerce_provider",
-      transactionId: "order_1"
+      transactionId: "order_1",
     };
 
     await firstHarness.service.ingest(firstHarness.connector, providerRow);
     await secondHarness.service.ingest(secondHarness.connector, {
       ...providerRow,
       externalRowId: "102",
-      transactionId: "order_2"
+      transactionId: "order_2",
     });
 
-    const firstCalls = firstHarness.conversionEventsService.recordExternalConversion.mock
-      .calls as unknown as Array<[Record<string, string>]>;
-    const secondCalls = secondHarness.conversionEventsService.recordExternalConversion.mock
-      .calls as unknown as Array<[Record<string, string>]>;
+    const firstCalls = firstHarness.conversionEventsService
+      .recordExternalConversion.mock.calls as unknown as Array<
+      [Record<string, string>]
+    >;
+    const secondCalls = secondHarness.conversionEventsService
+      .recordExternalConversion.mock.calls as unknown as Array<
+      [Record<string, string>]
+    >;
     const firstInput = firstCalls[0]?.[0];
     const secondInput = secondCalls[0]?.[0];
 
@@ -171,5 +178,55 @@ describe("ExternalEventIngestionService", () => {
 
     expect(firstInput.sourceTrigger).toBe("external_mysql:commerce_provider");
     expect(firstInput.dedupeKey).not.toBe(secondInput.dedupeKey);
+  });
+
+  it("ingests a Meta conversation and queues LeadSubmitted through WppTrack after cutover", async () => {
+    const harness = createHarness({
+      shadowMode: false,
+      capiSendEnabled: true,
+    });
+    const conversationRow: ExternalEventRow = {
+      ...row,
+      dedupeKey: "meta:conversation:123456789000000:wamid.test",
+      provider: "meta_whatsapp_official",
+      eventType: "conversation_started",
+      sourceEventName: "messages",
+      externalEventId: "wamid.test",
+      transactionId: null,
+      valueCents: null,
+      currency: null,
+      valueSource: null,
+    };
+
+    const result = await harness.service.ingest(
+      { ...harness.connector, provider: "meta_whatsapp_official" },
+      conversationRow,
+    );
+
+    expect(result).toMatchObject({
+      status: "imported",
+      queued: true,
+      conversionEventLogId: "conversion_1",
+    });
+    expect(harness.leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "external_mysql",
+        phone: conversationRow.phone,
+        ctwaClid: conversationRow.ctwaClid,
+        recordMessageTimestamps: true,
+      }),
+    );
+    expect(
+      harness.conversionEventsService.recordExternalConversion,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "LeadSubmitted",
+        sourceEventId: "wamid.test",
+        sourceTrigger: "external_mysql:meta_whatsapp_official",
+      }),
+    );
+    expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledWith(
+      "conversion_1",
+    );
   });
 });

@@ -1,5 +1,6 @@
 import type { LeadListItemDto, LeadListPageDto } from "@wpptrack/shared";
 import Link from "next/link";
+import { formatDateTime } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 
 type LeadsSearchParams = Record<string, string | string[] | undefined>;
@@ -104,7 +105,7 @@ function lastTouchLabel(value: string | null): string {
     return "-";
   }
 
-  return new Date(value).toLocaleString("pt-BR", {
+  return formatDateTime(value, {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
@@ -161,7 +162,7 @@ export default async function LeadsPage({
   const emptyDescription =
     result.state === "error"
       ? "Confira a API antes de analisar conversas."
-      : "Quando o webhook Uazapi receber conversas, elas aparecem aqui.";
+      : "Quando uma integracao ativa receber conversas, elas aparecem aqui.";
 
   return (
     <section className="page-stack">
@@ -247,7 +248,6 @@ export default async function LeadsPage({
               <th>Campanha / origem</th>
               <th>Evento</th>
               <th>Status</th>
-              <th>Score</th>
               <th>Ultimo toque</th>
             </tr>
           </thead>
@@ -278,13 +278,12 @@ export default async function LeadsPage({
                     </span>
                   </td>
                   <td>{statusLabel(lead.status)}</td>
-                  <td>{lead.score}</td>
                   <td>{lastTouchLabel(lead.lastMessageAt)}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={5}>
                   <strong>{emptyTitle}</strong>
                   <span>{emptyDescription}</span>
                 </td>

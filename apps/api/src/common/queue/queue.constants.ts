@@ -26,5 +26,6 @@ export interface MetaReportSyncJobPayload {
 export interface ExternalDataSyncJobPayload {
   connectorId: string;
   streams: Array<"leads" | "events">;
+  projectionRefresh?: boolean;
   requestedByUserId?: string;
 }

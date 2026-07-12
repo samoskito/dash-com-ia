@@ -17,7 +17,7 @@ describe("leads route", () => {
               id: "lead_1",
               workspaceId: "workspace_1",
               name: "Mariana Alves",
-              phoneDisplay: "+55 11 *****-1020",
+              phoneDisplay: "+55 11 99999-1020",
               phoneHash: "phone_hash_1",
               status: "qualified",
               source: "uazapi",
@@ -27,7 +27,6 @@ describe("leads route", () => {
               adSetId: "adset_1",
               adId: "ad_1",
               lastEventName: "QualifiedLead",
-              score: 86,
               firstMessageAt: "2026-07-02T03:00:00.000Z",
               lastMessageAt: "2026-07-02T03:10:00.000Z",
               createdAt: "2026-07-02T03:00:00.000Z",
@@ -64,7 +63,8 @@ describe("leads route", () => {
     expect(html).toContain("QualifiedLead");
     expect(html).toContain("Venda fechada");
     expect(html).toContain('name="label"');
-    expect(html).toContain("+55 11 *****-1020");
+    expect(html).toContain("+55 11 99999-1020");
+    expect(html).toContain("02/07, 00:10");
   });
 
   it("passes report drill-down filters to the backend", async () => {

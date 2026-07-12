@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { LeadsService } from "../src/leads/leads.service";
 
@@ -157,7 +158,6 @@ describe("leads service", () => {
         campaignName: "Black Friday WhatsApp",
         lastEventName: "QualifiedLead",
         labels: ["Venda fechada", "VIP"],
-        score: 86,
       }),
     ]);
   });
@@ -190,6 +190,26 @@ describe("leads service", () => {
     );
   });
 
+  it("finds a lead by its complete normalized phone hash", async () => {
+    const { prisma, service } = createHarness();
+    const phone = "5511999991020";
+    const phoneHash = createHash("sha256").update(phone).digest("hex");
+
+    await service.listLeads("workspace_1", {
+      search: phone,
+      limit: 25,
+    });
+
+    expect(prisma.lead.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: "workspace_1",
+          OR: expect.arrayContaining([{ phoneHash }]),
+        }),
+      }),
+    );
+  });
+
   it("upserts a lead from Uazapi webhook attribution data", async () => {
     const { prisma, service } = createHarness();
 
@@ -217,7 +237,7 @@ describe("leads service", () => {
         create: expect.objectContaining({
           workspaceId: "workspace_1",
           name: "Rafael Costa",
-          phoneDisplay: "+55 31 *****-4300",
+          phoneDisplay: "+55 31 97710-4300",
           labels: ["Venda fechada"],
           campaignId: "cmp_2",
           adId: "ad_2",

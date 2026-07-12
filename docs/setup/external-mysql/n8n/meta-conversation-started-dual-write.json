@@ -1,0 +1,914 @@
+{
+  "name": "Etapa 2 - [Meta] Recebimento de Mensagem - conversation dual-write WppTrack - sem validacao HMAC",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "344d3441-0528-43ad-aa80-286b8f165af1",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "25fad865-5f55-40b9-821c-ba13b31c0eaa",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [-112, -64]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.query[\"hub.verify_token\"] }}",
+              "value2": "REPLACE_WITH_EXISTING_META_VERIFY_TOKEN"
+            }
+          ]
+        }
+      },
+      "id": "09680f58-4f16-4657-84ac-e4c2563f69f7",
+      "name": "IF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [112, -64]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query[\"hub.challenge\"] }}",
+        "options": {}
+      },
+      "id": "340cd32e-01c2-4915-b0d2-acd35a39f516",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [336, -96]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "344d3441-0528-43ad-aa80-286b8f165af1",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c1d66a3c-107c-4565-b23e-ef7a9eca0a5f",
+      "name": "Webhook1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [320, 576]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c5abaaa9-237e-40df-8b0e-92abc622b637",
+              "leftValue": "={{ $node[\"Edit Fields\"].json[\"ctwaclid\"] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [3680, 496],
+      "id": "40fcfb67-b0cd-4c41-80de-15bf12d03a95",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cb2a4ca6-246f-4b7c-a4a9-c03175185ff2",
+              "name": "data_criacao",
+              "value": "={{ $json.event_local_date }}",
+              "type": "string"
+            },
+            {
+              "id": "4ca0aa2c-d5e5-4ba7-a3f2-a950f9930bda",
+              "name": "cta",
+              "value": "={{ $json.cta || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "1580785e-cad7-47ea-a48c-d8cd9b50c771",
+              "name": "ctwaclid",
+              "value": "={{ $json.ctwaclid || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "0d8191c5-fd19-4618-a7b9-fb11b3ab195f",
+              "name": "source_url",
+              "value": "={{ $json.source_url || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "ea5e6304-0f4e-4e29-ad16-d6101db8a835",
+              "name": "source_id",
+              "value": "={{ $json.source_id || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "20d1fb1d-e77a-46e3-966d-55108039dabd",
+              "name": "nome",
+              "value": "={{ $json.nome || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "8ec1ec27-1ce7-4df1-b734-153f277912c5",
+              "name": "thumbnail",
+              "value": "={{ $json.thumbnail || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "4a8c496d-a149-439b-a858-73adbb639152",
+              "name": "telefone",
+              "value": "={{ $json.telefone }}",
+              "type": "string"
+            },
+            {
+              "id": "8fd78f0f-147b-4bf2-9b2d-685ed753926c",
+              "name": "Mensagem",
+              "value": "={{ $json.Mensagem || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "9af0d16f-7a2a-4b9a-b450-9609b5948c15",
+              "name": "status",
+              "value": "Entrou em contato",
+              "type": "string"
+            },
+            {
+              "id": "bd7585a1-0978-42ea-9019-9af6f71de0c7",
+              "name": "lid",
+              "value": "={{ $json.external_lead_id || $json.telefone }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5895a614-0280-49f0-b40c-f42286088f4b",
+      "name": "Edit Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [3008, 496]
+    },
+    {
+      "parameters": {
+        "type": "SHA256",
+        "value": "={{ $node[\"Edit Fields\"].json[\"telefone\"] }}",
+        "dataPropertyName": "dataPhone"
+      },
+      "id": "3a0cf3ba-4440-43aa-a43d-052470147d97",
+      "name": "[HASH] Phone1",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [4352, 496]
+    },
+    {
+      "parameters": {
+        "options": {
+          "includeInputFields": true,
+          "timezone": "America/Sao_Paulo"
+        }
+      },
+      "id": "fbb3a63a-352f-4930-aef4-01a4a6c0f9d6",
+      "name": "Acerta Fuso",
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [3904, 496]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v25.0/{{ $node[\"Edit Fields\"].json[\"source_id\"] }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "access_token",
+              "value": "={{ $node[\"Loop Over Items\"].json[\"token\"] }}"
+            },
+            {
+              "name": "fields",
+              "value": "tracking_specs"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "19c72245-8893-452f-869b-1a6a2657050c",
+      "name": "Busca Pixel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [5024, 512],
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "formatDate",
+        "date": "={{ $json[\"currentDate\"] }}",
+        "format": "X",
+        "options": {
+          "includeInputFields": true
+        }
+      },
+      "id": "ada32384-f77d-483f-a37c-9be92a797f40",
+      "name": "Gera Timestamp",
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [4128, 496]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Função para procurar \"dataset\" e \"page\"\nfunction findDatasetAndPage(jsonObj) {\n    let result = {\n        dataset: [],\n        page: []\n    };\n\n    function searchInObject(obj) {\n        if (obj && typeof obj === 'object') {\n            // Coleta \"dataset\" e fallback para \"fb_pixel\"\n            if (obj['dataset']) {\n                result.dataset.push(...obj['dataset']);\n            } else if (obj['fb_pixel']) {\n                result.dataset.push(...obj['fb_pixel']);\n            }\n\n            // Coleta \"page\" apenas\n            if (obj['page']) {\n                result.page.push(...obj['page']);\n            }\n\n            // Percorre os sub-objetos e arrays recursivamente\n            for (let key in obj) {\n                if (obj.hasOwnProperty(key) && typeof obj[key] === 'object') {\n                    searchInObject(obj[key]);\n                }\n            }\n        }\n    }\n\n    searchInObject(jsonObj);\n    return result;\n}\n\n// A entrada do n8n geralmente vem em um formato específico. Pegue os dados de entrada.\nconst inputData = $input.all();\n\nlet finalResult = [];\n\ninputData.forEach(item => {\n    // Use a função para procurar os valores de \"dataset\" e \"page\"\n    const datasetsAndPages = findDatasetAndPage(item.json);\n    \n    // Adiciona os resultados encontrados apenas se houver pelo menos um dataset ou page\n    if (datasetsAndPages.dataset.length > 0 || datasetsAndPages.page.length > 0) {\n        finalResult.push({ json: datasetsAndPages });\n    }\n});\n\n// Retorna os dados no formato esperado pelo n8n\nreturn finalResult;"
+      },
+      "id": "24d71c0e-13df-4624-b96b-7f63b00dcbcd",
+      "name": "Filtra page_id e pixel_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5248, 496]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": {
+          "__rl": true,
+          "value": "whatsapp_anuncio_barbieri",
+          "mode": "list",
+          "cachedResultName": "whatsapp_anuncio_barbieri"
+        },
+        "columnToMatchOn": "telefone",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [3456, 496],
+      "id": "1f83b90d-28cf-4699-acd7-6586a4bfdd4a",
+      "name": "Inserir ou atualizar Lead no Banco",
+      "alwaysOutputData": false,
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": {
+          "__rl": true,
+          "value": "contas_anuncio_barbieri",
+          "mode": "list",
+          "cachedResultName": "contas_anuncio_barbieri"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [4576, 496],
+      "id": "74c41a33-fff9-4661-8936-7c922c788bcd",
+      "name": "Buscar tokens",
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [4800, 496],
+      "id": "54364df5-d9a9-4b83-8a57-d7ff0402b0e9",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "abfac6d2-a859-4995-acfd-64e1695b80cd",
+              "name": "telefone",
+              "value": "={{ $node[\"Edit Fields\"].json[\"telefone\"] }}",
+              "type": "string"
+            },
+            {
+              "id": "450ab954-0f0b-4a51-8d83-d533b22a7166",
+              "name": "status",
+              "value": "Lead",
+              "type": "string"
+            },
+            {
+              "id": "617b61c6-5952-4220-ba6c-17a4eab17c9d",
+              "name": "processado",
+              "value": "L",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [5696, 496],
+      "id": "9569d5d2-095f-4e68-88d3-300e9430367b",
+      "name": "atualizar dados"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": {
+          "__rl": true,
+          "value": "whatsapp_anuncio_barbieri",
+          "mode": "list",
+          "cachedResultName": "whatsapp_anuncio_barbieri"
+        },
+        "columnToMatchOn": "telefone",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [5920, 496],
+      "id": "bf12d849-0e99-423a-b444-9603d4235187",
+      "name": "atualização lead no banco",
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v25.0/{{ $json[\"dataset\"][\"0\"] }}/events",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "access_token",
+              "value": "={{ $node[\"Loop Over Items\"].json[\"token\"] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": [\n    {\n      \"action_source\": \"business_messaging\",\n      \"event_name\": \"LeadSubmitted\",\n      \"event_time\": {{ $node[\"Gera Timestamp\"].json[\"formattedDate\"] }},\n      \"event_id\": \"lead_{{ $node[\"Classificar inicio de conversa\"].json[\"wamid\"] }}\",\n      \"messaging_channel\": \"whatsapp\",\n      \"user_data\": {\n        \"ph\": \"{{ $node[\"[HASH] Phone1\"].json[\"dataPhone\"] }}\",\n        \"ctwa_clid\": \"{{ $node[\"Edit Fields\"].json[\"ctwaclid\"] }}\",\n        \"page_id\": \"{{ $json[\"page\"][\"0\"] }}\"\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "ea7fd7ac-c489-40d4-b9c8-1c74d20f7f71",
+      "name": "Envia conversão de Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [5472, 496],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [3232, 496],
+      "id": "f67a5fa5-559e-43bc-8c5c-51433c18b3a6",
+      "name": "Wait1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nfunction hash32(value, seed) {\n  let hash = seed >>> 0;\n\n  for (let index = 0; index < value.length; index += 1) {\n    hash ^= value.charCodeAt(index);\n    hash = Math.imul(hash, 0x01000193);\n    hash ^= hash >>> 13;\n  }\n\n  return (hash >>> 0).toString(16).padStart(8, '0');\n}\n\nreturn items.map((item, index) => {\n  const body = item.json.body;\n\n  if (!body || typeof body !== 'object' || Array.isArray(body)) {\n    throw new Error('Meta webhook body is missing or is not a JSON object');\n  }\n\n  const payloadText = JSON.stringify(body);\n  const payloadHash = [\n    hash32(payloadText, 0x811c9dc5),\n    hash32(payloadText, 0x9e3779b9),\n    hash32(payloadText, 0x85ebca6b),\n    hash32(payloadText, 0xc2b2ae35),\n  ].join('');\n\n  return {\n    json: {\n      ...item.json,\n      delivery_key: `meta:payload:${payloadHash}:${payloadText.length}`,\n      payload_text: payloadText,\n      test_mode: body.wpptrack_test_mode === true,\n    },\n    pairedItem: { item: index },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [544, 576],
+      "id": "435339fc-da2c-477d-a62e-e202ce1e975d",
+      "name": "Preparar entrega Meta"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO wpptrack_webhook_inbox (\n  delivery_key,\n  provider,\n  payload_text,\n  is_test,\n  created_at,\n  updated_at\n) VALUES (\n  $1,\n  'meta_whatsapp_official',\n  $2,\n  $3,\n  UTC_TIMESTAMP(3),\n  UTC_TIMESTAMP(3)\n)\nON DUPLICATE KEY UPDATE\n  duplicate_count = duplicate_count + 1,\n  payload_text = VALUES(payload_text),\n  is_test = VALUES(is_test),\n  updated_at = UTC_TIMESTAMP(3);",
+        "options": {
+          "queryReplacement": "={{ [$json.delivery_key, $json.payload_text, $json.test_mode ? 1 : 0] }}"
+        }
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [768, 576],
+      "id": "1c8bc953-8580-4ed2-a824-97bc9b92bd74",
+      "name": "Guardar entrega antes do ACK",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Preparar entrega Meta').first().json;\nconst body = input.body;\n\nif (!body || body.object !== 'whatsapp_business_account') {\n  throw new Error('Unexpected Meta webhook object');\n}\n\nfunction digits(value) {\n  return String(value || '').replace(/\\D/g, '');\n}\n\nfunction messageText(message) {\n  return String(\n    message.text?.body ||\n      message.button?.text ||\n      message.interactive?.button_reply?.title ||\n      message.interactive?.list_reply?.title ||\n      message.image?.caption ||\n      message.video?.caption ||\n      message.document?.caption ||\n      '',\n  );\n}\n\nconst events = [];\n\nfor (const entry of body.entry || []) {\n  for (const change of entry.changes || []) {\n    const value = change.value || {};\n    const contacts = Array.isArray(value.contacts) ? value.contacts : [];\n    const contactsByPhone = new Map(\n      contacts.map((contact) => [digits(contact.wa_id), contact]),\n    );\n\n    for (const message of value.messages || []) {\n      const telefone = digits(message.from || contacts[0]?.wa_id);\n      const contact = contactsByPhone.get(telefone) || contacts[0] || {};\n      const wamid = String(message.id || '').trim();\n      const timestampSeconds = Number(message.timestamp);\n      const occurredAt = DateTime.fromSeconds(timestampSeconds, { zone: 'utc' });\n\n      if (!wamid || !telefone || !Number.isFinite(timestampSeconds) || !occurredAt.isValid) {\n        throw new Error('Official Meta message is missing wamid, phone or timestamp');\n      }\n\n      const referral = message.referral || {};\n      const connectedNumber = String(\n        value.metadata?.phone_number_id ||\n          digits(value.metadata?.display_phone_number) ||\n          entry.id ||\n          'unknown',\n      ).replace(/[^A-Za-z0-9_.-]/g, '');\n      const dedupeKey = `meta:conversation:${connectedNumber || 'unknown'}:${wamid}`;\n\n      if (dedupeKey.length > 255) {\n        throw new Error('Official Meta conversation dedupe key exceeds 255 characters');\n      }\n\n      events.push({\n        delivery_key: input.delivery_key,\n        test_mode: input.test_mode === true,\n        dedupe_key: dedupeKey,\n        wamid,\n        phone_number_id: connectedNumber || 'unknown',\n        telefone,\n        external_lead_id: String(\n          message.from_user_id || contact.user_id || contact.wa_id || telefone,\n        ),\n        occurred_at_utc: occurredAt.toUTC().toFormat('yyyy-MM-dd HH:mm:ss.SSS'),\n        event_local_date: occurredAt\n          .setZone('America/Sao_Paulo')\n          .toFormat('yyyy-MM-dd'),\n        ctwaclid: String(referral.ctwa_clid || ''),\n        source_id: String(referral.source_id || ''),\n        source_url: String(referral.source_url || ''),\n        nome: String(contact.profile?.name || ''),\n        cta: String(referral.headline || ''),\n        thumbnail: String(referral.image_url || referral.thumbnail_url || ''),\n        Mensagem: messageText(message),\n      });\n    }\n  }\n}\n\nreturn [{\n  json: {\n    delivery_key: input.delivery_key,\n    test_mode: input.test_mode === true,\n    events,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 496],
+      "id": "81adf284-30db-4835-a56a-4f01116e7e6f",
+      "name": "Normalizar payload oficial"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "EVENT_RECEIVED",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [1216, 576],
+      "id": "82fc1ce3-2bfe-428c-aeee-49aa832df1ee",
+      "name": "Responder 200"
+    },
+    {
+      "parameters": {
+        "jsCode": "const events = $input.first().json.events;\n\nif (!Array.isArray(events)) {\n  throw new Error('Normalized Meta events are not an array');\n}\n\nreturn events.map((event) => ({ json: event }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1664, 496],
+      "id": "9e9480b9-a2ef-43f2-a99b-9800c1862d67",
+      "name": "Separar mensagens"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  $1 AS event_json,\n  EXISTS (\n    SELECT 1\n    FROM wpptrack_tracking_events\n    WHERE dedupe_key = $2\n    LIMIT 1\n  ) AS event_exists,\n  CASE\n    WHEN EXISTS (\n      SELECT 1\n      FROM whatsapp_anuncio_barbieri\n      WHERE telefone = $3\n      LIMIT 1\n    ) OR EXISTS (\n      SELECT 1\n      FROM wpptrack_tracking_events\n      WHERE provider = 'meta_whatsapp_official'\n        AND event_type = 'conversation_started'\n        AND phone = $3\n      LIMIT 1\n    ) THEN 1\n    ELSE 0\n  END AS contact_exists;",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json), $json.dedupe_key, $json.telefone] }}"
+        }
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [1888, 496],
+      "id": "45ad9861-6c59-43df-9df6-98d1f036dd6c",
+      "name": "Buscar historico da conversa",
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n\nfor (const [index, item] of $input.all().entries()) {\n  let event = item.json.event_json;\n\n  if (typeof event === 'string') {\n    event = JSON.parse(event);\n  }\n\n  if (!event || typeof event !== 'object') {\n    throw new Error('Conversation lookup did not preserve the normalized event');\n  }\n\n  const eventExists = Number(item.json.event_exists || 0) === 1;\n  const contactExists = Number(item.json.contact_exists || 0) === 1;\n  const hasPaidAttribution = Boolean(String(event.ctwaclid || '').trim());\n  const shouldRegister =\n    eventExists || hasPaidAttribution || !contactExists;\n\n  output.push({\n    json: {\n      ...event,\n      event_exists: eventExists,\n      contact_exists: contactExists,\n      should_register: shouldRegister,\n      continue_legacy: shouldRegister && !eventExists,\n    },\n    pairedItem: { item: index },\n  });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2112, 496],
+      "id": "613c9677-59e9-4311-985b-95b0f9820374",
+      "name": "Classificar inicio de conversa"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e4f87d61-75d0-40da-a55b-fc9ca76fd3a9",
+              "leftValue": "={{ $json.test_mode }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2336, 496],
+      "id": "3285e28f-cfa1-4d96-ac50-5fb85c756a38",
+      "name": "Modo de teste seguro?"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item, index) => {\n  const event = item.json;\n\n  return {\n    json: {\n      dry_run: true,\n      safe_to_process: true,\n      delivery_key: event.delivery_key,\n      event_type: 'conversation_started',\n      dedupe_key: event.dedupe_key,\n      external_event_id: event.wamid,\n      phone: event.telefone,\n      paid_attribution: Boolean(String(event.ctwaclid || '').trim()),\n      would_register_event: event.should_register === true,\n      would_increment_duplicate: event.event_exists === true,\n      would_upsert_legacy_lead: event.continue_legacy === true,\n      would_send_legacy_capi:\n        event.continue_legacy === true &&\n        Boolean(String(event.ctwaclid || '').trim()),\n      production_side_effects_executed: false,\n    },\n    pairedItem: { item: index },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2560, 736],
+      "id": "1d7239ea-4aeb-4c10-a32a-d34f01731aa3",
+      "name": "Resultado do teste seguro"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO wpptrack_tracking_events (\n  dedupe_key,\n  provider,\n  event_type,\n  source_event_name,\n  external_event_id,\n  external_lead_id,\n  phone,\n  occurred_at,\n  event_local_date,\n  ad_id,\n  ctwa_clid,\n  source_url\n)\nSELECT\n  $1,\n  'meta_whatsapp_official',\n  'conversation_started',\n  'messages',\n  $2,\n  NULLIF($3, ''),\n  $4,\n  $5,\n  $6,\n  NULLIF($7, ''),\n  NULLIF($8, ''),\n  NULLIF($9, '')\nFROM DUAL\nWHERE $10 = 1\nON DUPLICATE KEY UPDATE\n  duplicate_count = duplicate_count + 1,\n  updated_at = UTC_TIMESTAMP(3);",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.dedupe_key,\n  $json.wamid,\n  $json.external_lead_id || $json.telefone,\n  $json.telefone,\n  $json.occurred_at_utc,\n  $json.event_local_date,\n  $json.source_id || \"\",\n  $json.ctwaclid || \"\",\n  $json.source_url || \"\",\n  $json.should_register ? 1 : 0\n] }}"
+        }
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [2560, 496],
+      "id": "8fac4be3-d538-40a3-958c-c6766fbab00f",
+      "name": "Registrar conversation_started",
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const classified = $('Classificar inicio de conversa').all();\n\nreturn $input.all().flatMap((item, index) => {\n  const event = classified[index]?.json;\n\n  if (!event) {\n    throw new Error('Registered event lost its normalized conversation context');\n  }\n\n  if (!event.continue_legacy) {\n    return [];\n  }\n\n  return [{ json: event, pairedItem: { item: index } }];\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2784, 496],
+      "id": "c78868c0-e813-44b0-b9be-d5c7247fc86e",
+      "name": "Continuar fluxo legado"
+    },
+    {
+      "parameters": {
+        "content": "# Meta Oficial -> WppTrack\n\n1. O POST e aceito sem validacao de assinatura HMAC.\n2. Toda entrega e salva no inbox antes do ACK 200.\n3. O payload JSON normal do Webhook alimenta a normalizacao.\n4. wpptrack_test_mode executa um dry-run sem efeitos de producao.\n5. Cada messages[].id gera no maximo um conversation_started.\n6. Retries incrementam duplicate_count e nao repetem o fluxo legado.\n7. O LeadSubmitted legado continua apenas para mensagens com CTWA durante a sombra.",
+        "height": 336,
+        "width": 1104
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [1600, 80],
+      "typeVersion": 1,
+      "id": "6f49f39a-3ebd-4eeb-bba0-7ac393778c12",
+      "name": "Contrato Meta Oficial WppTrack"
+    },
+    {
+      "parameters": {
+        "jsCode": "const prepared = $('Preparar entrega Meta').all();\n\nreturn prepared.map((item, index) => ({\n  json: item.json,\n  pairedItem: { item: index },\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [992, 576],
+      "id": "0ccb9b07-1015-4fd9-b4fd-430e38f11911",
+      "name": "Restaurar entrega salva"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "IF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Preparar entrega Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder 200": {
+      "main": [
+        [
+          {
+            "node": "Normalizar payload oficial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar payload oficial": {
+      "main": [
+        [
+          {
+            "node": "Separar mensagens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separar mensagens": {
+      "main": [
+        [
+          {
+            "node": "Buscar historico da conversa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar historico da conversa": {
+      "main": [
+        [
+          {
+            "node": "Classificar inicio de conversa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classificar inicio de conversa": {
+      "main": [
+        [
+          {
+            "node": "Modo de teste seguro?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modo de teste seguro?": {
+      "main": [
+        [
+          {
+            "node": "Resultado do teste seguro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar conversation_started",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar conversation_started": {
+      "main": [
+        [
+          {
+            "node": "Continuar fluxo legado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Continuar fluxo legado": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "Inserir ou atualizar Lead no Banco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inserir ou atualizar Lead no Banco": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Acerta Fuso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acerta Fuso": {
+      "main": [
+        [
+          {
+            "node": "Gera Timestamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gera Timestamp": {
+      "main": [
+        [
+          {
+            "node": "[HASH] Phone1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[HASH] Phone1": {
+      "main": [
+        [
+          {
+            "node": "Buscar tokens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar tokens": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Busca Pixel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Busca Pixel": {
+      "main": [
+        [
+          {
+            "node": "Filtra page_id e pixel_id",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtra page_id e pixel_id": {
+      "main": [
+        [
+          {
+            "node": "Envia conversão de Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envia conversão de Lead": {
+      "main": [
+        [
+          {
+            "node": "atualizar dados",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "atualizar dados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "atualizar dados": {
+      "main": [
+        [
+          {
+            "node": "atualização lead no banco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar entrega Meta": {
+      "main": [
+        [
+          {
+            "node": "Guardar entrega antes do ACK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar entrega antes do ACK": {
+      "main": [
+        [
+          {
+            "node": "Restaurar entrega salva",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restaurar entrega salva": {
+      "main": [
+        [
+          {
+            "node": "Responder 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}

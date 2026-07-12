@@ -13,6 +13,7 @@ import type {
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { SubmitButton } from "../../../components/submit-button";
+import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { MetaConversionDestinationForm } from "./meta-conversion-destination-form";
@@ -772,6 +773,7 @@ export default async function IntegrationsPage({
         {
           hour: "2-digit",
           minute: "2-digit",
+          timeZone: displayTimeZone,
         },
       )}`,
     })) ?? [];

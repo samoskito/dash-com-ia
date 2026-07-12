@@ -13,6 +13,7 @@ import type {
   WorkspaceBillingDto
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
+import { formatDateTime } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 
 type BackofficeSearchParams = Record<string, string | string[] | undefined>;
@@ -992,7 +993,7 @@ export default async function BackofficePage({
                       </span>
                     </td>
                     <td>{instance.providerInstanceId ?? "nao conectado"}</td>
-                    <td>{new Date(instance.updatedAt).toLocaleString("pt-BR")}</td>
+                    <td>{formatDateTime(instance.updatedAt)}</td>
                   </tr>
                 ))
               ) : (
@@ -1588,7 +1589,7 @@ export default async function BackofficePage({
                       {audit.targetId ? ` / ${audit.targetId}` : ""}
                     </td>
                     <td>{audit.sourceIp ?? audit.workspaceId ?? "plataforma"}</td>
-                    <td>{new Date(audit.createdAt).toLocaleString("pt-BR")}</td>
+                    <td>{formatDateTime(audit.createdAt)}</td>
                     <td>
                       <span className={`event-chip${audit.resultStatus === "failed" ? " warn" : ""}`}>
                         {audit.resultStatus}
@@ -1634,7 +1635,7 @@ export default async function BackofficePage({
                       {webhook.campaignId ?? "sem campanha"}
                       {webhook.adId ? ` / ${webhook.adId}` : ""}
                     </td>
-                    <td>{new Date(webhook.receivedAt).toLocaleString("pt-BR")}</td>
+                    <td>{formatDateTime(webhook.receivedAt)}</td>
                     <td>
                       <span className={`event-chip${webhook.errorCode ? " warn" : ""}`}>
                         {webhook.errorCode ?? webhook.status}
@@ -1690,7 +1691,7 @@ export default async function BackofficePage({
                     </td>
                     <td>
                       {event.sentAt
-                        ? new Date(event.sentAt).toLocaleString("pt-BR")
+                        ? formatDateTime(event.sentAt)
                         : "nao enviado"}
                     </td>
                     <td>
@@ -1802,7 +1803,7 @@ export default async function BackofficePage({
                     <td>{job.attemptNumber}</td>
                     <td>
                       {job.nextRetryAt
-                        ? new Date(job.nextRetryAt).toLocaleString("pt-BR")
+                        ? formatDateTime(job.nextRetryAt)
                         : "sem retry agendado"}
                     </td>
                     <td>
@@ -1841,7 +1842,7 @@ export default async function BackofficePage({
                   <tr key={event.id}>
                     <td><strong>{event.title}</strong><span>{event.message}</span></td>
                     <td>{event.workspaceId ?? "plataforma"}</td>
-                    <td>{new Date(event.occurredAt).toLocaleString("pt-BR")}</td>
+                    <td>{formatDateTime(event.occurredAt)}</td>
                     <td>{event.source}</td>
                     <td>
                       <span className={`event-chip${event.severity === "error" || event.severity === "critical" ? " warn" : ""}`}>

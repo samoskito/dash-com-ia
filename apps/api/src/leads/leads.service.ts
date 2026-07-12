@@ -115,6 +115,7 @@ export class LeadsService {
     const eventLeadIds = query.eventName
       ? await this.leadIdsForEvent(workspaceId, query.eventName)
       : null;
+    const searchPhoneHash = this.phoneHashForSearch(query.search);
 
     if (eventLeadIds && eventLeadIds.length === 0) {
       return {
@@ -147,6 +148,7 @@ export class LeadsService {
                   mode: "insensitive" as const,
                 },
               },
+              ...(searchPhoneHash ? [{ phoneHash: searchPhoneHash }] : []),
             ],
           }
         : {}),
@@ -402,7 +404,7 @@ export class LeadsService {
         workspaceId: input.workspaceId,
         whatsappInstanceId: input.whatsappInstanceId ?? null,
         name: input.name ?? null,
-        phoneDisplay: this.maskPhone(input.phone) ?? null,
+        phoneDisplay: this.formatPhone(input.phone) ?? null,
         phoneHash,
         status: "active",
         source: input.source ?? "uazapi",
@@ -418,7 +420,7 @@ export class LeadsService {
       update: {
         whatsappInstanceId: input.whatsappInstanceId ?? undefined,
         name: input.name ?? undefined,
-        phoneDisplay: this.maskPhone(input.phone) ?? undefined,
+        phoneDisplay: this.formatPhone(input.phone) ?? undefined,
         source: input.preserveExistingSource ? undefined : input.source ?? undefined,
         labels: labels ?? undefined,
         campaignId: input.campaignId ?? undefined,
@@ -459,7 +461,6 @@ export class LeadsService {
       adSetId: lead.adSetId,
       adId: lead.adId,
       lastEventName,
-      score: this.scoreLead(lead, lastEventName),
       firstMessageAt: lead.firstMessageAt?.toISOString() ?? null,
       lastMessageAt: lead.lastMessageAt?.toISOString() ?? null,
       createdAt: lead.createdAt.toISOString(),
@@ -495,30 +496,6 @@ export class LeadsService {
     return status;
   }
 
-  private scoreLead(lead: LeadRecord, eventName: string | null): number {
-    if (eventName === "Purchase") {
-      return 94;
-    }
-
-    if (eventName === "QualifiedLead") {
-      return 86;
-    }
-
-    if (eventName === "LeadSubmitted") {
-      return 71;
-    }
-
-    if (lead.adId) {
-      return 64;
-    }
-
-    if (lead.campaignId) {
-      return 58;
-    }
-
-    return 42;
-  }
-
   private hashPhone(phone?: string): string | undefined {
     const normalized = this.normalizePhone(phone);
 
@@ -527,21 +504,31 @@ export class LeadsService {
       : undefined;
   }
 
-  private maskPhone(phone?: string): string | undefined {
+  private phoneHashForSearch(search?: string): string | undefined {
+    const normalized = this.normalizePhone(search);
+
+    return normalized && normalized.length >= 8
+      ? createHash("sha256").update(normalized).digest("hex")
+      : undefined;
+  }
+
+  private formatPhone(phone?: string): string | undefined {
     const normalized = this.normalizePhone(phone);
 
     if (!normalized) {
       return undefined;
     }
 
-    const country = normalized.startsWith("55") ? "+55" : "+";
-    const withoutCountry = normalized.startsWith("55")
-      ? normalized.slice(2)
-      : normalized;
-    const area = withoutCountry.slice(0, 2);
-    const last = withoutCountry.slice(-4);
+    if (!normalized.startsWith("55") || normalized.length < 12) {
+      return `+${normalized}`;
+    }
 
-    return `${country} ${area} *****-${last}`;
+    const area = normalized.slice(2, 4);
+    const subscriber = normalized.slice(4);
+    const prefix = subscriber.slice(0, -4);
+    const suffix = subscriber.slice(-4);
+
+    return `+55 ${area} ${prefix}-${suffix}`;
   }
 
   private normalizePhone(phone?: string): string | undefined {

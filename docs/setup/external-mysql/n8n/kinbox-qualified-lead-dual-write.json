@@ -1,0 +1,527 @@
+{
+  "name": "Etapa 3 - [Kinbox] Lead Qualificado - dual-write WppTrack",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-qualificado",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        -32
+      ],
+      "id": "dfd097bb-da94-4661-9667-2465c42a9107",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": {
+          "__rl": true,
+          "value": "whatsapp_anuncio_barbieri",
+          "mode": "list",
+          "cachedResultName": "whatsapp_anuncio_barbieri"
+        },
+        "where": {
+          "values": [
+            {
+              "column": "telefone",
+              "value": "={{ $node[\"Edit Fields\"].json[\"telefone\"] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        928,
+        -32
+      ],
+      "id": "3af71d64-55c4-4467-8bbc-a8225f6cdafe",
+      "name": "Busca Telefone",
+      "alwaysOutputData": false,
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "316283aa-e99c-47c1-a22e-21441b8bc489",
+              "name": "=data_criacao",
+              "value": "={{ $now.format('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "31b8a2f1-6f37-47ee-83af-44212adbbc4d",
+              "name": "telefone",
+              "value": "={{ String($json[\"body\"][\"phone\"] || \"\").replace(/\\D/g, \"\") }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e885bb8c-b41e-4cc6-aa86-9f9f25b22e40",
+      "name": "Edit Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        464,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "type": "SHA256",
+        "value": "={{ $node[\"Busca Telefone\"].json[\"telefone\"] }}",
+        "dataPropertyName": "dataPhone"
+      },
+      "id": "4bdb243b-321e-4e3e-babb-e07b09b04b33",
+      "name": "[HASH] Phone1",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "includeInputFields": true,
+          "timezone": "America/Sao_Paulo"
+        }
+      },
+      "id": "820454a7-fb8e-4904-bab4-cd90602f9741",
+      "name": "Acerta Fuso",
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "formatDate",
+        "date": "={{ $json[\"currentDate\"] }}",
+        "format": "X",
+        "outputFieldName": "dataTimestamp",
+        "options": {
+          "includeInputFields": true
+        }
+      },
+      "id": "99962251-296f-4fe7-a844-6dd65ed9040c",
+      "name": "Gera Timestamp",
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        1376,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": {
+          "__rl": true,
+          "value": "whatsapp_anuncio_barbieri",
+          "mode": "list",
+          "cachedResultName": "whatsapp_anuncio_barbieri"
+        },
+        "columnToMatchOn": "telefone",
+        "options": {
+          "replaceEmptyStrings": true
+        }
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        3200,
+        -32
+      ],
+      "id": "306658e5-071d-485a-a284-9517af70242b",
+      "name": "Update rows in a table1",
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "abfac6d2-a859-4995-acfd-64e1695b80cd",
+              "name": "telefone",
+              "value": "={{ $node[\"Busca Telefone\"].json[\"telefone\"] }}",
+              "type": "string"
+            },
+            {
+              "id": "450ab954-0f0b-4a51-8d83-d533b22a7166",
+              "name": "status",
+              "value": "Qualificado",
+              "type": "string"
+            },
+            {
+              "id": "1f3f1b09-8d9f-409f-902e-1ae668992aae",
+              "name": "plataforma",
+              "value": "WhatsApp",
+              "type": "string"
+            },
+            {
+              "id": "96b0ed1c-b4b6-4aae-a945-b56e665178e4",
+              "name": "processado",
+              "value": "Q",
+              "type": "string"
+            },
+            {
+              "id": "0ca4fb31-fd47-44fe-b6e1-f62ca32bd22b",
+              "name": "data_qualificado",
+              "value": "={{ $node[\"Gera Timestamp\"].json[\"currentDate\"].toDateTime().format('yyyy-MM-dd') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2992,
+        -32
+      ],
+      "id": "fbb83f8e-1884-42ea-974e-0b00053f3a0d",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v25.0/{{ $node[\"Busca Telefone\"].json[\"source_id\"] }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "access_token",
+              "value": "={{ $node[\"Loop Over Items\"].json[\"token\"] }}"
+            },
+            {
+              "name": "fields",
+              "value": "tracking_specs"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "729de6af-711a-4434-bf63-7d5f3e464b2d",
+      "name": "Busca Pixel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2304,
+        -16
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Função para procurar \"dataset\" e \"page\"\nfunction findDatasetAndPage(jsonObj) {\n    let result = {\n        dataset: [],\n        page: []\n    };\n\n    function searchInObject(obj) {\n        if (obj && typeof obj === 'object') {\n            // Coleta \"dataset\" e fallback para \"fb_pixel\"\n            if (obj['dataset']) {\n                result.dataset.push(...obj['dataset']);\n            } else if (obj['fb_pixel']) {\n                result.dataset.push(...obj['fb_pixel']);\n            }\n\n            // Coleta \"page\" apenas\n            if (obj['page']) {\n                result.page.push(...obj['page']);\n            }\n\n            // Percorre os sub-objetos e arrays recursivamente\n            for (let key in obj) {\n                if (obj.hasOwnProperty(key) && typeof obj[key] === 'object') {\n                    searchInObject(obj[key]);\n                }\n            }\n        }\n    }\n\n    searchInObject(jsonObj);\n    return result;\n}\n\n// A entrada do n8n geralmente vem em um formato específico. Pegue os dados de entrada.\nconst inputData = $input.all();\n\nlet finalResult = [];\n\ninputData.forEach(item => {\n    // Use a função para procurar os valores de \"dataset\" e \"page\"\n    const datasetsAndPages = findDatasetAndPage(item.json);\n    \n    // Adiciona os resultados encontrados apenas se houver pelo menos um dataset ou page\n    if (datasetsAndPages.dataset.length > 0 || datasetsAndPages.page.length > 0) {\n        finalResult.push({ json: datasetsAndPages });\n    }\n});\n\n// Retorna os dados no formato esperado pelo n8n\nreturn finalResult;"
+      },
+      "id": "e60e6068-7c10-4c65-9a66-c620032f5af8",
+      "name": "Filtra page_id e pixel_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2512,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": {
+          "__rl": true,
+          "value": "contas_anuncio_barbieri",
+          "mode": "list",
+          "cachedResultName": "contas_anuncio_barbieri"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1840,
+        -32
+      ],
+      "id": "0a4a962d-116d-422a-8b8b-35a6b07c4a02",
+      "name": "Buscar tokens",
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2064,
+        -32
+      ],
+      "id": "8f5cbe30-3ed2-40f4-af2d-0e7fdfbe228c",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v25.0/{{ $json[\"dataset\"][\"0\"] }}/events",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "access_token",
+              "value": "={{ $node[\"Loop Over Items\"].json[\"token\"] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": [\n    {\n      \"action_source\": \"business_messaging\",\n      \"event_name\": \"QualifiedLead\",\n      \"event_time\": {{ $node[\"Gera Timestamp\"].json[\"dataTimestamp\"] }},\n      \"event_id\": \"qualified_{{ $node[\"Gera Timestamp\"].json[\"ctwaclid\"] }}\",\n      \"messaging_channel\": \"whatsapp\",\n      \"user_data\": {\n        \"ph\": \"{{ $node[\"[HASH] Phone1\"].json[\"dataPhone\"] }}\",\n        \"ctwa_clid\": \"{{ $node[\"Gera Timestamp\"].json[\"ctwaclid\"] }}\",\n        \"page_id\": \"{{ $json[\"page\"][\"0\"] }}\"\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "0d3f002a-0dcc-4680-bf04-86762a9322ea",
+      "name": "Envia conversão de Lead Qualificado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2736,
+        -32
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "content": "# Dual-write WppTrack\n\n1. O evento append-only e salvo antes do envio para a Meta.\n2. O tipo canonico e sempre qualified_lead.\n3. Repeticoes incrementam duplicate_count sem criar outro evento.\n4. Mantenha o envio Meta atual durante a reconciliacao em modo sombra.",
+        "height": 288,
+        "width": 512
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2096,
+        -384
+      ],
+      "typeVersion": 1,
+      "id": "56d796ff-85fc-46ca-985c-61fa44e366ad",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO wpptrack_tracking_events (\n  dedupe_key,\n  provider,\n  event_type,\n  source_event_name,\n  external_lead_id,\n  phone,\n  occurred_at,\n  event_local_date,\n  ad_id,\n  ctwa_clid,\n  source_url\n) VALUES (\n  CONCAT('kinbox:qualified:', $1),\n  'kinbox_mysql',\n  'qualified_lead',\n  NULLIF($2, ''),\n  NULLIF($3, ''),\n  $1,\n  UTC_TIMESTAMP(3),\n  $4,\n  NULLIF($5, ''),\n  NULLIF($6, ''),\n  NULLIF($7, '')\n)\nON DUPLICATE KEY UPDATE\n  duplicate_count = duplicate_count + 1,\n  updated_at = CURRENT_TIMESTAMP(3);",
+        "options": {
+          "queryReplacement": "={{ [\n  $node[\"Edit Fields\"].json[\"telefone\"],\n  $node[\"Webhook\"].json[\"body\"][\"event_name\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"lead_id\"] || $node[\"Webhook\"].json[\"body\"][\"external_id\"] || $node[\"Edit Fields\"].json[\"telefone\"],\n  $now.setZone(\"America/Sao_Paulo\").toFormat(\"yyyy-MM-dd\"),\n  $node[\"Webhook\"].json[\"body\"][\"source_id\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"ctwa_clid\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"source_url\"] || \"\"\n] }}"
+        }
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        688,
+        -32
+      ],
+      "id": "d247be39-01fc-4bdd-a47a-ef2968d91a3e",
+      "name": "Registrar evento qualificado",
+      "credentials": {
+        "mySql": {
+          "name": "MySQL account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Busca Telefone": {
+      "main": [
+        [
+          {
+            "node": "Acerta Fuso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Registrar evento qualificado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[HASH] Phone1": {
+      "main": [
+        [
+          {
+            "node": "Buscar tokens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acerta Fuso": {
+      "main": [
+        [
+          {
+            "node": "Gera Timestamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gera Timestamp": {
+      "main": [
+        [
+          {
+            "node": "[HASH] Phone1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        [
+          {
+            "node": "Update rows in a table1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Busca Pixel": {
+      "main": [
+        [
+          {
+            "node": "Filtra page_id e pixel_id",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtra page_id e pixel_id": {
+      "main": [
+        [
+          {
+            "node": "Envia conversão de Lead Qualificado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar tokens": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Busca Pixel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envia conversão de Lead Qualificado": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar evento qualificado": {
+      "main": [
+        [
+          {
+            "node": "Busca Telefone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}

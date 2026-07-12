@@ -29,6 +29,8 @@ During shadow mode, keep the current workflows and add a MySQL insert into `wppt
 
 Use `event_type='qualified_lead'`. Because Kinbox has no event ID, its approved fallback is one qualified event per connector and normalized phone.
 
+The reviewed and sanitized import artifact is `n8n/kinbox-qualified-lead-dual-write.json`. Its deployment and rollback sequence is documented in `n8n/README.md`.
+
 ```sql
 INSERT INTO wpptrack_tracking_events (
   dedupe_key, provider, event_type, source_event_name,
@@ -51,6 +53,8 @@ ON DUPLICATE KEY UPDATE
 ### Purchase workflow
 
 Use `event_type='purchase'`. The daily key is a Kinbox-only fallback for this contract. It must not be copied into adapters that provide `transaction_id` or `external_event_id`.
+
+The reviewed and sanitized import artifact is `n8n/kinbox-purchase-dual-write.json`. It intentionally leaves the ledger value null; the temporary legacy Meta node continues using the configured client average only until WppTrack CAPI cutover.
 
 ```sql
 INSERT INTO wpptrack_tracking_events (
@@ -80,6 +84,8 @@ WppTrack snapshots the configured average purchase value during ingestion and la
 ### Official Meta conversation workflow
 
 Use `event_type='conversation_started'`, `provider='meta_whatsapp_official'` and the WhatsApp message ID (`wamid`) as both `external_event_id` and part of `dedupe_key`. Preserve `ctwa_clid`, `source_id` as `ad_id`, `source_url`, phone and event timestamp.
+
+The reviewed Barbieri replacement is `n8n/meta-conversation-started-dual-write.json`. By explicit operator decision it does not validate POST signatures: it accepts the normal webhook JSON body, stores every delivery in `wpptrack_webhook_inbox` before returning `200`, handles all messages in a batched payload, records the ledger before legacy effects, and leaves the current paid `LeadSubmitted` CAPI path active only for shadow reconciliation. A no-side-effect test workflow that accepts a real Meta payload is available at `n8n/meta-conversation-replay-safe-test.json`. Import and test instructions are in `n8n/README.md`.
 
 ## Security corrections before cutover
 

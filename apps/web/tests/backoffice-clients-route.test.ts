@@ -106,6 +106,7 @@ describe("backoffice clients route", () => {
     expect(html).toContain("Sincronizacao concluida");
     expect(html).toContain("Importados");
     expect(html).toContain(">116<");
+    expect(html).toContain("Reimportar leads");
     expect(html).toContain("Acessar");
     expect(html).toContain("Salvar conector");
     expect(html).not.toContain("credentialsEncrypted");

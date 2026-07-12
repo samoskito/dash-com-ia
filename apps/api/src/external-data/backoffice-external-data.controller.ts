@@ -93,6 +93,15 @@ export class BackofficeExternalDataController {
     return this.externalDataService.enqueueSync(connectorId, parsed.data, admin.id);
   }
 
+  @Post(":connectorId/reimport-leads")
+  async reimportLeads(
+    @AuthToken() refreshToken: string,
+    @Param("connectorId") connectorId: string
+  ) {
+    const admin = await this.platformAdminService.assertPlatformAdmin(refreshToken);
+    return this.externalDataService.enqueueLeadsReimport(connectorId, admin.id);
+  }
+
   @Get(":connectorId/health")
   async health(
     @AuthToken() refreshToken: string,

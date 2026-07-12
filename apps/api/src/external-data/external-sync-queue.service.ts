@@ -21,6 +21,7 @@ export class ExternalSyncQueueService {
   async enqueueSync(input: {
     connectorId: string;
     streams: ExternalSyncStreamDto[];
+    projectionRefresh?: boolean;
     requestedByUserId?: string;
   }): Promise<ExternalSyncQueuedResultDto> {
     const streams = [...new Set(input.streams)].sort();
@@ -51,6 +52,7 @@ export class ExternalSyncQueueService {
       {
         connectorId: input.connectorId,
         streams,
+        projectionRefresh: input.projectionRefresh === true,
         requestedByUserId: input.requestedByUserId
       },
       {

@@ -25,7 +25,8 @@ export class ExternalSyncProcessor extends WorkerHost {
     try {
       const result = await this.syncService.syncConnector(
         job.data.connectorId,
-        job.data.streams
+        job.data.streams,
+        { projectionRefresh: job.data.projectionRefresh === true }
       );
       await this.recordAttempt(job, "completed", startedAt, {
         connectorId: result.connectorId,
@@ -41,7 +42,8 @@ export class ExternalSyncProcessor extends WorkerHost {
         startedAt,
         {
           connectorId: job.data.connectorId,
-          streams: job.data.streams
+          streams: job.data.streams,
+          projectionRefresh: job.data.projectionRefresh === true
         },
         error
       );

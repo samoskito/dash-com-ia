@@ -38,6 +38,26 @@ CREATE TABLE IF NOT EXISTS `wpptrack_tracking_events` (
     CHECK (`value_source` IS NULL OR `value_source` IN ('actual', 'configured_average', 'manual'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- Durable intake for Meta webhook deliveries. The workflow acknowledges Meta
+-- only after this insert succeeds, so downstream failures remain replayable.
+CREATE TABLE IF NOT EXISTS `wpptrack_webhook_inbox` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `delivery_key` VARCHAR(80) NOT NULL,
+  `provider` VARCHAR(50) NOT NULL,
+  `payload_text` LONGTEXT NOT NULL,
+  `is_test` TINYINT(1) NOT NULL DEFAULT 0,
+  `duplicate_count` INT UNSIGNED NOT NULL DEFAULT 0,
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_wpptrack_webhook_delivery` (`delivery_key`),
+  KEY `idx_wpptrack_webhook_cursor` (`updated_at`, `id`),
+  CONSTRAINT `chk_wpptrack_webhook_provider`
+    CHECK (`provider` IN ('meta_whatsapp_official')),
+  CONSTRAINT `chk_wpptrack_webhook_is_test`
+    CHECK (`is_test` IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE OR REPLACE VIEW `vw_wpptrack_leads` AS
 SELECT
   SHA2(CONCAT('lead:', wa.`telefone`), 256) AS `external_row_id`,

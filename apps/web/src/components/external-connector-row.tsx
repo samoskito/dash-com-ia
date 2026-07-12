@@ -2,6 +2,7 @@
 
 import type { ExternalConnectorHealthDto } from "@wpptrack/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateTime } from "../lib/date-time";
 import {
   BackofficeActionForm,
   type BackofficeActionState,
@@ -19,7 +20,7 @@ type ExternalConnectorRowProps = {
 };
 
 function formatDate(value: string | null): string {
-  return value ? new Date(value).toLocaleString("pt-BR") : "Ainda nao executado";
+  return value ? formatDateTime(value) : "Ainda nao executado";
 }
 
 function connectionStatusLabel(health: ExternalConnectorHealthDto): string {
@@ -218,14 +219,25 @@ export function ExternalConnectorRow({
           </BackofficeActionForm>
         ) : null}
         {connector.status === "active" ? (
-          <BackofficeActionForm action={syncAction} onSuccess={handleSyncQueued}>
-            <input type="hidden" name="connectorId" value={connector.id} />
-            <PendingSubmitButton
-              label="Sincronizar"
-              pendingLabel="Enfileirando..."
-              className="button compact-button"
-            />
-          </BackofficeActionForm>
+          <>
+            <BackofficeActionForm action={syncAction} onSuccess={handleSyncQueued}>
+              <input type="hidden" name="connectorId" value={connector.id} />
+              <input type="hidden" name="reimportLeads" value="true" />
+              <PendingSubmitButton
+                label="Reimportar leads"
+                pendingLabel="Enfileirando..."
+                className="button ghost compact-button"
+              />
+            </BackofficeActionForm>
+            <BackofficeActionForm action={syncAction} onSuccess={handleSyncQueued}>
+              <input type="hidden" name="connectorId" value={connector.id} />
+              <PendingSubmitButton
+                label="Sincronizar"
+                pendingLabel="Enfileirando..."
+                className="button compact-button"
+              />
+            </BackofficeActionForm>
+          </>
         ) : null}
       </div>
     </article>
