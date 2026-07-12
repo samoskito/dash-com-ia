@@ -679,8 +679,8 @@ describe("meta connections service", () => {
     );
   });
 
-  it("loads ad accounts and pixels for a requested business without saving selection first", async () => {
-    const { service } = createHarness();
+  it("loads and persists the requested business for subsequent asset reads", async () => {
+    const { db, service } = createHarness();
     const metaAdapter = {
       listBusinesses: vi.fn(async () => [
         {
@@ -738,6 +738,11 @@ describe("meta connections service", () => {
       expiresInSeconds: 3600,
       scopes: ["ads_read"]
     });
+    await service.saveAssetSelection("workspace_1", {
+      businessId: "business_1",
+      adAccountId: "act_123",
+      pixelId: "pixel_1"
+    });
 
     const assets = await service.refreshAssets(
       "workspace_1",
@@ -753,7 +758,7 @@ describe("meta connections service", () => {
       pixels: [{ businessId: "business_2", name: "Pixel Outro BM", code: null }],
       pages: [{ businessId: "business_2", name: "Pagina Outro BM" }],
       selection: {
-        businessId: null,
+        businessId: "business_2",
         adAccountId: null,
         pixelId: null
       },
@@ -770,6 +775,11 @@ describe("meta connections service", () => {
     expect(metaAdapter.listBusinessPages).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
       businessId: "business_2"
+    });
+    expect(db.records[0]).toMatchObject({
+      selectedBusinessId: "business_2",
+      selectedAdAccountId: null,
+      selectedPixelId: null
     });
   });
 

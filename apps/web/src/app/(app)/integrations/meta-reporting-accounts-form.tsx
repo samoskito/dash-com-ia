@@ -2,6 +2,7 @@
 
 import type { MetaAssetsDto } from "@wpptrack/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SearchableSelect } from "../../../components/searchable-select";
 import { SubmitButton } from "../../../components/submit-button";
 
 type SaveMetaReportingAccountAction = (formData: FormData) => void | Promise<void>;
@@ -35,7 +36,12 @@ export function metaReportingAccountsForBusiness(
 }
 
 function initialBusinessId(assets: MetaAssetsDto): string {
-  return assets.selection.businessId ?? firstId(assets.businesses);
+  const selectedBusinessId = assets.selection.businessId;
+
+  return selectedBusinessId &&
+    assets.businesses.some((business) => business.id === selectedBusinessId)
+    ? selectedBusinessId
+    : firstId(assets.businesses);
 }
 
 function initialAdAccountId(assets: MetaAssetsDto, businessId: string): string {
@@ -65,6 +71,7 @@ export function MetaReportingAccountsForm({
   statusAction
 }: MetaReportingAccountsFormProps) {
   const [businessId, setBusinessId] = useState(() => initialBusinessId(assets));
+  const businessIdRef = useRef(businessId);
   const [availableAdAccounts, setAvailableAdAccounts] = useState(
     () => assets.adAccounts
   );
@@ -91,8 +98,14 @@ export function MetaReportingAccountsForm({
   );
 
   useEffect(() => {
-    const nextBusinessId = initialBusinessId(assets);
+    const currentBusinessId = businessIdRef.current;
+    const nextBusinessId = assets.businesses.some(
+      (business) => business.id === currentBusinessId
+    )
+      ? currentBusinessId
+      : initialBusinessId(assets);
 
+    businessIdRef.current = nextBusinessId;
     setBusinessId(nextBusinessId);
     setAvailableAdAccounts(assets.adAccounts);
     setAdAccountId(initialAdAccountId(assets, nextBusinessId));
@@ -102,6 +115,7 @@ export function MetaReportingAccountsForm({
     const sequence = loadSequence.current + 1;
 
     loadSequence.current = sequence;
+    businessIdRef.current = nextBusinessId;
     setBusinessId(nextBusinessId);
     setAdAccountId("");
 
@@ -146,36 +160,32 @@ export function MetaReportingAccountsForm({
           name="timezoneName"
           value={selectedAdAccount?.timezoneName ?? ""}
         />
-        <select
-          className="filter-control"
+        <SearchableSelect
           name="businessId"
           value={businessId}
-          onChange={(event) => handleBusinessChange(event.currentTarget.value)}
-          aria-label="Business Manager para relatorios"
+          options={assets.businesses.map((business) => ({
+            value: business.id,
+            label: business.name,
+            description: business.id
+          }))}
+          onValueChange={handleBusinessChange}
+          ariaLabel="Business Manager para relatorios"
+          placeholder="Buscar BM"
           disabled={isLoadingBusinessAssets}
-        >
-          <option value="">Sem BM</option>
-          {assets.businesses.map((business) => (
-            <option key={business.id} value={business.id}>
-              {business.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className="filter-control"
+        />
+        <SearchableSelect
           name="adAccountId"
           value={adAccountId}
-          onChange={(event) => setAdAccountId(event.currentTarget.value)}
-          aria-label="Conta de anuncio para relatorios"
+          options={availableAccounts.map((account) => ({
+            value: account.id,
+            label: account.name,
+            description: account.id
+          }))}
+          onValueChange={setAdAccountId}
+          ariaLabel="Conta de anuncio para relatorios"
+          placeholder="Buscar conta"
           disabled={isLoadingBusinessAssets}
-        >
-          <option value="">Sem conta</option>
-          {availableAccounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.name}
-            </option>
-          ))}
-        </select>
+        />
         <SubmitButton
           disabled={isLoadingBusinessAssets || !businessId || !adAccountId}
           pendingLabel="Salvando conta..."

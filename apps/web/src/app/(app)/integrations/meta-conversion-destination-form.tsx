@@ -2,6 +2,7 @@
 
 import type { MetaAssetsDto } from "@wpptrack/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SearchableSelect } from "../../../components/searchable-select";
 import { SubmitButton } from "../../../components/submit-button";
 
 type SaveMetaConversionDestinationAction = (
@@ -46,11 +47,15 @@ function initialBusinessId(assets: MetaAssetsDto): string {
   const selectedPage = (assets.pages ?? []).find(
     (page) => page.id === destination?.pageId
   );
+  const selectedBusinessId = assets.selection.businessId;
 
   return (
     selectedPixel?.businessId ??
     selectedPage?.businessId ??
-    assets.selection.businessId ??
+    (selectedBusinessId &&
+    assets.businesses.some((business) => business.id === selectedBusinessId)
+      ? selectedBusinessId
+      : null) ??
     firstId(assets.businesses)
   );
 }
@@ -62,6 +67,7 @@ export function MetaConversionDestinationForm({
 }: MetaConversionDestinationFormProps) {
   const destination = assets.conversionDestination;
   const [businessId, setBusinessId] = useState(() => initialBusinessId(assets));
+  const businessIdRef = useRef(businessId);
   const [availablePixels, setAvailablePixels] = useState(() => assets.pixels);
   const [availablePages, setAvailablePages] = useState(() => assets.pages ?? []);
   const [isLoadingBusinessAssets, setIsLoadingBusinessAssets] = useState(false);
@@ -100,10 +106,16 @@ export function MetaConversionDestinationForm({
   );
 
   useEffect(() => {
-    const nextBusinessId = initialBusinessId(assets);
+    const currentBusinessId = businessIdRef.current;
+    const nextBusinessId = assets.businesses.some(
+      (business) => business.id === currentBusinessId
+    )
+      ? currentBusinessId
+      : initialBusinessId(assets);
     const nextPixels = pixelsForBusiness(assets, nextBusinessId);
     const nextPages = metaPagesForBusiness(assets, nextBusinessId);
 
+    businessIdRef.current = nextBusinessId;
     setBusinessId(nextBusinessId);
     setAvailablePixels(assets.pixels);
     setAvailablePages(assets.pages ?? []);
@@ -123,6 +135,7 @@ export function MetaConversionDestinationForm({
     const sequence = loadSequence.current + 1;
 
     loadSequence.current = sequence;
+    businessIdRef.current = nextBusinessId;
     setBusinessId(nextBusinessId);
     setPixelId("");
     setPageId("");
@@ -165,51 +178,45 @@ export function MetaConversionDestinationForm({
     <form className="filter-bar" action={action}>
       <input type="hidden" name="pixelName" value={selectedPixel?.name ?? ""} />
       <input type="hidden" name="pageName" value={selectedPage?.name ?? ""} />
-      <select
-        className="filter-control"
+      <SearchableSelect
         name="businessId"
         value={businessId}
-        onChange={(event) => handleBusinessChange(event.currentTarget.value)}
-        aria-label="Business Manager do destino de conversao"
+        options={assets.businesses.map((business) => ({
+          value: business.id,
+          label: business.name,
+          description: business.id
+        }))}
+        onValueChange={handleBusinessChange}
+        ariaLabel="Business Manager do destino de conversao"
+        placeholder="Buscar BM"
         disabled={isLoadingBusinessAssets}
-      >
-        <option value="">Sem BM</option>
-        {assets.businesses.map((business) => (
-          <option key={business.id} value={business.id}>
-            {business.name}
-          </option>
-        ))}
-      </select>
-      <select
-        className="filter-control"
+      />
+      <SearchableSelect
         name="pixelId"
         value={pixelId}
-        onChange={(event) => setPixelId(event.currentTarget.value)}
-        aria-label="Pixel do destino de conversao"
+        options={pixels.map((pixel) => ({
+          value: pixel.id,
+          label: pixel.name,
+          description: pixel.id
+        }))}
+        onValueChange={setPixelId}
+        ariaLabel="Pixel do destino de conversao"
+        placeholder="Buscar Pixel"
         disabled={isLoadingBusinessAssets}
-      >
-        <option value="">Sem Pixel</option>
-        {pixels.map((pixel) => (
-          <option key={pixel.id} value={pixel.id}>
-            {pixel.name}
-          </option>
-        ))}
-      </select>
-      <select
-        className="filter-control"
+      />
+      <SearchableSelect
         name="pageId"
         value={pageId}
-        onChange={(event) => setPageId(event.currentTarget.value)}
-        aria-label="Pagina Facebook principal"
+        options={pages.map((page) => ({
+          value: page.id,
+          label: page.name,
+          description: page.id
+        }))}
+        onValueChange={setPageId}
+        ariaLabel="Pagina Facebook principal"
+        placeholder="Buscar pagina"
         disabled={isLoadingBusinessAssets}
-      >
-        <option value="">Sem Pagina</option>
-        {pages.map((page) => (
-          <option key={page.id} value={page.id}>
-            {page.name}
-          </option>
-        ))}
-      </select>
+      />
       <SubmitButton
         disabled={isLoadingBusinessAssets || !businessId || !pixelId || !pageId}
         pendingLabel="Salvando destino..."

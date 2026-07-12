@@ -375,8 +375,6 @@ async function loadMetaBusinessDestinationAssets(
         body: JSON.stringify({ businessId: normalizedBusinessId }),
       },
     );
-    revalidatePath("/integrations");
-
     return {
       pixels: assets.pixels,
       pages: assets.pages ?? [],
@@ -442,8 +440,6 @@ async function loadMetaBusinessReportingAssets(
         body: JSON.stringify({ businessId: normalizedBusinessId }),
       },
     );
-    revalidatePath("/integrations");
-
     return {
       adAccounts: assets.adAccounts,
     };

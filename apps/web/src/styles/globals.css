@@ -2262,6 +2262,88 @@ body {
   box-shadow: 0 0 0 3px rgba(18, 184, 132, 0.16);
 }
 
+.searchable-select {
+  position: relative;
+  flex: 1 1 210px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.searchable-select .searchable-select-input {
+  width: 100%;
+  padding-right: 12px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.04),
+      rgba(255, 255, 255, 0.015)
+    ),
+    rgba(5, 8, 7, 0.84);
+}
+
+.searchable-select-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  display: grid;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid rgba(66, 240, 168, 0.34);
+  border-radius: 8px;
+  background: var(--graphite-900);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.38);
+}
+
+.searchable-select-menu[hidden] {
+  display: none;
+}
+
+.searchable-select-option {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.searchable-select-option:last-child {
+  border-bottom: 0;
+}
+
+.searchable-select-option.active,
+.searchable-select-option[aria-selected="true"] {
+  background: rgba(18, 184, 132, 0.16);
+}
+
+.searchable-select-option strong,
+.searchable-select-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  letter-spacing: 0;
+}
+
+.searchable-select-option strong {
+  font-size: 13px;
+}
+
+.searchable-select-option span,
+.searchable-select-empty {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.searchable-select-empty {
+  padding: 12px;
+}
+
 .button,
 .login-form button,
 .login-form .secondary-button,
@@ -2847,7 +2929,8 @@ th {
   .inline-form input,
   .inline-form select,
   .filter-bar input,
-  .filter-bar select {
+  .filter-bar select,
+  .searchable-select {
     width: 100%;
   }
 }

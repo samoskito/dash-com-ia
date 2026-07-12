@@ -356,9 +356,24 @@ export class MetaConnectionsService {
               syncedAt
             })
           : null;
+      const shouldPersistRequestedBusiness = Boolean(
+        requestedBusinessId?.trim() &&
+          selectedBusinessId &&
+          selectedBusinessId !== connection.selectedBusinessId
+      );
+      const activeConnection = shouldPersistRequestedBusiness
+        ? ((await this.prisma.metaIntegration.update({
+            where: { workspaceId },
+            data: {
+              selectedBusinessId,
+              selectedAdAccountId: null,
+              selectedPixelId: null
+            }
+          })) as MetaIntegrationRecord)
+        : connection;
       const result = this.assetsFromSnapshots(
         workspaceId,
-        connection,
+        activeConnection,
         rootSnapshot,
         businessSnapshot
       );
