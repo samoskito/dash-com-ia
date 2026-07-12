@@ -7,6 +7,7 @@ import {
   type ConversionValueSourceDto
 } from "@wpptrack/shared";
 import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
+import { hashPhoneIdentity } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsService } from "../conversion-events/conversion-events.service";
 import { LeadsService } from "../leads/leads.service";
@@ -79,11 +80,39 @@ export class ExternalEventIngestionService {
         status: true,
         leadId: true,
         conversionEventLogId: true,
-        duplicateCount: true
+        duplicateCount: true,
+        errorCode: true
       }
     });
 
     if (previous) {
+      if (
+        previous.status === "rejected" &&
+        previous.errorCode === "ExternalLeadNotMatched"
+      ) {
+        try {
+          return await this.ingestNew(
+            connector,
+            row,
+            sourceRowKey,
+            options,
+            previous.id
+          );
+        } catch (error) {
+          const errorCode = this.errorCode(error);
+          await this.recordRejected(connector, row, sourceRowKey, errorCode);
+
+          return {
+            externalRowId: row.externalRowId,
+            status: "rejected",
+            leadId: null,
+            conversionEventLogId: null,
+            queued: false,
+            errorCode
+          };
+        }
+      }
+
       const queued = await this.retryPendingDelivery(connector, previous);
       await this.prisma.externalIngestionRecord.update({
         where: { id: previous.id },
@@ -125,42 +154,18 @@ export class ExternalEventIngestionService {
     connector: ExternalEventConnectorContext,
     row: ExternalEventRow,
     sourceRowKey: string,
-    options: ExternalEventIngestionOptions
+    options: ExternalEventIngestionOptions,
+    existingRecordId?: string
   ): Promise<ExternalEventIngestionResult> {
     const eventType = canonicalTrackingEventTypeSchema.parse(row.eventType);
     const occurredAt = this.parseExternalDate(row.occurredAt);
-    const leadReference = await this.leadsService.upsertFromWhatsappWebhook({
-      workspaceId: connector.workspaceId,
-      phone: row.phone,
-      source: "external_mysql",
-      preserveExistingSource: true,
-      campaignId: row.campaignId ?? undefined,
-      adSetId: row.adSetId ?? undefined,
-      adId: row.adId ?? undefined,
-      ctwaClid: row.ctwaClid ?? undefined,
-      ctwaSourceUrl: row.sourceUrl ?? undefined,
-      occurredAt,
-      recordMessageTimestamps: eventType === "conversation_started"
-    });
-
-    if (!leadReference) {
-      throw new Error("ExternalLeadPhoneMissing");
-    }
-
-    const lead = (await this.prisma.lead.findUnique({
-      where: { id: leadReference.id },
-      select: {
-        id: true,
-        phoneHash: true,
-        campaignId: true,
-        adSetId: true,
-        adId: true,
-        ctwaClid: true
-      }
-    })) as LeadAttribution | null;
+    const lead =
+      eventType === "conversation_started"
+        ? await this.upsertConversationLead(connector, row, occurredAt)
+        : await this.findExistingLead(connector, row);
 
     if (!lead) {
-      throw new Error("ExternalLeadNotFoundAfterUpsert");
+      throw new Error("ExternalLeadNotMatched");
     }
 
     const identity = buildExternalEventIdentity({
@@ -198,30 +203,49 @@ export class ExternalEventIngestionService {
         : {})
     });
     const ingestionStatus = conversion.status === "duplicate" ? "duplicate" : "imported";
-    const record = await this.prisma.externalIngestionRecord.create({
-      data: {
-        workspaceId: connector.workspaceId,
-        connectorId: connector.id,
-        stream: "events",
-        externalRowId: row.externalRowId,
-        dedupeKey: sourceRowKey,
-        eventType,
-        status: ingestionStatus,
-        occurredAt,
-        leadId: lead.id,
-        conversionEventLogId: conversion.conversionEventLogId,
-        duplicateCount: row.duplicateCount,
-        summaryPayload: {
-          sourceEventName: row.sourceEventName,
-          externalLeadId: row.externalLeadId,
-          providerDedupeKey: row.dedupeKey,
-          internalDedupeKey: identity.dedupeKey,
-          identityPolicy: identity.policy,
-          eventLocalDate: identity.localDate,
-          valueSource: value.valueSource
-        } as Prisma.InputJsonValue
-      }
-    });
+    const recordData = {
+      workspaceId: connector.workspaceId,
+      connectorId: connector.id,
+      stream: "events",
+      externalRowId: row.externalRowId,
+      dedupeKey: sourceRowKey,
+      eventType,
+      status: ingestionStatus,
+      occurredAt,
+      leadId: lead.id,
+      conversionEventLogId: conversion.conversionEventLogId,
+      duplicateCount: row.duplicateCount,
+      errorCode: null,
+      errorMessage: null,
+      summaryPayload: {
+        sourceEventName: row.sourceEventName,
+        externalLeadId: row.externalLeadId,
+        providerDedupeKey: row.dedupeKey,
+        internalDedupeKey: identity.dedupeKey,
+        identityPolicy: identity.policy,
+        eventLocalDate: identity.localDate,
+        valueSource: value.valueSource
+      } as Prisma.InputJsonValue
+    };
+    const record = existingRecordId
+      ? await this.prisma.externalIngestionRecord.update({
+          where: { id: existingRecordId },
+          data: {
+            eventType: recordData.eventType,
+            status: recordData.status,
+            occurredAt: recordData.occurredAt,
+            leadId: recordData.leadId,
+            conversionEventLogId: recordData.conversionEventLogId,
+            duplicateCount: recordData.duplicateCount,
+            errorCode: null,
+            errorMessage: null,
+            lastReceivedAt: new Date(),
+            summaryPayload: recordData.summaryPayload
+          }
+        })
+      : await this.prisma.externalIngestionRecord.create({
+          data: recordData
+        });
 
     if (options.updateLeadStatus !== false) {
       await this.updateLeadStatus(lead.id, eventType);
@@ -266,6 +290,230 @@ export class ExternalEventIngestionService {
       queued,
       errorCode: null
     };
+  }
+
+  async reconcileLegacyOrphanPromotions(
+    connector: ExternalEventConnectorContext
+  ): Promise<{ reconciled: number; rejected: number }> {
+    const orphanLeads = await this.prisma.lead.findMany({
+      where: {
+        workspaceId: connector.workspaceId,
+        source: "external_mysql",
+        firstMessageAt: null,
+        lastMessageAt: null
+      },
+      select: { id: true },
+      take: 500
+    });
+    let reconciled = 0;
+    let rejected = 0;
+
+    for (const orphan of orphanLeads) {
+      const records = await this.prisma.externalIngestionRecord.findMany({
+        where: {
+          workspaceId: connector.workspaceId,
+          connectorId: connector.id,
+          stream: "events",
+          leadId: orphan.id,
+          eventType: { in: ["qualified_lead", "purchase"] }
+        },
+        select: {
+          id: true,
+          eventType: true,
+          conversionEventLogId: true,
+          summaryPayload: true
+        }
+      });
+
+      if (records.length === 0) {
+        continue;
+      }
+
+      for (const record of records) {
+        const externalLeadId = this.externalLeadIdFromSummary(
+          record.summaryPayload
+        );
+        const target = externalLeadId
+          ? await this.findLeadByExternalId(connector, externalLeadId)
+          : null;
+
+        if (target) {
+          await this.prisma.externalIngestionRecord.update({
+            where: { id: record.id },
+            data: {
+              leadId: target.id,
+              errorCode: null,
+              errorMessage: null
+            }
+          });
+
+          if (record.conversionEventLogId) {
+            await this.prisma.conversionEventLog.update({
+              where: { id: record.conversionEventLogId },
+              data: {
+                leadId: target.id,
+                phoneHash: target.phoneHash,
+                customerIdentityKey: target.phoneHash
+              }
+            });
+          }
+
+          await this.updateLeadStatus(
+            target.id,
+            canonicalTrackingEventTypeSchema.parse(record.eventType)
+          );
+          reconciled += 1;
+          continue;
+        }
+
+        await this.prisma.externalIngestionRecord.update({
+          where: { id: record.id },
+          data: {
+            status: "rejected",
+            leadId: null,
+            errorCode: "ExternalLeadNotMatched",
+            errorMessage: this.safeErrorMessage("ExternalLeadNotMatched")
+          }
+        });
+
+        if (record.conversionEventLogId) {
+          await this.prisma.conversionEventLog.update({
+            where: { id: record.conversionEventLogId },
+            data: {
+              status: "skipped",
+              leadId: null,
+              errorCode: "ExternalLeadNotMatched",
+              errorMessage: this.safeErrorMessage("ExternalLeadNotMatched")
+            }
+          });
+        }
+
+        rejected += 1;
+      }
+
+      await this.prisma.conversionEventLog.updateMany({
+        where: { workspaceId: connector.workspaceId, leadId: orphan.id },
+        data: {
+          status: "skipped",
+          leadId: null,
+          errorCode: "ExternalLeadNotMatched",
+          errorMessage: this.safeErrorMessage("ExternalLeadNotMatched")
+        }
+      });
+      await this.prisma.lead.delete({ where: { id: orphan.id } });
+    }
+
+    return { reconciled, rejected };
+  }
+
+  private async upsertConversationLead(
+    connector: ExternalEventConnectorContext,
+    row: ExternalEventRow,
+    occurredAt: Date
+  ): Promise<LeadAttribution | null> {
+    const reference = await this.leadsService.upsertFromWhatsappWebhook({
+      workspaceId: connector.workspaceId,
+      phone: row.phone,
+      source: "external_mysql",
+      preserveExistingSource: true,
+      campaignId: row.campaignId ?? undefined,
+      adSetId: row.adSetId ?? undefined,
+      adId: row.adId ?? undefined,
+      ctwaClid: row.ctwaClid ?? undefined,
+      ctwaSourceUrl: row.sourceUrl ?? undefined,
+      occurredAt,
+      recordMessageTimestamps: true
+    });
+
+    if (!reference) {
+      throw new Error("ExternalLeadPhoneMissing");
+    }
+
+    return this.findLeadById(connector.workspaceId, reference.id);
+  }
+
+  private async findExistingLead(
+    connector: ExternalEventConnectorContext,
+    row: ExternalEventRow
+  ): Promise<LeadAttribution | null> {
+    const phoneHash = hashPhoneIdentity(row.phone);
+
+    if (phoneHash) {
+      const byPhone = (await this.prisma.lead.findUnique({
+        where: {
+          workspaceId_phoneHash: {
+            workspaceId: connector.workspaceId,
+            phoneHash
+          }
+        },
+        select: this.leadAttributionSelect()
+      })) as LeadAttribution | null;
+
+      if (byPhone) {
+        return byPhone;
+      }
+    }
+
+    return row.externalLeadId
+      ? this.findLeadByExternalId(connector, row.externalLeadId)
+      : null;
+  }
+
+  private async findLeadByExternalId(
+    connector: ExternalEventConnectorContext,
+    externalLeadId: string
+  ): Promise<LeadAttribution | null> {
+    const importedLead = await this.prisma.externalIngestionRecord.findFirst({
+      where: {
+        workspaceId: connector.workspaceId,
+        connectorId: connector.id,
+        stream: "leads",
+        status: "imported",
+        leadId: { not: null },
+        summaryPayload: {
+          path: ["externalLeadId"],
+          equals: externalLeadId
+        }
+      },
+      orderBy: { lastReceivedAt: "desc" },
+      select: { leadId: true }
+    });
+
+    return importedLead?.leadId
+      ? this.findLeadById(connector.workspaceId, importedLead.leadId)
+      : null;
+  }
+
+  private async findLeadById(
+    workspaceId: string,
+    leadId: string
+  ): Promise<LeadAttribution | null> {
+    return (await this.prisma.lead.findFirst({
+      where: { id: leadId, workspaceId },
+      select: this.leadAttributionSelect()
+    })) as LeadAttribution | null;
+  }
+
+  private leadAttributionSelect() {
+    return {
+      id: true,
+      phoneHash: true,
+      campaignId: true,
+      adSetId: true,
+      adId: true,
+      ctwaClid: true
+    } as const;
+  }
+
+  private externalLeadIdFromSummary(value: unknown): string | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+
+    const externalLeadId = (value as Record<string, unknown>).externalLeadId;
+    return typeof externalLeadId === "string" && externalLeadId.trim()
+      ? externalLeadId.trim()
+      : null;
   }
 
   private resolveValue(
@@ -321,9 +569,17 @@ export class ExternalEventIngestionService {
       return;
     }
 
-    await this.prisma.lead.update({
-      where: { id: leadId },
-      data: { status: eventType === "purchase" ? "converted" : "qualified" }
+    if (eventType === "purchase") {
+      await this.prisma.lead.update({
+        where: { id: leadId },
+        data: { status: "converted" }
+      });
+      return;
+    }
+
+    await this.prisma.lead.updateMany({
+      where: { id: leadId, status: { not: "converted" } },
+      data: { status: "qualified" }
     });
   }
 
@@ -428,6 +684,8 @@ export class ExternalEventIngestionService {
         return "A data do evento externo e invalida";
       case "ExternalLeadPhoneMissing":
         return "O evento externo nao possui telefone valido";
+      case "ExternalLeadNotMatched":
+        return "O evento externo nao corresponde a um lead importado";
       case "ExternalCapiQueueFailed":
         return "O evento foi salvo, mas ainda nao entrou na fila Meta";
       default:

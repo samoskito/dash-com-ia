@@ -265,6 +265,8 @@ export class ExternalSyncService {
     const batchSize = this.rowBatchSize();
     let cursor = await this.getCursor(connector.id, "events");
 
+    await this.eventIngestion.reconcileLegacyOrphanPromotions(connector);
+
     while (true) {
       const rows = await this.mysqlAdapter.readEventsPage(
         credentials,
@@ -609,7 +611,9 @@ export class ExternalSyncService {
   }
 
   private normalizeStreams(streams: ExternalSyncStreamDto[]): ExternalSyncStreamDto[] {
-    return [...new Set(streams.map((stream) => externalSyncStreamSchema.parse(stream)))];
+    const requested = new Set(streams.map((stream) => externalSyncStreamSchema.parse(stream)));
+
+    return (["leads", "events"] as const).filter((stream) => requested.has(stream));
   }
 
   private leadStatus(row: ExternalLeadRow): "active" | "qualified" | "converted" {

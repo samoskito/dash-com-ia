@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { hashPhoneIdentity } from "../common/phone/phone-identity";
 
 export type UazapiWebhookBody = Record<string, unknown>;
 
@@ -44,7 +44,7 @@ export function parseUazapiWebhook(
       firstString(body.externalEventId),
     leadId: firstString(body.leadId),
     phone,
-    phoneHash: firstString(body.phoneHash) ?? hashPhone(phone),
+    phoneHash: firstString(body.phoneHash) ?? hashPhoneIdentity(phone),
     contactName: getContactName(body),
     messageText: getMessageText(body),
     labels: getLabels(body),
@@ -235,18 +235,4 @@ function labelToString(label: unknown): string | undefined {
   }
 
   return undefined;
-}
-
-function normalizePhone(phone?: string): string | undefined {
-  const digits = phone?.replace(/\D/g, "");
-
-  return digits || undefined;
-}
-
-function hashPhone(phone?: string): string | undefined {
-  const normalized = normalizePhone(phone);
-
-  return normalized
-    ? createHash("sha256").update(normalized).digest("hex")
-    : undefined;
 }

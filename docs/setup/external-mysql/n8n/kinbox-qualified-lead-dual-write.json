@@ -1,5 +1,5 @@
 {
-  "name": "Etapa 3 - [Kinbox] Lead Qualificado - dual-write WppTrack",
+  "name": "Etapa 3 - [Kinbox] Lead Qualificado - WppTrack - lead validado",
   "nodes": [
     {
       "parameters": {
@@ -316,7 +316,7 @@
     },
     {
       "parameters": {
-        "content": "# Dual-write WppTrack\n\n1. O evento append-only e salvo antes do envio para a Meta.\n2. O tipo canonico e sempre qualified_lead.\n3. Repeticoes incrementam duplicate_count sem criar outro evento.\n4. Mantenha o envio Meta atual durante a reconciliacao em modo sombra.",
+        "content": "# Dual-write WppTrack\n\n1. O evento append-only e salvo antes do envio para a Meta.\n2. Sem correspondencia em whatsapp_anuncio_barbieri, nenhum evento e gravado.\n3. Telefone e atribuicao sempre vem da linha encontrada no banco.\n4. Repeticoes incrementam duplicate_count sem criar outro evento.\n5. Mantenha o envio Meta atual durante a reconciliacao em modo sombra.",
         "height": 288,
         "width": 512
       },
@@ -332,9 +332,9 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO wpptrack_tracking_events (\n  dedupe_key,\n  provider,\n  event_type,\n  source_event_name,\n  external_lead_id,\n  phone,\n  occurred_at,\n  event_local_date,\n  ad_id,\n  ctwa_clid,\n  source_url\n) VALUES (\n  CONCAT('kinbox:qualified:', $1),\n  'kinbox_mysql',\n  'qualified_lead',\n  NULLIF($2, ''),\n  NULLIF($3, ''),\n  $1,\n  UTC_TIMESTAMP(3),\n  $4,\n  NULLIF($5, ''),\n  NULLIF($6, ''),\n  NULLIF($7, '')\n)\nON DUPLICATE KEY UPDATE\n  duplicate_count = duplicate_count + 1,\n  updated_at = CURRENT_TIMESTAMP(3);",
+        "query": "INSERT INTO wpptrack_tracking_events (\n  dedupe_key,\n  provider,\n  event_type,\n  source_event_name,\n  external_lead_id,\n  phone,\n  occurred_at,\n  event_local_date,\n  ad_id,\n  ctwa_clid,\n  source_url\n)\nSELECT\n  CONCAT('kinbox:qualified:', wa.telefone),\n  'kinbox_mysql',\n  'qualified_lead',\n  NULLIF($2, ''),\n  COALESCE(NULLIF(wa.lid, ''), NULLIF(wa.id_transacao, ''), wa.telefone),\n  wa.telefone,\n  UTC_TIMESTAMP(3),\n  $3,\n  NULLIF(wa.source_id, ''),\n  NULLIF(wa.ctwaclid, ''),\n  NULLIF(wa.source_url, '')\nFROM whatsapp_anuncio_barbieri wa\nWHERE wa.telefone = $1\nLIMIT 1\nON DUPLICATE KEY UPDATE\n  duplicate_count = duplicate_count + 1,\n  updated_at = CURRENT_TIMESTAMP(3);",
         "options": {
-          "queryReplacement": "={{ [\n  $node[\"Edit Fields\"].json[\"telefone\"],\n  $node[\"Webhook\"].json[\"body\"][\"event_name\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"lead_id\"] || $node[\"Webhook\"].json[\"body\"][\"external_id\"] || $node[\"Edit Fields\"].json[\"telefone\"],\n  $now.setZone(\"America/Sao_Paulo\").toFormat(\"yyyy-MM-dd\"),\n  $node[\"Webhook\"].json[\"body\"][\"source_id\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"ctwa_clid\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"source_url\"] || \"\"\n] }}"
+          "queryReplacement": "={{ [\n  $node[\"Edit Fields\"].json[\"telefone\"],\n  $node[\"Webhook\"].json[\"body\"][\"event_name\"] || \"\",\n  $now.setZone(\"America/Sao_Paulo\").toFormat(\"yyyy-MM-dd\")\n] }}"
         }
       },
       "type": "n8n-nodes-base.mySql",

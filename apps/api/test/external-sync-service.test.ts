@@ -112,6 +112,10 @@ describe("ExternalSyncService", () => {
       readLeadsPage: vi.fn()
     };
     const ingestion = {
+      reconcileLegacyOrphanPromotions: vi.fn(async () => ({
+        reconciled: 0,
+        rejected: 0
+      })),
       ingest: vi.fn(async () => ({
         externalRowId: "42",
         status: "imported" as const,
@@ -152,6 +156,12 @@ describe("ExternalSyncService", () => {
       })
     );
     expect(adapter.readLeadsPage).not.toHaveBeenCalled();
+    expect(ingestion.reconcileLegacyOrphanPromotions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "connector_1",
+        workspaceId: "workspace_1"
+      })
+    );
     expect(prisma.metaAd.findMany).toHaveBeenCalledWith({
       where: {
         workspaceId: "workspace_1",

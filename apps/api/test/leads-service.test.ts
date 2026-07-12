@@ -282,6 +282,19 @@ describe("leads service", () => {
     );
   });
 
+  it("does not create a lead from an invalid short numeric identifier", async () => {
+    const { prisma, service } = createHarness();
+
+    const result = await service.upsertFromWhatsappWebhook({
+      workspaceId: "workspace_1",
+      phone: "20260712",
+      source: "external_mysql",
+    });
+
+    expect(result).toBeNull();
+    expect(prisma.lead.upsert).not.toHaveBeenCalled();
+  });
+
   it("stores CTWA fields on create and preserves them when later webhooks omit CTWA", async () => {
     const { prisma, service } = createHarness();
 

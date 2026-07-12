@@ -1,5 +1,5 @@
 {
-  "name": "Etapa 4 - [Kinbox] Purchase - dual-write WppTrack",
+  "name": "Etapa 4 - [Kinbox] Purchase - WppTrack - lead validado",
   "nodes": [
     {
       "parameters": {
@@ -331,9 +331,9 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO wpptrack_tracking_events (\n  dedupe_key,\n  provider,\n  event_type,\n  source_event_name,\n  external_lead_id,\n  phone,\n  occurred_at,\n  event_local_date,\n  ad_id,\n  ctwa_clid,\n  source_url,\n  value_cents,\n  currency,\n  value_source\n) VALUES (\n  CONCAT('kinbox:purchase:', $1, ':', $4),\n  'kinbox_mysql',\n  'purchase',\n  NULLIF($2, ''),\n  NULLIF($3, ''),\n  $1,\n  UTC_TIMESTAMP(3),\n  $4,\n  NULLIF($5, ''),\n  NULLIF($6, ''),\n  NULLIF($7, ''),\n  NULL,\n  'BRL',\n  NULL\n)\nON DUPLICATE KEY UPDATE\n  duplicate_count = duplicate_count + 1,\n  updated_at = CURRENT_TIMESTAMP(3);",
+        "query": "INSERT INTO wpptrack_tracking_events (\n  dedupe_key,\n  provider,\n  event_type,\n  source_event_name,\n  external_lead_id,\n  phone,\n  occurred_at,\n  event_local_date,\n  ad_id,\n  ctwa_clid,\n  source_url,\n  value_cents,\n  currency,\n  value_source\n)\nSELECT\n  CONCAT('kinbox:purchase:', wa.telefone, ':', $3),\n  'kinbox_mysql',\n  'purchase',\n  NULLIF($2, ''),\n  COALESCE(NULLIF(wa.lid, ''), NULLIF(wa.id_transacao, ''), wa.telefone),\n  wa.telefone,\n  UTC_TIMESTAMP(3),\n  $3,\n  NULLIF(wa.source_id, ''),\n  NULLIF(wa.ctwaclid, ''),\n  NULLIF(wa.source_url, ''),\n  NULL,\n  'BRL',\n  NULL\nFROM whatsapp_anuncio_barbieri wa\nWHERE wa.telefone = $1\nLIMIT 1\nON DUPLICATE KEY UPDATE\n  duplicate_count = duplicate_count + 1,\n  updated_at = CURRENT_TIMESTAMP(3);",
         "options": {
-          "queryReplacement": "={{ [\n  $node[\"Edit Fields\"].json[\"telefone\"],\n  $node[\"Webhook\"].json[\"body\"][\"event_name\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"lead_id\"] || $node[\"Webhook\"].json[\"body\"][\"external_id\"] || $node[\"Edit Fields\"].json[\"telefone\"],\n  $node[\"Edit Fields\"].json[\"data_compra\"],\n  $node[\"Webhook\"].json[\"body\"][\"source_id\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"ctwa_clid\"] || \"\",\n  $node[\"Webhook\"].json[\"body\"][\"source_url\"] || \"\"\n] }}"
+          "queryReplacement": "={{ [\n  $node[\"Edit Fields\"].json[\"telefone\"],\n  $node[\"Webhook\"].json[\"body\"][\"event_name\"] || \"\",\n  $node[\"Edit Fields\"].json[\"data_compra\"]\n] }}"
         }
       },
       "type": "n8n-nodes-base.mySql",
@@ -352,7 +352,7 @@
     },
     {
       "parameters": {
-        "content": "# Dual-write WppTrack\n\n1. O Purchase e salvo antes do envio para a Meta.\n2. A chave Kinbox aceita uma compra por telefone e dia local.\n3. O ledger nao inventa valor real; o WppTrack aplica o ticket configurado.\n4. O envio Meta legado permanece ativo durante a reconciliacao.",
+        "content": "# Dual-write WppTrack\n\n1. O Purchase e salvo antes do envio para a Meta.\n2. Sem correspondencia em whatsapp_anuncio_barbieri, nenhum evento e gravado.\n3. Telefone e atribuicao sempre vem da linha encontrada no banco.\n4. A chave Kinbox aceita uma compra por telefone e dia local.\n5. O ledger nao inventa valor real; o WppTrack aplica o ticket configurado.\n6. O envio Meta legado permanece ativo durante a reconciliacao.",
         "height": 304,
         "width": 528
       },

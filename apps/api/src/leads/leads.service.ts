@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type {
   LeadDetailDto,
@@ -8,6 +7,10 @@ import type {
   LeadStatusDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import {
+  hashPhoneIdentity,
+  normalizePhoneIdentity,
+} from "../common/phone/phone-identity";
 
 type LeadRecord = {
   id: string;
@@ -405,9 +408,12 @@ export class LeadsService {
   async upsertFromWhatsappWebhook(
     input: UpsertWhatsappLeadInput,
   ): Promise<{ id: string } | null> {
-    const phoneHash = input.phoneHash ?? this.hashPhone(input.phone);
+    const normalizedPhone = input.phone
+      ? normalizePhoneIdentity(input.phone)
+      : undefined;
+    const phoneHash = input.phoneHash ?? hashPhoneIdentity(input.phone);
 
-    if (!phoneHash) {
+    if (!phoneHash || (input.phone && !normalizedPhone)) {
       return null;
     }
 
@@ -534,20 +540,10 @@ export class LeadsService {
     return lead.firstMessageAt ? "LeadSubmitted" : null;
   }
 
-  private hashPhone(phone?: string): string | undefined {
-    const normalized = this.normalizePhone(phone);
-
-    return normalized
-      ? createHash("sha256").update(normalized).digest("hex")
-      : undefined;
-  }
-
   private phoneHashForSearch(search?: string): string | undefined {
-    const normalized = this.normalizePhone(search);
+    const normalized = normalizePhoneIdentity(search);
 
-    return normalized && normalized.length >= 8
-      ? createHash("sha256").update(normalized).digest("hex")
-      : undefined;
+    return normalized ? hashPhoneIdentity(normalized) : undefined;
   }
 
   private formatPhone(phone?: string): string | undefined {
@@ -570,9 +566,7 @@ export class LeadsService {
   }
 
   private normalizePhone(phone?: string): string | undefined {
-    const digits = phone?.replace(/\D/g, "");
-
-    return digits || undefined;
+    return normalizePhoneIdentity(phone);
   }
 
   private normalizeLabels(labels?: string[]): string[] | undefined {

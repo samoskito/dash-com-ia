@@ -44,7 +44,29 @@ function createHarness(overrides?: {
 }) {
   const prisma = {
     externalIngestionRecord: {
-      findUnique: vi.fn(async () => null),
+      findUnique: vi.fn(
+        async (): Promise<{
+          id: string;
+          status: string;
+          leadId: string | null;
+          conversionEventLogId: string | null;
+          duplicateCount: number;
+          errorCode: string | null;
+        } | null> => null,
+      ),
+      findFirst: vi.fn(
+        async (): Promise<{ leadId: string | null } | null> => null,
+      ),
+      findMany: vi.fn(
+        async (): Promise<
+          Array<{
+            id: string;
+            eventType: string;
+            conversionEventLogId: string | null;
+            summaryPayload: unknown;
+          }>
+        > => [],
+      ),
       create: vi.fn(async () => ({ id: "ingestion_1" })),
       update: vi.fn(async () => ({})),
       upsert: vi.fn(async () => ({})),
@@ -58,7 +80,22 @@ function createHarness(overrides?: {
         adId: "120012345678",
         ctwaClid: "ctwa_1",
       })),
+      findFirst: vi.fn(async () => ({
+        id: "lead_1",
+        phoneHash: "phone_hash_1",
+        campaignId: null,
+        adSetId: null,
+        adId: "120012345678",
+        ctwaClid: "ctwa_1",
+      })),
+      findMany: vi.fn(async (): Promise<Array<{ id: string }>> => []),
       update: vi.fn(async () => ({})),
+      updateMany: vi.fn(async () => ({ count: 1 })),
+      delete: vi.fn(async () => ({})),
+    },
+    conversionEventLog: {
+      update: vi.fn(async () => ({})),
+      updateMany: vi.fn(async () => ({ count: 0 })),
     },
   };
   const leadsService = {
@@ -112,6 +149,9 @@ describe("ExternalEventIngestionService", () => {
     });
     expect(harness.conversionQueue.enqueueSend).not.toHaveBeenCalled();
     expect(
+      harness.leadsService.upsertFromWhatsappWebhook,
+    ).not.toHaveBeenCalled();
+    expect(
       harness.conversionEventsService.recordExternalConversion,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -121,6 +161,182 @@ describe("ExternalEventIngestionService", () => {
         currency: "BRL",
       }),
     );
+  });
+
+  it("rejects a downstream event that does not match an existing lead", async () => {
+    const harness = createHarness();
+    const result = await harness.service.ingest(harness.connector, {
+      ...row,
+      externalRowId: "102",
+      dedupeKey: "kinbox:qualified:20260712",
+      eventType: "qualified_lead",
+      externalLeadId: null,
+      phone: "20260712",
+    });
+
+    expect(result).toMatchObject({
+      status: "rejected",
+      leadId: null,
+      conversionEventLogId: null,
+      queued: false,
+      errorCode: "ExternalLeadNotMatched",
+    });
+    expect(
+      harness.leadsService.upsertFromWhatsappWebhook,
+    ).not.toHaveBeenCalled();
+    expect(
+      harness.conversionEventsService.recordExternalConversion,
+    ).not.toHaveBeenCalled();
+    expect(harness.prisma.externalIngestionRecord.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          status: "rejected",
+          errorCode: "ExternalLeadNotMatched",
+        }),
+      }),
+    );
+  });
+
+  it("matches a downstream event by the imported external lead id", async () => {
+    const harness = createHarness();
+    harness.prisma.externalIngestionRecord.findFirst.mockResolvedValueOnce({
+      leadId: "lead_1",
+    });
+
+    const result = await harness.service.ingest(harness.connector, {
+      ...row,
+      externalRowId: "103",
+      dedupeKey: "kinbox:qualified:30843618",
+      eventType: "qualified_lead",
+      phone: "30843618",
+    });
+
+    expect(result).toMatchObject({ status: "imported", leadId: "lead_1" });
+    expect(
+      harness.prisma.externalIngestionRecord.findFirst,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          stream: "leads",
+          summaryPayload: {
+            path: ["externalLeadId"],
+            equals: "30843618",
+          },
+        }),
+      }),
+    );
+    expect(
+      harness.leadsService.upsertFromWhatsappWebhook,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("retries an unmatched event after its lead becomes available", async () => {
+    const harness = createHarness();
+    harness.prisma.externalIngestionRecord.findUnique.mockResolvedValueOnce({
+      id: "ingestion_rejected",
+      status: "rejected",
+      leadId: null,
+      conversionEventLogId: null,
+      duplicateCount: 0,
+      errorCode: "ExternalLeadNotMatched",
+    });
+
+    const result = await harness.service.ingest(harness.connector, row);
+
+    expect(result).toMatchObject({ status: "imported", leadId: "lead_1" });
+    expect(
+      harness.prisma.externalIngestionRecord.create,
+    ).not.toHaveBeenCalled();
+    expect(harness.prisma.externalIngestionRecord.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "ingestion_rejected" },
+        data: expect.objectContaining({
+          status: "imported",
+          leadId: "lead_1",
+          conversionEventLogId: "conversion_1",
+          errorCode: null,
+        }),
+      }),
+    );
+  });
+
+  it("reassigns legacy orphan events to the imported lead and removes the bogus lead", async () => {
+    const harness = createHarness();
+    harness.prisma.lead.findMany.mockResolvedValueOnce([{ id: "lead_orphan" }]);
+    harness.prisma.externalIngestionRecord.findMany.mockResolvedValueOnce([
+      {
+        id: "ingestion_orphan",
+        eventType: "qualified_lead",
+        conversionEventLogId: "conversion_orphan",
+        summaryPayload: { externalLeadId: "30843618" },
+      },
+    ]);
+    harness.prisma.externalIngestionRecord.findFirst.mockResolvedValueOnce({
+      leadId: "lead_1",
+    });
+
+    const result = await harness.service.reconcileLegacyOrphanPromotions(
+      harness.connector,
+    );
+
+    expect(result).toEqual({ reconciled: 1, rejected: 0 });
+    expect(harness.prisma.externalIngestionRecord.update).toHaveBeenCalledWith({
+      where: { id: "ingestion_orphan" },
+      data: {
+        leadId: "lead_1",
+        errorCode: null,
+        errorMessage: null,
+      },
+    });
+    expect(harness.prisma.conversionEventLog.update).toHaveBeenCalledWith({
+      where: { id: "conversion_orphan" },
+      data: {
+        leadId: "lead_1",
+        phoneHash: "phone_hash_1",
+        customerIdentityKey: "phone_hash_1",
+      },
+    });
+    expect(harness.prisma.lead.delete).toHaveBeenCalledWith({
+      where: { id: "lead_orphan" },
+    });
+  });
+
+  it("skips legacy orphan events that have no imported lead match", async () => {
+    const harness = createHarness();
+    harness.prisma.lead.findMany.mockResolvedValueOnce([{ id: "lead_orphan" }]);
+    harness.prisma.externalIngestionRecord.findMany.mockResolvedValueOnce([
+      {
+        id: "ingestion_orphan",
+        eventType: "purchase",
+        conversionEventLogId: "conversion_orphan",
+        summaryPayload: { externalLeadId: "missing_lead" },
+      },
+    ]);
+
+    const result = await harness.service.reconcileLegacyOrphanPromotions(
+      harness.connector,
+    );
+
+    expect(result).toEqual({ reconciled: 0, rejected: 1 });
+    expect(harness.prisma.externalIngestionRecord.update).toHaveBeenCalledWith({
+      where: { id: "ingestion_orphan" },
+      data: expect.objectContaining({
+        status: "rejected",
+        leadId: null,
+        errorCode: "ExternalLeadNotMatched",
+      }),
+    });
+    expect(harness.prisma.conversionEventLog.update).toHaveBeenCalledWith({
+      where: { id: "conversion_orphan" },
+      data: expect.objectContaining({
+        status: "skipped",
+        leadId: null,
+        errorCode: "ExternalLeadNotMatched",
+      }),
+    });
+    expect(harness.prisma.lead.delete).toHaveBeenCalledWith({
+      where: { id: "lead_orphan" },
+    });
   });
 
   it("keeps a persisted event pending when the CAPI queue is temporarily unavailable", async () => {
