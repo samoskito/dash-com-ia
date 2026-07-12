@@ -148,6 +148,16 @@ export const metaReportingAccountSchema = z.object({
   active: z.boolean(),
   syncStatus: metaAssetSyncStatusSchema,
   lastSyncedAt: z.string().datetime().nullable(),
+  lastSyncSince: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .default(null),
+  lastSyncUntil: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .default(null),
   syncError: z.string().min(1).nullable()
 });
 

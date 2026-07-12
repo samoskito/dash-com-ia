@@ -824,6 +824,14 @@ describe("meta reporting service", () => {
     expect(prisma.metaReportingAccount.findMany).toHaveBeenCalledWith({
       where: { workspaceId: "workspace_1", active: true },
     });
+    expect(prisma.metaReportingAccount.update).toHaveBeenCalledWith({
+      where: { id: "reporting_1" },
+      data: expect.objectContaining({
+        syncStatus: "synced",
+        lastSyncSince: "2026-07-01",
+        lastSyncUntil: "2026-07-02",
+      }),
+    });
     expect(metaAdapter.listCampaigns).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
       adAccountId: "act_123",
@@ -1443,7 +1451,7 @@ describe("meta reporting service", () => {
     });
   });
 
-  it("paginates report entities before loading scoped metrics", async () => {
+  it("returns full-filter totals while paginating report entities", async () => {
     const { db, prisma, service } = createHarness();
 
     db.campaigns.push(
@@ -1474,10 +1482,14 @@ describe("meta reporting service", () => {
       totalItems: 3,
       totalPages: 3,
     });
+    expect(report.totals).toMatchObject({
+      spendCents: 30000,
+      metaConversationsStarted: 6,
+    });
     expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          campaignId: { in: ["cmp_2"] },
+          campaignId: { in: ["cmp_1", "cmp_2", "cmp_3"] },
         }),
       }),
     );
@@ -2176,7 +2188,7 @@ describe("meta reporting service", () => {
         workspaceId: "workspace_1",
         rangeLabel: "Ultimos 2 dias",
       }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       workspaceId: "workspace_1",
       rangeLabel: "Ultimos 2 dias",
       adSets: [
@@ -2257,7 +2269,7 @@ describe("meta reporting service", () => {
         workspaceId: "workspace_1",
         rangeLabel: "Ultimos 2 dias",
       }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       workspaceId: "workspace_1",
       rangeLabel: "Ultimos 2 dias",
       ads: [

@@ -292,14 +292,23 @@ export class ReportingController {
   }
 
   private defaultSince(): string {
-    const date = new Date();
+    const date = new Date(`${this.defaultUntil()}T12:00:00.000Z`);
     date.setUTCDate(date.getUTCDate() - 6);
 
     return date.toISOString().slice(0, 10);
   }
 
   private defaultUntil(): string {
-    return new Date().toISOString().slice(0, 10);
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone:
+        process.env.WPPTRACK_REPORT_TIMEZONE ?? "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const values = new Map(parts.map((part) => [part.type, part.value]));
+
+    return `${values.get("year")}-${values.get("month")}-${values.get("day")}`;
   }
 
   private parseReportPeriod(since?: string, until?: string): ReportPeriod {

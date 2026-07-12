@@ -648,4 +648,71 @@ describe("meta adapter oauth", () => {
       }
     ]);
   });
+
+  it("paginates campaign, ad set and ad insights through paging.next", async () => {
+    const requestedUrls: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      const level = url.searchParams.get("level") ?? "campaign";
+      const page = url.searchParams.get("after") === "page_2" ? 2 : 1;
+      requestedUrls.push(url.toString());
+      const node = {
+        campaign_id: `cmp_${page}`,
+        ...(level === "adset" || level === "ad"
+          ? { adset_id: `adset_${page}` }
+          : {}),
+        ...(level === "ad" ? { ad_id: `ad_${page}` } : {}),
+        spend: String(page * 10),
+        impressions: String(page * 100),
+        clicks: String(page * 5),
+        actions: []
+      };
+
+      return new Response(
+        JSON.stringify({
+          data: [node],
+          ...(page === 1
+            ? {
+                paging: {
+                  next: `https://graph.facebook.com/v25.0/act_123/insights?level=${level}&after=page_2`
+                }
+              }
+            : {})
+        }),
+        { status: 200 }
+      );
+    }) as unknown as typeof fetch;
+    const adapter = new MetaAdapter(
+      { META_GRAPH_API_VERSION: "v25.0" },
+      fetchMock
+    );
+    const input = {
+      accessToken: "EAAB-secret-token",
+      adAccountId: "act_123",
+      since: "2026-07-06",
+      until: "2026-07-12"
+    };
+
+    const [campaigns, adSets, ads] = await Promise.all([
+      adapter.listCampaignInsights(input),
+      adapter.listAdSetInsights(input),
+      adapter.listAdInsights(input)
+    ]);
+
+    expect(campaigns.map((item) => item.campaignId)).toEqual([
+      "cmp_1",
+      "cmp_2"
+    ]);
+    expect(adSets.map((item) => item.adSetId)).toEqual([
+      "adset_1",
+      "adset_2"
+    ]);
+    expect(ads.map((item) => item.adId)).toEqual(["ad_1", "ad_2"]);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(
+      requestedUrls
+        .filter((url) => !url.includes("after=page_2"))
+        .every((url) => url.includes("limit=100"))
+    ).toBe(true);
+  });
 });

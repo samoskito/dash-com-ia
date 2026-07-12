@@ -192,6 +192,8 @@ describe("meta assets service", () => {
         active: false,
         syncStatus: "pending",
         lastSyncedAt: null,
+        lastSyncSince: null,
+        lastSyncUntil: null,
         syncError: null
       }
     ]);
@@ -216,6 +218,8 @@ describe("meta assets service", () => {
         active: false,
         syncStatus: "pending",
         lastSyncedAt: null,
+        lastSyncSince: null,
+        lastSyncUntil: null,
         syncError: null
       }
     ]);

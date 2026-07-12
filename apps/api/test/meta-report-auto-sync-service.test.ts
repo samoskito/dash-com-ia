@@ -35,7 +35,7 @@ describe("meta report auto sync service", () => {
       workspacesFound: 2,
       enqueued: 2,
       failed: 0,
-      since: "2026-06-25",
+      since: "2026-06-26",
       until: "2026-07-09"
     });
 
@@ -60,12 +60,12 @@ describe("meta report auto sync service", () => {
     });
     expect(queueService.enqueueSync).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
-      since: "2026-06-25",
+      since: "2026-06-26",
       until: "2026-07-09"
     });
     expect(queueService.enqueueSync).toHaveBeenCalledWith({
       workspaceId: "workspace_2",
-      since: "2026-06-25",
+      since: "2026-06-26",
       until: "2026-07-09"
     });
   });
@@ -127,7 +127,7 @@ describe("meta report auto sync service", () => {
       workspacesFound: 2,
       enqueued: 1,
       failed: 1,
-      since: "2026-07-02",
+      since: "2026-07-03",
       until: "2026-07-09"
     });
   });

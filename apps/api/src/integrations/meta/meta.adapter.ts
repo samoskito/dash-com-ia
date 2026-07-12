@@ -579,28 +579,13 @@ export class MetaAdapter implements IntegrationAdapter {
     since: string;
     until: string;
   }): Promise<MetaCampaignInsight[]> {
-    const params = new URLSearchParams({
+    const payload = await this.listInsights({
+      ...input,
       fields: "campaign_id,spend,impressions,clicks,actions",
-      level: "campaign",
-      time_range: JSON.stringify({
-        since: input.since,
-        until: input.until
-      }),
-      access_token: input.accessToken
+      level: "campaign"
     });
-    const response = await this.fetchImpl(
-      `https://graph.facebook.com/${this.getGraphApiVersion()}/${input.adAccountId}/insights?${params.toString()}`
-    );
-    const payload = (await response.json().catch(() => ({}))) as MetaGraphListResponse<MetaInsightGraphNode>;
 
-    if (!response.ok) {
-      throw new Error(
-        this.asString(payload.error?.message) ??
-          `Meta Graph HTTP ${response.status}`
-      );
-    }
-
-    return (Array.isArray(payload.data) ? payload.data : [])
+    return payload
       .map((item) => ({
         campaignId: this.asString(item.campaign_id),
         spendCents: this.asMoneyCents(item.spend),
@@ -757,25 +742,20 @@ export class MetaAdapter implements IntegrationAdapter {
     const params = new URLSearchParams({
       fields: input.fields,
       level: input.level,
+      limit: "100",
       time_range: JSON.stringify({
         since: input.since,
         until: input.until
       }),
       access_token: input.accessToken
     });
-    const response = await this.fetchImpl(
-      `https://graph.facebook.com/${this.getGraphApiVersion()}/${input.adAccountId}/insights?${params.toString()}`
+    const initialUrl =
+      `https://graph.facebook.com/${this.getGraphApiVersion()}/${input.adAccountId}/insights?${params.toString()}`;
+
+    return this.getGraphPages<MetaInsightGraphNode>(
+      initialUrl,
+      `/${input.adAccountId}/insights?level=${input.level}`
     );
-    const payload = (await response.json().catch(() => ({}))) as MetaGraphListResponse<MetaInsightGraphNode>;
-
-    if (!response.ok) {
-      throw new Error(
-        this.asString(payload.error?.message) ??
-          `Meta Graph HTTP ${response.status}`
-      );
-    }
-
-    return Array.isArray(payload.data) ? payload.data : [];
   }
 
   private async getGraphList<T>(
@@ -783,18 +763,28 @@ export class MetaAdapter implements IntegrationAdapter {
     fields: string,
     accessToken: string
   ): Promise<T[]> {
-    const startedAt = Date.now();
     const params = new URLSearchParams({
       fields,
+      limit: "100",
       access_token: accessToken
     });
-    let nextUrl: string | null =
+    const initialUrl =
       `https://graph.facebook.com/${this.getGraphApiVersion()}${path}?${params.toString()}`;
+
+    return this.getGraphPages<T>(initialUrl, path);
+  }
+
+  private async getGraphPages<T>(
+    initialUrl: string,
+    operation: string
+  ): Promise<T[]> {
+    const startedAt = Date.now();
+    let nextUrl: string | null = initialUrl;
     const data: T[] = [];
     let pageCount = 0;
 
     try {
-      for (let page = 0; nextUrl && page < 25; page += 1) {
+      for (let page = 0; nextUrl && page < 100; page += 1) {
         pageCount = page + 1;
         const response = await this.fetchImpl(nextUrl);
         const payload = (await response.json().catch(() => ({}))) as MetaGraphListResponse<T>;
@@ -813,9 +803,20 @@ export class MetaAdapter implements IntegrationAdapter {
         nextUrl = this.asString(payload.paging?.next);
       }
 
+      if (nextUrl) {
+        throw new Error(
+          `Meta Graph pagination exceeded 100 pages for ${operation}`
+        );
+      }
+
       return data;
     } finally {
-      this.logSlowGraphList(path, Date.now() - startedAt, pageCount, data.length);
+      this.logSlowGraphList(
+        operation,
+        Date.now() - startedAt,
+        pageCount,
+        data.length
+      );
     }
   }
 

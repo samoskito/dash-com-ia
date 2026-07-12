@@ -219,14 +219,27 @@ export class MetaReportAutoSyncService
   }
 
   private period(lookbackDays: number) {
-    const until = this.clock.now();
-    const since = new Date(until);
-    since.setUTCDate(since.getUTCDate() - lookbackDays);
+    const untilDate = this.dateOnlyInReportTimezone(this.clock.now());
+    const since = new Date(`${untilDate}T12:00:00.000Z`);
+    since.setUTCDate(since.getUTCDate() - (lookbackDays - 1));
 
     return {
       since: this.dateOnly(since),
-      until: this.dateOnly(until)
+      until: untilDate
     };
+  }
+
+  private dateOnlyInReportTimezone(date: Date): string {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone:
+        process.env.WPPTRACK_REPORT_TIMEZONE ?? "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date);
+    const values = new Map(parts.map((part) => [part.type, part.value]));
+
+    return `${values.get("year")}-${values.get("month")}-${values.get("day")}`;
   }
 
   private dateOnly(date: Date): string {

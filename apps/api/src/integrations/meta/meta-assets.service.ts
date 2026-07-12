@@ -41,6 +41,8 @@ type MetaReportingAccountRecord = {
   active: boolean;
   syncStatus: string;
   lastSyncedAt: Date | null;
+  lastSyncSince: string | null;
+  lastSyncUntil: string | null;
   syncError: string | null;
 };
 
@@ -255,6 +257,8 @@ export class MetaAssetsService {
       active: record.active,
       syncStatus: this.toSyncStatus(record.syncStatus),
       lastSyncedAt: record.lastSyncedAt?.toISOString() ?? null,
+      lastSyncSince: record.lastSyncSince ?? null,
+      lastSyncUntil: record.lastSyncUntil ?? null,
       syncError: record.syncError
     };
   }

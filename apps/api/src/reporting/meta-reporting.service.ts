@@ -279,6 +279,8 @@ export class MetaReportingService {
           data: {
             syncStatus: "synced",
             lastSyncedAt: new Date(),
+            lastSyncSince: input.since,
+            lastSyncUntil: input.until,
             syncError: null,
           },
         });
@@ -761,7 +763,9 @@ export class MetaReportingService {
       whatsappAds,
     );
     const paginated = this.paginateRecords(filteredCampaigns, input);
-    const campaignIds = paginated.items.map((campaign) => campaign.campaignId);
+    const campaignIds = filteredCampaigns.map(
+      (campaign) => campaign.campaignId,
+    );
     const [conversionLogs, leads, workspaceConversionLogs, workspaceLeads] =
       await Promise.all([
         this.getMetricConversionEvents(input, { campaignIds }),
@@ -802,6 +806,14 @@ export class MetaReportingService {
       },
       { spendCents: 0, metaConversationsStarted: 0 },
     );
+    const totals = this.calculateMetrics({
+      configuredEvents,
+      spendCents: workspaceMeta.spendCents,
+      metaConversationsStarted: workspaceMeta.metaConversationsStarted,
+      events: conversionLogs,
+      leads,
+      scope: {},
+    });
     const summary: CampaignReportRowDto | undefined = input.includeSummary
       ? {
           id: "workspace_summary",
@@ -830,8 +842,11 @@ export class MetaReportingService {
     return {
       workspaceId: input.workspaceId,
       rangeLabel: input.rangeLabel,
+      since: input.since ?? null,
+      until: input.until ?? null,
       campaigns: rows,
       ...(summary ? { summary } : {}),
+      totals,
       ...(paginated.pagination ? { pagination: paginated.pagination } : {}),
     };
   }
@@ -1182,7 +1197,7 @@ export class MetaReportingService {
       adsForNameFilter,
     );
     const paginated = this.paginateRecords(filteredAdSets, input);
-    const adSetIds = paginated.items.map((adSet) => adSet.adSetId);
+    const adSetIds = filteredAdSets.map((adSet) => adSet.adSetId);
     const [conversionLogs, leads] = await Promise.all([
       this.getMetricConversionEvents(input, { adSetIds }),
       this.getLeads(input, { adSetIds }),
@@ -1202,6 +1217,22 @@ export class MetaReportingService {
         leads: leadsByAdSet.get(adSet.adSetId) ?? [],
       }),
     );
+    const totalsMeta = filteredAdSets.reduce(
+      (totals, adSet) => ({
+        spendCents: totals.spendCents + adSet.spendCents,
+        metaConversationsStarted:
+          totals.metaConversationsStarted + adSet.metaConversationsStarted,
+      }),
+      { spendCents: 0, metaConversationsStarted: 0 },
+    );
+    const totals = this.calculateMetrics({
+      configuredEvents,
+      spendCents: totalsMeta.spendCents,
+      metaConversationsStarted: totalsMeta.metaConversationsStarted,
+      events: conversionLogs,
+      leads,
+      scope: {},
+    });
 
     this.logReportRead("adsets", startedAt, {
       returned: rows.length,
@@ -1211,7 +1242,10 @@ export class MetaReportingService {
     return {
       workspaceId: input.workspaceId,
       rangeLabel: input.rangeLabel,
+      since: input.since ?? null,
+      until: input.until ?? null,
       adSets: rows,
+      totals,
       ...(paginated.pagination ? { pagination: paginated.pagination } : {}),
     };
   }
@@ -1258,7 +1292,7 @@ export class MetaReportingService {
       adSetNames,
     );
     const paginated = this.paginateRecords(filteredAds, input);
-    const adIds = paginated.items.map((ad) => ad.adId);
+    const adIds = filteredAds.map((ad) => ad.adId);
     const [conversionLogs, leads] = await Promise.all([
       this.getMetricConversionEvents(input, { adIds }),
       this.getLeads(input, { adIds }),
@@ -1276,6 +1310,22 @@ export class MetaReportingService {
         leads: leadsByAd.get(ad.adId) ?? [],
       }),
     );
+    const totalsMeta = filteredAds.reduce(
+      (totals, ad) => ({
+        spendCents: totals.spendCents + ad.spendCents,
+        metaConversationsStarted:
+          totals.metaConversationsStarted + ad.metaConversationsStarted,
+      }),
+      { spendCents: 0, metaConversationsStarted: 0 },
+    );
+    const totals = this.calculateMetrics({
+      configuredEvents,
+      spendCents: totalsMeta.spendCents,
+      metaConversationsStarted: totalsMeta.metaConversationsStarted,
+      events: conversionLogs,
+      leads,
+      scope: {},
+    });
 
     this.logReportRead("ads", startedAt, {
       returned: rows.length,
@@ -1285,7 +1335,10 @@ export class MetaReportingService {
     return {
       workspaceId: input.workspaceId,
       rangeLabel: input.rangeLabel,
+      since: input.since ?? null,
+      until: input.until ?? null,
       ads: rows,
+      totals,
       ...(paginated.pagination ? { pagination: paginated.pagination } : {}),
     };
   }

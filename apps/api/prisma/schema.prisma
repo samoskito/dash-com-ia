@@ -766,6 +766,8 @@ model MetaReportingAccount {
   active        Boolean             @default(true)
   syncStatus    MetaAssetSyncStatus @default(pending)
   lastSyncedAt  DateTime?
+  lastSyncSince String?
+  lastSyncUntil String?
   syncError     String?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt

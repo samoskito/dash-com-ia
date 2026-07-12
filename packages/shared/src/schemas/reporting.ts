@@ -5,6 +5,7 @@ import { conversionEventLogStatusSchema } from "./conversion-events";
 const moneyCentsSchema = z.number().int().nonnegative();
 const nonnegativeIntSchema = z.number().int().nonnegative();
 const nonnegativeRateSchema = z.number().nonnegative();
+const reportDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export const metaWhatsappClassificationSchema = z.enum([
   "auto_whatsapp",
@@ -86,11 +87,25 @@ export const campaignReportRowSchema = z.object({
   funnelSteps: z.array(reportFunnelStepSchema),
 });
 
+export const reportTotalsSchema = campaignReportRowSchema.omit({
+  id: true,
+  name: true,
+  status: true,
+  businessId: true,
+  businessName: true,
+  adAccountId: true,
+  adAccountName: true,
+  whatsappClassification: true,
+});
+
 export const reportOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
+  since: reportDateSchema.nullable().optional(),
+  until: reportDateSchema.nullable().optional(),
   campaigns: z.array(campaignReportRowSchema),
   summary: campaignReportRowSchema.optional(),
+  totals: reportTotalsSchema.optional(),
   pagination: reportPaginationSchema.optional(),
 });
 
@@ -110,7 +125,10 @@ export const adSetReportRowSchema = z.object({
 export const adSetReportOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
+  since: reportDateSchema.nullable().optional(),
+  until: reportDateSchema.nullable().optional(),
   adSets: z.array(adSetReportRowSchema),
+  totals: reportTotalsSchema.optional(),
   pagination: reportPaginationSchema.optional(),
 });
 
@@ -127,7 +145,10 @@ export const adReportRowSchema = z.object({
 export const adReportOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
+  since: reportDateSchema.nullable().optional(),
+  until: reportDateSchema.nullable().optional(),
   ads: z.array(adReportRowSchema),
+  totals: reportTotalsSchema.optional(),
   pagination: reportPaginationSchema.optional(),
 });
 
@@ -201,6 +222,7 @@ export const reportFiltersSchema = z.object({
 });
 
 export type CampaignReportRowDto = z.infer<typeof campaignReportRowSchema>;
+export type ReportTotalsDto = z.infer<typeof reportTotalsSchema>;
 export type ReportOverviewDto = z.infer<typeof reportOverviewSchema>;
 export type AdSetReportRowDto = z.infer<typeof adSetReportRowSchema>;
 export type AdSetReportOverviewDto = z.infer<typeof adSetReportOverviewSchema>;

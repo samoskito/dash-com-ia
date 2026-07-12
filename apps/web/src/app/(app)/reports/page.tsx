@@ -60,6 +60,9 @@ type MetaStructureSummary = {
   activeAccounts: number;
   lastSyncedAt: string | null;
 };
+type MetaSyncPeriodState =
+  | { kind: "none" | "missing" | "mixed" }
+  | { kind: "single"; since: string; until: string };
 type ReportEntityCopy = {
   title: string;
   singular: string;
@@ -788,6 +791,54 @@ function metaStructureSummary(
   };
 }
 
+function metaSyncPeriodState(
+  metaAssets: MetaAssetsDto | null,
+): MetaSyncPeriodState {
+  const accounts = (metaAssets?.reportingAccounts ?? []).filter(
+    (account) => account.active,
+  );
+
+  if (accounts.length === 0) {
+    return { kind: "none" };
+  }
+
+  const ranges = accounts
+    .map((account) =>
+      account.syncStatus === "synced" &&
+      account.lastSyncSince &&
+      account.lastSyncUntil
+        ? `${account.lastSyncSince}|${account.lastSyncUntil}`
+        : null,
+    )
+    .filter((value): value is string => Boolean(value));
+
+  if (ranges.length === 0) {
+    return { kind: "missing" };
+  }
+
+  const uniqueRanges = [...new Set(ranges)];
+
+  if (ranges.length !== accounts.length || uniqueRanges.length !== 1) {
+    return { kind: "mixed" };
+  }
+
+  const [since, until] = uniqueRanges[0].split("|");
+
+  return since && until
+    ? { kind: "single", since, until }
+    : { kind: "missing" };
+}
+
+function dateOnlyLabel(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+}
+
+function periodLabel(since: string, until: string): string {
+  return `${dateOnlyLabel(since)} a ${dateOnlyLabel(until)}`;
+}
+
 function metaStructureRows(
   metaStructure: MetaStructureReportDto | null,
 ): MetaStructureRow[] {
@@ -895,6 +946,7 @@ function syncDateLabel(value: string | null): string {
   return new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
+    timeZone: "America/Sao_Paulo",
   }).format(date);
 }
 
@@ -1009,28 +1061,34 @@ function PerformanceSummaryFooter({
   copy,
   pagination,
   rows,
+  totals,
 }: {
   copy: ReportEntityCopy;
   pagination?: ReportPaginationDto;
   rows: PerformanceRow[];
+  totals?: ReportTotals;
 }) {
-  const totals = reportTotals(rows);
+  const summaryTotals = totals ?? reportTotals(rows);
+  const hasFilteredTotals = Boolean(totals);
 
   return (
     <tfoot className="report-summary">
       <tr>
         <td className="performance-name-cell summary-name">
           <strong>
-            {pagination ? `Subtotal da pagina ${pagination.page}` : copy.title}
+            {hasFilteredTotals
+              ? "Total do filtro"
+              : pagination
+                ? `Subtotal da pagina ${pagination.page}`
+                : copy.title}
           </strong>
           <span>
-            {reportEntitySummary(rows, copy)}
-            {pagination && pagination.totalItems !== rows.length
-              ? ` de ${pagination.totalItems} no filtro`
-              : ""}
+            {pagination
+              ? `${rows.length} nesta pagina de ${countLabel(pagination.totalItems, copy.singular, copy.plural)} no filtro`
+              : reportEntitySummary(rows, copy)}
           </span>
         </td>
-        <SummaryMetricsCells totals={totals} />
+        <SummaryMetricsCells totals={summaryTotals} />
         <td>
           <span className="tag">Total</span>
         </td>
@@ -1147,8 +1205,8 @@ export default async function ReportsPage({
   searchParams?: Promise<ReportsSearchParams>;
 }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
-  const since = asStringParam(resolvedSearchParams.since);
-  const until = asStringParam(resolvedSearchParams.until);
+  const requestedSince = asStringParam(resolvedSearchParams.since);
+  const requestedUntil = asStringParam(resolvedSearchParams.until);
   const compareSince = asStringParam(resolvedSearchParams.compareSince);
   const compareUntil = asStringParam(resolvedSearchParams.compareUntil);
   const businessId = asStringParam(resolvedSearchParams.businessId);
@@ -1181,9 +1239,9 @@ export default async function ReportsPage({
   const diagnosticRequested =
     asStringParam(resolvedSearchParams.diagnostic) === "open";
   const pageNotice = reportsNotice(notice);
-  const reportFilters = {
-    since,
-    until,
+  const requestedReportFilters = {
+    since: requestedSince,
+    until: requestedUntil,
     compareSince,
     compareUntil,
     businessId,
@@ -1218,16 +1276,18 @@ export default async function ReportsPage({
     metaStructure,
   ] = await Promise.all([
     activeView === "campaigns"
-      ? getCampaignReports(reportFilters)
+      ? getCampaignReports(requestedReportFilters)
       : Promise.resolve(null),
     activeView === "adsets"
-      ? getAdSetReports(reportFilters)
+      ? getAdSetReports(requestedReportFilters)
       : Promise.resolve(null),
-    activeView === "ads" ? getAdReports(reportFilters) : Promise.resolve(null),
+    activeView === "ads"
+      ? getAdReports(requestedReportFilters)
+      : Promise.resolve(null),
     getCurrentWorkspaceResource(),
     hasComparison
       ? getCampaignReports({
-          ...reportFilters,
+          ...requestedReportFilters,
           since: compareSince,
           until: compareUntil,
           page: undefined,
@@ -1237,6 +1297,15 @@ export default async function ReportsPage({
     getMetaAssets(),
     shouldLoadMetaStructure ? getMetaStructureReport() : Promise.resolve(null),
   ]);
+  const loadedReport =
+    campaignReports?.report ?? adSetReports?.report ?? adReports?.report;
+  const since = requestedSince ?? loadedReport?.since ?? undefined;
+  const until = requestedUntil ?? loadedReport?.until ?? undefined;
+  const reportFilters = {
+    ...requestedReportFilters,
+    since,
+    until,
+  };
   const rows = campaignReports?.report.campaigns ?? [];
   const adSetRows = adSetReports?.report.adSets ?? [];
   const adRows = adReports?.report.ads ?? [];
@@ -1260,15 +1329,27 @@ export default async function ReportsPage({
     campaignReports?.report.pagination ??
     adSetReports?.report.pagination ??
     adReports?.report.pagination;
-  const currentTotals = reportTotals(activeRows);
+  const currentTotals: ReportTotals =
+    campaignReports?.report.totals ??
+    adSetReports?.report.totals ??
+    adReports?.report.totals ??
+    reportTotals(activeRows);
   const metaSummary = metaStructureSummary(metaStructure, metaAssets);
+  const metaSyncPeriod = metaSyncPeriodState(metaAssets);
+  const requestedPeriodLabel =
+    since && until ? periodLabel(since, until) : rangeLabel;
+  const metaPeriodMatchesReport =
+    metaSyncPeriod.kind === "single" &&
+    metaSyncPeriod.since === since &&
+    metaSyncPeriod.until === until;
   const rawMetaStructureRows = metaStructureRows(metaStructure);
   const filteredMetaStructureRows = filterMetaStructureRows(
     rawMetaStructureRows,
     structureFilters,
   );
   const comparisonTotals = comparisonReports
-    ? reportTotals(comparisonReports.report.campaigns)
+    ? (comparisonReports.report.totals ??
+      reportTotals(comparisonReports.report.campaigns))
     : null;
   const canSyncMetaReports = Boolean(
     currentWorkspaceResult.data?.permissions?.canManageIntegrations,
@@ -1321,6 +1402,27 @@ export default async function ReportsPage({
     adsets: adSetSummaryCopy,
     campaigns: campaignSummaryCopy,
   }[activeView];
+  const metaPeriodWarning: ReportNotice | null =
+    metaSyncPeriod.kind === "none" || metaPeriodMatchesReport
+      ? null
+      : metaSyncPeriod.kind === "single"
+        ? {
+            tone: "warn",
+            title: "Periodo Meta diferente do relatorio",
+            message: `O relatorio esta em ${requestedPeriodLabel}, mas o investimento salvo veio de ${periodLabel(metaSyncPeriod.since, metaSyncPeriod.until)}. Sincronize a Meta para alinhar os valores.`,
+          }
+        : metaSyncPeriod.kind === "mixed"
+          ? {
+              tone: "warn",
+              title: "Contas Meta com periodos diferentes",
+              message:
+                "Sincronize a Meta neste periodo para alinhar todas as contas antes de comparar os totais.",
+            }
+          : {
+              tone: "warn",
+              title: "Periodo da ultima sincronizacao ainda nao registrado",
+              message: `Sincronize a Meta para confirmar o investimento de ${requestedPeriodLabel}.`,
+            };
 
   return (
     <section className="page-stack">
@@ -1413,7 +1515,12 @@ export default async function ReportsPage({
                 : "Sem permissao para sincronizar Meta"}
             </span>
           )}
-          <span className="tag">{rangeLabel}</span>
+          <span className="tag">Periodo: {requestedPeriodLabel}</span>
+          {metaSyncPeriod.kind === "single" ? (
+            <span className="tag">
+              Meta: {periodLabel(metaSyncPeriod.since, metaSyncPeriod.until)}
+            </span>
+          ) : null}
           {reportState === "error" ? (
             <span className="tag">API indisponivel</span>
           ) : null}
@@ -1424,6 +1531,16 @@ export default async function ReportsPage({
         <div className={`feedback-banner ${pageNotice.tone}`} role="status">
           <strong>{pageNotice.title}</strong>
           <span>{pageNotice.message}</span>
+        </div>
+      ) : null}
+
+      {metaPeriodWarning ? (
+        <div
+          className={`feedback-banner ${metaPeriodWarning.tone}`}
+          role="status"
+        >
+          <strong>{metaPeriodWarning.title}</strong>
+          <span>{metaPeriodWarning.message}</span>
         </div>
       ) : null}
 
@@ -1608,6 +1725,7 @@ export default async function ReportsPage({
               copy={campaignSummaryCopy}
               pagination={pagination}
               rows={rows}
+              totals={campaignReports?.report.totals}
             />
           </table>
         </div>
@@ -1688,6 +1806,7 @@ export default async function ReportsPage({
                 copy={adSetSummaryCopy}
                 pagination={pagination}
                 rows={adSetRows}
+                totals={adSetReports?.report.totals}
               />
             </table>
           </div>
@@ -1772,6 +1891,7 @@ export default async function ReportsPage({
                 copy={adSummaryCopy}
                 pagination={pagination}
                 rows={adRows}
+                totals={adReports?.report.totals}
               />
             </table>
           </div>

@@ -38,6 +38,8 @@ function reportMetrics(overrides: Record<string, unknown> = {}) {
 const campaignReport = {
   workspaceId: "workspace_1",
   rangeLabel: "Ultimos 7 dias",
+  since: "2026-07-06",
+  until: "2026-07-12",
   campaigns: [
     {
       id: "cmp_1",
@@ -46,6 +48,7 @@ const campaignReport = {
       ...reportMetrics(),
     },
   ],
+  totals: reportMetrics({ spendCents: 355205 }),
   pagination: {
     page: 1,
     pageSize: 10,
@@ -57,6 +60,8 @@ const campaignReport = {
 const adSetReport = {
   workspaceId: "workspace_1",
   rangeLabel: "Ultimos 7 dias",
+  since: "2026-07-06",
+  until: "2026-07-12",
   adSets: [
     {
       id: "adset_1",
@@ -67,6 +72,7 @@ const adSetReport = {
       ...reportMetrics(),
     },
   ],
+  totals: reportMetrics({ spendCents: 355205 }),
   pagination: {
     page: 1,
     pageSize: 10,
@@ -78,6 +84,8 @@ const adSetReport = {
 const adReport = {
   workspaceId: "workspace_1",
   rangeLabel: "Ultimos 7 dias",
+  since: "2026-07-06",
+  until: "2026-07-12",
   ads: [
     {
       id: "ad_1",
@@ -90,6 +98,7 @@ const adReport = {
       ...reportMetrics(),
     },
   ],
+  totals: reportMetrics({ spendCents: 355205 }),
   pagination: {
     page: 1,
     pageSize: 10,
@@ -119,7 +128,24 @@ const metaAssets = {
   adAccounts: [],
   pixels: [],
   pages: [],
-  reportingAccounts: [],
+  reportingAccounts: [
+    {
+      id: "reporting_1",
+      workspaceId: "workspace_1",
+      businessId: "business_1",
+      businessName: "BM 1",
+      adAccountId: "act_123",
+      adAccountName: "Conta 1",
+      currency: "BRL",
+      timezoneName: "America/Sao_Paulo",
+      active: true,
+      syncStatus: "synced",
+      lastSyncedAt: "2026-07-12T10:00:00.000Z",
+      lastSyncSince: "2026-07-06",
+      lastSyncUntil: "2026-07-12",
+      syncError: null,
+    },
+  ],
   selection: {
     businessId: null,
     adAccountId: null,
@@ -238,8 +264,10 @@ describe("reports route", () => {
     const urls = fetchMock.mock.calls.map(([input]) => String(input));
 
     expect(html).toContain("Black Friday WhatsApp");
-    expect(html).toContain("Subtotal da pagina 1");
+    expect(html).toContain("Total do filtro");
     expect(html).toContain("21 campanhas");
+    expect(html).toContain("Periodo: 06/07/2026 a 12/07/2026");
+    expect(html).toContain("Meta: 06/07/2026 a 12/07/2026");
     expect(html).toContain("Proxima");
     expect(
       urls.some((url) => url.includes("/reports/campaigns?page=1&pageSize=10")),
