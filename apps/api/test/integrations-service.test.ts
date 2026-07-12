@@ -513,9 +513,17 @@ describe("integrations service", () => {
       },
       conversionEventLog: {
         count: vi.fn(async ({ where }: { where: { status?: string } }) =>
-          where.status === "sent" ? 2 : 6
-        )
-      }
+          where.status === "sent" ? 2 : 6,
+        ),
+      },
+      externalDataConnector: {
+        findFirst: vi.fn(async () => ({
+          name: "MySQL Barbieri",
+          provider: "kinbox_mysql",
+          lastSyncCompletedAt: new Date("2026-07-02T11:59:00.000Z"),
+          lastSyncStatus: "completed",
+        })),
+      },
     };
     const service = new IntegrationsService(
       new MetaAdapter({}),
@@ -534,6 +542,13 @@ describe("integrations service", () => {
     ).resolves.toEqual({
       workspaceId: "workspace_1",
       rangeLabel: "Ultimos 7 dias",
+      whatsappSource: {
+        mode: "external",
+        connectorName: "MySQL Barbieri",
+        provider: "kinbox_mysql",
+        lastSyncCompletedAt: "2026-07-02T11:59:00.000Z",
+        lastSyncStatus: "completed",
+      },
       stages: [
         {
           key: "ctwa",
@@ -574,5 +589,31 @@ describe("integrations service", () => {
         receivedAt: { gte: new Date("2026-06-25T12:00:00.000Z") }
       }
     });
+  });
+
+  it("returns a native WhatsApp source when there is no external connector", async () => {
+    const prisma = {
+      externalDataConnector: {
+        findFirst: vi.fn(async () => null),
+      },
+    };
+    const service = new IntegrationsService(
+      new MetaAdapter({}),
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {},
+      undefined,
+      prisma as never,
+    );
+
+    await expect(service.getWhatsappDataSource("workspace_1")).resolves.toEqual(
+      {
+        mode: "native",
+        connectorName: null,
+        provider: null,
+        lastSyncCompletedAt: null,
+        lastSyncStatus: null,
+      },
+    );
   });
 });

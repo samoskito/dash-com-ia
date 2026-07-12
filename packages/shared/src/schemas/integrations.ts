@@ -30,10 +30,19 @@ export const integrationPipelineStageSchema = z.object({
   detail: z.string().min(1)
 });
 
+export const whatsappDataSourceSchema = z.object({
+  mode: z.enum(["native", "external"]),
+  connectorName: z.string().min(1).nullable(),
+  provider: z.string().min(1).nullable(),
+  lastSyncCompletedAt: z.string().datetime().nullable(),
+  lastSyncStatus: z.string().min(1).nullable(),
+});
+
 export const integrationPipelineOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
-  stages: z.array(integrationPipelineStageSchema)
+  stages: z.array(integrationPipelineStageSchema),
+  whatsappSource: whatsappDataSourceSchema.optional(),
 });
 
 export const metaOAuthCallbackQuerySchema = z.object({
@@ -224,6 +233,7 @@ export type IntegrationPipelineStageDto = z.infer<
 export type IntegrationPipelineOverviewDto = z.infer<
   typeof integrationPipelineOverviewSchema
 >;
+export type WhatsappDataSourceDto = z.infer<typeof whatsappDataSourceSchema>;
 export type MetaOAuthCallbackQueryDto = z.infer<
   typeof metaOAuthCallbackQuerySchema
 >;

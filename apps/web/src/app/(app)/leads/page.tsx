@@ -19,6 +19,7 @@ type LeadFilters = {
   campaignId?: string;
   adSetId?: string;
   adId?: string;
+  attribution?: string;
   since?: string;
   until?: string;
   page: number;
@@ -62,6 +63,7 @@ function leadQuery(filters: LeadFilters, page = filters.page): string {
     campaignId: filters.campaignId,
     adSetId: filters.adSetId,
     adId: filters.adId,
+    attribution: filters.attribution,
     since: filters.since,
     until: filters.until,
   })) {
@@ -126,6 +128,7 @@ export default async function LeadsPage({
   const campaignId = asStringParam(resolvedSearchParams.campaignId);
   const adSetId = asStringParam(resolvedSearchParams.adSetId);
   const adId = asStringParam(resolvedSearchParams.adId);
+  const attribution = asStringParam(resolvedSearchParams.attribution);
   const since = asStringParam(resolvedSearchParams.since);
   const until = asStringParam(resolvedSearchParams.until);
   const page = positiveIntegerParam(
@@ -137,7 +140,7 @@ export default async function LeadsPage({
     100,
   );
   const hasReportFilter = Boolean(
-    campaignId || adSetId || adId || since || until,
+    campaignId || adSetId || adId || attribution || since || until,
   );
   const leadFilters: LeadFilters = {
     search,
@@ -147,6 +150,7 @@ export default async function LeadsPage({
     campaignId,
     adSetId,
     adId,
+    attribution,
     since,
     until,
     page,
@@ -218,6 +222,15 @@ export default async function LeadsPage({
           <option value="QualifiedLead">QualifiedLead</option>
           <option value="Purchase">Purchase</option>
         </select>
+        <select
+          className="filter-control"
+          name="attribution"
+          defaultValue={attribution ?? ""}
+        >
+          <option value="">Toda origem</option>
+          <option value="paid">Com atribuicao</option>
+          <option value="organic">Sem atribuicao</option>
+        </select>
         <input
           className="filter-control"
           name="label"
@@ -235,7 +248,11 @@ export default async function LeadsPage({
       </form>
       {hasReportFilter ? (
         <p className="muted">
-          Filtro do relatorio aplicado
+          {attribution === "organic"
+            ? "Exibindo conversas sem atribuicao"
+            : attribution === "paid"
+              ? "Exibindo conversas com atribuicao"
+              : "Filtro do relatorio aplicado"}
           {since && until ? `: ${since} ate ${until}` : "."}
         </p>
       ) : null}

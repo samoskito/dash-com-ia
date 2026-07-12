@@ -293,6 +293,46 @@ describe("reports route", () => {
     expect(urls.some((url) => /\/reports\/ads(?:\?|$)/.test(url))).toBe(false);
   });
 
+  it("navigates the hierarchy by names and opens Leads only from real conversations", async () => {
+    mockReportsApi();
+    const campaignHtml = await renderReports();
+    const adSetHtml = await renderReports({
+      view: "adsets",
+      campaignId: "cmp_1",
+    });
+
+    expect(campaignHtml).toContain(
+      "campaignId=cmp_1&amp;page=1&amp;pageSize=10&amp;view=adsets",
+    );
+    expect(campaignHtml).toContain(
+      'class="report-metric-link" href="/leads?campaignId=cmp_1',
+    );
+    expect(adSetHtml).toContain("Selecao atual");
+    expect(adSetHtml).toContain("Black Friday WhatsApp");
+    expect(adSetHtml).toContain(
+      "campaignId=cmp_1&amp;adSetId=adset_1&amp;page=1&amp;pageSize=10&amp;view=ads",
+    );
+  });
+
+  it("sends hierarchy selection to the selected report endpoint", async () => {
+    const fetchMock = mockReportsApi();
+
+    await renderReports({
+      view: "ads",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+    });
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+
+    expect(
+      urls.some((url) =>
+        url.includes(
+          "/reports/ads?campaignId=cmp_1&adSetId=adset_1&page=1&pageSize=10",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("preserves filters when navigating report pages", async () => {
     mockReportsApi();
     const html = await renderReports({

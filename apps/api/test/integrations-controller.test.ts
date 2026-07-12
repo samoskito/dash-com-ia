@@ -284,10 +284,17 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           key: "webhook",
           label: "Webhook",
           value: 4,
-          detail: "Webhooks Uazapi recebidos"
-        }
-      ]
-    }))
+          detail: "Webhooks Uazapi recebidos",
+        },
+      ],
+    })),
+    getWhatsappDataSource: vi.fn(async () => ({
+      mode: "external",
+      connectorName: "MySQL Barbieri",
+      provider: "kinbox_mysql",
+      lastSyncCompletedAt: "2026-07-12T03:41:52.000Z",
+      lastSyncStatus: "completed",
+    })),
   };
   const authService = {
     getSession: vi.fn(async () => ({
@@ -925,6 +932,26 @@ describe("integrations controller", () => {
       });
 
     expect(service.getPipelineOverview).toHaveBeenCalledWith("workspace_1");
+
+    await app.close();
+  });
+
+  it("returns the WhatsApp data source for the current workspace", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/whatsapp/source")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          mode: "external",
+          connectorName: "MySQL Barbieri",
+          lastSyncStatus: "completed",
+        });
+      });
+
+    expect(service.getWhatsappDataSource).toHaveBeenCalledWith("workspace_1");
 
     await app.close();
   });

@@ -384,6 +384,107 @@ describe("integrations route", () => {
     expect(html).not.toContain("aguardando dados");
   });
 
+  it("shows the external WhatsApp source without instance sales or false API errors", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      const json = (value: unknown, status = 200) =>
+        new Response(JSON.stringify(value), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+
+      if (url.endsWith("/integrations/health")) {
+        return json({
+          checkedAt: "2026-07-12T03:42:00.000Z",
+          providers: [],
+        });
+      }
+
+      if (url.endsWith("/integrations/meta/connection")) {
+        return json({
+          workspaceId: "workspace_1",
+          status: "not_connected",
+          tokenType: null,
+          scopes: [],
+          expiresAt: null,
+          connectedAt: null,
+          selectedBusinessId: null,
+          selectedAdAccountId: null,
+          selectedPixelId: null,
+          capiTokenConfigured: false,
+        });
+      }
+
+      if (url.endsWith("/integrations/meta/assets")) {
+        return json({
+          workspaceId: "workspace_1",
+          status: "not_connected",
+          businesses: [],
+          adAccounts: [],
+          pixels: [],
+          pages: [],
+          reportingAccounts: [],
+          selection: {
+            businessId: null,
+            adAccountId: null,
+            pixelId: null,
+          },
+          lastSyncedAt: null,
+          syncError: null,
+        });
+      }
+
+      if (url.endsWith("/integrations/pipeline")) {
+        return json({
+          workspaceId: "workspace_1",
+          rangeLabel: "Ultimos 7 dias",
+          whatsappSource: {
+            mode: "external",
+            connectorName: "MySQL Barbieri",
+            provider: "kinbox_mysql",
+            lastSyncCompletedAt: "2026-07-12T03:41:52.000Z",
+            lastSyncStatus: "completed",
+          },
+          stages: [],
+        });
+      }
+
+      if (url.endsWith("/workspaces/current")) {
+        return json({
+          id: "workspace_1",
+          name: "Barbieri",
+          slug: "barbieri",
+          role: "owner",
+          permissions: {
+            canInviteMembers: true,
+            canManageBilling: true,
+            canManageIntegrations: true,
+            canViewReports: true,
+          },
+        });
+      }
+
+      return json({ message: "native WhatsApp billing unavailable" }, 503);
+    });
+
+    const element = await IntegrationsPage({
+      searchParams: Promise.resolve({}),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Dados recebidos por integracao externa");
+    expect(html).toContain("MySQL Barbieri");
+    expect(html).toContain("Kinbox / MySQL");
+    expect(html).toContain("12/07/2026, 00:41");
+    expect(html).toContain("Sincronizado");
+    expect(html).toContain("API conectada");
+    expect(html).not.toContain("API indisponivel");
+    expect(html).not.toContain("Instancias conectadas");
+    expect(html).not.toContain("Adicionar instancia");
+    expect(html).not.toContain("Antecipada via Asaas");
+    expect(html).not.toContain("Nova instancia");
+  });
+
   it("filters Meta ad accounts and pixels by selected business", () => {
     const assets = {
       workspaceId: "workspace_1",

@@ -249,6 +249,58 @@ describe("conversion events service", () => {
     });
   });
 
+  it("promotes one historical purchase when the live ledger event arrives", async () => {
+    const { db, service } = createHarness();
+    const common = {
+      workspaceId: "workspace_1",
+      externalConnectorId: "connector_1",
+      sourceTrigger: "external_mysql:kinbox_mysql",
+      eventName: "Purchase" as const,
+      eventId:
+        "external:connector_1:kinbox_mysql:purchase:phone_hash_1:2026-07-12",
+      dedupeKey:
+        "external:connector_1:kinbox_mysql:purchase:phone_hash_1:2026-07-12",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      businessSource: "paid" as const,
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      valueCents: 400_000,
+      valueSource: "configured_average" as const,
+      currency: "BRL",
+    };
+
+    await service.recordExternalConversion({
+      ...common,
+      sourceEventId: "historical-lead:1:purchase",
+      eventOccurredAt: new Date("2026-07-12T03:00:00.000Z"),
+      deliveryStatus: "imported",
+    });
+    const result = await service.recordExternalConversion({
+      ...common,
+      sourceEventId: "ledger-purchase-42",
+      eventOccurredAt: new Date("2026-07-12T15:30:00.000Z"),
+    });
+
+    expect(result).toEqual({
+      conversionEventLogId: "conversion_1",
+      status: "created",
+      deliveryStatus: "ready_to_send",
+    });
+    expect(db.logs).toHaveLength(1);
+    expect(db.logs[0]).toMatchObject({
+      sourceEventId: "ledger-purchase-42",
+      status: "ready_to_send",
+      eventOccurredAt: new Date("2026-07-12T15:30:00.000Z"),
+      valueCents: 400_000,
+      valueSource: "configured_average",
+      businessSource: "paid",
+      errorCode: null,
+    });
+  });
+
   it("classifies purchases by first purchase per workspace customer identity", async () => {
     const { db, service } = createHarness();
     const firstOccurredAt = new Date("2026-07-02T10:15:00.000Z");

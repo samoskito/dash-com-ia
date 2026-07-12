@@ -16,6 +16,7 @@ export const leadListQuerySchema = z.object({
   campaignId: z.string().trim().min(1).max(120).optional(),
   adSetId: z.string().trim().min(1).max(120).optional(),
   adId: z.string().trim().min(1).max(120).optional(),
+  attribution: z.enum(["paid", "organic"]).optional(),
   since: z
     .string()
     .trim()

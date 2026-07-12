@@ -511,11 +511,35 @@ function statusLabel(status: string) {
     pending: "Aguardando",
     qr_required: "QR pendente",
     syncing: "Sincronizando",
+    completed: "Sincronizado",
+    failed: "Falha na sincronizacao",
     configured: "Configurado",
     needs_configuration: "Configurar",
   };
 
   return labels[status] ?? "Status desconhecido";
+}
+
+function externalProviderLabel(provider: string | null | undefined) {
+  const labels: Record<string, string> = {
+    kinbox_mysql: "Kinbox / MySQL",
+    external_mysql: "MySQL externo",
+    mysql: "MySQL externo",
+  };
+
+  return provider ? (labels[provider] ?? provider) : "Integracao externa";
+}
+
+function sourceSyncLabel(value: string | null | undefined) {
+  if (!value) {
+    return "Aguardando primeira sincronizacao";
+  }
+
+  return new Date(value).toLocaleString("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: displayTimeZone,
+  });
 }
 
 function formText(formData: FormData, key: string): string {
@@ -750,10 +774,13 @@ export default async function IntegrationsPage({
     getIntegrationPipeline(),
     getCurrentWorkspaceResource(),
   ]);
+  const usesExternalWhatsapp =
+    pipelineResult.data?.whatsappSource?.mode === "external";
   const health = healthResult.data;
   const whatsappInstances = whatsappInstancesResult.data;
-  const whatsappInstanceStatuses =
-    await getWhatsappInstanceStatuses(whatsappInstances);
+  const whatsappInstanceStatuses = usesExternalWhatsapp
+    ? {}
+    : await getWhatsappInstanceStatuses(whatsappInstances);
   const metaConnection = metaConnectionResult.data;
   const metaAssets = metaAssetsResult.data;
   const whatsappQuote = whatsappQuoteResult.data;
@@ -771,13 +798,17 @@ export default async function IntegrationsPage({
   );
   const hasIntegrationError = [
     healthResult.state,
-    whatsappInstancesResult.state,
     metaConnectionResult.state,
     metaAssetsResult.state,
-    whatsappQuoteResult.state,
-    billingSubscriptionResult.state,
     pipelineResult.state,
     workspaceResult.state,
+    ...(usesExternalWhatsapp
+      ? []
+      : [
+          whatsappInstancesResult.state,
+          whatsappQuoteResult.state,
+          billingSubscriptionResult.state,
+        ]),
   ].includes("error");
   const metaStatus = resolveMetaStatus(
     metaConnection?.status,
@@ -828,8 +859,9 @@ export default async function IntegrationsPage({
           <span className="eyebrow">Integracoes</span>
           <h1>WhatsApp, Meta e Pixel</h1>
           <p>
-            Uazapi primeiro, Meta OAuth desde o inicio e Cloud API preparada
-            para futuro.
+            {usesExternalWhatsapp
+              ? "Dados do WhatsApp via integracao externa e campanhas direto da Meta."
+              : "Uazapi primeiro, Meta OAuth desde o inicio e Cloud API preparada para futuro."}
           </p>
         </div>
         <div className="header-actions">
@@ -1036,7 +1068,48 @@ export default async function IntegrationsPage({
         </p>
       </div>
 
-      <div className="surface-panel">
+      {usesExternalWhatsapp ? (
+        <div className="surface-panel external-source-panel">
+          <div>
+            <span className="eyebrow">Fonte do WhatsApp</span>
+            <h2>Dados recebidos por integracao externa</h2>
+            <p className="muted">
+              Este workspace usa o conector externo como fonte de leads. Nao ha
+              instancia ou cobranca adicional para configurar aqui.
+            </p>
+          </div>
+          <div className="metric-grid compact">
+            <div className="metric-card">
+              <span className="micro-label">Conector</span>
+              <strong>
+                {pipeline?.whatsappSource?.connectorName ?? "Conector externo"}
+              </strong>
+            </div>
+            <div className="metric-card">
+              <span className="micro-label">Origem</span>
+              <strong>
+                {externalProviderLabel(pipeline?.whatsappSource?.provider)}
+              </strong>
+            </div>
+            <div className="metric-card">
+              <span className="micro-label">Ultima sincronizacao</span>
+              <strong>
+                {sourceSyncLabel(pipeline?.whatsappSource?.lastSyncCompletedAt)}
+              </strong>
+            </div>
+            <div className="metric-card">
+              <span className="micro-label">Status</span>
+              <strong>
+                {statusLabel(
+                  pipeline?.whatsappSource?.lastSyncStatus ?? "pending",
+                )}
+              </strong>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {!usesExternalWhatsapp && <div className="surface-panel">
         <span className="eyebrow">WhatsApp Business</span>
         <h2>Instancias conectadas</h2>
         <div className="metric-grid compact">
@@ -1068,7 +1141,9 @@ export default async function IntegrationsPage({
           </div>
           <div className="metric-card">
             <span className="micro-label">Plano</span>
-            <strong>{billingSubscription?.planName ?? "Por instancia"}</strong>
+            <strong>
+              {billingSubscription?.planName ?? "Por instancia"}
+            </strong>
           </div>
           <div className="metric-card">
             <span className="micro-label">Mensal estimado</span>
@@ -1104,8 +1179,8 @@ export default async function IntegrationsPage({
             </span>
             <p className="muted">
               Ao continuar, o backend vai gerar uma cobranca de{" "}
-              {money(whatsappQuote?.nextInstanceAmountCents)} no Asaas antes da
-              conexao.
+              {money(whatsappQuote?.nextInstanceAmountCents)} no Asaas antes
+              da conexao.
             </p>
           </>
         ) : (
@@ -1228,7 +1303,7 @@ export default async function IntegrationsPage({
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
       <div className="surface-panel">
         <span className="eyebrow">Pipeline de sinal</span>

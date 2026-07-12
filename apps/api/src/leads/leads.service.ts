@@ -120,6 +120,43 @@ export class LeadsService {
       ? await this.leadIdsForEvent(workspaceId, query.eventName)
       : null;
     const searchPhoneHash = this.phoneHashForSearch(query.search);
+    const attributionFilter =
+      query.attribution === "paid"
+        ? {
+            OR: [
+              { campaignId: { not: null } },
+              { adSetId: { not: null } },
+              { adId: { not: null } },
+              { ctwaClid: { not: null } },
+            ],
+          }
+        : query.attribution === "organic"
+          ? {
+              campaignId: null,
+              adSetId: null,
+              adId: null,
+              ctwaClid: null,
+            }
+          : null;
+    const searchFilter = query.search
+      ? {
+          OR: [
+            {
+              name: {
+                contains: query.search,
+                mode: "insensitive" as const,
+              },
+            },
+            {
+              phoneDisplay: {
+                contains: query.search,
+                mode: "insensitive" as const,
+              },
+            },
+            ...(searchPhoneHash ? [{ phoneHash: searchPhoneHash }] : []),
+          ],
+        }
+      : null;
 
     if (eventLeadIds && eventLeadIds.length === 0) {
       return {
@@ -137,22 +174,11 @@ export class LeadsService {
       ...(query.adSetId ? { adSetId: query.adSetId } : {}),
       ...(query.adId ? { adId: query.adId } : {}),
       ...(createdAtRange ? { createdAt: createdAtRange } : {}),
-      ...(query.search
+      ...(attributionFilter || searchFilter
         ? {
-            OR: [
-              {
-                name: {
-                  contains: query.search,
-                  mode: "insensitive" as const,
-                },
-              },
-              {
-                phoneDisplay: {
-                  contains: query.search,
-                  mode: "insensitive" as const,
-                },
-              },
-              ...(searchPhoneHash ? [{ phoneHash: searchPhoneHash }] : []),
+            AND: [
+              ...(attributionFilter ? [attributionFilter] : []),
+              ...(searchFilter ? [searchFilter] : []),
             ],
           }
         : {}),

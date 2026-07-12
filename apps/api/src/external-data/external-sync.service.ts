@@ -351,8 +351,9 @@ export class ExternalSyncService {
         data: { status: this.leadStatus(row) }
       });
 
+      await this.projectHistoricalMilestones(connector, row);
+
       if (projectionRefresh) {
-        await this.projectHistoricalMilestones(connector, row);
         return "imported";
       }
 

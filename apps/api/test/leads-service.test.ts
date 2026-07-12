@@ -235,7 +235,36 @@ describe("leads service", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           workspaceId: "workspace_1",
-          OR: expect.arrayContaining([{ phoneHash }]),
+          AND: [
+            expect.objectContaining({
+              OR: expect.arrayContaining([{ phoneHash }]),
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("filters conversations without campaign, ad or ctwa attribution", async () => {
+    const { prisma, service } = createHarness();
+
+    await service.listLeads("workspace_1", {
+      attribution: "organic",
+      limit: 25,
+    });
+
+    expect(prisma.lead.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: "workspace_1",
+          AND: [
+            {
+              campaignId: null,
+              adSetId: null,
+              adId: null,
+              ctwaClid: null,
+            },
+          ],
         }),
       }),
     );

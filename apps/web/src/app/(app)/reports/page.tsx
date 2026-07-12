@@ -104,7 +104,10 @@ type WorkspaceFetchResult = {
 };
 type ReportFilters = {
   adAccountId?: string;
+  adId?: string;
+  adSetId?: string;
   businessId?: string;
+  campaignId?: string;
   compareSince?: string;
   compareUntil?: string;
   nameContains?: string;
@@ -303,6 +306,18 @@ function reportQuery(
     params.set("adAccountId", filters.adAccountId);
   }
 
+  if (filters.campaignId) {
+    params.set("campaignId", filters.campaignId);
+  }
+
+  if (filters.adSetId) {
+    params.set("adSetId", filters.adSetId);
+  }
+
+  if (filters.adId) {
+    params.set("adId", filters.adId);
+  }
+
   if (filters.nameContains) {
     params.set("nameContains", filters.nameContains);
     params.set("nameScope", filters.nameScope ?? "campaign");
@@ -341,6 +356,9 @@ async function syncMetaReports(formData: FormData) {
     "compareUntil",
     "businessId",
     "adAccountId",
+    "campaignId",
+    "adSetId",
+    "adId",
     "nameScope",
     "nameContains",
     "status",
@@ -615,7 +633,13 @@ function ReviewActions({
   );
 }
 
-function PerformanceMetricsCells({ row }: { row: PerformanceRow }) {
+function PerformanceMetricsCells({
+  row,
+  realConversationsHref,
+}: {
+  row: PerformanceRow;
+  realConversationsHref: string;
+}) {
   return (
     <>
       <td>{money(row.spendCents)}</td>
@@ -624,7 +648,9 @@ function PerformanceMetricsCells({ row }: { row: PerformanceRow }) {
         <span>{money(row.costPerMetaConversationCents)}</span>
       </td>
       <td>
-        {row.realConversations}
+        <Link className="report-metric-link" href={realConversationsHref}>
+          {row.realConversations}
+        </Link>
         <span>{money(row.costPerRealConversationCents)}</span>
       </td>
       <td>
@@ -1211,6 +1237,9 @@ export default async function ReportsPage({
   const compareUntil = asStringParam(resolvedSearchParams.compareUntil);
   const businessId = asStringParam(resolvedSearchParams.businessId);
   const adAccountId = asStringParam(resolvedSearchParams.adAccountId);
+  const campaignId = asStringParam(resolvedSearchParams.campaignId);
+  const adSetId = asStringParam(resolvedSearchParams.adSetId);
+  const adId = asStringParam(resolvedSearchParams.adId);
   const nameScope = asStringParam(resolvedSearchParams.nameScope);
   const nameContains = asStringParam(resolvedSearchParams.nameContains);
   const status = asStringParam(resolvedSearchParams.status);
@@ -1246,6 +1275,9 @@ export default async function ReportsPage({
     compareUntil,
     businessId,
     adAccountId,
+    campaignId,
+    adSetId,
+    adId,
     nameScope,
     nameContains,
     page,
@@ -1309,6 +1341,30 @@ export default async function ReportsPage({
   const rows = campaignReports?.report.campaigns ?? [];
   const adSetRows = adSetReports?.report.adSets ?? [];
   const adRows = adReports?.report.ads ?? [];
+  const selectedCampaignName =
+    rows.find((row) => row.id === campaignId)?.name ??
+    adSetRows.find((row) => row.campaignId === campaignId)?.campaignName ??
+    adRows.find((row) => row.campaignId === campaignId)?.campaignName ??
+    campaignId;
+  const selectedAdSetName =
+    adSetRows.find((row) => row.id === adSetId)?.name ??
+    adRows.find((row) => row.adSetId === adSetId)?.adSetName ??
+    adSetId;
+  const selectedAdName = adRows.find((row) => row.id === adId)?.name ?? adId;
+  const hierarchySelection = [
+    selectedCampaignName
+      ? { label: "Campanha", value: selectedCampaignName }
+      : null,
+    selectedAdSetName ? { label: "Conjunto", value: selectedAdSetName } : null,
+    selectedAdName ? { label: "Anuncio", value: selectedAdName } : null,
+  ].filter((item): item is { label: string; value: string } => Boolean(item));
+  const clearHierarchyHref = reportViewHref("campaigns", {
+    ...reportFilters,
+    campaignId: undefined,
+    adSetId: undefined,
+    adId: undefined,
+    page: 1,
+  });
   const activeRows: PerformanceRow[] =
     activeView === "campaigns"
       ? rows
@@ -1440,6 +1496,9 @@ export default async function ReportsPage({
             <input type="hidden" name="pageSize" value={pageSize} />
             <input type="hidden" name="businessId" value={businessId ?? ""} />
             <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
+            <input type="hidden" name="campaignId" value={campaignId ?? ""} />
+            <input type="hidden" name="adSetId" value={adSetId ?? ""} />
+            <input type="hidden" name="adId" value={adId ?? ""} />
             <input type="hidden" name="nameScope" value={nameScope ?? ""} />
             <input
               type="hidden"
@@ -1489,6 +1548,9 @@ export default async function ReportsPage({
                 name="adAccountId"
                 value={adAccountId ?? ""}
               />
+              <input type="hidden" name="campaignId" value={campaignId ?? ""} />
+              <input type="hidden" name="adSetId" value={adSetId ?? ""} />
+              <input type="hidden" name="adId" value={adId ?? ""} />
               <input type="hidden" name="nameScope" value={nameScope ?? ""} />
               <input
                 type="hidden"
@@ -1544,6 +1606,23 @@ export default async function ReportsPage({
         </div>
       ) : null}
 
+      {hierarchySelection.length > 0 ? (
+        <div className="report-scope-bar" aria-label="Hierarquia selecionada">
+          <div>
+            <span className="micro-label">Selecao atual</span>
+            {hierarchySelection.map((item) => (
+              <span className="report-scope-item" key={item.label}>
+                <small>{item.label}</small>
+                <strong>{item.value}</strong>
+              </span>
+            ))}
+          </div>
+          <Link className="button ghost" href={clearHierarchyHref}>
+            Limpar selecao
+          </Link>
+        </div>
+      ) : null}
+
       <nav className="report-view-tabs" aria-label="Nivel do relatorio">
         {(
           [
@@ -1567,6 +1646,9 @@ export default async function ReportsPage({
         assets={metaAssets}
         businessId={businessId}
         adAccountId={adAccountId}
+        campaignId={campaignId}
+        adSetId={adSetId}
+        adId={adId}
         nameScope={nameScope}
         nameContains={nameContains}
         status={status}
@@ -1676,15 +1758,12 @@ export default async function ReportsPage({
                     <td className="performance-name-cell">
                       <strong>
                         <Link
-                          href={leadsHref({
+                          href={reportViewHref("adsets", {
+                            ...reportFilters,
                             campaignId: row.id,
-                            since,
-                            until,
-                            compareSince,
-                            compareUntil,
-                            businessId,
-                            adAccountId,
-                            whatsappClassification,
+                            adSetId: undefined,
+                            adId: undefined,
+                            page: 1,
                           })}
                         >
                           {row.name}
@@ -1692,7 +1771,19 @@ export default async function ReportsPage({
                       </strong>
                       {reportStatusChip(row.status)}
                     </td>
-                    <PerformanceMetricsCells row={row} />
+                    <PerformanceMetricsCells
+                      row={row}
+                      realConversationsHref={leadsHref({
+                        campaignId: row.id,
+                        since,
+                        until,
+                        compareSince,
+                        compareUntil,
+                        businessId,
+                        adAccountId,
+                        whatsappClassification,
+                      })}
+                    />
                     <td>
                       {canSyncMetaReports ? (
                         <ReviewActions level="campaign" id={row.id} />
@@ -1755,16 +1846,12 @@ export default async function ReportsPage({
                       <td className="performance-name-cell">
                         <strong>
                           <Link
-                            href={leadsHref({
+                            href={reportViewHref("ads", {
+                              ...reportFilters,
                               campaignId: row.campaignId,
                               adSetId: row.id,
-                              since,
-                              until,
-                              compareSince,
-                              compareUntil,
-                              businessId,
-                              adAccountId,
-                              whatsappClassification,
+                              adId: undefined,
+                              page: 1,
                             })}
                           >
                             {row.name}
@@ -1773,7 +1860,20 @@ export default async function ReportsPage({
                         <span>{row.campaignName}</span>
                         {reportStatusChip(row.status)}
                       </td>
-                      <PerformanceMetricsCells row={row} />
+                      <PerformanceMetricsCells
+                        row={row}
+                        realConversationsHref={leadsHref({
+                          campaignId: row.campaignId,
+                          adSetId: row.id,
+                          since,
+                          until,
+                          compareSince,
+                          compareUntil,
+                          businessId,
+                          adAccountId,
+                          whatsappClassification,
+                        })}
+                      />
                       <td>
                         {canSyncMetaReports ? (
                           <ReviewActions level="adset" id={row.id} />
@@ -1835,30 +1935,27 @@ export default async function ReportsPage({
                   adRows.map((row) => (
                     <tr key={row.id}>
                       <td className="performance-name-cell">
-                        <strong>
-                          <Link
-                            href={leadsHref({
-                              campaignId: row.campaignId,
-                              adSetId: row.adSetId,
-                              adId: row.id,
-                              since,
-                              until,
-                              compareSince,
-                              compareUntil,
-                              businessId,
-                              adAccountId,
-                              whatsappClassification,
-                            })}
-                          >
-                            {row.name}
-                          </Link>
-                        </strong>
+                        <strong>{row.name}</strong>
                         <span>
                           {row.campaignName} / {row.adSetName}
                         </span>
                         {reportStatusChip(row.status)}
                       </td>
-                      <PerformanceMetricsCells row={row} />
+                      <PerformanceMetricsCells
+                        row={row}
+                        realConversationsHref={leadsHref({
+                          campaignId: row.campaignId,
+                          adSetId: row.adSetId,
+                          adId: row.id,
+                          since,
+                          until,
+                          compareSince,
+                          compareUntil,
+                          businessId,
+                          adAccountId,
+                          whatsappClassification,
+                        })}
+                      />
                       <td>
                         {canSyncMetaReports ? (
                           <ReviewActions level="ad" id={row.id} />
@@ -1991,6 +2088,9 @@ export default async function ReportsPage({
             />
             <input type="hidden" name="businessId" value={businessId ?? ""} />
             <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
+            <input type="hidden" name="campaignId" value={campaignId ?? ""} />
+            <input type="hidden" name="adSetId" value={adSetId ?? ""} />
+            <input type="hidden" name="adId" value={adId ?? ""} />
             <input type="hidden" name="nameScope" value={nameScope ?? ""} />
             <input
               type="hidden"

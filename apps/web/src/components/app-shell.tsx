@@ -1,20 +1,26 @@
 "use client";
 
 import { clientNavigation } from "@wpptrack/shared";
-import type { CurrentWorkspaceDto } from "@wpptrack/shared";
+import type {
+  CurrentWorkspaceDto,
+  WhatsappDataSourceDto,
+} from "@wpptrack/shared";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { LogoutButton } from "./logout-button";
+import { DataAutoRefresh } from "./data-auto-refresh";
 import { exitPlatformSupportAccess } from "../app/actions/platform-support";
 
 const sidebarStorageKey = "wpptrack-sidebar-collapsed";
 
 export function AppShell({
   children,
+  dataSource,
   workspace,
 }: {
   children: ReactNode;
+  dataSource?: WhatsappDataSourceDto | null;
   workspace?: CurrentWorkspaceDto | null;
 }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -129,6 +135,7 @@ export function AppShell({
             </form>
           </div>
         ) : null}
+        {workspace ? <DataAutoRefresh source={dataSource ?? null} /> : null}
         {children}
       </main>
     </div>

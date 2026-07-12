@@ -5,8 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 
 type MetaReportFiltersProps = {
   adAccountId?: string;
+  adId?: string;
+  adSetId?: string;
   assets: MetaAssetsDto | null;
   businessId?: string;
+  campaignId?: string;
   compareSince?: string;
   compareUntil?: string;
   nameContains?: string;
@@ -76,8 +79,11 @@ function businessesFromReportingAccounts(
 
 export function MetaReportFilters({
   adAccountId,
+  adId,
+  adSetId,
   assets,
   businessId,
+  campaignId,
   compareSince,
   compareUntil,
   nameContains,
@@ -136,6 +142,9 @@ export function MetaReportFilters({
       <input type="hidden" name="compareUntil" value={compareUntil ?? ""} />
       <input type="hidden" name="view" value={view} />
       <input type="hidden" name="pageSize" value={pageSize} />
+      <input type="hidden" name="campaignId" value={campaignId ?? ""} />
+      <input type="hidden" name="adSetId" value={adSetId ?? ""} />
+      <input type="hidden" name="adId" value={adId ?? ""} />
       <select
         className="filter-control"
         name="businessId"

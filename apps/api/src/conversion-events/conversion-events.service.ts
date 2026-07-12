@@ -54,10 +54,12 @@ type ConversionEventLogRecord = {
   customerIdentityKey: string | null;
   businessSource: string;
   purchaseKind: string | null;
+  valueSource: string | null;
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
   ctwaClid: string | null;
+  attributionStatus: string | null;
   dedupeKey: string | null;
   customData: Prisma.JsonValue | null;
   valueCents: number | null;
@@ -302,11 +304,7 @@ export class ConversionEventsService {
     })) as ConversionEventLogRecord | null;
 
     if (existing) {
-      return {
-        conversionEventLogId: existing.id,
-        status: "duplicate",
-        deliveryStatus: existing.status
-      };
+      return this.reconcileExistingExternalConversion(existing, input);
     }
 
     const initialStatus: InitialStatus =
@@ -385,6 +383,61 @@ export class ConversionEventsService {
         deliveryStatus: duplicate.status
       };
     }
+  }
+
+  private async reconcileExistingExternalConversion(
+    existing: ConversionEventLogRecord,
+    input: RecordExternalConversionInput,
+  ): Promise<RecordExternalConversionResult> {
+    const promotesHistoricalEvent =
+      existing.status === "imported" && input.deliveryStatus !== "imported";
+    const promotedStatus = promotesHistoricalEvent
+      ? this.resolveInitialStatus({
+          eventName: input.eventName,
+          adId: input.adId,
+          ctwaClid: input.ctwaClid,
+          valueCents: input.valueCents,
+        })
+      : null;
+    const businessSource =
+      existing.businessSource === "paid" || input.businessSource !== "paid"
+        ? existing.businessSource
+        : "paid";
+    const adId = existing.adId ?? input.adId ?? null;
+    const updated = (await this.prisma.conversionEventLog.update({
+      where: { id: existing.id },
+      data: {
+        leadId: existing.leadId ?? input.leadId ?? null,
+        phoneHash: existing.phoneHash ?? input.phoneHash,
+        customerIdentityKey: existing.customerIdentityKey ?? input.phoneHash,
+        businessSource,
+        campaignId: existing.campaignId ?? input.campaignId ?? null,
+        adSetId: existing.adSetId ?? input.adSetId ?? null,
+        adId,
+        ctwaClid: existing.ctwaClid ?? input.ctwaClid ?? null,
+        attributionStatus: adId ? "attributed" : existing.attributionStatus,
+        valueCents: existing.valueCents ?? input.valueCents ?? null,
+        valueSource: existing.valueSource ?? input.valueSource ?? null,
+        currency: existing.currency ?? input.currency ?? null,
+        ...(promotesHistoricalEvent
+          ? {
+              sourceEventId: input.sourceEventId,
+              sourceTrigger: input.sourceTrigger,
+              eventId: input.eventId,
+              eventOccurredAt: input.eventOccurredAt,
+              status: promotedStatus?.status,
+              errorCode: promotedStatus?.errorCode,
+              errorMessage: promotedStatus?.errorMessage,
+            }
+          : {}),
+      },
+    })) as ConversionEventLogRecord;
+
+    return {
+      conversionEventLogId: existing.id,
+      status: promotesHistoricalEvent ? "created" : "duplicate",
+      deliveryStatus: updated.status,
+    };
   }
 
   async listReadyLogIds(logIds: string[]): Promise<string[]> {

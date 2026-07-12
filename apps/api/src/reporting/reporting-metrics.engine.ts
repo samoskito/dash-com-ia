@@ -17,6 +17,7 @@ export type ReportingMetricLead = {
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
+  ctwaClid?: string | null;
   firstMessageAt: Date | null;
 };
 
@@ -28,6 +29,7 @@ export type ReportingMetricEvent = {
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
+  ctwaClid?: string | null;
   eventName: string;
   eventOccurredAt: Date;
   status: string;
@@ -396,6 +398,7 @@ export class ReportingMetricsEngine {
     campaignId: string | null;
     adSetId: string | null;
     adId: string | null;
+    ctwaClid?: string | null;
   }): boolean {
     return !this.isOrganic(item) && this.hasAttribution(item);
   }
@@ -405,6 +408,7 @@ export class ReportingMetricsEngine {
     campaignId: string | null;
     adSetId: string | null;
     adId: string | null;
+    ctwaClid?: string | null;
   }): boolean {
     return this.normalizedSource(item.businessSource) === "paid"
       ? true
@@ -416,6 +420,7 @@ export class ReportingMetricsEngine {
     campaignId: string | null;
     adSetId: string | null;
     adId: string | null;
+    ctwaClid?: string | null;
   }): boolean {
     const source = this.normalizedSource(item.businessSource);
 
@@ -434,8 +439,11 @@ export class ReportingMetricsEngine {
     campaignId: string | null;
     adSetId: string | null;
     adId: string | null;
+    ctwaClid?: string | null;
   }): boolean {
-    return Boolean(item.campaignId || item.adSetId || item.adId);
+    return Boolean(
+      item.campaignId || item.adSetId || item.adId || item.ctwaClid,
+    );
   }
 
   private normalizedSource(value?: string | null): string | null {

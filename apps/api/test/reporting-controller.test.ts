@@ -374,6 +374,37 @@ describe("reporting controller", () => {
     await app.close();
   });
 
+  it("passes campaign and ad set hierarchy selection to report levels", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/adsets?campaignId=cmp_1&adSetId=adset_1")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+    await request(app.getHttpServer())
+      .get("/reports/ads?campaignId=cmp_1&adSetId=adset_1&adId=ad_1")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+
+    expect(reportingService.getAdSetReportOverview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+      }),
+    );
+    expect(reportingService.getAdReportOverview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
+      }),
+    );
+
+    await app.close();
+  });
+
   it("passes validated pagination to the selected report level", async () => {
     const { app, reportingService } = await createApp();
 

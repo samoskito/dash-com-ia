@@ -1857,6 +1857,70 @@ describe("meta reporting service", () => {
     });
   });
 
+  it("limits ad sets and ads to the selected report hierarchy", async () => {
+    const { db, service } = createHarness();
+    const base = {
+      workspaceId: "workspace_1",
+      status: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "auto_whatsapp",
+      spendCents: 1000,
+      metaConversationsStarted: 1,
+    };
+
+    db.campaigns.push(
+      { ...base, campaignId: "cmp_1", name: "Campanha 1" },
+      { ...base, campaignId: "cmp_2", name: "Campanha 2" },
+    );
+    db.adSets.push(
+      {
+        ...base,
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        name: "Conjunto 1",
+      },
+      {
+        ...base,
+        campaignId: "cmp_2",
+        adSetId: "adset_2",
+        name: "Conjunto 2",
+      },
+    );
+    db.ads.push(
+      {
+        ...base,
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
+        name: "Anuncio 1",
+      },
+      {
+        ...base,
+        campaignId: "cmp_2",
+        adSetId: "adset_2",
+        adId: "ad_2",
+        name: "Anuncio 2",
+      },
+    );
+
+    const adSets = await service.getAdSetReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      campaignId: "cmp_1",
+    });
+    const ads = await service.getAdReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+    });
+
+    expect(adSets.adSets.map((item) => item.id)).toEqual(["adset_1"]);
+    expect(ads.ads.map((item) => item.id)).toEqual(["ad_1"]);
+  });
+
   it("filters campaign reports by child name scope and status", async () => {
     const { db, service } = createHarness();
 

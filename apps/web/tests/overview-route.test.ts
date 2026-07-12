@@ -127,6 +127,7 @@ describe("overview route", () => {
     expect(html).toContain("Cobertura das conversas");
     expect(html).toContain("Com origem identificada");
     expect(html).toContain("Conversas organicas");
+    expect(html).toContain("attribution=organic");
     expect(html).toContain("Total recebido");
     expect(html).not.toContain("Sinal sem ruido");
     expect(html).toContain(">15<");

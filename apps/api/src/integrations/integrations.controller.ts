@@ -56,6 +56,13 @@ export class IntegrationsController {
     return this.integrationsService.getPipelineOverview(workspaceId);
   }
 
+  @Get("whatsapp/source")
+  async getWhatsappSource(@AuthToken() refreshToken: string) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.integrationsService.getWhatsappDataSource(workspaceId);
+  }
+
   @Get("meta/start")
   async startMeta(
     @AuthToken() refreshToken: string,

@@ -49,12 +49,13 @@ describe("leads route", () => {
         search: "mariana",
         status: "qualified",
         label: "Venda fechada",
+        attribution: "paid",
       }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/leads/page?search=mariana&status=qualified&label=Venda+fechada&page=1&pageSize=25",
+      "http://localhost:3333/leads/page?search=mariana&status=qualified&label=Venda+fechada&attribution=paid&page=1&pageSize=25",
       expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Mariana Alves");
@@ -63,8 +64,44 @@ describe("leads route", () => {
     expect(html).toContain("QualifiedLead");
     expect(html).toContain("Venda fechada");
     expect(html).toContain('name="label"');
+    expect(html).toContain('name="attribution"');
     expect(html).toContain("+55 11 99999-1020");
     expect(html).toContain("02/07, 00:10");
+  });
+
+  it("loads the exact conversations without attribution", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          pagination: {
+            page: 1,
+            pageSize: 25,
+            totalItems: 0,
+            totalPages: 0,
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({
+        attribution: "organic",
+        since: "2026-07-06",
+        until: "2026-07-12",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/leads/page?attribution=organic&since=2026-07-06&until=2026-07-12&page=1&pageSize=25",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(html).toContain("Exibindo conversas sem atribuicao");
   });
 
   it("passes report drill-down filters to the backend", async () => {

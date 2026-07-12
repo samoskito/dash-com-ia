@@ -13,6 +13,7 @@ import type {
   IntegrationHealthSummaryDto,
   IntegrationPipelineOverviewDto,
   IntegrationStartActionDto,
+  WhatsappDataSourceDto,
   MetaOAuthCallbackQueryDto,
   MetaOAuthCallbackResultDto
 } from "@wpptrack/shared";
@@ -376,6 +377,40 @@ export class IntegrationsService {
     };
   }
 
+  async getWhatsappDataSource(
+    workspaceId: string,
+  ): Promise<WhatsappDataSourceDto> {
+    if (!this.prisma) {
+      return this.nativeWhatsappDataSource();
+    }
+
+    const connector = await this.prisma.externalDataConnector.findFirst({
+      where: {
+        workspaceId,
+        status: "active",
+      },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        name: true,
+        provider: true,
+        lastSyncCompletedAt: true,
+        lastSyncStatus: true,
+      },
+    });
+
+    if (!connector) {
+      return this.nativeWhatsappDataSource();
+    }
+
+    return {
+      mode: "external",
+      connectorName: connector.name,
+      provider: connector.provider,
+      lastSyncCompletedAt: connector.lastSyncCompletedAt?.toISOString() ?? null,
+      lastSyncStatus: connector.lastSyncStatus,
+    };
+  }
+
   async getPipelineOverview(
     workspaceId: string,
     now = new Date()
@@ -392,7 +427,8 @@ export class IntegrationsService {
       webhooksReceived,
       leadsTracked,
       conversionsReady,
-      metaSent
+      metaSent,
+      whatsappSource,
     ] = await Promise.all([
       this.prisma.lead.count({
         where: {
@@ -401,9 +437,10 @@ export class IntegrationsService {
           OR: [
             { campaignId: { not: null } },
             { adSetId: { not: null } },
-            { adId: { not: null } }
-          ]
-        }
+            { adId: { not: null } },
+            { ctwaClid: { not: null } },
+          ],
+        },
       }),
       this.prisma.webhookLog.count({
         where: {
@@ -429,14 +466,16 @@ export class IntegrationsService {
         where: {
           workspaceId,
           status: "sent",
-          createdAt: { gte: since }
-        }
-      })
+          createdAt: { gte: since },
+        },
+      }),
+      this.getWhatsappDataSource(workspaceId),
     ]);
 
     return {
       workspaceId,
       rangeLabel: "Ultimos 7 dias",
+      whatsappSource,
       stages: [
         {
           key: "ctwa",
@@ -480,6 +519,7 @@ export class IntegrationsService {
     return {
       workspaceId,
       rangeLabel: "Ultimos 7 dias",
+      whatsappSource: this.nativeWhatsappDataSource(),
       stages: [
         {
           key: "ctwa",
@@ -512,6 +552,16 @@ export class IntegrationsService {
           detail: "Eventos enviados para Meta"
         }
       ]
+    };
+  }
+
+  private nativeWhatsappDataSource(): WhatsappDataSourceDto {
+    return {
+      mode: "native",
+      connectorName: null,
+      provider: null,
+      lastSyncCompletedAt: null,
+      lastSyncStatus: null,
     };
   }
 

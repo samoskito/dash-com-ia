@@ -43,6 +43,9 @@ type ReportStatusFilter = "all" | "active" | "paused";
 type ReportFilters = {
   businessId?: string;
   adAccountId?: string;
+  campaignId?: string;
+  adSetId?: string;
+  adId?: string;
   nameScope?: ReportNameScope;
   nameContains?: string;
   status?: ReportStatusFilter;
@@ -69,6 +72,9 @@ export class ReportingController {
     @Query("until") until?: string,
     @Query("businessId") businessId?: string | string[],
     @Query("adAccountId") adAccountId?: string | string[],
+    @Query("campaignId") campaignId?: string | string[],
+    @Query("adSetId") adSetId?: string | string[],
+    @Query("adId") adId?: string | string[],
     @Query("nameScope") nameScope?: string | string[],
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
@@ -82,6 +88,9 @@ export class ReportingController {
     const filters = this.parseReportFilters({
       businessId,
       adAccountId,
+      campaignId,
+      adSetId,
+      adId,
       nameScope,
       nameContains,
       status,
@@ -107,6 +116,9 @@ export class ReportingController {
     @Query("until") until?: string,
     @Query("businessId") businessId?: string | string[],
     @Query("adAccountId") adAccountId?: string | string[],
+    @Query("campaignId") campaignId?: string | string[],
+    @Query("adSetId") adSetId?: string | string[],
+    @Query("adId") adId?: string | string[],
     @Query("nameScope") nameScope?: string | string[],
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
@@ -117,6 +129,9 @@ export class ReportingController {
     const filters = this.parseReportFilters({
       businessId,
       adAccountId,
+      campaignId,
+      adSetId,
+      adId,
       nameScope,
       nameContains,
       status,
@@ -144,6 +159,9 @@ export class ReportingController {
     @Query("until") until?: string,
     @Query("businessId") businessId?: string | string[],
     @Query("adAccountId") adAccountId?: string | string[],
+    @Query("campaignId") campaignId?: string | string[],
+    @Query("adSetId") adSetId?: string | string[],
+    @Query("adId") adId?: string | string[],
     @Query("nameScope") nameScope?: string | string[],
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
@@ -156,6 +174,9 @@ export class ReportingController {
     const filters = this.parseReportFilters({
       businessId,
       adAccountId,
+      campaignId,
+      adSetId,
+      adId,
       nameScope,
       nameContains,
       status,
@@ -178,6 +199,9 @@ export class ReportingController {
     @Query("until") until?: string,
     @Query("businessId") businessId?: string | string[],
     @Query("adAccountId") adAccountId?: string | string[],
+    @Query("campaignId") campaignId?: string | string[],
+    @Query("adSetId") adSetId?: string | string[],
+    @Query("adId") adId?: string | string[],
     @Query("nameScope") nameScope?: string | string[],
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
@@ -190,6 +214,9 @@ export class ReportingController {
     const filters = this.parseReportFilters({
       businessId,
       adAccountId,
+      campaignId,
+      adSetId,
+      adId,
       nameScope,
       nameContains,
       status,
@@ -388,6 +415,9 @@ export class ReportingController {
   private parseReportFilters(input: {
     businessId?: string | string[];
     adAccountId?: string | string[];
+    campaignId?: string | string[];
+    adSetId?: string | string[];
+    adId?: string | string[];
     nameScope?: string | string[];
     nameContains?: string | string[];
     status?: string | string[];
@@ -396,6 +426,9 @@ export class ReportingController {
     const filters: ReportFilters = {};
     const businessId = this.trimOptional(input.businessId);
     const adAccountId = this.trimOptional(input.adAccountId);
+    const campaignId = this.trimOptional(input.campaignId);
+    const adSetId = this.trimOptional(input.adSetId);
+    const adId = this.trimOptional(input.adId);
     const nameContains = this.trimOptional(input.nameContains);
     const nameScope = this.parseNameScopeFilter(input.nameScope);
     const status = this.parseStatusFilter(input.status);
@@ -409,6 +442,18 @@ export class ReportingController {
 
     if (adAccountId) {
       filters.adAccountId = adAccountId;
+    }
+
+    if (campaignId) {
+      filters.campaignId = campaignId;
+    }
+
+    if (adSetId) {
+      filters.adSetId = adSetId;
+    }
+
+    if (adId) {
+      filters.adId = adId;
     }
 
     if (nameContains) {

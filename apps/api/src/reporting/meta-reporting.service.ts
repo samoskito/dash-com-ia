@@ -62,6 +62,9 @@ type ReportStatusFilter = "all" | "active" | "paused";
 type ReportFilterInput = {
   businessId?: string;
   adAccountId?: string;
+  campaignId?: string;
+  adSetId?: string;
+  adId?: string;
   nameScope?: ReportNameScope;
   nameContains?: string;
   status?: ReportStatusFilter;
@@ -87,6 +90,9 @@ type MetaSnapshotWhere = {
   workspaceId: string;
   businessId?: StringFilter;
   adAccountId?: StringFilter;
+  campaignId?: StringFilter;
+  adSetId?: StringFilter;
+  adId?: StringFilter;
   whatsappClassification?:
     WhatsappClassification | { in: WhatsappClassification[] };
 };
@@ -1168,6 +1174,10 @@ export class MetaReportingService {
       hierarchyWhere,
       input,
     );
+    const adSetWhere = {
+      ...snapshotWhere,
+      ...(input.adSetId ? { adSetId: input.adSetId } : {}),
+    };
     const shouldLoadAdsForNameFilter = this.reportNameScope(input) === "ad";
     const [campaigns, adSets, adsForNameFilter, configuredEvents] =
       await Promise.all([
@@ -1176,12 +1186,12 @@ export class MetaReportingService {
           orderBy: { name: "asc" },
         }) as Promise<MetaCampaignRecord[]>,
         this.prisma.metaAdSet.findMany({
-          where: snapshotWhere,
+          where: adSetWhere,
           orderBy: { name: "asc" },
         }) as Promise<MetaAdSetRecord[]>,
         shouldLoadAdsForNameFilter
           ? (this.prisma.metaAd.findMany({
-              where: snapshotWhere,
+              where: adSetWhere,
               orderBy: { name: "asc" },
             }) as Promise<MetaAdRecord[]>)
           : Promise.resolve([]),
@@ -1264,17 +1274,25 @@ export class MetaReportingService {
       hierarchyWhere,
       input,
     );
+    const adSetWhere = {
+      ...snapshotWhere,
+      ...(input.adSetId ? { adSetId: input.adSetId } : {}),
+    };
+    const adWhere = {
+      ...adSetWhere,
+      ...(input.adId ? { adId: input.adId } : {}),
+    };
     const [campaigns, adSets, ads, configuredEvents] = await Promise.all([
       this.prisma.metaCampaign.findMany({
         where: hierarchyWhere,
         orderBy: { name: "asc" },
       }) as Promise<MetaCampaignRecord[]>,
       this.prisma.metaAdSet.findMany({
-        where: hierarchyWhere,
+        where: adSetWhere,
         orderBy: { name: "asc" },
       }) as Promise<MetaAdSetRecord[]>,
       this.prisma.metaAd.findMany({
-        where: snapshotWhere,
+        where: adWhere,
         orderBy: { name: "asc" },
       }) as Promise<MetaAdRecord[]>,
       this.getConfiguredFunnelEvents(input.workspaceId),
@@ -1956,6 +1974,7 @@ export class MetaReportingService {
         campaignId: true,
         adSetId: true,
         adId: true,
+        ctwaClid: true,
         eventName: true,
         eventOccurredAt: true,
         status: true,
@@ -1991,6 +2010,7 @@ export class MetaReportingService {
         campaignId: true,
         adSetId: true,
         adId: true,
+        ctwaClid: true,
         firstMessageAt: true,
       },
     }) as Promise<LeadRecord[]>;
@@ -2282,6 +2302,10 @@ export class MetaReportingService {
 
     if (input.businessId) {
       where.businessId = input.businessId;
+    }
+
+    if (input.campaignId) {
+      where.campaignId = input.campaignId;
     }
 
     if (input.adAccountId) {

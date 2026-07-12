@@ -300,6 +300,23 @@ function funnelStep(
   };
 }
 
+function leadsByAttributionHref(
+  attribution: "paid" | "organic",
+  report: ReportOverviewDto,
+): string {
+  const params = new URLSearchParams({ attribution });
+
+  if (report.since) {
+    params.set("since", report.since);
+  }
+
+  if (report.until) {
+    params.set("until", report.until);
+  }
+
+  return `/leads?${params.toString()}`;
+}
+
 export default async function OverviewPage() {
   const { report, state: reportState } = await getOverviewReport();
   const campaigns = report.campaigns;
@@ -481,11 +498,21 @@ export default async function OverviewPage() {
                 label="Com origem identificada"
                 value={dataAvailable ? String(campaign.realConversations) : "-"}
                 tone="brand"
+                href={
+                  dataAvailable
+                    ? leadsByAttributionHref("paid", report)
+                    : undefined
+                }
               />
               <TrackingBreakdownItem
                 label="Conversas organicas"
                 value={dataAvailable ? String(campaign.organicLeads) : "-"}
                 tone="muted"
+                href={
+                  dataAvailable
+                    ? leadsByAttributionHref("organic", report)
+                    : undefined
+                }
               />
               <TrackingBreakdownItem
                 label="Total recebido"
@@ -565,17 +592,27 @@ function OverviewSummaryValue({
 function TrackingBreakdownItem({
   label,
   value,
-  tone
+  tone,
+  href,
 }: {
   label: string;
   value: string;
   tone: "brand" | "muted" | "neutral";
+  href?: string;
 }) {
-  return (
-    <div className="tracking-breakdown-row">
+  const content = (
+    <>
       <span className={`tracking-legend-dot ${tone}`} aria-hidden="true" />
       <span>{label}</span>
       <strong>{value}</strong>
-    </div>
+    </>
+  );
+
+  return href ? (
+    <Link className="tracking-breakdown-row" href={href}>
+      {content}
+    </Link>
+  ) : (
+    <div className="tracking-breakdown-row">{content}</div>
   );
 }

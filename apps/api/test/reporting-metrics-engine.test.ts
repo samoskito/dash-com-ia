@@ -19,6 +19,7 @@ function lead(input: Partial<ReportingMetricLead>): ReportingMetricLead {
     adSetId: null,
     businessSource: null,
     campaignId: null,
+    ctwaClid: null,
     customerIdentityKey: "phone_a",
     firstMessageAt: new Date("2026-07-10T10:00:00.000Z"),
     id: "lead_1",
@@ -33,6 +34,7 @@ function event(input: Partial<ReportingMetricEvent>): ReportingMetricEvent {
     adSetId: null,
     businessSource: null,
     campaignId: null,
+    ctwaClid: null,
     currency: "BRL",
     customerIdentityKey: "phone_a",
     eventName: "Purchase",
@@ -101,6 +103,28 @@ describe("ReportingMetricsEngine", () => {
     expect(metrics.organicLeads).toBe(2);
     expect(metrics.totalReceived).toBe(3);
     expect(metrics.trackingRate).toBe(1 / 3);
+  });
+
+  it("treats ctwa_clid as paid attribution before Meta hierarchy is resolved", () => {
+    const metrics = engine.calculate({
+      events: [
+        event({
+          businessSource: "paid",
+          ctwaClid: "ctwa_1",
+          eventName: "LeadSubmitted",
+          id: "lead_submitted_1",
+          valueCents: null,
+        }),
+      ],
+      insight,
+      leads: [lead({ ctwaClid: "ctwa_1" })],
+      scope: {},
+    });
+
+    expect(metrics.realConversations).toBe(1);
+    expect(metrics.organicLeads).toBe(0);
+    expect(metrics.totalReceived).toBe(1);
+    expect(metrics.trackingRate).toBe(1);
   });
 
   it("counts failed business events and ignores skipped events", () => {

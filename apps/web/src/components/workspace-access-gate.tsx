@@ -2,6 +2,7 @@ import type { CurrentWorkspaceDto } from "@wpptrack/shared";
 import type { ReactNode } from "react";
 import { getCurrentWorkspace } from "../lib/current-workspace";
 import { isApiRequestError } from "../lib/server-api";
+import { getWhatsappDataSource } from "../lib/whatsapp-data-source";
 import { AppShell } from "./app-shell";
 
 export async function WorkspaceAccessGate({
@@ -9,7 +10,10 @@ export async function WorkspaceAccessGate({
 }: {
   children: ReactNode;
 }) {
-  const workspaceAccess = await getWorkspaceAccessState();
+  const [workspaceAccess, dataSource] = await Promise.all([
+    getWorkspaceAccessState(),
+    getWhatsappDataSource(),
+  ]);
 
   if (workspaceAccess.state === "blocked") {
     return (
@@ -33,7 +37,11 @@ export async function WorkspaceAccessGate({
     );
   }
 
-  return <AppShell workspace={workspaceAccess.workspace}>{children}</AppShell>;
+  return (
+    <AppShell dataSource={dataSource} workspace={workspaceAccess.workspace}>
+      {children}
+    </AppShell>
+  );
 }
 
 async function getWorkspaceAccessState(): Promise<

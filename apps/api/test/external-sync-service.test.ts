@@ -310,4 +310,112 @@ describe("ExternalSyncService", () => {
       { deliveryStatus: "imported", updateLeadStatus: false }
     );
   });
+
+  it("projects a purchase from every changed lead during incremental sync", async () => {
+    const purchasedLeadRow: ExternalLeadRow = {
+      ...leadRow,
+      purchasedAt: "2026-07-12 00:00:00.000",
+      status: "Comprou",
+    };
+    const prisma = {
+      externalDataConnector: {
+        findUnique: vi.fn(async () => ({
+          id: "connector_1",
+          workspaceId: "workspace_1",
+          provider: "kinbox_mysql",
+          status: "active",
+          timezone: "America/Sao_Paulo",
+          sslMode: "required",
+          credentialsEncrypted: "encrypted",
+          credentialsIv: "iv",
+          credentialsTag: "tag",
+          shadowMode: true,
+          capiSendEnabled: false,
+          purchaseAverageValueCents: 400_000,
+          defaultCurrency: "BRL",
+        })),
+        update: vi.fn(async () => ({})),
+      },
+      integrationLog: {
+        create: vi.fn(async () => ({ id: "integration_1" })),
+        update: vi.fn(async () => ({})),
+      },
+      metaAd: {
+        findMany: vi.fn(async () => [
+          {
+            adId: "ad_1",
+            campaignId: "campaign_1",
+            adSetId: "adset_1",
+          },
+        ]),
+      },
+      lead: { update: vi.fn(async () => ({})) },
+      externalIngestionRecord: {
+        findUnique: vi.fn(async () => null),
+        upsert: vi.fn(async () => ({})),
+      },
+      externalSyncCursor: {
+        findUnique: vi.fn(async () => null),
+        upsert: vi.fn(async () => ({})),
+      },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) =>
+        Promise.all(operations),
+      ),
+    };
+    const leadsService = {
+      upsertFromWhatsappWebhook: vi.fn(async () => ({ id: "lead_1" })),
+    };
+    const adapter = {
+      readLeadsPage: vi
+        .fn()
+        .mockResolvedValueOnce([purchasedLeadRow])
+        .mockResolvedValueOnce([]),
+      readEventsPage: vi.fn(),
+    };
+    const eventIngestion = {
+      ingest: vi.fn(async (_connector: unknown, row: ExternalEventRow) => ({
+        externalRowId: row.externalRowId,
+        status: "imported" as const,
+        leadId: "lead_1",
+        conversionEventLogId: "conversion_purchase",
+        queued: false,
+        errorCode: null,
+      })),
+    };
+    const service = new ExternalSyncService(
+      prisma as never,
+      leadsService as never,
+      {
+        decrypt: vi.fn(() => ({
+          host: "mysql.internal",
+          port: 3306,
+          database: "tracking",
+          username: "reader",
+          password: "secret",
+        })),
+      } as never,
+      adapter as never,
+      eventIngestion as never,
+    );
+
+    const result = await service.syncConnector("connector_1", ["leads"]);
+
+    expect(result.counts).toMatchObject({ read: 1, imported: 1, rejected: 0 });
+    expect(prisma.externalIngestionRecord.upsert).toHaveBeenCalledOnce();
+    expect(prisma.externalSyncCursor.upsert).toHaveBeenCalled();
+    expect(eventIngestion.ingest).toHaveBeenCalledOnce();
+    expect(eventIngestion.ingest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "connector_1",
+        purchaseAverageValueCents: 400_000,
+      }),
+      expect.objectContaining({
+        eventType: "purchase",
+        occurredAt: "2026-07-12T03:00:00.000Z",
+        eventLocalDate: "2026-07-12",
+        valueCents: null,
+      }),
+      { deliveryStatus: "imported", updateLeadStatus: false },
+    );
+  });
 });
