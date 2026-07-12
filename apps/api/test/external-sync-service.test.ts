@@ -51,6 +51,10 @@ const leadRow: ExternalLeadRow = {
 
 describe("ExternalSyncService", () => {
   it("persists each event page before advancing the independent event cursor", async () => {
+    const eventWithAd: ExternalEventRow = {
+      ...eventRow,
+      adId: "ad_1"
+    };
     const prisma = {
       externalDataConnector: {
         findUnique: vi.fn(async () => ({
@@ -74,6 +78,15 @@ describe("ExternalSyncService", () => {
         create: vi.fn(async () => ({ id: "integration_1" })),
         update: vi.fn(async () => ({}))
       },
+      metaAd: {
+        findMany: vi.fn(async () => [
+          {
+            adId: "ad_1",
+            campaignId: "campaign_1",
+            adSetId: "adset_1"
+          }
+        ])
+      },
       externalSyncCursor: {
         findUnique: vi.fn(async () => null),
         upsert: vi.fn(async () => ({}))
@@ -94,7 +107,7 @@ describe("ExternalSyncService", () => {
     const adapter = {
       readEventsPage: vi
         .fn()
-        .mockResolvedValueOnce([eventRow])
+        .mockResolvedValueOnce([eventWithAd])
         .mockResolvedValueOnce([]),
       readLeadsPage: vi.fn()
     };
@@ -139,6 +152,25 @@ describe("ExternalSyncService", () => {
       })
     );
     expect(adapter.readLeadsPage).not.toHaveBeenCalled();
+    expect(prisma.metaAd.findMany).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        adId: { in: ["ad_1"] }
+      },
+      select: {
+        adId: true,
+        campaignId: true,
+        adSetId: true
+      }
+    });
+    expect(ingestion.ingest).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        adId: "ad_1",
+        campaignId: "campaign_1",
+        adSetId: "adset_1"
+      })
+    );
   });
 
   it("refreshes lead projections without moving cursors or duplicate counters", async () => {
@@ -169,6 +201,15 @@ describe("ExternalSyncService", () => {
       integrationLog: {
         create: vi.fn(async () => ({ id: "integration_1" })),
         update: vi.fn(async () => ({}))
+      },
+      metaAd: {
+        findMany: vi.fn(async () => [
+          {
+            adId: "ad_1",
+            campaignId: "campaign_1",
+            adSetId: "adset_1"
+          }
+        ])
       },
       lead: { update: vi.fn(async () => ({})) },
       externalIngestionRecord: {
@@ -225,8 +266,14 @@ describe("ExternalSyncService", () => {
 
     expect(result.counts.imported).toBe(1);
     expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
-      expect.objectContaining({ phone: "5511999999999" })
+      expect.objectContaining({
+        phone: "5511999999999",
+        adId: "ad_1",
+        campaignId: "campaign_1",
+        adSetId: "adset_1"
+      })
     );
+    expect(prisma.metaAd.findMany).toHaveBeenCalledTimes(1);
     expect(prisma.externalIngestionRecord.findUnique).not.toHaveBeenCalled();
     expect(prisma.externalIngestionRecord.upsert).not.toHaveBeenCalled();
     expect(prisma.externalSyncCursor.findUnique).not.toHaveBeenCalled();

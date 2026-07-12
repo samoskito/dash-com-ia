@@ -58,6 +58,11 @@ type ConnectorRecord = {
   defaultCurrency: string | null;
 };
 
+type MetaAdHierarchy = {
+  campaignId: string;
+  adSetId: string;
+};
+
 @Injectable()
 export class ExternalSyncService {
   constructor(
@@ -219,9 +224,21 @@ export class ExternalSyncService {
         batchSize
       );
       counts.read += rows.length;
+      const hierarchyByAdId = await this.loadMetaAdHierarchy(
+        connector.workspaceId,
+        rows
+      );
 
       for (const row of rows) {
-        const status = await this.ingestLead(connector, row, projectionRefresh);
+        const hierarchy = row.adId
+          ? hierarchyByAdId.get(row.adId)
+          : undefined;
+        const status = await this.ingestLead(
+          connector,
+          row,
+          projectionRefresh,
+          hierarchy
+        );
         counts[status] += 1;
       }
 
@@ -256,9 +273,23 @@ export class ExternalSyncService {
         batchSize
       );
       counts.read += rows.length;
+      const hierarchyByAdId = await this.loadMetaAdHierarchy(
+        connector.workspaceId,
+        rows
+      );
 
       for (const row of rows) {
-        const result = await this.eventIngestion.ingest(connector, row);
+        const hierarchy = row.adId
+          ? hierarchyByAdId.get(row.adId)
+          : undefined;
+        const enrichedRow = hierarchy
+          ? {
+              ...row,
+              campaignId: row.campaignId ?? hierarchy.campaignId,
+              adSetId: row.adSetId ?? hierarchy.adSetId
+            }
+          : row;
+        const result = await this.eventIngestion.ingest(connector, enrichedRow);
         if (result.status === "duplicate") {
           counts.duplicates += 1;
         } else {
@@ -282,7 +313,8 @@ export class ExternalSyncService {
   private async ingestLead(
     connector: ConnectorRecord,
     row: ExternalLeadRow,
-    projectionRefresh = false
+    projectionRefresh = false,
+    hierarchy?: MetaAdHierarchy
   ): Promise<"imported" | "duplicates" | "rejected"> {
     const sourceRowKey = `external-row:${connector.id}:leads:${row.externalRowId}`;
 
@@ -297,6 +329,8 @@ export class ExternalSyncService {
         name: row.name ?? undefined,
         source: "external_mysql",
         preserveExistingSource: true,
+        campaignId: hierarchy?.campaignId,
+        adSetId: hierarchy?.adSetId,
         adId: row.adId ?? undefined,
         ctwaClid: row.ctwaClid ?? undefined,
         ctwaSourceUrl: row.sourceUrl ?? undefined,
@@ -387,6 +421,42 @@ export class ExternalSyncService {
 
       return "rejected";
     }
+  }
+
+  private async loadMetaAdHierarchy(
+    workspaceId: string,
+    rows: Array<{ adId: string | null }>
+  ): Promise<Map<string, MetaAdHierarchy>> {
+    const adIds = [
+      ...new Set(
+        rows
+          .map((row) => row.adId?.trim())
+          .filter((adId): adId is string => Boolean(adId))
+      )
+    ];
+
+    if (adIds.length === 0) {
+      return new Map();
+    }
+
+    const ads = await this.prisma.metaAd.findMany({
+      where: {
+        workspaceId,
+        adId: { in: adIds }
+      },
+      select: {
+        adId: true,
+        campaignId: true,
+        adSetId: true
+      }
+    });
+
+    return new Map(
+      ads.map((ad) => [
+        ad.adId,
+        { campaignId: ad.campaignId, adSetId: ad.adSetId }
+      ])
+    );
   }
 
   private async getCursor(

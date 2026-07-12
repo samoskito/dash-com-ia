@@ -359,6 +359,7 @@ model ConversionEventLog {
   @@index([workspaceId, status, createdAt])
   @@index([workspaceId, eventOccurredAt])
   @@index([workspaceId, eventName, eventOccurredAt])
+  @@index([workspaceId, adId])
   @@index([leadId])
   @@index([externalConnectorId, sourceEventId])
 }

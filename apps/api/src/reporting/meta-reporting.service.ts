@@ -542,11 +542,86 @@ export class MetaReportingService {
       ),
     ]);
 
+    await this.reconcileTrackingHierarchy(input.workspaceId, ads);
+
     return {
       campaignsSynced: campaigns.length,
       adSetsSynced: adSets.length,
       adsSynced: ads.length,
     };
+  }
+
+  private async reconcileTrackingHierarchy(
+    workspaceId: string,
+    ads: MetaAdAsset[],
+  ): Promise<void> {
+    const hierarchyGroups = new Map<
+      string,
+      { campaignId: string; adSetId: string; adIds: string[] }
+    >();
+
+    for (const ad of ads) {
+      const key = `${ad.campaignId}:${ad.adSetId}`;
+      const group = hierarchyGroups.get(key);
+
+      if (group) {
+        group.adIds.push(ad.id);
+      } else {
+        hierarchyGroups.set(key, {
+          campaignId: ad.campaignId,
+          adSetId: ad.adSetId,
+          adIds: [ad.id],
+        });
+      }
+    }
+
+    let leadsUpdated = 0;
+    let eventsUpdated = 0;
+
+    for (const group of hierarchyGroups.values()) {
+      const [leadResult, eventResult] = await Promise.all([
+        this.prisma.lead.updateMany({
+          where: {
+            workspaceId,
+            adId: { in: group.adIds },
+            OR: [
+              { campaignId: null },
+              { adSetId: null },
+              { campaignId: { not: group.campaignId } },
+              { adSetId: { not: group.adSetId } },
+            ],
+          },
+          data: {
+            campaignId: group.campaignId,
+            adSetId: group.adSetId,
+          },
+        }),
+        this.prisma.conversionEventLog.updateMany({
+          where: {
+            workspaceId,
+            adId: { in: group.adIds },
+            OR: [
+              { campaignId: null },
+              { adSetId: null },
+              { campaignId: { not: group.campaignId } },
+              { adSetId: { not: group.adSetId } },
+            ],
+          },
+          data: {
+            campaignId: group.campaignId,
+            adSetId: group.adSetId,
+          },
+        }),
+      ]);
+      leadsUpdated += leadResult.count;
+      eventsUpdated += eventResult.count;
+    }
+
+    if (leadsUpdated > 0 || eventsUpdated > 0) {
+      this.logger.log(
+        `Meta ad hierarchy reconciled for workspace ${workspaceId}: ${leadsUpdated} leads, ${eventsUpdated} events`,
+      );
+    }
   }
 
   private async recordMetaReportingSyncDiagnostics(input: {

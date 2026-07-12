@@ -331,10 +331,38 @@ function createHarness() {
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
         db.conversionLogs.filter((log) => matchesWhere(log, args?.where)),
       ),
+      updateMany: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: Record<string, unknown>;
+          data: Record<string, unknown>;
+        }) => {
+          const records = db.conversionLogs.filter((log) =>
+            matchesWhere(log, where),
+          );
+          records.forEach((record) => Object.assign(record, data));
+          return { count: records.length };
+        },
+      ),
     },
     lead: {
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
         db.leads.filter((lead) => matchesWhere(lead, args?.where)),
+      ),
+      updateMany: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: Record<string, unknown>;
+          data: Record<string, unknown>;
+        }) => {
+          const records = db.leads.filter((lead) => matchesWhere(lead, where));
+          records.forEach((record) => Object.assign(record, data));
+          return { count: records.length };
+        },
       ),
     },
     integrationLog: {
@@ -770,6 +798,12 @@ describe("meta reporting service", () => {
 
   it("syncs active Meta reporting account campaigns, ad sets and ads into workspace snapshots", async () => {
     const { db, encryption, metaAdapter, prisma, service } = createHarness();
+    db.leads[0]!.campaignId = null;
+    db.leads[0]!.adSetId = null;
+    Object.assign(db.conversionLogs[0]!, {
+      campaignId: null,
+      adSetId: null,
+    });
 
     await expect(
       service.syncWorkspaceMetaStructure({
@@ -840,6 +874,48 @@ describe("meta reporting service", () => {
       creativeId: "creative_1",
       callToActionType: "WHATSAPP_MESSAGE",
       whatsappClassification: "auto_whatsapp",
+    });
+    expect(db.leads[0]).toMatchObject({
+      adId: "ad_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+    });
+    expect(db.conversionLogs[0]).toMatchObject({
+      adId: "ad_1",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+    });
+    expect(prisma.lead.updateMany).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        adId: { in: ["ad_1"] },
+        OR: [
+          { campaignId: null },
+          { adSetId: null },
+          { campaignId: { not: "cmp_1" } },
+          { adSetId: { not: "adset_1" } },
+        ],
+      },
+      data: {
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+      },
+    });
+    expect(prisma.conversionEventLog.updateMany).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        adId: { in: ["ad_1"] },
+        OR: [
+          { campaignId: null },
+          { adSetId: null },
+          { campaignId: { not: "cmp_1" } },
+          { adSetId: { not: "adset_1" } },
+        ],
+      },
+      data: {
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+      },
     });
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({
