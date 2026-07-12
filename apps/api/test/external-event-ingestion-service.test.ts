@@ -163,6 +163,48 @@ describe("ExternalEventIngestionService", () => {
     );
   });
 
+  it("keeps the Kinbox external id as metadata and attaches the event only to the real phone lead", async () => {
+    const harness = createHarness();
+    const qualifiedRow: ExternalEventRow = {
+      ...row,
+      externalRowId: "qualified_30884074",
+      dedupeKey: "kinbox:qualified:554888685127",
+      eventType: "qualified_lead",
+      sourceEventName: "EnvioProposta",
+      externalLeadId: "30884074",
+      phone: "554888685127",
+      valueCents: null,
+      currency: null,
+      valueSource: null,
+    };
+
+    const result = await harness.service.ingest(
+      harness.connector,
+      qualifiedRow,
+    );
+
+    expect(result).toMatchObject({ status: "imported", leadId: "lead_1" });
+    expect(harness.leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+    expect(harness.prisma.externalIngestionRecord.findFirst).not.toHaveBeenCalled();
+    expect(
+      harness.conversionEventsService.recordExternalConversion,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        leadId: "lead_1",
+        phoneHash: "phone_hash_1",
+        eventName: "QualifiedLead",
+      }),
+    );
+    expect(harness.prisma.externalIngestionRecord.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        leadId: "lead_1",
+        summaryPayload: expect.objectContaining({
+          externalLeadId: "30884074",
+        }),
+      }),
+    });
+  });
+
   it("rejects a downstream event that does not match an existing lead", async () => {
     const harness = createHarness();
     const result = await harness.service.ingest(harness.connector, {
