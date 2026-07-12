@@ -25,6 +25,7 @@ import {
   emailVerificationConfirmSchema,
   emailVerificationStartSchema,
   externalConnectionTestResultSchema,
+  externalConnectorReconciliationSchema,
   externalDataConnectorCreateInputSchema,
   externalDataConnectorSchema,
   externalDataConnectorUpdateInputSchema,
@@ -1494,5 +1495,45 @@ describe("shared contracts", () => {
     });
 
     expect(result.latencyMs).toBe(42);
+  });
+
+  it("validates the external connector reconciliation gate", () => {
+    const result = externalConnectorReconciliationSchema.parse({
+      connectorId: "connector_1",
+      workspaceId: "workspace_1",
+      generatedAt: "2026-07-12T20:00:00.000Z",
+      state: "ready",
+      readyForCutover: true,
+      meta: {
+        connectionConfigured: true,
+        destinationConfigured: true,
+        pixelId: "pixel_1",
+        pageId: "page_1",
+      },
+      events: [
+        "conversation_started",
+        "qualified_lead",
+        "purchase",
+      ].map((eventType) => ({
+        eventType,
+        sourceRows: 1,
+        operationalRows: 1,
+        historicalRows: 0,
+        matchedRows: 1,
+        duplicateDeliveries: 0,
+        rejectedRows: 0,
+        pendingRows: 0,
+        readyToSendRows: 1,
+        sentRows: 0,
+        importedRows: 0,
+        blockedDeliveryRows: 0,
+        firstOccurredAt: "2026-07-12T19:00:00.000Z",
+        lastOccurredAt: "2026-07-12T19:00:00.000Z",
+      })),
+      blockers: [],
+    });
+
+    expect(result.readyForCutover).toBe(true);
+    expect(result.events).toHaveLength(3);
   });
 });

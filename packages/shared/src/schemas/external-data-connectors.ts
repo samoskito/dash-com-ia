@@ -158,6 +158,51 @@ export const externalSyncQueuedResultSchema = z.object({
   status: z.literal("queued"),
 });
 
+export const externalReconciliationStateSchema = z.enum([
+  "collecting",
+  "blocked",
+  "ready",
+  "live",
+]);
+
+export const externalReconciliationBlockerSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+});
+
+export const externalEventReconciliationSchema = z.object({
+  eventType: canonicalTrackingEventTypeSchema,
+  sourceRows: z.number().int().nonnegative(),
+  operationalRows: z.number().int().nonnegative(),
+  historicalRows: z.number().int().nonnegative(),
+  matchedRows: z.number().int().nonnegative(),
+  duplicateDeliveries: z.number().int().nonnegative(),
+  rejectedRows: z.number().int().nonnegative(),
+  pendingRows: z.number().int().nonnegative(),
+  readyToSendRows: z.number().int().nonnegative(),
+  sentRows: z.number().int().nonnegative(),
+  importedRows: z.number().int().nonnegative(),
+  blockedDeliveryRows: z.number().int().nonnegative(),
+  firstOccurredAt: z.string().datetime().nullable(),
+  lastOccurredAt: z.string().datetime().nullable(),
+});
+
+export const externalConnectorReconciliationSchema = z.object({
+  connectorId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  generatedAt: z.string().datetime(),
+  state: externalReconciliationStateSchema,
+  readyForCutover: z.boolean(),
+  meta: z.object({
+    connectionConfigured: z.boolean(),
+    destinationConfigured: z.boolean(),
+    pixelId: z.string().nullable(),
+    pageId: z.string().nullable(),
+  }),
+  events: z.array(externalEventReconciliationSchema).length(3),
+  blockers: z.array(externalReconciliationBlockerSchema),
+});
+
 export const externalConnectorHealthSchema = z.object({
   connector: externalDataConnectorSchema,
   totals: z.object({
@@ -166,6 +211,7 @@ export const externalConnectorHealthSchema = z.object({
     rejected: z.number().int().nonnegative(),
     pending: z.number().int().nonnegative(),
   }),
+  reconciliation: externalConnectorReconciliationSchema.optional(),
 });
 
 export const externalConnectorHealthListSchema = z.array(
@@ -210,6 +256,18 @@ export type ExternalConnectionTestResultDto = z.infer<
 export type ExternalSyncInputDto = z.infer<typeof externalSyncInputSchema>;
 export type ExternalSyncQueuedResultDto = z.infer<
   typeof externalSyncQueuedResultSchema
+>;
+export type ExternalReconciliationStateDto = z.infer<
+  typeof externalReconciliationStateSchema
+>;
+export type ExternalReconciliationBlockerDto = z.infer<
+  typeof externalReconciliationBlockerSchema
+>;
+export type ExternalEventReconciliationDto = z.infer<
+  typeof externalEventReconciliationSchema
+>;
+export type ExternalConnectorReconciliationDto = z.infer<
+  typeof externalConnectorReconciliationSchema
 >;
 export type ExternalConnectorHealthDto = z.infer<
   typeof externalConnectorHealthSchema

@@ -30,31 +30,111 @@ describe("ExternalDataService", () => {
             lastSyncCompletedAt: now,
             lastSyncStatus: "completed",
             lastSyncErrorCode: null,
-            cursors: [],
+            cursors: [
+              {
+                stream: "events",
+                lastExternalId: "event_3",
+                lastUpdatedAt: now,
+                lastSyncedAt: now
+              }
+            ],
             createdAt: now,
             updatedAt: now
           }
         ])
       },
       externalIngestionRecord: {
-        groupBy: vi.fn(async () => [
+        findMany: vi.fn(async () => [
+          { connectorId: "connector_1", conversionEventLogId: "conversion_1" },
+          { connectorId: "connector_1", conversionEventLogId: "conversion_2" },
+          { connectorId: "connector_1", conversionEventLogId: "conversion_3" }
+        ]),
+        groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => {
+          if (args.by.includes("eventType")) {
+            if (args.by.includes("status")) {
+              return ["conversation_started", "qualified_lead", "purchase"].map(
+                (eventType) => ({
+                  connectorId: "connector_1",
+                  eventType,
+                  status: "imported",
+                  _count: { _all: 1 },
+                  _sum: { duplicateCount: 0 },
+                  _min: { occurredAt: now },
+                  _max: { occurredAt: now }
+                })
+              );
+            }
+
+            if (args.where?.externalRowId) {
+              return [];
+            }
+
+            return ["conversation_started", "qualified_lead", "purchase"].map(
+              (eventType) => ({
+                connectorId: "connector_1",
+                eventType,
+                _count: { _all: 1 }
+              })
+            );
+          }
+
+          if (args.by.includes("connectorId")) {
+            return [
+              {
+                connectorId: "connector_1",
+                status: "imported",
+                _count: { _all: 116 },
+                _sum: { duplicateCount: 2 }
+              },
+              {
+                connectorId: "connector_1",
+                status: "rejected",
+                _count: { _all: 1 },
+                _sum: { duplicateCount: 0 }
+              },
+              {
+                connectorId: "connector_1",
+                status: "removed",
+                _count: { _all: 4 },
+                _sum: { duplicateCount: 9 }
+              }
+            ];
+          }
+
+          return [];
+        })
+      },
+      conversionEventLog: {
+        groupBy: vi.fn(async () =>
+          [
+            ["LeadSubmitted", "conversation_started"],
+            ["QualifiedLead", "qualified_lead"],
+            ["Purchase", "purchase"]
+          ].map(([eventName]) => ({
+            externalConnectorId: "connector_1",
+            eventName,
+            status: "ready_to_send",
+            businessSource: "paid",
+            _count: { _all: 1 }
+          }))
+        )
+      },
+      metaIntegration: {
+        findMany: vi.fn(async () => [
           {
-            connectorId: "connector_1",
-            status: "imported",
-            _count: { _all: 116 },
-            _sum: { duplicateCount: 2 }
-          },
+            workspaceId: "workspace_1",
+            status: "connected",
+            encryptedAccessToken: "encrypted-token"
+          }
+        ])
+      },
+      metaConversionDestination: {
+        findMany: vi.fn(async () => [
           {
-            connectorId: "connector_1",
-            status: "rejected",
-            _count: { _all: 1 },
-            _sum: { duplicateCount: 0 }
-          },
-          {
-            connectorId: "connector_1",
-            status: "removed",
-            _count: { _all: 4 },
-            _sum: { duplicateCount: 9 }
+            workspaceId: "workspace_1",
+            status: "configured",
+            pixelId: "pixel_1",
+            pageId: "page_1"
           }
         ])
       }
@@ -65,6 +145,7 @@ describe("ExternalDataService", () => {
 
     expect(compatibleResult[0]).toMatchObject({ id: "connector_1" });
     expect(prisma.externalIngestionRecord.groupBy).not.toHaveBeenCalled();
+    expect(prisma.externalIngestionRecord.findMany).not.toHaveBeenCalled();
 
     const result = await service.listConnectors(undefined, true);
 
@@ -79,6 +160,11 @@ describe("ExternalDataService", () => {
         duplicates: 2,
         rejected: 1,
         pending: 0
+      },
+      reconciliation: {
+        state: "ready",
+        readyForCutover: true,
+        blockers: []
       }
     });
     expect(prisma.externalIngestionRecord.groupBy).toHaveBeenCalledWith(
@@ -86,6 +172,137 @@ describe("ExternalDataService", () => {
         by: ["connectorId", "status"],
         where: { connectorId: { in: ["connector_1"] } }
       })
+    );
+    expect(prisma.conversionEventLog.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            {
+              externalConnectorId: "connector_1",
+              id: { in: ["conversion_1", "conversion_2", "conversion_3"] }
+            }
+          ]
+        })
+      })
+    );
+    expect(prisma.externalIngestionRecord.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.metaIntegration.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.metaConversionDestination.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks cutover until every real event and Meta destination are observed", async () => {
+    const now = new Date("2026-07-12T20:00:00.000Z");
+    const connector = {
+      id: "connector_1",
+      workspaceId: "workspace_1",
+      name: "Cliente Barbieri",
+      provider: "kinbox_mysql",
+      status: "active",
+      timezone: "America/Sao_Paulo",
+      sslMode: "required",
+      credentialsEncrypted: "ciphertext",
+      credentialsIv: "iv",
+      credentialsTag: "tag",
+      syncEnabled: true,
+      shadowMode: true,
+      capiSendEnabled: false,
+      purchaseAverageValueCents: 400_000,
+      defaultCurrency: "BRL",
+      lastConnectionTestAt: now,
+      lastConnectionStatus: "connected",
+      lastSyncStartedAt: now,
+      lastSyncCompletedAt: now,
+      lastSyncStatus: "completed",
+      lastSyncErrorCode: null,
+      cursors: [
+        {
+          stream: "events",
+          lastExternalId: "event_2",
+          lastUpdatedAt: now,
+          lastSyncedAt: now
+        }
+      ],
+      createdAt: now,
+      updatedAt: now
+    };
+    const prisma = {
+      externalDataConnector: {
+        findUnique: vi.fn(async () => connector)
+      },
+      externalIngestionRecord: {
+        findMany: vi.fn(async () => [
+          { connectorId: "connector_1", conversionEventLogId: "conversion_1" },
+          { connectorId: "connector_1", conversionEventLogId: "conversion_2" }
+        ]),
+        groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => {
+          if (args.by.includes("eventType")) {
+            if (args.by.includes("status")) {
+              return ["conversation_started", "qualified_lead"].map((eventType) => ({
+                connectorId: "connector_1",
+                eventType,
+                status: "imported",
+                _count: { _all: 1 },
+                _sum: { duplicateCount: 0 },
+                _min: { occurredAt: now },
+                _max: { occurredAt: now }
+              }));
+            }
+            if (args.where?.externalRowId) {
+              return [];
+            }
+            return ["conversation_started", "qualified_lead"].map((eventType) => ({
+              connectorId: "connector_1",
+              eventType,
+              _count: { _all: 1 }
+            }));
+          }
+          return [];
+        })
+      },
+      conversionEventLog: {
+        groupBy: vi.fn(async () => [
+          {
+            externalConnectorId: "connector_1",
+            eventName: "LeadSubmitted",
+            status: "ready_to_send",
+            businessSource: "paid",
+            _count: { _all: 1 }
+          },
+          {
+            externalConnectorId: "connector_1",
+            eventName: "QualifiedLead",
+            status: "ready_to_send",
+            businessSource: "paid",
+            _count: { _all: 1 }
+          }
+        ])
+      },
+      metaIntegration: {
+        findMany: vi.fn(async () => [
+          {
+            workspaceId: "workspace_1",
+            status: "connected",
+            encryptedAccessToken: "encrypted-token"
+          }
+        ])
+      },
+      metaConversionDestination: {
+        findMany: vi.fn(async () => [])
+      }
+    };
+    const service = new ExternalDataService(prisma as never, {} as never, {} as never, {} as never);
+
+    const health = await service.getHealth("connector_1");
+
+    expect(health.reconciliation).toMatchObject({
+      state: "blocked",
+      readyForCutover: false
+    });
+    expect(health.reconciliation?.blockers.map((blocker) => blocker.code)).toEqual(
+      expect.arrayContaining([
+        "META_DESTINATION_MISSING",
+        "EVENT_NOT_OBSERVED_PURCHASE"
+      ])
     );
   });
 

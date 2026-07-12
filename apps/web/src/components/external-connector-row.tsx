@@ -37,6 +37,29 @@ function connectionStatusLabel(health: ExternalConnectorHealthDto): string {
   return "Aguardando teste";
 }
 
+function reconciliationStateLabel(
+  state: NonNullable<ExternalConnectorHealthDto["reconciliation"]>["state"]
+): string {
+  const labels = {
+    collecting: "Coletando eventos",
+    blocked: "Bloqueado",
+    ready: "Pronto para corte",
+    live: "CAPI ativo"
+  };
+
+  return labels[state];
+}
+
+function reconciliationEventLabel(eventType: string): string {
+  const labels: Record<string, string> = {
+    conversation_started: "Conversas",
+    qualified_lead: "Qualificados",
+    purchase: "Compras"
+  };
+
+  return labels[eventType] ?? eventType;
+}
+
 function terminalSyncReached(health: ExternalConnectorHealthDto, requestedAt: number): boolean {
   const connector = health.connector;
   const startedAt = connector.lastSyncStartedAt
@@ -197,6 +220,58 @@ export function ExternalConnectorRow({
             <strong>{health.totals.pending}</strong>
           </span>
         </div>
+        {health.reconciliation ? (
+          <div className="connector-reconciliation" aria-label="Gate de reconciliacao CAPI">
+            <div className="connector-reconciliation-heading">
+              <span className="micro-label">Gate de corte CAPI</span>
+              <span
+                className={`event-chip${
+                  ["blocked", "collecting"].includes(health.reconciliation.state)
+                    ? " warn"
+                    : ""
+                }`}
+              >
+                {reconciliationStateLabel(health.reconciliation.state)}
+              </span>
+            </div>
+            <div className="connector-reconciliation-events">
+              {health.reconciliation.events.map((event) => (
+                <div className="connector-reconciliation-event" key={event.eventType}>
+                  <strong>{reconciliationEventLabel(event.eventType)}</strong>
+                  <span>
+                    {event.operationalRows} eventos reais / {event.historicalRows} historicos
+                  </span>
+                  <small>
+                    {event.matchedRows}/{event.sourceRows} vinculados
+                  </small>
+                  <small>
+                    {event.duplicateDeliveries} repeticoes / {event.rejectedRows} rejeitados /{" "}
+                    {event.pendingRows} pendentes
+                  </small>
+                </div>
+              ))}
+            </div>
+            <small>
+              Meta {health.reconciliation.meta.connectionConfigured ? "conectado" : "pendente"}
+              {" / "}
+              Destino {health.reconciliation.meta.destinationConfigured ? "configurado" : "pendente"}
+            </small>
+            {health.reconciliation.blockers.length ? (
+              <ul className="connector-reconciliation-blockers">
+                {health.reconciliation.blockers.slice(0, 3).map((blocker) => (
+                  <li key={blocker.code}>{blocker.message}</li>
+                ))}
+                {health.reconciliation.blockers.length > 3 ? (
+                  <li>Mais {health.reconciliation.blockers.length - 3} verificacao(oes).</li>
+                ) : null}
+              </ul>
+            ) : (
+              <small className="reconciliation-ready-copy">
+                Eventos reais reconciliados. O envio WppTrack continua desligado.
+              </small>
+            )}
+          </div>
+        ) : null}
       </div>
 
       <div className="connector-actions">

@@ -64,6 +64,40 @@ describe("backoffice clients route", () => {
               duplicates: 0,
               rejected: 0,
               pending: 0
+            },
+            reconciliation: {
+              connectorId: "connector_1",
+              workspaceId: "workspace_barbieri",
+              generatedAt: "2026-07-12T20:00:00.000Z",
+              state: "ready",
+              readyForCutover: true,
+              meta: {
+                connectionConfigured: true,
+                destinationConfigured: true,
+                pixelId: "pixel_1",
+                pageId: "page_1"
+              },
+              events: [
+                ["conversation_started", 4],
+                ["qualified_lead", 3],
+                ["purchase", 1]
+              ].map(([eventType, operationalRows]) => ({
+                eventType,
+                sourceRows: operationalRows,
+                operationalRows,
+                historicalRows: 0,
+                matchedRows: operationalRows,
+                duplicateDeliveries: 0,
+                rejectedRows: 0,
+                pendingRows: 0,
+                readyToSendRows: operationalRows,
+                sentRows: 0,
+                importedRows: 0,
+                blockedDeliveryRows: 0,
+                firstOccurredAt: "2026-07-12T18:00:00.000Z",
+                lastOccurredAt: "2026-07-12T20:00:00.000Z"
+              })),
+              blockers: []
             }
           }
         ];
@@ -107,6 +141,11 @@ describe("backoffice clients route", () => {
     expect(html).toContain("Importados");
     expect(html).toContain(">116<");
     expect(html).toContain("Reimportar leads");
+    expect(html).toContain("Gate de corte CAPI");
+    expect(html).toContain("Pronto para corte");
+    expect(html).toContain("4 eventos reais");
+    expect(html).toContain("0 repeticoes");
+    expect(html).toContain("Eventos reais reconciliados");
     expect(html).toContain("Acessar");
     expect(html).toContain("Salvar conector");
     expect(html).not.toContain("credentialsEncrypted");
