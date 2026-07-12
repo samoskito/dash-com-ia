@@ -6,6 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import ProductLayout from "../src/app/(app)/layout";
 import { WorkspaceAccessGate } from "../src/components/workspace-access-gate";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    refresh: () => undefined,
+  }),
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -89,5 +95,16 @@ describe("product app layout", () => {
     expect(source).toContain("<Suspense");
     expect(source).toContain("<ProductRouteLoading />");
     expect(source).toContain("<WorkspaceAccessGate>");
+  });
+
+  it("refreshes workspace data without a full reload or a tab-return refresh", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/data-auto-refresh.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("router.refresh()");
+    expect(source).not.toContain("window.location.reload");
+    expect(source).not.toContain("visibilitychange");
   });
 });

@@ -1,9 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { clientNavigation, backofficeNavigation } from "@wpptrack/shared";
 import { AppShell } from "../src/components/app-shell";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    refresh: () => undefined,
+  }),
+}));
 
 describe("navigation", () => {
   it("keeps the client panel focused on final customer operations", () => {

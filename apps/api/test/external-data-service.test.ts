@@ -32,9 +32,9 @@ describe("ExternalDataService", () => {
             lastSyncErrorCode: null,
             cursors: [],
             createdAt: now,
-            updatedAt: now
-          }
-        ])
+            updatedAt: now,
+          },
+        ]),
       },
       externalIngestionRecord: {
         groupBy: vi.fn(async () => [
@@ -42,18 +42,29 @@ describe("ExternalDataService", () => {
             connectorId: "connector_1",
             status: "imported",
             _count: { _all: 116 },
-            _sum: { duplicateCount: 2 }
+            _sum: { duplicateCount: 2 },
           },
           {
             connectorId: "connector_1",
             status: "rejected",
             _count: { _all: 1 },
-            _sum: { duplicateCount: 0 }
-          }
-        ])
-      }
+            _sum: { duplicateCount: 0 },
+          },
+          {
+            connectorId: "connector_1",
+            status: "removed",
+            _count: { _all: 4 },
+            _sum: { duplicateCount: 9 },
+          },
+        ]),
+      },
     };
-    const service = new ExternalDataService(prisma as never, {} as never, {} as never, {} as never);
+    const service = new ExternalDataService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
 
     const compatibleResult = await service.listConnectors();
 
@@ -66,20 +77,20 @@ describe("ExternalDataService", () => {
     expect(result[0]).toMatchObject({
       connector: {
         id: "connector_1",
-        lastSyncStatus: "completed"
+        lastSyncStatus: "completed",
       },
       totals: {
         imported: 116,
         duplicates: 2,
         rejected: 1,
-        pending: 0
-      }
+        pending: 0,
+      },
     });
     expect(prisma.externalIngestionRecord.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({
         by: ["connectorId", "status"],
-        where: { connectorId: { in: ["connector_1"] } }
-      })
+        where: { connectorId: { in: ["connector_1"] } },
+      }),
     );
   });
 
@@ -87,7 +98,7 @@ describe("ExternalDataService", () => {
     const now = new Date("2026-07-11T15:00:00.000Z");
     const prisma = {
       workspace: {
-        findUnique: vi.fn(async () => ({ id: "workspace_1" }))
+        findUnique: vi.fn(async () => ({ id: "workspace_1" })),
       },
       externalDataConnector: {
         create: vi.fn(async ({ data }) => ({
@@ -102,23 +113,23 @@ describe("ExternalDataService", () => {
           lastSyncErrorCode: null,
           cursors: [],
           createdAt: now,
-          updatedAt: now
-        }))
+          updatedAt: now,
+        })),
       },
-      auditLog: { create: vi.fn(async () => ({})) }
+      auditLog: { create: vi.fn(async () => ({})) },
     };
     const encryption = {
       encrypt: vi.fn(() => ({
         credentialsEncrypted: "ciphertext",
         credentialsIv: "iv",
-        credentialsTag: "tag"
-      }))
+        credentialsTag: "tag",
+      })),
     };
     const service = new ExternalDataService(
       prisma as never,
       encryption as never,
       {} as never,
-      {} as never
+      {} as never,
     );
     const result = await service.createConnector(
       {
@@ -132,31 +143,33 @@ describe("ExternalDataService", () => {
           port: 3306,
           database: "tracking",
           username: "wpptrack_reader",
-          password: "strong-password"
+          password: "strong-password",
         },
         syncEnabled: false,
         shadowMode: true,
         capiSendEnabled: false,
         purchaseAverageValueCents: 400_000,
-        defaultCurrency: "BRL"
+        defaultCurrency: "BRL",
       },
-      "admin_1"
+      "admin_1",
     );
 
     expect(result).toMatchObject({
       id: "connector_1",
       hasCredentials: true,
-      shadowMode: true
+      shadowMode: true,
     });
     expect(JSON.stringify(result)).not.toContain("strong-password");
     expect(JSON.stringify(result)).not.toContain("ciphertext");
     expect(prisma.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorUserId: "admin_1",
-        action: "external_connector.created"
-      })
+        action: "external_connector.created",
+      }),
     });
-    expect(JSON.stringify(prisma.auditLog.create.mock.calls)).not.toContain("strong-password");
+    expect(JSON.stringify(prisma.auditLog.create.mock.calls)).not.toContain(
+      "strong-password",
+    );
   });
 
   it("does not activate synchronization before a successful connection test", async () => {
@@ -188,15 +201,24 @@ describe("ExternalDataService", () => {
           lastSyncErrorCode: null,
           cursors: [],
           createdAt: now,
-          updatedAt: now
+          updatedAt: now,
         })),
-        update
-      }
+        update,
+      },
     };
-    const service = new ExternalDataService(prisma as never, {} as never, {} as never, {} as never);
+    const service = new ExternalDataService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
 
     await expect(
-      service.updateConnector("connector_1", { status: "active", syncEnabled: true }, "admin_1")
+      service.updateConnector(
+        "connector_1",
+        { status: "active", syncEnabled: true },
+        "admin_1",
+      ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(update).not.toHaveBeenCalled();
   });
@@ -206,7 +228,7 @@ describe("ExternalDataService", () => {
       connectorId: "connector_1",
       streams: ["leads"] as const,
       jobId: "external-data-sync_connector_1_leads",
-      status: "queued" as const
+      status: "queued" as const,
     }));
     const prisma = {
       externalDataConnector: {
@@ -215,16 +237,16 @@ describe("ExternalDataService", () => {
           workspaceId: "workspace_1",
           status: "active",
           lastSyncStatus: "completed",
-          cursors: []
-        }))
+          cursors: [],
+        })),
       },
-      auditLog: { create: vi.fn(async () => ({})) }
+      auditLog: { create: vi.fn(async () => ({})) },
     };
     const service = new ExternalDataService(
       prisma as never,
       {} as never,
       {} as never,
-      { enqueueSync } as never
+      { enqueueSync } as never,
     );
 
     const result = await service.enqueueLeadsReimport("connector_1", "admin_1");
@@ -233,7 +255,7 @@ describe("ExternalDataService", () => {
       connectorId: "connector_1",
       streams: ["leads"],
       projectionRefresh: true,
-      requestedByUserId: "admin_1"
+      requestedByUserId: "admin_1",
     });
     expect(result.status).toBe("queued");
   });

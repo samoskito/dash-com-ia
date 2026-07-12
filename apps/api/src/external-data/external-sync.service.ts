@@ -4,24 +4,21 @@ import {
   externalConnectorProviderSchema,
   externalConnectorSslModeSchema,
   externalSyncStreamSchema,
-  type ExternalSyncStreamDto
+  type ExternalSyncStreamDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { LeadsService } from "../leads/leads.service";
 import { ExternalCredentialEncryptionService } from "./external-credential-encryption.service";
 import {
   ExternalEventIngestionService,
-  type ExternalEventConnectorContext
+  type ExternalEventConnectorContext,
 } from "./external-event-ingestion.service";
-import {
-  dateInTimezone,
-  startOfDateInTimezone
-} from "./external-event-policy";
+import { dateInTimezone, startOfDateInTimezone } from "./external-event-policy";
 import {
   ExternalMysqlAdapter,
   type ExternalEventRow,
   type ExternalLeadRow,
-  type ExternalSyncCursorValue
+  type ExternalSyncCursorValue,
 } from "./external-mysql.adapter";
 
 export type ExternalSyncCounts = {
@@ -30,6 +27,7 @@ export type ExternalSyncCounts = {
   duplicates: number;
   rejected: number;
   queued: number;
+  removed: number;
 };
 
 export type ExternalConnectorSyncResult = {
@@ -73,16 +71,16 @@ export class ExternalSyncService {
     @Inject(ExternalMysqlAdapter)
     private readonly mysqlAdapter: ExternalMysqlAdapter,
     @Inject(ExternalEventIngestionService)
-    private readonly eventIngestion: ExternalEventIngestionService
+    private readonly eventIngestion: ExternalEventIngestionService,
   ) {}
 
   async syncConnector(
     connectorId: string,
     requestedStreams: ExternalSyncStreamDto[],
-    options: { projectionRefresh?: boolean } = {}
+    options: { projectionRefresh?: boolean } = {},
   ): Promise<ExternalConnectorSyncResult> {
     const connector = (await this.prisma.externalDataConnector.findUnique({
-      where: { id: connectorId }
+      where: { id: connectorId },
     })) as ConnectorRecord | null;
 
     if (!connector) {
@@ -106,25 +104,27 @@ export class ExternalSyncService {
       data: {
         lastSyncStartedAt: startedAt,
         lastSyncStatus: "running",
-        lastSyncErrorCode: null
-      }
+        lastSyncErrorCode: null,
+      },
     });
 
     const integrationLog = await this.prisma.integrationLog.create({
       data: {
         workspaceId: connector.workspaceId,
         source: "external_mysql",
-        operation: projectionRefresh ? "lead_projection_refresh" : "incremental_sync",
+        operation: projectionRefresh
+          ? "lead_projection_refresh"
+          : "incremental_sync",
         status: "running",
         startedAt,
         requestSummary: {
           connectorId: connector.id,
           provider: connector.provider,
           streams,
-          projectionRefresh
-        } as Prisma.InputJsonValue
+          projectionRefresh,
+        } as Prisma.InputJsonValue,
       },
-      select: { id: true }
+      select: { id: true },
     });
 
     try {
@@ -135,14 +135,17 @@ export class ExternalSyncService {
                 connector,
                 credentials,
                 sslMode,
-                projectionRefresh
+                projectionRefresh,
               )
             : await this.syncEvents(context, credentials, sslMode);
         this.addCounts(counts, streamCounts);
       }
 
       const completedAt = new Date();
-      const durationMs = Math.max(0, completedAt.getTime() - startedAt.getTime());
+      const durationMs = Math.max(
+        0,
+        completedAt.getTime() - startedAt.getTime(),
+      );
 
       await this.prisma.$transaction([
         this.prisma.externalDataConnector.update({
@@ -150,8 +153,8 @@ export class ExternalSyncService {
           data: {
             lastSyncCompletedAt: completedAt,
             lastSyncStatus: "completed",
-            lastSyncErrorCode: null
-          }
+            lastSyncErrorCode: null,
+          },
         }),
         this.prisma.integrationLog.update({
           where: { id: integrationLog.id },
@@ -159,9 +162,9 @@ export class ExternalSyncService {
             status: "completed",
             finishedAt: completedAt,
             durationMs,
-            responseSummary: counts as Prisma.InputJsonValue
-          }
-        })
+            responseSummary: counts as Prisma.InputJsonValue,
+          },
+        }),
       ]);
 
       return {
@@ -171,11 +174,14 @@ export class ExternalSyncService {
         counts,
         startedAt: startedAt.toISOString(),
         completedAt: completedAt.toISOString(),
-        durationMs
+        durationMs,
       };
     } catch (error) {
       const completedAt = new Date();
-      const durationMs = Math.max(0, completedAt.getTime() - startedAt.getTime());
+      const durationMs = Math.max(
+        0,
+        completedAt.getTime() - startedAt.getTime(),
+      );
       const errorCode = this.errorCode(error);
 
       await this.prisma.$transaction([
@@ -184,8 +190,8 @@ export class ExternalSyncService {
           data: {
             lastSyncCompletedAt: completedAt,
             lastSyncStatus: "failed",
-            lastSyncErrorCode: errorCode
-          }
+            lastSyncErrorCode: errorCode,
+          },
         }),
         this.prisma.integrationLog.update({
           where: { id: integrationLog.id },
@@ -195,9 +201,9 @@ export class ExternalSyncService {
             durationMs,
             providerErrorCode: errorCode,
             providerErrorMessage: this.safeErrorMessage(error),
-            responseSummary: counts as Prisma.InputJsonValue
-          }
-        })
+            responseSummary: counts as Prisma.InputJsonValue,
+          },
+        }),
       ]);
 
       throw error;
@@ -208,10 +214,11 @@ export class ExternalSyncService {
     connector: ConnectorRecord,
     credentials: ReturnType<ExternalCredentialEncryptionService["decrypt"]>,
     sslMode: ReturnType<typeof externalConnectorSslModeSchema.parse>,
-    projectionRefresh = false
+    projectionRefresh = false,
   ): Promise<ExternalSyncCounts> {
     const counts = this.emptyCounts();
     const batchSize = this.rowBatchSize();
+    const snapshotStartedAt = new Date();
     let cursor = projectionRefresh
       ? { lastExternalId: null, lastUpdatedAt: null }
       : await this.getCursor(connector.id, "leads");
@@ -221,23 +228,21 @@ export class ExternalSyncService {
         credentials,
         sslMode,
         cursor,
-        batchSize
+        batchSize,
       );
       counts.read += rows.length;
       const hierarchyByAdId = await this.loadMetaAdHierarchy(
         connector.workspaceId,
-        rows
+        rows,
       );
 
       for (const row of rows) {
-        const hierarchy = row.adId
-          ? hierarchyByAdId.get(row.adId)
-          : undefined;
+        const hierarchy = row.adId ? hierarchyByAdId.get(row.adId) : undefined;
         const status = await this.ingestLead(
           connector,
           row,
           projectionRefresh,
-          hierarchy
+          hierarchy,
         );
         counts[status] += 1;
       }
@@ -251,6 +256,12 @@ export class ExternalSyncService {
       }
 
       if (rows.length < batchSize) {
+        if (projectionRefresh) {
+          counts.removed += await this.reconcileLeadSnapshot(
+            connector,
+            snapshotStartedAt,
+          );
+        }
         return counts;
       }
     }
@@ -259,7 +270,7 @@ export class ExternalSyncService {
   private async syncEvents(
     connector: ExternalEventConnectorContext,
     credentials: ReturnType<ExternalCredentialEncryptionService["decrypt"]>,
-    sslMode: ReturnType<typeof externalConnectorSslModeSchema.parse>
+    sslMode: ReturnType<typeof externalConnectorSslModeSchema.parse>,
   ): Promise<ExternalSyncCounts> {
     const counts = this.emptyCounts();
     const batchSize = this.rowBatchSize();
@@ -272,23 +283,21 @@ export class ExternalSyncService {
         credentials,
         sslMode,
         cursor,
-        batchSize
+        batchSize,
       );
       counts.read += rows.length;
       const hierarchyByAdId = await this.loadMetaAdHierarchy(
         connector.workspaceId,
-        rows
+        rows,
       );
 
       for (const row of rows) {
-        const hierarchy = row.adId
-          ? hierarchyByAdId.get(row.adId)
-          : undefined;
+        const hierarchy = row.adId ? hierarchyByAdId.get(row.adId) : undefined;
         const enrichedRow = hierarchy
           ? {
               ...row,
               campaignId: row.campaignId ?? hierarchy.campaignId,
-              adSetId: row.adSetId ?? hierarchy.adSetId
+              adSetId: row.adSetId ?? hierarchy.adSetId,
             }
           : row;
         const result = await this.eventIngestion.ingest(connector, enrichedRow);
@@ -316,7 +325,7 @@ export class ExternalSyncService {
     connector: ConnectorRecord,
     row: ExternalLeadRow,
     projectionRefresh = false,
-    hierarchy?: MetaAdHierarchy
+    hierarchy?: MetaAdHierarchy,
   ): Promise<"imported" | "duplicates" | "rejected"> {
     const sourceRowKey = `external-row:${connector.id}:leads:${row.externalRowId}`;
 
@@ -339,7 +348,7 @@ export class ExternalSyncService {
         occurredAt: lastMessageAt,
         firstMessageAt,
         lastMessageAt,
-        recordMessageTimestamps: true
+        recordMessageTimestamps: true,
       });
 
       if (!lead) {
@@ -348,19 +357,17 @@ export class ExternalSyncService {
 
       await this.prisma.lead.update({
         where: { id: lead.id },
-        data: { status: this.leadStatus(row) }
+        data: { status: this.leadStatus(row) },
       });
 
       await this.projectHistoricalMilestones(connector, row);
 
-      if (projectionRefresh) {
-        return "imported";
-      }
-
-      const existing = await this.prisma.externalIngestionRecord.findUnique({
-        where: { dedupeKey: sourceRowKey },
-        select: { id: true, duplicateCount: true }
-      });
+      const existing = projectionRefresh
+        ? null
+        : await this.prisma.externalIngestionRecord.findUnique({
+            where: { dedupeKey: sourceRowKey },
+            select: { id: true, duplicateCount: true },
+          });
 
       await this.prisma.externalIngestionRecord.upsert({
         where: { dedupeKey: sourceRowKey },
@@ -373,32 +380,29 @@ export class ExternalSyncService {
           status: "imported",
           occurredAt: firstMessageAt,
           leadId: lead.id,
+          lastReceivedAt: new Date(),
           summaryPayload: {
             externalLeadId: row.externalLeadId,
-            sourceStatus: row.status
-          } as Prisma.InputJsonValue
+            sourceStatus: row.status,
+          } as Prisma.InputJsonValue,
         },
         update: {
           status: "imported",
           occurredAt: firstMessageAt,
           leadId: lead.id,
           lastReceivedAt: new Date(),
-          duplicateCount: { increment: 1 },
+          ...(projectionRefresh ? {} : { duplicateCount: { increment: 1 } }),
           errorCode: null,
           errorMessage: null,
           summaryPayload: {
             externalLeadId: row.externalLeadId,
-            sourceStatus: row.status
-          } as Prisma.InputJsonValue
-        }
+            sourceStatus: row.status,
+          } as Prisma.InputJsonValue,
+        },
       });
 
       return existing ? "duplicates" : "imported";
     } catch (error) {
-      if (projectionRefresh) {
-        return "rejected";
-      }
-
       await this.prisma.externalIngestionRecord.upsert({
         where: { dedupeKey: sourceRowKey },
         create: {
@@ -408,34 +412,133 @@ export class ExternalSyncService {
           externalRowId: row.externalRowId,
           dedupeKey: sourceRowKey,
           status: "rejected",
+          lastReceivedAt: new Date(),
           errorCode: this.errorCode(error),
           errorMessage: this.safeErrorMessage(error),
           summaryPayload: {
-            externalLeadId: row.externalLeadId
-          } as Prisma.InputJsonValue
+            externalLeadId: row.externalLeadId,
+          } as Prisma.InputJsonValue,
         },
         update: {
           status: "rejected",
           lastReceivedAt: new Date(),
           errorCode: this.errorCode(error),
-          errorMessage: this.safeErrorMessage(error)
-        }
+          errorMessage: this.safeErrorMessage(error),
+        },
       });
 
       return "rejected";
     }
   }
 
+  private async reconcileLeadSnapshot(
+    connector: ConnectorRecord,
+    snapshotStartedAt: Date,
+  ): Promise<number> {
+    const staleRecords = await this.prisma.externalIngestionRecord.findMany({
+      where: {
+        connectorId: connector.id,
+        stream: "leads",
+        status: { not: "removed" },
+        lastReceivedAt: { lt: snapshotStartedAt },
+      },
+      select: { id: true, leadId: true },
+    });
+
+    if (staleRecords.length === 0) {
+      return 0;
+    }
+
+    const staleRecordIds = staleRecords.map((record) => record.id);
+    const candidateLeadIds = [
+      ...new Set(
+        staleRecords
+          .map((record) => record.leadId)
+          .filter((leadId): leadId is string => Boolean(leadId)),
+      ),
+    ];
+    let removed = 0;
+
+    for (const leadId of candidateLeadIds) {
+      const currentReferences = await this.prisma.externalIngestionRecord.count(
+        {
+          where: {
+            id: { notIn: staleRecordIds },
+            stream: "leads",
+            leadId,
+            status: { not: "removed" },
+          },
+        },
+      );
+
+      if (currentReferences > 0) {
+        continue;
+      }
+
+      const lead = await this.prisma.lead.findFirst({
+        where: {
+          id: leadId,
+          workspaceId: connector.workspaceId,
+          source: "external_mysql",
+        },
+        select: { id: true },
+      });
+
+      if (!lead) {
+        continue;
+      }
+
+      await this.prisma.conversionEventLog.updateMany({
+        where: { workspaceId: connector.workspaceId, leadId },
+        data: {
+          status: "skipped",
+          leadId: null,
+          errorCode: "ExternalLeadRemovedAtSource",
+          errorMessage: "O lead nao existe mais na origem externa",
+        },
+      });
+      await this.prisma.externalIngestionRecord.updateMany({
+        where: {
+          workspaceId: connector.workspaceId,
+          stream: "events",
+          leadId,
+        },
+        data: {
+          status: "removed",
+          leadId: null,
+          errorCode: "ExternalLeadRemovedAtSource",
+          errorMessage: "O lead nao existe mais na origem externa",
+          lastReceivedAt: new Date(),
+        },
+      });
+      await this.prisma.lead.delete({ where: { id: lead.id } });
+      removed += 1;
+    }
+
+    await this.prisma.externalIngestionRecord.updateMany({
+      where: { id: { in: staleRecordIds } },
+      data: {
+        status: "removed",
+        leadId: null,
+        errorCode: "ExternalLeadRemovedAtSource",
+        errorMessage: "O lead nao existe mais na origem externa",
+        lastReceivedAt: new Date(),
+      },
+    });
+
+    return removed;
+  }
+
   private async loadMetaAdHierarchy(
     workspaceId: string,
-    rows: Array<{ adId: string | null }>
+    rows: Array<{ adId: string | null }>,
   ): Promise<Map<string, MetaAdHierarchy>> {
     const adIds = [
       ...new Set(
         rows
           .map((row) => row.adId?.trim())
-          .filter((adId): adId is string => Boolean(adId))
-      )
+          .filter((adId): adId is string => Boolean(adId)),
+      ),
     ];
 
     if (adIds.length === 0) {
@@ -445,30 +548,30 @@ export class ExternalSyncService {
     const ads = await this.prisma.metaAd.findMany({
       where: {
         workspaceId,
-        adId: { in: adIds }
+        adId: { in: adIds },
       },
       select: {
         adId: true,
         campaignId: true,
-        adSetId: true
-      }
+        adSetId: true,
+      },
     });
 
     return new Map(
       ads.map((ad) => [
         ad.adId,
-        { campaignId: ad.campaignId, adSetId: ad.adSetId }
-      ])
+        { campaignId: ad.campaignId, adSetId: ad.adSetId },
+      ]),
     );
   }
 
   private async getCursor(
     connectorId: string,
-    stream: ExternalSyncStreamDto
+    stream: ExternalSyncStreamDto,
   ): Promise<ExternalSyncCursorValue> {
     const cursor = await this.prisma.externalSyncCursor.findUnique({
       where: { connectorId_stream: { connectorId, stream } },
-      select: { lastExternalId: true, lastUpdatedAt: true }
+      select: { lastExternalId: true, lastUpdatedAt: true },
     });
 
     return cursor ?? { lastExternalId: null, lastUpdatedAt: null };
@@ -480,14 +583,14 @@ export class ExternalSyncService {
   }): ExternalSyncCursorValue {
     return {
       lastExternalId: row.externalRowId,
-      lastUpdatedAt: this.parseExternalDate(row.updatedAt)
+      lastUpdatedAt: this.parseExternalDate(row.updatedAt),
     };
   }
 
   private async advanceCursor(
     connectorId: string,
     stream: ExternalSyncStreamDto,
-    row: { externalRowId: string; updatedAt: string }
+    row: { externalRowId: string; updatedAt: string },
   ): Promise<ExternalSyncCursorValue> {
     const lastUpdatedAt = this.parseExternalDate(row.updatedAt);
     const now = new Date();
@@ -499,13 +602,13 @@ export class ExternalSyncService {
         stream,
         lastExternalId: row.externalRowId,
         lastUpdatedAt,
-        lastSyncedAt: now
+        lastSyncedAt: now,
       },
       update: {
         lastExternalId: row.externalRowId,
         lastUpdatedAt,
-        lastSyncedAt: now
-      }
+        lastSyncedAt: now,
+      },
     });
 
     return { lastExternalId: row.externalRowId, lastUpdatedAt };
@@ -514,7 +617,7 @@ export class ExternalSyncService {
   private async touchCursor(
     connectorId: string,
     stream: ExternalSyncStreamDto,
-    cursor: ExternalSyncCursorValue
+    cursor: ExternalSyncCursorValue,
   ): Promise<void> {
     await this.prisma.externalSyncCursor.upsert({
       where: { connectorId_stream: { connectorId, stream } },
@@ -523,13 +626,15 @@ export class ExternalSyncService {
         stream,
         lastExternalId: cursor.lastExternalId,
         lastUpdatedAt: cursor.lastUpdatedAt,
-        lastSyncedAt: new Date()
+        lastSyncedAt: new Date(),
       },
-      update: { lastSyncedAt: new Date() }
+      update: { lastSyncedAt: new Date() },
     });
   }
 
-  private connectorContext(connector: ConnectorRecord): ExternalEventConnectorContext {
+  private connectorContext(
+    connector: ConnectorRecord,
+  ): ExternalEventConnectorContext {
     return {
       id: connector.id,
       workspaceId: connector.workspaceId,
@@ -538,17 +643,17 @@ export class ExternalSyncService {
       shadowMode: connector.shadowMode,
       capiSendEnabled: connector.capiSendEnabled,
       purchaseAverageValueCents: connector.purchaseAverageValueCents,
-      defaultCurrency: connector.defaultCurrency
+      defaultCurrency: connector.defaultCurrency,
     };
   }
 
   private async projectHistoricalMilestones(
     connector: ConnectorRecord,
-    row: ExternalLeadRow
+    row: ExternalLeadRow,
   ): Promise<void> {
     const milestones = [
       { eventType: "qualified_lead", occurredAt: row.qualifiedAt },
-      { eventType: "purchase", occurredAt: row.purchasedAt }
+      { eventType: "purchase", occurredAt: row.purchasedAt },
     ] as const;
 
     for (const milestone of milestones) {
@@ -558,12 +663,12 @@ export class ExternalSyncService {
 
       const occurredAt = this.parseHistoricalMilestoneDate(
         milestone.occurredAt,
-        connector.timezone
+        connector.timezone,
       );
       const externalRowId = [
         "historical-lead",
         row.externalRowId,
-        milestone.eventType
+        milestone.eventType,
       ].join(":");
       const historicalEvent: ExternalEventRow = {
         externalRowId,
@@ -586,13 +691,13 @@ export class ExternalSyncService {
         currency: null,
         valueSource: null,
         duplicateCount: 0,
-        updatedAt: row.updatedAt
+        updatedAt: row.updatedAt,
       };
 
       const result = await this.eventIngestion.ingest(
         this.connectorContext(connector),
         historicalEvent,
-        { deliveryStatus: "imported", updateLeadStatus: false }
+        { deliveryStatus: "imported", updateLeadStatus: false },
       );
 
       if (result.status === "rejected") {
@@ -603,7 +708,7 @@ export class ExternalSyncService {
 
   private parseHistoricalMilestoneDate(value: string, timezone: string): Date {
     const dateOnly = /^(\d{4}-\d{2}-\d{2})(?:[ T]00:00:00(?:\.0+)?)?$/.exec(
-      value
+      value,
     );
 
     return dateOnly
@@ -611,16 +716,27 @@ export class ExternalSyncService {
       : this.parseExternalDate(value);
   }
 
-  private normalizeStreams(streams: ExternalSyncStreamDto[]): ExternalSyncStreamDto[] {
-    const requested = new Set(streams.map((stream) => externalSyncStreamSchema.parse(stream)));
+  private normalizeStreams(
+    streams: ExternalSyncStreamDto[],
+  ): ExternalSyncStreamDto[] {
+    const requested = new Set(
+      streams.map((stream) => externalSyncStreamSchema.parse(stream)),
+    );
 
-    return (["leads", "events"] as const).filter((stream) => requested.has(stream));
+    return (["leads", "events"] as const).filter((stream) =>
+      requested.has(stream),
+    );
   }
 
-  private leadStatus(row: ExternalLeadRow): "active" | "qualified" | "converted" {
+  private leadStatus(
+    row: ExternalLeadRow,
+  ): "active" | "qualified" | "converted" {
     const status = row.status?.trim().toLowerCase();
 
-    if (row.purchasedAt || ["comprou", "purchase", "converted"].includes(status ?? "")) {
+    if (
+      row.purchasedAt ||
+      ["comprou", "purchase", "converted"].includes(status ?? "")
+    ) {
       return "converted";
     }
 
@@ -635,7 +751,9 @@ export class ExternalSyncService {
   }
 
   private parseExternalDate(value: string): Date {
-    const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value)
+    const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(
+      value,
+    )
       ? `${value.replace(" ", "T")}Z`
       : value;
     const parsed = new Date(normalized);
@@ -650,21 +768,34 @@ export class ExternalSyncService {
   private rowBatchSize(): number {
     const parsed = Number.parseInt(
       process.env.WPPTRACK_EXTERNAL_SYNC_ROW_BATCH_SIZE ?? "",
-      10
+      10,
     );
-    return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 1_000) : 200;
+    return Number.isFinite(parsed) && parsed > 0
+      ? Math.min(parsed, 1_000)
+      : 200;
   }
 
   private emptyCounts(): ExternalSyncCounts {
-    return { read: 0, imported: 0, duplicates: 0, rejected: 0, queued: 0 };
+    return {
+      read: 0,
+      imported: 0,
+      duplicates: 0,
+      rejected: 0,
+      queued: 0,
+      removed: 0,
+    };
   }
 
-  private addCounts(target: ExternalSyncCounts, source: ExternalSyncCounts): void {
+  private addCounts(
+    target: ExternalSyncCounts,
+    source: ExternalSyncCounts,
+  ): void {
     target.read += source.read;
     target.imported += source.imported;
     target.duplicates += source.duplicates;
     target.rejected += source.rejected;
     target.queued += source.queued;
+    target.removed += source.removed;
   }
 
   private errorCode(error: unknown): string {
@@ -675,7 +806,10 @@ export class ExternalSyncService {
       }
     }
 
-    if (error instanceof Error && /^[A-Za-z][A-Za-z0-9_]+$/.test(error.message)) {
+    if (
+      error instanceof Error &&
+      /^[A-Za-z][A-Za-z0-9_]+$/.test(error.message)
+    ) {
       return error.message.slice(0, 100);
     }
 

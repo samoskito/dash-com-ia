@@ -1,7 +1,8 @@
 "use client";
 
 import type { WhatsappDataSourceDto } from "@wpptrack/shared";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useTransition } from "react";
 import { displayTimeZone } from "../lib/date-time";
 
 const refreshIntervalMs = 60_000;
@@ -42,25 +43,23 @@ export function DataAutoRefresh({
 }: {
   source: WhatsappDataSourceDto | null;
 }) {
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const router = useRouter();
+  const [isRefreshing, startRefreshTransition] = useTransition();
   const refresh = useCallback(() => {
-    setIsRefreshing(true);
-    window.location.reload();
-  }, []);
+    startRefreshTransition(() => {
+      router.refresh();
+    });
+  }, [router]);
 
   useEffect(() => {
-    const refreshWhenVisible = () => {
+    const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") {
         refresh();
       }
-    };
-    const interval = window.setInterval(refreshWhenVisible, refreshIntervalMs);
-
-    document.addEventListener("visibilitychange", refreshWhenVisible);
+    }, refreshIntervalMs);
 
     return () => {
       window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [refresh]);
 

@@ -1,4 +1,9 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
   externalConnectorProviderSchema,
@@ -13,7 +18,7 @@ import {
   type ExternalDataConnectorDto,
   type ExternalDataConnectorUpdateInputDto,
   type ExternalSyncInputDto,
-  type ExternalSyncQueuedResultDto
+  type ExternalSyncQueuedResultDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { ExternalCredentialEncryptionService } from "./external-credential-encryption.service";
@@ -61,17 +66,17 @@ export class ExternalDataService {
     @Inject(ExternalMysqlAdapter)
     private readonly mysqlAdapter: ExternalMysqlAdapter,
     @Inject(ExternalSyncQueueService)
-    private readonly syncQueue: ExternalSyncQueueService
+    private readonly syncQueue: ExternalSyncQueueService,
   ) {}
 
   async listConnectors(
     workspaceId?: string,
-    includeHealth = false
+    includeHealth = false,
   ): Promise<ExternalDataConnectorDto[] | ExternalConnectorHealthDto[]> {
     const connectors = (await this.prisma.externalDataConnector.findMany({
       where: workspaceId ? { workspaceId } : undefined,
       include: { cursors: { orderBy: { stream: "asc" } } },
-      orderBy: [{ workspaceId: "asc" }, { createdAt: "desc" }]
+      orderBy: [{ workspaceId: "asc" }, { createdAt: "desc" }],
     })) as ConnectorWithCursors[];
 
     if (!includeHealth) {
@@ -79,24 +84,25 @@ export class ExternalDataService {
     }
 
     const totalsByConnector = await this.ingestionTotals(
-      connectors.map((connector) => connector.id)
+      connectors.map((connector) => connector.id),
     );
 
     return connectors.map((connector) =>
       externalConnectorHealthSchema.parse({
         connector: this.toDto(connector),
-        totals: totalsByConnector.get(connector.id) ?? this.emptyIngestionTotals()
-      })
+        totals:
+          totalsByConnector.get(connector.id) ?? this.emptyIngestionTotals(),
+      }),
     );
   }
 
   async createConnector(
     input: ExternalDataConnectorCreateInputDto,
-    actorUserId: string
+    actorUserId: string,
   ): Promise<ExternalDataConnectorDto> {
     const workspace = await this.prisma.workspace.findUnique({
       where: { id: input.workspaceId },
-      select: { id: true }
+      select: { id: true },
     });
 
     if (!workspace) {
@@ -116,9 +122,9 @@ export class ExternalDataService {
         shadowMode: input.shadowMode,
         capiSendEnabled: input.capiSendEnabled,
         purchaseAverageValueCents: input.purchaseAverageValueCents ?? null,
-        defaultCurrency: input.defaultCurrency
+        defaultCurrency: input.defaultCurrency,
       },
-      include: { cursors: true }
+      include: { cursors: true },
     })) as ConnectorWithCursors;
     const dto = this.toDto(connector);
 
@@ -127,7 +133,7 @@ export class ExternalDataService {
       actorUserId,
       action: "external_connector.created",
       targetId: connector.id,
-      afterSummary: this.auditSummary(dto)
+      afterSummary: this.auditSummary(dto),
     });
 
     return dto;
@@ -136,14 +142,17 @@ export class ExternalDataService {
   async updateConnector(
     connectorId: string,
     input: ExternalDataConnectorUpdateInputDto,
-    actorUserId: string
+    actorUserId: string,
   ): Promise<ExternalDataConnectorDto> {
     const current = await this.getConnector(connectorId);
     const before = this.toDto(current);
-    const enablesReading = input.status === "active" || input.syncEnabled === true;
+    const enablesReading =
+      input.status === "active" || input.syncEnabled === true;
 
     if (enablesReading && current.lastConnectionStatus !== "connected") {
-      throw new BadRequestException("Teste a conexao e as views antes de ativar a sincronizacao");
+      throw new BadRequestException(
+        "Teste a conexao e as views antes de ativar a sincronizacao",
+      );
     }
 
     const data: Prisma.ExternalDataConnectorUpdateInput = {
@@ -151,20 +160,28 @@ export class ExternalDataService {
       ...(input.status !== undefined ? { status: input.status } : {}),
       ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
       ...(input.sslMode !== undefined ? { sslMode: input.sslMode } : {}),
-      ...(input.syncEnabled !== undefined ? { syncEnabled: input.syncEnabled } : {}),
-      ...(input.shadowMode !== undefined ? { shadowMode: input.shadowMode } : {}),
-      ...(input.capiSendEnabled !== undefined ? { capiSendEnabled: input.capiSendEnabled } : {}),
+      ...(input.syncEnabled !== undefined
+        ? { syncEnabled: input.syncEnabled }
+        : {}),
+      ...(input.shadowMode !== undefined
+        ? { shadowMode: input.shadowMode }
+        : {}),
+      ...(input.capiSendEnabled !== undefined
+        ? { capiSendEnabled: input.capiSendEnabled }
+        : {}),
       ...(input.purchaseAverageValueCents !== undefined
         ? { purchaseAverageValueCents: input.purchaseAverageValueCents }
         : {}),
-      ...(input.defaultCurrency !== undefined ? { defaultCurrency: input.defaultCurrency } : {})
+      ...(input.defaultCurrency !== undefined
+        ? { defaultCurrency: input.defaultCurrency }
+        : {}),
     };
 
     if (input.credentials) {
       const existing = this.credentialEncryption.decrypt(current);
       const credentials = externalMysqlCredentialsInputSchema.parse({
         ...existing,
-        ...input.credentials
+        ...input.credentials,
       });
       Object.assign(data, this.credentialEncryption.encrypt(credentials));
     }
@@ -177,7 +194,7 @@ export class ExternalDataService {
     const updated = (await this.prisma.externalDataConnector.update({
       where: { id: connectorId },
       data,
-      include: { cursors: { orderBy: { stream: "asc" } } }
+      include: { cursors: { orderBy: { stream: "asc" } } },
     })) as ConnectorWithCursors;
     const dto = this.toDto(updated);
 
@@ -187,7 +204,7 @@ export class ExternalDataService {
       action: "external_connector.updated",
       targetId: updated.id,
       beforeSummary: this.auditSummary(before),
-      afterSummary: this.auditSummary(dto)
+      afterSummary: this.auditSummary(dto),
     });
 
     return dto;
@@ -195,7 +212,7 @@ export class ExternalDataService {
 
   async testConnection(
     connectorId: string,
-    actorUserId: string
+    actorUserId: string,
   ): Promise<ExternalConnectionTestResultDto> {
     const connector = await this.getConnector(connectorId);
     const credentials = this.credentialEncryption.decrypt(connector);
@@ -207,8 +224,8 @@ export class ExternalDataService {
       data: {
         lastConnectionTestAt: new Date(),
         lastConnectionStatus: result.status,
-        ...(result.ok ? { lastSyncErrorCode: null } : {})
-      }
+        ...(result.ok ? { lastSyncErrorCode: null } : {}),
+      },
     });
     await this.createAudit({
       workspaceId: connector.workspaceId,
@@ -221,8 +238,8 @@ export class ExternalDataService {
         latencyMs: result.latencyMs,
         leadsViewAvailable: result.leadsViewAvailable,
         eventsViewAvailable: result.eventsViewAvailable,
-        errorCode: result.errorCode
-      }
+        errorCode: result.errorCode,
+      },
     });
 
     return result;
@@ -231,7 +248,7 @@ export class ExternalDataService {
   async enqueueSync(
     connectorId: string,
     input: ExternalSyncInputDto,
-    actorUserId: string
+    actorUserId: string,
   ): Promise<ExternalSyncQueuedResultDto> {
     const connector = await this.getConnector(connectorId);
 
@@ -242,14 +259,14 @@ export class ExternalDataService {
     const result = await this.syncQueue.enqueueSync({
       connectorId,
       streams: input.streams,
-      requestedByUserId: actorUserId
+      requestedByUserId: actorUserId,
     });
     await this.createAudit({
       workspaceId: connector.workspaceId,
       actorUserId,
       action: "external_connector.sync_requested",
       targetId: connector.id,
-      afterSummary: { streams: result.streams, jobId: result.jobId }
+      afterSummary: { streams: result.streams, jobId: result.jobId },
     });
 
     return result;
@@ -257,7 +274,7 @@ export class ExternalDataService {
 
   async enqueueLeadsReimport(
     connectorId: string,
-    actorUserId: string
+    actorUserId: string,
   ): Promise<ExternalSyncQueuedResultDto> {
     const connector = await this.getConnector(connectorId);
 
@@ -273,14 +290,14 @@ export class ExternalDataService {
       connectorId,
       streams: ["leads"],
       projectionRefresh: true,
-      requestedByUserId: actorUserId
+      requestedByUserId: actorUserId,
     });
     await this.createAudit({
       workspaceId: connector.workspaceId,
       actorUserId,
       action: "external_connector.leads_reimport_requested",
       targetId: connector.id,
-      afterSummary: { streams: result.streams, jobId: result.jobId }
+      afterSummary: { streams: result.streams, jobId: result.jobId },
     });
 
     return result;
@@ -292,14 +309,17 @@ export class ExternalDataService {
 
     return externalConnectorHealthSchema.parse({
       connector: this.toDto(connector),
-      totals: totalsByConnector.get(connectorId) ?? this.emptyIngestionTotals()
+      totals: totalsByConnector.get(connectorId) ?? this.emptyIngestionTotals(),
     });
   }
 
   private async ingestionTotals(
-    connectorIds: string[]
+    connectorIds: string[],
   ): Promise<Map<string, ExternalConnectorHealthDto["totals"]>> {
-    const totalsByConnector = new Map<string, ExternalConnectorHealthDto["totals"]>();
+    const totalsByConnector = new Map<
+      string,
+      ExternalConnectorHealthDto["totals"]
+    >();
 
     if (!connectorIds.length) {
       return totalsByConnector;
@@ -309,12 +329,15 @@ export class ExternalDataService {
       by: ["connectorId", "status"],
       where: { connectorId: { in: connectorIds } },
       _count: { _all: true },
-      _sum: { duplicateCount: true }
+      _sum: { duplicateCount: true },
     });
 
     for (const group of groups) {
-      const totals = totalsByConnector.get(group.connectorId) ?? this.emptyIngestionTotals();
-      totals.duplicates += Math.max(0, group._sum.duplicateCount ?? 0);
+      const totals =
+        totalsByConnector.get(group.connectorId) ?? this.emptyIngestionTotals();
+      if (group.status !== "removed") {
+        totals.duplicates += Math.max(0, group._sum.duplicateCount ?? 0);
+      }
 
       if (group.status === "imported") {
         totals.imported += group._count._all;
@@ -337,14 +360,16 @@ export class ExternalDataService {
       imported: 0,
       duplicates: 0,
       rejected: 0,
-      pending: 0
+      pending: 0,
     };
   }
 
-  private async getConnector(connectorId: string): Promise<ConnectorWithCursors> {
+  private async getConnector(
+    connectorId: string,
+  ): Promise<ConnectorWithCursors> {
     const connector = (await this.prisma.externalDataConnector.findUnique({
       where: { id: connectorId },
-      include: { cursors: { orderBy: { stream: "asc" } } }
+      include: { cursors: { orderBy: { stream: "asc" } } },
     })) as ConnectorWithCursors | null;
 
     if (!connector) {
@@ -369,7 +394,8 @@ export class ExternalDataService {
       purchaseAverageValueCents: connector.purchaseAverageValueCents,
       defaultCurrency: connector.defaultCurrency,
       hasCredentials: true,
-      lastConnectionTestAt: connector.lastConnectionTestAt?.toISOString() ?? null,
+      lastConnectionTestAt:
+        connector.lastConnectionTestAt?.toISOString() ?? null,
       lastConnectionStatus: connector.lastConnectionStatus,
       lastSyncStartedAt: connector.lastSyncStartedAt?.toISOString() ?? null,
       lastSyncCompletedAt: connector.lastSyncCompletedAt?.toISOString() ?? null,
@@ -379,14 +405,16 @@ export class ExternalDataService {
         stream: cursor.stream,
         lastExternalId: cursor.lastExternalId,
         lastUpdatedAt: cursor.lastUpdatedAt?.toISOString() ?? null,
-        lastSyncedAt: cursor.lastSyncedAt?.toISOString() ?? null
+        lastSyncedAt: cursor.lastSyncedAt?.toISOString() ?? null,
       })),
       createdAt: connector.createdAt.toISOString(),
-      updatedAt: connector.updatedAt.toISOString()
+      updatedAt: connector.updatedAt.toISOString(),
     });
   }
 
-  private auditSummary(connector: ExternalDataConnectorDto): Prisma.InputJsonValue {
+  private auditSummary(
+    connector: ExternalDataConnectorDto,
+  ): Prisma.InputJsonValue {
     return {
       name: connector.name,
       provider: connector.provider,
@@ -398,7 +426,7 @@ export class ExternalDataService {
       capiSendEnabled: connector.capiSendEnabled,
       purchaseAverageValueCents: connector.purchaseAverageValueCents,
       defaultCurrency: connector.defaultCurrency,
-      hasCredentials: true
+      hasCredentials: true,
     } as Prisma.InputJsonValue;
   }
 
@@ -421,8 +449,8 @@ export class ExternalDataService {
         targetId: input.targetId,
         resultStatus: input.resultStatus ?? "success",
         beforeSummary: input.beforeSummary ?? Prisma.JsonNull,
-        afterSummary: input.afterSummary ?? Prisma.JsonNull
-      }
+        afterSummary: input.afterSummary ?? Prisma.JsonNull,
+      },
     });
   }
 }
