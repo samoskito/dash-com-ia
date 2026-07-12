@@ -1807,7 +1807,7 @@ td span {
 
 .connector-sync-totals {
   display: grid;
-  grid-template-columns: repeat(4, minmax(72px, 1fr));
+  grid-template-columns: repeat(5, minmax(64px, 1fr));
   margin-top: 7px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
@@ -1891,11 +1891,14 @@ td span {
 
 .connector-reconciliation-event span,
 .connector-reconciliation-event small {
-  overflow: hidden;
   color: var(--ink-muted);
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.connector-reconciliation-event .reconciliation-event-warning {
+  color: var(--warning);
 }
 
 .connector-reconciliation-blockers {
@@ -1978,6 +1981,15 @@ td span {
   }
 
   .connector-sync-totals > span:nth-child(3) {
+    padding-left: 0;
+  }
+
+  .connector-sync-totals > span:nth-child(4) {
+    padding-right: 0;
+    border-right: 0;
+  }
+
+  .connector-sync-totals > span:nth-child(5) {
     padding-left: 0;
   }
 

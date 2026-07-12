@@ -322,19 +322,32 @@ export class ExternalDataService {
         connectorId: { in: connectorIds },
         stream: "events",
         eventType: { in: [...canonicalTrackingEventTypes] },
-        status: { not: "removed" },
+        status: { in: ["imported", "duplicate"] },
         conversionEventLogId: { not: null }
       },
-      select: { connectorId: true, conversionEventLogId: true }
+      select: { connectorId: true, eventType: true, conversionEventLogId: true }
     });
     const activeConversionIdsByConnector = new Map<string, Set<string>>();
+    const expectedConversionIdsByConnector = new Map<
+      string,
+      Map<CanonicalTrackingEventTypeDto, Set<string>>
+    >();
     for (const link of activeConversionLinks) {
-      if (!link.conversionEventLogId) {
+      if (!link.conversionEventLogId || !link.eventType) {
         continue;
       }
       const ids = activeConversionIdsByConnector.get(link.connectorId) ?? new Set<string>();
       ids.add(link.conversionEventLogId);
       activeConversionIdsByConnector.set(link.connectorId, ids);
+
+      const eventType = link.eventType as CanonicalTrackingEventTypeDto;
+      const idsByEvent =
+        expectedConversionIdsByConnector.get(link.connectorId) ??
+        new Map<CanonicalTrackingEventTypeDto, Set<string>>();
+      const eventIds = idsByEvent.get(eventType) ?? new Set<string>();
+      eventIds.add(link.conversionEventLogId);
+      idsByEvent.set(eventType, eventIds);
+      expectedConversionIdsByConnector.set(link.connectorId, idsByEvent);
     }
     const activeDeliveryFilters = [...activeConversionIdsByConnector.entries()].map(
       ([externalConnectorId, ids]) => ({
@@ -350,7 +363,7 @@ export class ExternalDataService {
       metaDestinations
     ] = await Promise.all([
       this.prisma.externalIngestionRecord.groupBy({
-        by: ["connectorId", "eventType", "status"],
+        by: ["connectorId", "eventType", "status", "errorCode"],
         where: {
           connectorId: { in: connectorIds },
           stream: "events",
@@ -369,7 +382,7 @@ export class ExternalDataService {
           stream: "events",
           eventType: { in: [...canonicalTrackingEventTypes] },
           externalRowId: { startsWith: "historical-lead:" },
-          status: { not: "removed" }
+          status: { in: ["imported", "duplicate"] }
         },
         _count: { _all: true }
       }),
@@ -408,11 +421,15 @@ export class ExternalDataService {
         events.set(eventType, {
           eventType,
           sourceRows: 0,
+          acceptedRows: 0,
           operationalRows: 0,
           historicalRows: 0,
+          expectedMatchedRows: 0,
           matchedRows: 0,
           duplicateDeliveries: 0,
           rejectedRows: 0,
+          quarantinedRows: 0,
+          blockingRejectedRows: 0,
           pendingRows: 0,
           readyToSendRows: 0,
           sentRows: 0,
@@ -423,6 +440,18 @@ export class ExternalDataService {
         });
       }
       eventsByConnector.set(connector.id, events);
+    }
+    for (const [connectorId, idsByEvent] of expectedConversionIdsByConnector) {
+      const events = eventsByConnector.get(connectorId);
+      if (!events) {
+        continue;
+      }
+      for (const [eventType, ids] of idsByEvent) {
+        const event = events.get(eventType);
+        if (event) {
+          event.expectedMatchedRows = ids.size;
+        }
+      }
     }
 
     for (const group of ingestionGroups) {
@@ -443,8 +472,15 @@ export class ExternalDataService {
       );
       event.lastOccurredAt = this.laterDate(event.lastOccurredAt, group._max.occurredAt);
 
-      if (group.status === "rejected") {
+      if (["imported", "duplicate"].includes(group.status)) {
+        event.acceptedRows += group._count._all;
+      } else if (group.status === "rejected") {
         event.rejectedRows += group._count._all;
+        if (group.errorCode === "ExternalLeadNotMatched") {
+          event.quarantinedRows += group._count._all;
+        } else {
+          event.blockingRejectedRows += group._count._all;
+        }
       } else if (["pending", "pending_delivery"].includes(group.status)) {
         event.pendingRows += group._count._all;
       }
@@ -516,7 +552,7 @@ export class ExternalDataService {
 
       const reconciledEvents = [...eventMap.values()].map((event) => ({
         ...event,
-        operationalRows: Math.max(0, event.sourceRows - event.historicalRows)
+        operationalRows: Math.max(0, event.acceptedRows - event.historicalRows)
       }));
       const blockers: ExternalConnectorReconciliationDto["blockers"] = [];
       const addBlocker = (code: string, message: string) => {
@@ -567,36 +603,37 @@ export class ExternalDataService {
       }
 
       for (const event of reconciledEvents) {
+        const eventLabel = this.reconciliationEventLabel(event.eventType);
         if (event.operationalRows === 0) {
           addBlocker(
             `EVENT_NOT_OBSERVED_${event.eventType.toUpperCase()}`,
-            `Aguarde o primeiro evento real de ${event.eventType}.`
+            `Aguarde o primeiro evento real de ${eventLabel}.`
           );
         }
-        if (event.rejectedRows > 0) {
+        if (event.blockingRejectedRows > 0) {
           addBlocker(
             `REJECTED_${event.eventType.toUpperCase()}`,
-            `${event.rejectedRows} evento(s) de ${event.eventType} foram rejeitados.`
+            `${event.blockingRejectedRows} evento(s) de ${eventLabel} falharam na ingestao.`
           );
         }
         if (event.pendingRows > 0) {
           addBlocker(
             `PENDING_${event.eventType.toUpperCase()}`,
-            `${event.pendingRows} evento(s) de ${event.eventType} estao pendentes.`
+            `${event.pendingRows} evento(s) de ${eventLabel} estao pendentes.`
           );
         }
 
-        const expectedMatches = event.sourceRows - event.rejectedRows - event.pendingRows;
+        const expectedMatches = event.expectedMatchedRows;
         if (event.matchedRows < expectedMatches) {
           addBlocker(
             `UNMATCHED_${event.eventType.toUpperCase()}`,
-            `${expectedMatches - event.matchedRows} evento(s) de ${event.eventType} nao possuem conversao vinculada.`
+            `${expectedMatches - event.matchedRows} evento(s) de ${eventLabel} nao possuem conversao vinculada.`
           );
         }
         if (event.blockedDeliveryRows > 0) {
           addBlocker(
             `DELIVERY_BLOCKED_${event.eventType.toUpperCase()}`,
-            `${event.blockedDeliveryRows} evento(s) pagos de ${event.eventType} nao estao prontos para CAPI.`
+            `${event.blockedDeliveryRows} evento(s) pagos de ${eventLabel} nao estao prontos para CAPI.`
           );
         }
       }
@@ -637,6 +674,16 @@ export class ExternalDataService {
     return reconciliations;
   }
 
+  private reconciliationEventLabel(eventType: CanonicalTrackingEventTypeDto): string {
+    const labels: Record<CanonicalTrackingEventTypeDto, string> = {
+      conversation_started: "conversa",
+      qualified_lead: "lead qualificado",
+      purchase: "compra"
+    };
+
+    return labels[eventType];
+  }
+
   private earlierDate(current: string | null, candidate: Date | null): string | null {
     if (!candidate) {
       return current;
@@ -667,7 +714,7 @@ export class ExternalDataService {
     }
 
     const groups = await this.prisma.externalIngestionRecord.groupBy({
-      by: ["connectorId", "status"],
+      by: ["connectorId", "status", "errorCode"],
       where: { connectorId: { in: connectorIds } },
       _count: { _all: true },
       _sum: { duplicateCount: true }
@@ -685,6 +732,11 @@ export class ExternalDataService {
         totals.duplicates += group._count._all;
       } else if (group.status === "rejected") {
         totals.rejected += group._count._all;
+        if (group.errorCode === "ExternalLeadNotMatched") {
+          totals.quarantined += group._count._all;
+        } else {
+          totals.failed += group._count._all;
+        }
       } else if (["pending", "pending_delivery"].includes(group.status)) {
         totals.pending += group._count._all;
       }
@@ -700,6 +752,8 @@ export class ExternalDataService {
       imported: 0,
       duplicates: 0,
       rejected: 0,
+      quarantined: 0,
+      failed: 0,
       pending: 0
     };
   }

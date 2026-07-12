@@ -212,8 +212,12 @@ export function ExternalConnectorRow({
             <strong>{health.totals.duplicates}</strong>
           </span>
           <span>
-            <small>Rejeitados</small>
-            <strong>{health.totals.rejected}</strong>
+            <small>Descartados</small>
+            <strong>{health.totals.quarantined}</strong>
+          </span>
+          <span>
+            <small>Falhas</small>
+            <strong>{health.totals.failed}</strong>
           </span>
           <span>
             <small>Pendentes</small>
@@ -239,15 +243,19 @@ export function ExternalConnectorRow({
                 <div className="connector-reconciliation-event" key={event.eventType}>
                   <strong>{reconciliationEventLabel(event.eventType)}</strong>
                   <span>
-                    {event.operationalRows} eventos reais / {event.historicalRows} historicos
+                    {event.operationalRows} reais validos / {event.historicalRows} historicos
                   </span>
                   <small>
-                    {event.matchedRows}/{event.sourceRows} vinculados
+                    {event.matchedRows}/{event.expectedMatchedRows} conversoes vinculadas
                   </small>
                   <small>
-                    {event.duplicateDeliveries} repeticoes / {event.rejectedRows} rejeitados /{" "}
-                    {event.pendingRows} pendentes
+                    {event.duplicateDeliveries} repeticoes / {event.quarantinedRows} descartados
                   </small>
+                  {event.blockingRejectedRows > 0 || event.pendingRows > 0 ? (
+                    <small className="reconciliation-event-warning">
+                      {event.blockingRejectedRows} falhas / {event.pendingRows} pendentes
+                    </small>
+                  ) : null}
                 </div>
               ))}
             </div>

@@ -63,6 +63,8 @@ describe("backoffice clients route", () => {
               imported: 116,
               duplicates: 0,
               rejected: 0,
+              quarantined: 0,
+              failed: 0,
               pending: 0
             },
             reconciliation: {
@@ -84,11 +86,15 @@ describe("backoffice clients route", () => {
               ].map(([eventType, operationalRows]) => ({
                 eventType,
                 sourceRows: operationalRows,
+                acceptedRows: operationalRows,
                 operationalRows,
                 historicalRows: 0,
+                expectedMatchedRows: operationalRows,
                 matchedRows: operationalRows,
                 duplicateDeliveries: 0,
                 rejectedRows: 0,
+                quarantinedRows: 0,
+                blockingRejectedRows: 0,
                 pendingRows: 0,
                 readyToSendRows: operationalRows,
                 sentRows: 0,
@@ -140,11 +146,14 @@ describe("backoffice clients route", () => {
     expect(html).toContain("Sincronizacao concluida");
     expect(html).toContain("Importados");
     expect(html).toContain(">116<");
+    expect(html).toContain("Descartados");
+    expect(html).toContain("Falhas");
     expect(html).toContain("Reimportar leads");
     expect(html).toContain("Gate de corte CAPI");
     expect(html).toContain("Pronto para corte");
-    expect(html).toContain("4 eventos reais");
+    expect(html).toContain("4 reais validos");
     expect(html).toContain("0 repeticoes");
+    expect(html).toContain("0 descartados");
     expect(html).toContain("Eventos reais reconciliados");
     expect(html).toContain("Acessar");
     expect(html).toContain("Salvar conector");

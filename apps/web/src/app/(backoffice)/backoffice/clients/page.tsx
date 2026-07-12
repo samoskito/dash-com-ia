@@ -58,7 +58,14 @@ async function getExternalConnectors(): Promise<ResourceResult<ExternalConnector
         ? item
         : {
             connector: item,
-            totals: { imported: 0, duplicates: 0, rejected: 0, pending: 0 }
+            totals: {
+              imported: 0,
+              duplicates: 0,
+              rejected: 0,
+              quarantined: 0,
+              failed: 0,
+              pending: 0
+            }
           }
     );
 

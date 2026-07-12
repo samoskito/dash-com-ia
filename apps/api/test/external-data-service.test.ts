@@ -45,64 +45,113 @@ describe("ExternalDataService", () => {
       },
       externalIngestionRecord: {
         findMany: vi.fn(async () => [
-          { connectorId: "connector_1", conversionEventLogId: "conversion_1" },
-          { connectorId: "connector_1", conversionEventLogId: "conversion_2" },
-          { connectorId: "connector_1", conversionEventLogId: "conversion_3" }
+          {
+            connectorId: "connector_1",
+            eventType: "conversation_started",
+            conversionEventLogId: "conversion_1"
+          },
+          {
+            connectorId: "connector_1",
+            eventType: "qualified_lead",
+            conversionEventLogId: "conversion_2"
+          },
+          {
+            connectorId: "connector_1",
+            eventType: "purchase",
+            conversionEventLogId: "conversion_3"
+          }
         ]),
-        groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => {
-          if (args.by.includes("eventType")) {
-            if (args.by.includes("status")) {
-              return ["conversation_started", "qualified_lead", "purchase"].map(
-                (eventType) => ({
-                  connectorId: "connector_1",
-                  eventType,
-                  status: "imported",
-                  _count: { _all: 1 },
-                  _sum: { duplicateCount: 0 },
-                  _min: { occurredAt: now },
-                  _max: { occurredAt: now }
-                })
-              );
-            }
+        groupBy: vi.fn(
+          async (args: {
+            by: string[];
+            where?: Record<string, unknown>;
+          }): Promise<Array<Record<string, unknown>>> => {
+            if (args.by.includes("eventType")) {
+              if (args.by.includes("status")) {
+                return [
+                  ...["conversation_started", "qualified_lead", "purchase"].map((eventType) => ({
+                    connectorId: "connector_1",
+                    eventType,
+                    status: "imported",
+                    errorCode: null,
+                    _count: { _all: 1 },
+                    _sum: { duplicateCount: 0 },
+                    _min: { occurredAt: now },
+                    _max: { occurredAt: now }
+                  })),
+                  {
+                    connectorId: "connector_1",
+                    eventType: "qualified_lead",
+                    status: "duplicate",
+                    errorCode: null,
+                    _count: { _all: 1 },
+                    _sum: { duplicateCount: 1 },
+                    _min: { occurredAt: now },
+                    _max: { occurredAt: now }
+                  },
+                  {
+                    connectorId: "connector_1",
+                    eventType: "qualified_lead",
+                    status: "rejected",
+                    errorCode: "ExternalLeadNotMatched",
+                    _count: { _all: 5 },
+                    _sum: { duplicateCount: 0 },
+                    _min: { occurredAt: now },
+                    _max: { occurredAt: now }
+                  },
+                  {
+                    connectorId: "connector_1",
+                    eventType: "purchase",
+                    status: "rejected",
+                    errorCode: "ExternalLeadNotMatched",
+                    _count: { _all: 1 },
+                    _sum: { duplicateCount: 0 },
+                    _min: { occurredAt: now },
+                    _max: { occurredAt: now }
+                  }
+                ];
+              }
 
-            if (args.where?.externalRowId) {
-              return [];
-            }
+              if (args.where?.externalRowId) {
+                return [];
+              }
 
-            return ["conversation_started", "qualified_lead", "purchase"].map(
-              (eventType) => ({
+              return ["conversation_started", "qualified_lead", "purchase"].map((eventType) => ({
                 connectorId: "connector_1",
                 eventType,
                 _count: { _all: 1 }
-              })
-            );
-          }
+              }));
+            }
 
-          if (args.by.includes("connectorId")) {
-            return [
-              {
-                connectorId: "connector_1",
-                status: "imported",
-                _count: { _all: 116 },
-                _sum: { duplicateCount: 2 }
-              },
-              {
-                connectorId: "connector_1",
-                status: "rejected",
-                _count: { _all: 1 },
-                _sum: { duplicateCount: 0 }
-              },
-              {
-                connectorId: "connector_1",
-                status: "removed",
-                _count: { _all: 4 },
-                _sum: { duplicateCount: 9 }
-              }
-            ];
-          }
+            if (args.by.includes("connectorId")) {
+              return [
+                {
+                  connectorId: "connector_1",
+                  status: "imported",
+                  errorCode: null,
+                  _count: { _all: 116 },
+                  _sum: { duplicateCount: 2 }
+                },
+                {
+                  connectorId: "connector_1",
+                  status: "rejected",
+                  errorCode: "ExternalLeadNotMatched",
+                  _count: { _all: 1 },
+                  _sum: { duplicateCount: 0 }
+                },
+                {
+                  connectorId: "connector_1",
+                  status: "removed",
+                  errorCode: "ExternalLeadRemovedAtSource",
+                  _count: { _all: 4 },
+                  _sum: { duplicateCount: 9 }
+                }
+              ];
+            }
 
-          return [];
-        })
+            return [];
+          }
+        )
       },
       conversionEventLog: {
         groupBy: vi.fn(async () =>
@@ -159,17 +208,43 @@ describe("ExternalDataService", () => {
         imported: 116,
         duplicates: 2,
         rejected: 1,
+        quarantined: 1,
+        failed: 0,
         pending: 0
       },
       reconciliation: {
         state: "ready",
         readyForCutover: true,
-        blockers: []
+        blockers: [],
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "qualified_lead",
+            sourceRows: 7,
+            acceptedRows: 2,
+            operationalRows: 2,
+            expectedMatchedRows: 1,
+            matchedRows: 1,
+            rejectedRows: 5,
+            quarantinedRows: 5,
+            blockingRejectedRows: 0
+          }),
+          expect.objectContaining({
+            eventType: "purchase",
+            sourceRows: 2,
+            acceptedRows: 1,
+            operationalRows: 1,
+            expectedMatchedRows: 1,
+            matchedRows: 1,
+            rejectedRows: 1,
+            quarantinedRows: 1,
+            blockingRejectedRows: 0
+          })
+        ])
       }
     });
     expect(prisma.externalIngestionRecord.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({
-        by: ["connectorId", "status"],
+        by: ["connectorId", "status", "errorCode"],
         where: { connectorId: { in: ["connector_1"] } }
       })
     );
@@ -188,9 +263,48 @@ describe("ExternalDataService", () => {
     expect(prisma.externalIngestionRecord.findMany).toHaveBeenCalledTimes(1);
     expect(prisma.metaIntegration.findMany).toHaveBeenCalledTimes(1);
     expect(prisma.metaConversionDestination.findMany).toHaveBeenCalledTimes(1);
+
+    const originalGroupBy = prisma.externalIngestionRecord.groupBy.getMockImplementation();
+    prisma.externalIngestionRecord.groupBy.mockImplementation(async (args) => {
+      const groups = await originalGroupBy!(args);
+      if (args.by.includes("eventType") && args.by.includes("status")) {
+        return [
+          ...groups,
+          {
+            connectorId: "connector_1",
+            eventType: "qualified_lead",
+            status: "rejected",
+            errorCode: "ExternalPayloadInvalid",
+            _count: { _all: 1 },
+            _sum: { duplicateCount: 0 },
+            _min: { occurredAt: now },
+            _max: { occurredAt: now }
+          }
+        ];
+      }
+      return groups;
+    });
+
+    const blockedResult = await service.listConnectors(undefined, true);
+
+    expect(blockedResult[0]).toMatchObject({
+      reconciliation: {
+        state: "blocked",
+        readyForCutover: false,
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "qualified_lead",
+            blockingRejectedRows: 1
+          })
+        ]),
+        blockers: expect.arrayContaining([
+          expect.objectContaining({ code: "REJECTED_QUALIFIED_LEAD" })
+        ])
+      }
+    });
   });
 
-  it("blocks cutover until every real event and Meta destination are observed", async () => {
+  it("keeps collecting when only a quarantined purchase was observed", async () => {
     const now = new Date("2026-07-12T20:00:00.000Z");
     const connector = {
       id: "connector_1",
@@ -231,21 +345,42 @@ describe("ExternalDataService", () => {
       },
       externalIngestionRecord: {
         findMany: vi.fn(async () => [
-          { connectorId: "connector_1", conversionEventLogId: "conversion_1" },
-          { connectorId: "connector_1", conversionEventLogId: "conversion_2" }
+          {
+            connectorId: "connector_1",
+            eventType: "conversation_started",
+            conversionEventLogId: "conversion_1"
+          },
+          {
+            connectorId: "connector_1",
+            eventType: "qualified_lead",
+            conversionEventLogId: "conversion_2"
+          }
         ]),
         groupBy: vi.fn(async (args: { by: string[]; where?: Record<string, unknown> }) => {
           if (args.by.includes("eventType")) {
             if (args.by.includes("status")) {
-              return ["conversation_started", "qualified_lead"].map((eventType) => ({
-                connectorId: "connector_1",
-                eventType,
-                status: "imported",
-                _count: { _all: 1 },
-                _sum: { duplicateCount: 0 },
-                _min: { occurredAt: now },
-                _max: { occurredAt: now }
-              }));
+              return [
+                ...["conversation_started", "qualified_lead"].map((eventType) => ({
+                  connectorId: "connector_1",
+                  eventType,
+                  status: "imported",
+                  errorCode: null,
+                  _count: { _all: 1 },
+                  _sum: { duplicateCount: 0 },
+                  _min: { occurredAt: now },
+                  _max: { occurredAt: now }
+                })),
+                {
+                  connectorId: "connector_1",
+                  eventType: "purchase",
+                  status: "rejected",
+                  errorCode: "ExternalLeadNotMatched",
+                  _count: { _all: 1 },
+                  _sum: { duplicateCount: 0 },
+                  _min: { occurredAt: now },
+                  _max: { occurredAt: now }
+                }
+              ];
             }
             if (args.where?.externalRowId) {
               return [];
@@ -287,7 +422,14 @@ describe("ExternalDataService", () => {
         ])
       },
       metaConversionDestination: {
-        findMany: vi.fn(async () => [])
+        findMany: vi.fn(async () => [
+          {
+            workspaceId: "workspace_1",
+            status: "configured",
+            pixelId: "pixel_1",
+            pageId: "page_1"
+          }
+        ])
       }
     };
     const service = new ExternalDataService(prisma as never, {} as never, {} as never, {} as never);
@@ -295,15 +437,23 @@ describe("ExternalDataService", () => {
     const health = await service.getHealth("connector_1");
 
     expect(health.reconciliation).toMatchObject({
-      state: "blocked",
-      readyForCutover: false
-    });
-    expect(health.reconciliation?.blockers.map((blocker) => blocker.code)).toEqual(
-      expect.arrayContaining([
-        "META_DESTINATION_MISSING",
-        "EVENT_NOT_OBSERVED_PURCHASE"
+      state: "collecting",
+      readyForCutover: false,
+      events: expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "purchase",
+          sourceRows: 1,
+          acceptedRows: 0,
+          operationalRows: 0,
+          rejectedRows: 1,
+          quarantinedRows: 1,
+          blockingRejectedRows: 0
+        })
       ])
-    );
+    });
+    expect(health.reconciliation?.blockers.map((blocker) => blocker.code)).toEqual([
+      "EVENT_NOT_OBSERVED_PURCHASE"
+    ]);
   });
 
   it("creates an encrypted connector and never returns credential material", async () => {
