@@ -287,7 +287,45 @@ describe("reporting controller", () => {
       since: "2026-07-01",
       until: "2026-07-02",
       rangeLabel: "2026-07-01 a 2026-07-02",
+      page: 1,
+      pageSize: 25,
     });
+
+    await app.close();
+  });
+
+  it("passes customer-safe filters to the conversion event audit", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/reports/conversions/audit?since=2026-07-01&until=2026-07-02&eventName=Purchase&status=failed&source=external_integration&page=2&pageSize=10",
+      )
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+
+    expect(reportingService.getConversionEventAudit).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      eventName: "Purchase",
+      deliveryState: "failed",
+      source: "external_integration",
+      page: 2,
+      pageSize: 10,
+    });
+
+    await app.close();
+  });
+
+  it("rejects invalid conversion audit filters", async () => {
+    const { app } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/conversions/audit?status=unknown")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(400);
 
     await app.close();
   });

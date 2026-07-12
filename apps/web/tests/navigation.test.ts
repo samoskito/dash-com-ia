@@ -17,6 +17,7 @@ describe("navigation", () => {
       "overview",
       "leads",
       "reports",
+      "events",
       "integrations",
       "settings",
     ]);
@@ -168,6 +169,7 @@ describe("navigation", () => {
       "/overview",
       "/leads",
       "/reports",
+      "/events",
       "/integrations",
       "/settings",
       "/backoffice",

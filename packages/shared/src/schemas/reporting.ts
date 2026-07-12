@@ -181,15 +181,41 @@ export const metaStructureReportSchema = z.object({
   campaigns: z.array(metaCampaignStructureSchema),
 });
 
+export const conversionAuditDeliveryStateSchema = z.enum([
+  "sent",
+  "queued",
+  "blocked",
+  "failed",
+  "historical",
+  "discarded",
+]);
+
+export const conversionAuditSourceSchema = z.enum([
+  "external_integration",
+  "whatsapp_automation",
+  "system",
+  "manual_test",
+  "other",
+]);
+
 export const conversionAuditEventSchema = z.object({
   id: z.string().min(1),
   eventName: z.string().min(1),
   eventLabel: z.string().min(1),
+  deliveryState: conversionAuditDeliveryStateSchema,
+  statusLabel: z.string().min(1),
+  statusDetail: z.string().min(1),
+  source: conversionAuditSourceSchema,
+  sourceLabel: z.string().min(1),
   leadId: z.string().min(1).nullable(),
-  phoneHash: z.string().min(1).nullable(),
+  leadName: z.string().min(1).nullable(),
+  phoneDisplay: z.string().min(1).nullable(),
   campaignId: z.string().min(1).nullable(),
+  campaignName: z.string().min(1).nullable(),
   adSetId: z.string().min(1).nullable(),
+  adSetName: z.string().min(1).nullable(),
   adId: z.string().min(1).nullable(),
+  adName: z.string().min(1).nullable(),
   pixelId: z.string().min(1).nullable(),
   pageId: z.string().min(1).nullable(),
   occurredAt: z.string().min(1),
@@ -204,9 +230,21 @@ export const conversionAuditEventSchema = z.object({
     .default(null),
 });
 
+export const conversionAuditSummarySchema = z.object({
+  total: z.number().int().nonnegative(),
+  sent: z.number().int().nonnegative(),
+  queued: z.number().int().nonnegative(),
+  blocked: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  historical: z.number().int().nonnegative(),
+  discarded: z.number().int().nonnegative(),
+});
+
 export const conversionAuditOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
+  summary: conversionAuditSummarySchema,
+  pagination: reportPaginationSchema,
   events: z.array(conversionAuditEventSchema),
 });
 
@@ -242,6 +280,12 @@ export type ConversionAuditEventDto = z.infer<
 >;
 export type ConversionAuditOverviewDto = z.infer<
   typeof conversionAuditOverviewSchema
+>;
+export type ConversionAuditDeliveryStateDto = z.infer<
+  typeof conversionAuditDeliveryStateSchema
+>;
+export type ConversionAuditSourceDto = z.infer<
+  typeof conversionAuditSourceSchema
 >;
 export type MetaWhatsappClassificationDto = z.infer<
   typeof metaWhatsappClassificationSchema

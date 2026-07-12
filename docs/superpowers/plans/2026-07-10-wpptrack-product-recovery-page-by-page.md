@@ -303,6 +303,15 @@ Execute Block 4 in this internal order:
 - Show safe error summaries, occurrence time, send time and related lead/campaign context.
 - Never expose OAuth tokens, webhook secrets or raw sensitive payloads.
 
+Implementation status - 2026-07-12:
+
+- Added the dedicated authenticated `/events` customer route and `Eventos Meta` navigation entry.
+- Extended `GET /reports/conversions/audit` with local-period, event, delivery-state, source and pagination filters.
+- Added whole-filter delivery totals and batched lead/campaign/ad hierarchy enrichment without per-row reads.
+- Raw provider messages are replaced by safe customer summaries; no token, hash or raw payload is rendered.
+- Desktop 1440 px and mobile 390 px screenshots were inspected; the table remains horizontally contained and mobile pagination no longer clips its second action.
+- 635 automated tests, monorepo lint, the Next production build and isolated Nest build pass. CAPI cutover remains separately gated by real QualifiedLead and Purchase samples.
+
 ### Acceptance criteria
 
 - Provider or API failure does not remove valid actions.

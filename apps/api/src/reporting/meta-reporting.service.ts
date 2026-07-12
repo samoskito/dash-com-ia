@@ -6,13 +6,16 @@ import type {
   AdSetReportOverviewDto,
   AdSetReportRowDto,
   CampaignReportRowDto,
+  ConversionAuditDeliveryStateDto,
   ConversionAuditOverviewDto,
+  ConversionAuditSourceDto,
   ConversionEventLogStatusDto,
   MetaStructureReportDto,
   ReportOverviewDto,
   ReportPaginationDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { startOfDateInTimezone } from "../external-data/external-event-policy";
 import {
   MetaAdapter,
   type MetaAdAsset,
@@ -169,6 +172,7 @@ type ConversionAuditEventRecord = {
   eventName: string;
   leadId: string | null;
   phoneHash: string | null;
+  sourceTrigger: string;
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
@@ -181,6 +185,29 @@ type ConversionAuditEventRecord = {
   errorCode: string | null;
   errorMessage: string | null;
   valueSource: "actual" | "configured_average" | "manual" | null;
+};
+
+type ConversionAuditLeadRecord = {
+  id: string;
+  name: string | null;
+  phoneDisplay: string | null;
+  phoneHash: string;
+};
+
+type ConversionAuditNamedRecord = {
+  name: string;
+};
+
+type ConversionAuditCampaignRecord = ConversionAuditNamedRecord & {
+  campaignId: string;
+};
+
+type ConversionAuditAdSetRecord = ConversionAuditNamedRecord & {
+  adSetId: string;
+};
+
+type ConversionAuditAdRecord = ConversionAuditNamedRecord & {
+  adId: string;
 };
 
 type LeadRecord = ReportingMetricLead;
@@ -862,58 +889,133 @@ export class MetaReportingService {
     rangeLabel: string;
     since?: string;
     until?: string;
+    eventName?: string;
+    deliveryState?: ConversionAuditDeliveryStateDto;
+    source?: ConversionAuditSourceDto;
+    page: number;
+    pageSize: number;
   }): Promise<ConversionAuditOverviewDto> {
-    const events = (await this.prisma.conversionEventLog.findMany({
-      where: {
-        workspaceId: input.workspaceId,
-        ...this.eventPeriodWhere(input),
-      },
-      orderBy: { eventOccurredAt: "desc" },
-      take: 200,
-      select: {
-        id: true,
-        eventName: true,
-        leadId: true,
-        phoneHash: true,
-        campaignId: true,
-        adSetId: true,
-        adId: true,
-        pixelId: true,
-        pageId: true,
-        eventOccurredAt: true,
-        sentAt: true,
-        status: true,
-        providerResponseSummary: true,
-        errorCode: true,
-        errorMessage: true,
-        valueSource: true,
-      },
-    })) as ConversionAuditEventRecord[];
+    const where: Prisma.ConversionEventLogWhereInput = {
+      workspaceId: input.workspaceId,
+      ...this.conversionAuditPeriodWhere(input),
+      ...(input.eventName ? { eventName: input.eventName } : {}),
+      ...(input.deliveryState
+        ? { status: { in: this.conversionAuditStatuses(input.deliveryState) } }
+        : {}),
+      ...this.conversionAuditSourceWhere(input.source),
+    };
+    const [events, statusGroups] = await Promise.all([
+      this.prisma.conversionEventLog.findMany({
+        where,
+        orderBy: [{ eventOccurredAt: "desc" }, { id: "desc" }],
+        skip: (input.page - 1) * input.pageSize,
+        take: input.pageSize,
+        select: {
+          id: true,
+          eventName: true,
+          leadId: true,
+          phoneHash: true,
+          sourceTrigger: true,
+          campaignId: true,
+          adSetId: true,
+          adId: true,
+          pixelId: true,
+          pageId: true,
+          eventOccurredAt: true,
+          sentAt: true,
+          status: true,
+          providerResponseSummary: true,
+          errorCode: true,
+          errorMessage: true,
+          valueSource: true,
+        },
+      }) as Promise<ConversionAuditEventRecord[]>,
+      this.prisma.conversionEventLog.groupBy({
+        by: ["status"],
+        where,
+        _count: { _all: true },
+      }),
+    ]);
+    const context = await this.conversionAuditContext(
+      input.workspaceId,
+      events,
+    );
+    const statusCounts = new Map(
+      statusGroups.map((group) => [group.status, group._count._all]),
+    );
+    const total = statusGroups.reduce(
+      (sum, group) => sum + group._count._all,
+      0,
+    );
+    const summary = {
+      total,
+      sent: this.conversionAuditStateCount(statusCounts, "sent"),
+      queued: this.conversionAuditStateCount(statusCounts, "queued"),
+      blocked: this.conversionAuditStateCount(statusCounts, "blocked"),
+      failed: this.conversionAuditStateCount(statusCounts, "failed"),
+      historical: this.conversionAuditStateCount(statusCounts, "historical"),
+      discarded: this.conversionAuditStateCount(statusCounts, "discarded"),
+    };
 
     return {
       workspaceId: input.workspaceId,
       rangeLabel: input.rangeLabel,
-      events: events.map((event) => ({
-        id: event.id,
-        eventName: event.eventName,
-        eventLabel: this.conversionEventLabel(event.eventName),
-        leadId: event.leadId,
-        phoneHash: event.phoneHash,
-        campaignId: event.campaignId,
-        adSetId: event.adSetId,
-        adId: event.adId,
-        pixelId: event.pixelId,
-        pageId: event.pageId,
-        occurredAt: event.eventOccurredAt.toISOString(),
-        sentAt: event.sentAt?.toISOString() ?? null,
-        status: event.status,
-        providerResponseSummary: this.providerResponseSummaryText(
-          event.providerResponseSummary,
-        ),
-        errorCode: event.errorCode,
-        errorMessage: event.errorMessage,
-        valueSource: event.valueSource ?? null,
-      })),
+      summary,
+      pagination: {
+        page: input.page,
+        pageSize: input.pageSize,
+        totalItems: total,
+        totalPages: Math.ceil(total / input.pageSize),
+      },
+      events: events.map((event) => {
+        const lead =
+          (event.leadId ? context.leadsById.get(event.leadId) : undefined) ??
+          (event.phoneHash
+            ? context.leadsByPhoneHash.get(event.phoneHash)
+            : undefined);
+        const deliveryState = this.conversionAuditDeliveryState(event.status);
+        const source = this.conversionAuditSource(event.sourceTrigger);
+
+        return {
+          id: event.id,
+          eventName: event.eventName,
+          eventLabel: this.conversionEventLabel(event.eventName),
+          deliveryState,
+          statusLabel: this.conversionAuditStatusLabel(event.status),
+          statusDetail: this.conversionAuditStatusDetail(event.status),
+          source,
+          sourceLabel: this.conversionAuditSourceLabel(source),
+          leadId: lead?.id ?? null,
+          leadName: lead?.name ?? null,
+          phoneDisplay: lead?.phoneDisplay ?? null,
+          campaignId: event.campaignId,
+          campaignName: event.campaignId
+            ? (context.campaigns.get(event.campaignId)?.name ?? null)
+            : null,
+          adSetId: event.adSetId,
+          adSetName: event.adSetId
+            ? (context.adSets.get(event.adSetId)?.name ?? null)
+            : null,
+          adId: event.adId,
+          adName: event.adId
+            ? (context.ads.get(event.adId)?.name ?? null)
+            : null,
+          pixelId: event.pixelId,
+          pageId: event.pageId,
+          occurredAt: event.eventOccurredAt.toISOString(),
+          sentAt: event.sentAt?.toISOString() ?? null,
+          status: event.status,
+          providerResponseSummary:
+            event.status === "sent" && event.providerResponseSummary != null
+              ? "Meta confirmou o recebimento"
+              : null,
+          errorCode: event.errorCode,
+          errorMessage: event.errorCode
+            ? this.conversionAuditSafeError(event.errorCode)
+            : null,
+          valueSource: event.valueSource ?? null,
+        };
+      }),
     };
   }
 
@@ -2215,6 +2317,271 @@ export class MetaReportingService {
       : {};
   }
 
+  private async conversionAuditContext(
+    workspaceId: string,
+    events: ConversionAuditEventRecord[],
+  ) {
+    const leadIds = this.uniqueStrings(events.map((event) => event.leadId));
+    const phoneHashes = this.uniqueStrings(
+      events.map((event) => event.phoneHash),
+    );
+    const campaignIds = this.uniqueStrings(
+      events.map((event) => event.campaignId),
+    );
+    const adSetIds = this.uniqueStrings(events.map((event) => event.adSetId));
+    const adIds = this.uniqueStrings(events.map((event) => event.adId));
+    const [leads, campaigns, adSets, ads] = await Promise.all([
+      leadIds.length || phoneHashes.length
+        ? (this.prisma.lead.findMany({
+            where: {
+              workspaceId,
+              OR: [
+                ...(leadIds.length ? [{ id: { in: leadIds } }] : []),
+                ...(phoneHashes.length
+                  ? [{ phoneHash: { in: phoneHashes } }]
+                  : []),
+              ],
+            },
+            select: {
+              id: true,
+              name: true,
+              phoneDisplay: true,
+              phoneHash: true,
+            },
+          }) as Promise<ConversionAuditLeadRecord[]>)
+        : Promise.resolve([] as ConversionAuditLeadRecord[]),
+      campaignIds.length
+        ? (this.prisma.metaCampaign.findMany({
+            where: { workspaceId, campaignId: { in: campaignIds } },
+            select: { campaignId: true, name: true },
+          }) as Promise<ConversionAuditCampaignRecord[]>)
+        : Promise.resolve([] as ConversionAuditCampaignRecord[]),
+      adSetIds.length
+        ? (this.prisma.metaAdSet.findMany({
+            where: { workspaceId, adSetId: { in: adSetIds } },
+            select: { adSetId: true, name: true },
+          }) as Promise<ConversionAuditAdSetRecord[]>)
+        : Promise.resolve([] as ConversionAuditAdSetRecord[]),
+      adIds.length
+        ? (this.prisma.metaAd.findMany({
+            where: { workspaceId, adId: { in: adIds } },
+            select: { adId: true, name: true },
+          }) as Promise<ConversionAuditAdRecord[]>)
+        : Promise.resolve([] as ConversionAuditAdRecord[]),
+    ]);
+
+    return {
+      leadsById: new Map(leads.map((lead) => [lead.id, lead])),
+      leadsByPhoneHash: new Map(leads.map((lead) => [lead.phoneHash, lead])),
+      campaigns: new Map(
+        campaigns.map((campaign) => [campaign.campaignId, campaign]),
+      ),
+      adSets: new Map(adSets.map((adSet) => [adSet.adSetId, adSet])),
+      ads: new Map(ads.map((ad) => [ad.adId, ad])),
+    };
+  }
+
+  private conversionAuditPeriodWhere(input: {
+    since?: string;
+    until?: string;
+  }) {
+    if (!input.since || !input.until) {
+      return {};
+    }
+
+    const timezone =
+      process.env.WPPTRACK_REPORT_TIMEZONE ?? "America/Sao_Paulo";
+    const nextDate = new Date(`${input.until}T00:00:00.000Z`);
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+
+    return {
+      eventOccurredAt: {
+        gte: startOfDateInTimezone(input.since, timezone),
+        lte: new Date(
+          startOfDateInTimezone(
+            nextDate.toISOString().slice(0, 10),
+            timezone,
+          ).getTime() - 1,
+        ),
+      },
+    };
+  }
+
+  private uniqueStrings(values: Array<string | null>): string[] {
+    return [
+      ...new Set(values.filter((value): value is string => Boolean(value))),
+    ];
+  }
+
+  private conversionAuditSourceWhere(
+    source?: ConversionAuditSourceDto,
+  ): Prisma.ConversionEventLogWhereInput {
+    if (!source) {
+      return {};
+    }
+
+    if (source === "external_integration") {
+      return { sourceTrigger: { startsWith: "external_mysql:" } };
+    }
+
+    if (source === "whatsapp_automation") {
+      return { sourceTrigger: { in: ["keyword", "whatsapp_label"] } };
+    }
+
+    if (source === "system") {
+      return { sourceTrigger: "auto_lead" };
+    }
+
+    if (source === "manual_test") {
+      return { sourceTrigger: "manual_test" };
+    }
+
+    return {
+      NOT: {
+        OR: [
+          { sourceTrigger: { startsWith: "external_mysql:" } },
+          {
+            sourceTrigger: {
+              in: ["keyword", "whatsapp_label", "auto_lead", "manual_test"],
+            },
+          },
+        ],
+      },
+    };
+  }
+
+  private conversionAuditStatuses(
+    state: ConversionAuditDeliveryStateDto,
+  ): ConversionEventLogStatusDto[] {
+    const statuses: Record<
+      ConversionAuditDeliveryStateDto,
+      ConversionEventLogStatusDto[]
+    > = {
+      sent: ["sent"],
+      queued: ["ready_to_send", "queued"],
+      blocked: ["pending_meta_context", "pending_value", "not_configured"],
+      failed: ["error"],
+      historical: ["imported"],
+      discarded: ["skipped"],
+    };
+
+    return statuses[state];
+  }
+
+  private conversionAuditDeliveryState(
+    status: ConversionEventLogStatusDto,
+  ): ConversionAuditDeliveryStateDto {
+    const states: ConversionAuditDeliveryStateDto[] = [
+      "sent",
+      "queued",
+      "blocked",
+      "failed",
+      "historical",
+      "discarded",
+    ];
+
+    return (
+      states.find((state) =>
+        this.conversionAuditStatuses(state).includes(status),
+      ) ?? "blocked"
+    );
+  }
+
+  private conversionAuditStateCount(
+    counts: Map<string, number>,
+    state: ConversionAuditDeliveryStateDto,
+  ): number {
+    return this.conversionAuditStatuses(state).reduce(
+      (total, status) => total + (counts.get(status) ?? 0),
+      0,
+    );
+  }
+
+  private conversionAuditStatusLabel(
+    status: ConversionEventLogStatusDto,
+  ): string {
+    const labels: Record<ConversionEventLogStatusDto, string> = {
+      pending_meta_context: "Bloqueado",
+      pending_value: "Bloqueado",
+      ready_to_send: "Pronto para envio",
+      queued: "Na fila",
+      sent: "Enviado",
+      error: "Falhou",
+      imported: "Historico",
+      not_configured: "Bloqueado",
+      skipped: "Descartado",
+    };
+
+    return labels[status];
+  }
+
+  private conversionAuditStatusDetail(
+    status: ConversionEventLogStatusDto,
+  ): string {
+    const details: Record<ConversionEventLogStatusDto, string> = {
+      pending_meta_context: "Aguardando identificacao de anuncio e conversa",
+      pending_value: "Aguardando valor do evento",
+      ready_to_send: "Pronto para entrar na fila de envio",
+      queued: "Aguardando processamento da fila Meta",
+      sent: "Recebido pela Meta",
+      error: "O envio nao foi concluido",
+      imported: "Marco historico, sem reenvio para a Meta",
+      not_configured: "Destino Meta ainda nao configurado",
+      skipped: "Descartado pelas regras de validacao",
+    };
+
+    return details[status];
+  }
+
+  private conversionAuditSource(
+    sourceTrigger: string,
+  ): ConversionAuditSourceDto {
+    if (sourceTrigger.startsWith("external_mysql:")) {
+      return "external_integration";
+    }
+
+    if (["keyword", "whatsapp_label"].includes(sourceTrigger)) {
+      return "whatsapp_automation";
+    }
+
+    if (sourceTrigger === "auto_lead") {
+      return "system";
+    }
+
+    if (sourceTrigger === "manual_test") {
+      return "manual_test";
+    }
+
+    return "other";
+  }
+
+  private conversionAuditSourceLabel(source: ConversionAuditSourceDto): string {
+    const labels: Record<ConversionAuditSourceDto, string> = {
+      external_integration: "Integracao externa",
+      whatsapp_automation: "Automacao do WhatsApp",
+      system: "Regra automatica",
+      manual_test: "Teste manual",
+      other: "Outra origem",
+    };
+
+    return labels[source];
+  }
+
+  private conversionAuditSafeError(errorCode: string): string {
+    const errors: Record<string, string> = {
+      MissingMetaDestination: "Destino Meta nao configurado",
+      MissingAccessToken: "A conexao Meta precisa ser refeita",
+      MissingPhoneHash: "Telefone do lead indisponivel",
+      MissingCtwaClid: "Identificador da conversa de anuncio ausente",
+      MissingAdId: "Anuncio de origem nao identificado",
+      EventValueMissing: "Valor do evento nao configurado",
+      MetaCapiRejected: "A Meta recusou o evento",
+      MetaCapiNetworkError: "Falha de comunicacao com a Meta",
+    };
+
+    return errors[errorCode] ?? "Falha no processamento do evento";
+  }
+
   private conversionEventLabel(eventName: string): string {
     if (eventName === "LeadSubmitted") {
       return "Conversas reais iniciadas";
@@ -2229,18 +2596,6 @@ export class MetaReportingService {
     }
 
     return eventName;
-  }
-
-  private providerResponseSummaryText(value: unknown): string | null {
-    if (typeof value === "string") {
-      return value;
-    }
-
-    if (value == null) {
-      return null;
-    }
-
-    return JSON.stringify(value);
   }
 
   private async metaSnapshotWhere(

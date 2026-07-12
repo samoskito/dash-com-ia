@@ -12,7 +12,11 @@ import {
 } from "@nestjs/common";
 import {
   canManageIntegrations,
+  conversionAuditDeliveryStateSchema,
+  conversionAuditSourceSchema,
   metaWhatsappOverrideInputSchema,
+  type ConversionAuditDeliveryStateDto,
+  type ConversionAuditSourceDto,
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
@@ -237,13 +241,31 @@ export class ReportingController {
     @AuthToken() refreshToken: string,
     @Query("since") since?: string,
     @Query("until") until?: string,
+    @Query("eventName") eventName?: string | string[],
+    @Query("status") status?: string | string[],
+    @Query("source") source?: string | string[],
+    @Query("page") page?: string | string[],
+    @Query("pageSize") pageSize?: string | string[],
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const period = this.parseReportPeriod(since, until);
+    const eventNameFilter = this.trimOptional(eventName);
+    const deliveryState = this.parseConversionAuditStatus(status);
+    const sourceFilter = this.parseConversionAuditSource(source);
 
     return this.metaReportingService.getConversionEventAudit({
       workspaceId,
       ...period,
+      ...(eventNameFilter ? { eventName: eventNameFilter } : {}),
+      ...(deliveryState ? { deliveryState } : {}),
+      ...(sourceFilter ? { source: sourceFilter } : {}),
+      page: this.parsePositiveInteger(page, 1, "Pagina invalida"),
+      pageSize: this.parsePositiveInteger(
+        pageSize,
+        25,
+        "Tamanho de pagina invalido",
+        100,
+      ),
     });
   }
 
@@ -410,6 +432,42 @@ export class ReportingController {
     }
 
     return value === "true";
+  }
+
+  private parseConversionAuditStatus(
+    value?: string | string[],
+  ): ConversionAuditDeliveryStateDto | undefined {
+    const parsed = this.trimOptional(value);
+
+    if (!parsed) {
+      return undefined;
+    }
+
+    const result = conversionAuditDeliveryStateSchema.safeParse(parsed);
+
+    if (!result.success) {
+      throw new BadRequestException("Status de auditoria invalido");
+    }
+
+    return result.data;
+  }
+
+  private parseConversionAuditSource(
+    value?: string | string[],
+  ): ConversionAuditSourceDto | undefined {
+    const parsed = this.trimOptional(value);
+
+    if (!parsed) {
+      return undefined;
+    }
+
+    const result = conversionAuditSourceSchema.safeParse(parsed);
+
+    if (!result.success) {
+      throw new BadRequestException("Origem de auditoria invalida");
+    }
+
+    return result.data;
   }
 
   private parseReportFilters(input: {

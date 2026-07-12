@@ -21,8 +21,16 @@ function matchesWhere(
       );
     }
 
+    if (key === "NOT" && value && typeof value === "object") {
+      return !matchesWhere(record, value as Record<string, unknown>);
+    }
+
     if (value && typeof value === "object" && "in" in value) {
       return (value.in as unknown[]).includes(record[key]);
+    }
+
+    if (value && typeof value === "object" && "startsWith" in value) {
+      return String(record[key] ?? "").startsWith(String(value.startsWith));
     }
 
     if (value && typeof value === "object" && "not" in value) {
@@ -98,6 +106,8 @@ function createHarness() {
       {
         id: "lead_1",
         workspaceId: "workspace_1",
+        name: "Mariana Alves",
+        phoneDisplay: "+55 11 99999-1020",
         phoneHash: "phone_a",
         campaignId: "cmp_1",
         adSetId: "adset_1",
@@ -108,6 +118,8 @@ function createHarness() {
       {
         id: "lead_2",
         workspaceId: "workspace_1",
+        name: "Rafael Costa",
+        phoneDisplay: "+55 11 99999-2030",
         phoneHash: "phone_b",
         campaignId: "cmp_1",
         adSetId: "adset_1",
@@ -118,6 +130,8 @@ function createHarness() {
       {
         id: "lead_other",
         workspaceId: "workspace_1",
+        name: "Outro Lead",
+        phoneDisplay: "+55 11 99999-3040",
         phoneHash: "phone_other",
         campaignId: "cmp_other",
         adSetId: "adset_other",
@@ -128,6 +142,8 @@ function createHarness() {
     ] as Array<{
       id: string;
       workspaceId: string;
+      name: string | null;
+      phoneDisplay: string | null;
       phoneHash: string;
       campaignId: string | null;
       adSetId: string | null;
@@ -328,9 +344,35 @@ function createHarness() {
       ),
     },
     conversionEventLog: {
-      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
-        db.conversionLogs.filter((log) => matchesWhere(log, args?.where)),
+      findMany: vi.fn(
+        async (args?: {
+          where?: Record<string, unknown>;
+          skip?: number;
+          take?: number;
+        }) => {
+          const records = db.conversionLogs.filter((log) =>
+            matchesWhere(log, args?.where),
+          );
+          const start = args?.skip ?? 0;
+          return records.slice(
+            start,
+            args?.take ? start + args.take : undefined,
+          );
+        },
       ),
+      groupBy: vi.fn(async (args?: { where?: Record<string, unknown> }) => {
+        const counts = new Map<string, number>();
+        db.conversionLogs
+          .filter((log) => matchesWhere(log, args?.where))
+          .forEach((log) => {
+            const status = String(log.status);
+            counts.set(status, (counts.get(status) ?? 0) + 1);
+          });
+        return [...counts].map(([status, count]) => ({
+          status,
+          _count: { _all: count },
+        }));
+      }),
       updateMany: vi.fn(
         async ({
           where,
@@ -523,6 +565,21 @@ describe("meta reporting service", () => {
 
   it("returns latest conversion event audit rows for the report period", async () => {
     const { db, prisma, service } = createHarness();
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_1",
+      name: "Campanha WhatsApp",
+    });
+    db.adSets.push({
+      workspaceId: "workspace_1",
+      adSetId: "adset_1",
+      name: "Conjunto aberto",
+    });
+    db.ads.push({
+      workspaceId: "workspace_1",
+      adId: "ad_1",
+      name: "Anuncio 1",
+    });
     db.conversionLogs = [
       {
         id: "conversion_1",
@@ -531,8 +588,9 @@ describe("meta reporting service", () => {
         eventOccurredAt: new Date("2026-07-02T12:00:00.000Z"),
         sentAt: new Date("2026-07-02T12:01:00.000Z"),
         status: "sent",
+        sourceTrigger: "external_mysql:kinbox_mysql",
         leadId: "lead_1",
-        phoneHash: "phone_hash_1",
+        phoneHash: "phone_a",
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
@@ -550,6 +608,7 @@ describe("meta reporting service", () => {
         eventOccurredAt: new Date("2026-07-01T12:00:00.000Z"),
         sentAt: null,
         status: "pending_value",
+        sourceTrigger: "keyword",
         leadId: null,
         phoneHash: null,
         campaignId: null,
@@ -560,35 +619,62 @@ describe("meta reporting service", () => {
         providerResponseSummary: null,
         errorCode: "EventValueMissing",
         errorMessage: "Conversion event value is required",
+        valueSource: null,
       },
     ];
 
-    await expect(
-      service.getConversionEventAudit({
-        workspaceId: "workspace_1",
-        since: "2026-07-01",
-        until: "2026-07-02",
-        rangeLabel: "2026-07-01 a 2026-07-02",
-      }),
-    ).resolves.toEqual({
+    const result = await service.getConversionEventAudit({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(result).toEqual({
       workspaceId: "workspace_1",
       rangeLabel: "2026-07-01 a 2026-07-02",
+      summary: {
+        total: 2,
+        sent: 1,
+        queued: 0,
+        blocked: 1,
+        failed: 0,
+        historical: 0,
+        discarded: 0,
+      },
+      pagination: {
+        page: 1,
+        pageSize: 25,
+        totalItems: 2,
+        totalPages: 1,
+      },
       events: [
         {
           id: "conversion_1",
           eventName: "LeadSubmitted",
           eventLabel: "Conversas reais iniciadas",
+          deliveryState: "sent",
+          statusLabel: "Enviado",
+          statusDetail: "Recebido pela Meta",
+          source: "external_integration",
+          sourceLabel: "Integracao externa",
           leadId: "lead_1",
-          phoneHash: "phone_hash_1",
+          leadName: "Mariana Alves",
+          phoneDisplay: "+55 11 99999-1020",
           campaignId: "cmp_1",
+          campaignName: "Campanha WhatsApp",
           adSetId: "adset_1",
+          adSetName: "Conjunto aberto",
           adId: "ad_1",
+          adName: "Anuncio 1",
           pixelId: "pixel_1",
           pageId: "page_1",
           occurredAt: "2026-07-02T12:00:00.000Z",
           sentAt: "2026-07-02T12:01:00.000Z",
           status: "sent",
-          providerResponseSummary: "events_received: 1",
+          providerResponseSummary: "Meta confirmou o recebimento",
           errorCode: null,
           errorMessage: null,
           valueSource: null,
@@ -597,11 +683,20 @@ describe("meta reporting service", () => {
           id: "conversion_2",
           eventName: "CustomEvent",
           eventLabel: "CustomEvent",
+          deliveryState: "blocked",
+          statusLabel: "Bloqueado",
+          statusDetail: "Aguardando valor do evento",
+          source: "whatsapp_automation",
+          sourceLabel: "Automacao do WhatsApp",
           leadId: null,
-          phoneHash: null,
+          leadName: null,
+          phoneDisplay: null,
           campaignId: null,
+          campaignName: null,
           adSetId: null,
+          adSetName: null,
           adId: null,
+          adName: null,
           pixelId: null,
           pageId: null,
           occurredAt: "2026-07-01T12:00:00.000Z",
@@ -609,40 +704,99 @@ describe("meta reporting service", () => {
           status: "pending_value",
           providerResponseSummary: null,
           errorCode: "EventValueMissing",
-          errorMessage: "Conversion event value is required",
+          errorMessage: "Valor do evento nao configurado",
           valueSource: null,
         },
       ],
     });
 
-    expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith({
-      where: {
-        workspaceId: "workspace_1",
-        eventOccurredAt: {
-          gte: new Date("2026-07-01T00:00:00.000Z"),
-          lte: new Date("2026-07-02T23:59:59.999Z"),
+    expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          workspaceId: "workspace_1",
+          eventOccurredAt: {
+            gte: new Date("2026-07-01T03:00:00.000Z"),
+            lte: new Date("2026-07-03T02:59:59.999Z"),
+          },
         },
+        skip: 0,
+        take: 25,
+      }),
+    );
+  });
+
+  it("filters the conversion audit without exposing raw provider errors", async () => {
+    const { db, prisma, service } = createHarness();
+    db.conversionLogs = [
+      {
+        id: "conversion_external_error",
+        workspaceId: "workspace_1",
+        eventName: "Purchase",
+        eventOccurredAt: new Date("2026-07-02T12:00:00.000Z"),
+        sentAt: null,
+        status: "error",
+        sourceTrigger: "external_mysql:kinbox_mysql",
+        leadId: null,
+        phoneHash: null,
+        campaignId: null,
+        adSetId: null,
+        adId: null,
+        pixelId: null,
+        pageId: null,
+        providerResponseSummary: { access_token: "must-not-leak" },
+        errorCode: "MetaCapiRejected",
+        errorMessage: "raw provider payload must-not-leak",
+        valueSource: null,
       },
-      orderBy: { eventOccurredAt: "desc" },
-      take: 200,
-      select: {
-        id: true,
-        eventName: true,
-        leadId: true,
-        phoneHash: true,
-        campaignId: true,
-        adSetId: true,
-        adId: true,
-        pixelId: true,
-        pageId: true,
-        eventOccurredAt: true,
-        sentAt: true,
-        status: true,
-        providerResponseSummary: true,
-        errorCode: true,
-        errorMessage: true,
-        valueSource: true,
+      {
+        id: "conversion_system_sent",
+        workspaceId: "workspace_1",
+        eventName: "Purchase",
+        eventOccurredAt: new Date("2026-07-02T13:00:00.000Z"),
+        sentAt: new Date("2026-07-02T13:01:00.000Z"),
+        status: "sent",
+        sourceTrigger: "auto_lead",
+        leadId: null,
+        phoneHash: null,
+        campaignId: null,
+        adSetId: null,
+        adId: null,
+        pixelId: null,
+        pageId: null,
+        providerResponseSummary: null,
+        errorCode: null,
+        errorMessage: null,
+        valueSource: null,
       },
+    ];
+
+    const result = await service.getConversionEventAudit({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      eventName: "Purchase",
+      deliveryState: "failed",
+      source: "external_integration",
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      id: "conversion_external_error",
+      deliveryState: "failed",
+      errorMessage: "A Meta recusou o evento",
+    });
+    expect(JSON.stringify(result)).not.toContain("must-not-leak");
+    expect(prisma.conversionEventLog.groupBy).toHaveBeenCalledWith({
+      by: ["status"],
+      where: expect.objectContaining({
+        eventName: "Purchase",
+        status: { in: ["error"] },
+        sourceTrigger: { startsWith: "external_mysql:" },
+      }),
+      _count: { _all: true },
     });
   });
 
@@ -1145,6 +1299,8 @@ describe("meta reporting service", () => {
       {
         id: "lead_signal",
         workspaceId: "workspace_1",
+        name: null,
+        phoneDisplay: null,
         phoneHash: "phone_signal",
         campaignId: "cmp_1",
         adSetId: "adset_1",
@@ -1205,6 +1361,8 @@ describe("meta reporting service", () => {
       {
         id: "lead_ad_only",
         workspaceId: "workspace_1",
+        name: null,
+        phoneDisplay: null,
         phoneHash: "phone_ad_only",
         campaignId: null as string | null,
         adSetId: null as string | null,

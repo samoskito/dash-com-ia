@@ -2,6 +2,7 @@ export const clientNavigation = [
   { id: "overview", label: "Visao geral" },
   { id: "leads", label: "Leads" },
   { id: "reports", label: "Relatorios" },
+  { id: "events", label: "Eventos Meta" },
   { id: "integrations", label: "Integracoes" },
   { id: "settings", label: "Configuracoes" }
 ] as const;
