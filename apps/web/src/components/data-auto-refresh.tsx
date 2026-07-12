@@ -9,7 +9,7 @@ const refreshIntervalMs = 60_000;
 
 function sourceName(source: WhatsappDataSourceDto | null) {
   if (source?.mode === "external") {
-    return source.connectorName ?? "Integracao externa";
+    return "Integracao externa MySQL";
   }
 
   return source?.mode === "native"

@@ -11,6 +11,9 @@ import {
   hashPhoneIdentity,
   normalizePhoneIdentity,
 } from "../common/phone/phone-identity";
+import { startOfDateInTimezone } from "../external-data/external-event-policy";
+
+const leadPeriodTimezone = "America/Sao_Paulo";
 
 type LeadRecord = {
   id: string;
@@ -62,7 +65,15 @@ type AdSetRecord = {
 
 type AdRecord = {
   adId: string;
+  campaignId: string;
+  adSetId: string;
   name: string;
+};
+
+type AdHierarchyRecord = {
+  adId: string;
+  campaignId: string;
+  adSetId: string;
 };
 
 type WebhookLogRecord = {
@@ -113,7 +124,7 @@ export class LeadsService {
     workspaceId: string,
     query: LeadListQueryDto,
   ): Promise<LeadListPageDto> {
-    const createdAtRange = this.createdAtRange(query);
+    const conversationPeriodRange = this.conversationPeriodRange(query);
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? query.limit ?? 50;
     const eventLeadIds = query.eventName
@@ -157,6 +168,17 @@ export class LeadsService {
           ],
         }
       : null;
+    const periodFilter = conversationPeriodRange
+      ? {
+          OR: [
+            { firstMessageAt: conversationPeriodRange },
+            {
+              firstMessageAt: null,
+              createdAt: conversationPeriodRange,
+            },
+          ],
+        }
+      : null;
 
     if (eventLeadIds && eventLeadIds.length === 0) {
       return {
@@ -173,12 +195,12 @@ export class LeadsService {
       ...(query.campaignId ? { campaignId: query.campaignId } : {}),
       ...(query.adSetId ? { adSetId: query.adSetId } : {}),
       ...(query.adId ? { adId: query.adId } : {}),
-      ...(createdAtRange ? { createdAt: createdAtRange } : {}),
-      ...(attributionFilter || searchFilter
+      ...(attributionFilter || searchFilter || periodFilter
         ? {
             AND: [
               ...(attributionFilter ? [attributionFilter] : []),
               ...(searchFilter ? [searchFilter] : []),
+              ...(periodFilter ? [periodFilter] : []),
             ],
           }
         : {}),
@@ -193,10 +215,10 @@ export class LeadsService {
       this.prisma.lead.count({ where }),
     ])) as [LeadRecord[], number];
     const leadIds = leads.map((lead) => lead.id);
-    const campaignIds = Array.from(
-      new Set(leads.map((lead) => lead.campaignId).filter(Boolean)),
+    const adIds = Array.from(
+      new Set(leads.map((lead) => lead.adId).filter(Boolean)),
     ) as string[];
-    const [conversionLogs, campaigns] = await Promise.all([
+    const [conversionLogs, adHierarchy] = await Promise.all([
       leadIds.length
         ? (this.prisma.conversionEventLog.findMany({
             where: {
@@ -215,19 +237,51 @@ export class LeadsService {
             },
           }) as Promise<ConversionLogRecord[]>)
         : Promise.resolve([]),
-      campaignIds.length
-        ? (this.prisma.metaCampaign.findMany({
+      adIds.length
+        ? (this.prisma.metaAd.findMany({
             where: {
               workspaceId,
-              campaignId: { in: campaignIds },
+              adId: { in: adIds },
             },
             select: {
+              adId: true,
               campaignId: true,
-              name: true,
+              adSetId: true,
             },
-          }) as Promise<CampaignRecord[]>)
+          }) as Promise<AdHierarchyRecord[]>)
         : Promise.resolve([]),
     ]);
+    const hierarchyByAdId = new Map(
+      adHierarchy.map((ad) => [ad.adId, ad]),
+    );
+    const resolvedLeads = leads.map((lead) => {
+      const hierarchy = lead.adId
+        ? hierarchyByAdId.get(lead.adId)
+        : undefined;
+
+      return hierarchy
+        ? {
+            ...lead,
+            campaignId: hierarchy.campaignId,
+            adSetId: hierarchy.adSetId,
+          }
+        : lead;
+    });
+    const campaignIds = Array.from(
+      new Set(resolvedLeads.map((lead) => lead.campaignId).filter(Boolean)),
+    ) as string[];
+    const campaigns = campaignIds.length
+      ? ((await this.prisma.metaCampaign.findMany({
+          where: {
+            workspaceId,
+            campaignId: { in: campaignIds },
+          },
+          select: {
+            campaignId: true,
+            name: true,
+          },
+        })) as CampaignRecord[])
+      : [];
     const latestEventByLead = new Map<string, string>();
     const eventsByLead = new Map<string, Set<string>>();
     const campaignNameById = new Map(
@@ -247,7 +301,7 @@ export class LeadsService {
     }
 
     return {
-      items: leads.map((lead) =>
+      items: resolvedLeads.map((lead) =>
         this.toDto(
           lead,
           latestEventByLead.get(lead.id) ?? null,
@@ -388,19 +442,43 @@ export class LeadsService {
               },
               select: {
                 adId: true,
+                campaignId: true,
+                adSetId: true,
                 name: true,
               },
             }) as Promise<AdRecord[]>)
           : Promise.resolve([]),
       ]);
-    const campaignName = campaigns[0]?.name ?? null;
+    const ad = ads[0];
+    const resolvedLead = ad
+      ? {
+          ...lead,
+          campaignId: ad.campaignId,
+          adSetId: ad.adSetId,
+        }
+      : lead;
+    const [resolvedCampaigns, resolvedAdSets] = await Promise.all([
+      ad && ad.campaignId !== lead.campaignId
+        ? (this.prisma.metaCampaign.findMany({
+            where: { workspaceId, campaignId: { in: [ad.campaignId] } },
+            select: { campaignId: true, name: true },
+          }) as Promise<CampaignRecord[]>)
+        : Promise.resolve(campaigns),
+      ad && ad.adSetId !== lead.adSetId
+        ? (this.prisma.metaAdSet.findMany({
+            where: { workspaceId, adSetId: { in: [ad.adSetId] } },
+            select: { adSetId: true, name: true },
+          }) as Promise<AdSetRecord[]>)
+        : Promise.resolve(adSets),
+    ]);
+    const campaignName = resolvedCampaigns[0]?.name ?? null;
     const latestEventName = conversionLogs[0]?.eventName ?? null;
 
     return {
-      lead: this.toDto(lead, latestEventName, campaignName),
+      lead: this.toDto(resolvedLead, latestEventName, campaignName),
       attribution: {
         campaignName,
-        adSetName: adSets[0]?.name ?? null,
+        adSetName: resolvedAdSets[0]?.name ?? null,
         adName: ads[0]?.name ?? null,
       },
       conversionEvents: conversionLogs.map((event) => ({
@@ -526,7 +604,7 @@ export class LeadsService {
     };
   }
 
-  private createdAtRange(
+  private conversationPeriodRange(
     query: Pick<LeadListQueryDto, "since" | "until">,
   ): { gte?: Date; lte?: Date } | null {
     if (!query.since && !query.until) {
@@ -534,9 +612,26 @@ export class LeadsService {
     }
 
     return {
-      ...(query.since ? { gte: new Date(`${query.since}T00:00:00.000Z`) } : {}),
-      ...(query.until ? { lte: new Date(`${query.until}T23:59:59.999Z`) } : {}),
+      ...(query.since
+        ? { gte: startOfDateInTimezone(query.since, leadPeriodTimezone) }
+        : {}),
+      ...(query.until
+        ? {
+            lte: new Date(
+              startOfDateInTimezone(
+                this.nextDate(query.until),
+                leadPeriodTimezone,
+              ).getTime() - 1,
+            ),
+          }
+        : {}),
     };
+  }
+
+  private nextDate(dateText: string): string {
+    const date = new Date(`${dateText}T00:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + 1);
+    return date.toISOString().slice(0, 10);
   }
 
   private statusFromEvent(

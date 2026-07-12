@@ -520,16 +520,6 @@ function statusLabel(status: string) {
   return labels[status] ?? "Status desconhecido";
 }
 
-function externalProviderLabel(provider: string | null | undefined) {
-  const labels: Record<string, string> = {
-    kinbox_mysql: "Kinbox / MySQL",
-    external_mysql: "MySQL externo",
-    mysql: "MySQL externo",
-  };
-
-  return provider ? (labels[provider] ?? provider) : "Integracao externa";
-}
-
 function sourceSyncLabel(value: string | null | undefined) {
   if (!value) {
     return "Aguardando primeira sincronizacao";
@@ -787,6 +777,7 @@ export default async function IntegrationsPage({
   const billingSubscription = billingSubscriptionResult.data;
   const pipeline = pipelineResult.data;
   const workspace = workspaceResult.data;
+  const isPlatformOperator = Boolean(workspace?.platformRole);
   const workspacePermissionsUnavailable = workspaceResult.state === "error";
   const canManageIntegrations = Boolean(
     workspace?.permissions.canManageIntegrations,
@@ -864,12 +855,16 @@ export default async function IntegrationsPage({
               : "Uazapi primeiro, Meta OAuth desde o inicio e Cloud API preparada para futuro."}
           </p>
         </div>
-        <div className="header-actions">
-          <span className={`status-chip${hasIntegrationError ? " warn" : ""}`}>
-            {hasIntegrationError ? "API indisponivel" : "API conectada"}
-          </span>
-          <span className="status-chip">{integrations.length} provedores</span>
-        </div>
+        {isPlatformOperator ? (
+          <div className="header-actions">
+            <span
+              className={`status-chip${hasIntegrationError ? " warn" : ""}`}
+            >
+              {hasIntegrationError ? "API indisponivel" : "API conectada"}
+            </span>
+            <span className="status-chip">{integrations.length} provedores</span>
+          </div>
+        ) : null}
       </header>
 
       {pageNotice ? (
@@ -879,7 +874,8 @@ export default async function IntegrationsPage({
         </div>
       ) : null}
 
-      <div className="integration-grid">
+      {isPlatformOperator ? (
+        <div className="integration-grid">
         {integrations.length > 0 ? (
           integrations.map((item) => (
             <article className="integration-card" key={item.title}>
@@ -919,7 +915,8 @@ export default async function IntegrationsPage({
             </p>
           </article>
         )}
-      </div>
+        </div>
+      ) : null}
 
       <div className="surface-panel">
         <span className="eyebrow">Meta OAuth</span>
@@ -1072,24 +1069,17 @@ export default async function IntegrationsPage({
         <div className="surface-panel external-source-panel">
           <div>
             <span className="eyebrow">Fonte do WhatsApp</span>
-            <h2>Dados recebidos por integracao externa</h2>
+            <h2>Dados recebidos por integracao externa do MySQL</h2>
             <p className="muted">
-              Este workspace usa o conector externo como fonte de leads. Nao ha
-              instancia ou cobranca adicional para configurar aqui.
+              As conversas deste workspace chegam por uma integracao externa
+              com o MySQL. Nao ha instancia ou cobranca adicional para
+              configurar aqui.
             </p>
           </div>
           <div className="metric-grid compact">
             <div className="metric-card">
-              <span className="micro-label">Conector</span>
-              <strong>
-                {pipeline?.whatsappSource?.connectorName ?? "Conector externo"}
-              </strong>
-            </div>
-            <div className="metric-card">
               <span className="micro-label">Origem</span>
-              <strong>
-                {externalProviderLabel(pipeline?.whatsappSource?.provider)}
-              </strong>
+              <strong>Integracao externa MySQL</strong>
             </div>
             <div className="metric-card">
               <span className="micro-label">Ultima sincronizacao</span>

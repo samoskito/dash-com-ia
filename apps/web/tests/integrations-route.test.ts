@@ -257,6 +257,7 @@ describe("integrations route", () => {
             name: "Workspace",
             slug: "workspace",
             role: "owner",
+            platformRole: "platform_owner",
             permissions: {
               canInviteMembers: true,
               canManageBilling: true,
@@ -378,6 +379,8 @@ describe("integrations route", () => {
     expect(html).toContain("Leads com origem de campanha Meta");
     expect(html).toContain("Webhooks Uazapi recebidos");
     expect(html).toContain("Eventos enviados para Meta");
+    expect(html).toContain("Ver diagnostico");
+    expect(html).toContain("API conectada");
     expect(html).toContain("3");
     expect(html).toContain("4");
     expect(html).toContain("2");
@@ -472,13 +475,15 @@ describe("integrations route", () => {
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
-    expect(html).toContain("Dados recebidos por integracao externa");
-    expect(html).toContain("MySQL Barbieri");
-    expect(html).toContain("Kinbox / MySQL");
+    expect(html).toContain("Dados recebidos por integracao externa do MySQL");
+    expect(html).toContain("Integracao externa MySQL");
     expect(html).toContain("12/07/2026, 00:41");
     expect(html).toContain("Sincronizado");
-    expect(html).toContain("API conectada");
+    expect(html).not.toContain("MySQL Barbieri");
+    expect(html).not.toContain("Kinbox / MySQL");
+    expect(html).not.toContain("API conectada");
     expect(html).not.toContain("API indisponivel");
+    expect(html).not.toContain("Ver diagnostico");
     expect(html).not.toContain("Instancias conectadas");
     expect(html).not.toContain("Adicionar instancia");
     expect(html).not.toContain("Antecipada via Asaas");
@@ -763,6 +768,8 @@ describe("integrations route", () => {
     expect(html).not.toContain("Salvar selecao Meta");
     expect(html).not.toContain("Adicionar instancia");
     expect(html).not.toContain("Conectar WhatsApp");
+    expect(html).not.toContain("Ver diagnostico");
+    expect(html).not.toContain("provedores");
   });
 
   it("renders unavailable states without visual fallback providers or fake pipeline metrics", async () => {
@@ -819,8 +826,8 @@ describe("integrations route", () => {
     const element = await IntegrationsPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
-    expect(html).toContain("API indisponivel");
-    expect(html).toContain("Nao foi possivel carregar integracoes");
+    expect(html).not.toContain("Ver diagnostico");
+    expect(html).not.toContain("Nao foi possivel carregar integracoes");
     expect(html).toContain("Nao foi possivel ler os ativos Meta agora.");
     expect(html).toContain("Nao foi possivel carregar instancias");
     expect(html).not.toContain("Leitura de ativos indisponivel");
@@ -949,6 +956,7 @@ describe("integrations route", () => {
             name: "Workspace",
             slug: "workspace",
             role: "owner",
+            platformRole: "platform_owner",
             permissions: {
               canInviteMembers: true,
               canManageBilling: true,

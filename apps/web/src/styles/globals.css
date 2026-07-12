@@ -1010,6 +1010,10 @@ a.tracking-breakdown-row:hover {
   background: rgba(255, 255, 255, 0.025);
 }
 
+.lead-filter-bar {
+  align-items: flex-end;
+}
+
 .filter-control {
   min-width: 142px;
   justify-content: flex-start;
@@ -3062,5 +3066,10 @@ th {
   .filter-bar select,
   .searchable-select {
     width: 100%;
+  }
+
+  .lead-filter-bar .filter-field {
+    width: 100%;
+    flex-basis: auto;
   }
 }

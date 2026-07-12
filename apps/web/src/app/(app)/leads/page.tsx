@@ -115,6 +115,14 @@ function lastTouchLabel(value: string | null): string {
   });
 }
 
+function sourceLabel(source: string | null, adId: string | null): string {
+  if (source === "external_mysql") {
+    return "Integracao externa";
+  }
+
+  return source ?? adId ?? "Origem parcial";
+}
+
 export default async function LeadsPage({
   searchParams,
 }: {
@@ -139,9 +147,8 @@ export default async function LeadsPage({
     positiveIntegerParam(asStringParam(resolvedSearchParams.pageSize), 25),
     100,
   );
-  const hasReportFilter = Boolean(
-    campaignId || adSetId || adId || attribution || since || until,
-  );
+  const hasReportFilter = Boolean(campaignId || adSetId || adId || attribution);
+  const hasPeriodFilter = Boolean(since || until);
   const leadFilters: LeadFilters = {
     search,
     status,
@@ -175,8 +182,8 @@ export default async function LeadsPage({
           <span className="eyebrow">Leads</span>
           <h1>Leads rastreados pelo WhatsApp</h1>
           <p>
-            Busca por nome ou telefone, filtros por campanha, etiquetas e
-            eventos enviados.
+            Busca por nome ou telefone, periodo, campanha, etiquetas e eventos
+            enviados.
           </p>
         </div>
         <div className="header-actions">
@@ -191,7 +198,7 @@ export default async function LeadsPage({
       </header>
 
       <form
-        className="filter-bar"
+        className="filter-bar lead-filter-bar"
         aria-label="Filtros de leads"
         action="/leads"
       >
@@ -237,23 +244,33 @@ export default async function LeadsPage({
           placeholder="Etiqueta"
           defaultValue={label}
         />
+        <label className="filter-field">
+          <span>Inicio</span>
+          <input type="date" name="since" defaultValue={since} />
+        </label>
+        <label className="filter-field">
+          <span>Fim</span>
+          <input type="date" name="until" defaultValue={until} />
+        </label>
         <input type="hidden" name="campaignId" value={campaignId ?? ""} />
         <input type="hidden" name="adSetId" value={adSetId ?? ""} />
         <input type="hidden" name="adId" value={adId ?? ""} />
-        <input type="hidden" name="since" value={since ?? ""} />
-        <input type="hidden" name="until" value={until ?? ""} />
         <button className="button" type="submit">
           Filtrar
         </button>
       </form>
-      {hasReportFilter ? (
+      {hasReportFilter || hasPeriodFilter ? (
         <p className="muted">
           {attribution === "organic"
             ? "Exibindo conversas sem atribuicao"
             : attribution === "paid"
               ? "Exibindo conversas com atribuicao"
-              : "Filtro do relatorio aplicado"}
-          {since && until ? `: ${since} ate ${until}` : "."}
+              : hasReportFilter
+                ? "Filtro do relatorio aplicado"
+                : "Periodo das conversas"}
+          {since || until
+            ? `: ${since ?? "inicio"} ate ${until ?? "hoje"}`
+            : "."}
         </p>
       ) : null}
 
@@ -282,7 +299,7 @@ export default async function LeadsPage({
                   </td>
                   <td>
                     {lead.campaignName ?? "Campanha nao resolvida"}
-                    <span>{lead.source ?? lead.adId ?? "origem parcial"}</span>
+                    <span>{sourceLabel(lead.source, lead.adId)}</span>
                     {lead.labels.length > 0 ? (
                       <span>{lead.labels.join(", ")}</span>
                     ) : null}

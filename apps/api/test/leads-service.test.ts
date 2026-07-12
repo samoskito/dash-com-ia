@@ -71,6 +71,8 @@ function createHarness() {
     ads: [
       {
         adId: "ad_1",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
         name: "Criativo WhatsApp",
       },
     ],
@@ -163,7 +165,7 @@ describe("leads service", () => {
     ]);
   });
 
-  it("filters leads by report attribution and lead creation period", async () => {
+  it("filters leads by attribution and Sao Paulo conversation period", async () => {
     const { prisma, service } = createHarness();
 
     await service.listLeads("workspace_1", {
@@ -182,13 +184,57 @@ describe("leads service", () => {
           campaignId: "cmp_1",
           adSetId: "adset_1",
           adId: "ad_1",
-          createdAt: {
-            gte: new Date("2026-07-01T00:00:00.000Z"),
-            lte: new Date("2026-07-02T23:59:59.999Z"),
-          },
+          AND: [
+            {
+              OR: [
+                {
+                  firstMessageAt: {
+                    gte: new Date("2026-07-01T03:00:00.000Z"),
+                    lte: new Date("2026-07-03T02:59:59.999Z"),
+                  },
+                },
+                {
+                  firstMessageAt: null,
+                  createdAt: {
+                    gte: new Date("2026-07-01T03:00:00.000Z"),
+                    lte: new Date("2026-07-03T02:59:59.999Z"),
+                  },
+                },
+              ],
+            },
+          ],
         }),
       }),
     );
+  });
+
+  it("resolves stale campaign parents through the Meta ad hierarchy", async () => {
+    const { db, prisma, service } = createHarness();
+    db.leads[0] = {
+      ...db.leads[0],
+      campaignId: "stale_campaign",
+      adSetId: "stale_adset",
+    };
+
+    const leads = await service.listLeads("workspace_1", { limit: 25 });
+
+    expect(leads[0]).toMatchObject({
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      campaignName: "Black Friday WhatsApp",
+    });
+    expect(prisma.metaAd.findMany).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        adId: { in: ["ad_1"] },
+      },
+      select: {
+        adId: true,
+        campaignId: true,
+        adSetId: true,
+      },
+    });
   });
 
   it("infers LeadSubmitted for an imported conversation without an event log", async () => {

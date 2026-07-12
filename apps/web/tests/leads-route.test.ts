@@ -65,6 +65,9 @@ describe("leads route", () => {
     expect(html).toContain("Venda fechada");
     expect(html).toContain('name="label"');
     expect(html).toContain('name="attribution"');
+    expect(html).toContain('type="date"');
+    expect(html).toContain('name="since"');
+    expect(html).toContain('name="until"');
     expect(html).toContain("+55 11 99999-1020");
     expect(html).toContain("02/07, 00:10");
   });
@@ -102,6 +105,8 @@ describe("leads route", () => {
       expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Exibindo conversas sem atribuicao");
+    expect(html).toContain('name="since" value="2026-07-06"');
+    expect(html).toContain('name="until" value="2026-07-12"');
   });
 
   it("passes report drill-down filters to the backend", async () => {
@@ -142,6 +147,49 @@ describe("leads route", () => {
     expect(html).toContain('name="campaignId"');
     expect(html).toContain('name="adSetId"');
     expect(html).toContain('name="adId"');
+  });
+
+  it("uses a generic label for external MySQL lead sources", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: "lead_external",
+              workspaceId: "workspace_1",
+              name: "Sofia",
+              phoneDisplay: "+55 62 8262-4329",
+              phoneHash: "phone_hash_external",
+              status: "active",
+              source: "external_mysql",
+              labels: [],
+              campaignId: "cmp_1",
+              campaignName: "Campanha WhatsApp",
+              adSetId: "adset_1",
+              adId: "ad_1",
+              lastEventName: "LeadSubmitted",
+              firstMessageAt: "2026-07-12T19:54:00.000Z",
+              lastMessageAt: "2026-07-12T19:54:00.000Z",
+              createdAt: "2026-07-12T19:54:00.000Z",
+              updatedAt: "2026-07-12T19:54:00.000Z",
+            },
+          ],
+          pagination: {
+            page: 1,
+            pageSize: 25,
+            totalItems: 1,
+            totalPages: 1,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const element = await LeadsPage({ searchParams: Promise.resolve({}) });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Integracao externa");
+    expect(html).not.toContain("external_mysql");
   });
 
   it("renders an unavailable state without demo leads when the backend fails", async () => {
