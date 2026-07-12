@@ -8,6 +8,7 @@ import type {
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { apiBaseUrl, apiFetch } from "../../../lib/api";
+import { metaAssetsRefreshSucceeded } from "./meta-connection-state";
 
 type MetaOAuthButtonProps = {
   connected: boolean;
@@ -41,7 +42,7 @@ export async function refreshMetaAssetsAfterOAuth(
     body: JSON.stringify({ businessId: null })
   })) as MetaAssetsDto;
 
-  if (assets.status !== "connected") {
+  if (!metaAssetsRefreshSucceeded(assets)) {
     throw new Error(assets.syncError ?? "MetaAssetsRefreshFailed");
   }
 

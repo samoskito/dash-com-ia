@@ -32,7 +32,7 @@ export class IntegrationsService {
     private readonly uazapiAdapter: UazapiAdapter,
     private readonly asaasAdapter: AsaasAdapter,
     @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env,
-    @Optional()
+    @Inject(MetaConnectionsService)
     private readonly metaConnectionsService?: MetaConnectionsService,
     @Optional()
     @Inject(PrismaService)
@@ -92,11 +92,17 @@ export class IntegrationsService {
 
     if (
       exchange.publicResult.status !== "connected" ||
-      !exchange.accessToken ||
-      !input.state ||
-      !this.metaConnectionsService
+      !exchange.accessToken
     ) {
       return exchange.publicResult;
+    }
+
+    if (!input.state) {
+      return {
+        ...exchange.publicResult,
+        status: "exchange_failed",
+        message: "State OAuth Meta ausente"
+      };
     }
 
     const workspaceId = this.readMetaOAuthState(input.state);
@@ -109,13 +115,24 @@ export class IntegrationsService {
       };
     }
 
-    const connection = await this.metaConnectionsService.saveOAuthConnection({
+    const connection = await this.requireMetaConnectionsService().saveOAuthConnection({
       workspaceId,
       accessToken: exchange.accessToken,
       tokenType: exchange.publicResult.tokenType,
       expiresInSeconds: exchange.publicResult.expiresInSeconds,
       scopes: exchange.publicResult.scopes
     });
+
+    if (
+      connection.status !== "connected" ||
+      connection.workspaceId !== workspaceId
+    ) {
+      return {
+        ...exchange.publicResult,
+        status: "exchange_failed",
+        message: "Conexao Meta nao foi salva no workspace solicitado"
+      };
+    }
 
     return {
       ...exchange.publicResult,
@@ -564,5 +581,13 @@ export class IntegrationsService {
     }
 
     return createHmac("sha256", secret).update(payload).digest("base64url");
+  }
+
+  private requireMetaConnectionsService(): MetaConnectionsService {
+    if (!this.metaConnectionsService) {
+      throw new Error("MetaConnectionsService indisponivel");
+    }
+
+    return this.metaConnectionsService;
   }
 }

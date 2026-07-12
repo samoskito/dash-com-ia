@@ -45,7 +45,19 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       tokenType: "bearer",
       expiresInSeconds: 5183944,
       scopes: ["ads_read"],
-      message: "Meta OAuth conectado"
+      message: "Meta OAuth conectado",
+      connection: {
+        workspaceId: "workspace_1",
+        status: "connected",
+        tokenType: "bearer",
+        scopes: ["ads_read"],
+        expiresAt: null,
+        connectedAt: "2026-07-02T03:00:00.000Z",
+        selectedBusinessId: null,
+        selectedAdAccountId: null,
+        selectedPixelId: null,
+        capiTokenConfigured: false
+      }
     })),
     getMetaConnection: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -415,6 +427,33 @@ describe("integrations controller", () => {
     await app.close();
   });
 
+  it("does not render OAuth success before the workspace connection is persisted", async () => {
+    const { app, service } = await createApp();
+    service.handleMetaCallback.mockResolvedValueOnce({
+      provider: "meta",
+      status: "connected",
+      tokenType: "bearer",
+      expiresInSeconds: 5183944,
+      scopes: ["ads_read"],
+      missingEnv: [],
+      message: "Meta OAuth conectado"
+    } as never);
+
+    await request(app.getHttpServer())
+      .get("/integrations/meta/callback?code=meta-code&state=state-token")
+      .set("Accept", "text/html")
+      .expect(400)
+      .expect(({ text }) => {
+        expect(text).toContain("Falha ao conectar com Meta.");
+        expect(text).toContain(
+          "Conexao Meta nao foi salva para este workspace."
+        );
+        expect(text).not.toContain("Conexao Meta concluida.");
+      });
+
+    await app.close();
+  });
+
   it("renders provider errors inside the Meta OAuth popup", async () => {
     const { app, service } = await createApp();
 
@@ -516,6 +555,38 @@ describe("integrations controller", () => {
       "business_1",
       "user_1"
     );
+
+    await app.close();
+  });
+
+  it("rejects a Meta asset refresh when the current workspace is not connected", async () => {
+    const { app, service } = await createApp();
+    service.refreshMetaAssets.mockResolvedValueOnce({
+      workspaceId: "workspace_1",
+      status: "not_connected",
+      businesses: [],
+      adAccounts: [],
+      pixels: [],
+      pages: [],
+      selection: {
+        businessId: null,
+        adAccountId: null,
+        pixelId: null
+      },
+      lastSyncedAt: null,
+      syncError: null
+    } as never);
+
+    await request(app.getHttpServer())
+      .post("/integrations/meta/assets/refresh")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({ businessId: null })
+      .expect(409)
+      .expect(({ body }) => {
+        expect(body.message).toContain(
+          "Conecte uma conta Meta neste workspace"
+        );
+      });
 
     await app.close();
   });

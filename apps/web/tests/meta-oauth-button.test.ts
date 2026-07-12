@@ -77,4 +77,19 @@ describe("MetaOAuthButton helpers", () => {
     );
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+
+  it("does not report success when the asset refresh remains disconnected", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "connected" })
+      .mockResolvedValueOnce({
+        status: "not_connected",
+        syncError: null
+      });
+
+    await expect(refreshMetaAssetsAfterOAuth(fetcher)).rejects.toThrow(
+      "MetaAssetsRefreshFailed"
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
 });

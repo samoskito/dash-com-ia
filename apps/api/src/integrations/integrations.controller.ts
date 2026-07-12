@@ -1,6 +1,8 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -101,11 +103,24 @@ export class IntegrationsController {
 
     try {
       const result = await this.integrationsService.handleMetaCallback(parsed.data);
+      const connectionPersisted =
+        result.status === "connected" &&
+        result.connection?.status === "connected";
+
+      if (result.status === "connected" && !connectionPersisted) {
+        const message = "Conexao Meta nao foi salva para este workspace.";
+
+        if (wantsHtml) {
+          return this.renderMetaOAuthPopupResult(response, false, message);
+        }
+
+        throw new BadRequestException(message);
+      }
 
       if (wantsHtml) {
         return this.renderMetaOAuthPopupResult(
           response,
-          result.status === "connected",
+          connectionPersisted,
           result.message ??
             (result.status === "connected"
               ? "Conexao Meta realizada com sucesso."
@@ -164,11 +179,31 @@ export class IntegrationsController {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
-    return this.integrationsService.refreshMetaAssets(
+    const assets = await this.integrationsService.refreshMetaAssets(
       workspace.id,
       businessId,
       authenticated.user.id
     );
+
+    if (assets.status === "not_connected") {
+      throw new ConflictException(
+        "Conecte uma conta Meta neste workspace antes de atualizar os ativos"
+      );
+    }
+
+    if (assets.status === "needs_reconnect") {
+      throw new ConflictException(
+        "Reconecte a conta Meta deste workspace antes de atualizar os ativos"
+      );
+    }
+
+    if (assets.status === "error") {
+      throw new BadGatewayException(
+        assets.syncError ?? "A Meta nao permitiu atualizar os ativos"
+      );
+    }
+
+    return assets;
   }
 
   @Put("meta/assets/selection")

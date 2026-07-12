@@ -188,6 +188,41 @@ describe("meta connections service", () => {
     expect(JSON.stringify(db.auditLogs)).not.toContain("EAAB-secret-token");
   });
 
+  it("allows the same Facebook token to connect different workspaces", async () => {
+    const { db, encryption, service } = createHarness();
+
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_general",
+      accessToken: "EAAB-shared-facebook-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read", "business_management"]
+    });
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_barbieri",
+      accessToken: "EAAB-shared-facebook-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read", "business_management"]
+    });
+
+    expect(db.records).toHaveLength(2);
+    expect(db.records.map((record) => record.workspaceId)).toEqual([
+      "workspace_general",
+      "workspace_barbieri"
+    ]);
+
+    for (const record of db.records) {
+      expect(
+        encryption.decrypt({
+          encryptedAccessToken: String(record.encryptedAccessToken),
+          tokenIv: String(record.tokenIv),
+          tokenTag: String(record.tokenTag)
+        })
+      ).toBe("EAAB-shared-facebook-token");
+    }
+  });
+
   it("returns not_connected when a workspace has no Meta integration", async () => {
     const { service } = createHarness();
 

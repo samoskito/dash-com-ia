@@ -549,6 +549,9 @@ describe("shared contracts", () => {
     });
 
     expect(query.code).toBe("meta-code");
+    expect(
+      metaOAuthCallbackQuerySchema.safeParse({ code: "meta-code" }).success
+    ).toBe(false);
     expect(result.status).toBe("connected");
     expect("accessToken" in result).toBe(false);
   });

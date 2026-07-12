@@ -17,7 +17,10 @@ import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { MetaConversionDestinationForm } from "./meta-conversion-destination-form";
-import { resolveMetaStatus } from "./meta-connection-state";
+import {
+  metaAssetsRefreshSucceeded,
+  resolveMetaStatus,
+} from "./meta-connection-state";
 import { MetaOAuthButton } from "./meta-oauth-button";
 import { MetaReportingAccountsForm } from "./meta-reporting-accounts-form";
 
@@ -233,10 +236,18 @@ async function refreshMetaAssets(formData: FormData) {
   let target = "/integrations?notice=meta-assets-refresh-error";
 
   try {
-    await serverApiFetch("/integrations/meta/assets/refresh", {
-      method: "POST",
-      body: JSON.stringify({ businessId }),
-    });
+    const assets = await serverApiFetch<MetaAssetsDto>(
+      "/integrations/meta/assets/refresh",
+      {
+        method: "POST",
+        body: JSON.stringify({ businessId }),
+      },
+    );
+
+    if (!metaAssetsRefreshSucceeded(assets)) {
+      throw new Error("MetaAssetsRefreshNotConnected");
+    }
+
     revalidatePath("/integrations");
     target = "/integrations?notice=meta-assets-refreshed";
   } catch {

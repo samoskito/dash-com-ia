@@ -38,7 +38,7 @@ export const integrationPipelineOverviewSchema = z.object({
 
 export const metaOAuthCallbackQuerySchema = z.object({
   code: z.string().min(1),
-  state: z.string().min(1).optional()
+  state: z.string().min(1)
 });
 
 export const metaConnectionStatusSchema = z.enum([

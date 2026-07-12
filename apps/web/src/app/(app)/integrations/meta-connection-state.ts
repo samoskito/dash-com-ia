@@ -6,3 +6,9 @@ export function resolveMetaStatus(
 ) {
   return connectionStatus ?? assetsStatus;
 }
+
+export function metaAssetsRefreshSucceeded(
+  assets: Pick<MetaAssetsDto, "status">
+): boolean {
+  return assets.status === "connected";
+}
