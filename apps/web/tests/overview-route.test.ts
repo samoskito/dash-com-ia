@@ -117,7 +117,7 @@ describe("overview route", () => {
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/campaigns",
+      "http://localhost:3333/reports/campaigns?includeSummary=true",
       expect.objectContaining({ credentials: "include" })
     );
     expect(html).toContain("2026-07-01 a 2026-07-02");
@@ -157,6 +157,53 @@ describe("overview route", () => {
     expect(html).toContain("Nenhuma campanha sincronizada");
     expect(html).toContain("0 campanhas");
     expect(html).not.toContain("Black Friday WhatsApp");
+  });
+
+  it("renders workspace conversations before campaign metadata is resolved", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          workspaceId: "workspace_1",
+          rangeLabel: "Ultimos 7 dias",
+          campaigns: [],
+          summary: {
+            id: "workspace_summary",
+            name: "Resumo do workspace",
+            status: "unknown",
+            ...reportMetrics({
+              spendCents: 0,
+              metaConversationsStarted: 0,
+              costPerMetaConversationCents: null,
+              realConversations: 4,
+              costPerRealConversationCents: 0,
+              organicLeads: 1,
+              totalReceived: 5,
+              trackingRate: 0.8,
+              qualifiedLead: 0,
+              costPerQualifiedLeadCents: null,
+              purchases: 0,
+              firstPurchases: 0,
+              costPerPurchaseCents: null,
+              trafficRevenueCents: 0,
+              organicRevenueCents: 0,
+              totalRevenueCents: 0,
+              firstPurchaseRevenueCents: 0,
+              roasAcquisition: null,
+              roasWithRepurchase: null
+            })
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const element = await OverviewPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("0 campanhas");
+    expect(html).toContain("4 conversas com origem identificada");
+    expect(html).toContain("1 conversa organica");
+    expect(html).not.toContain("Aguardando conversas");
   });
 
   it("renders an unavailable overview state without mock campaign data", async () => {

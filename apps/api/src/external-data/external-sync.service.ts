@@ -14,7 +14,12 @@ import {
   type ExternalEventConnectorContext
 } from "./external-event-ingestion.service";
 import {
+  dateInTimezone,
+  startOfDateInTimezone
+} from "./external-event-policy";
+import {
   ExternalMysqlAdapter,
+  type ExternalEventRow,
   type ExternalLeadRow,
   type ExternalSyncCursorValue
 } from "./external-mysql.adapter";
@@ -311,6 +316,7 @@ export class ExternalSyncService {
       });
 
       if (projectionRefresh) {
+        await this.projectHistoricalMilestones(connector, row);
         return "imported";
       }
 
@@ -461,6 +467,75 @@ export class ExternalSyncService {
       purchaseAverageValueCents: connector.purchaseAverageValueCents,
       defaultCurrency: connector.defaultCurrency
     };
+  }
+
+  private async projectHistoricalMilestones(
+    connector: ConnectorRecord,
+    row: ExternalLeadRow
+  ): Promise<void> {
+    const milestones = [
+      { eventType: "qualified_lead", occurredAt: row.qualifiedAt },
+      { eventType: "purchase", occurredAt: row.purchasedAt }
+    ] as const;
+
+    for (const milestone of milestones) {
+      if (!milestone.occurredAt) {
+        continue;
+      }
+
+      const occurredAt = this.parseHistoricalMilestoneDate(
+        milestone.occurredAt,
+        connector.timezone
+      );
+      const externalRowId = [
+        "historical-lead",
+        row.externalRowId,
+        milestone.eventType
+      ].join(":");
+      const historicalEvent: ExternalEventRow = {
+        externalRowId,
+        dedupeKey: externalRowId,
+        provider: connector.provider,
+        eventType: milestone.eventType,
+        sourceEventName: "historical_lead_projection",
+        externalEventId: null,
+        externalLeadId: row.externalLeadId,
+        transactionId: null,
+        phone: row.phone,
+        occurredAt: occurredAt.toISOString(),
+        eventLocalDate: dateInTimezone(occurredAt, connector.timezone),
+        adId: row.adId,
+        adSetId: null,
+        campaignId: null,
+        ctwaClid: row.ctwaClid,
+        sourceUrl: row.sourceUrl,
+        valueCents: null,
+        currency: null,
+        valueSource: null,
+        duplicateCount: 0,
+        updatedAt: row.updatedAt
+      };
+
+      const result = await this.eventIngestion.ingest(
+        this.connectorContext(connector),
+        historicalEvent,
+        { deliveryStatus: "imported", updateLeadStatus: false }
+      );
+
+      if (result.status === "rejected") {
+        throw new Error(result.errorCode ?? "HistoricalMilestoneRejected");
+      }
+    }
+  }
+
+  private parseHistoricalMilestoneDate(value: string, timezone: string): Date {
+    const dateOnly = /^(\d{4}-\d{2}-\d{2})(?:[ T]00:00:00(?:\.0+)?)?$/.exec(
+      value
+    );
+
+    return dateOnly
+      ? startOfDateInTimezone(dateOnly[1], timezone)
+      : this.parseExternalDate(value);
   }
 
   private normalizeStreams(streams: ExternalSyncStreamDto[]): ExternalSyncStreamDto[] {

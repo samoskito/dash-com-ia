@@ -74,6 +74,7 @@ export const leadDetailConversionEventSchema = z.object({
   adId: z.string().min(1).nullable(),
   errorCode: z.string().min(1).nullable(),
   errorMessage: z.string().min(1).nullable(),
+  occurredAt: z.string().datetime(),
   sentAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
 });

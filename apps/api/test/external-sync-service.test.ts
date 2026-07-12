@@ -142,6 +142,11 @@ describe("ExternalSyncService", () => {
   });
 
   it("refreshes lead projections without moving cursors or duplicate counters", async () => {
+    const historicalLeadRow: ExternalLeadRow = {
+      ...leadRow,
+      qualifiedAt: "2026-07-11 00:00:00.000",
+      purchasedAt: "2026-07-12 00:00:00.000"
+    };
     const prisma = {
       externalDataConnector: {
         findUnique: vi.fn(async () => ({
@@ -184,9 +189,19 @@ describe("ExternalSyncService", () => {
     const adapter = {
       readLeadsPage: vi
         .fn()
-        .mockResolvedValueOnce([leadRow])
+        .mockResolvedValueOnce([historicalLeadRow])
         .mockResolvedValueOnce([]),
       readEventsPage: vi.fn()
+    };
+    const eventIngestion = {
+      ingest: vi.fn(async (_connector: unknown, row: ExternalEventRow) => ({
+        externalRowId: row.externalRowId,
+        status: "imported" as const,
+        leadId: "lead_1",
+        conversionEventLogId: `conversion_${row.eventType}`,
+        queued: false,
+        errorCode: null
+      }))
     };
     const service = new ExternalSyncService(
       prisma as never,
@@ -201,7 +216,7 @@ describe("ExternalSyncService", () => {
         }))
       } as never,
       adapter as never,
-      {} as never
+      eventIngestion as never
     );
 
     const result = await service.syncConnector("connector_1", ["leads"], {
@@ -216,5 +231,26 @@ describe("ExternalSyncService", () => {
     expect(prisma.externalIngestionRecord.upsert).not.toHaveBeenCalled();
     expect(prisma.externalSyncCursor.findUnique).not.toHaveBeenCalled();
     expect(prisma.externalSyncCursor.upsert).not.toHaveBeenCalled();
+    expect(eventIngestion.ingest).toHaveBeenCalledTimes(2);
+    expect(eventIngestion.ingest).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ id: "connector_1", shadowMode: true }),
+      expect.objectContaining({
+        eventType: "qualified_lead",
+        occurredAt: "2026-07-11T03:00:00.000Z",
+        eventLocalDate: "2026-07-11"
+      }),
+      { deliveryStatus: "imported", updateLeadStatus: false }
+    );
+    expect(eventIngestion.ingest).toHaveBeenNthCalledWith(
+      2,
+      expect.any(Object),
+      expect.objectContaining({
+        eventType: "purchase",
+        occurredAt: "2026-07-12T03:00:00.000Z",
+        eventLocalDate: "2026-07-12"
+      }),
+      { deliveryStatus: "imported", updateLeadStatus: false }
+    );
   });
 });

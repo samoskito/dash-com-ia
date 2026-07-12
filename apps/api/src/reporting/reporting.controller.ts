@@ -73,6 +73,7 @@ export class ReportingController {
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
+    @Query("includeSummary") includeSummary?: string | string[],
     @Query("page") page?: string | string[],
     @Query("pageSize") pageSize?: string | string[],
   ) {
@@ -87,11 +88,13 @@ export class ReportingController {
       whatsappClassification,
     });
     const pagination = this.parseReportPagination(page, pageSize);
+    const includeWorkspaceSummary = this.parseBooleanFlag(includeSummary);
 
     return this.metaReportingService.getCampaignReportOverview({
       workspaceId,
       ...period,
       ...filters,
+      ...(includeWorkspaceSummary ? { includeSummary: true } : {}),
       ...pagination,
     });
   }
@@ -363,6 +366,14 @@ export class ReportingController {
     }
 
     return parsed;
+  }
+
+  private parseBooleanFlag(value?: string | string[]): boolean {
+    if (Array.isArray(value)) {
+      throw new BadRequestException("Filtro de relatorio invalido");
+    }
+
+    return value === "true";
   }
 
   private parseReportFilters(input: {

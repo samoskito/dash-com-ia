@@ -107,6 +107,7 @@ async function createApp() {
           adId: "ad_1",
           errorCode: null,
           errorMessage: null,
+          occurredAt: "2026-07-02T03:11:00.000Z",
           sentAt: "2026-07-02T03:13:00.000Z",
           createdAt: "2026-07-02T03:12:00.000Z",
         },

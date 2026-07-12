@@ -21,6 +21,12 @@ This foundation imports WhatsApp data from the standardized customer MySQL witho
 
 The schema derives a stable cursor inside the read-only views. It does not alter, lock, delete or overwrite the existing lead table.
 
+## Historical projection refresh
+
+`Reimportar leads` rereads `vw_wpptrack_leads` without moving the incremental lead cursor or incrementing lead duplicate counters. It refreshes the full phone display, timestamps, attribution and status in the WppTrack projection.
+
+During this explicit refresh, `qualified_at` and `purchased_at` create missing `QualifiedLead` and `Purchase` records with delivery status `imported`. These historical records are countable in the dashboard but are never queued for Meta CAPI. A lead with `first_message_at` and no conversion log is displayed and filterable as `LeadSubmitted` without fabricating a provider event ID.
+
 ## n8n dual-write contract
 
 During shadow mode, keep the current workflows and add a MySQL insert into `wpptrack_tracking_events` before any Meta HTTP request. Never derive the canonical type from Kinbox `event_name`; each workflow owns a fixed type.

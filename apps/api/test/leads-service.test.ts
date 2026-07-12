@@ -37,6 +37,7 @@ function createHarness() {
         adId: "ad_1",
         errorCode: null,
         errorMessage: null,
+        eventOccurredAt: new Date("2026-07-02T03:11:00.000Z"),
         sentAt: new Date("2026-07-02T03:13:00.000Z"),
         createdAt: new Date("2026-07-02T03:12:00.000Z"),
       },
@@ -190,6 +191,36 @@ describe("leads service", () => {
     );
   });
 
+  it("infers LeadSubmitted for an imported conversation without an event log", async () => {
+    const { db, service } = createHarness();
+    db.conversionLogs = [];
+
+    const leads = await service.listLeads("workspace_1", { limit: 25 });
+
+    expect(leads[0]).toMatchObject({
+      id: "lead_1",
+      status: "active",
+      lastEventName: "LeadSubmitted",
+    });
+  });
+
+  it("includes imported conversations in the LeadSubmitted event filter", async () => {
+    const { prisma, service } = createHarness();
+
+    await service.listLeads("workspace_1", {
+      eventName: "LeadSubmitted",
+      limit: 25,
+    });
+
+    expect(prisma.lead.findMany).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        firstMessageAt: { not: null },
+      },
+      select: { id: true },
+    });
+  });
+
   it("finds a lead by its complete normalized phone hash", async () => {
     const { prisma, service } = createHarness();
     const phone = "5511999991020";
@@ -337,6 +368,7 @@ describe("leads service", () => {
           id: "conversion_1",
           eventName: "QualifiedLead",
           status: "sent",
+          occurredAt: "2026-07-02T03:11:00.000Z",
           sentAt: "2026-07-02T03:13:00.000Z",
         },
       ],

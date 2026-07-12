@@ -26,11 +26,16 @@ function money(cents: number | null) {
 
 async function getOverviewReport(): Promise<OverviewReportResult> {
   try {
-    const report = await serverApiFetch<ReportOverviewDto>("/reports/campaigns");
+    const report = await serverApiFetch<ReportOverviewDto>(
+      "/reports/campaigns?includeSummary=true"
+    );
 
     return {
       report,
-      state: report.campaigns.length > 0 ? "real" : "empty"
+      state:
+        report.campaigns.length > 0 || (report.summary?.totalReceived ?? 0) > 0
+          ? "real"
+          : "empty"
     };
   } catch {
     return {
@@ -298,7 +303,7 @@ function funnelStep(
 export default async function OverviewPage() {
   const { report, state: reportState } = await getOverviewReport();
   const campaigns = report.campaigns;
-  const campaign = sumCampaigns(campaigns);
+  const campaign = report.summary ?? sumCampaigns(campaigns);
   const dataAvailable = reportState !== "error";
   const trackedRate = dataAvailable && campaign.trackingRate !== null
     ? ratePercent(campaign.trackingRate)
@@ -387,7 +392,9 @@ export default async function OverviewPage() {
               ? "Os numeros permanecem ocultos ate a API responder, evitando exibir zero como dado confirmado."
               : campaigns.length > 0
               ? `Investimento de ${money(campaign.spendCents)} gerou ${campaign.realConversations} conversas reais, ${campaign.organicLeads} conversas organicas e ${money(campaign.totalRevenueCents)} em receita total.`
-              : "Nenhuma campanha sincronizada. Use Sincronizar Meta em Relatorios para carregar dados reais."}
+              : campaign.totalReceived > 0
+                ? `${campaign.realConversations} ${campaign.realConversations === 1 ? "conversa" : "conversas"} com origem identificada e ${campaign.organicLeads} ${campaign.organicLeads === 1 ? "conversa organica" : "conversas organicas"} foram recebidas. Campanha e conjunto serao exibidos quando a estrutura Meta for resolvida.`
+                : "Nenhuma campanha sincronizada. Use Sincronizar Meta em Relatorios para carregar dados reais."}
           </p>
           {dataAvailable ? (
             <div className="overview-finance-strip" aria-label="Saude financeira">

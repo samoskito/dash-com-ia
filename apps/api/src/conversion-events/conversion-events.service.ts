@@ -86,6 +86,7 @@ export type RecordExternalConversionInput = {
   currency?: string | null;
   contentName?: string | null;
   eventOccurredAt: Date;
+  deliveryStatus?: "imported";
 };
 
 export type RecordExternalConversionResult = {
@@ -99,6 +100,7 @@ type InitialStatus = {
     | "pending_meta_context"
     | "pending_value"
     | "ready_to_send"
+    | "imported"
     | "skipped";
   errorCode:
     | "MissingAdId"
@@ -307,12 +309,19 @@ export class ConversionEventsService {
       };
     }
 
-    const initialStatus = this.resolveInitialStatus({
-      eventName: input.eventName,
-      adId: input.adId,
-      ctwaClid: input.ctwaClid,
-      valueCents: input.valueCents
-    });
+    const initialStatus: InitialStatus =
+      input.deliveryStatus === "imported"
+        ? {
+            status: "imported",
+            errorCode: null,
+            errorMessage: null
+          }
+        : this.resolveInitialStatus({
+            eventName: input.eventName,
+            adId: input.adId,
+            ctwaClid: input.ctwaClid,
+            valueCents: input.valueCents
+          });
     const purchaseKind = await this.resolvePurchaseKind({
       workspaceId: input.workspaceId,
       eventName: input.eventName,

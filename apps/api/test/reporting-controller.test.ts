@@ -251,6 +251,25 @@ describe("reporting controller", () => {
     await app.close();
   });
 
+  it("requests the workspace summary only when explicitly enabled", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/campaigns?includeSummary=true")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+
+    expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-04",
+      until: "2026-07-10",
+      rangeLabel: "Ultimos 7 dias",
+      includeSummary: true,
+    });
+
+    await app.close();
+  });
+
   it("returns conversion event audit for the current workspace period", async () => {
     const { app, reportingService } = await createApp();
 

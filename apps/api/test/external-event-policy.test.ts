@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildExternalEventIdentity,
-  ExternalEventIdentityError
+  dateInTimezone,
+  ExternalEventIdentityError,
+  startOfDateInTimezone
 } from "../src/external-data/external-event-policy";
 
 const base = {
@@ -90,5 +92,15 @@ describe("external event identity policies", () => {
 
     expect(identity.policy).toBe("provider_event");
     expect(identity.dedupeKey).toContain("wamid.message_1");
+  });
+
+  it("converts a date-only Kinbox milestone from Sao Paulo to UTC", () => {
+    const occurredAt = startOfDateInTimezone(
+      "2026-07-11",
+      "America/Sao_Paulo"
+    );
+
+    expect(occurredAt.toISOString()).toBe("2026-07-11T03:00:00.000Z");
+    expect(dateInTimezone(occurredAt, "America/Sao_Paulo")).toBe("2026-07-11");
   });
 });

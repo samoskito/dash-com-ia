@@ -65,11 +65,14 @@ function createHarness(overrides?: {
     upsertFromWhatsappWebhook: vi.fn(async () => ({ id: "lead_1" })),
   };
   const conversionEventsService = {
-    recordExternalConversion: vi.fn(async () => ({
-      conversionEventLogId: "conversion_1",
-      status: "created" as const,
-      deliveryStatus: "ready_to_send",
-    })),
+    recordExternalConversion: vi.fn(
+      async (input: { deliveryStatus?: string }) => ({
+        conversionEventLogId: "conversion_1",
+        status: "created" as const,
+        deliveryStatus:
+          input.deliveryStatus === "imported" ? "imported" : "ready_to_send",
+      }),
+    ),
   };
   const conversionQueue = {
     enqueueSend: overrides?.enqueueError
@@ -143,6 +146,23 @@ describe("ExternalEventIngestionService", () => {
     expect(
       harness.prisma.externalIngestionRecord.upsert,
     ).not.toHaveBeenCalled();
+  });
+
+  it("records a historical milestone as imported without enqueueing CAPI", async () => {
+    const harness = createHarness({ shadowMode: false, capiSendEnabled: true });
+    const result = await harness.service.ingest(harness.connector, row, {
+      deliveryStatus: "imported",
+      updateLeadStatus: false,
+    });
+
+    expect(result).toMatchObject({ status: "imported", queued: false });
+    expect(
+      harness.conversionEventsService.recordExternalConversion,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ deliveryStatus: "imported" }),
+    );
+    expect(harness.conversionQueue.enqueueSend).not.toHaveBeenCalled();
+    expect(harness.prisma.lead.update).not.toHaveBeenCalled();
   });
 
   it("uses the row provider policy so another integration can keep same-day transactions", async () => {

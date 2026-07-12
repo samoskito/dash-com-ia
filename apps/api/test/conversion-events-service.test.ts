@@ -216,6 +216,39 @@ describe("conversion events service", () => {
     });
   });
 
+  it("stores historical external milestones as imported", async () => {
+    const { db, service } = createHarness();
+
+    const result = await service.recordExternalConversion({
+      workspaceId: "workspace_1",
+      externalConnectorId: "connector_1",
+      sourceEventId: "historical-lead:1:qualified_lead",
+      sourceTrigger: "external_mysql:kinbox_mysql",
+      eventName: "QualifiedLead",
+      eventId: "event_historical_1",
+      dedupeKey: "external:connector_1:kinbox_mysql:qualified_lead:lead:phone_hash_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      businessSource: "paid",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      eventOccurredAt: new Date("2026-07-11T03:00:00.000Z"),
+      deliveryStatus: "imported"
+    });
+
+    expect(result).toMatchObject({
+      status: "created",
+      deliveryStatus: "imported"
+    });
+    expect(db.logs[0]).toMatchObject({
+      status: "imported",
+      eventName: "QualifiedLead",
+      eventOccurredAt: new Date("2026-07-11T03:00:00.000Z"),
+      errorCode: null,
+      errorMessage: null
+    });
+  });
+
   it("classifies purchases by first purchase per workspace customer identity", async () => {
     const { db, service } = createHarness();
     const firstOccurredAt = new Date("2026-07-02T10:15:00.000Z");

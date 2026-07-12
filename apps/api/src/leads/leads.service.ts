@@ -42,6 +42,7 @@ type ConversionLogRecord = {
   adId?: string | null;
   errorCode?: string | null;
   errorMessage?: string | null;
+  eventOccurredAt: Date;
   sentAt?: Date | null;
   createdAt: Date;
 };
@@ -173,10 +174,14 @@ export class LeadsService {
               workspaceId,
               leadId: { in: leadIds },
             },
-            orderBy: { createdAt: "desc" },
+            orderBy: [
+              { eventOccurredAt: "desc" },
+              { createdAt: "desc" },
+            ],
             select: {
               leadId: true,
               eventName: true,
+              eventOccurredAt: true,
               createdAt: true,
             },
           }) as Promise<ConversionLogRecord[]>)
@@ -235,17 +240,30 @@ export class LeadsService {
     workspaceId: string,
     eventName: string,
   ): Promise<string[]> {
-    const events = (await this.prisma.conversionEventLog.findMany({
-      where: {
-        workspaceId,
-        eventName,
-        leadId: { not: null },
-      },
-      select: { leadId: true },
-      distinct: ["leadId"],
-    })) as Array<{ leadId: string | null }>;
+    const [events, inferredConversations] = await Promise.all([
+      this.prisma.conversionEventLog.findMany({
+        where: {
+          workspaceId,
+          eventName,
+          leadId: { not: null },
+        },
+        select: { leadId: true },
+        distinct: ["leadId"],
+      }) as Promise<Array<{ leadId: string | null }>>,
+      eventName === "LeadSubmitted"
+        ? (this.prisma.lead.findMany({
+            where: { workspaceId, firstMessageAt: { not: null } },
+            select: { id: true },
+          }) as Promise<Array<{ id: string }>>)
+        : Promise.resolve([]),
+    ]);
 
-    return events.flatMap((event) => (event.leadId ? [event.leadId] : []));
+    return Array.from(
+      new Set([
+        ...events.flatMap((event) => (event.leadId ? [event.leadId] : [])),
+        ...inferredConversations.map((lead) => lead.id),
+      ]),
+    );
   }
 
   async getLeadDetail(
@@ -270,7 +288,10 @@ export class LeadsService {
             workspaceId,
             OR: [{ leadId: lead.id }, { phoneHash: lead.phoneHash }],
           },
-          orderBy: { createdAt: "desc" },
+          orderBy: [
+            { eventOccurredAt: "desc" },
+            { createdAt: "desc" },
+          ],
           select: {
             id: true,
             leadId: true,
@@ -284,6 +305,7 @@ export class LeadsService {
             adId: true,
             errorCode: true,
             errorMessage: true,
+            eventOccurredAt: true,
             sentAt: true,
             createdAt: true,
           },
@@ -363,6 +385,7 @@ export class LeadsService {
         adId: event.adId ?? null,
         errorCode: event.errorCode ?? null,
         errorMessage: event.errorMessage ?? null,
+        occurredAt: event.eventOccurredAt.toISOString(),
         sentAt: event.sentAt?.toISOString() ?? null,
         createdAt: event.createdAt.toISOString(),
       })),
@@ -447,20 +470,23 @@ export class LeadsService {
     lastEventName: string | null,
     campaignName: string | null,
   ): LeadListItemDto {
+    const resolvedLastEventName =
+      lastEventName ?? this.inferredLastEventName(lead);
+
     return {
       id: lead.id,
       workspaceId: lead.workspaceId,
       name: lead.name,
       phoneDisplay: lead.phoneDisplay,
       phoneHash: lead.phoneHash,
-      status: this.statusFromEvent(lead.status, lastEventName),
+      status: this.statusFromEvent(lead.status, resolvedLastEventName),
       source: lead.source,
       labels: lead.labels,
       campaignId: lead.campaignId,
       campaignName,
       adSetId: lead.adSetId,
       adId: lead.adId,
-      lastEventName,
+      lastEventName: resolvedLastEventName,
       firstMessageAt: lead.firstMessageAt?.toISOString() ?? null,
       lastMessageAt: lead.lastMessageAt?.toISOString() ?? null,
       createdAt: lead.createdAt.toISOString(),
@@ -494,6 +520,18 @@ export class LeadsService {
     }
 
     return status;
+  }
+
+  private inferredLastEventName(lead: LeadRecord): string | null {
+    if (lead.status === "converted") {
+      return "Purchase";
+    }
+
+    if (lead.status === "qualified") {
+      return "QualifiedLead";
+    }
+
+    return lead.firstMessageAt ? "LeadSubmitted" : null;
   }
 
   private hashPhone(phone?: string): string | undefined {

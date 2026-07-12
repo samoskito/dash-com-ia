@@ -643,6 +643,7 @@ export class MetaReportingService {
       rangeLabel: string;
       since?: string;
       until?: string;
+      includeSummary?: boolean;
     } & ReportFilterInput,
   ): Promise<ReportOverviewDto> {
     const startedAt = Date.now();
@@ -686,10 +687,15 @@ export class MetaReportingService {
     );
     const paginated = this.paginateRecords(filteredCampaigns, input);
     const campaignIds = paginated.items.map((campaign) => campaign.campaignId);
-    const [conversionLogs, leads] = await Promise.all([
-      this.getMetricConversionEvents(input, { campaignIds }),
-      this.getLeads(input, { campaignIds }),
-    ]);
+    const [conversionLogs, leads, workspaceConversionLogs, workspaceLeads] =
+      await Promise.all([
+        this.getMetricConversionEvents(input, { campaignIds }),
+        this.getLeads(input, { campaignIds }),
+        input.includeSummary
+          ? this.getMetricConversionEvents(input)
+          : Promise.resolve([]),
+        input.includeSummary ? this.getLeads(input) : Promise.resolve([]),
+      ]);
     const conversionLogsByCampaign = this.groupByOptionalKey(
       conversionLogs,
       "campaignId",
@@ -708,6 +714,38 @@ export class MetaReportingService {
         childMetricByCampaign.get(campaign.campaignId),
       ),
     );
+    const workspaceMeta = filteredCampaigns.reduce(
+      (totals, campaign) => {
+        const metricOverride = childMetricByCampaign.get(campaign.campaignId);
+
+        totals.spendCents += metricOverride?.spendCents ?? campaign.spendCents;
+        totals.metaConversationsStarted +=
+          metricOverride?.metaConversationsStarted ??
+          campaign.metaConversationsStarted;
+
+        return totals;
+      },
+      { spendCents: 0, metaConversationsStarted: 0 },
+    );
+    const summary: CampaignReportRowDto | undefined = input.includeSummary
+      ? {
+          id: "workspace_summary",
+          name: "Resumo do workspace",
+          status: filteredCampaigns.some(
+            (campaign) => this.toReportStatus(campaign.status) === "active",
+          )
+            ? "active"
+            : "unknown",
+          ...this.calculateMetrics({
+            configuredEvents,
+            spendCents: workspaceMeta.spendCents,
+            metaConversationsStarted: workspaceMeta.metaConversationsStarted,
+            events: workspaceConversionLogs,
+            leads: workspaceLeads,
+            scope: {},
+          }),
+        }
+      : undefined;
 
     this.logReportRead("campaigns", startedAt, {
       returned: rows.length,
@@ -718,6 +756,7 @@ export class MetaReportingService {
       workspaceId: input.workspaceId,
       rangeLabel: input.rangeLabel,
       campaigns: rows,
+      ...(summary ? { summary } : {}),
       ...(paginated.pagination ? { pagination: paginated.pagination } : {}),
     };
   }

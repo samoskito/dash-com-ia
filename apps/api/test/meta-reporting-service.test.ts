@@ -1178,12 +1178,13 @@ describe("meta reporting service", () => {
       until: "2026-07-02",
     });
 
-    await expect(
-      service.getCampaignReportOverview({
-        workspaceId: "workspace_1",
-        rangeLabel: "Ultimos 2 dias",
-      }),
-    ).resolves.toEqual({
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 2 dias",
+      includeSummary: true,
+    });
+
+    expect(report).toMatchObject({
       workspaceId: "workspace_1",
       rangeLabel: "Ultimos 2 dias",
       campaigns: [
@@ -1245,6 +1246,31 @@ describe("meta reporting service", () => {
           ],
         },
       ],
+    });
+    expect(report.summary).toMatchObject({
+      id: "workspace_summary",
+      realConversations: 3,
+      qualifiedLead: 1,
+      purchases: 1,
+    });
+  });
+
+  it("returns workspace conversation totals before Meta campaigns are synchronized", async () => {
+    const { service } = createHarness();
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      includeSummary: true,
+    });
+
+    expect(report.campaigns).toEqual([]);
+    expect(report.summary).toMatchObject({
+      id: "workspace_summary",
+      spendCents: 0,
+      metaConversationsStarted: 0,
+      realConversations: 3,
+      totalReceived: 3,
     });
   });
 

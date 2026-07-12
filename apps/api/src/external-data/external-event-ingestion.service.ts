@@ -36,6 +36,11 @@ export type ExternalEventIngestionResult = {
   errorCode: string | null;
 };
 
+export type ExternalEventIngestionOptions = {
+  deliveryStatus?: "imported";
+  updateLeadStatus?: boolean;
+};
+
 type LeadAttribution = {
   id: string;
   phoneHash: string;
@@ -58,7 +63,8 @@ export class ExternalEventIngestionService {
 
   async ingest(
     connector: ExternalEventConnectorContext,
-    row: ExternalEventRow
+    row: ExternalEventRow,
+    options: ExternalEventIngestionOptions = {}
   ): Promise<ExternalEventIngestionResult> {
     const sourceRowKey = [
       "external-row",
@@ -99,7 +105,7 @@ export class ExternalEventIngestionService {
     }
 
     try {
-      return await this.ingestNew(connector, row, sourceRowKey);
+      return await this.ingestNew(connector, row, sourceRowKey, options);
     } catch (error) {
       const errorCode = this.errorCode(error);
       await this.recordRejected(connector, row, sourceRowKey, errorCode);
@@ -118,7 +124,8 @@ export class ExternalEventIngestionService {
   private async ingestNew(
     connector: ExternalEventConnectorContext,
     row: ExternalEventRow,
-    sourceRowKey: string
+    sourceRowKey: string,
+    options: ExternalEventIngestionOptions
   ): Promise<ExternalEventIngestionResult> {
     const eventType = canonicalTrackingEventTypeSchema.parse(row.eventType);
     const occurredAt = this.parseExternalDate(row.occurredAt);
@@ -185,7 +192,10 @@ export class ExternalEventIngestionService {
       valueCents: value.valueCents,
       valueSource: value.valueSource,
       currency: value.currency,
-      eventOccurredAt: occurredAt
+      eventOccurredAt: occurredAt,
+      ...(options.deliveryStatus
+        ? { deliveryStatus: options.deliveryStatus }
+        : {})
     });
     const ingestionStatus = conversion.status === "duplicate" ? "duplicate" : "imported";
     const record = await this.prisma.externalIngestionRecord.create({
@@ -213,7 +223,9 @@ export class ExternalEventIngestionService {
       }
     });
 
-    await this.updateLeadStatus(lead.id, eventType);
+    if (options.updateLeadStatus !== false) {
+      await this.updateLeadStatus(lead.id, eventType);
+    }
     let queued = false;
 
     if (

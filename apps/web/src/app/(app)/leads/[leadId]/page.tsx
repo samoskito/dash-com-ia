@@ -45,6 +45,10 @@ function statusTone(status: string) {
     : "";
 }
 
+function eventStatusLabel(status: string) {
+  return status === "imported" ? "Importado" : status;
+}
+
 export default async function LeadDetailPage({
   params
 }: {
@@ -145,7 +149,7 @@ export default async function LeadDetailPage({
                 <th>Status</th>
                 <th>Gatilho</th>
                 <th>Pixel</th>
-                <th>Enviado</th>
+                <th>Ocorrido em</th>
               </tr>
             </thead>
             <tbody>
@@ -158,13 +162,13 @@ export default async function LeadDetailPage({
                     </td>
                     <td>
                       <span className={`event-chip${statusTone(event.status)}`}>
-                        {event.status}
+                        {eventStatusLabel(event.status)}
                       </span>
                       {event.errorMessage ? <span>{event.errorMessage}</span> : null}
                     </td>
                     <td>{event.sourceTrigger}</td>
                     <td>{event.pixelId ?? "-"}</td>
-                    <td>{dateTime(event.sentAt ?? event.createdAt)}</td>
+                    <td>{dateTime(event.occurredAt)}</td>
                   </tr>
                 ))
               ) : (

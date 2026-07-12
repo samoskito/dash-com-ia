@@ -90,6 +90,7 @@ export const reportOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
   campaigns: z.array(campaignReportRowSchema),
+  summary: campaignReportRowSchema.optional(),
   pagination: reportPaginationSchema.optional(),
 });
 

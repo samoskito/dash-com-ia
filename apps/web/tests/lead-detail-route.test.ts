@@ -47,6 +47,7 @@ describe("lead detail route", () => {
               adId: "ad_1",
               errorCode: null,
               errorMessage: null,
+              occurredAt: "2026-07-02T03:11:00.000Z",
               sentAt: "2026-07-02T03:13:00.000Z",
               createdAt: "2026-07-02T03:12:00.000Z"
             }
@@ -84,6 +85,7 @@ describe("lead detail route", () => {
     expect(html).toContain("Publico quente");
     expect(html).toContain("Criativo WhatsApp");
     expect(html).toContain("QualifiedLead");
+    expect(html).toContain("Ocorrido em");
     expect(html).toContain("Webhook Uazapi");
     expect(html).toContain("webhook_1");
   });
