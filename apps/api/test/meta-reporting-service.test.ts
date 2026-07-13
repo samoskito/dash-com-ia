@@ -895,6 +895,7 @@ describe("meta reporting service", () => {
         blocked: 1,
         failed: 0,
         notEligible: 0,
+        shadowObserved: 0,
         historical: 0,
         discarded: 0,
       },
@@ -1021,6 +1022,7 @@ describe("meta reporting service", () => {
       blocked: 0,
       failed: 0,
       notEligible: 1,
+      shadowObserved: 0,
       historical: 0,
       discarded: 0,
     });
@@ -1031,6 +1033,53 @@ describe("meta reporting service", () => {
       statusDetail: "Sem identificador de clique, sem envio para a Meta",
       errorCode: null,
       errorMessage: null,
+    });
+  });
+
+  it("separates pre-cutover shadow evidence from the delivery queue", async () => {
+    const { db, service } = createHarness();
+    db.conversionLogs = [
+      {
+        id: "conversion_shadow_1",
+        workspaceId: "workspace_1",
+        eventName: "LeadSubmitted",
+        eventOccurredAt: new Date("2026-07-02T12:00:00.000Z"),
+        sentAt: null,
+        status: "shadow_observed",
+        sourceTrigger: "external_mysql:kinbox_mysql",
+        leadId: null,
+        phoneHash: null,
+        campaignId: null,
+        adSetId: null,
+        adId: null,
+        pixelId: null,
+        pageId: null,
+        providerResponseSummary: null,
+        errorCode: null,
+        errorMessage: null,
+        valueSource: null,
+      },
+    ];
+
+    const result = await service.getConversionEventAudit({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      deliveryState: "shadow",
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(result.summary).toMatchObject({
+      total: 1,
+      queued: 0,
+      shadowObserved: 1,
+    });
+    expect(result.events[0]).toMatchObject({
+      deliveryState: "shadow",
+      statusLabel: "Observado em sombra",
+      statusDetail: "Coletado antes do corte, sem envio pelo WppTrack",
     });
   });
 

@@ -2820,6 +2820,72 @@ td span {
   color: var(--warning);
 }
 
+.connector-cutover-state {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.connector-cutover-control {
+  min-width: 0;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+}
+
+.connector-cutover-control summary {
+  color: var(--mint);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.connector-cutover-control.rollback summary {
+  color: var(--warning);
+}
+
+.connector-cutover-control p {
+  margin: 7px 0;
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.connector-cutover-control form,
+.connector-cutover-control label {
+  display: grid;
+  gap: 6px;
+}
+
+.connector-cutover-control label {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.connector-cutover-control input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 6px 8px;
+  color: var(--ink);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.connector-cutover-control .button {
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+}
+
 .connector-reconciliation-blockers {
   display: grid;
   gap: 4px;
@@ -4384,7 +4450,7 @@ button.meta-budget-control:focus-visible {
 
 .audit-summary {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   border-block: 1px solid var(--border);
 }
 
@@ -4433,6 +4499,10 @@ button.meta-budget-control:focus-visible {
 }
 
 .audit-summary-item.not_eligible strong {
+  color: var(--ink-muted);
+}
+
+.audit-summary-item.shadow strong {
   color: var(--ink-muted);
 }
 
@@ -4902,14 +4972,14 @@ th {
   }
 
   .audit-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .audit-summary-item:nth-child(3n) {
+  .audit-summary-item:nth-child(4n) {
     border-right: 0;
   }
 
-  .audit-summary-item:nth-child(-n + 6) {
+  .audit-summary-item:nth-child(-n + 4) {
     border-bottom: 1px solid var(--border);
   }
 
@@ -4989,7 +5059,7 @@ th {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .audit-summary-item:nth-child(3n) {
+  .audit-summary-item:nth-child(4n) {
     border-right: 1px solid var(--border);
   }
 

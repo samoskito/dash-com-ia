@@ -168,6 +168,23 @@ Expected result:
 
 The Meta access token embedded in the disconnected source node must be rotated even though that node was removed from the artifact.
 
+## Disabling legacy Meta delivery
+
+Do not deactivate an entire workflow during the WppTrack CAPI cutover. The event ledger remains the external source of truth until the provider is native, so each workflow must continue receiving webhooks and writing MySQL rows.
+
+For each event type:
+
+1. Activate ownership in WppTrack first with `Assumir envio`.
+2. Immediately disable or disconnect only its legacy Meta HTTP-send node:
+   - conversation: the `LeadSubmitted` Graph API request;
+   - qualified lead: `Envia conversao de Lead Qualificado`;
+   - purchase: the corresponding `Purchase` Graph API request.
+3. Keep `Registrar conversation_started`, `Registrar evento qualificado` or the Purchase ledger insert active.
+4. Keep the remaining workflow effects active unless they are separately migrated.
+5. Validate one event created after the WppTrack activation time before moving to the next type.
+
+If rollback is needed, restore the n8n Meta HTTP node first and only then use `Reverter CAPI` in WppTrack. Never delete rows already recorded in `wpptrack_tracking_events`.
+
 ## Regeneration
 
 If the production workflow changes before deployment, regenerate the sanitized artifact from a fresh export:

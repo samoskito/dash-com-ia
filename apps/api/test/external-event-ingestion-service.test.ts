@@ -1,14 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
-import { ExternalEventIngestionService } from "../src/external-data/external-event-ingestion.service";
+import {
+  ExternalEventIngestionService,
+  type ExternalEventConnectorContext,
+} from "../src/external-data/external-event-ingestion.service";
 import type { ExternalEventRow } from "../src/external-data/external-mysql.adapter";
 
-const connector = {
+const connector: ExternalEventConnectorContext = {
   id: "connector_1",
   workspaceId: "workspace_1",
   provider: "kinbox_mysql",
   timezone: "America/Sao_Paulo",
   shadowMode: true,
   capiSendEnabled: false,
+  capiCutovers: [],
   purchaseAverageValueCents: 400_000,
   defaultCurrency: "BRL",
 };
@@ -42,6 +46,7 @@ function createHarness(overrides?: {
   capiSendEnabled?: boolean;
   enqueueError?: Error;
   leadCtwaClid?: string | null;
+  capiCutovers?: ExternalEventConnectorContext["capiCutovers"];
 }) {
   const leadCtwaClid =
     overrides?.leadCtwaClid === undefined
@@ -132,6 +137,7 @@ function createHarness(overrides?: {
       ...connector,
       shadowMode: overrides?.shadowMode ?? connector.shadowMode,
       capiSendEnabled: overrides?.capiSendEnabled ?? connector.capiSendEnabled,
+      capiCutovers: overrides?.capiCutovers ?? connector.capiCutovers,
     },
     conversionEventsService,
     conversionQueue,
@@ -453,6 +459,50 @@ describe("ExternalEventIngestionService", () => {
     expect(harness.prisma.lead.update).not.toHaveBeenCalled();
   });
 
+  it("keeps a pre-cutover event as shadow evidence", async () => {
+    const harness = createHarness({
+      capiCutovers: [
+        {
+          eventType: "purchase",
+          activatedAt: new Date("2026-07-11T15:00:00.000Z"),
+        },
+      ],
+    });
+
+    const result = await harness.service.ingest(harness.connector, row);
+
+    expect(result).toMatchObject({ status: "imported", queued: false });
+    expect(
+      harness.conversionEventsService.recordExternalConversion,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ deliveryStatus: "shadow_observed" }),
+    );
+    expect(harness.conversionQueue.enqueueSend).not.toHaveBeenCalled();
+  });
+
+  it("queues only events occurring after the cutover for that event type", async () => {
+    const harness = createHarness({
+      capiCutovers: [
+        {
+          eventType: "purchase",
+          activatedAt: new Date("2026-07-11T13:00:00.000Z"),
+        },
+      ],
+    });
+
+    const result = await harness.service.ingest(harness.connector, row);
+
+    expect(result).toMatchObject({ status: "imported", queued: true });
+    expect(
+      harness.conversionEventsService.recordExternalConversion,
+    ).toHaveBeenCalledWith(
+      expect.not.objectContaining({ deliveryStatus: "shadow_observed" }),
+    );
+    expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledWith(
+      "conversion_1",
+    );
+  });
+
   it("keeps an external event without ctwa_clid out of the CAPI queue", async () => {
     const harness = createHarness({
       shadowMode: false,
@@ -514,8 +564,12 @@ describe("ExternalEventIngestionService", () => {
 
   it("ingests a Meta conversation and queues LeadSubmitted through WppTrack after cutover", async () => {
     const harness = createHarness({
-      shadowMode: false,
-      capiSendEnabled: true,
+      capiCutovers: [
+        {
+          eventType: "conversation_started",
+          activatedAt: new Date("2026-07-11T13:00:00.000Z"),
+        },
+      ],
     });
     const conversationRow: ExternalEventRow = {
       ...row,

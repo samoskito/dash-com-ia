@@ -19,6 +19,7 @@ function auditResponse(events: unknown[]) {
       blocked: 0,
       failed: events.length > 1 ? 1 : 0,
       notEligible: 0,
+      shadowObserved: 0,
       historical: 0,
       discarded: 0
     },
@@ -88,6 +89,7 @@ describe("events route", () => {
       expect.objectContaining({ credentials: "include" })
     );
     expect(html).toContain("Auditoria de conversoes");
+    expect(html).toContain("Em sombra");
     expect(html).toContain("Mariana Alves");
     expect(html).toContain("+55 11 99999-1020");
     expect(html).toContain("Campanha WhatsApp");
@@ -189,7 +191,7 @@ describe("events route", () => {
     );
 
     expect(css).toContain(".audit-summary");
-    expect(css).toContain("grid-template-columns: repeat(7, minmax(0, 1fr));");
+    expect(css).toContain("grid-template-columns: repeat(8, minmax(0, 1fr));");
     expect(auditMobileBlock).toContain(
       "grid-template-columns: repeat(2, minmax(0, 1fr));"
     );

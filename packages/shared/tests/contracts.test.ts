@@ -1385,6 +1385,9 @@ describe("shared contracts", () => {
       "pending_value"
     );
     expect(conversionEventLogStatusSchema.parse("imported")).toBe("imported");
+    expect(conversionEventLogStatusSchema.parse("shadow_observed")).toBe(
+      "shadow_observed"
+    );
     expect(conversionEventErrorCodeSchema.parse("MissingCtwaClid")).toBe(
       "MissingCtwaClid"
     );
@@ -1431,6 +1434,7 @@ describe("shared contracts", () => {
         blocked: 0,
         failed: 1,
         notEligible: 0,
+        shadowObserved: 0,
         historical: 0,
         discarded: 0
       },
@@ -1589,6 +1593,7 @@ describe("shared contracts", () => {
       syncEnabled: false,
       shadowMode: true,
       capiSendEnabled: false,
+      capiCutovers: [],
       purchaseAverageValueCents: create.purchaseAverageValueCents,
       defaultCurrency: create.defaultCurrency,
       hasCredentials: true,
@@ -1663,7 +1668,11 @@ describe("shared contracts", () => {
         sentRows: 0,
         importedRows: 0,
         notEligibleRows: 0,
+        shadowObservedRows: 0,
         blockedDeliveryRows: 0,
+        capiActive: false,
+        readyForCutover: true,
+        cutoverAt: null,
         firstOccurredAt: "2026-07-12T19:00:00.000Z",
         lastOccurredAt: "2026-07-12T19:00:00.000Z",
       })),

@@ -46,6 +46,7 @@ describe("backoffice clients route", () => {
               syncEnabled: true,
               shadowMode: true,
               capiSendEnabled: false,
+              capiCutovers: [],
               purchaseAverageValueCents: null,
               defaultCurrency: "BRL",
               hasCredentials: true,
@@ -99,7 +100,12 @@ describe("backoffice clients route", () => {
                 readyToSendRows: operationalRows,
                 sentRows: 0,
                 importedRows: 0,
+                notEligibleRows: 0,
+                shadowObservedRows: 0,
                 blockedDeliveryRows: 0,
+                capiActive: false,
+                readyForCutover: true,
+                cutoverAt: null,
                 firstOccurredAt: "2026-07-12T18:00:00.000Z",
                 lastOccurredAt: "2026-07-12T20:00:00.000Z"
               })),
@@ -158,6 +164,9 @@ describe("backoffice clients route", () => {
     expect(html).toContain("0 repeticoes");
     expect(html).toContain("0 descartados");
     expect(html).toContain("Eventos reais reconciliados");
+    expect(html).toContain("Assumir envio");
+    expect(html).toContain("Digite ASSUMIR ENVIO");
+    expect(html).toContain("Mantenha o registro no ledger MySQL ativo");
     expect(html).toContain("Acessar");
     expect(html).toContain("Salvar conector");
     expect(html).not.toContain("credentialsEncrypted");

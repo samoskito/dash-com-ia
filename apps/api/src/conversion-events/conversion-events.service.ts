@@ -43,6 +43,7 @@ export type RecordRuleMatchesResult = {
 type ConversionEventLogRecord = {
   id: string;
   workspaceId: string | null;
+  externalConnectorId: string | null;
   leadId: string | null;
   pixelId: string | null;
   pageId: string | null;
@@ -88,7 +89,7 @@ export type RecordExternalConversionInput = {
   currency?: string | null;
   contentName?: string | null;
   eventOccurredAt: Date;
-  deliveryStatus?: "imported" | "not_eligible";
+  deliveryStatus?: "imported" | "not_eligible" | "shadow_observed";
 };
 
 export type RecordExternalConversionResult = {
@@ -104,6 +105,7 @@ type InitialStatus = {
     | "ready_to_send"
     | "imported"
     | "not_eligible"
+    | "shadow_observed"
     | "skipped";
   errorCode:
     | "MissingAdId"
@@ -350,9 +352,11 @@ export class ConversionEventsService {
     }
 
     const initialStatus: InitialStatus =
-      input.deliveryStatus === "imported" || input.deliveryStatus === "not_eligible"
+      ["imported", "not_eligible", "shadow_observed"].includes(
+        input.deliveryStatus ?? ""
+      )
         ? {
-            status: input.deliveryStatus,
+            status: input.deliveryStatus as InitialStatus["status"],
             errorCode: null,
             errorMessage: null
           }
@@ -434,9 +438,9 @@ export class ConversionEventsService {
     const promotesHistoricalEvent =
       existing.status === "imported" && input.deliveryStatus !== "imported";
     const promotedStatus: InitialStatus | null = promotesHistoricalEvent
-      ? input.deliveryStatus === "not_eligible"
+      ? input.deliveryStatus === "not_eligible" || input.deliveryStatus === "shadow_observed"
         ? {
-            status: "not_eligible",
+            status: input.deliveryStatus,
             errorCode: null,
             errorMessage: null
           }
@@ -582,6 +586,23 @@ export class ConversionEventsService {
       };
     }
 
+    if (!(await this.externalCapiDeliveryOwnedByWppTrack(log))) {
+      await this.prisma.conversionEventLog.updateMany({
+        where: { id: log.id, status: "ready_to_send" },
+        data: {
+          status: "shadow_observed",
+          errorCode: null,
+          errorMessage: null,
+        },
+      });
+
+      return {
+        conversionEventLogId: log.id,
+        workspaceId: log.workspaceId,
+        status: "skipped",
+      };
+    }
+
     const startedAt = new Date();
     const accessToken = await this.getWorkspaceCapiAccessToken(log.workspaceId);
     const destination = await this.getWorkspaceConversionDestination(log.workspaceId);
@@ -643,6 +664,36 @@ export class ConversionEventsService {
           }
         : {})
     };
+  }
+
+  private async externalCapiDeliveryOwnedByWppTrack(
+    log: ConversionEventLogRecord,
+  ): Promise<boolean> {
+    if (!log.externalConnectorId) {
+      return true;
+    }
+
+    const eventTypes: Record<string, string> = {
+      LeadSubmitted: "conversation_started",
+      QualifiedLead: "qualified_lead",
+      Purchase: "purchase",
+    };
+    const eventType = eventTypes[log.eventName];
+    if (!eventType) {
+      return false;
+    }
+
+    const cutover = await this.prisma.externalCapiCutover.findFirst({
+      where: {
+        connectorId: log.externalConnectorId,
+        eventType,
+        status: "active",
+        activatedAt: { lte: log.eventOccurredAt },
+      },
+      select: { id: true },
+    });
+
+    return Boolean(cutover);
   }
 
   private async getWorkspaceCapiAccessToken(

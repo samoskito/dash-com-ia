@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
+  canonicalTrackingEventTypeSchema,
   externalConnectorProviderSchema,
   externalConnectorSslModeSchema,
   externalSyncStreamSchema,
@@ -642,8 +643,8 @@ export class ExternalSyncService {
   private async connectorContext(
     connector: ConnectorRecord
   ): Promise<ExternalEventConnectorContext> {
-    const purchaseDefaults =
-      (await this.prisma.funnelStageConfiguration?.findUnique({
+    const [purchaseDefaults, activeCutovers] = await Promise.all([
+      this.prisma.funnelStageConfiguration?.findUnique({
         where: {
           workspaceId_eventName: {
             workspaceId: connector.workspaceId,
@@ -655,7 +656,12 @@ export class ExternalSyncService {
           defaultCurrency: true,
           defaultContentName: true
         }
-      })) ?? null;
+      }),
+      this.prisma.externalCapiCutover.findMany({
+        where: { connectorId: connector.id, status: "active" },
+        select: { eventType: true, activatedAt: true }
+      })
+    ]);
 
     return {
       id: connector.id,
@@ -664,6 +670,10 @@ export class ExternalSyncService {
       timezone: connector.timezone,
       shadowMode: connector.shadowMode,
       capiSendEnabled: connector.capiSendEnabled,
+      capiCutovers: activeCutovers.map((cutover) => ({
+        eventType: canonicalTrackingEventTypeSchema.parse(cutover.eventType),
+        activatedAt: cutover.activatedAt
+      })),
       purchaseAverageValueCents: connector.purchaseAverageValueCents,
       defaultCurrency: connector.defaultCurrency,
       purchaseDefaultValueCents: purchaseDefaults?.defaultValueCents ?? null,

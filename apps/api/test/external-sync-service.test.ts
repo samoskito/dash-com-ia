@@ -75,6 +75,7 @@ describe("ExternalSyncService", () => {
         })),
         update: vi.fn(async () => ({}))
       },
+      externalCapiCutover: { findMany: vi.fn(async () => []) },
       integrationLog: {
         create: vi.fn(async () => ({ id: "integration_1" })),
         update: vi.fn(async () => ({}))
@@ -211,6 +212,7 @@ describe("ExternalSyncService", () => {
         })),
         update: vi.fn(async () => ({}))
       },
+      externalCapiCutover: { findMany: vi.fn(async () => []) },
       integrationLog: {
         create: vi.fn(async () => ({ id: "integration_1" })),
         update: vi.fn(async () => ({}))
@@ -353,6 +355,7 @@ describe("ExternalSyncService", () => {
         })),
         update: vi.fn(async () => ({}))
       },
+      externalCapiCutover: { findMany: vi.fn(async () => []) },
       integrationLog: {
         create: vi.fn(async () => ({ id: "integration_1" })),
         update: vi.fn(async () => ({}))
@@ -457,6 +460,7 @@ describe("ExternalSyncService", () => {
         })),
         update: vi.fn(async () => ({}))
       },
+      externalCapiCutover: { findMany: vi.fn(async () => []) },
       integrationLog: {
         create: vi.fn(async () => ({ id: "integration_1" })),
         update: vi.fn(async () => ({}))
@@ -528,6 +532,7 @@ describe("ExternalSyncService", () => {
         })),
         update: vi.fn(async () => ({})),
       },
+      externalCapiCutover: { findMany: vi.fn(async () => []) },
       integrationLog: {
         create: vi.fn(async () => ({ id: "integration_1" })),
         update: vi.fn(async () => ({})),

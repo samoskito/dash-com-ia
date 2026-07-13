@@ -30,6 +30,7 @@ const emptySummary = {
   blocked: 0,
   failed: 0,
   notEligible: 0,
+  shadowObserved: 0,
   historical: 0,
   discarded: 0
 };
@@ -115,6 +116,7 @@ function stateChipClass(state: ConversionAuditDeliveryStateDto): string {
 
   if (
     state === "not_eligible" ||
+    state === "shadow" ||
     state === "historical" ||
     state === "discarded"
   ) {
@@ -209,6 +211,7 @@ export default async function EventsPage({
           ["Bloqueados", summary.blocked, "blocked"],
           ["Falhas", summary.failed, "failed"],
           ["Nao elegiveis", summary.notEligible, "not_eligible"],
+          ["Em sombra", summary.shadowObserved, "shadow"],
           ["Historicos", summary.historical, "historical"],
           ["Descartados", summary.discarded, "discarded"]
         ].map(([label, value, state]) => (
@@ -254,6 +257,7 @@ export default async function EventsPage({
           <option value="blocked">Bloqueados</option>
           <option value="failed">Falhas</option>
           <option value="not_eligible">Nao elegiveis</option>
+          <option value="shadow">Observados em sombra</option>
           <option value="historical">Historicos</option>
           <option value="discarded">Descartados</option>
         </select>

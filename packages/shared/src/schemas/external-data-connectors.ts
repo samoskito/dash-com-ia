@@ -109,6 +109,20 @@ export const externalSyncCursorSchema = z.object({
   lastSyncedAt: z.string().datetime().nullable(),
 });
 
+export const externalCapiCutoverStatusSchema = z.enum([
+  "active",
+  "rolled_back",
+]);
+
+export const externalCapiCutoverSchema = z.object({
+  id: z.string().min(1),
+  eventType: canonicalTrackingEventTypeSchema,
+  status: externalCapiCutoverStatusSchema,
+  activatedAt: z.string().datetime(),
+  shadowArchivedRows: z.number().int().nonnegative(),
+  rolledBackAt: z.string().datetime().nullable(),
+});
+
 export const externalDataConnectorSchema = z.object({
   id: z.string().min(1),
   workspaceId: z.string().min(1),
@@ -120,6 +134,7 @@ export const externalDataConnectorSchema = z.object({
   syncEnabled: z.boolean(),
   shadowMode: z.boolean(),
   capiSendEnabled: z.boolean(),
+  capiCutovers: z.array(externalCapiCutoverSchema),
   purchaseAverageValueCents: z.number().int().positive().nullable(),
   defaultCurrency: z.string().length(3).nullable(),
   hasCredentials: z.literal(true),
@@ -158,10 +173,28 @@ export const externalSyncQueuedResultSchema = z.object({
   status: z.literal("queued"),
 });
 
+export const externalCapiCutoverActivateInputSchema = z.object({
+  eventType: canonicalTrackingEventTypeSchema,
+  confirmation: z.literal("ASSUMIR ENVIO"),
+  expectedOperationalRows: z.number().int().nonnegative(),
+});
+
+export const externalCapiCutoverRollbackInputSchema = z.object({
+  eventType: canonicalTrackingEventTypeSchema,
+  confirmation: z.literal("REVERTER CAPI"),
+});
+
+export const externalCapiCutoverResultSchema = z.object({
+  connectorId: z.string().min(1),
+  cutover: externalCapiCutoverSchema,
+  syncJobId: z.string().nullable(),
+});
+
 export const externalReconciliationStateSchema = z.enum([
   "collecting",
   "blocked",
   "ready",
+  "partial",
   "live",
 ]);
 
@@ -187,7 +220,11 @@ export const externalEventReconciliationSchema = z.object({
   sentRows: z.number().int().nonnegative(),
   importedRows: z.number().int().nonnegative(),
   notEligibleRows: z.number().int().nonnegative(),
+  shadowObservedRows: z.number().int().nonnegative(),
   blockedDeliveryRows: z.number().int().nonnegative(),
+  capiActive: z.boolean(),
+  readyForCutover: z.boolean(),
+  cutoverAt: z.string().datetime().nullable(),
   firstOccurredAt: z.string().datetime().nullable(),
   lastOccurredAt: z.string().datetime().nullable(),
 });
@@ -263,6 +300,18 @@ export type ExternalConnectionTestResultDto = z.infer<
 export type ExternalSyncInputDto = z.infer<typeof externalSyncInputSchema>;
 export type ExternalSyncQueuedResultDto = z.infer<
   typeof externalSyncQueuedResultSchema
+>;
+export type ExternalCapiCutoverDto = z.infer<
+  typeof externalCapiCutoverSchema
+>;
+export type ExternalCapiCutoverActivateInputDto = z.infer<
+  typeof externalCapiCutoverActivateInputSchema
+>;
+export type ExternalCapiCutoverRollbackInputDto = z.infer<
+  typeof externalCapiCutoverRollbackInputSchema
+>;
+export type ExternalCapiCutoverResultDto = z.infer<
+  typeof externalCapiCutoverResultSchema
 >;
 export type ExternalReconciliationStateDto = z.infer<
   typeof externalReconciliationStateSchema

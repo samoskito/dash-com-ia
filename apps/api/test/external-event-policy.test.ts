@@ -30,6 +30,7 @@ describe("external event identity policies", () => {
     expect(first.localDate).toBe("2026-07-10");
     expect(retry.dedupeKey).toBe(first.dedupeKey);
     expect(retry.eventId).toBe(first.eventId);
+    expect(first.eventId).toBe("purchase_phone_hash_1_2026-07-10");
     expect(first.policy).toBe("kinbox_daily");
   });
 
@@ -93,6 +94,18 @@ describe("external event identity policies", () => {
 
     expect(identity.policy).toBe("provider_event");
     expect(identity.dedupeKey).toContain("wamid.message_1");
+    expect(identity.eventId).toBe("lead_wamid.message_1");
+  });
+
+  it("matches the qualified event id already used by n8n", () => {
+    const identity = buildExternalEventIdentity({
+      ...base,
+      eventType: "qualified_lead",
+      occurredAt: new Date("2026-07-11T12:00:00.000Z"),
+      ctwaClid: "ctwa_click_1"
+    });
+
+    expect(identity.eventId).toBe("qualified_ctwa_click_1");
   });
 
   it("converts a date-only Kinbox milestone from Sao Paulo to UTC", () => {

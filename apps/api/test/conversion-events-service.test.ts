@@ -9,10 +9,31 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
     diagnosticEvents: [] as Array<Record<string, unknown>>,
     logs: [] as Array<Record<string, unknown>>,
     destinations: [] as Array<Record<string, unknown>>,
+    cutovers: [] as Array<Record<string, unknown>>,
     countQueries: [] as Array<Record<string, unknown>>,
     funnelDefaults: [] as Array<Record<string, unknown>>
   };
   const prisma = {
+    externalCapiCutover: {
+      findFirst: async ({
+        where,
+      }: {
+        where: {
+          connectorId: string;
+          eventType: string;
+          status: string;
+          activatedAt: { lte: Date };
+        };
+      }) =>
+        db.cutovers.find(
+          (cutover) =>
+            cutover.connectorId === where.connectorId &&
+            cutover.eventType === where.eventType &&
+            cutover.status === where.status &&
+            cutover.activatedAt instanceof Date &&
+            cutover.activatedAt <= where.activatedAt.lte,
+        ) ?? null,
+    },
     funnelStageConfiguration: {
       findMany: async ({ where }: { where: { workspaceId: string; eventName: { in: string[] } } }) =>
         db.funnelDefaults.filter(
@@ -94,7 +115,27 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
           ...data
         };
         return db.logs[index];
-      }
+      },
+      updateMany: async ({
+        data,
+        where,
+      }: {
+        data: Record<string, unknown>;
+        where: { id: string; status?: string };
+      }) => {
+        let count = 0;
+        db.logs = db.logs.map((log) => {
+          if (
+            log.id === where.id &&
+            (where.status === undefined || log.status === where.status)
+          ) {
+            count += 1;
+            return { ...log, ...data };
+          }
+          return log;
+        });
+        return { count };
+      },
     },
     integrationLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -330,6 +371,82 @@ describe("conversion events service", () => {
       errorCode: null,
       errorMessage: null
     });
+  });
+
+  it("does not let an external retry bypass the event cutover", async () => {
+    const adapter = { sendEvent: vi.fn() };
+    const { db, service } = createHarness(adapter);
+    await service.recordExternalConversion({
+      workspaceId: "workspace_1",
+      externalConnectorId: "connector_1",
+      sourceEventId: "qualified_1",
+      sourceTrigger: "external_mysql:kinbox_mysql",
+      eventName: "QualifiedLead",
+      eventId: "qualified_ctwa_1",
+      dedupeKey: "external:connector_1:qualified:1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      businessSource: "paid",
+      adId: "ad_1",
+      ctwaClid: "ctwa_1",
+      eventOccurredAt: new Date("2026-07-11T14:00:00.000Z"),
+    });
+
+    const result = await service.sendReadyEvent("conversion_1");
+
+    expect(result).toEqual({
+      conversionEventLogId: "conversion_1",
+      workspaceId: "workspace_1",
+      status: "skipped",
+    });
+    expect(db.logs[0]).toMatchObject({ status: "shadow_observed" });
+    expect(adapter.sendEvent).not.toHaveBeenCalled();
+  });
+
+  it("sends an external event only when its active cutover predates it", async () => {
+    const adapter = {
+      sendEvent: vi.fn(async () => ({
+        status: "sent" as const,
+        responseSummary: { events_received: 1 },
+        errorMessage: null,
+        errorCode: null,
+      })),
+    };
+    const { db, service } = createHarness(adapter);
+    db.destinations.push({
+      workspaceId: "workspace_1",
+      pixelId: "pixel_1",
+      pageId: "page_1",
+    });
+    db.cutovers.push({
+      id: "cutover_1",
+      connectorId: "connector_1",
+      eventType: "qualified_lead",
+      status: "active",
+      activatedAt: new Date("2026-07-11T13:00:00.000Z"),
+    });
+    await service.recordExternalConversion({
+      workspaceId: "workspace_1",
+      externalConnectorId: "connector_1",
+      sourceEventId: "qualified_1",
+      sourceTrigger: "external_mysql:kinbox_mysql",
+      eventName: "QualifiedLead",
+      eventId: "qualified_ctwa_1",
+      dedupeKey: "external:connector_1:qualified:1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      businessSource: "paid",
+      adId: "ad_1",
+      ctwaClid: "ctwa_1",
+      eventOccurredAt: new Date("2026-07-11T14:00:00.000Z"),
+    });
+
+    const result = await service.sendReadyEvent("conversion_1");
+
+    expect(result.status).toBe("sent");
+    expect(adapter.sendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ dedupeKey: "qualified_ctwa_1" }),
+    );
   });
 
   it("promotes one historical purchase when the live ledger event arrives", async () => {

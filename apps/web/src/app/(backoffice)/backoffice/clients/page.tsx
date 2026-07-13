@@ -314,6 +314,68 @@ async function syncExternalConnector(
   );
 }
 
+async function activateExternalCapiCutover(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const connectorId = String(formData.get("connectorId") ?? "");
+  const eventType = String(formData.get("eventType") ?? "");
+  const expectedOperationalRows = Number(formData.get("expectedOperationalRows") ?? -1);
+  const confirmation = String(formData.get("confirmation") ?? "").trim();
+
+  try {
+    await serverApiFetch(
+      `/backoffice/external-data/connectors/${encodeURIComponent(connectorId)}/capi-cutover`,
+      {
+        method: "POST",
+        body: JSON.stringify({ eventType, expectedOperationalRows, confirmation })
+      }
+    );
+    revalidatePath("/backoffice/clients");
+  } catch {
+    return actionResult(
+      "error",
+      "O corte nao foi ativado. Atualize o gate, confira os bloqueios e tente novamente"
+    );
+  }
+
+  return actionResult(
+    "success",
+    "WppTrack assumiu este evento. Desative agora somente o no de envio Meta correspondente no n8n"
+  );
+}
+
+async function rollbackExternalCapiCutover(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const connectorId = String(formData.get("connectorId") ?? "");
+  const eventType = String(formData.get("eventType") ?? "");
+  const confirmation = String(formData.get("confirmation") ?? "").trim();
+
+  try {
+    await serverApiFetch(
+      `/backoffice/external-data/connectors/${encodeURIComponent(connectorId)}/capi-cutover/rollback`,
+      {
+        method: "POST",
+        body: JSON.stringify({ eventType, confirmation })
+      }
+    );
+    revalidatePath("/backoffice/clients");
+  } catch {
+    return actionResult(
+      "error",
+      "O rollback nao foi concluido. Reative primeiro o envio correspondente no n8n"
+    );
+  }
+
+  return actionResult("success", "Envio devolvido ao n8n para este tipo de evento");
+}
+
 async function getExternalConnectorHealth(
   connectorId: string
 ): Promise<ExternalConnectorHealthDto | null> {
@@ -355,6 +417,10 @@ export default async function BackofficeClientsPage({
   const activeConnectors = connectorHealth.filter(
     ({ connector }) => connector.status === "active"
   ).length;
+  const activeCapiCutovers = connectorHealth.reduce(
+    (total, { connector }) => total + connector.capiCutovers.length,
+    0
+  );
 
   return (
     <section className="page-stack standalone-page client-admin-page">
@@ -396,7 +462,7 @@ export default async function BackofficeClientsPage({
         </div>
         <div>
           <span>Modo de ingestao</span>
-          <strong>Sombra</strong>
+          <strong>{activeCapiCutovers ? `${activeCapiCutovers} corte(s) CAPI` : "Sombra"}</strong>
         </div>
       </div>
 
@@ -644,6 +710,8 @@ export default async function BackofficeClientsPage({
                 testAction={testExternalConnector}
                 activateAction={activateExternalConnector}
                 syncAction={syncExternalConnector}
+                activateCutoverAction={activateExternalCapiCutover}
+                rollbackCutoverAction={rollbackExternalCapiCutover}
                 loadHealthAction={getExternalConnectorHealth}
               />
             ))

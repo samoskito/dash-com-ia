@@ -1117,6 +1117,7 @@ export class MetaReportingService {
       blocked: this.conversionAuditStateCount(statusCounts, "blocked"),
       failed: this.conversionAuditStateCount(statusCounts, "failed"),
       notEligible: this.conversionAuditStateCount(statusCounts, "not_eligible"),
+      shadowObserved: this.conversionAuditStateCount(statusCounts, "shadow"),
       historical: this.conversionAuditStateCount(statusCounts, "historical"),
       discarded: this.conversionAuditStateCount(statusCounts, "discarded"),
     };
@@ -3138,6 +3139,7 @@ export class MetaReportingService {
       blocked: ["pending_meta_context", "pending_value", "not_configured"],
       failed: ["error"],
       not_eligible: ["not_eligible"],
+      shadow: ["shadow_observed"],
       historical: ["imported"],
       discarded: ["skipped"],
     };
@@ -3154,6 +3156,7 @@ export class MetaReportingService {
       "blocked",
       "failed",
       "not_eligible",
+      "shadow",
       "historical",
       "discarded",
     ];
@@ -3187,6 +3190,7 @@ export class MetaReportingService {
       error: "Falhou",
       imported: "Historico",
       not_eligible: "Nao elegivel",
+      shadow_observed: "Observado em sombra",
       not_configured: "Bloqueado",
       skipped: "Descartado",
     };
@@ -3206,6 +3210,7 @@ export class MetaReportingService {
       error: "O envio nao foi concluido",
       imported: "Marco historico, sem reenvio para a Meta",
       not_eligible: "Sem identificador de clique, sem envio para a Meta",
+      shadow_observed: "Coletado antes do corte, sem envio pelo WppTrack",
       not_configured: "Destino Meta ainda nao configurado",
       skipped: "Descartado pelas regras de validacao",
     };

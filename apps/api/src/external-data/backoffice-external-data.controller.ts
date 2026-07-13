@@ -12,6 +12,8 @@ import {
 import {
   externalDataConnectorCreateInputSchema,
   externalDataConnectorUpdateInputSchema,
+  externalCapiCutoverActivateInputSchema,
+  externalCapiCutoverRollbackInputSchema,
   externalSyncInputSchema
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
@@ -100,6 +102,46 @@ export class BackofficeExternalDataController {
   ) {
     const admin = await this.platformAdminService.assertPlatformAdmin(refreshToken);
     return this.externalDataService.enqueueLeadsReimport(connectorId, admin.id);
+  }
+
+  @Post(":connectorId/capi-cutover")
+  async activateCapiCutover(
+    @AuthToken() refreshToken: string,
+    @Param("connectorId") connectorId: string,
+    @Body() body: unknown
+  ) {
+    const admin = await this.platformAdminService.assertPlatformAdmin(refreshToken);
+    const parsed = externalCapiCutoverActivateInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Confirme o tipo de evento e a assuncao do envio");
+    }
+
+    return this.externalDataService.activateCapiCutover(
+      connectorId,
+      parsed.data,
+      admin.id
+    );
+  }
+
+  @Post(":connectorId/capi-cutover/rollback")
+  async rollbackCapiCutover(
+    @AuthToken() refreshToken: string,
+    @Param("connectorId") connectorId: string,
+    @Body() body: unknown
+  ) {
+    const admin = await this.platformAdminService.assertPlatformAdmin(refreshToken);
+    const parsed = externalCapiCutoverRollbackInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Confirme o tipo de evento e o rollback do CAPI");
+    }
+
+    return this.externalDataService.rollbackCapiCutover(
+      connectorId,
+      parsed.data,
+      admin.id
+    );
   }
 
   @Get(":connectorId/health")

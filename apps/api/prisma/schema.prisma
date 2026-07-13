@@ -395,9 +395,30 @@ model ExternalDataConnector {
   cursors          ExternalSyncCursor[]
   ingestionRecords ExternalIngestionRecord[]
   conversionEvents ConversionEventLog[]
+  capiCutovers     ExternalCapiCutover[]
 
   @@index([workspaceId, status])
   @@index([syncEnabled, status, updatedAt])
+}
+
+model ExternalCapiCutover {
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  connectorId        String
+  eventType          String
+  status             String    @default("active")
+  activatedAt        DateTime
+  activatedByUserId  String
+  shadowArchivedRows Int       @default(0)
+  rolledBackAt       DateTime?
+  rolledBackByUserId String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  connector ExternalDataConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@index([connectorId, status])
+  @@index([workspaceId, eventType, activatedAt])
 }
 
 model ExternalSyncCursor {

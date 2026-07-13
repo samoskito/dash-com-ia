@@ -53,6 +53,10 @@ function eventStatusLabel(status: string) {
     return "Importado";
   }
 
+  if (status === "shadow_observed") {
+    return "Observado em sombra";
+  }
+
   return status === "not_eligible" ? "Nao elegivel para CAPI" : status;
 }
 

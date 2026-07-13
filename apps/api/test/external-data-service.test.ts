@@ -30,6 +30,7 @@ describe("ExternalDataService", () => {
             lastSyncCompletedAt: now,
             lastSyncStatus: "completed",
             lastSyncErrorCode: null,
+            capiCutovers: [],
             cursors: [
               {
                 stream: "events",
@@ -337,6 +338,7 @@ describe("ExternalDataService", () => {
       lastSyncCompletedAt: now,
       lastSyncStatus: "completed",
       lastSyncErrorCode: null,
+      capiCutovers: [],
       cursors: [
         {
           stream: "events",
@@ -482,6 +484,7 @@ describe("ExternalDataService", () => {
           lastSyncCompletedAt: null,
           lastSyncStatus: null,
           lastSyncErrorCode: null,
+          capiCutovers: [],
           cursors: [],
           createdAt: now,
           updatedAt: now
@@ -568,6 +571,7 @@ describe("ExternalDataService", () => {
           lastSyncCompletedAt: null,
           lastSyncStatus: null,
           lastSyncErrorCode: null,
+          capiCutovers: [],
           cursors: [],
           createdAt: now,
           updatedAt: now
@@ -597,6 +601,7 @@ describe("ExternalDataService", () => {
           workspaceId: "workspace_1",
           status: "active",
           lastSyncStatus: "completed",
+          capiCutovers: [],
           cursors: []
         }))
       },
@@ -618,5 +623,173 @@ describe("ExternalDataService", () => {
       requestedByUserId: "admin_1"
     });
     expect(result.status).toBe("queued");
+  });
+
+  it("activates one event cutover and archives the shadow backlog atomically", async () => {
+    const createAudit = vi.fn(async () => ({}));
+    const updateMany = vi.fn(async () => ({ count: 115 }));
+    const updateConnector = vi.fn(async () => ({}));
+    const enqueueSync = vi.fn(async () => ({
+      connectorId: "connector_1",
+      streams: ["events"] as const,
+      jobId: "sync_events_1",
+      status: "queued" as const
+    }));
+    const transaction = {
+      externalCapiCutover: {
+        findFirst: vi.fn(async () => null),
+        create: vi.fn(async ({ data }) => ({
+          id: "cutover_1",
+          ...data,
+          status: "active",
+          rolledBackAt: null
+        })),
+        count: vi.fn(async () => 1)
+      },
+      conversionEventLog: { updateMany },
+      externalDataConnector: { update: updateConnector }
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback) => callback(transaction)),
+      auditLog: { create: createAudit }
+    };
+    const service = new ExternalDataService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      { enqueueSync } as never
+    );
+    vi.spyOn(service, "getHealth").mockResolvedValue({
+      connector: {
+        id: "connector_1",
+        workspaceId: "workspace_1"
+      },
+      reconciliation: {
+        events: [
+          {
+            eventType: "qualified_lead",
+            capiActive: false,
+            readyForCutover: true,
+            operationalRows: 18
+          }
+        ]
+      }
+    } as never);
+
+    const result = await service.activateCapiCutover(
+      "connector_1",
+      {
+        eventType: "qualified_lead",
+        confirmation: "ASSUMIR ENVIO",
+        expectedOperationalRows: 18
+      },
+      "admin_1"
+    );
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        externalConnectorId: "connector_1",
+        eventName: "QualifiedLead",
+        status: "ready_to_send",
+        eventOccurredAt: { lt: expect.any(Date) }
+      },
+      data: {
+        status: "shadow_observed",
+        errorCode: null,
+        errorMessage: null
+      }
+    });
+    expect(updateConnector).toHaveBeenCalledWith({
+      where: { id: "connector_1" },
+      data: { capiSendEnabled: true, shadowMode: true }
+    });
+    expect(enqueueSync).toHaveBeenCalledWith({
+      connectorId: "connector_1",
+      streams: ["events"],
+      requestedByUserId: "admin_1"
+    });
+    expect(result).toMatchObject({
+      connectorId: "connector_1",
+      cutover: {
+        eventType: "qualified_lead",
+        status: "active",
+        shadowArchivedRows: 115
+      },
+      syncJobId: "sync_events_1"
+    });
+    expect(createAudit).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "external_connector.capi_cutover_activated"
+      })
+    });
+  });
+
+  it("cancels unsent rows while returning an event cutover to n8n", async () => {
+    const activatedAt = new Date("2026-07-13T18:00:00.000Z");
+    const rolledBackAt = new Date("2026-07-13T19:00:00.000Z");
+    const active = {
+      id: "cutover_1",
+      eventType: "purchase",
+      status: "active",
+      activatedAt,
+      shadowArchivedRows: 5,
+      rolledBackAt: null
+    };
+    const updateMany = vi.fn(async () => ({ count: 2 }));
+    const updateConnector = vi.fn(async () => ({}));
+    const transaction = {
+      externalCapiCutover: {
+        findFirst: vi.fn(async () => active),
+        update: vi.fn(async () => ({
+          ...active,
+          status: "rolled_back",
+          rolledBackAt
+        })),
+        count: vi.fn(async () => 0)
+      },
+      conversionEventLog: { updateMany },
+      externalDataConnector: { update: updateConnector }
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback) => callback(transaction)),
+      externalDataConnector: {
+        findUnique: vi.fn(async () => ({
+          id: "connector_1",
+          workspaceId: "workspace_1",
+          capiCutovers: [active]
+        }))
+      },
+      auditLog: { create: vi.fn(async () => ({})) }
+    };
+    const service = new ExternalDataService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+
+    const result = await service.rollbackCapiCutover(
+      "connector_1",
+      { eventType: "purchase", confirmation: "REVERTER CAPI" },
+      "admin_1"
+    );
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        externalConnectorId: "connector_1",
+        eventName: "Purchase",
+        status: "ready_to_send"
+      },
+      data: {
+        status: "shadow_observed",
+        errorCode: null,
+        errorMessage: null
+      }
+    });
+    expect(updateConnector).toHaveBeenCalledWith({
+      where: { id: "connector_1" },
+      data: { capiSendEnabled: false, shadowMode: true }
+    });
+    expect(result.cutover.status).toBe("rolled_back");
   });
 });

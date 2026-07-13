@@ -24,6 +24,10 @@ export type ExternalEventConnectorContext = {
   timezone: string;
   shadowMode: boolean;
   capiSendEnabled: boolean;
+  capiCutovers: Array<{
+    eventType: CanonicalTrackingEventTypeDto;
+    activatedAt: Date;
+  }>;
   purchaseAverageValueCents: number | null;
   defaultCurrency: string | null;
   purchaseDefaultValueCents?: number | null;
@@ -116,7 +120,7 @@ export class ExternalEventIngestionService {
         }
       }
 
-      const queued = await this.retryPendingDelivery(connector, previous);
+      const queued = await this.retryPendingDelivery(connector, previous, row);
       await this.prisma.externalIngestionRecord.update({
         where: { id: previous.id },
         data: {
@@ -179,12 +183,19 @@ export class ExternalEventIngestionService {
       occurredAt,
       timezone: connector.timezone,
       externalEventId: row.externalEventId,
-      transactionId: row.transactionId
+      transactionId: row.transactionId,
+      ctwaClid: row.ctwaClid ?? lead.ctwaClid
     });
     const value = this.resolveValue(connector, row, eventType);
     const ctwaClid = row.ctwaClid ?? lead.ctwaClid;
+    const cutoverAt = this.cutoverAt(connector, eventType);
     const deliveryStatus =
-      options.deliveryStatus ?? (ctwaClid ? undefined : "not_eligible");
+      options.deliveryStatus ??
+      (ctwaClid
+        ? cutoverAt && occurredAt < cutoverAt
+          ? "shadow_observed"
+          : undefined
+        : "not_eligible");
     const conversion = await this.conversionEventsService.recordExternalConversion({
       workspaceId: connector.workspaceId,
       externalConnectorId: connector.id,
@@ -263,10 +274,8 @@ export class ExternalEventIngestionService {
     let queued = false;
 
     if (
-      conversion.status === "created" &&
       conversion.deliveryStatus === "ready_to_send" &&
-      connector.capiSendEnabled &&
-      !connector.shadowMode
+      this.isLiveEvent(connector, eventType, occurredAt)
     ) {
       try {
         await this.conversionQueue.enqueueSend(conversion.conversionEventLogId);
@@ -603,19 +612,58 @@ export class ExternalEventIngestionService {
     record: {
       status: string;
       conversionEventLogId: string | null;
-    }
+    },
+    row: ExternalEventRow
   ): Promise<boolean> {
-    if (
-      record.status !== "pending_delivery" ||
-      !record.conversionEventLogId ||
-      connector.shadowMode ||
-      !connector.capiSendEnabled
-    ) {
+    if (!record.conversionEventLogId) {
       return false;
+    }
+
+    const eventType = canonicalTrackingEventTypeSchema.parse(row.eventType);
+    const occurredAt = this.parseExternalDate(row.occurredAt);
+    if (!this.isLiveEvent(connector, eventType, occurredAt)) {
+      return false;
+    }
+
+    if (record.status !== "pending_delivery") {
+      const conversion = await this.prisma.conversionEventLog.findUnique({
+        where: { id: record.conversionEventLogId },
+        select: { status: true, eventOccurredAt: true }
+      });
+
+      if (
+        conversion?.status !== "ready_to_send" ||
+        !this.isLiveEvent(connector, eventType, conversion.eventOccurredAt)
+      ) {
+        return false;
+      }
     }
 
     await this.conversionQueue.enqueueSend(record.conversionEventLogId);
     return true;
+  }
+
+  private cutoverAt(
+    connector: ExternalEventConnectorContext,
+    eventType: CanonicalTrackingEventTypeDto
+  ): Date | null {
+    return (
+      connector.capiCutovers.find((cutover) => cutover.eventType === eventType)
+        ?.activatedAt ?? null
+    );
+  }
+
+  private isLiveEvent(
+    connector: ExternalEventConnectorContext,
+    eventType: CanonicalTrackingEventTypeDto,
+    occurredAt: Date
+  ): boolean {
+    const cutoverAt = this.cutoverAt(connector, eventType);
+    if (cutoverAt) {
+      return occurredAt >= cutoverAt;
+    }
+
+    return connector.capiSendEnabled && !connector.shadowMode;
   }
 
   private async recordRejected(

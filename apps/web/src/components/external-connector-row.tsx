@@ -16,6 +16,8 @@ type ExternalConnectorRowProps = {
   testAction: BackofficeFormAction;
   activateAction: BackofficeFormAction;
   syncAction: BackofficeFormAction;
+  activateCutoverAction: BackofficeFormAction;
+  rollbackCutoverAction: BackofficeFormAction;
   loadHealthAction: (connectorId: string) => Promise<ExternalConnectorHealthDto | null>;
 };
 
@@ -44,10 +46,21 @@ function reconciliationStateLabel(
     collecting: "Coletando eventos",
     blocked: "Bloqueado",
     ready: "Pronto para corte",
+    partial: "CAPI parcial",
     live: "CAPI ativo"
   };
 
   return labels[state];
+}
+
+function n8nDeliveryNodeLabel(eventType: string): string {
+  const labels: Record<string, string> = {
+    conversation_started: "node HTTP de envio LeadSubmitted",
+    qualified_lead: 'node "Envia conversao de Lead Qualificado"',
+    purchase: "node HTTP de envio Purchase"
+  };
+
+  return labels[eventType] ?? "node de envio Meta correspondente";
 }
 
 function reconciliationEventLabel(eventType: string): string {
@@ -81,6 +94,8 @@ export function ExternalConnectorRow({
   testAction,
   activateAction,
   syncAction,
+  activateCutoverAction,
+  rollbackCutoverAction,
   loadHealthAction
 }: ExternalConnectorRowProps) {
   const [health, setHealth] = useState(initialHealth);
@@ -261,6 +276,79 @@ export function ExternalConnectorRow({
                       {event.blockingRejectedRows} falhas / {event.pendingRows} pendentes
                     </small>
                   ) : null}
+                  {event.shadowObservedRows > 0 ? (
+                    <small>{event.shadowObservedRows} observados em sombra</small>
+                  ) : null}
+                  {event.capiActive ? (
+                    <div className="connector-cutover-state">
+                      <span className="event-chip">WppTrack envia</span>
+                      <small>Desde {formatDate(event.cutoverAt)}</small>
+                      <details className="connector-cutover-control rollback">
+                        <summary>Reverter para o n8n</summary>
+                        <p>
+                          Reative primeiro o {n8nDeliveryNodeLabel(event.eventType)} no n8n.
+                          Depois confirme o rollback aqui.
+                        </p>
+                        <BackofficeActionForm
+                          action={rollbackCutoverAction}
+                          onSuccess={handleRefresh}
+                          resetOnSuccess
+                        >
+                          <input type="hidden" name="connectorId" value={connector.id} />
+                          <input type="hidden" name="eventType" value={event.eventType} />
+                          <label>
+                            Digite REVERTER CAPI
+                            <input
+                              name="confirmation"
+                              required
+                              pattern="REVERTER CAPI"
+                              autoComplete="off"
+                            />
+                          </label>
+                          <PendingSubmitButton
+                            label="Reverter envio"
+                            pendingLabel="Revertendo..."
+                            className="button ghost compact-button"
+                          />
+                        </BackofficeActionForm>
+                      </details>
+                    </div>
+                  ) : event.readyForCutover ? (
+                    <details className="connector-cutover-control">
+                      <summary>Assumir envio</summary>
+                      <p>
+                        Ao concluir, desative imediatamente o {n8nDeliveryNodeLabel(event.eventType)}.
+                        Mantenha o registro no ledger MySQL ativo.
+                      </p>
+                      <BackofficeActionForm
+                        action={activateCutoverAction}
+                        onSuccess={handleRefresh}
+                        resetOnSuccess
+                      >
+                        <input type="hidden" name="connectorId" value={connector.id} />
+                        <input type="hidden" name="eventType" value={event.eventType} />
+                        <input
+                          type="hidden"
+                          name="expectedOperationalRows"
+                          value={event.operationalRows}
+                        />
+                        <label>
+                          Digite ASSUMIR ENVIO
+                          <input
+                            name="confirmation"
+                            required
+                            pattern="ASSUMIR ENVIO"
+                            autoComplete="off"
+                          />
+                        </label>
+                        <PendingSubmitButton
+                          label="Ativar este evento"
+                          pendingLabel="Ativando..."
+                          className="button compact-button"
+                        />
+                      </BackofficeActionForm>
+                    </details>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -280,7 +368,9 @@ export function ExternalConnectorRow({
               </ul>
             ) : (
               <small className="reconciliation-ready-copy">
-                Eventos reais reconciliados. O envio WppTrack continua desligado.
+                {health.reconciliation.events.some((event) => event.capiActive)
+                  ? "Corte parcial ativo. Valide cada evento antes de assumir o proximo."
+                  : "Eventos reais reconciliados. O envio WppTrack continua desligado."}
               </small>
             )}
           </div>

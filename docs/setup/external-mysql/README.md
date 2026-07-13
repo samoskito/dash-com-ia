@@ -110,6 +110,19 @@ The reviewed Barbieri replacement is `n8n/meta-conversation-started-dual-write.j
 - Rotate the Uazapi token found inline in the reviewed Purchase export.
 - Keep the WppTrack MySQL user read-only and separate from the n8n write user.
 
-## Cutover
+## Event-by-event CAPI ownership cutover
 
-Shadow mode writes WppTrack leads/events but never enqueues Meta CAPI. Compare daily totals by event type and normalized phone. Only after parity is approved should `shadowMode` be disabled and `capiSendEnabled` enabled. Then disable the old n8n Meta-send nodes, while retaining the event ledger write until the provider becomes native.
+Shadow mode writes WppTrack leads/events but never sends them to Meta. Events collected before a cutover are reconciliation evidence, not a delivery backlog. When WppTrack assumes an event type, any older `ready_to_send` rows for that type are archived as `shadow_observed`; they must not be replayed.
+
+Cut over one event type at a time from the platform backoffice:
+
+1. Deploy the API, web app and the `20260714020000_external_capi_event_cutover` PostgreSQL migration.
+2. Sync the connector and confirm that the selected event type is ready in its CAPI gate.
+3. In `Backoffice > Clientes > Conectores MySQL`, choose `Assumir envio` for only that event and type `ASSUMIR ENVIO`.
+4. After the activation succeeds, immediately disable only the corresponding legacy Meta HTTP-send node in n8n. Keep the webhook, MySQL ledger insert and legacy lead/table updates active.
+5. Produce one new real event after the activation time and confirm it appears as `Enviado` in WppTrack and in Meta Events Manager.
+6. Repeat for the next type only after the first one is confirmed.
+
+WppTrack uses the same Meta `event_id` contract as the reviewed n8n workflows (`lead_<wamid>`, `qualified_<ctwa_clid>` and `purchase_<phone_sha256>_<local_date>`). A short overlap during the operator action is therefore deduplicated by Meta.
+
+For rollback, re-enable the n8n Meta-send node first. Then use `Reverter CAPI` in the backoffice and type `REVERTER CAPI`. The rollback archives unsent WppTrack rows for that event type so a stale queue job cannot send after ownership returns to n8n.

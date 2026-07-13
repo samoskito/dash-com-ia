@@ -227,6 +227,7 @@ export const conversionAuditDeliveryStateSchema = z.enum([
   "blocked",
   "failed",
   "not_eligible",
+  "shadow",
   "historical",
   "discarded",
 ]);
@@ -278,6 +279,7 @@ export const conversionAuditSummarySchema = z.object({
   blocked: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative(),
   notEligible: z.number().int().nonnegative(),
+  shadowObserved: z.number().int().nonnegative(),
   historical: z.number().int().nonnegative(),
   discarded: z.number().int().nonnegative(),
 });

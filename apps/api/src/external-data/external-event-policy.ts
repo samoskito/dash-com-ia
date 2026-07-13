@@ -10,6 +10,7 @@ export type ExternalEventIdentityInput = {
   timezone: string;
   externalEventId?: string | null;
   transactionId?: string | null;
+  ctwaClid?: string | null;
 };
 
 export type ExternalEventIdentity = {
@@ -68,10 +69,37 @@ export function buildExternalEventIdentity(
 
   return {
     dedupeKey,
-    eventId: `ext_${digest.slice(0, 48)}`,
+    eventId: deliveryEventId(input, externalEventId, leadIdentity, localDate, digest),
     localDate,
     policy
   };
+}
+
+function deliveryEventId(
+  input: ExternalEventIdentityInput,
+  externalEventId: string | null,
+  leadIdentity: string,
+  localDate: string,
+  digest: string
+): string {
+  if (input.eventType === "conversation_started" && externalEventId) {
+    return `lead_${externalEventId}`;
+  }
+
+  if (input.connectorProvider === "kinbox_mysql") {
+    if (input.eventType === "qualified_lead") {
+      const ctwaClid = optional(input.ctwaClid);
+      if (ctwaClid) {
+        return `qualified_${ctwaClid}`;
+      }
+    }
+
+    if (input.eventType === "purchase") {
+      return `purchase_${leadIdentity}_${localDate}`;
+    }
+  }
+
+  return `ext_${digest.slice(0, 48)}`;
 }
 
 export function dateInTimezone(date: Date, timezone: string): string {
