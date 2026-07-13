@@ -163,6 +163,32 @@ describe("ExternalEventIngestionService", () => {
     );
   });
 
+  it("prefers the workspace purchase defaults over the connector fallback", async () => {
+    const harness = createHarness();
+
+    await harness.service.ingest(
+      {
+        ...harness.connector,
+        purchaseDefaultValueCents: 250_000,
+        purchaseDefaultCurrency: "USD",
+        purchaseDefaultContentName: "Plano premium",
+      },
+      row,
+    );
+
+    expect(
+      harness.conversionEventsService.recordExternalConversion,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "Purchase",
+        valueCents: 250_000,
+        valueSource: "configured_average",
+        currency: "USD",
+        contentName: "Plano premium",
+      }),
+    );
+  });
+
   it("keeps the Kinbox external id as metadata and attaches the event only to the real phone lead", async () => {
     const harness = createHarness();
     const qualifiedRow: ExternalEventRow = {

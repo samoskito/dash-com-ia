@@ -159,6 +159,7 @@ model Workspace {
   paymentCharges              PaymentCharge[]
   whatsappInstanceActivations WhatsappInstanceActivation[]
   conversionRules             ConversionRule[]
+  funnelStageConfigurations   FunnelStageConfiguration[]
   leads                       Lead[]
   metaIntegration             MetaIntegration?
   metaAssetSnapshots          MetaAssetSnapshot[]
@@ -651,6 +652,25 @@ model ConversionRule {
 
   @@index([workspaceId, active])
   @@index([workspaceId, triggerType, triggerValue])
+}
+
+model FunnelStageConfiguration {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  eventName          String
+  label              String
+  position           Int
+  visible            Boolean  @default(true)
+  defaultValueCents  Int?
+  defaultCurrency    String?
+  defaultContentName String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, eventName])
+  @@index([workspaceId, position])
 }
 
 model Lead {

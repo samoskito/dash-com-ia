@@ -1,3 +1,5 @@
+import type { FunnelStageConfigurationDto } from "@wpptrack/shared";
+
 export type ReportingMetricScope = {
   adId?: string | null;
   adSetId?: string | null;
@@ -41,18 +43,14 @@ export type ReportingMetricEvent = {
 
 export type ReportingMetricsCalculationInput = {
   configuredEvents?: Set<string>;
+  funnelStages?: FunnelStageConfigurationDto[];
   events: ReportingMetricEvent[];
   insight: ReportingInsightInput;
   leads: ReportingMetricLead[];
   scope: ReportingMetricScope;
 };
 
-type FunnelStepKey =
-  | "real_conversations"
-  | "qualified_lead"
-  | "purchase"
-  | "first_purchase"
-  | "repurchase";
+type FunnelStepKey = string;
 
 type ReportingFunnelStep = {
   key: FunnelStepKey;
@@ -197,6 +195,7 @@ export class ReportingMetricsEngine {
       ),
       funnelSteps: this.funnelSteps({
         configuredEvents: input.configuredEvents ?? new Set(),
+        funnelStages: input.funnelStages,
         countableEvents,
         firstPurchases,
         purchases: purchases.length,
@@ -288,6 +287,7 @@ export class ReportingMetricsEngine {
 
   private funnelSteps(input: {
     configuredEvents: Set<string>;
+    funnelStages?: FunnelStageConfigurationDto[];
     countableEvents: ReportingMetricEvent[];
     firstPurchaseRevenueCents: number;
     firstPurchases: number;
@@ -298,9 +298,53 @@ export class ReportingMetricsEngine {
     repurchases: number;
     spendCents: number;
   }): ReportingFunnelStep[] {
+    if (input.funnelStages) {
+      return input.funnelStages
+        .filter((stage) => stage.visible)
+        .sort((left, right) => left.position - right.position)
+        .flatMap((stage) => {
+          const value = this.funnelStageValue(stage.eventName, input);
+          const steps = [
+            this.step(
+              this.funnelStageKey(stage.eventName),
+              stage.label,
+              value,
+              this.costPer(input.spendCents, value),
+            ),
+          ];
+
+          if (stage.eventName === "Purchase") {
+            if (input.firstPurchases > 0 || input.firstPurchaseRevenueCents > 0) {
+              steps.push(
+                this.step(
+                  "first_purchase",
+                  funnelLabels.first_purchase,
+                  input.firstPurchases,
+                  this.costPer(input.spendCents, input.firstPurchases),
+                ),
+              );
+            }
+
+            if (input.repurchases > 0 || input.repurchaseRevenueCents > 0) {
+              steps.push(
+                this.step(
+                  "repurchase",
+                  funnelLabels.repurchase,
+                  input.repurchases,
+                  this.costPer(input.spendCents, input.repurchases),
+                ),
+              );
+            }
+          }
+
+          return steps;
+        });
+    }
+
     const steps: ReportingFunnelStep[] = [
       this.step(
         "real_conversations",
+        funnelLabels.real_conversations,
         input.realConversations,
         this.costPer(input.spendCents, input.realConversations),
       ),
@@ -318,6 +362,7 @@ export class ReportingMetricsEngine {
       steps.push(
         this.step(
           "qualified_lead",
+          funnelLabels.qualified_lead,
           input.qualifiedLead,
           this.costPer(input.spendCents, input.qualifiedLead),
         ),
@@ -328,6 +373,7 @@ export class ReportingMetricsEngine {
       steps.push(
         this.step(
           "purchase",
+          funnelLabels.purchase,
           input.purchases,
           this.costPer(input.spendCents, input.purchases),
         ),
@@ -337,6 +383,7 @@ export class ReportingMetricsEngine {
         steps.push(
           this.step(
             "first_purchase",
+            funnelLabels.first_purchase,
             input.firstPurchases,
             this.costPer(input.spendCents, input.firstPurchases),
           ),
@@ -347,6 +394,7 @@ export class ReportingMetricsEngine {
         steps.push(
           this.step(
             "repurchase",
+            funnelLabels.repurchase,
             input.repurchases,
             this.costPer(input.spendCents, input.repurchases),
           ),
@@ -359,15 +407,57 @@ export class ReportingMetricsEngine {
 
   private step(
     key: FunnelStepKey,
+    label: string,
     value: number,
     costCents: number | null,
   ): ReportingFunnelStep {
     return {
       key,
-      label: funnelLabels[key],
+      label,
       value,
       costCents,
     };
+  }
+
+  private funnelStageValue(
+    eventName: string,
+    input: {
+      countableEvents: ReportingMetricEvent[];
+      purchases: number;
+      qualifiedLead: number;
+      realConversations: number;
+    },
+  ): number {
+    if (eventName === "LeadSubmitted") {
+      return input.realConversations;
+    }
+
+    if (eventName === "QualifiedLead") {
+      return input.qualifiedLead;
+    }
+
+    if (eventName === "Purchase") {
+      return input.purchases;
+    }
+
+    return input.countableEvents.filter((event) => event.eventName === eventName)
+      .length;
+  }
+
+  private funnelStageKey(eventName: string): string {
+    if (eventName === "LeadSubmitted") {
+      return "real_conversations";
+    }
+
+    if (eventName === "QualifiedLead") {
+      return "qualified_lead";
+    }
+
+    if (eventName === "Purchase") {
+      return "purchase";
+    }
+
+    return `event_${eventName.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()}`;
   }
 
   private matchesScope(

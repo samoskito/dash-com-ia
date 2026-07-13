@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { META_REPORT_SYNC_QUEUE } from "../common/queue/queue.constants";
+import { ConversionRulesModule } from "../conversion-rules/conversion-rules.module";
 import { IntegrationsModule } from "../integrations/integrations.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { MetaReportSyncProcessor } from "./meta-report-sync.processor";
@@ -17,6 +18,7 @@ import { WhatsappCampaignClassifierService } from "./whatsapp-campaign-classifie
   imports: [
     AuthModule,
     WorkspacesModule,
+    ConversionRulesModule,
     IntegrationsModule,
     BullModule.registerQueue({
       name: META_REPORT_SYNC_QUEUE

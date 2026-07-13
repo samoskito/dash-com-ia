@@ -1715,6 +1715,151 @@ td span {
   margin-top: 5px;
 }
 
+.funnel-config-form,
+.conversion-rule-create-form,
+.rule-edit-form {
+  display: grid;
+  gap: 12px;
+}
+
+.funnel-config-list {
+  display: grid;
+  border-top: 1px solid var(--border);
+}
+
+.funnel-config-row {
+  display: grid;
+  grid-template-columns:
+    72px minmax(190px, 1fr) minmax(170px, 0.85fr)
+    minmax(110px, 0.45fr) 88px auto;
+  align-items: end;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.funnel-config-row label,
+.conversion-rule-create-form label,
+.rule-edit-form label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.funnel-config-row label > span,
+.funnel-event-reference > span,
+.conversion-rule-create-form label > span,
+.rule-edit-form label > span {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.funnel-config-row input:not([type="checkbox"]),
+.funnel-config-row select,
+.conversion-rule-create-form input,
+.conversion-rule-create-form select,
+.rule-edit-form input,
+.rule-edit-form select {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(5, 8, 7, 0.76);
+  color: var(--ink);
+  font: inherit;
+  padding: 9px 10px;
+}
+
+.funnel-event-code {
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.funnel-event-reference {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 10px;
+}
+
+.funnel-event-reference strong {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.funnel-visible-field {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+  min-height: 40px;
+  padding-bottom: 9px;
+}
+
+.funnel-visible-field input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--signal);
+}
+
+.conversion-rule-create-form {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 18px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.conversion-rule-create-command {
+  display: flex;
+  align-items: flex-end;
+}
+
+.conversion-rule-create-command .button {
+  width: 100%;
+}
+
+.conversion-rules-table {
+  margin-top: 16px;
+}
+
+.rule-action-stack {
+  display: grid;
+  gap: 8px;
+  min-width: 150px;
+}
+
+.rule-edit-details summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rule-edit-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.rule-edit-form {
+  min-width: 250px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(5, 13, 11, 0.96);
+}
+
 .client-workspaces-table td:first-child,
 .client-workspaces-table td:nth-child(2) {
   min-width: 210px;
@@ -1942,6 +2087,20 @@ td span {
     grid-column: 1 / -1;
     justify-content: flex-start;
   }
+
+  .funnel-config-row {
+    grid-template-columns: 72px repeat(2, minmax(170px, 1fr));
+  }
+
+  .funnel-value-field,
+  .funnel-currency-field,
+  .funnel-visible-field {
+    grid-column: auto;
+  }
+
+  .conversion-rule-create-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 680px) {
@@ -1959,6 +2118,27 @@ td span {
   .connector-form,
   .connector-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .funnel-config-row,
+  .conversion-rule-create-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .funnel-config-row {
+    align-items: stretch;
+  }
+
+  .funnel-order-field {
+    max-width: 100px;
+  }
+
+  .funnel-event-reference {
+    padding-bottom: 0;
+  }
+
+  .funnel-visible-field {
+    padding-bottom: 0;
   }
 
   .client-admin-summary > div {
@@ -2243,6 +2423,16 @@ body {
 .config-card strong,
 .quality-card strong {
   overflow-wrap: anywhere;
+}
+
+.config-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.config-card .quality-card > span:last-child {
+  font-size: 11px;
+  line-height: 1.3;
+  text-transform: uppercase;
 }
 
 .quality-card > span,
@@ -3262,6 +3452,10 @@ th {
 
 @media (max-width: 900px) {
   .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .config-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

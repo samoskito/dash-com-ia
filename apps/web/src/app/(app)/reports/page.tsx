@@ -8,6 +8,7 @@ import type {
   MetaAssetsDto,
   MetaStructureReportDto,
   ReportOverviewDto,
+  ReportFunnelStepDto,
   ReportPaginationDto,
 } from "@wpptrack/shared";
 import Link from "next/link";
@@ -52,6 +53,7 @@ type ReportTotals = {
   repurchaseRevenueCents: number;
   roasAcquisition: number | null;
   roasWithRepurchase: number | null;
+  funnelSteps: ReportFunnelStepDto[];
 };
 type MetaStructureSummary = {
   campaigns: number;
@@ -647,26 +649,22 @@ function PerformanceMetricsCells({
         {row.metaConversationsStarted}
         <span>{money(row.costPerMetaConversationCents)}</span>
       </td>
-      <td>
-        <Link className="report-metric-link" href={realConversationsHref}>
-          {row.realConversations}
-        </Link>
-        <span>{money(row.costPerRealConversationCents)}</span>
-      </td>
+      {row.funnelSteps.map((step) => (
+        <td key={step.key}>
+          {step.key === "real_conversations" ? (
+            <Link className="report-metric-link" href={realConversationsHref}>
+              {step.value}
+            </Link>
+          ) : (
+            step.value
+          )}
+          <span>{money(step.costCents ?? null)}</span>
+        </td>
+      ))}
       <td>
         {row.totalReceived}
         <span>{percent(row.trackingRate)}</span>
       </td>
-      <td>
-        {row.qualifiedLead}
-        <span>{money(row.costPerQualifiedLeadCents)}</span>
-      </td>
-      <td>
-        {row.purchases}
-        <span>{money(row.costPerPurchaseCents)}</span>
-      </td>
-      <td>{row.firstPurchases}</td>
-      <td>{row.repurchases}</td>
       <td>{row.organicLeads}</td>
       <td>{money(row.trafficRevenueCents)}</td>
       <td>{money(row.organicRevenueCents)}</td>
@@ -677,27 +675,21 @@ function PerformanceMetricsCells({
   );
 }
 
-function EmptyPerformanceCells() {
+function EmptyPerformanceCells({ funnelSteps }: { funnelSteps: ReportFunnelStepDto[] }) {
   return (
     <>
       <td>{money(0)}</td>
       <td>
         0<span>-</span>
       </td>
+      {funnelSteps.map((step) => (
+        <td key={step.key}>
+          0<span>-</span>
+        </td>
+      ))}
       <td>
         0<span>-</span>
       </td>
-      <td>
-        0<span>-</span>
-      </td>
-      <td>
-        0<span>-</span>
-      </td>
-      <td>
-        0<span>-</span>
-      </td>
-      <td>0</td>
-      <td>0</td>
       <td>0</td>
       <td>{money(0)}</td>
       <td>{money(0)}</td>
@@ -733,6 +725,31 @@ function weightedRoas(
     : null;
 }
 
+function aggregateFunnelSteps(
+  rows: PerformanceRow[],
+  spendCents: number,
+): ReportFunnelStepDto[] {
+  const steps = new Map<string, ReportFunnelStepDto>();
+
+  for (const row of rows) {
+    for (const step of row.funnelSteps) {
+      const current = steps.get(step.key);
+
+      steps.set(step.key, {
+        key: step.key,
+        label: current?.label ?? step.label,
+        value: (current?.value ?? 0) + step.value,
+        costCents: null,
+      });
+    }
+  }
+
+  return Array.from(steps.values()).map((step) => ({
+    ...step,
+    costCents: step.value > 0 ? Math.floor(spendCents / step.value) : null,
+  }));
+}
+
 function reportTotals(rows: PerformanceRow[]): ReportTotals {
   const totals = rows.reduce<ReportTotals>(
     (totals, row) => ({
@@ -756,6 +773,7 @@ function reportTotals(rows: PerformanceRow[]): ReportTotals {
         totals.repurchaseRevenueCents + row.repurchaseRevenueCents,
       roasAcquisition: null,
       roasWithRepurchase: null,
+      funnelSteps: totals.funnelSteps,
     }),
     {
       spendCents: 0,
@@ -775,11 +793,13 @@ function reportTotals(rows: PerformanceRow[]): ReportTotals {
       repurchaseRevenueCents: 0,
       roasAcquisition: null,
       roasWithRepurchase: null,
+      funnelSteps: rows[0]?.funnelSteps ?? [],
     },
   );
 
   return {
     ...totals,
+    funnelSteps: aggregateFunnelSteps(rows, totals.spendCents),
     trackingRate:
       totals.totalReceived > 0
         ? totals.realConversations / totals.totalReceived
@@ -1043,15 +1063,13 @@ function SummaryMetricsCells({ totals }: { totals: ReportTotals }) {
     <>
       <td>{money(totals.spendCents)}</td>
       <td>{totals.metaConversationsStarted}</td>
-      <td>{totals.realConversations}</td>
+      {totals.funnelSteps.map((step) => (
+        <td key={step.key}>{step.value}</td>
+      ))}
       <td>
         {totals.totalReceived}
         <span>{percent(totals.trackingRate)}</span>
       </td>
-      <td>{totals.qualifiedLead}</td>
-      <td>{totals.purchases}</td>
-      <td>{totals.firstPurchases}</td>
-      <td>{totals.repurchases}</td>
       <td>{totals.organicLeads}</td>
       <td>{money(totals.trafficRevenueCents)}</td>
       <td>{money(totals.organicRevenueCents)}</td>
@@ -1062,17 +1080,15 @@ function SummaryMetricsCells({ totals }: { totals: ReportTotals }) {
   );
 }
 
-function PerformanceMetricHeaders() {
+function PerformanceMetricHeaders({ funnelSteps }: { funnelSteps: ReportFunnelStepDto[] }) {
   return (
     <>
       <th>Investimento</th>
       <th>Conversas Meta</th>
-      <th>Conversas reais</th>
+      {funnelSteps.map((step) => (
+        <th key={step.key}>{step.label}</th>
+      ))}
       <th>Total recebido</th>
-      <th>Lead qualificado</th>
-      <th>Compras</th>
-      <th>Primeira compra</th>
-      <th>Recompra</th>
       <th>Leads organicos</th>
       <th>Receita trafego</th>
       <th>Receita organica</th>
@@ -1747,7 +1763,7 @@ export default async function ReportsPage({
             <thead>
               <tr>
                 <th>Campanha</th>
-                <PerformanceMetricHeaders />
+                <PerformanceMetricHeaders funnelSteps={currentTotals.funnelSteps} />
                 <th>Revisao WhatsApp</th>
               </tr>
             </thead>
@@ -1807,7 +1823,7 @@ export default async function ReportsPage({
                         : syncCampaignHint}
                     </span>
                   </td>
-                  <EmptyPerformanceCells />
+                  <EmptyPerformanceCells funnelSteps={currentTotals.funnelSteps} />
                   <td>-</td>
                 </tr>
               )}
@@ -1835,7 +1851,7 @@ export default async function ReportsPage({
               <thead>
                 <tr>
                   <th>Conjunto</th>
-                  <PerformanceMetricHeaders />
+                  <PerformanceMetricHeaders funnelSteps={currentTotals.funnelSteps} />
                   <th>Revisao WhatsApp</th>
                 </tr>
               </thead>
@@ -1897,7 +1913,7 @@ export default async function ReportsPage({
                           : syncAdSetHint}
                       </span>
                     </td>
-                    <EmptyPerformanceCells />
+                    <EmptyPerformanceCells funnelSteps={currentTotals.funnelSteps} />
                     <td>-</td>
                   </tr>
                 )}
@@ -1926,7 +1942,7 @@ export default async function ReportsPage({
               <thead>
                 <tr>
                   <th>Anuncio</th>
-                  <PerformanceMetricHeaders />
+                  <PerformanceMetricHeaders funnelSteps={currentTotals.funnelSteps} />
                   <th>Revisao WhatsApp</th>
                 </tr>
               </thead>
@@ -1979,7 +1995,7 @@ export default async function ReportsPage({
                           : syncAdHint}
                       </span>
                     </td>
-                    <EmptyPerformanceCells />
+                    <EmptyPerformanceCells funnelSteps={currentTotals.funnelSteps} />
                     <td>-</td>
                   </tr>
                 )}

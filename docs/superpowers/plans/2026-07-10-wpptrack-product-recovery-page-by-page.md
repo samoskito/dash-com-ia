@@ -65,7 +65,7 @@ The recovery starts from these verified defects:
 | 1     | Overview                                               | Pending                                            | Product owner approves the complete Overview                                                              |
 | 2     | Leads                                                  | Pending                                            | Product owner approves list, filters and lead journey                                                     |
 | 3     | Reports                                                | Pending                                            | Product owner approves Campaigns, Ad Sets, Ads and Meta diagnostic                                        |
-| 4     | Integrations, Settings and Meta Event Audit            | Pending                                            | Product owner approves operational setup and audit workflows                                              |
+| 4     | Integrations, Settings and Meta Event Audit            | 4A/4C implemented; 4B approved for deploy on 2026-07-12 | Product owner approves operational setup and audit workflows                                              |
 | 5     | External connector productization and native providers | Planned after Block 4                              | Product owner approves self-service connectors and the first native provider beyond Uazapi                |
 
 This order supersedes the older immediate next step of returning to the real Uazapi/CAPI payload test after the reporting engine. The real Uazapi/CAPI test remains recorded and mandatory, but stays deferred until the platform is sufficiently complete for end-to-end validation.
@@ -295,6 +295,16 @@ Execute Block 4 in this internal order:
 - Ordered funnel journey based on configured events.
 - No customer-facing manual Meta token field.
 
+Implementation status - 2026-07-12:
+
+- Added a persisted workspace funnel configuration with human labels, visibility and explicit ordering per supported Meta event.
+- Products/services, default values and currency can be configured both for the funnel event and for individual keyword/WhatsApp-label rules.
+- Actual connector values keep priority; rule values come next; workspace event values are the final configured fallback and are snapshotted into new conversion events.
+- Overview and Reports consume the configured visible stages in the same order. Campaign, ad set and ad tables no longer depend on fixed QualifiedLead/Purchase columns.
+- Settings keeps event triggers separate from the funnel journey, shows no manual customer Meta token field and records configuration changes in the audit log.
+- Desktop 1440 px and mobile 390 px renders were inspected with populated configuration. Settings and Reports have no page-level horizontal overflow, and the account/team cards were adjusted to two columns on desktop and one on mobile.
+- 643 automated tests, monorepo lint, Prisma validation, shared/Nest compilation and the Next production build pass. This slice does not change n8n workflows, shadow mode or the CAPI cutover gate.
+
 ### 4C. Meta Event Audit
 
 - Dedicated customer-facing audit using `GET /reports/conversions/audit`.
@@ -348,4 +358,4 @@ For every block:
 
 ## 14. Current Next Action
 
-Complete the approved **Platform Owner and Client Provisioning** slice so Barbieri can be created as an isolated customer workspace before its connector is registered. Then register the validated read-only MySQL connector, run and reconcile the shadow sync, and resume **Block 1 - Overview** only after real-data parity is accepted. Production observation of Block 0 remains open and does not block this validation.
+Deploy **Block 4B - Settings**, apply migration `20260712213000_funnel_stage_configuration`, and verify the production Settings/Reports render before configuring the real Barbieri funnel labels/products/average values. Keep the CAPI gate collecting automatic real QualifiedLead and Purchase samples without changing n8n or enabling duplicate sends. After Block 4 is approved as a whole, start **Block 5 - External Connector Productization and Native Providers**.

@@ -17,6 +17,8 @@ import {
   conversionRuleSchema,
   conversionRuleUpdateInputSchema,
   conversionTriggerEvaluationInputSchema,
+  conversionEventDisplayLabel,
+  funnelConfigurationUpdateInputSchema,
   googleOAuthCallbackQuerySchema,
   googleOAuthCallbackResultSchema,
   googleOAuthStartSchema,
@@ -207,6 +209,29 @@ describe("shared contracts", () => {
       "first_purchase",
       "repurchase"
     ]);
+  });
+
+  it("validates ordered funnel configuration with human event labels", () => {
+    const configuration = funnelConfigurationUpdateInputSchema.parse({
+      stages: [
+        {
+          eventName: "OrderDelivered",
+          label: "Pedidos entregues",
+          position: 1,
+          visible: true
+        },
+        {
+          eventName: "Purchase",
+          label: "Vendas",
+          position: 2,
+          visible: false
+        }
+      ]
+    });
+
+    expect(configuration.stages[0]?.eventName).toBe("OrderDelivered");
+    expect(conversionEventDisplayLabel("OrderDelivered")).toBe("Pedido entregue");
+    expect(conversionEventDisplayLabel("CustomEvent")).toBe("CustomEvent");
   });
 
   it("validates Meta conversion destination and reporting accounts", () => {

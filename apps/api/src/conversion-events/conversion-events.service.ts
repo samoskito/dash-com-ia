@@ -140,6 +140,13 @@ type MetaConversionDestinationRecord = {
   pageId: string;
 };
 
+type FunnelEventDefaults = {
+  eventName: string;
+  defaultValueCents: number | null;
+  defaultCurrency: string | null;
+  defaultContentName: string | null;
+};
+
 type ResolvedConversionDestination = {
   pixelId: string | null;
   pageId: string | null;
@@ -170,8 +177,24 @@ export class ConversionEventsService {
   ): Promise<RecordRuleMatchesResult> {
     const created: string[] = [];
     const duplicates: string[] = [];
+    const configuredDefaults = (await this.prisma.funnelStageConfiguration.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        eventName: { in: Array.from(new Set(input.rules.map((rule) => rule.eventName))) }
+      },
+      select: {
+        eventName: true,
+        defaultValueCents: true,
+        defaultCurrency: true,
+        defaultContentName: true
+      }
+    })) as FunnelEventDefaults[];
+    const defaultsByEvent = new Map(
+      configuredDefaults.map((defaults) => [defaults.eventName, defaults])
+    );
 
     for (const rule of input.rules) {
+      const eventDefaults = defaultsByEvent.get(rule.eventName);
       const dedupeKey = this.buildDedupeKey(input, rule);
       const existing = (await this.prisma.conversionEventLog.findUnique({
         where: { dedupeKey }
@@ -182,7 +205,11 @@ export class ConversionEventsService {
         continue;
       }
 
-      const valueCents = input.valueCents ?? rule.defaultValueCents ?? null;
+      const valueCents =
+        input.valueCents ??
+        rule.defaultValueCents ??
+        eventDefaults?.defaultValueCents ??
+        null;
       const initialStatus = this.resolveInitialStatus({
         eventName: rule.eventName,
         adId: input.adId,
@@ -223,8 +250,22 @@ export class ConversionEventsService {
           attributionStatus: input.adId ? "attributed" : "missing_ad_id",
           dedupeKey,
           valueCents,
-          currency: input.currency ?? rule.defaultCurrency ?? null,
-          contentName: input.contentName ?? rule.defaultContentName ?? null,
+          valueSource:
+            input.valueCents != null
+              ? "actual"
+              : valueCents == null
+                ? null
+                : "configured_average",
+          currency:
+            input.currency ??
+            rule.defaultCurrency ??
+            eventDefaults?.defaultCurrency ??
+            null,
+          contentName:
+            input.contentName ??
+            rule.defaultContentName ??
+            eventDefaults?.defaultContentName ??
+            null,
           customData,
           errorCode: initialStatus.errorCode,
           errorMessage: initialStatus.errorMessage

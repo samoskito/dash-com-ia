@@ -9,9 +9,18 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
     diagnosticEvents: [] as Array<Record<string, unknown>>,
     logs: [] as Array<Record<string, unknown>>,
     destinations: [] as Array<Record<string, unknown>>,
-    countQueries: [] as Array<Record<string, unknown>>
+    countQueries: [] as Array<Record<string, unknown>>,
+    funnelDefaults: [] as Array<Record<string, unknown>>
   };
   const prisma = {
+    funnelStageConfiguration: {
+      findMany: async ({ where }: { where: { workspaceId: string; eventName: { in: string[] } } }) =>
+        db.funnelDefaults.filter(
+          (defaults) =>
+            defaults.workspaceId === where.workspaceId &&
+            where.eventName.in.includes(String(defaults.eventName))
+        )
+    },
     metaConversionDestination: {
       findUnique: async ({ where }: { where: { workspaceId: string } }) =>
         db.destinations.find((destination) => destination.workspaceId === where.workspaceId) ??
@@ -191,6 +200,49 @@ describe("conversion events service", () => {
       status: "ready_to_send",
       pixelId: null,
       adId: "ad_1"
+    });
+  });
+
+  it("uses workspace event defaults when a rule has no specific product or value", async () => {
+    const { db, service } = createHarness();
+    db.funnelDefaults.push({
+      workspaceId: "workspace_1",
+      eventName: "Purchase",
+      defaultValueCents: 250_000,
+      defaultCurrency: "BRL",
+      defaultContentName: "Plano premium"
+    });
+
+    await service.recordRuleMatches({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+      rules: [
+        {
+          id: "rule_1",
+          workspaceId: "workspace_1",
+          name: "Compra",
+          triggerType: "whatsapp_label",
+          triggerValue: "Venda fechada",
+          matchMode: "exact",
+          eventName: "Purchase",
+          pixelId: null,
+          active: true,
+          createdAt: "2026-07-02T03:00:00.000Z",
+          updatedAt: "2026-07-02T03:00:00.000Z"
+        }
+      ]
+    });
+
+    expect(db.logs[0]).toMatchObject({
+      eventName: "Purchase",
+      valueCents: 250_000,
+      valueSource: "configured_average",
+      currency: "BRL",
+      contentName: "Plano premium",
+      status: "ready_to_send"
     });
   });
 

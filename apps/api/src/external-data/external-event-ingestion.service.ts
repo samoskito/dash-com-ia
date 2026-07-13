@@ -26,6 +26,9 @@ export type ExternalEventConnectorContext = {
   capiSendEnabled: boolean;
   purchaseAverageValueCents: number | null;
   defaultCurrency: string | null;
+  purchaseDefaultValueCents?: number | null;
+  purchaseDefaultCurrency?: string | null;
+  purchaseDefaultContentName?: string | null;
 };
 
 export type ExternalEventIngestionResult = {
@@ -197,6 +200,10 @@ export class ExternalEventIngestionService {
       valueCents: value.valueCents,
       valueSource: value.valueSource,
       currency: value.currency,
+      contentName:
+        eventType === "purchase"
+          ? (connector.purchaseDefaultContentName ?? null)
+          : null,
       eventOccurredAt: occurredAt,
       ...(options.deliveryStatus
         ? { deliveryStatus: options.deliveryStatus }
@@ -538,13 +545,18 @@ export class ExternalEventIngestionService {
       };
     }
 
+    const configuredValue =
+      connector.purchaseDefaultValueCents ??
+      connector.purchaseAverageValueCents;
+
     return {
-      valueCents: connector.purchaseAverageValueCents,
+      valueCents: configuredValue,
       valueSource:
-        connector.purchaseAverageValueCents === null
+        configuredValue === null
           ? null
           : "configured_average",
-      currency: connector.defaultCurrency
+      currency:
+        connector.purchaseDefaultCurrency ?? connector.defaultCurrency
     };
   }
 

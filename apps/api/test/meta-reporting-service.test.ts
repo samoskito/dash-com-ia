@@ -510,6 +510,30 @@ function createHarness() {
     metaAdapter as never,
     new WhatsappCampaignClassifierService(),
     new ReportingMetricsEngine(),
+    {
+      getConfiguration: vi.fn(async () => ({
+        stages: [
+          {
+            eventName: "LeadSubmitted",
+            label: "Conversas reais iniciadas",
+            position: 1,
+            visible: true,
+          },
+          {
+            eventName: "QualifiedLead",
+            label: "Lead qualificado",
+            position: 2,
+            visible: true,
+          },
+          {
+            eventName: "Purchase",
+            label: "Compras",
+            position: 3,
+            visible: true,
+          },
+        ],
+      })),
+    } as never,
   );
 
   return { db, encryption, metaAdapter, prisma, service };

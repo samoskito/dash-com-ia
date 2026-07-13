@@ -30,7 +30,32 @@ function reportMetrics(overrides: Record<string, unknown> = {}) {
     repurchaseRevenueCents: 0,
     roasAcquisition: 3,
     roasWithRepurchase: 3,
-    funnelSteps: [],
+    funnelSteps: [
+      {
+        key: "real_conversations",
+        label: "Conversas reais",
+        value: 2,
+        costCents: 60000,
+      },
+      {
+        key: "qualified_lead",
+        label: "Oportunidades",
+        value: 1,
+        costCents: 120000,
+      },
+      {
+        key: "purchase",
+        label: "Vendas",
+        value: 1,
+        costCents: 120000,
+      },
+      {
+        key: "first_purchase",
+        label: "Primeira compra",
+        value: 1,
+        costCents: 120000,
+      },
+    ],
     ...overrides,
   };
 }

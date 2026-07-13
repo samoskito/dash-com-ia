@@ -10,11 +10,13 @@ import type {
   ConversionAuditOverviewDto,
   ConversionAuditSourceDto,
   ConversionEventLogStatusDto,
+  FunnelStageConfigurationDto,
   MetaStructureReportDto,
   ReportOverviewDto,
   ReportPaginationDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { FunnelConfigurationService } from "../conversion-rules/funnel-configuration.service";
 import { startOfDateInTimezone } from "../external-data/external-event-policy";
 import {
   MetaAdapter,
@@ -212,10 +214,6 @@ type ConversionAuditAdRecord = ConversionAuditNamedRecord & {
 
 type LeadRecord = ReportingMetricLead;
 
-type ConversionRuleFunnelRecord = {
-  eventName: string;
-};
-
 type ReportRowMetrics = Omit<
   CampaignReportRowDto,
   | "id"
@@ -259,6 +257,7 @@ export class MetaReportingService {
     private readonly metaAdapter: MetaAdapter,
     private readonly whatsappClassifier: WhatsappCampaignClassifierService,
     private readonly metricsEngine: ReportingMetricsEngine,
+    private readonly funnelConfiguration: FunnelConfigurationService,
   ) {}
 
   async syncWorkspaceMetaStructure(
@@ -764,7 +763,7 @@ export class MetaReportingService {
     const whatsappAdSetWhere = usesWhatsappDefault ? campaignWhere : null;
     const childWhere =
       whatsappAdSetWhere ?? (needsChildNameFilter ? campaignWhere : null);
-    const [campaigns, whatsappAdSets, whatsappAds, configuredEvents] =
+    const [campaigns, whatsappAdSets, whatsappAds, funnelStages] =
       (await Promise.all([
         this.prisma.metaCampaign.findMany({
           where: campaignWhere,
@@ -782,12 +781,12 @@ export class MetaReportingService {
               orderBy: { name: "asc" },
             })
           : Promise.resolve([]),
-        this.getConfiguredFunnelEvents(input.workspaceId),
+        this.getFunnelStages(input.workspaceId),
       ])) as [
         MetaCampaignRecord[],
         MetaAdSetRecord[],
         MetaAdRecord[],
-        Set<string>,
+        FunnelStageConfigurationDto[],
       ];
     const filteredCampaigns = this.filterCampaignRecords(
       campaigns,
@@ -822,7 +821,7 @@ export class MetaReportingService {
         campaign,
         conversionLogsByCampaign.get(campaign.campaignId) ?? [],
         leadsByCampaign.get(campaign.campaignId) ?? [],
-        configuredEvents,
+        funnelStages,
         childMetricByCampaign.get(campaign.campaignId),
       ),
     );
@@ -840,7 +839,7 @@ export class MetaReportingService {
       { spendCents: 0, metaConversationsStarted: 0 },
     );
     const totals = this.calculateMetrics({
-      configuredEvents,
+      funnelStages,
       spendCents: workspaceMeta.spendCents,
       metaConversationsStarted: workspaceMeta.metaConversationsStarted,
       events: conversionLogs,
@@ -857,7 +856,7 @@ export class MetaReportingService {
             ? "active"
             : "unknown",
           ...this.calculateMetrics({
-            configuredEvents,
+            funnelStages,
             spendCents: workspaceMeta.spendCents,
             metaConversationsStarted: workspaceMeta.metaConversationsStarted,
             events: workspaceConversionLogs,
@@ -904,7 +903,7 @@ export class MetaReportingService {
         : {}),
       ...this.conversionAuditSourceWhere(input.source),
     };
-    const [events, statusGroups] = await Promise.all([
+    const [events, statusGroups, funnelStages] = await Promise.all([
       this.prisma.conversionEventLog.findMany({
         where,
         orderBy: [{ eventOccurredAt: "desc" }, { id: "desc" }],
@@ -935,7 +934,11 @@ export class MetaReportingService {
         where,
         _count: { _all: true },
       }),
+      this.getFunnelStages(input.workspaceId),
     ]);
+    const eventLabels = new Map<string, string>(
+      funnelStages.map((stage) => [stage.eventName, stage.label]),
+    );
     const context = await this.conversionAuditContext(
       input.workspaceId,
       events,
@@ -979,7 +982,9 @@ export class MetaReportingService {
         return {
           id: event.id,
           eventName: event.eventName,
-          eventLabel: this.conversionEventLabel(event.eventName),
+          eventLabel:
+            eventLabels.get(event.eventName) ??
+            this.conversionEventLabel(event.eventName),
           deliveryState,
           statusLabel: this.conversionAuditStatusLabel(event.status),
           statusDetail: this.conversionAuditStatusDetail(event.status),
@@ -1281,7 +1286,7 @@ export class MetaReportingService {
       ...(input.adSetId ? { adSetId: input.adSetId } : {}),
     };
     const shouldLoadAdsForNameFilter = this.reportNameScope(input) === "ad";
-    const [campaigns, adSets, adsForNameFilter, configuredEvents] =
+    const [campaigns, adSets, adsForNameFilter, funnelStages] =
       await Promise.all([
         this.prisma.metaCampaign.findMany({
           where: hierarchyWhere,
@@ -1297,7 +1302,7 @@ export class MetaReportingService {
               orderBy: { name: "asc" },
             }) as Promise<MetaAdRecord[]>)
           : Promise.resolve([]),
-        this.getConfiguredFunnelEvents(input.workspaceId),
+        this.getFunnelStages(input.workspaceId),
       ]);
     const campaignNames = new Map(
       campaigns.map((campaign) => [campaign.campaignId, campaign.name]),
@@ -1325,7 +1330,7 @@ export class MetaReportingService {
         campaignName:
           campaignNames.get(adSet.campaignId) ?? "Campanha nao resolvida",
         conversionLogs: conversionLogsByAdSet.get(adSet.adSetId) ?? [],
-        configuredEvents,
+        funnelStages,
         leads: leadsByAdSet.get(adSet.adSetId) ?? [],
       }),
     );
@@ -1338,7 +1343,7 @@ export class MetaReportingService {
       { spendCents: 0, metaConversationsStarted: 0 },
     );
     const totals = this.calculateMetrics({
-      configuredEvents,
+      funnelStages,
       spendCents: totalsMeta.spendCents,
       metaConversationsStarted: totalsMeta.metaConversationsStarted,
       events: conversionLogs,
@@ -1384,7 +1389,7 @@ export class MetaReportingService {
       ...adSetWhere,
       ...(input.adId ? { adId: input.adId } : {}),
     };
-    const [campaigns, adSets, ads, configuredEvents] = await Promise.all([
+    const [campaigns, adSets, ads, funnelStages] = await Promise.all([
       this.prisma.metaCampaign.findMany({
         where: hierarchyWhere,
         orderBy: { name: "asc" },
@@ -1397,7 +1402,7 @@ export class MetaReportingService {
         where: adWhere,
         orderBy: { name: "asc" },
       }) as Promise<MetaAdRecord[]>,
-      this.getConfiguredFunnelEvents(input.workspaceId),
+      this.getFunnelStages(input.workspaceId),
     ]);
     const campaignNames = new Map(
       campaigns.map((campaign) => [campaign.campaignId, campaign.name]),
@@ -1426,7 +1431,7 @@ export class MetaReportingService {
           campaignNames.get(ad.campaignId) ?? "Campanha nao resolvida",
         adSetName: adSetNames.get(ad.adSetId) ?? "Conjunto nao resolvido",
         conversionLogs: conversionLogsByAd.get(ad.adId) ?? [],
-        configuredEvents,
+        funnelStages,
         leads: leadsByAd.get(ad.adId) ?? [],
       }),
     );
@@ -1439,7 +1444,7 @@ export class MetaReportingService {
       { spendCents: 0, metaConversationsStarted: 0 },
     );
     const totals = this.calculateMetrics({
-      configuredEvents,
+      funnelStages,
       spendCents: totalsMeta.spendCents,
       metaConversationsStarted: totalsMeta.metaConversationsStarted,
       events: conversionLogs,
@@ -1918,7 +1923,7 @@ export class MetaReportingService {
     campaign: MetaCampaignRecord,
     conversionLogs: ConversionEventRecord[],
     leads: LeadRecord[],
-    configuredEvents: Set<string>,
+    funnelStages: FunnelStageConfigurationDto[],
     metricOverride?: CampaignMetricOverride,
   ): CampaignReportRowDto {
     const restrictToAdIds = metricOverride?.adIds.size
@@ -1947,7 +1952,7 @@ export class MetaReportingService {
         item.campaignId === campaign.campaignId && belongsToMetricScope(item),
     );
     const metrics = this.calculateMetrics({
-      configuredEvents,
+      funnelStages,
       spendCents: metricOverride?.spendCents ?? campaign.spendCents,
       metaConversationsStarted:
         metricOverride?.metaConversationsStarted ??
@@ -1972,11 +1977,11 @@ export class MetaReportingService {
     adSet: MetaAdSetRecord;
     campaignName: string;
     conversionLogs: ConversionEventRecord[];
-    configuredEvents: Set<string>;
+    funnelStages: FunnelStageConfigurationDto[];
     leads: LeadRecord[];
   }): AdSetReportRowDto {
     const metrics = this.calculateMetrics({
-      configuredEvents: input.configuredEvents,
+      funnelStages: input.funnelStages,
       spendCents: input.adSet.spendCents,
       metaConversationsStarted: input.adSet.metaConversationsStarted,
       events: input.conversionLogs,
@@ -2002,11 +2007,11 @@ export class MetaReportingService {
     campaignName: string;
     adSetName: string;
     conversionLogs: ConversionEventRecord[];
-    configuredEvents: Set<string>;
+    funnelStages: FunnelStageConfigurationDto[];
     leads: LeadRecord[];
   }): AdReportRowDto {
     const metrics = this.calculateMetrics({
-      configuredEvents: input.configuredEvents,
+      funnelStages: input.funnelStages,
       spendCents: input.ad.spendCents,
       metaConversationsStarted: input.ad.metaConversationsStarted,
       events: input.conversionLogs,
@@ -2030,7 +2035,7 @@ export class MetaReportingService {
   }
 
   private calculateMetrics(input: {
-    configuredEvents: Set<string>;
+    funnelStages: FunnelStageConfigurationDto[];
     spendCents: number;
     metaConversationsStarted: number;
     events: ConversionEventRecord[];
@@ -2038,7 +2043,7 @@ export class MetaReportingService {
     scope: ReportingMetricScope;
   }): ReportRowMetrics {
     return this.metricsEngine.calculate({
-      configuredEvents: input.configuredEvents,
+      funnelStages: input.funnelStages,
       events: input.events,
       insight: {
         spendCents: input.spendCents,
@@ -2142,21 +2147,13 @@ export class MetaReportingService {
     );
   }
 
-  private async getConfiguredFunnelEvents(
+  private async getFunnelStages(
     workspaceId: string,
-  ): Promise<Set<string>> {
-    const rules = (await this.prisma.conversionRule.findMany({
-      where: {
-        workspaceId,
-        active: true,
-        eventName: { in: ["QualifiedLead", "Purchase"] },
-      },
-      select: {
-        eventName: true,
-      },
-    })) as ConversionRuleFunnelRecord[];
+  ): Promise<FunnelStageConfigurationDto[]> {
+    const configuration =
+      await this.funnelConfiguration.getConfiguration(workspaceId);
 
-    return new Set(rules.map((rule) => rule.eventName));
+    return configuration.stages;
   }
 
   private async hasLeadEvidence(input: {

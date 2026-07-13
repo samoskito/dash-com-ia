@@ -4,6 +4,7 @@ import request from "supertest";
 import { AuthService } from "../src/auth/auth.service";
 import { ConversionRulesController } from "../src/conversion-rules/conversion-rules.controller";
 import { ConversionRulesService } from "../src/conversion-rules/conversion-rules.service";
+import { FunnelConfigurationService } from "../src/conversion-rules/funnel-configuration.service";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
 const session = {
@@ -78,20 +79,34 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
     })),
     evaluateTriggers: vi.fn(async () => [])
   };
+  const funnelConfigurationService = {
+    getConfiguration: vi.fn(async () => ({
+      stages: [
+        {
+          eventName: "LeadSubmitted",
+          label: "Conversas reais iniciadas",
+          position: 1,
+          visible: true
+        }
+      ]
+    })),
+    updateConfiguration: vi.fn(async (_workspaceId: string, input: unknown) => input)
+  };
 
   const moduleRef = await Test.createTestingModule({
     controllers: [ConversionRulesController],
     providers: [
       { provide: AuthService, useValue: authService },
       { provide: WorkspacesService, useValue: workspacesService },
-      { provide: ConversionRulesService, useValue: conversionRulesService }
+      { provide: ConversionRulesService, useValue: conversionRulesService },
+      { provide: FunnelConfigurationService, useValue: funnelConfigurationService }
     ]
   }).compile();
 
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, conversionRulesService };
+  return { app, conversionRulesService, funnelConfigurationService };
 }
 
 describe("conversion rules controller", () => {
@@ -184,6 +199,70 @@ describe("conversion rules controller", () => {
       messageText: "Quero comprar",
       labels: ["Venda fechada"]
     });
+
+    await app.close();
+  });
+
+  it("returns and updates the ordered funnel configuration", async () => {
+    const { app, funnelConfigurationService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/conversion-rules/funnel")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.stages[0].eventName).toBe("LeadSubmitted");
+      });
+
+    const stages = [
+      {
+        eventName: "QualifiedLead",
+        label: "Oportunidade",
+        position: 1,
+        visible: true
+      },
+      {
+        eventName: "Purchase",
+        label: "Vendas",
+        position: 2,
+        visible: false
+      }
+    ];
+
+    await request(app.getHttpServer())
+      .put("/conversion-rules/funnel")
+      .set("Authorization", "Bearer refresh-token")
+      .send({ stages })
+      .expect(200);
+
+    expect(funnelConfigurationService.updateConfiguration).toHaveBeenCalledWith(
+      "workspace_1",
+      { stages },
+      "user_1"
+    );
+
+    await app.close();
+  });
+
+  it("rejects funnel updates for workspace members", async () => {
+    const { app, funnelConfigurationService } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .put("/conversion-rules/funnel")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        stages: [
+          {
+            eventName: "QualifiedLead",
+            label: "Oportunidade",
+            position: 1,
+            visible: true
+          }
+        ]
+      })
+      .expect(403);
+
+    expect(funnelConfigurationService.updateConfiguration).not.toHaveBeenCalled();
 
     await app.close();
   });

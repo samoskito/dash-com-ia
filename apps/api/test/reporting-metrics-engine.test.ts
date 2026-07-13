@@ -384,4 +384,61 @@ describe("ReportingMetricsEngine", () => {
     expect(metrics.estimatedRevenueCents).toBe(400000);
     expect(metrics.hasEstimatedRevenue).toBe(true);
   });
+
+  it("uses the configured labels, visibility and order for funnel stages", () => {
+    const metrics = engine.calculate({
+      funnelStages: [
+        {
+          eventName: "OrderDelivered",
+          label: "Pedidos entregues",
+          position: 1,
+          visible: true,
+        },
+        {
+          eventName: "QualifiedLead",
+          label: "Oportunidades",
+          position: 2,
+          visible: true,
+        },
+        {
+          eventName: "LeadSubmitted",
+          label: "Conversas",
+          position: 3,
+          visible: false,
+        },
+      ],
+      events: [
+        event({
+          campaignId: "cmp_1",
+          eventName: "OrderDelivered",
+          id: "delivered_1",
+          valueCents: null,
+        }),
+        event({
+          campaignId: "cmp_1",
+          eventName: "QualifiedLead",
+          id: "qualified_1",
+          valueCents: null,
+        }),
+      ],
+      insight,
+      leads: [lead({ campaignId: "cmp_1" })],
+      scope: { campaignId: "cmp_1" },
+    });
+
+    expect(metrics.funnelSteps).toEqual([
+      {
+        key: "event_order_delivered",
+        label: "Pedidos entregues",
+        value: 1,
+        costCents: 100000,
+      },
+      {
+        key: "qualified_lead",
+        label: "Oportunidades",
+        value: 1,
+        costCents: 100000,
+      },
+    ]);
+  });
 });

@@ -23,23 +23,11 @@ export const metaWhatsappOverrideInputSchema = z.object({
   override: z.enum(["manual_include", "manual_exclude"]).nullable(),
 });
 
-export const reportFunnelStepKeySchema = z.enum([
-  "real_conversations",
-  "qualified_lead",
-  "purchase",
-  "first_purchase",
-  "repurchase",
-]);
+export const reportFunnelStepKeySchema = z.string().trim().min(1).max(120);
 
 export const reportFunnelStepSchema = z.object({
   key: reportFunnelStepKeySchema,
-  label: z.enum([
-    "Conversas reais iniciadas",
-    "Lead qualificado",
-    "Compras",
-    "Primeira compra",
-    "Recompra",
-  ]),
+  label: z.string().trim().min(1).max(80),
   value: nonnegativeIntSchema,
   costCents: moneyCentsSchema.nullable().optional(),
   unavailableReason: z.string().trim().min(1).optional(),

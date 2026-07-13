@@ -98,7 +98,7 @@ export class ExternalSyncService {
     const projectionRefresh = options.projectionRefresh === true;
     const credentials = this.credentialEncryption.decrypt(connector);
     const sslMode = externalConnectorSslModeSchema.parse(connector.sslMode);
-    const context = this.connectorContext(connector);
+    const context = await this.connectorContext(connector);
     const startedAt = new Date();
     const counts = this.emptyCounts();
 
@@ -134,6 +134,7 @@ export class ExternalSyncService {
           stream === "leads"
             ? await this.syncLeads(
                 connector,
+                context,
                 credentials,
                 sslMode,
                 projectionRefresh
@@ -207,6 +208,7 @@ export class ExternalSyncService {
 
   private async syncLeads(
     connector: ConnectorRecord,
+    eventContext: ExternalEventConnectorContext,
     credentials: ReturnType<ExternalCredentialEncryptionService["decrypt"]>,
     sslMode: ReturnType<typeof externalConnectorSslModeSchema.parse>,
     projectionRefresh = false
@@ -237,6 +239,7 @@ export class ExternalSyncService {
           : undefined;
         const status = await this.ingestLead(
           connector,
+          eventContext,
           row,
           projectionRefresh,
           hierarchy
@@ -322,6 +325,7 @@ export class ExternalSyncService {
 
   private async ingestLead(
     connector: ConnectorRecord,
+    eventContext: ExternalEventConnectorContext,
     row: ExternalLeadRow,
     projectionRefresh = false,
     hierarchy?: MetaAdHierarchy
@@ -359,7 +363,7 @@ export class ExternalSyncService {
         data: { status: this.leadStatus(row) }
       });
 
-      await this.projectHistoricalMilestones(connector, row);
+      await this.projectHistoricalMilestones(connector, eventContext, row);
 
       const existing = projectionRefresh
         ? null
@@ -631,7 +635,24 @@ export class ExternalSyncService {
     });
   }
 
-  private connectorContext(connector: ConnectorRecord): ExternalEventConnectorContext {
+  private async connectorContext(
+    connector: ConnectorRecord
+  ): Promise<ExternalEventConnectorContext> {
+    const purchaseDefaults =
+      (await this.prisma.funnelStageConfiguration?.findUnique({
+        where: {
+          workspaceId_eventName: {
+            workspaceId: connector.workspaceId,
+            eventName: "Purchase"
+          }
+        },
+        select: {
+          defaultValueCents: true,
+          defaultCurrency: true,
+          defaultContentName: true
+        }
+      })) ?? null;
+
     return {
       id: connector.id,
       workspaceId: connector.workspaceId,
@@ -640,12 +661,16 @@ export class ExternalSyncService {
       shadowMode: connector.shadowMode,
       capiSendEnabled: connector.capiSendEnabled,
       purchaseAverageValueCents: connector.purchaseAverageValueCents,
-      defaultCurrency: connector.defaultCurrency
+      defaultCurrency: connector.defaultCurrency,
+      purchaseDefaultValueCents: purchaseDefaults?.defaultValueCents ?? null,
+      purchaseDefaultCurrency: purchaseDefaults?.defaultCurrency ?? null,
+      purchaseDefaultContentName: purchaseDefaults?.defaultContentName ?? null
     };
   }
 
   private async projectHistoricalMilestones(
     connector: ConnectorRecord,
+    eventContext: ExternalEventConnectorContext,
     row: ExternalLeadRow
   ): Promise<void> {
     const milestones = [
@@ -692,7 +717,7 @@ export class ExternalSyncService {
       };
 
       const result = await this.eventIngestion.ingest(
-        this.connectorContext(connector),
+        eventContext,
         historicalEvent,
         { deliveryStatus: "imported", updateLeadStatus: false }
       );

@@ -7,18 +7,21 @@ import {
   Inject,
   Param,
   Patch,
-  Post
+  Post,
+  Put
 } from "@nestjs/common";
 import {
   canManageIntegrations,
   conversionRuleCreateInputSchema,
   conversionRuleUpdateInputSchema,
-  conversionTriggerEvaluationInputSchema
+  conversionTriggerEvaluationInputSchema,
+  funnelConfigurationUpdateInputSchema
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { ConversionRulesService } from "./conversion-rules.service";
+import { FunnelConfigurationService } from "./funnel-configuration.service";
 
 @Controller("conversion-rules")
 export class ConversionRulesController {
@@ -27,13 +30,46 @@ export class ConversionRulesController {
     @Inject(WorkspacesService)
     private readonly workspacesService: WorkspacesService,
     @Inject(ConversionRulesService)
-    private readonly conversionRulesService: ConversionRulesService
+    private readonly conversionRulesService: ConversionRulesService,
+    @Inject(FunnelConfigurationService)
+    private readonly funnelConfigurationService: FunnelConfigurationService
   ) {}
 
   @Get()
   async list(@AuthToken() refreshToken: string) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     return this.conversionRulesService.listRules(workspaceId);
+  }
+
+  @Get("funnel")
+  async getFunnelConfiguration(@AuthToken() refreshToken: string) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    return this.funnelConfigurationService.getConfiguration(workspaceId);
+  }
+
+  @Put("funnel")
+  async updateFunnelConfiguration(
+    @AuthToken() refreshToken: string,
+    @Body() body: unknown
+  ) {
+    const parsed = funnelConfigurationUpdateInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.funnelConfigurationService.updateConfiguration(
+      workspace.id,
+      parsed.data,
+      authenticated.user.id
+    );
   }
 
   @Post()

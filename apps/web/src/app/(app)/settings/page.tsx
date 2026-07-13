@@ -1,12 +1,20 @@
 import type {
+  ConversionEventNameDto,
   ConversionRuleDto,
   CurrentWorkspaceDto,
+  FunnelConfigurationDto,
   WhatsappInstanceSummaryDto,
   WhatsappLabelDto,
   WorkspaceInviteDto,
   WorkspaceMemberDto
 } from "@wpptrack/shared";
+import { conversionEventDisplayLabels } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
+import {
+  BackofficeActionForm,
+  type BackofficeActionState
+} from "../../../components/backoffice-action-form";
+import { PendingSubmitButton } from "../../../components/pending-submit-button";
 import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
@@ -27,6 +35,11 @@ type AccountSettingsResult = {
 type ConversionRulesResult = {
   rules: ConversionRuleDto[];
   state: "real" | "empty" | "error";
+};
+
+type FunnelConfigurationResult = {
+  configuration: FunnelConfigurationDto;
+  state: "real" | "error";
 };
 
 type WorkspaceSettingsResult = {
@@ -58,6 +71,72 @@ const supportedConversionEventNames = [
   "OrderCreated"
 ] as const;
 
+function settingsActionState(
+  status: BackofficeActionState["status"],
+  message: string
+): BackofficeActionState {
+  return {
+    status,
+    message,
+    nonce: Date.now()
+  };
+}
+
+function eventDisplayLabel(eventName: ConversionEventNameDto): string {
+  return conversionEventDisplayLabels[eventName];
+}
+
+function parseMoneyToCents(value: FormDataEntryValue | null): number | null {
+  const raw = String(value ?? "").trim();
+
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = raw.includes(",")
+    ? raw.replace(/\./g, "").replace(",", ".")
+    : raw;
+  const amount = Number(normalized);
+
+  return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) : null;
+}
+
+function productItems(productName: string, valueCents: number | null) {
+  if (!productName) {
+    return null;
+  }
+
+  const id = productName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "produto";
+
+  return [
+    {
+      id,
+      quantity: 1,
+      ...(valueCents === null ? {} : { item_price: valueCents / 100 })
+    }
+  ];
+}
+
+function moneyInputValue(valueCents: number | null | undefined): string {
+  return valueCents == null ? "" : (valueCents / 100).toFixed(2).replace(".", ",");
+}
+
+function moneyLabel(valueCents: number | null | undefined, currency?: string | null): string {
+  if (valueCents == null) {
+    return "Valor nao informado";
+  }
+
+  return (valueCents / 100).toLocaleString("pt-BR", {
+    currency: currency ?? "BRL",
+    style: "currency"
+  });
+}
+
 async function getAccountSettings(): Promise<AccountSettingsResult> {
   try {
     const account = await serverApiFetch<{ user: AccountUserDto }>("/auth/me");
@@ -85,6 +164,24 @@ async function getConversionRules(): Promise<ConversionRulesResult> {
   } catch {
     return {
       rules: [],
+      state: "error"
+    };
+  }
+}
+
+async function getFunnelConfiguration(): Promise<FunnelConfigurationResult> {
+  try {
+    const configuration = await serverApiFetch<FunnelConfigurationDto>(
+      "/conversion-rules/funnel"
+    );
+
+    return {
+      configuration,
+      state: "real"
+    };
+  } catch {
+    return {
+      configuration: { stages: [] },
       state: "error"
     };
   }
@@ -181,7 +278,10 @@ function shortDate(value: string): string {
   });
 }
 
-async function createConversionRule(formData: FormData) {
+async function createConversionRule(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
   "use server";
 
   const name = String(formData.get("name") ?? "").trim();
@@ -189,10 +289,14 @@ async function createConversionRule(formData: FormData) {
   const triggerValue = String(formData.get("triggerValue") ?? "").trim();
   const matchMode = String(formData.get("matchMode") ?? "contains");
   const eventName = String(formData.get("eventName") ?? "LeadSubmitted");
-  const pixelId = String(formData.get("pixelId") ?? "").trim();
+  const productName = String(formData.get("productName") ?? "").trim();
+  const defaultValueCents = parseMoneyToCents(formData.get("defaultValue"));
+  const defaultCurrency = String(formData.get("defaultCurrency") ?? "BRL")
+    .trim()
+    .toUpperCase();
 
   if (!name || !triggerValue) {
-    return;
+    return settingsActionState("error", "Informe o nome e o gatilho da regra.");
   }
 
   try {
@@ -204,13 +308,105 @@ async function createConversionRule(formData: FormData) {
         triggerValue,
         matchMode,
         eventName,
-        pixelId: pixelId || null,
+        pixelId: null,
+        defaultValueCents,
+        defaultCurrency: defaultValueCents === null ? null : defaultCurrency,
+        defaultContentName: productName || null,
+        defaultItems: productItems(productName, defaultValueCents),
         active: true
       })
     });
     revalidatePath("/settings");
+    revalidatePath("/overview");
+    revalidatePath("/reports");
+
+    return settingsActionState("success", "Regra de conversao criada.");
   } catch {
-    return;
+    return settingsActionState("error", "Nao foi possivel criar a regra.");
+  }
+}
+
+async function updateConversionRuleDetails(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const ruleId = String(formData.get("ruleId") ?? "").trim();
+  const productName = String(formData.get("productName") ?? "").trim();
+  const defaultValueCents = parseMoneyToCents(formData.get("defaultValue"));
+  const defaultCurrency = String(formData.get("defaultCurrency") ?? "BRL")
+    .trim()
+    .toUpperCase();
+
+  if (!ruleId) {
+    return settingsActionState("error", "Regra de conversao nao identificada.");
+  }
+
+  try {
+    await serverApiFetch(`/conversion-rules/${ruleId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        defaultValueCents,
+        defaultCurrency: defaultValueCents === null ? null : defaultCurrency,
+        defaultContentName: productName || null,
+        defaultItems: productItems(productName, defaultValueCents)
+      })
+    });
+    revalidatePath("/settings");
+
+    return settingsActionState("success", "Produto e valor atualizados.");
+  } catch {
+    return settingsActionState("error", "Nao foi possivel atualizar a regra.");
+  }
+}
+
+async function saveFunnelConfiguration(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const eventNames = formData
+    .getAll("stageEventName")
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+
+  if (eventNames.length === 0) {
+    return settingsActionState("error", "Nenhuma etapa de funil foi encontrada.");
+  }
+
+  const stages = eventNames.map((eventName, index) => ({
+    eventName,
+    label: String(formData.get(`stageLabel:${eventName}`) ?? "").trim(),
+    position:
+      Number(formData.get(`stagePosition:${eventName}`) ?? index + 1) || index + 1,
+    visible: formData.get(`stageVisible:${eventName}`) === "on",
+    defaultValueCents: parseMoneyToCents(
+      formData.get(`stageValue:${eventName}`)
+    ),
+    defaultCurrency: String(
+      formData.get(`stageCurrency:${eventName}`) ?? "BRL"
+    )
+      .trim()
+      .toUpperCase(),
+    defaultContentName:
+      String(formData.get(`stageProduct:${eventName}`) ?? "").trim() || null
+  }));
+
+  try {
+    await serverApiFetch("/conversion-rules/funnel", {
+      method: "PUT",
+      body: JSON.stringify({ stages })
+    });
+    revalidatePath("/settings");
+    revalidatePath("/overview");
+    revalidatePath("/reports");
+    revalidatePath("/events");
+
+    return settingsActionState("success", "Jornada do funil atualizada.");
+  } catch {
+    return settingsActionState("error", "Nao foi possivel salvar o funil.");
   }
 }
 
@@ -293,11 +489,13 @@ export default async function SettingsPage() {
   const [
     workspaceSettings,
     conversionRules,
+    funnelConfiguration,
     accountSettings,
     whatsappLabelSuggestions
   ] = await Promise.all([
     getWorkspaceSettings(),
     getConversionRules(),
+    getFunnelConfiguration(),
     getAccountSettings(),
     getWhatsappLabelSuggestions()
   ]);
@@ -305,6 +503,10 @@ export default async function SettingsPage() {
   const { workspace, members, invites } = workspaceSettings;
   const accountUser = accountSettings.user;
   const whatsappLabels = whatsappLabelSuggestions.labels;
+  const funnelStages = funnelConfiguration.configuration.stages;
+  const funnelLabelByEvent = new Map(
+    funnelStages.map((stage) => [stage.eventName, stage.label])
+  );
   const canManageConversionRules = Boolean(
     workspace?.permissions.canManageIntegrations
   );
@@ -326,10 +528,9 @@ export default async function SettingsPage() {
           <p>Empresa, membros, papeis, palavras-chave, etiquetas e mapeamento de eventos.</p>
         </div>
         <div className="header-actions">
-          <span className={`status-chip${workspaceSettings.state === "error" || conversionRules.state === "error" ? " warn" : ""}`}>
-            {workspaceSettings.state === "error" || conversionRules.state === "error" ? "API indisponivel" : "API conectada"}
+          <span className={`status-chip${workspaceSettings.state === "error" || conversionRules.state === "error" || funnelConfiguration.state === "error" ? " warn" : ""}`}>
+            {workspaceSettings.state === "error" || conversionRules.state === "error" || funnelConfiguration.state === "error" ? "API indisponivel" : "API conectada"}
           </span>
-          <button className="button" type="button">Testar eventos</button>
         </div>
       </header>
 
@@ -478,23 +679,140 @@ export default async function SettingsPage() {
         </article>
       </div>
 
-      <div className="surface-panel">
+      <div className="surface-panel funnel-settings-panel">
+        <div className="section-heading-row">
+          <div>
+            <span className="eyebrow">Jornada do funil</span>
+            <h2>Etapas exibidas nos indicadores</h2>
+            <p className="muted">
+              Defina a ordem e o nome que o cliente ve em Visao geral e Relatorios.
+            </p>
+          </div>
+          <span className={`status-chip${funnelConfiguration.state === "error" ? " warn" : ""}`}>
+            {funnelConfiguration.state === "error"
+              ? "Configuracao indisponivel"
+              : `${funnelStages.filter((stage) => stage.visible).length} etapas visiveis`}
+          </span>
+        </div>
+        {canManageConversionRules && funnelStages.length > 0 ? (
+          <BackofficeActionForm
+            action={saveFunnelConfiguration}
+            className="funnel-config-form"
+          >
+            <div className="funnel-config-list">
+              {funnelStages.map((stage) => (
+                <div className="funnel-config-row" key={stage.eventName}>
+                  <input type="hidden" name="stageEventName" value={stage.eventName} />
+                  <label className="funnel-order-field">
+                    <span>Ordem</span>
+                    <input
+                      aria-label={`Ordem de ${stage.label}`}
+                      defaultValue={stage.position}
+                      min={1}
+                      name={`stagePosition:${stage.eventName}`}
+                      type="number"
+                    />
+                  </label>
+                  <label className="funnel-label-field">
+                    <span>Nome exibido</span>
+                    <input
+                      aria-label={`Nome exibido de ${stage.eventName}`}
+                      defaultValue={stage.label}
+                      maxLength={80}
+                      name={`stageLabel:${stage.eventName}`}
+                    />
+                    <small className="funnel-event-code">{stage.eventName}</small>
+                  </label>
+                  <label className="funnel-product-field">
+                    <span>Produto ou servico</span>
+                    <input
+                      defaultValue={stage.defaultContentName ?? ""}
+                      name={`stageProduct:${stage.eventName}`}
+                      placeholder="Opcional"
+                    />
+                  </label>
+                  <label className="funnel-value-field">
+                    <span>Valor medio</span>
+                    <input
+                      defaultValue={moneyInputValue(stage.defaultValueCents)}
+                      inputMode="decimal"
+                      name={`stageValue:${stage.eventName}`}
+                      placeholder="0,00"
+                    />
+                  </label>
+                  <label className="funnel-currency-field">
+                    <span>Moeda</span>
+                    <select
+                      defaultValue={stage.defaultCurrency ?? "BRL"}
+                      name={`stageCurrency:${stage.eventName}`}
+                    >
+                      <option value="BRL">BRL</option>
+                      <option value="USD">USD</option>
+                      <option value="EUR">EUR</option>
+                    </select>
+                  </label>
+                  <label className="funnel-visible-field">
+                    <input
+                      defaultChecked={stage.visible}
+                      name={`stageVisible:${stage.eventName}`}
+                      type="checkbox"
+                    />
+                    <span>Exibir</span>
+                  </label>
+                </div>
+              ))}
+            </div>
+            <div className="form-command-row">
+              <span>Ordem, nomes e valores passam a valer para os novos eventos.</span>
+              <PendingSubmitButton
+                className="button primary"
+                label="Salvar jornada"
+                pendingLabel="Salvando jornada..."
+              />
+            </div>
+          </BackofficeActionForm>
+        ) : (
+          <p className="muted">
+            {canManageConversionRules
+              ? "Nao foi possivel carregar as etapas do funil."
+              : "Sem permissao para editar a jornada."}
+          </p>
+        )}
+      </div>
+
+      <div className="surface-panel conversion-rules-panel">
         <span className="eyebrow">Mapeamento de eventos</span>
-        <h2>Etiquetas do WhatsApp viram eventos do Pixel</h2>
+        <h2>Gatilhos do WhatsApp viram eventos Meta</h2>
+        <p className="muted">
+          Relacione cada palavra ou etiqueta a um evento e, quando fizer sentido,
+          ao produto e valor usados na conversao.
+        </p>
         {canManageConversionRules ? (
           <>
-            <form className="inline-form" action={createConversionRule}>
-              <input name="name" placeholder="Nome da regra" aria-label="Nome da regra" />
-              <select name="triggerType" defaultValue="keyword" aria-label="Origem do gatilho">
-                <option value="keyword">Palavra-chave</option>
-                <option value="whatsapp_label">Etiqueta WhatsApp</option>
-              </select>
-              <input
-                name="triggerValue"
-                placeholder="Gatilho"
-                aria-label="Gatilho da regra"
-                list={whatsappLabels.length ? "whatsapp-label-options" : undefined}
-              />
+            <BackofficeActionForm
+              action={createConversionRule}
+              className="conversion-rule-create-form"
+              resetOnSuccess
+            >
+              <label>
+                <span>Nome da regra</span>
+                <input name="name" placeholder="Ex.: Venda confirmada" />
+              </label>
+              <label>
+                <span>Origem</span>
+                <select name="triggerType" defaultValue="keyword">
+                  <option value="keyword">Palavra-chave</option>
+                  <option value="whatsapp_label">Etiqueta WhatsApp</option>
+                </select>
+              </label>
+              <label>
+                <span>Gatilho</span>
+                <input
+                  name="triggerValue"
+                  placeholder="Texto ou etiqueta"
+                  list={whatsappLabels.length ? "whatsapp-label-options" : undefined}
+                />
+              </label>
               {whatsappLabels.length ? (
                 <datalist id="whatsapp-label-options">
                   {whatsappLabels.map((label) => (
@@ -502,41 +820,71 @@ export default async function SettingsPage() {
                   ))}
                 </datalist>
               ) : null}
-              <select name="matchMode" defaultValue="contains" aria-label="Modo de comparacao">
-                <option value="contains">Contem</option>
-                <option value="exact">Igual a</option>
-              </select>
-              <select name="eventName" defaultValue="LeadSubmitted" aria-label="Evento Meta">
-                {supportedConversionEventNames.map((eventName) => (
-                  <option key={eventName} value={eventName}>
-                    {eventName}
-                  </option>
-                ))}
-              </select>
-              <input name="pixelId" placeholder="Pixel opcional" aria-label="Pixel opcional" />
-              <button className="button primary" type="submit">Criar regra</button>
-            </form>
-            <p className="muted">Nova regra de conversao</p>
+              <label>
+                <span>Comparacao</span>
+                <select name="matchMode" defaultValue="contains">
+                  <option value="contains">Contem</option>
+                  <option value="exact">Igual a</option>
+                </select>
+              </label>
+              <label>
+                <span>Evento Meta</span>
+                <select name="eventName" defaultValue="LeadSubmitted">
+                  {supportedConversionEventNames.map((eventName) => (
+                    <option key={eventName} value={eventName}>
+                      {eventDisplayLabel(eventName)} ({eventName})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Produto ou servico</span>
+                <input name="productName" placeholder="Ex.: Consultoria" />
+              </label>
+              <label>
+                <span>Valor da conversao</span>
+                <input
+                  inputMode="decimal"
+                  name="defaultValue"
+                  placeholder="0,00"
+                />
+              </label>
+              <label>
+                <span>Moeda</span>
+                <select name="defaultCurrency" defaultValue="BRL">
+                  <option value="BRL">BRL</option>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                </select>
+              </label>
+              <div className="conversion-rule-create-command">
+                <PendingSubmitButton
+                  className="button primary"
+                  label="Criar regra"
+                  pendingLabel="Criando regra..."
+                />
+              </div>
+            </BackofficeActionForm>
             <p className="muted">
               {whatsappLabels.length
-                ? `Etiquetas Uazapi disponiveis: ${whatsappLabels.join(", ")}`
+                ? `Etiquetas disponiveis: ${whatsappLabels.join(", ")}`
                 : whatsappLabelSuggestions.state === "error"
-                  ? "Etiquetas Uazapi indisponiveis agora; ainda e possivel digitar o gatilho manualmente."
-                  : "Nenhuma etiqueta Uazapi carregada para instancias ativas."}
+                  ? "Etiquetas do WhatsApp indisponiveis agora; o gatilho ainda pode ser digitado."
+                  : "Nenhuma etiqueta foi carregada para as instancias ativas."}
             </p>
           </>
         ) : (
           <p className="muted">Sem permissao para editar regras</p>
         )}
-        <div className="table-wrap">
+        <div className="table-wrap conversion-rules-table">
           <table>
             <thead>
               <tr>
                 <th>Regra</th>
-                <th>Origem</th>
-                <th>Evento Meta</th>
                 <th>Gatilho</th>
-                <th>Saude</th>
+                <th>Evento Meta</th>
+                <th>Produto / valor</th>
+                <th>Status</th>
                 <th>Acao</th>
               </tr>
             </thead>
@@ -544,10 +892,19 @@ export default async function SettingsPage() {
               {rules.length > 0 ? (
                 rules.map((rule) => (
                   <tr key={rule.id}>
-                    <td><strong>{rule.name}</strong><span>{matchLabel(rule)}</span></td>
-                    <td>{triggerLabel(rule)}</td>
-                    <td>{rule.eventName}</td>
-                    <td>{rule.triggerValue}</td>
+                    <td><strong>{rule.name}</strong><span>{triggerLabel(rule)}</span></td>
+                    <td><strong>{rule.triggerValue}</strong><span>{matchLabel(rule)}</span></td>
+                    <td>
+                      <strong>
+                        {funnelLabelByEvent.get(rule.eventName) ??
+                          eventDisplayLabel(rule.eventName)}
+                      </strong>
+                      <span>{rule.eventName}</span>
+                    </td>
+                    <td>
+                      <strong>{rule.defaultContentName ?? "Sem produto"}</strong>
+                      <span>{moneyLabel(rule.defaultValueCents, rule.defaultCurrency)}</span>
+                    </td>
                     <td>
                       <span className={`event-chip${rule.active ? "" : " warn"}`}>
                         {rule.active ? "ativo" : "pausado"}
@@ -555,13 +912,57 @@ export default async function SettingsPage() {
                     </td>
                     <td>
                       {canManageConversionRules ? (
-                        <form action={updateConversionRuleStatus}>
-                          <input type="hidden" name="ruleId" value={rule.id} />
-                          <input type="hidden" name="active" value={String(!rule.active)} />
-                          <button className="button" type="submit">
-                            {rule.active ? "Pausar" : "Ativar"}
-                          </button>
-                        </form>
+                        <div className="rule-action-stack">
+                          <details className="rule-edit-details">
+                            <summary className="button">Editar valor</summary>
+                            <BackofficeActionForm
+                              action={updateConversionRuleDetails}
+                              className="rule-edit-form"
+                            >
+                              <input type="hidden" name="ruleId" value={rule.id} />
+                              <label>
+                                <span>Produto ou servico</span>
+                                <input
+                                  defaultValue={rule.defaultContentName ?? ""}
+                                  name="productName"
+                                  placeholder="Produto ou servico"
+                                />
+                              </label>
+                              <label>
+                                <span>Valor</span>
+                                <input
+                                  defaultValue={moneyInputValue(rule.defaultValueCents)}
+                                  inputMode="decimal"
+                                  name="defaultValue"
+                                  placeholder="0,00"
+                                />
+                              </label>
+                              <label>
+                                <span>Moeda</span>
+                                <select
+                                  defaultValue={rule.defaultCurrency ?? "BRL"}
+                                  name="defaultCurrency"
+                                >
+                                  <option value="BRL">BRL</option>
+                                  <option value="USD">USD</option>
+                                  <option value="EUR">EUR</option>
+                                </select>
+                              </label>
+                              <PendingSubmitButton
+                                className="button primary"
+                                label="Salvar valor"
+                                pendingLabel="Salvando..."
+                              />
+                            </BackofficeActionForm>
+                          </details>
+                          <form action={updateConversionRuleStatus}>
+                            <input type="hidden" name="ruleId" value={rule.id} />
+                            <input type="hidden" name="active" value={String(!rule.active)} />
+                            <button className="button" type="submit">
+                              {rule.active ? "Pausar" : "Ativar"}
+                            </button>
+                          </form>
+                        </div>
                       ) : (
                         <span className="event-chip warn">sem permissao</span>
                       )}

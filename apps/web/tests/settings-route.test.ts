@@ -7,6 +7,34 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function funnelConfigurationResponse() {
+  return new Response(
+    JSON.stringify({
+      stages: [
+        {
+          eventName: "LeadSubmitted",
+          label: "Conversas reais iniciadas",
+          position: 1,
+          visible: true
+        },
+        {
+          eventName: "QualifiedLead",
+          label: "Oportunidade qualificada",
+          position: 2,
+          visible: true
+        },
+        {
+          eventName: "Purchase",
+          label: "Vendas",
+          position: 3,
+          visible: false
+        }
+      ]
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } }
+  );
+}
+
 function mockSettingsFetch(options: {
   rulesBody: unknown;
   rulesStatus?: number;
@@ -23,6 +51,10 @@ function mockSettingsFetch(options: {
         status: options.rulesStatus ?? 200,
         headers: { "Content-Type": "application/json" }
       });
+    }
+
+    if (url.endsWith("/conversion-rules/funnel")) {
+      return funnelConfigurationResponse();
     }
 
     if (url.endsWith("/auth/me")) {
@@ -109,6 +141,10 @@ describe("settings route", () => {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });
+      }
+
+      if (url.endsWith("/conversion-rules/funnel")) {
+        return funnelConfigurationResponse();
       }
 
       if (url.endsWith("/auth/me")) {
@@ -225,7 +261,8 @@ describe("settings route", () => {
     expect(html).toContain("Convidar membro");
     expect(html).toContain("Email do convidado");
     expect(html).not.toContain("3 usuarios ativos");
-    expect(html).not.toContain("Vendas");
+    expect(html).toContain("Jornada do funil");
+    expect(html).toContain("Salvar jornada");
   });
 
   it("renders conversion rules returned by the backend", async () => {
@@ -240,6 +277,10 @@ describe("settings route", () => {
           matchMode: "contains",
           eventName: "QualifiedLead",
           pixelId: null,
+          defaultValueCents: 9900,
+          defaultCurrency: "BRL",
+          defaultContentName: "Consultoria inicial",
+          defaultItems: null,
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
           updatedAt: "2026-07-02T03:00:00.000Z"
@@ -257,12 +298,17 @@ describe("settings route", () => {
     expect(html).toContain("Lead qualificado por palavra");
     expect(html).toContain("Palavra-chave");
     expect(html).toContain("quero comprar");
-    expect(html).toContain("QualifiedLead");
-    expect(html).toContain("Nova regra de conversao");
+    expect(html).toContain("Oportunidade qualificada");
+    expect(html).toContain("Consultoria inicial");
+    expect(html).toContain("99,00");
+    expect(html).toContain("Produto ou servico");
+    expect(html).toContain("Valor da conversao");
     expect(html).toContain("Criar regra");
     expect(html).toContain("Nome da regra");
     expect(html).toContain("Etiqueta WhatsApp");
-    expect(html).toContain('<option value="OrderDelivered">OrderDelivered</option>');
+    expect(html).toContain(
+      '<option value="OrderDelivered">Pedido entregue (OrderDelivered)</option>'
+    );
     expect(html).not.toContain('<option value="Contact">Contact</option>');
     expect(html).not.toContain(
       '<option value="CompleteRegistration">CompleteRegistration</option>'
@@ -279,6 +325,10 @@ describe("settings route", () => {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });
+      }
+
+      if (url.endsWith("/conversion-rules/funnel")) {
+        return funnelConfigurationResponse();
       }
 
       if (url.endsWith("/auth/me")) {
@@ -377,7 +427,7 @@ describe("settings route", () => {
       "http://localhost:3333/integrations/whatsapp/instances/wpp_active/labels",
       expect.objectContaining({ credentials: "include" })
     );
-    expect(html).toContain("Etiquetas Uazapi disponiveis");
+    expect(html).toContain("Etiquetas disponiveis");
     expect(html).toContain("Venda fechada");
     expect(html).toContain('list="whatsapp-label-options"');
     expect(html).toContain('<option value="Venda fechada"></option>');
