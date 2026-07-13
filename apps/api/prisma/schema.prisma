@@ -902,6 +902,7 @@ model MetaAd {
   destinationType          String?
   creativeId               String?
   thumbnailUrl             String?
+  previewUrl               String?
   callToActionType         String?
   whatsappClassification   MetaWhatsappClassification  @default(not_whatsapp)
   classificationSource     String?

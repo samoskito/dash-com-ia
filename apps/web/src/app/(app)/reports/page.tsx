@@ -2103,6 +2103,7 @@ export default async function ReportsPage({
                         <div className="report-ad-entity">
                           <ReportAdPreview
                             adName={row.name}
+                            previewUrl={row.previewUrl}
                             thumbnailUrl={row.thumbnailUrl}
                           />
                           <div className="report-entity-copy">

@@ -178,6 +178,7 @@ export const adReportRowSchema = z.object({
   configuredStatus: z.string().min(1).nullable().optional(),
   effectiveStatus: z.string().min(1).nullable().optional(),
   thumbnailUrl: z.string().url().nullable().optional(),
+  previewUrl: z.string().url().nullable().optional(),
   ...reportMetricShape,
 });
 

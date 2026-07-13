@@ -415,6 +415,7 @@ describe("shared contracts", () => {
           configuredStatus: "ACTIVE",
           effectiveStatus: "ACTIVE",
           thumbnailUrl: "https://cdn.example.test/ad-1.jpg",
+          previewUrl: "https://cdn.example.test/ad-1-large.jpg",
           ...approvedReportMetrics
         }
       ]
@@ -427,6 +428,9 @@ describe("shared contracts", () => {
     expect(adSets.adSets[0]?.budget?.owner).toBe("adset");
     expect(ads.ads[0]?.adSetName).toBe("Publico quente");
     expect(ads.ads[0]?.thumbnailUrl).toBe("https://cdn.example.test/ad-1.jpg");
+    expect(ads.ads[0]?.previewUrl).toBe(
+      "https://cdn.example.test/ad-1-large.jpg"
+    );
     expect(ads.ads[0]?.roasWithRepurchase).toBe(4.1667);
   });
 

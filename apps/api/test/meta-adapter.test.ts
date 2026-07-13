@@ -402,8 +402,27 @@ describe("meta adapter oauth", () => {
 
   it("lists ads with creative WhatsApp CTA", async () => {
     const fetcher = vi.fn(
-      async () =>
-        new Response(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          const body = init.body as URLSearchParams;
+          expect(body.get("batch")).toContain("thumbnail_width=1200");
+
+          return new Response(
+            JSON.stringify([
+              {
+                code: 200,
+                body: JSON.stringify({
+                  id: "creative_1",
+                  image_url: "https://example.com/creative-high.jpg",
+                  thumbnail_url: "https://example.com/creative-rendered.jpg",
+                }),
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+
+        return new Response(
           JSON.stringify({
             data: [
               {
@@ -422,7 +441,8 @@ describe("meta adapter oauth", () => {
             ],
           }),
           { status: 200 },
-        ),
+        );
+      },
     ) as unknown as typeof fetch;
     const adapter = new MetaAdapter({}, fetcher);
 
@@ -433,13 +453,110 @@ describe("meta adapter oauth", () => {
         creativeId: "creative_1",
         callToActionType: "WHATSAPP_MESSAGE",
         thumbnailUrl: "https://example.com/creative.jpg",
+        previewUrl: "https://example.com/creative-high.jpg",
       },
     ]);
+  });
+
+  it("uses the largest video thumbnail for the creative preview", async () => {
+    let batchCall = 0;
+    const fetcher = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          batchCall += 1;
+
+          if (batchCall === 1) {
+            return new Response(
+              JSON.stringify([
+                {
+                  code: 200,
+                  body: JSON.stringify({
+                    id: "creative_1",
+                    thumbnail_url: "https://example.com/video-rendered.jpg",
+                    video_id: "video_1",
+                  }),
+                },
+              ]),
+              { status: 200 },
+            );
+          }
+
+          return new Response(
+            JSON.stringify([
+              {
+                code: 200,
+                body: JSON.stringify({
+                  data: [
+                    {
+                      uri: "https://example.com/video-small.jpg",
+                      width: 320,
+                      height: 180,
+                      is_preferred: true,
+                    },
+                    {
+                      uri: "https://example.com/video-large.jpg",
+                      width: 1920,
+                      height: 1080,
+                      is_preferred: false,
+                    },
+                  ],
+                }),
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "ad_1",
+                name: "Anuncio em video",
+                campaign_id: "cmp_1",
+                adset_id: "adset_1",
+                creative: {
+                  id: "creative_1",
+                  thumbnail_url: "https://example.com/video-small.jpg",
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      },
+    ) as unknown as typeof fetch;
+    const adapter = new MetaAdapter({}, fetcher);
+
+    await expect(
+      adapter.listAds({ accessToken: "meta-token", adAccountId: "act_123" }),
+    ).resolves.toMatchObject([
+      {
+        thumbnailUrl: "https://example.com/video-small.jpg",
+        previewUrl: "https://example.com/video-large.jpg",
+      },
+    ]);
+    expect(batchCall).toBe(2);
   });
 
   it("lists campaigns, ad sets, ads and campaign insights from the selected ad account", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
+
+      if (url === "https://graph.facebook.com/v25.0") {
+        return new Response(
+          JSON.stringify([
+            {
+              code: 200,
+              body: JSON.stringify({
+                id: "creative_1",
+                image_url: "https://example.com/ad-1-high.jpg",
+              }),
+            },
+          ]),
+          { status: 200 },
+        );
+      }
 
       if (url.includes("/campaigns")) {
         return new Response(
@@ -649,6 +766,7 @@ describe("meta adapter oauth", () => {
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
         thumbnailUrl: "https://example.com/ad-1.jpg",
+        previewUrl: "https://example.com/ad-1-high.jpg",
         callToActionType: null,
       },
     ]);

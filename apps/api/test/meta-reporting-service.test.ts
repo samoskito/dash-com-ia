@@ -519,6 +519,7 @@ function createHarness() {
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
         thumbnailUrl: "https://example.com/ad-1.jpg" as string | null,
+        previewUrl: "https://example.com/ad-1-high.jpg" as string | null,
         callToActionType: "WHATSAPP_MESSAGE" as string | null,
       },
     ]),
@@ -1291,6 +1292,7 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       creativeId: "creative_1",
       thumbnailUrl: "https://example.com/ad-1.jpg",
+      previewUrl: "https://example.com/ad-1-high.jpg",
       callToActionType: "WHATSAPP_MESSAGE",
       whatsappClassification: "auto_whatsapp",
     });
@@ -1501,6 +1503,7 @@ describe("meta reporting service", () => {
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
         thumbnailUrl: null as string | null,
+        previewUrl: null as string | null,
         callToActionType: null,
       },
     ]);
@@ -1591,6 +1594,7 @@ describe("meta reporting service", () => {
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
         thumbnailUrl: null as string | null,
+        previewUrl: null as string | null,
         callToActionType: null as string | null,
       },
     ]);
@@ -1656,6 +1660,7 @@ describe("meta reporting service", () => {
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
         thumbnailUrl: null as string | null,
+        previewUrl: null as string | null,
         callToActionType: null as string | null,
       },
     ]);
@@ -2780,6 +2785,7 @@ describe("meta reporting service", () => {
           configuredStatus: "ACTIVE",
           effectiveStatus: "ACTIVE",
           thumbnailUrl: "https://example.com/ad-1.jpg",
+          previewUrl: "https://example.com/ad-1-high.jpg",
           businessId: "business_1",
           adAccountId: "act_123",
           whatsappClassification: "auto_whatsapp",

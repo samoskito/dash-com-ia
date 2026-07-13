@@ -1,7 +1,7 @@
 "use client";
 
 import { ImageOff, Maximize2, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type HoverPosition = {
@@ -9,23 +9,40 @@ type HoverPosition = {
   top: number;
 };
 
-const hoverWidth = 248;
+const hoverWidth = 312;
+const hoverHeight = 468;
 const hoverGap = 10;
 
 export function ReportAdPreview({
   adName,
+  previewUrl,
   thumbnailUrl,
 }: {
   adName: string;
+  previewUrl?: string | null;
   thumbnailUrl?: string | null;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [imageFailed, setImageFailed] = useState(false);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [hoverPosition, setHoverPosition] = useState<HoverPosition | null>(
     null,
   );
-  const imageAvailable = Boolean(thumbnailUrl && !imageFailed);
+  const thumbnailSource =
+    (!thumbnailFailed && thumbnailUrl) ||
+    (!previewFailed && previewUrl) ||
+    null;
+  const previewSource =
+    (!previewFailed && previewUrl) ||
+    (!thumbnailFailed && thumbnailUrl) ||
+    null;
+  const imageAvailable = Boolean(thumbnailSource && previewSource);
+
+  useEffect(() => {
+    setPreviewFailed(false);
+    setThumbnailFailed(false);
+  }, [previewUrl, thumbnailUrl]);
 
   function showHoverPreview() {
     if (!imageAvailable || !buttonRef.current) {
@@ -39,7 +56,7 @@ export function ReportAdPreview({
       : Math.max(12, rect.left - hoverWidth - hoverGap);
     const top = Math.min(
       Math.max(12, rect.top - 70),
-      Math.max(12, window.innerHeight - 372),
+      Math.max(12, window.innerHeight - hoverHeight),
     );
 
     setHoverPosition({ left, top });
@@ -47,6 +64,29 @@ export function ReportAdPreview({
 
   function hideHoverPreview() {
     setHoverPosition(null);
+  }
+
+  function openPreview() {
+    hideHoverPreview();
+    dialogRef.current?.showModal();
+  }
+
+  function handleThumbnailError() {
+    if (thumbnailSource === thumbnailUrl) {
+      setThumbnailFailed(true);
+      return;
+    }
+
+    setPreviewFailed(true);
+  }
+
+  function handlePreviewError() {
+    if (previewSource === previewUrl) {
+      setPreviewFailed(true);
+      return;
+    }
+
+    setThumbnailFailed(true);
   }
 
   if (!imageAvailable) {
@@ -68,7 +108,7 @@ export function ReportAdPreview({
         aria-label={`Ampliar criativo do anuncio ${adName}`}
         className="report-ad-thumbnail"
         onBlur={hideHoverPreview}
-        onClick={() => dialogRef.current?.showModal()}
+        onClick={openPreview}
         onFocus={showHoverPreview}
         onMouseEnter={showHoverPreview}
         onMouseLeave={hideHoverPreview}
@@ -79,9 +119,9 @@ export function ReportAdPreview({
         <img
           alt=""
           loading="lazy"
-          onError={() => setImageFailed(true)}
+          onError={handleThumbnailError}
           referrerPolicy="no-referrer"
-          src={thumbnailUrl ?? undefined}
+          src={thumbnailSource ?? undefined}
         />
         <span aria-hidden="true" className="report-ad-thumbnail-action">
           <Maximize2 size={13} strokeWidth={2.2} />
@@ -97,8 +137,9 @@ export function ReportAdPreview({
             >
               <img
                 alt=""
+                onError={handlePreviewError}
                 referrerPolicy="no-referrer"
-                src={thumbnailUrl ?? undefined}
+                src={previewSource ?? undefined}
               />
               <strong>{adName}</strong>
             </div>,
@@ -125,8 +166,9 @@ export function ReportAdPreview({
         <div className="report-ad-preview-stage">
           <img
             alt={`Criativo do anuncio ${adName}`}
+            onError={handlePreviewError}
             referrerPolicy="no-referrer"
-            src={thumbnailUrl ?? undefined}
+            src={previewSource ?? undefined}
           />
         </div>
       </dialog>

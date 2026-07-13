@@ -187,6 +187,7 @@ type MetaAdRecord = {
   destinationType?: string | null;
   callToActionType?: string | null;
   thumbnailUrl?: string | null;
+  previewUrl?: string | null;
   businessId?: string | null;
   adAccountId?: string | null;
   whatsappClassification?: WhatsappClassification;
@@ -2413,6 +2414,7 @@ export class MetaReportingService {
       destinationType: input.destinationType,
       creativeId: input.ad.creativeId,
       thumbnailUrl: input.ad.thumbnailUrl ?? null,
+      previewUrl: input.ad.previewUrl ?? null,
       callToActionType: input.ad.callToActionType,
       whatsappClassification: input.classification,
       classificationSource: input.classificationSource,
@@ -2596,6 +2598,7 @@ export class MetaReportingService {
       configuredStatus: input.ad.status,
       effectiveStatus: input.ad.effectiveStatus,
       thumbnailUrl: input.ad.thumbnailUrl ?? null,
+      previewUrl: input.ad.previewUrl ?? null,
       businessId: input.ad.businessId,
       adAccountId: input.ad.adAccountId,
       whatsappClassification: input.ad.whatsappClassification,

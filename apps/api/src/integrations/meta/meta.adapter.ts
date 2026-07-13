@@ -108,6 +108,7 @@ export type MetaAdAsset = {
   effectiveStatus: string | null;
   creativeId: string | null;
   thumbnailUrl: string | null;
+  previewUrl: string | null;
   callToActionType: string | null;
 };
 
@@ -163,6 +164,36 @@ type MetaAdSetGraphNode = {
   lifetime_budget?: unknown;
 };
 
+type MetaCreativeGraphNode = {
+  id?: unknown;
+  call_to_action_type?: unknown;
+  thumbnail_url?: unknown;
+  image_url?: unknown;
+  video_id?: unknown;
+  object_story_spec?: {
+    video_data?: {
+      image_url?: unknown;
+      video_id?: unknown;
+    };
+    link_data?: {
+      image_url?: unknown;
+      child_attachments?: Array<{
+        image_url?: unknown;
+        video_id?: unknown;
+      }>;
+    };
+  };
+  asset_feed_spec?: {
+    images?: Array<{
+      url?: unknown;
+    }>;
+    videos?: Array<{
+      thumbnail_url?: unknown;
+      video_id?: unknown;
+    }>;
+  };
+};
+
 type MetaAdGraphNode = {
   id?: unknown;
   name?: unknown;
@@ -170,11 +201,19 @@ type MetaAdGraphNode = {
   adset_id?: unknown;
   status?: unknown;
   effective_status?: unknown;
-  creative?: {
-    id?: unknown;
-    call_to_action_type?: unknown;
-    thumbnail_url?: unknown;
-  };
+  creative?: MetaCreativeGraphNode;
+};
+
+type MetaVideoThumbnailGraphNode = {
+  uri?: unknown;
+  height?: unknown;
+  width?: unknown;
+  is_preferred?: unknown;
+};
+
+type MetaGraphBatchItem = {
+  code?: unknown;
+  body?: unknown;
 };
 
 type MetaInsightGraphNode = {
@@ -594,19 +633,45 @@ export class MetaAdapter implements IntegrationAdapter {
       "id,name,campaign_id,adset_id,status,effective_status,creative{id,call_to_action_type,thumbnail_url}",
       input.accessToken,
     );
+    const creativeIds = [
+      ...new Set(
+        response
+          .map((item) => this.asString(item.creative?.id))
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    let previewUrls = new Map<string, string>();
+
+    try {
+      previewUrls = await this.getCreativePreviewUrls(
+        creativeIds,
+        input.accessToken,
+      );
+    } catch (error) {
+      console.warn("[wpptrack:meta-graph] creative preview enrichment failed", {
+        creativeCount: creativeIds.length,
+        message:
+          error instanceof Error ? error.message : "Meta Graph batch failed",
+      });
+    }
 
     return response
-      .map((item) => ({
-        id: this.asString(item.id),
-        name: this.asString(item.name),
-        campaignId: this.asString(item.campaign_id),
-        adSetId: this.asString(item.adset_id),
-        status: this.asString(item.status),
-        effectiveStatus: this.asString(item.effective_status),
-        creativeId: this.asString(item.creative?.id),
-        thumbnailUrl: this.asString(item.creative?.thumbnail_url),
-        callToActionType: this.asString(item.creative?.call_to_action_type),
-      }))
+      .map((item) => {
+        const creativeId = this.asString(item.creative?.id);
+
+        return {
+          id: this.asString(item.id),
+          name: this.asString(item.name),
+          campaignId: this.asString(item.campaign_id),
+          adSetId: this.asString(item.adset_id),
+          status: this.asString(item.status),
+          effectiveStatus: this.asString(item.effective_status),
+          creativeId,
+          thumbnailUrl: this.asHttpUrl(item.creative?.thumbnail_url),
+          previewUrl: creativeId ? (previewUrls.get(creativeId) ?? null) : null,
+          callToActionType: this.asString(item.creative?.call_to_action_type),
+        };
+      })
       .filter((item): item is MetaAdAsset =>
         Boolean(item.id && item.name && item.campaignId && item.adSetId),
       );
@@ -780,6 +845,29 @@ export class MetaAdapter implements IntegrationAdapter {
     return null;
   }
 
+  private asHttpUrl(value: unknown): string | null {
+    const candidate = this.asString(value);
+
+    if (!candidate) {
+      return null;
+    }
+
+    try {
+      const url = new URL(candidate);
+      return url.protocol === "http:" || url.protocol === "https:"
+        ? candidate
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> | null {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  }
+
   private asPositiveInteger(value: unknown): number | null {
     return typeof value === "number" && Number.isInteger(value) && value > 0
       ? value
@@ -874,6 +962,253 @@ export class MetaAdapter implements IntegrationAdapter {
     const initialUrl = `https://graph.facebook.com/${this.getGraphApiVersion()}${path}?${params.toString()}`;
 
     return this.getGraphPages<T>(initialUrl, path);
+  }
+
+  private async getCreativePreviewUrls(
+    creativeIds: string[],
+    accessToken: string,
+  ): Promise<Map<string, string>> {
+    if (creativeIds.length === 0) {
+      return new Map();
+    }
+
+    const creativeFields = [
+      "id",
+      "thumbnail_url",
+      "image_url",
+      "video_id",
+      "object_story_spec",
+      "asset_feed_spec",
+    ].join(",");
+    const creatives = await this.getGraphBatch<MetaCreativeGraphNode>(
+      creativeIds.map((creativeId) => {
+        const params = new URLSearchParams({
+          fields: creativeFields,
+          thumbnail_width: "1200",
+          thumbnail_height: "1200",
+        });
+
+        return {
+          key: creativeId,
+          relativeUrl: `${creativeId}?${params.toString()}`,
+        };
+      }),
+      accessToken,
+      "/creative-previews",
+    );
+    const videoIds = [
+      ...new Set(
+        [...creatives.values()]
+          .map((creative) => this.creativeVideoId(creative))
+          .filter((videoId): videoId is string => Boolean(videoId)),
+      ),
+    ];
+    const videoThumbnailPayloads = await this.getGraphBatch<
+      MetaGraphListResponse<MetaVideoThumbnailGraphNode>
+    >(
+      videoIds.map((videoId) => {
+        const params = new URLSearchParams({
+          fields: "uri,width,height,is_preferred",
+          limit: "100",
+        });
+
+        return {
+          key: videoId,
+          relativeUrl: `${videoId}/thumbnails?${params.toString()}`,
+        };
+      }),
+      accessToken,
+      "/video-thumbnails",
+    );
+    const videoPreviewUrls = new Map<string, string>();
+
+    for (const [videoId, payload] of videoThumbnailPayloads) {
+      const thumbnailUrl = this.largestVideoThumbnailUrl(payload.data);
+
+      if (thumbnailUrl) {
+        videoPreviewUrls.set(videoId, thumbnailUrl);
+      }
+    }
+
+    const previewUrls = new Map<string, string>();
+
+    for (const [creativeId, creative] of creatives) {
+      const previewUrl = this.creativePreviewUrl(creative, videoPreviewUrls);
+
+      if (previewUrl) {
+        previewUrls.set(creativeId, previewUrl);
+      }
+    }
+
+    return previewUrls;
+  }
+
+  private creativePreviewUrl(
+    creative: MetaCreativeGraphNode,
+    videoPreviewUrls: Map<string, string>,
+  ): string | null {
+    const videoId = this.creativeVideoId(creative);
+    const videoPreviewUrl = videoId ? videoPreviewUrls.get(videoId) : null;
+
+    if (videoPreviewUrl) {
+      return videoPreviewUrl;
+    }
+
+    const candidates = [
+      creative.image_url,
+      creative.object_story_spec?.video_data?.image_url,
+      creative.object_story_spec?.link_data?.image_url,
+      ...(creative.object_story_spec?.link_data?.child_attachments ?? []).map(
+        (attachment) => attachment.image_url,
+      ),
+      ...(creative.asset_feed_spec?.images ?? []).map((image) => image.url),
+      ...(creative.asset_feed_spec?.videos ?? []).map(
+        (video) => video.thumbnail_url,
+      ),
+      creative.thumbnail_url,
+    ];
+
+    for (const candidate of candidates) {
+      const url = this.asHttpUrl(candidate);
+
+      if (url) {
+        return url;
+      }
+    }
+
+    return null;
+  }
+
+  private creativeVideoId(creative: MetaCreativeGraphNode): string | null {
+    const candidates = [
+      creative.video_id,
+      creative.object_story_spec?.video_data?.video_id,
+      ...(creative.object_story_spec?.link_data?.child_attachments ?? []).map(
+        (attachment) => attachment.video_id,
+      ),
+      ...(creative.asset_feed_spec?.videos ?? []).map(
+        (video) => video.video_id,
+      ),
+    ];
+
+    for (const candidate of candidates) {
+      const videoId = this.asString(candidate);
+
+      if (videoId) {
+        return videoId;
+      }
+    }
+
+    return null;
+  }
+
+  private largestVideoThumbnailUrl(
+    thumbnails: MetaVideoThumbnailGraphNode[] | undefined,
+  ): string | null {
+    const candidates = (thumbnails ?? [])
+      .map((thumbnail) => ({
+        area:
+          this.asInteger(thumbnail.width) * this.asInteger(thumbnail.height),
+        preferred: thumbnail.is_preferred === true,
+        url: this.asHttpUrl(thumbnail.uri),
+      }))
+      .filter((thumbnail): thumbnail is typeof thumbnail & { url: string } =>
+        Boolean(thumbnail.url),
+      )
+      .sort(
+        (left, right) =>
+          right.area - left.area ||
+          Number(right.preferred) - Number(left.preferred),
+      );
+
+    return candidates[0]?.url ?? null;
+  }
+
+  private async getGraphBatch<T>(
+    requests: Array<{ key: string; relativeUrl: string }>,
+    accessToken: string,
+    operation: string,
+  ): Promise<Map<string, T>> {
+    const startedAt = Date.now();
+    const results = new Map<string, T>();
+    let batchCount = 0;
+
+    try {
+      for (let offset = 0; offset < requests.length; offset += 50) {
+        const chunk = requests.slice(offset, offset + 50);
+        batchCount += 1;
+        const body = new URLSearchParams({
+          access_token: accessToken,
+          batch: JSON.stringify(
+            chunk.map((request) => ({
+              method: "GET",
+              relative_url: request.relativeUrl,
+            })),
+          ),
+        });
+        const response = await this.fetchImpl(
+          `https://graph.facebook.com/${this.getGraphApiVersion()}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body,
+          },
+        );
+        const payload = (await response.json().catch(() => null)) as unknown;
+
+        if (!response.ok || !Array.isArray(payload)) {
+          const errorPayload = this.asRecord(payload);
+          const error = this.asRecord(errorPayload?.error);
+
+          throw new Error(
+            this.asString(error?.message) ??
+              `Meta Graph batch HTTP ${response.status}`,
+          );
+        }
+
+        chunk.forEach((request, index) => {
+          const item = this.asRecord(
+            payload[index],
+          ) as MetaGraphBatchItem | null;
+          const code = this.asInteger(item?.code);
+
+          if (code < 200 || code >= 300) {
+            return;
+          }
+
+          const parsedBody = this.parseGraphBatchBody<T>(item?.body);
+
+          if (parsedBody) {
+            results.set(request.key, parsedBody);
+          }
+        });
+      }
+
+      return results;
+    } finally {
+      this.logSlowGraphList(
+        operation,
+        Date.now() - startedAt,
+        batchCount,
+        results.size,
+      );
+    }
+  }
+
+  private parseGraphBatchBody<T>(body: unknown): T | null {
+    let parsed = body;
+
+    if (typeof body === "string") {
+      try {
+        parsed = JSON.parse(body) as unknown;
+      } catch {
+        return null;
+      }
+    }
+
+    return this.asRecord(parsed) ? (parsed as T) : null;
   }
 
   private async postGraphUpdate(

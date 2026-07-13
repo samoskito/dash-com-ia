@@ -139,6 +139,7 @@ const adReport = {
       configuredStatus: "ACTIVE",
       effectiveStatus: "ACTIVE",
       thumbnailUrl: "https://cdn.example.test/ad-1.jpg",
+      previewUrl: "https://cdn.example.test/ad-1-large.jpg",
       ...reportMetrics(),
     },
   ],
@@ -383,6 +384,7 @@ describe("reports route", () => {
       'aria-label="Pausar campanha Black Friday WhatsApp"',
     );
     expect(adHtml).toContain("https://cdn.example.test/ad-1.jpg");
+    expect(adHtml).toContain("https://cdn.example.test/ad-1-large.jpg");
     expect(adHtml).toContain(
       'aria-label="Ampliar criativo do anuncio Criativo WhatsApp"',
     );

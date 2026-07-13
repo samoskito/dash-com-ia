@@ -1,0 +1,2 @@
+ALTER TABLE "MetaAd"
+ADD COLUMN "previewUrl" TEXT;
