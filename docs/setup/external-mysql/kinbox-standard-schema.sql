@@ -75,6 +75,7 @@ SELECT
   NULLIF(wa.`source_id`, '') AS `ad_id`,
   NULLIF(wa.`ctwaclid`, '') AS `ctwa_clid`,
   NULLIF(wa.`source_url`, '') AS `source_url`,
+  NULLIF(wa.`thumbnail`, '') AS `thumbnail_url`,
   NULLIF(wa.`status`, '') AS `status`,
   wa.`updated_at` AS `updated_at`
 FROM `whatsapp_anuncio_{{CLIENT_SUFFIX}}` wa;

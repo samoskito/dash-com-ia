@@ -33,7 +33,11 @@ describe("lead detail route", () => {
           attribution: {
             campaignName: "Black Friday WhatsApp",
             adSetName: "Publico quente",
-            adName: "Criativo WhatsApp"
+            adName: "Criativo WhatsApp",
+            creative: {
+              thumbnailUrl: "https://cdn.example.test/creative.jpg",
+              destinationUrl: "https://www.instagram.com/p/creative/"
+            }
           },
           conversionEvents: [
             {
@@ -84,6 +88,10 @@ describe("lead detail route", () => {
     expect(html).toContain("Black Friday WhatsApp");
     expect(html).toContain("Publico quente");
     expect(html).toContain("Criativo WhatsApp");
+    expect(html).toContain("Atribuicao");
+    expect(html).toContain("https://cdn.example.test/creative.jpg");
+    expect(html).toContain("Ver no Instagram");
+    expect(html).toContain("https://www.instagram.com/p/creative/");
     expect(html).toContain("QualifiedLead");
     expect(html).toContain("Ocorrido em");
     expect(html).toContain("Webhook Uazapi");

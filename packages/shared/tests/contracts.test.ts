@@ -1145,7 +1145,11 @@ describe("shared contracts", () => {
       attribution: {
         campaignName: "Black Friday WhatsApp",
         adSetName: "Publico quente",
-        adName: "Criativo WhatsApp"
+        adName: "Criativo WhatsApp",
+        creative: {
+          thumbnailUrl: "https://cdn.example.test/creative.jpg",
+          destinationUrl: "https://www.instagram.com/p/creative/"
+        }
       },
       conversionEvents: [
         {
@@ -1179,6 +1183,9 @@ describe("shared contracts", () => {
     });
 
     expect(detail.attribution.adName).toBe("Criativo WhatsApp");
+    expect(detail.attribution.creative.thumbnailUrl).toBe(
+      "https://cdn.example.test/creative.jpg"
+    );
     expect(detail.conversionEvents[0]?.status).toBe("sent");
     expect(detail.webhookEvents[0]?.source).toBe("uazapi");
   });

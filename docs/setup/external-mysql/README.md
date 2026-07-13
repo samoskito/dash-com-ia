@@ -29,6 +29,12 @@ The schema derives a stable cursor inside the read-only views. It does not alter
 
 During this explicit refresh, `qualified_at` and `purchased_at` create missing `QualifiedLead` and `Purchase` records with delivery status `imported`. These historical records are countable in the dashboard but are never queued for Meta CAPI. A lead with `first_message_at` and no conversion log is displayed and filterable as `LeadSubmitted` without fabricating a provider event ID.
 
+## Creative preview
+
+The official Meta workflow already stores the referral `thumbnail` and `source_url` in the Kinbox lead row. To expose the thumbnail to WppTrack, run `migrations/20260713_add_lead_creative_thumbnail.sql` after replacing `{{CLIENT_SUFFIX}}`, then use `Reimportar leads` once. The API remains compatible with the previous view while this SQL is pending; lead sync continues and the detail page shows an unavailable-thumbnail state instead of failing.
+
+Only public `http` or `https` URLs are returned to the web app. The detail page presents the image as the attributed creative and keeps the destination behind the `Ver no Instagram` action instead of displaying the raw URL.
+
 ## n8n dual-write contract
 
 During shadow mode, keep the current workflows and add a MySQL insert into `wpptrack_tracking_events` before any Meta HTTP request. Never derive the canonical type from Kinbox `event_name`; each workflow owns a fixed type.

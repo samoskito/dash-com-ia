@@ -97,6 +97,10 @@ export const leadDetailSchema = z.object({
     campaignName: z.string().min(1).nullable(),
     adSetName: z.string().min(1).nullable(),
     adName: z.string().min(1).nullable(),
+    creative: z.object({
+      thumbnailUrl: z.string().url().nullable(),
+      destinationUrl: z.string().url().nullable(),
+    }),
   }),
   conversionEvents: z.array(leadDetailConversionEventSchema),
   webhookEvents: z.array(leadDetailWebhookEventSchema),

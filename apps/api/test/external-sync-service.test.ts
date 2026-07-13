@@ -45,6 +45,7 @@ const leadRow: ExternalLeadRow = {
   adId: "ad_1",
   ctwaClid: "ctwa_1",
   sourceUrl: "https://example.test/ad",
+  thumbnailUrl: "https://cdn.example.test/creative.jpg",
   status: "Entrou em contato",
   updatedAt: "2026-07-11 15:00:01.000"
 };
@@ -284,6 +285,7 @@ describe("ExternalSyncService", () => {
         adId: "ad_1",
         campaignId: "campaign_1",
         adSetId: "adset_1",
+        ctwaThumbnailUrl: "https://cdn.example.test/creative.jpg",
         firstMessageAt: new Date("2026-07-11T03:00:00.000Z")
       })
     );

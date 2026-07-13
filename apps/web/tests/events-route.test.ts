@@ -176,16 +176,23 @@ describe("events route", () => {
       new URL("../src/styles/globals.css", import.meta.url),
       "utf8"
     );
-    const finalMobileBlock = css.slice(
-      css.lastIndexOf("@media (max-width: 620px)")
+    const auditStylesStart = css.indexOf(".audit-summary");
+    const auditMobileStart = css.indexOf(
+      "@media (max-width: 620px)",
+      auditStylesStart
+    );
+    const nextMediaStart = css.indexOf("@media", auditMobileStart + 1);
+    const auditMobileBlock = css.slice(
+      auditMobileStart,
+      nextMediaStart === -1 ? undefined : nextMediaStart
     );
 
     expect(css).toContain(".audit-summary");
     expect(css).toContain("grid-template-columns: repeat(6, minmax(0, 1fr));");
-    expect(finalMobileBlock).toContain(
+    expect(auditMobileBlock).toContain(
       "grid-template-columns: repeat(2, minmax(0, 1fr));"
     );
-    expect(finalMobileBlock).toContain(".report-pagination > div");
-    expect(finalMobileBlock).toContain("width: 100%;");
+    expect(auditMobileBlock).toContain(".report-pagination > div");
+    expect(auditMobileBlock).toContain("width: 100%;");
   });
 });

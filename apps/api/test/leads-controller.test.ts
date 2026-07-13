@@ -94,6 +94,10 @@ async function createApp() {
         campaignName: "Black Friday WhatsApp",
         adSetName: "Publico quente",
         adName: "Criativo WhatsApp",
+        creative: {
+          thumbnailUrl: "https://cdn.example.test/creative.jpg",
+          destinationUrl: "https://www.instagram.com/p/creative/",
+        },
       },
       conversionEvents: [
         {

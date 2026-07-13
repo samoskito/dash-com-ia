@@ -48,6 +48,7 @@ export type ExternalLeadRow = {
   adId: string | null;
   ctwaClid: string | null;
   sourceUrl: string | null;
+  thumbnailUrl: string | null;
   status: string | null;
   updatedAt: string;
 };
@@ -144,6 +145,14 @@ export class ExternalMysqlAdapter {
     limit: number
   ): Promise<ExternalLeadRow[]> {
     return this.withConnection(credentials, sslMode, async (connection) => {
+      const hasThumbnailUrl = await this.viewHasColumn(
+        connection,
+        leadsView,
+        "thumbnail_url"
+      );
+      const thumbnailSelection = hasThumbnailUrl
+        ? "thumbnail_url AS thumbnailUrl"
+        : "NULL AS thumbnailUrl";
       const rows = await this.query<RowDataPacket>(
         connection,
         `SELECT
@@ -162,6 +171,7 @@ export class ExternalMysqlAdapter {
            CAST(ad_id AS CHAR) AS adId,
            ctwa_clid AS ctwaClid,
            source_url AS sourceUrl,
+           ${thumbnailSelection},
            status,
            updated_at AS updatedAt
          FROM ${leadsView}
@@ -279,6 +289,28 @@ export class ExternalMysqlAdapter {
     return rows;
   }
 
+  private async viewHasColumn(
+    connection: ExternalMysqlConnection,
+    viewName: string,
+    columnName: string
+  ): Promise<boolean> {
+    try {
+      const rows = await this.query<RowDataPacket>(
+        connection,
+        `SELECT COUNT(*) AS columnCount
+           FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND COLUMN_NAME = ?`,
+        [viewName, columnName]
+      );
+
+      return Number(rows[0]?.columnCount ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
   private cursorValues(cursor: ExternalSyncCursorValue, limit: number): unknown[] {
     const timestamp = cursor.lastUpdatedAt ?? new Date(0);
     return [timestamp, timestamp, cursor.lastExternalId ?? "", this.safeLimit(limit)];
@@ -309,6 +341,7 @@ export class ExternalMysqlAdapter {
       adId: this.optionalString(row.adId),
       ctwaClid: this.optionalString(row.ctwaClid),
       sourceUrl: this.optionalString(row.sourceUrl),
+      thumbnailUrl: this.optionalString(row.thumbnailUrl),
       status: this.optionalString(row.status),
       updatedAt: this.requiredString(row.updatedAt, "updated_at")
     };

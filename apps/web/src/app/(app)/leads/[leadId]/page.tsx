@@ -2,6 +2,7 @@ import type { LeadDetailDto } from "@wpptrack/shared";
 import Link from "next/link";
 import { formatDateTime } from "../../../../lib/date-time";
 import { serverApiFetch } from "../../../../lib/server-api";
+import { CreativePreview } from "./creative-preview";
 
 type LeadDetailParams = {
   leadId: string;
@@ -16,12 +17,12 @@ async function getLeadDetail(leadId: string): Promise<LeadDetailResult> {
   try {
     return {
       detail: await serverApiFetch<LeadDetailDto>(`/leads/${leadId}`),
-      state: "real"
+      state: "real",
     };
   } catch {
     return {
       detail: null,
-      state: "error"
+      state: "error",
     };
   }
 }
@@ -35,12 +36,14 @@ function dateTime(value: string | null) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    month: "2-digit"
+    month: "2-digit",
   });
 }
 
 function statusTone(status: string) {
-  return ["error", "failed", "not_configured", "pending_meta_context"].includes(status)
+  return ["error", "failed", "not_configured", "pending_meta_context"].includes(
+    status,
+  )
     ? " warn"
     : "";
 }
@@ -49,8 +52,35 @@ function eventStatusLabel(status: string) {
   return status === "imported" ? "Importado" : status;
 }
 
+function AttributionStep({
+  id,
+  index,
+  label,
+  name,
+}: {
+  id: string | null;
+  index: string;
+  label: string;
+  name: string | null;
+}) {
+  const resolvedName = name ?? "Nao resolvido";
+
+  return (
+    <li className="lead-attribution-step">
+      <div className="lead-attribution-meta">
+        <span>{index}</span>
+        <span>{label}</span>
+      </div>
+      <strong title={resolvedName}>{resolvedName}</strong>
+      <small title={id ?? undefined}>
+        {id ? `ID ${id}` : "ID indisponivel"}
+      </small>
+    </li>
+  );
+}
+
 export default async function LeadDetailPage({
-  params
+  params,
 }: {
   params: Promise<LeadDetailParams>;
 }) {
@@ -69,7 +99,9 @@ export default async function LeadDetailPage({
           </div>
           <div className="header-actions">
             <span className="status-chip warn">API indisponivel</span>
-            <Link className="button" href="/leads">Voltar</Link>
+            <Link className="button" href="/leads">
+              Voltar
+            </Link>
           </div>
         </header>
       </section>
@@ -79,7 +111,7 @@ export default async function LeadDetailPage({
   const { lead } = detail;
 
   return (
-    <section className="page-stack">
+    <section className="page-stack lead-detail-page">
       <header className="page-header">
         <div>
           <span className="eyebrow">Lead</span>
@@ -88,60 +120,92 @@ export default async function LeadDetailPage({
         </div>
         <div className="header-actions">
           <span className="status-chip">{lead.status}</span>
-          <Link className="button" href="/leads">Voltar</Link>
+          <Link className="button" href="/leads">
+            Voltar
+          </Link>
         </div>
       </header>
 
-      <div className="metric-grid compact">
-        <div className="metric-card">
-          <span className="micro-label">Campanha</span>
-          <strong>{detail.attribution.campaignName ?? "Nao resolvida"}</strong>
-        </div>
-        <div className="metric-card">
-          <span className="micro-label">Conjunto</span>
-          <strong>{detail.attribution.adSetName ?? lead.adSetId ?? "-"}</strong>
-        </div>
-        <div className="metric-card">
-          <span className="micro-label">Anuncio</span>
-          <strong>{detail.attribution.adName ?? lead.adId ?? "-"}</strong>
-        </div>
-        <div className="metric-card">
-          <span className="micro-label">Ultimo evento</span>
-          <strong>{lead.lastEventName ?? "Sem evento"}</strong>
-        </div>
+      <div
+        className={`lead-attribution-layout${lead.adId ? " has-creative" : ""}`}
+      >
+        <section className="lead-attribution-panel">
+          <header className="lead-attribution-heading">
+            <span className="eyebrow">Atribuicao</span>
+            <h2>Origem do anuncio</h2>
+          </header>
+
+          <ol className="lead-attribution-path">
+            <AttributionStep
+              id={lead.campaignId}
+              index="01"
+              label="Campanha"
+              name={detail.attribution.campaignName}
+            />
+            <AttributionStep
+              id={lead.adSetId}
+              index="02"
+              label="Conjunto"
+              name={detail.attribution.adSetName ?? lead.adSetId}
+            />
+            <AttributionStep
+              id={lead.adId}
+              index="03"
+              label="Anuncio"
+              name={detail.attribution.adName ?? lead.adId}
+            />
+          </ol>
+
+          <footer className="lead-latest-event">
+            <span className="micro-label">Ultimo evento</span>
+            <strong>{lead.lastEventName ?? "Sem evento"}</strong>
+          </footer>
+        </section>
+
+        {lead.adId ? (
+          <CreativePreview
+            adName={detail.attribution.adName ?? lead.adId}
+            destinationUrl={detail.attribution.creative?.destinationUrl ?? null}
+            thumbnailUrl={detail.attribution.creative?.thumbnailUrl ?? null}
+          />
+        ) : null}
       </div>
 
-      <div className="surface-panel">
-        <span className="eyebrow">Jornada</span>
-        <h2>Rastreamento do lead</h2>
-        <div className="table-wrap">
-          <table>
-            <tbody>
-              <tr>
-                <td>Origem</td>
-                <td>{lead.source ?? "-"}</td>
-              </tr>
-              <tr>
-                <td>Primeira mensagem</td>
-                <td>{dateTime(lead.firstMessageAt)}</td>
-              </tr>
-              <tr>
-                <td>Ultima mensagem</td>
-                <td>{dateTime(lead.lastMessageAt)}</td>
-              </tr>
-              <tr>
-                <td>IDs Meta</td>
-                <td>{[lead.campaignId, lead.adSetId, lead.adId].filter(Boolean).join(" / ") || "-"}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <section className="lead-detail-section">
+        <header className="lead-detail-section-header">
+          <span className="eyebrow">Jornada</span>
+          <h2>Rastreamento do lead</h2>
+        </header>
+        <dl className="lead-facts">
+          <div>
+            <dt>Origem</dt>
+            <dd>{lead.source ?? "-"}</dd>
+          </div>
+          <div>
+            <dt>Primeira mensagem</dt>
+            <dd>{dateTime(lead.firstMessageAt)}</dd>
+          </div>
+          <div>
+            <dt>Ultima mensagem</dt>
+            <dd>{dateTime(lead.lastMessageAt)}</dd>
+          </div>
+          <div>
+            <dt>IDs Meta</dt>
+            <dd>
+              {[lead.campaignId, lead.adSetId, lead.adId]
+                .filter(Boolean)
+                .join(" / ") || "-"}
+            </dd>
+          </div>
+        </dl>
+      </section>
 
-      <div className="surface-panel">
-        <span className="eyebrow">Conversoes</span>
-        <h2>Eventos do Pixel/CAPI</h2>
-        <div className="table-wrap">
+      <section className="lead-detail-section">
+        <header className="lead-detail-section-header">
+          <span className="eyebrow">Conversoes</span>
+          <h2>Eventos do Pixel/CAPI</h2>
+        </header>
+        <div className="table-wrap lead-detail-table">
           <table>
             <thead>
               <tr>
@@ -164,7 +228,9 @@ export default async function LeadDetailPage({
                       <span className={`event-chip${statusTone(event.status)}`}>
                         {eventStatusLabel(event.status)}
                       </span>
-                      {event.errorMessage ? <span>{event.errorMessage}</span> : null}
+                      {event.errorMessage ? (
+                        <span>{event.errorMessage}</span>
+                      ) : null}
                     </td>
                     <td>{event.sourceTrigger}</td>
                     <td>{event.pixelId ?? "-"}</td>
@@ -175,19 +241,23 @@ export default async function LeadDetailPage({
                 <tr>
                   <td colSpan={5}>
                     <strong>Nenhum evento de conversao</strong>
-                    <span>Eventos por palavra-chave ou etiqueta aparecerao aqui.</span>
+                    <span>
+                      Eventos por palavra-chave ou etiqueta aparecerao aqui.
+                    </span>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <div className="surface-panel">
-        <span className="eyebrow">Webhooks</span>
-        <h2>Webhook Uazapi e diagnosticos vinculados</h2>
-        <div className="table-wrap">
+      <section className="lead-detail-section">
+        <header className="lead-detail-section-header">
+          <span className="eyebrow">Webhooks</span>
+          <h2>Webhook Uazapi e diagnosticos vinculados</h2>
+        </header>
+        <div className="table-wrap lead-detail-table">
           <table>
             <thead>
               <tr>
@@ -203,13 +273,17 @@ export default async function LeadDetailPage({
                   <tr key={event.id}>
                     <td>
                       <strong>Webhook {event.source}</strong>
-                      <span>{event.eventType} / {event.id}</span>
+                      <span>
+                        {event.eventType} / {event.id}
+                      </span>
                     </td>
                     <td>
                       <span className={`event-chip${statusTone(event.status)}`}>
                         {event.status}
                       </span>
-                      {event.errorMessage ? <span>{event.errorMessage}</span> : null}
+                      {event.errorMessage ? (
+                        <span>{event.errorMessage}</span>
+                      ) : null}
                     </td>
                     <td>{dateTime(event.receivedAt)}</td>
                     <td>{dateTime(event.processedAt)}</td>
@@ -219,14 +293,17 @@ export default async function LeadDetailPage({
                 <tr>
                   <td colSpan={4}>
                     <strong>Nenhum webhook vinculado</strong>
-                    <span>Quando houver logs com este lead/telefone, eles aparecerao aqui.</span>
+                    <span>
+                      Quando houver logs com este lead/telefone, eles aparecerao
+                      aqui.
+                    </span>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
     </section>
   );
 }

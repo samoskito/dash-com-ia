@@ -17,6 +17,9 @@ function createHarness() {
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1",
+        ctwaClid: "ctwa_click_1",
+        ctwaSourceUrl: "https://www.instagram.com/p/creative/",
+        ctwaThumbnailUrl: "https://cdn.example.test/creative.jpg",
         firstMessageAt: new Date("2026-07-02T03:00:00.000Z"),
         lastMessageAt: new Date("2026-07-02T03:10:00.000Z"),
         createdAt: new Date("2026-07-02T03:00:00.000Z"),
@@ -384,6 +387,7 @@ describe("leads service", () => {
       adId: "ad_2",
       ctwaClid: "ctwa_click_1",
       ctwaSourceUrl: "https://fb.com/ad/ctwa",
+      ctwaThumbnailUrl: "https://cdn.example.test/creative.jpg",
       occurredAt: new Date("2026-07-02T04:00:00.000Z"),
     });
     await service.upsertFromWhatsappWebhook({
@@ -404,10 +408,12 @@ describe("leads service", () => {
         create: expect.objectContaining({
           ctwaClid: "ctwa_click_1",
           ctwaSourceUrl: "https://fb.com/ad/ctwa",
+          ctwaThumbnailUrl: "https://cdn.example.test/creative.jpg",
         }),
         update: expect.objectContaining({
           ctwaClid: "ctwa_click_1",
           ctwaSourceUrl: "https://fb.com/ad/ctwa",
+          ctwaThumbnailUrl: "https://cdn.example.test/creative.jpg",
         }),
       }),
     );
@@ -417,6 +423,7 @@ describe("leads service", () => {
         update: expect.objectContaining({
           ctwaClid: undefined,
           ctwaSourceUrl: undefined,
+          ctwaThumbnailUrl: undefined,
         }),
       }),
     );
@@ -424,8 +431,10 @@ describe("leads service", () => {
 
     expect(Object.hasOwn(secondUpdate, "ctwaClid")).toBe(true);
     expect(Object.hasOwn(secondUpdate, "ctwaSourceUrl")).toBe(true);
+    expect(Object.hasOwn(secondUpdate, "ctwaThumbnailUrl")).toBe(true);
     expect(secondUpdate.ctwaClid).toBeUndefined();
     expect(secondUpdate.ctwaSourceUrl).toBeUndefined();
+    expect(secondUpdate.ctwaThumbnailUrl).toBeUndefined();
   });
 
   it("returns lead detail with attribution, conversions and webhook timeline", async () => {
@@ -450,6 +459,10 @@ describe("leads service", () => {
         campaignName: "Black Friday WhatsApp",
         adSetName: "Publico quente",
         adName: "Criativo WhatsApp",
+        creative: {
+          thumbnailUrl: "https://cdn.example.test/creative.jpg",
+          destinationUrl: "https://www.instagram.com/p/creative/",
+        },
       },
       conversionEvents: [
         {
@@ -467,6 +480,19 @@ describe("leads service", () => {
           status: "processed",
         },
       ],
+    });
+  });
+
+  it("does not expose non-http creative URLs in lead detail", async () => {
+    const { db, service } = createHarness();
+    db.leads[0]!.ctwaSourceUrl = "javascript:alert(1)";
+    db.leads[0]!.ctwaThumbnailUrl = "data:image/png;base64,unsafe";
+
+    const detail = await service.getLeadDetail("workspace_1", "lead_1");
+
+    expect(detail.attribution.creative).toEqual({
+      thumbnailUrl: null,
+      destinationUrl: null,
     });
   });
 });

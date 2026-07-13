@@ -689,6 +689,7 @@ model Lead {
   adId               String?
   ctwaClid           String?
   ctwaSourceUrl      String?
+  ctwaThumbnailUrl   String?
   firstMessageAt     DateTime?
   lastMessageAt      DateTime?
   createdAt          DateTime   @default(now())

@@ -141,6 +141,102 @@ describe("external MySQL adapter", () => {
     expect(queryInput.sql).not.toContain("UNSIGNED");
   });
 
+  it("reads the optional creative thumbnail when the lead view exposes it", async () => {
+    const queryMock = vi.fn(async (input: { sql: string }) => {
+      if (input.sql.includes("information_schema.COLUMNS")) {
+        return [[{ columnCount: 1 }], []];
+      }
+
+      return [
+        [
+          {
+            externalRowId: "lead-row-1",
+            externalLeadId: "lead_1",
+            phone: "5511999999999",
+            name: "Lead real",
+            email: null,
+            city: null,
+            state: null,
+            country: null,
+            firstMessageAt: "2026-07-11 15:00:00.000",
+            lastMessageAt: "2026-07-11 15:01:00.000",
+            qualifiedAt: null,
+            purchasedAt: null,
+            adId: "ad_1",
+            ctwaClid: "ctwa_1",
+            sourceUrl: "https://www.instagram.com/p/creative/",
+            thumbnailUrl: "https://cdn.example.test/creative.jpg",
+            status: "Entrou em contato",
+            updatedAt: "2026-07-11 15:01:00.000"
+          }
+        ],
+        []
+      ];
+    });
+    const { adapter } = adapterWithQuery(
+      queryMock as unknown as ExternalMysqlConnection["query"]
+    );
+
+    const rows = await adapter.readLeadsPage(
+      credentials,
+      "required",
+      { lastUpdatedAt: null, lastExternalId: null },
+      100
+    );
+
+    expect(rows[0]?.thumbnailUrl).toBe("https://cdn.example.test/creative.jpg");
+    expect(queryMock.mock.calls[1]?.[0].sql).toContain(
+      "thumbnail_url AS thumbnailUrl"
+    );
+  });
+
+  it("keeps legacy lead views readable before the thumbnail column is applied", async () => {
+    const queryMock = vi.fn(async (input: { sql: string }) => {
+      if (input.sql.includes("information_schema.COLUMNS")) {
+        return [[{ columnCount: 0 }], []];
+      }
+
+      return [
+        [
+          {
+            externalRowId: "lead-row-legacy",
+            externalLeadId: "lead_legacy",
+            phone: "5511888888888",
+            name: null,
+            email: null,
+            city: null,
+            state: null,
+            country: null,
+            firstMessageAt: "2026-07-11 15:00:00.000",
+            lastMessageAt: null,
+            qualifiedAt: null,
+            purchasedAt: null,
+            adId: null,
+            ctwaClid: null,
+            sourceUrl: null,
+            thumbnailUrl: null,
+            status: null,
+            updatedAt: "2026-07-11 15:01:00.000"
+          }
+        ],
+        []
+      ];
+    });
+    const { adapter } = adapterWithQuery(
+      queryMock as unknown as ExternalMysqlConnection["query"]
+    );
+
+    const rows = await adapter.readLeadsPage(
+      credentials,
+      "required",
+      { lastUpdatedAt: null, lastExternalId: null },
+      100
+    );
+
+    expect(rows[0]?.thumbnailUrl).toBeNull();
+    expect(queryMock.mock.calls[1]?.[0].sql).toContain("NULL AS thumbnailUrl");
+  });
+
   it("sanitizes connection errors", async () => {
     const factory: ExternalMysqlConnectionFactory = async () => {
       throw Object.assign(new Error("Access denied for reader@mysql.internal"), {

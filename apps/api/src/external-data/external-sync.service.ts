@@ -351,6 +351,7 @@ export class ExternalSyncService {
         adId: row.adId ?? undefined,
         ctwaClid: row.ctwaClid ?? undefined,
         ctwaSourceUrl: row.sourceUrl ?? undefined,
+        ctwaThumbnailUrl: row.thumbnailUrl ?? undefined,
         occurredAt: lastMessageAt,
         firstMessageAt,
         lastMessageAt,

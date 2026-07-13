@@ -29,6 +29,7 @@ type LeadRecord = {
   adId: string | null;
   ctwaClid: string | null;
   ctwaSourceUrl: string | null;
+  ctwaThumbnailUrl: string | null;
   firstMessageAt: Date | null;
   lastMessageAt: Date | null;
   createdAt: Date;
@@ -100,6 +101,7 @@ export type UpsertWhatsappLeadInput = {
   adId?: string;
   ctwaClid?: string;
   ctwaSourceUrl?: string;
+  ctwaThumbnailUrl?: string;
   occurredAt?: Date;
   firstMessageAt?: Date;
   lastMessageAt?: Date;
@@ -480,6 +482,10 @@ export class LeadsService {
         campaignName,
         adSetName: resolvedAdSets[0]?.name ?? null,
         adName: ads[0]?.name ?? null,
+        creative: {
+          thumbnailUrl: this.publicHttpUrl(lead.ctwaThumbnailUrl),
+          destinationUrl: this.publicHttpUrl(lead.ctwaSourceUrl)
+        }
       },
       conversionEvents: conversionLogs.map((event) => ({
         id: event.id ?? "",
@@ -547,6 +553,7 @@ export class LeadsService {
         adId: input.adId ?? null,
         ctwaClid: input.ctwaClid ?? null,
         ctwaSourceUrl: input.ctwaSourceUrl ?? null,
+        ctwaThumbnailUrl: input.ctwaThumbnailUrl ?? null,
         firstMessageAt: recordMessageTimestamps ? firstMessageAt : null,
         lastMessageAt: recordMessageTimestamps ? lastMessageAt : null,
       },
@@ -561,6 +568,7 @@ export class LeadsService {
         adId: input.adId ?? undefined,
         ctwaClid: input.ctwaClid ?? undefined,
         ctwaSourceUrl: input.ctwaSourceUrl ?? undefined,
+        ctwaThumbnailUrl: input.ctwaThumbnailUrl ?? undefined,
         firstMessageAt:
           recordMessageTimestamps && input.firstMessageAt
             ? firstMessageAt
@@ -602,6 +610,21 @@ export class LeadsService {
       createdAt: lead.createdAt.toISOString(),
       updatedAt: lead.updatedAt.toISOString(),
     };
+  }
+
+  private publicHttpUrl(value: string | null): string | null {
+    if (!value) {
+      return null;
+    }
+
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:"
+        ? url.toString()
+        : null;
+    } catch {
+      return null;
+    }
   }
 
   private conversationPeriodRange(
