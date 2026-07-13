@@ -72,9 +72,32 @@ describe("navigation", () => {
       createElement(AppShell, null, createElement("p", null, "Panel content")),
     );
 
-    expect(html).toContain('class="sidebar-toggle"');
+    expect(html).toContain('class="sidebar-toggle desktop-sidebar-toggle"');
     expect(html).toContain("Recolher menu");
     expect(html).toContain('aria-expanded="true"');
+  });
+
+  it("renders an accessible mobile menu without the old product subtitle", () => {
+    const html = renderToStaticMarkup(
+      createElement(AppShell, null, createElement("p", null, "Panel content")),
+    );
+
+    expect(html).toContain('class="mobile-shell-header"');
+    expect(html).toContain('class="mobile-menu-toggle"');
+    expect(html).toContain('aria-controls="app-sidebar"');
+    expect(html).toContain('id="app-sidebar"');
+    expect(html).toContain("Abrir menu");
+    expect(html).not.toContain("Telemetry OS");
+  });
+
+  it("uses an icon and a full label for the logout action", () => {
+    const html = renderToStaticMarkup(
+      createElement(AppShell, null, createElement("p", null, "Panel content")),
+    );
+
+    expect(html).toContain('aria-label="Sair da conta"');
+    expect(html).toContain("logout-icon");
+    expect(html).toContain('class="logout-label"');
   });
 
   it("renders real workspace context without static health placeholders", () => {
@@ -143,7 +166,7 @@ describe("navigation", () => {
     ]);
   });
 
-  it("contains mobile nav scrolling without widening the app shell", () => {
+  it("uses an off-canvas mobile menu without widening the app shell", () => {
     const css = readFileSync(
       new URL("../src/styles/globals.css", import.meta.url),
       "utf8",
@@ -156,7 +179,10 @@ describe("navigation", () => {
     expect(mobileBlock).toContain(".app-shell");
     expect(mobileBlock).toContain("min-width: 0;");
     expect(mobileBlock).toContain("max-width: 100%;");
-    expect(mobileBlock).toContain("display: flex;");
+    expect(mobileBlock).toContain(".mobile-shell-header");
+    expect(mobileBlock).toContain(".mobile-menu-open .sidebar");
+    expect(mobileBlock).toContain("transform: translateX(-104%);");
+    expect(mobileBlock).toContain("position: fixed;");
     expect(mobileBlock).not.toContain("repeat(5, minmax(128px, 1fr))");
   });
 

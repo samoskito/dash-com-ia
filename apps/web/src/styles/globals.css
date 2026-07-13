@@ -132,16 +132,6 @@ button {
   min-width: 0;
 }
 
-.brand-copy span {
-  display: block;
-  margin-top: 3px;
-  color: var(--ink-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
 .brand-mark {
   flex: 0 0 auto;
   display: inline-grid;
@@ -186,6 +176,13 @@ button {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+.mobile-shell-header,
+.mobile-menu-toggle,
+.mobile-sidebar-close,
+.mobile-sidebar-backdrop {
+  display: none;
 }
 
 .workspace-strip {
@@ -354,17 +351,13 @@ button {
 .sidebar-collapsed .logout-button {
   width: 42px;
   min-width: 42px;
+  height: 42px;
   padding-inline: 0;
-  overflow: hidden;
-  color: transparent;
+  color: var(--ink-muted);
 }
 
-.sidebar-collapsed .logout-button::after {
-  content: "Sair";
-  color: var(--ink-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 900;
+.sidebar-collapsed .logout-label {
+  display: none;
 }
 
 .status-chip,
@@ -1307,6 +1300,9 @@ td span {
 }
 
 .logout-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1348,22 +1344,117 @@ td span {
     width: 100%;
     min-width: 0;
     overflow-x: hidden;
-    --sidebar-width: 100%;
+    --sidebar-width: 0px;
+  }
+
+  .mobile-shell-header {
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 62px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(5, 13, 11, 0.96);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+    backdrop-filter: blur(16px);
+  }
+
+  .mobile-shell-header .brand {
+    flex: 0 1 auto;
+    min-height: 40px;
+  }
+
+  .mobile-shell-header .brand-mark {
+    width: 34px;
+    height: 34px;
+  }
+
+  .mobile-shell-header .brand strong {
+    font-size: 18px;
+  }
+
+  .mobile-menu-toggle {
+    flex: 0 0 auto;
+    display: inline-grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(17, 29, 26, 0.9);
+    color: var(--ink);
+  }
+
+  .mobile-menu-toggle:hover,
+  .mobile-menu-toggle:focus-visible {
+    border-color: var(--border-strong);
+    color: var(--mint);
   }
 
   .sidebar {
-    position: static;
-    height: auto;
-    width: 100%;
-    max-width: 100vw;
+    position: fixed;
+    z-index: 80;
+    inset: 0 auto 0 0;
+    width: min(340px, calc(100vw - 44px));
+    height: 100dvh;
+    max-height: 100dvh;
+    max-width: none;
     min-width: 0;
-    overflow: hidden;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 16px;
+    border-right: 1px solid var(--border-strong);
+    border-bottom: 0;
+    box-shadow: 24px 0 64px rgba(0, 0, 0, 0.48);
+    transform: translateX(-104%);
+    visibility: hidden;
+    transition:
+      transform 180ms ease,
+      visibility 180ms ease;
   }
 
-  .sidebar-toggle {
+  .mobile-menu-open .sidebar {
+    transform: translateX(0);
+    visibility: visible;
+  }
+
+  .desktop-sidebar-toggle {
     display: none;
+  }
+
+  .mobile-sidebar-close {
+    display: inline-grid;
+  }
+
+  .mobile-sidebar-backdrop {
+    position: fixed;
+    z-index: 70;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgba(0, 0, 0, 0.62);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    backdrop-filter: blur(3px);
+    transition:
+      opacity 180ms ease,
+      visibility 180ms ease;
+  }
+
+  .mobile-menu-open .mobile-sidebar-backdrop {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
   }
 
   .sidebar-collapsed .brand-copy,
@@ -1390,14 +1481,14 @@ td span {
 
   .sidebar-collapsed .status-chip,
   .sidebar-collapsed .logout-button {
-    width: auto;
+    width: 100%;
     min-width: 0;
     padding-inline: 8px;
     color: var(--ink-soft);
   }
 
-  .sidebar-collapsed .logout-button::after {
-    content: none;
+  .sidebar-collapsed .logout-label {
+    display: inline;
   }
 
   .content {
@@ -1405,12 +1496,10 @@ td span {
   }
 
   .sidebar-nav {
-    display: flex;
+    display: grid;
     max-width: 100%;
     min-width: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 2px;
+    overflow: visible;
   }
 
   .platform-sidebar-nav {
@@ -1419,23 +1508,20 @@ td span {
   }
 
   .sidebar-nav .nav-label {
-    flex: 0 0 auto;
-    align-self: center;
-    margin: 0 4px 0 0;
+    margin: 0 0 4px;
   }
 
   .sidebar-nav a {
-    flex: 0 0 auto;
-    white-space: nowrap;
+    width: 100%;
   }
 
   .health-panel {
-    grid-template-columns: repeat(4, max-content);
+    grid-template-columns: 1fr;
     max-width: 100%;
     min-width: 0;
-    margin-top: 14px;
-    padding-top: 0;
-    overflow-x: auto;
+    margin-top: auto;
+    padding-top: 22px;
+    overflow: visible;
   }
 
   .page-header {
@@ -1445,6 +1531,10 @@ td span {
 
   .funnel-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .support-context-bar {
+    top: 62px;
   }
 }
 
@@ -2111,10 +2201,9 @@ td span {
 }
 
 .rule-builder-fields.commercial {
-  grid-template-columns: minmax(190px, 1.25fr) minmax(160px, 1fr) minmax(
-      105px,
-      0.55fr
-    ) 82px;
+  grid-template-columns:
+    minmax(190px, 1.25fr) minmax(160px, 1fr) minmax(105px, 0.55fr)
+    82px;
 }
 
 .rule-builder-hint {
@@ -2751,6 +2840,10 @@ td span {
 
   .report-pagination .button {
     justify-content: center;
+  }
+
+  .logout-icon {
+    flex: 0 0 auto;
   }
   .page-stack {
     padding: 18px;

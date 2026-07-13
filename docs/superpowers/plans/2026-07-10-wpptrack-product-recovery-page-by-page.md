@@ -58,15 +58,15 @@ The recovery starts from these verified defects:
 
 ## 5. Locked Execution Order
 
-| Order | Block                                                  | Status                                             | Exit condition                                                                                            |
-| ----- | ------------------------------------------------------ | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| 0     | Performance and critical regressions                   | Implemented locally; production review pending     | Navigation and critical actions meet the acceptance criteria below                                        |
-| 0.5   | External MySQL/Kinbox data foundation                  | Implemented locally; deploy/shadow validation pending | Standard event ledger, secure connector, historical backfill and shadow sync are validated with real data |
-| 1     | Overview                                               | Pending                                            | Product owner approves the complete Overview                                                              |
-| 2     | Leads                                                  | Pending                                            | Product owner approves list, filters and lead journey                                                     |
-| 3     | Reports                                                | Pending                                            | Product owner approves Campaigns, Ad Sets, Ads and Meta diagnostic                                        |
+| Order | Block                                                  | Status                                                  | Exit condition                                                                                            |
+| ----- | ------------------------------------------------------ | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 0     | Performance and critical regressions                   | Implemented locally; production review pending          | Navigation and critical actions meet the acceptance criteria below                                        |
+| 0.5   | External MySQL/Kinbox data foundation                  | Implemented locally; deploy/shadow validation pending   | Standard event ledger, secure connector, historical backfill and shadow sync are validated with real data |
+| 1     | Overview                                               | Pending                                                 | Product owner approves the complete Overview                                                              |
+| 2     | Leads                                                  | Pending                                                 | Product owner approves list, filters and lead journey                                                     |
+| 3     | Reports                                                | Pending                                                 | Product owner approves Campaigns, Ad Sets, Ads and Meta diagnostic                                        |
 | 4     | Integrations, Settings and Meta Event Audit            | 4A/4C implemented; 4B approved for deploy on 2026-07-12 | Product owner approves operational setup and audit workflows                                              |
-| 5     | External connector productization and native providers | Planned after Block 4                              | Product owner approves self-service connectors and the first native provider beyond Uazapi                |
+| 5     | External connector productization and native providers | Planned after Block 4                                   | Product owner approves self-service connectors and the first native provider beyond Uazapi                |
 
 This order supersedes the older immediate next step of returning to the real Uazapi/CAPI payload test after the reporting engine. The real Uazapi/CAPI test remains recorded and mandatory, but stays deferred until the platform is sufficiently complete for end-to-end validation.
 
@@ -329,9 +329,61 @@ Implementation status - 2026-07-12:
 - Event configuration controls which dynamic funnel stages appear.
 - Audit allows a non-technical operator to understand what worked and what failed.
 
-## 12. Block 5 - External Connector Productization and Native Providers
+## 12. Block 4.5 - Full Platform Layout Review
 
-After Blocks 1 through 4, evolve the approved data foundation into a customer-facing connector platform:
+Before starting Block 5, review and refine every existing customer and platform-admin surface. This is an explicit product gate, not a cosmetic pass performed in parallel with connector expansion.
+
+### Scope
+
+- Authentication, access recovery and support-access states.
+- Shared shell: sidebar, top bar, workspace context, navigation and responsive behavior.
+- Overview, Leads, Reports at every hierarchy level, Meta Events, Integrations and Settings.
+- Existing platform backoffice pages, including workspaces, connectors, diagnostics and audit views.
+- Loading, empty, error, permission, populated and long-content states for every reviewed route.
+
+### Review method
+
+1. Inventory every existing route and its relevant UI states before changing components.
+2. Capture a baseline at 1440 px desktop and 390 px mobile with real or representative data.
+3. Record findings by severity: broken workflow, misleading information, responsive/overflow defect or visual consistency issue.
+4. Refine one page group at a time using the established WppTrack design system and existing shared components.
+5. Preserve reporting formulas, permissions, provider contracts and operational behavior unless a verified product defect requires a scoped correction.
+6. Re-run focused tests, lint/build and desktop/mobile visual inspection after each page group.
+7. Present each page group for product-owner review before marking the layout review complete.
+
+### Design and product rules
+
+- Operational pages remain compact, readable and optimized for repeated work; no marketing-style composition or decorative card stacking.
+- Alignment, spacing, typography, labels, control dimensions and action hierarchy are consistent across the platform.
+- Customer pages expose only customer-relevant information; connector credentials, technical diagnostics and cutover controls remain in platform backoffice.
+- Long names, email addresses, campaign hierarchy and status labels do not overlap, clip or create page-level horizontal overflow.
+- Mobile layouts preserve every primary action and comparison workflow without depending on desktop-only tables.
+- This block does not enable WppTrack CAPI, disable legacy n8n sends or change the reconciliation gate.
+
+### Acceptance criteria
+
+- Every current route has an approved desktop and mobile render.
+- No critical or high-severity layout finding remains open.
+- Navigation, forms, filters, tables, feedback states and role boundaries are visually and functionally consistent.
+- The existing workflows remain covered by automated tests and pass the monorepo quality gates.
+- Block 5 starts only after explicit product-owner approval of this full-platform review.
+
+Operational note - 2026-07-12:
+
+- Real Barbieri funnel labels, products and average values are being configured while this review is prepared.
+- The CAPI gate continues collecting automatic real QualifiedLead and Purchase samples in shadow mode during the layout review.
+
+Implementation status - shared shell - 2026-07-12:
+
+- Removed the obsolete `Telemetry OS` brand subtitle from desktop and mobile navigation.
+- Replaced the clipped collapsed-sidebar logout label with a complete Lucide logout icon and tooltip while retaining the visible `Sair` label in the expanded menu.
+- Mobile navigation now uses a sticky compact header and hamburger-controlled off-canvas drawer. The drawer closes from its close button, uncovered backdrop, route navigation or `Escape`, and locks background scrolling while open.
+- Automated browser inspection covered desktop expanded/collapsed at 1440 x 1000 and mobile closed/open at 390 x 844. Every state matched viewport width, the logout action remained inside the sidebar and the old subtitle was absent.
+- All 112 web tests, web typecheck and the Next production build pass. The next page group after product-owner shell approval is Overview.
+
+## 13. Block 5 - External Connector Productization and Native Providers
+
+After Blocks 1 through 4.5, evolve the approved data foundation into a customer-facing connector platform:
 
 - Self-service connector configuration and health inside Integrations.
 - Versioned provider adapters using the same canonical event contract.
@@ -341,7 +393,7 @@ After Blocks 1 through 4, evolve the approved data foundation into a customer-fa
 - Provider-specific idempotency policies; no global daily Purchase restriction.
 - Removal of n8n as a required runtime dependency for customers using native adapters.
 
-## 13. Delivery Protocol Per Block
+## 14. Delivery Protocol Per Block
 
 For every block:
 
@@ -356,6 +408,6 @@ For every block:
 9. Present the block for product-owner review.
 10. Commit and deploy only the reviewed block before advancing.
 
-## 14. Current Next Action
+## 15. Current Next Action
 
-Deploy **Block 4B - Settings**, apply migration `20260712213000_funnel_stage_configuration`, and verify the production Settings/Reports render before configuring the real Barbieri funnel labels/products/average values. Keep the CAPI gate collecting automatic real QualifiedLead and Purchase samples without changing n8n or enabling duplicate sends. After Block 4 is approved as a whole, start **Block 5 - External Connector Productization and Native Providers**.
+Present the completed shared-shell review for product-owner approval and, once approved, start the **Overview** page audit. Continue **Block 4.5 - Full Platform Layout Review** page by page with desktop/mobile evidence. Keep the CAPI gate collecting automatic real QualifiedLead and Purchase samples without changing n8n or enabling duplicate sends. Start **Block 5 - External Connector Productization and Native Providers** only after the full-platform layout review is approved.
