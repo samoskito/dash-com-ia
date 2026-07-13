@@ -138,7 +138,7 @@ async function provisionClient(
     return actionResult("error", "Nao foi possivel criar o cliente");
   }
 
-  return actionResult("success", "Cliente e administrador criados com sucesso");
+  return actionResult("success", "Cliente e responsavel da conta criados com sucesso");
 }
 
 async function startSupportAccess(formData: FormData) {
@@ -404,7 +404,7 @@ export default async function BackofficeClientsPage({
         <section className="surface-panel client-provision-panel">
           <span className="eyebrow">Novo cliente</span>
           <h2>Provisionar workspace</h2>
-          <p className="muted">Cria o ambiente e o primeiro administrador em uma unica operacao.</p>
+          <p className="muted">Cria o ambiente e o responsavel principal da conta.</p>
           <BackofficeActionForm
             className="client-admin-form"
             action={provisionClient}
@@ -415,11 +415,11 @@ export default async function BackofficeClientsPage({
               <input name="workspaceName" required minLength={2} />
             </label>
             <label>
-              Nome do administrador
+              Nome do responsavel
               <input name="ownerName" required minLength={2} />
             </label>
             <label>
-              Email do administrador
+              Email do responsavel
               <input name="ownerEmail" type="email" required />
             </label>
             <SecurePasswordInput label="Senha inicial" name="ownerPassword" />
@@ -500,7 +500,7 @@ export default async function BackofficeClientsPage({
             <thead>
               <tr>
                 <th>Workspace</th>
-                <th>Administrador</th>
+                <th>Responsavel da conta</th>
                 <th>Conectores</th>
                 <th>Status</th>
                 <th>Suporte</th>

@@ -14,6 +14,7 @@ import {
   BackofficeActionForm,
   type BackofficeActionState
 } from "../../../components/backoffice-action-form";
+import { ConversionRuleBuilder } from "../../../components/conversion-rule-builder";
 import { PendingSubmitButton } from "../../../components/pending-submit-button";
 import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
@@ -71,6 +72,8 @@ const supportedConversionEventNames = [
   "OrderCreated"
 ] as const;
 
+const eventsWithCommercialValue = new Set<ConversionEventNameDto>(["Purchase", "OrderCreated"]);
+
 function settingsActionState(
   status: BackofficeActionState["status"],
   message: string
@@ -86,6 +89,44 @@ function eventDisplayLabel(eventName: ConversionEventNameDto): string {
   return conversionEventDisplayLabels[eventName];
 }
 
+function eventSupportsCommercialValue(eventName: string): boolean {
+  return eventsWithCommercialValue.has(eventName as ConversionEventNameDto);
+}
+
+function workspaceRoleLabel(role: WorkspaceMemberDto["role"]): string {
+  if (role === "owner") {
+    return "Responsavel da conta";
+  }
+
+  if (role === "admin") {
+    return "Administrador";
+  }
+
+  return "Analista";
+}
+
+function workspaceRoleDescription(role: WorkspaceMemberDto["role"]): string {
+  if (role === "owner") {
+    return "Equipe, integracoes e cobranca";
+  }
+
+  if (role === "admin") {
+    return "Equipe e integracoes";
+  }
+
+  return "Leads e relatorios";
+}
+
+function initials(name: string | null, email: string): string {
+  const source = name?.trim() || email;
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
+
 function parseMoneyToCents(value: FormDataEntryValue | null): number | null {
   const raw = String(value ?? "").trim();
 
@@ -93,9 +134,7 @@ function parseMoneyToCents(value: FormDataEntryValue | null): number | null {
     return null;
   }
 
-  const normalized = raw.includes(",")
-    ? raw.replace(/\./g, "").replace(",", ".")
-    : raw;
+  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
   const amount = Number(normalized);
 
   return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) : null;
@@ -106,12 +145,13 @@ function productItems(productName: string, valueCents: number | null) {
     return null;
   }
 
-  const id = productName
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "produto";
+  const id =
+    productName
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "produto";
 
   return [
     {
@@ -171,9 +211,7 @@ async function getConversionRules(): Promise<ConversionRulesResult> {
 
 async function getFunnelConfiguration(): Promise<FunnelConfigurationResult> {
   try {
-    const configuration = await serverApiFetch<FunnelConfigurationDto>(
-      "/conversion-rules/funnel"
-    );
+    const configuration = await serverApiFetch<FunnelConfigurationDto>("/conversion-rules/funnel");
 
     return {
       configuration,
@@ -217,16 +255,11 @@ async function getWhatsappLabelSuggestions(): Promise<WhatsappLabelSuggestionsRe
       "/integrations/whatsapp/instances"
     );
     const activeUazapiInstances = instances.filter(
-      (instance) =>
-        instance.provider === "uazapi" && instance.billingStatus === "active"
+      (instance) => instance.provider === "uazapi" && instance.billingStatus === "active"
     );
-    const configuredTimeout = Number(
-      process.env.WPPTRACK_WEB_PROVIDER_STATUS_TIMEOUT_MS ?? 2000
-    );
+    const configuredTimeout = Number(process.env.WPPTRACK_WEB_PROVIDER_STATUS_TIMEOUT_MS ?? 2000);
     const timeoutMs =
-      Number.isFinite(configuredTimeout) && configuredTimeout > 0
-        ? configuredTimeout
-        : 2000;
+      Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 2000;
     const labelLists = await Promise.all(
       activeUazapiInstances.map(async (instance) => {
         try {
@@ -284,20 +317,32 @@ async function createConversionRule(
 ): Promise<BackofficeActionState> {
   "use server";
 
-  const name = String(formData.get("name") ?? "").trim();
+  const requestedName = String(formData.get("name") ?? "").trim();
   const triggerType = String(formData.get("triggerType") ?? "keyword");
   const triggerValue = String(formData.get("triggerValue") ?? "").trim();
   const matchMode = String(formData.get("matchMode") ?? "contains");
-  const eventName = String(formData.get("eventName") ?? "LeadSubmitted");
-  const productName = String(formData.get("productName") ?? "").trim();
-  const defaultValueCents = parseMoneyToCents(formData.get("defaultValue"));
+  const requestedEventName = String(formData.get("eventName") ?? "LeadSubmitted");
+  const eventName = supportedConversionEventNames.includes(
+    requestedEventName as (typeof supportedConversionEventNames)[number]
+  )
+    ? (requestedEventName as ConversionEventNameDto)
+    : "LeadSubmitted";
+  const acceptsCommercialValue = eventSupportsCommercialValue(eventName);
+  const productName = acceptsCommercialValue
+    ? String(formData.get("productName") ?? "").trim()
+    : "";
+  const defaultValueCents = acceptsCommercialValue
+    ? parseMoneyToCents(formData.get("defaultValue"))
+    : null;
   const defaultCurrency = String(formData.get("defaultCurrency") ?? "BRL")
     .trim()
     .toUpperCase();
 
-  if (!name || !triggerValue) {
-    return settingsActionState("error", "Informe o nome e o gatilho da regra.");
+  if (!triggerValue) {
+    return settingsActionState("error", "Informe a palavra, frase ou etiqueta do gatilho.");
   }
+
+  const name = requestedName || `${eventDisplayLabel(eventName)} por ${triggerValue}`.slice(0, 120);
 
   try {
     await serverApiFetch("/conversion-rules", {
@@ -310,7 +355,8 @@ async function createConversionRule(
         eventName,
         pixelId: null,
         defaultValueCents,
-        defaultCurrency: defaultValueCents === null ? null : defaultCurrency,
+        defaultCurrency:
+          acceptsCommercialValue && defaultValueCents !== null ? defaultCurrency : null,
         defaultContentName: productName || null,
         defaultItems: productItems(productName, defaultValueCents),
         active: true
@@ -379,19 +425,19 @@ async function saveFunnelConfiguration(
   const stages = eventNames.map((eventName, index) => ({
     eventName,
     label: String(formData.get(`stageLabel:${eventName}`) ?? "").trim(),
-    position:
-      Number(formData.get(`stagePosition:${eventName}`) ?? index + 1) || index + 1,
+    position: Number(formData.get(`stagePosition:${eventName}`) ?? index + 1) || index + 1,
     visible: formData.get(`stageVisible:${eventName}`) === "on",
-    defaultValueCents: parseMoneyToCents(
-      formData.get(`stageValue:${eventName}`)
-    ),
-    defaultCurrency: String(
-      formData.get(`stageCurrency:${eventName}`) ?? "BRL"
-    )
-      .trim()
-      .toUpperCase(),
-    defaultContentName:
-      String(formData.get(`stageProduct:${eventName}`) ?? "").trim() || null
+    defaultValueCents: eventSupportsCommercialValue(eventName)
+      ? parseMoneyToCents(formData.get(`stageValue:${eventName}`))
+      : null,
+    defaultCurrency: eventSupportsCommercialValue(eventName)
+      ? String(formData.get(`stageCurrency:${eventName}`) ?? "BRL")
+          .trim()
+          .toUpperCase()
+      : null,
+    defaultContentName: eventSupportsCommercialValue(eventName)
+      ? String(formData.get(`stageProduct:${eventName}`) ?? "").trim() || null
+      : null
   }));
 
   try {
@@ -504,12 +550,24 @@ export default async function SettingsPage() {
   const accountUser = accountSettings.user;
   const whatsappLabels = whatsappLabelSuggestions.labels;
   const funnelStages = funnelConfiguration.configuration.stages;
-  const funnelLabelByEvent = new Map(
-    funnelStages.map((stage) => [stage.eventName, stage.label])
-  );
-  const canManageConversionRules = Boolean(
-    workspace?.permissions.canManageIntegrations
-  );
+  const funnelLabelByEvent = new Map(funnelStages.map((stage) => [stage.eventName, stage.label]));
+  const canManageConversionRules = Boolean(workspace?.permissions.canManageIntegrations);
+  const isPlatformSupport = workspace?.accessMode === "platform_support";
+  const currentAccessLabel = isPlatformSupport
+    ? "Suporte da plataforma"
+    : workspace
+      ? workspaceRoleLabel(workspace.role)
+      : "Acesso indisponivel";
+  const currentAccessDescription = isPlatformSupport
+    ? "Acesso interno ao workspace do cliente"
+    : workspace
+      ? workspaceRoleDescription(workspace.role)
+      : "Nao foi possivel consultar as permissoes";
+  const conversionRuleBuilderEvents = supportedConversionEventNames.map((eventName) => ({
+    label: eventDisplayLabel(eventName),
+    supportsValue: eventSupportsCommercialValue(eventName),
+    value: eventName
+  }));
   const emptyTitle =
     conversionRules.state === "error"
       ? "Nao foi possivel carregar regras"
@@ -525,159 +583,171 @@ export default async function SettingsPage() {
         <div>
           <span className="eyebrow">Configuracoes</span>
           <h1>Workspace e regras</h1>
-          <p>Empresa, membros, papeis, palavras-chave, etiquetas e mapeamento de eventos.</p>
+          <p>Conta, equipe, jornada e gatilhos de conversao do workspace.</p>
         </div>
         <div className="header-actions">
-          <span className={`status-chip${workspaceSettings.state === "error" || conversionRules.state === "error" || funnelConfiguration.state === "error" ? " warn" : ""}`}>
-            {workspaceSettings.state === "error" || conversionRules.state === "error" || funnelConfiguration.state === "error" ? "API indisponivel" : "API conectada"}
+          <span
+            className={`status-chip${workspaceSettings.state === "error" || conversionRules.state === "error" || funnelConfiguration.state === "error" ? " warn" : ""}`}
+          >
+            {workspaceSettings.state === "error" ||
+            conversionRules.state === "error" ||
+            funnelConfiguration.state === "error"
+              ? "API indisponivel"
+              : "API conectada"}
           </span>
         </div>
       </header>
 
-      <div className="config-grid">
-        <article className="config-card">
-          <span className="micro-label">Workspace</span>
-          <strong>{workspace?.name ?? "Workspace indisponivel"}</strong>
-          <p className="muted">
-            {workspace
-              ? `Slug ${workspace.slug} com papel ${workspace.role}.`
-              : "Confira a API antes de alterar dados da empresa."}
-          </p>
-          <form className="control-row" action={updateWorkspaceProfile}>
-            <label>
-              Nome publico
-              <input
-                defaultValue={workspace?.name ?? ""}
-                name="workspaceName"
-              />
-            </label>
-            <label>
-              Permissao atual
-              <select defaultValue={workspace?.role ?? "member"}>
-                <option value="owner">owner</option>
-                <option value="admin">admin</option>
-                <option value="member">member</option>
-              </select>
-            </label>
-            <button
-              className="button primary"
-              disabled={!workspace?.permissions.canInviteMembers}
-              type="submit"
-            >
-              Salvar workspace
-            </button>
-          </form>
-        </article>
-
-        <article className="config-card">
-          <span className="micro-label">Conta</span>
-          <strong>{accountUser?.email ?? "Conta indisponivel"}</strong>
-          <p className="muted">
-            {accountSettings.state === "error"
-              ? "Nao foi possivel carregar os dados da conta."
-              : accountUser?.emailVerifiedAt
-                ? "Email verificado"
-                : "Email pendente"}
-          </p>
-          <form className="control-row" action={requestEmailVerification}>
-            <label>
-              Provedor
-              <input
-                readOnly
-                value={accountUser?.authProvider ?? "indisponivel"}
-              />
-            </label>
-            <label>
-              Status
-              <input
-                readOnly
-                value={accountUser?.emailVerifiedAt ? "Email verificado" : "Email pendente"}
-              />
-            </label>
-            <button
-              className="button primary"
-              disabled={!accountUser || Boolean(accountUser.emailVerifiedAt)}
-              type="submit"
-            >
-              Enviar verificacao
-            </button>
-          </form>
-        </article>
-
-        <article className="config-card">
-          <span className="micro-label">Membros</span>
-          <strong>
-            {workspaceSettings.state === "error"
-              ? "Membros indisponiveis"
-              : `${members.length} usuario${members.length === 1 ? "" : "s"} ativo${members.length === 1 ? "" : "s"}`}
-          </strong>
-          <p className="muted">Convites e papeis separados para donos, administradores e operadores.</p>
-          {members.length > 0 ? (
-            <div className="settings-list">
-              {members.map((member) => (
-                <div className="quality-card" key={member.id}>
-                  <span>
-                    <strong>{member.name ?? member.email}</strong>
-                    <span>{member.email}</span>
-                  </span>
-                  <span>{member.role}</span>
-                </div>
-              ))}
+      <section className="surface-panel settings-profile-panel">
+        <div className="section-heading-row">
+          <div>
+            <span className="eyebrow">Conta e workspace</span>
+            <h2>Identidade e acesso</h2>
+          </div>
+          <span className={`status-chip${isPlatformSupport ? " neutral" : ""}`}>
+            {currentAccessLabel}
+          </span>
+        </div>
+        <div className="settings-profile-grid">
+          <div className="workspace-profile-section">
+            <div className="settings-section-heading">
+              <span className="micro-label">Workspace</span>
+              <strong>{workspace?.name ?? "Workspace indisponivel"}</strong>
+              <small>{workspace ? workspace.slug : "Dados indisponiveis"}</small>
             </div>
-          ) : (
+            <form className="workspace-name-form" action={updateWorkspaceProfile}>
+              <label>
+                <span>Nome publico</span>
+                <input defaultValue={workspace?.name ?? ""} name="workspaceName" />
+              </label>
+              <button
+                className="button primary"
+                disabled={!workspace?.permissions.canInviteMembers}
+                type="submit"
+              >
+                Salvar nome
+              </button>
+            </form>
+            <div className="access-summary">
+              <span>{currentAccessLabel}</span>
+              <small>{currentAccessDescription}</small>
+            </div>
+          </div>
+
+          <div className="account-profile-section">
+            <div className="account-identity">
+              <span className="member-avatar" aria-hidden="true">
+                {accountUser ? initials(accountUser.name, accountUser.email) : "--"}
+              </span>
+              <span>
+                <strong>{accountUser?.name ?? "Conta do usuario"}</strong>
+                <small>{accountUser?.email ?? "Conta indisponivel"}</small>
+              </span>
+            </div>
+            <dl className="account-facts">
+              <div>
+                <dt>Acesso</dt>
+                <dd>
+                  {accountUser?.authProvider === "email"
+                    ? "Email e senha"
+                    : (accountUser?.authProvider ?? "Indisponivel")}
+                </dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>{accountUser?.emailVerifiedAt ? "Email verificado" : "Email pendente"}</dd>
+              </div>
+            </dl>
+            {!accountUser?.emailVerifiedAt ? (
+              <form action={requestEmailVerification}>
+                <button className="button" disabled={!accountUser} type="submit">
+                  Enviar verificacao
+                </button>
+              </form>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="surface-panel team-settings-panel">
+        <div className="section-heading-row">
+          <div>
+            <span className="eyebrow">Equipe</span>
+            <h2>Membros e acessos</h2>
             <p className="muted">
               {workspaceSettings.state === "error"
-                ? "Nao foi possivel carregar membros."
-                : "Nenhum membro retornado pela API."}
+                ? "Nao foi possivel carregar a equipe."
+                : `${members.length} usuario${members.length === 1 ? "" : "s"} ativo${members.length === 1 ? "" : "s"}`}
             </p>
-          )}
-        </article>
-
-        <article className="config-card">
-          <span className="micro-label">Convites</span>
-          <strong>Convidar membro</strong>
-          <p className="muted">O convite e criado no backend e nao concede papel owner diretamente.</p>
-          <form className="control-row" action={createWorkspaceInvite}>
-            <label>
-              Email do convidado
-              <input name="email" type="email" placeholder="pessoa@empresa.com" />
-            </label>
-            <label>
-              Papel
-              <select name="role" defaultValue="member">
-                <option value="member">member</option>
-                <option value="admin">admin</option>
-              </select>
-            </label>
-            <button
-              className="button primary"
-              disabled={!workspace?.permissions.canInviteMembers}
-              type="submit"
-            >
-              Enviar convite
-            </button>
-          </form>
-          {invites.length > 0 ? (
-            <div className="settings-list">
-              {invites.map((invite) => (
-                <div className="quality-card" key={invite.id}>
-                  <span>
-                    <strong>{invite.email}</strong>
-                    <span>expira em {shortDate(invite.expiresAt)}</span>
+          </div>
+        </div>
+        <div className="team-settings-layout">
+          <div className="member-list" aria-label="Membros do workspace">
+            {members.length > 0 ? (
+              members.map((member) => (
+                <div className="member-row" key={member.id}>
+                  <span className="member-avatar" aria-hidden="true">
+                    {initials(member.name, member.email)}
                   </span>
-                  <span>{invite.status}</span>
+                  <span className="member-identity">
+                    <strong>{member.name ?? "Usuario sem nome"}</strong>
+                    <small>{member.email}</small>
+                  </span>
+                  <span className="member-role">
+                    <strong>{workspaceRoleLabel(member.role)}</strong>
+                    <small>{workspaceRoleDescription(member.role)}</small>
+                  </span>
                 </div>
-              ))}
+              ))
+            ) : (
+              <p className="muted">Nenhum membro retornado pela API.</p>
+            )}
+          </div>
+
+          <aside className="invite-panel">
+            <div>
+              <span className="micro-label">Novo acesso</span>
+              <strong>Convidar membro</strong>
             </div>
-          ) : (
-            <p className="muted">
-              {workspaceSettings.state === "error"
-                ? "Nao foi possivel carregar convites."
-                : "Nenhum convite pendente retornado pela API."}
-            </p>
-          )}
-        </article>
-      </div>
+            <form className="invite-form" action={createWorkspaceInvite}>
+              <label>
+                <span>Email</span>
+                <input name="email" type="email" placeholder="pessoa@empresa.com" />
+              </label>
+              <label>
+                <span>Nivel de acesso</span>
+                <select name="role" defaultValue="member">
+                  <option value="member">Analista</option>
+                  <option value="admin">Administrador</option>
+                </select>
+              </label>
+              <button
+                className="button primary"
+                disabled={!workspace?.permissions.canInviteMembers}
+                type="submit"
+              >
+                Enviar convite
+              </button>
+            </form>
+            <div className="pending-invites">
+              <span className="micro-label">Pendentes</span>
+              {invites.length > 0 ? (
+                invites.map((invite) => (
+                  <div key={invite.id}>
+                    <span>
+                      <strong>{invite.email}</strong>
+                      <small>Expira em {shortDate(invite.expiresAt)}</small>
+                    </span>
+                    <span className="status-chip neutral">{workspaceRoleLabel(invite.role)}</span>
+                  </div>
+                ))
+              ) : (
+                <small>Nenhum convite pendente</small>
+              )}
+            </div>
+          </aside>
+        </div>
+      </section>
 
       <div className="surface-panel funnel-settings-panel">
         <div className="section-heading-row">
@@ -695,16 +765,13 @@ export default async function SettingsPage() {
           </span>
         </div>
         {canManageConversionRules && funnelStages.length > 0 ? (
-          <BackofficeActionForm
-            action={saveFunnelConfiguration}
-            className="funnel-config-form"
-          >
+          <BackofficeActionForm action={saveFunnelConfiguration} className="funnel-config-form">
             <div className="funnel-config-list">
               {funnelStages.map((stage) => (
-                <div className="funnel-config-row" key={stage.eventName}>
+                <div className="funnel-stage-row" key={stage.eventName}>
                   <input type="hidden" name="stageEventName" value={stage.eventName} />
-                  <label className="funnel-order-field">
-                    <span>Ordem</span>
+                  <label className="funnel-stage-order">
+                    <span>Etapa</span>
                     <input
                       aria-label={`Ordem de ${stage.label}`}
                       defaultValue={stage.position}
@@ -713,7 +780,7 @@ export default async function SettingsPage() {
                       type="number"
                     />
                   </label>
-                  <label className="funnel-label-field">
+                  <label className="funnel-stage-name">
                     <span>Nome exibido</span>
                     <input
                       aria-label={`Nome exibido de ${stage.eventName}`}
@@ -723,47 +790,53 @@ export default async function SettingsPage() {
                     />
                     <small className="funnel-event-code">{stage.eventName}</small>
                   </label>
-                  <label className="funnel-product-field">
-                    <span>Produto ou servico</span>
-                    <input
-                      defaultValue={stage.defaultContentName ?? ""}
-                      name={`stageProduct:${stage.eventName}`}
-                      placeholder="Opcional"
-                    />
-                  </label>
-                  <label className="funnel-value-field">
-                    <span>Valor medio</span>
-                    <input
-                      defaultValue={moneyInputValue(stage.defaultValueCents)}
-                      inputMode="decimal"
-                      name={`stageValue:${stage.eventName}`}
-                      placeholder="0,00"
-                    />
-                  </label>
-                  <label className="funnel-currency-field">
-                    <span>Moeda</span>
-                    <select
-                      defaultValue={stage.defaultCurrency ?? "BRL"}
-                      name={`stageCurrency:${stage.eventName}`}
-                    >
-                      <option value="BRL">BRL</option>
-                      <option value="USD">USD</option>
-                      <option value="EUR">EUR</option>
-                    </select>
-                  </label>
-                  <label className="funnel-visible-field">
+                  {eventSupportsCommercialValue(stage.eventName) ? (
+                    <div className="funnel-commercial-fields">
+                      <label>
+                        <span>Produto ou servico</span>
+                        <input
+                          defaultValue={stage.defaultContentName ?? ""}
+                          name={`stageProduct:${stage.eventName}`}
+                          placeholder="Opcional"
+                        />
+                      </label>
+                      <label>
+                        <span>Valor medio</span>
+                        <input
+                          defaultValue={moneyInputValue(stage.defaultValueCents)}
+                          inputMode="decimal"
+                          name={`stageValue:${stage.eventName}`}
+                          placeholder="0,00"
+                        />
+                      </label>
+                      <label>
+                        <span>Moeda</span>
+                        <select
+                          defaultValue={stage.defaultCurrency ?? "BRL"}
+                          name={`stageCurrency:${stage.eventName}`}
+                        >
+                          <option value="BRL">BRL</option>
+                          <option value="USD">USD</option>
+                          <option value="EUR">EUR</option>
+                        </select>
+                      </label>
+                    </div>
+                  ) : (
+                    <span className="funnel-stage-type">Evento de relacionamento</span>
+                  )}
+                  <label className="funnel-stage-visible">
                     <input
                       defaultChecked={stage.visible}
                       name={`stageVisible:${stage.eventName}`}
                       type="checkbox"
                     />
-                    <span>Exibir</span>
+                    <span>Visivel</span>
                   </label>
                 </div>
               ))}
             </div>
             <div className="form-command-row">
-              <span>Ordem, nomes e valores passam a valer para os novos eventos.</span>
+              <span>As alteracoes atualizam os indicadores do workspace.</span>
               <PendingSubmitButton
                 className="button primary"
                 label="Salvar jornada"
@@ -782,97 +855,17 @@ export default async function SettingsPage() {
 
       <div className="surface-panel conversion-rules-panel">
         <span className="eyebrow">Mapeamento de eventos</span>
-        <h2>Gatilhos do WhatsApp viram eventos Meta</h2>
+        <h2>Gatilhos do WhatsApp</h2>
         <p className="muted">
-          Relacione cada palavra ou etiqueta a um evento e, quando fizer sentido,
-          ao produto e valor usados na conversao.
+          Defina o que precisa acontecer na conversa e qual evento sera registrado.
         </p>
         {canManageConversionRules ? (
-          <>
-            <BackofficeActionForm
-              action={createConversionRule}
-              className="conversion-rule-create-form"
-              resetOnSuccess
-            >
-              <label>
-                <span>Nome da regra</span>
-                <input name="name" placeholder="Ex.: Venda confirmada" />
-              </label>
-              <label>
-                <span>Origem</span>
-                <select name="triggerType" defaultValue="keyword">
-                  <option value="keyword">Palavra-chave</option>
-                  <option value="whatsapp_label">Etiqueta WhatsApp</option>
-                </select>
-              </label>
-              <label>
-                <span>Gatilho</span>
-                <input
-                  name="triggerValue"
-                  placeholder="Texto ou etiqueta"
-                  list={whatsappLabels.length ? "whatsapp-label-options" : undefined}
-                />
-              </label>
-              {whatsappLabels.length ? (
-                <datalist id="whatsapp-label-options">
-                  {whatsappLabels.map((label) => (
-                    <option key={label} value={label} />
-                  ))}
-                </datalist>
-              ) : null}
-              <label>
-                <span>Comparacao</span>
-                <select name="matchMode" defaultValue="contains">
-                  <option value="contains">Contem</option>
-                  <option value="exact">Igual a</option>
-                </select>
-              </label>
-              <label>
-                <span>Evento Meta</span>
-                <select name="eventName" defaultValue="LeadSubmitted">
-                  {supportedConversionEventNames.map((eventName) => (
-                    <option key={eventName} value={eventName}>
-                      {eventDisplayLabel(eventName)} ({eventName})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>Produto ou servico</span>
-                <input name="productName" placeholder="Ex.: Consultoria" />
-              </label>
-              <label>
-                <span>Valor da conversao</span>
-                <input
-                  inputMode="decimal"
-                  name="defaultValue"
-                  placeholder="0,00"
-                />
-              </label>
-              <label>
-                <span>Moeda</span>
-                <select name="defaultCurrency" defaultValue="BRL">
-                  <option value="BRL">BRL</option>
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                </select>
-              </label>
-              <div className="conversion-rule-create-command">
-                <PendingSubmitButton
-                  className="button primary"
-                  label="Criar regra"
-                  pendingLabel="Criando regra..."
-                />
-              </div>
-            </BackofficeActionForm>
-            <p className="muted">
-              {whatsappLabels.length
-                ? `Etiquetas disponiveis: ${whatsappLabels.join(", ")}`
-                : whatsappLabelSuggestions.state === "error"
-                  ? "Etiquetas do WhatsApp indisponiveis agora; o gatilho ainda pode ser digitado."
-                  : "Nenhuma etiqueta foi carregada para as instancias ativas."}
-            </p>
-          </>
+          <ConversionRuleBuilder
+            action={createConversionRule}
+            events={conversionRuleBuilderEvents}
+            whatsappLabels={whatsappLabels}
+            whatsappLabelsState={whatsappLabelSuggestions.state}
+          />
         ) : (
           <p className="muted">Sem permissao para editar regras</p>
         )}
@@ -892,69 +885,83 @@ export default async function SettingsPage() {
               {rules.length > 0 ? (
                 rules.map((rule) => (
                   <tr key={rule.id}>
-                    <td><strong>{rule.name}</strong><span>{triggerLabel(rule)}</span></td>
-                    <td><strong>{rule.triggerValue}</strong><span>{matchLabel(rule)}</span></td>
-                    <td>
+                    <td data-label="Regra">
+                      <strong>{rule.name}</strong>
+                      <span>{triggerLabel(rule)}</span>
+                    </td>
+                    <td data-label="Gatilho">
+                      <strong>{rule.triggerValue}</strong>
+                      <span>{matchLabel(rule)}</span>
+                    </td>
+                    <td data-label="Evento">
                       <strong>
                         {funnelLabelByEvent.get(rule.eventName) ??
                           eventDisplayLabel(rule.eventName)}
                       </strong>
                       <span>{rule.eventName}</span>
                     </td>
-                    <td>
-                      <strong>{rule.defaultContentName ?? "Sem produto"}</strong>
-                      <span>{moneyLabel(rule.defaultValueCents, rule.defaultCurrency)}</span>
+                    <td data-label="Produto / valor">
+                      {eventSupportsCommercialValue(rule.eventName) ? (
+                        <>
+                          <strong>{rule.defaultContentName ?? "Sem produto"}</strong>
+                          <span>{moneyLabel(rule.defaultValueCents, rule.defaultCurrency)}</span>
+                        </>
+                      ) : (
+                        <span>Nao se aplica</span>
+                      )}
                     </td>
-                    <td>
+                    <td data-label="Status">
                       <span className={`event-chip${rule.active ? "" : " warn"}`}>
                         {rule.active ? "ativo" : "pausado"}
                       </span>
                     </td>
-                    <td>
+                    <td data-label="Acao">
                       {canManageConversionRules ? (
                         <div className="rule-action-stack">
-                          <details className="rule-edit-details">
-                            <summary className="button">Editar valor</summary>
-                            <BackofficeActionForm
-                              action={updateConversionRuleDetails}
-                              className="rule-edit-form"
-                            >
-                              <input type="hidden" name="ruleId" value={rule.id} />
-                              <label>
-                                <span>Produto ou servico</span>
-                                <input
-                                  defaultValue={rule.defaultContentName ?? ""}
-                                  name="productName"
-                                  placeholder="Produto ou servico"
+                          {eventSupportsCommercialValue(rule.eventName) ? (
+                            <details className="rule-edit-details">
+                              <summary className="button">Editar valor</summary>
+                              <BackofficeActionForm
+                                action={updateConversionRuleDetails}
+                                className="rule-edit-form"
+                              >
+                                <input type="hidden" name="ruleId" value={rule.id} />
+                                <label>
+                                  <span>Produto ou servico</span>
+                                  <input
+                                    defaultValue={rule.defaultContentName ?? ""}
+                                    name="productName"
+                                    placeholder="Produto ou servico"
+                                  />
+                                </label>
+                                <label>
+                                  <span>Valor</span>
+                                  <input
+                                    defaultValue={moneyInputValue(rule.defaultValueCents)}
+                                    inputMode="decimal"
+                                    name="defaultValue"
+                                    placeholder="0,00"
+                                  />
+                                </label>
+                                <label>
+                                  <span>Moeda</span>
+                                  <select
+                                    defaultValue={rule.defaultCurrency ?? "BRL"}
+                                    name="defaultCurrency"
+                                  >
+                                    <option value="BRL">BRL</option>
+                                    <option value="USD">USD</option>
+                                    <option value="EUR">EUR</option>
+                                  </select>
+                                </label>
+                                <PendingSubmitButton
+                                  className="button primary"
+                                  label="Salvar valor"
+                                  pendingLabel="Salvando..."
                                 />
-                              </label>
-                              <label>
-                                <span>Valor</span>
-                                <input
-                                  defaultValue={moneyInputValue(rule.defaultValueCents)}
-                                  inputMode="decimal"
-                                  name="defaultValue"
-                                  placeholder="0,00"
-                                />
-                              </label>
-                              <label>
-                                <span>Moeda</span>
-                                <select
-                                  defaultValue={rule.defaultCurrency ?? "BRL"}
-                                  name="defaultCurrency"
-                                >
-                                  <option value="BRL">BRL</option>
-                                  <option value="USD">USD</option>
-                                  <option value="EUR">EUR</option>
-                                </select>
-                              </label>
-                              <PendingSubmitButton
-                                className="button primary"
-                                label="Salvar valor"
-                                pendingLabel="Salvando..."
-                              />
-                            </BackofficeActionForm>
-                          </details>
+                              </BackofficeActionForm>
+                            </details>
+                          ) : null}
                           <form action={updateConversionRuleStatus}>
                             <input type="hidden" name="ruleId" value={rule.id} />
                             <input type="hidden" name="active" value={String(!rule.active)} />

@@ -1715,41 +1715,73 @@ td span {
   margin-top: 5px;
 }
 
-.funnel-config-form,
-.conversion-rule-create-form,
-.rule-edit-form {
+.settings-profile-grid {
   display: grid;
-  gap: 12px;
-}
-
-.funnel-config-list {
-  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  margin: 0 -18px -18px;
   border-top: 1px solid var(--border);
 }
 
-.funnel-config-row {
+.workspace-profile-section,
+.account-profile-section {
   display: grid;
-  grid-template-columns:
-    72px minmax(190px, 1fr) minmax(170px, 0.85fr)
-    minmax(110px, 0.45fr) 88px auto;
-  align-items: end;
-  gap: 14px;
+  align-content: start;
+  gap: 18px;
   min-width: 0;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--border);
+  padding: 18px;
 }
 
-.funnel-config-row label,
-.conversion-rule-create-form label,
+.account-profile-section {
+  border-left: 1px solid var(--border);
+}
+
+.settings-section-heading {
+  display: grid;
+  gap: 5px;
+}
+
+.settings-section-heading > strong,
+.invite-panel > div > strong {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 18px;
+}
+
+.settings-section-heading > small,
+.access-summary small,
+.account-identity small,
+.member-identity small,
+.member-role small,
+.pending-invites small {
+  min-width: 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.workspace-name-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.workspace-name-form label,
+.invite-form label,
+.funnel-stage-row label,
+.rule-builder-fields label,
+.rule-name-details label,
 .rule-edit-form label {
   display: grid;
   gap: 7px;
   min-width: 0;
 }
 
-.funnel-config-row label > span,
-.funnel-event-reference > span,
-.conversion-rule-create-form label > span,
+.workspace-name-form label > span,
+.invite-form label > span,
+.funnel-stage-row label > span,
+.rule-builder-fields label > span,
+.rule-name-details label > span,
 .rule-edit-form label > span {
   color: var(--ink-muted);
   font-family: var(--font-mono);
@@ -1758,10 +1790,14 @@ td span {
   text-transform: uppercase;
 }
 
-.funnel-config-row input:not([type="checkbox"]),
-.funnel-config-row select,
-.conversion-rule-create-form input,
-.conversion-rule-create-form select,
+.workspace-name-form input,
+.invite-form input,
+.invite-form select,
+.funnel-stage-row input:not([type="checkbox"]),
+.funnel-stage-row select,
+.rule-builder-fields input,
+.rule-builder-fields select,
+.rule-name-details input,
 .rule-edit-form input,
 .rule-edit-form select {
   width: 100%;
@@ -1775,6 +1811,221 @@ td span {
   padding: 9px 10px;
 }
 
+.access-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.access-summary > span {
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.account-identity {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.account-identity > span:last-child,
+.member-identity,
+.member-role {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.account-identity strong,
+.member-identity strong,
+.member-role strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(56, 199, 255, 0.24);
+  border-radius: 7px;
+  background: rgba(56, 199, 255, 0.07);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.account-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.account-facts > div {
+  display: grid;
+  gap: 6px;
+  padding: 12px 0;
+}
+
+.account-facts > div + div {
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
+}
+
+.account-facts dt {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.account-facts dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.team-settings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  margin: 0 -18px -18px;
+  border-top: 1px solid var(--border);
+}
+
+.member-list {
+  min-width: 0;
+  padding: 0 18px;
+}
+
+.member-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) minmax(190px, 0.55fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.member-row:last-child {
+  border-bottom: 0;
+}
+
+.member-role {
+  justify-items: end;
+  text-align: right;
+}
+
+.member-role strong {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.invite-panel {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-width: 0;
+  padding: 18px;
+  border-left: 1px solid var(--border);
+}
+
+.invite-panel > div:first-child {
+  display: grid;
+  gap: 6px;
+}
+
+.invite-form {
+  display: grid;
+  gap: 10px;
+}
+
+.pending-invites {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.pending-invites > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pending-invites > div > span:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pending-invites strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.funnel-config-form,
+.conversion-rule-builder,
+.rule-edit-form {
+  display: grid;
+  gap: 12px;
+}
+
+.funnel-config-list {
+  display: grid;
+  border-top: 1px solid var(--border);
+}
+
+.funnel-stage-row {
+  display: grid;
+  grid-template-columns: 58px minmax(210px, 0.82fr) minmax(270px, 1.18fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.funnel-stage-order {
+  justify-items: center;
+}
+
+.funnel-stage-order input {
+  width: 42px !important;
+  min-height: 42px !important;
+  padding: 6px !important;
+  text-align: center;
+}
+
+.funnel-commercial-fields {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(100px, 0.52fr) 82px;
+  align-items: end;
+  gap: 10px;
+  min-width: 0;
+}
+
 .funnel-event-code {
   overflow: hidden;
   color: var(--ink-muted);
@@ -1784,51 +2035,117 @@ td span {
   white-space: nowrap;
 }
 
-.funnel-event-reference {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  padding-bottom: 10px;
-}
-
-.funnel-event-reference strong {
-  overflow: hidden;
-  color: var(--ink-soft);
+.funnel-stage-type {
+  color: var(--ink-muted);
   font-family: var(--font-mono);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 11px;
 }
 
-.funnel-visible-field {
+.funnel-stage-visible {
   display: flex !important;
   align-items: center;
   gap: 8px !important;
-  min-height: 40px;
-  padding-bottom: 9px;
+  min-height: 42px;
 }
 
-.funnel-visible-field input {
+.funnel-stage-visible input {
   width: 16px;
   height: 16px;
   accent-color: var(--signal);
 }
 
-.conversion-rule-create-form {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.conversion-rule-builder {
   margin-top: 18px;
-  padding: 16px 0;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
 
-.conversion-rule-create-command {
-  display: flex;
-  align-items: flex-end;
+.rule-builder-step {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+  padding: 18px 0;
 }
 
-.conversion-rule-create-command .button {
-  width: 100%;
+.rule-builder-step + .rule-builder-step {
+  border-top: 1px solid var(--border);
+}
+
+.rule-builder-index {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(56, 199, 255, 0.3);
+  border-radius: 7px;
+  background: rgba(56, 199, 255, 0.07);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.rule-builder-step-content {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.rule-builder-step-heading {
+  display: grid;
+  gap: 5px;
+}
+
+.rule-builder-step-heading strong {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 16px;
+}
+
+.rule-builder-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.rule-builder-fields.commercial {
+  grid-template-columns: minmax(190px, 1.25fr) minmax(160px, 1fr) minmax(
+      105px,
+      0.55fr
+    ) 82px;
+}
+
+.rule-builder-hint {
+  margin: -3px 0 0 !important;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.rule-builder-command {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+
+.rule-name-details {
+  min-width: min(360px, 100%);
+}
+
+.rule-name-details summary {
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.rule-name-details label {
+  margin-top: 10px;
 }
 
 .conversion-rules-table {
@@ -2073,6 +2390,29 @@ td span {
 }
 
 @media (max-width: 980px) {
+  .settings-profile-grid,
+  .team-settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .account-profile-section,
+  .invite-panel {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .funnel-stage-row {
+    grid-template-columns: 58px minmax(200px, 0.85fr) minmax(250px, 1.15fr);
+  }
+
+  .funnel-stage-visible {
+    grid-column: 2 / -1;
+  }
+
+  .rule-builder-fields.commercial {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .client-admin-summary,
   .client-admin-columns,
   .connector-form {
@@ -2118,6 +2458,133 @@ td span {
   .connector-form,
   .connector-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-name-form,
+  .member-row,
+  .funnel-stage-row,
+  .funnel-commercial-fields,
+  .rule-builder-fields,
+  .rule-builder-fields.commercial {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-name-form .button,
+  .rule-builder-command .button {
+    width: 100%;
+  }
+
+  .member-row {
+    justify-items: start;
+  }
+
+  .member-role {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .funnel-stage-order {
+    justify-items: start;
+  }
+
+  .funnel-stage-visible {
+    grid-column: auto;
+  }
+
+  .rule-builder-step {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rule-builder-command {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .access-summary,
+  .pending-invites > div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .access-summary {
+    gap: 5px;
+  }
+
+  .pending-invites .status-chip {
+    align-self: flex-start;
+  }
+
+  .conversion-rules-table {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .conversion-rules-table table,
+  .conversion-rules-table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .conversion-rules-table table {
+    min-width: 0;
+  }
+
+  .conversion-rules-table thead {
+    display: none;
+  }
+
+  .conversion-rules-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .conversion-rules-table tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .conversion-rules-table td {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+    min-width: 0;
+    padding: 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+  }
+
+  .conversion-rules-table td:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+
+  .conversion-rules-table td::before {
+    content: attr(data-label);
+    color: var(--ink-muted);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+
+  .conversion-rules-table td[colspan] {
+    grid-column: 1 / -1;
+  }
+
+  .account-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .account-facts > div + div {
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
   }
 
   .funnel-config-row,

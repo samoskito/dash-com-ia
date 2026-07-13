@@ -14,6 +14,18 @@ import { exitPlatformSupportAccess } from "../app/actions/platform-support";
 
 const sidebarStorageKey = "wpptrack-sidebar-collapsed";
 
+function workspaceAccessLabel(workspace: CurrentWorkspaceDto): string {
+  if (workspace.accessMode === "platform_support") {
+    return "acesso de suporte";
+  }
+
+  if (workspace.role === "owner") {
+    return "responsavel da conta";
+  }
+
+  return workspace.role === "admin" ? "administrador" : "analista";
+}
+
 export function AppShell({
   children,
   dataSource,
@@ -73,7 +85,7 @@ export function AppShell({
           <strong>{workspace?.name ?? "Workspace indisponivel"}</strong>
           <small>
             {workspace
-              ? `${workspace.slug} - ${workspace.role}`
+              ? `${workspace.slug} - ${workspaceAccessLabel(workspace)}`
               : "Sessao autenticada"}
           </small>
         </section>

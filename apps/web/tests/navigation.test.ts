@@ -100,7 +100,7 @@ describe("navigation", () => {
     expect(html).toContain("Workspace");
     expect(html).toContain("Comunidade NOD");
     expect(html).toContain("comunidade-nod");
-    expect(html).toContain("owner");
+    expect(html).toContain("responsavel da conta");
     expect(html).not.toContain("Operacao principal");
     expect(html).not.toContain("Meta v21");
     expect(html).not.toContain("WhatsApp fila");
@@ -129,6 +129,7 @@ describe("navigation", () => {
     );
 
     expect(html).toContain("Acesso de suporte");
+    expect(html).toContain("barbieri - acesso de suporte");
     expect(html).toContain("Barbieri");
     expect(html).toContain("Encerrar acesso");
   });

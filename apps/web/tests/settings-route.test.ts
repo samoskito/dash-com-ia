@@ -40,6 +40,7 @@ function mockSettingsFetch(options: {
   rulesStatus?: number;
   workspaceStatus?: number;
   workspaceRole?: "owner" | "admin" | "member";
+  workspaceAccessMode?: "member" | "platform_support";
   membersStatus?: number;
   authStatus?: number;
 }) {
@@ -84,6 +85,7 @@ function mockSettingsFetch(options: {
           name: "Loja Samuel",
           slug: "loja-samuel",
           role,
+          accessMode: options.workspaceAccessMode ?? "member",
           permissions: {
             canInviteMembers: role === "owner" || role === "admin",
             canManageBilling: role === "owner",
@@ -248,9 +250,12 @@ describe("settings route", () => {
     );
     expect(html).toContain("Loja Samuel");
     expect(html).toContain("loja-samuel");
-    expect(html).toContain("owner");
-    expect(html).toContain("name=\"workspaceName\"");
-    expect(html).toContain("Salvar workspace");
+    expect(html).toContain("Responsavel da conta");
+    expect(html).toContain("Administrador");
+    expect(html).toContain("Analista");
+    expect(html).toContain('name="workspaceName"');
+    expect(html).toContain("Salvar nome");
+    expect(html).not.toContain("Permissao atual");
     expect(html).toContain("samuel@example.com");
     expect(html).toContain("Email pendente");
     expect(html).toContain("Enviar verificacao");
@@ -259,10 +264,11 @@ describe("settings route", () => {
     expect(html).toContain("pending");
     expect(html).not.toContain("secret-token-not-for-list");
     expect(html).toContain("Convidar membro");
-    expect(html).toContain("Email do convidado");
+    expect(html).toContain("Nivel de acesso");
     expect(html).not.toContain("3 usuarios ativos");
     expect(html).toContain("Jornada do funil");
     expect(html).toContain("Salvar jornada");
+    expect(html.match(/name="stageProduct:/g)).toHaveLength(1);
   });
 
   it("renders conversion rules returned by the backend", async () => {
@@ -299,16 +305,15 @@ describe("settings route", () => {
     expect(html).toContain("Palavra-chave");
     expect(html).toContain("quero comprar");
     expect(html).toContain("Oportunidade qualificada");
-    expect(html).toContain("Consultoria inicial");
-    expect(html).toContain("99,00");
-    expect(html).toContain("Produto ou servico");
-    expect(html).toContain("Valor da conversao");
-    expect(html).toContain("Criar regra");
-    expect(html).toContain("Nome da regra");
-    expect(html).toContain("Etiqueta WhatsApp");
-    expect(html).toContain(
-      '<option value="OrderDelivered">Pedido entregue (OrderDelivered)</option>'
-    );
+    expect(html).toContain("Nao se aplica");
+    expect(html).not.toContain("Consultoria inicial");
+    expect(html).not.toContain("99,00");
+    expect(html).toContain("Criar gatilho");
+    expect(html).toContain("Nome interno opcional");
+    expect(html).toContain("Mensagem contem palavra ou frase");
+    expect(html).toContain("quero receber uma proposta hoje");
+    expect(html).toContain("Etiqueta e aplicada");
+    expect(html).toContain('<option value="OrderDelivered">Pedido entregue</option>');
     expect(html).not.toContain('<option value="Contact">Contact</option>');
     expect(html).not.toContain(
       '<option value="CompleteRegistration">CompleteRegistration</option>'
@@ -427,9 +432,8 @@ describe("settings route", () => {
       "http://localhost:3333/integrations/whatsapp/instances/wpp_active/labels",
       expect.objectContaining({ credentials: "include" })
     );
-    expect(html).toContain("Etiquetas disponiveis");
     expect(html).toContain("Venda fechada");
-    expect(html).toContain('list="whatsapp-label-options"');
+    expect(html).toContain('id="whatsapp-label-options"');
     expect(html).toContain('<option value="Venda fechada"></option>');
   });
 
@@ -458,8 +462,23 @@ describe("settings route", () => {
 
     expect(html).toContain("Lead qualificado por palavra");
     expect(html).toContain("Sem permissao para editar regras");
-    expect(html).not.toContain("Criar regra");
+    expect(html).not.toContain("Criar gatilho");
     expect(html).not.toContain("Pausar");
+  });
+
+  it("identifies platform support without presenting it as workspace ownership", async () => {
+    mockSettingsFetch({
+      workspaceAccessMode: "platform_support",
+      workspaceRole: "owner",
+      rulesBody: []
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Suporte da plataforma");
+    expect(html).toContain("Acesso interno ao workspace do cliente");
+    expect(html).not.toContain("Slug loja-samuel com papel owner");
   });
 
   it("renders an unavailable state without demo rules when conversion rules fail", async () => {
