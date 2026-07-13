@@ -62,6 +62,9 @@ describe("leads route", () => {
     expect(html).toContain('href="/leads/lead_1"');
     expect(html).toContain("Black Friday WhatsApp");
     expect(html).toContain("QualifiedLead");
+    expect(html).toContain("Etapa atual");
+    expect(html).toContain("Lead qualificado");
+    expect(html).not.toContain("<th>Status</th>");
     expect(html).toContain("Venda fechada");
     expect(html).toContain('name="label"');
     expect(html).toContain('name="attribution"');

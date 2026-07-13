@@ -253,6 +253,28 @@ describe("leads service", () => {
     });
   });
 
+  it("does not display LeadSubmitted after the lead reached qualification", async () => {
+    const { db, service } = createHarness();
+    db.leads[0] = {
+      ...db.leads[0],
+      status: "qualified",
+    };
+    db.conversionLogs = [
+      {
+        ...db.conversionLogs[0],
+        eventName: "LeadSubmitted",
+        eventOccurredAt: new Date("2026-07-02T03:20:00.000Z"),
+      },
+    ];
+
+    const leads = await service.listLeads("workspace_1", { limit: 25 });
+
+    expect(leads[0]).toMatchObject({
+      status: "qualified",
+      lastEventName: "QualifiedLead",
+    });
+  });
+
   it("includes imported conversations in the LeadSubmitted event filter", async () => {
     const { prisma, service } = createHarness();
 

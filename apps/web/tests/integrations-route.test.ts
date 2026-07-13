@@ -334,6 +334,8 @@ describe("integrations route", () => {
     expect(html).toContain("Contas para relatorios");
     expect(html).toContain("America/Sao_Paulo");
     expect(html).toContain("Desativar");
+    expect(html).toContain("meta-reporting-account-action-cell");
+    expect(html).toContain("meta-reporting-account-action");
     expect(html).not.toContain("Facebook Pixel Code");
     expect(html).not.toContain("connect.facebook.net");
     expect(html).not.toContain("fbq(&#x27;init&#x27;");

@@ -72,6 +72,7 @@ const campaignReport = {
       status: "active",
       configuredStatus: "ACTIVE",
       effectiveStatus: "ACTIVE",
+      whatsappClassification: "manual_include",
       budget: {
         owner: "campaign",
         type: "daily",
@@ -390,6 +391,15 @@ describe("reports route", () => {
     );
     expect(adHtml).toContain('class="is-selected"');
     expect(adHtml).toContain('name="adId" value="ad_1"');
+  });
+
+  it("shows the current WhatsApp review state in the action column", async () => {
+    mockReportsApi();
+    const html = await renderReports();
+
+    expect(html).toContain("Incluido manualmente");
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('class="review-actions"');
   });
 
   it("sends hierarchy selection to the selected report endpoint", async () => {

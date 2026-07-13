@@ -194,7 +194,7 @@ export function MetaReportingAccountsForm({
           {isLoadingBusinessAssets ? "Carregando contas" : "Adicionar conta"}
         </SubmitButton>
       </form>
-      <div className="table-wrap">
+      <div className="table-wrap meta-reporting-accounts-table">
         <table>
           <thead>
             <tr>
@@ -233,8 +233,11 @@ export function MetaReportingAccountsForm({
                       {account.active ? "Ativa" : "Inativa"}
                     </span>
                   </td>
-                  <td>
-                    <form className="inline-form" action={statusAction}>
+                  <td className="meta-reporting-account-action-cell">
+                    <form
+                      className="inline-form meta-reporting-account-action"
+                      action={statusAction}
+                    >
                       <input type="hidden" name="id" value={account.id} />
                       <input
                         type="hidden"
@@ -243,7 +246,6 @@ export function MetaReportingAccountsForm({
                       />
                       <SubmitButton
                         pendingLabel={account.active ? "Desativando..." : "Ativando..."}
-                        statusText="Atualizando status da conta."
                       >
                         {account.active ? "Desativar" : "Ativar"}
                       </SubmitButton>

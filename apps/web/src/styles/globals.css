@@ -341,7 +341,7 @@ button {
   justify-items: center;
 }
 
-.sidebar-collapsed .status-chip {
+.sidebar-collapsed .sidebar .status-chip {
   width: 26px;
   justify-content: center;
   overflow: hidden;
@@ -1841,7 +1841,7 @@ td span {
     justify-items: initial;
   }
 
-  .sidebar-collapsed .status-chip,
+  .sidebar-collapsed .sidebar .status-chip,
   .sidebar-collapsed .logout-button {
     width: 100%;
     min-width: 0;
@@ -5475,5 +5475,152 @@ th {
     height: min(70vh, 620px);
     min-height: 300px;
     padding: 12px;
+  }
+}
+
+/* Operational layout fixes: leads, reporting review and Meta accounts. */
+.lead-filter-bar {
+  display: grid;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.lead-filter-primary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lead-filter-period {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 210px)) auto;
+  gap: 8px;
+  align-items: end;
+  justify-content: start;
+}
+
+.lead-filter-bar .filter-control,
+.lead-filter-bar .filter-field,
+.lead-filter-bar .filter-field input {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+.lead-filter-bar .filter-field {
+  flex: none;
+}
+
+.lead-filter-period .button {
+  width: auto;
+  min-width: 104px;
+}
+
+.performance-table th:last-child,
+.performance-table td:last-child {
+  width: 224px;
+}
+
+.review-control {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+  min-width: 0;
+}
+
+.review-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 4px 7px;
+  border: 1px solid rgba(66, 240, 168, 0.28);
+  border-radius: 999px;
+  background: rgba(66, 240, 168, 0.055);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.review-state.excluded {
+  border-color: rgba(242, 193, 78, 0.3);
+  background: rgba(242, 193, 78, 0.055);
+}
+
+.review-actions {
+  width: auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.review-actions button {
+  min-width: 54px;
+}
+
+.review-actions button.is-active,
+.review-actions button[aria-pressed="true"] {
+  background: rgba(66, 240, 168, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(66, 240, 168, 0.12);
+}
+
+.review-actions button[value="manual_exclude"].is-active,
+.review-actions button[value="manual_exclude"][aria-pressed="true"] {
+  background: rgba(242, 193, 78, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(242, 193, 78, 0.1);
+}
+
+.review-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.meta-reporting-accounts-table th:last-child,
+.meta-reporting-accounts-table td:last-child {
+  width: 126px;
+  text-align: center;
+}
+
+.meta-reporting-account-action-cell {
+  vertical-align: middle;
+}
+
+.meta-reporting-account-action {
+  display: inline-flex;
+  width: auto;
+  margin: 0 auto;
+  flex-wrap: nowrap;
+  justify-content: center;
+}
+
+.meta-reporting-account-action .button {
+  width: auto;
+  min-width: 94px;
+}
+
+@media (max-width: 980px) {
+  .lead-filter-primary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .lead-filter-primary,
+  .lead-filter-period {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lead-filter-period .button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+@media (max-width: 460px) {
+  .lead-filter-primary,
+  .lead-filter-period {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

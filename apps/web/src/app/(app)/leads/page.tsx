@@ -102,6 +102,30 @@ function statusLabel(status: LeadListItemDto["status"]): string {
   return labels[status];
 }
 
+function lifecycleLabel(lead: LeadListItemDto): string {
+  if (lead.status === "lost") {
+    return "Perdido";
+  }
+
+  const labels: Record<string, string> = {
+    LeadSubmitted: "Conversa iniciada",
+    QualifiedLead: "Lead qualificado",
+    Purchase: "Compra atribuida",
+  };
+
+  return lead.lastEventName
+    ? (labels[lead.lastEventName] ?? lead.lastEventName)
+    : statusLabel(lead.status);
+}
+
+function lifecycleTone(lead: LeadListItemDto): string {
+  if (lead.status === "lost") {
+    return " bad";
+  }
+
+  return lead.lastEventName ? "" : " warn";
+}
+
 function lastTouchLabel(value: string | null): string {
   if (!value) {
     return "-";
@@ -203,61 +227,68 @@ export default async function LeadsPage({
         action="/leads"
       >
         <input type="hidden" name="pageSize" value={pageSize} />
-        <input
-          className="filter-control"
-          name="search"
-          placeholder="Buscar lead"
-          defaultValue={search}
-        />
-        <select
-          className="filter-control"
-          name="status"
-          defaultValue={status ?? ""}
-        >
-          <option value="">Todos os status</option>
-          <option value="active">Ativos</option>
-          <option value="qualified">Qualificados</option>
-          <option value="converted">Convertidos</option>
-        </select>
-        <select
-          className="filter-control"
-          name="eventName"
-          defaultValue={eventName ?? ""}
-        >
-          <option value="">Todos os eventos</option>
-          <option value="LeadSubmitted">LeadSubmitted</option>
-          <option value="QualifiedLead">QualifiedLead</option>
-          <option value="Purchase">Purchase</option>
-        </select>
-        <select
-          className="filter-control"
-          name="attribution"
-          defaultValue={attribution ?? ""}
-        >
-          <option value="">Toda origem</option>
-          <option value="paid">Com atribuicao</option>
-          <option value="organic">Sem atribuicao</option>
-        </select>
-        <input
-          className="filter-control"
-          name="label"
-          placeholder="Etiqueta"
-          defaultValue={label}
-        />
-        <label className="filter-field">
-          <span>Inicio</span>
-          <input type="date" name="since" defaultValue={since} />
-        </label>
-        <label className="filter-field">
-          <span>Fim</span>
-          <input type="date" name="until" defaultValue={until} />
-        </label>
+        <div className="lead-filter-primary">
+          <input
+            className="filter-control"
+            name="search"
+            placeholder="Buscar lead"
+            defaultValue={search}
+          />
+          <select
+            className="filter-control"
+            name="status"
+            aria-label="Situacao operacional"
+            defaultValue={status ?? ""}
+          >
+            <option value="">Toda situacao</option>
+            <option value="active">Em atendimento</option>
+            <option value="qualified">Qualificados</option>
+            <option value="converted">Compradores</option>
+            <option value="lost">Perdidos</option>
+          </select>
+          <select
+            className="filter-control"
+            name="eventName"
+            aria-label="Etapa do funil"
+            defaultValue={eventName ?? ""}
+          >
+            <option value="">Todas as etapas</option>
+            <option value="LeadSubmitted">Conversa iniciada</option>
+            <option value="QualifiedLead">Lead qualificado</option>
+            <option value="Purchase">Compra atribuida</option>
+          </select>
+          <select
+            className="filter-control"
+            name="attribution"
+            defaultValue={attribution ?? ""}
+          >
+            <option value="">Toda origem</option>
+            <option value="paid">Com atribuicao</option>
+            <option value="organic">Sem atribuicao</option>
+          </select>
+          <input
+            className="filter-control"
+            name="label"
+            placeholder="Etiqueta"
+            defaultValue={label}
+          />
+        </div>
+        <div className="lead-filter-period">
+          <label className="filter-field">
+            <span>Inicio</span>
+            <input type="date" name="since" defaultValue={since} />
+          </label>
+          <label className="filter-field">
+            <span>Fim</span>
+            <input type="date" name="until" defaultValue={until} />
+          </label>
+          <button className="button" type="submit">
+            Filtrar
+          </button>
+        </div>
         <input type="hidden" name="campaignId" value={campaignId ?? ""} />
         <input type="hidden" name="adSetId" value={adSetId ?? ""} />
         <input type="hidden" name="adId" value={adId ?? ""} />
-        <button className="button" type="submit">
-          Filtrar
-        </button>
       </form>
       {hasReportFilter || hasPeriodFilter ? (
         <p className="muted">
@@ -280,8 +311,7 @@ export default async function LeadsPage({
             <tr>
               <th>Lead</th>
               <th>Campanha / origem</th>
-              <th>Evento</th>
-              <th>Status</th>
+              <th>Etapa atual</th>
               <th>Ultimo toque</th>
             </tr>
           </thead>
@@ -305,19 +335,16 @@ export default async function LeadsPage({
                     ) : null}
                   </td>
                   <td>
-                    <span
-                      className={`event-chip${lead.lastEventName ? "" : " warn"}`}
-                    >
-                      {lead.lastEventName ?? "Sem evento"}
+                    <span className={`event-chip${lifecycleTone(lead)}`}>
+                      {lifecycleLabel(lead)}
                     </span>
                   </td>
-                  <td>{statusLabel(lead.status)}</td>
                   <td>{lastTouchLabel(lead.lastMessageAt)}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={4}>
                   <strong>{emptyTitle}</strong>
                   <span>{emptyDescription}</span>
                 </td>

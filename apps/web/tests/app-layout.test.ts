@@ -85,6 +85,16 @@ describe("product app layout", () => {
     );
   });
 
+  it("only compacts status chips that live inside the collapsed sidebar", () => {
+    const css = readFileSync(
+      join(process.cwd(), "src/styles/globals.css"),
+      "utf8",
+    );
+
+    expect(css).toContain(".sidebar-collapsed .sidebar .status-chip");
+    expect(css).not.toMatch(/\.sidebar-collapsed\s+\.status-chip(?:\s|,|\{)/);
+  });
+
   it("wraps workspace authorization in Suspense so the shell can render first", () => {
     const source = readFileSync(
       join(process.cwd(), "src/app/(app)/layout.tsx"),

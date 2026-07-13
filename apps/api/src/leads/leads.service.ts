@@ -284,7 +284,6 @@ export class LeadsService {
           },
         })) as CampaignRecord[])
       : [];
-    const latestEventByLead = new Map<string, string>();
     const eventsByLead = new Map<string, Set<string>>();
     const campaignNameById = new Map(
       campaigns.map((campaign) => [campaign.campaignId, campaign.name]),
@@ -296,17 +295,13 @@ export class LeadsService {
         events.add(log.eventName);
         eventsByLead.set(log.leadId, events);
       }
-
-      if (log.leadId && !latestEventByLead.has(log.leadId)) {
-        latestEventByLead.set(log.leadId, log.eventName);
-      }
     }
 
     return {
       items: resolvedLeads.map((lead) =>
         this.toDto(
           lead,
-          latestEventByLead.get(lead.id) ?? null,
+          this.currentLifecycleEvent(lead, eventsByLead.get(lead.id)),
           lead.campaignId
             ? (campaignNameById.get(lead.campaignId) ?? null)
             : null,
@@ -474,10 +469,13 @@ export class LeadsService {
         : Promise.resolve(adSets),
     ]);
     const campaignName = resolvedCampaigns[0]?.name ?? null;
-    const latestEventName = conversionLogs[0]?.eventName ?? null;
+    const currentEventName = this.currentLifecycleEvent(
+      resolvedLead,
+      new Set(conversionLogs.map((event) => event.eventName)),
+    );
 
     return {
-      lead: this.toDto(resolvedLead, latestEventName, campaignName),
+      lead: this.toDto(resolvedLead, currentEventName, campaignName),
       attribution: {
         campaignName,
         adSetName: resolvedAdSets[0]?.name ?? null,
@@ -666,6 +664,33 @@ export class LeadsService {
     }
 
     return lead.firstMessageAt ? "LeadSubmitted" : null;
+  }
+
+  private currentLifecycleEvent(
+    lead: LeadRecord,
+    eventNames?: ReadonlySet<string>,
+  ): string | null {
+    const stages = new Set(eventNames ?? []);
+
+    if (lead.firstMessageAt) {
+      stages.add("LeadSubmitted");
+    }
+
+    if (lead.status === "qualified") {
+      stages.add("QualifiedLead");
+    }
+
+    if (lead.status === "converted") {
+      stages.add("Purchase");
+    }
+
+    for (const eventName of ["Purchase", "QualifiedLead", "LeadSubmitted"]) {
+      if (stages.has(eventName)) {
+        return eventName;
+      }
+    }
+
+    return eventNames?.values().next().value ?? null;
   }
 
   private phoneHashForSearch(search?: string): string | undefined {

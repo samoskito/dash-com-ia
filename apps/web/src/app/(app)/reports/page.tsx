@@ -14,7 +14,10 @@ import type {
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { BackofficeActionState } from "../../../components/backoffice-action-form";
+import {
+  BackofficeActionForm,
+  type BackofficeActionState,
+} from "../../../components/backoffice-action-form";
 import { SubmitButton } from "../../../components/submit-button";
 import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
@@ -406,9 +409,13 @@ async function syncMetaReports(formData: FormData) {
   redirect(`/reports?${redirectParams.toString()}`);
 }
 
-async function saveWhatsappClassification(formData: FormData) {
+async function saveWhatsappClassification(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
   "use server";
 
+  const nonce = Date.now();
   const level = String(formData.get("level") ?? "");
   const id = String(formData.get("id") ?? "");
   const overrideValue = String(formData.get("override") ?? "");
@@ -418,7 +425,11 @@ async function saveWhatsappClassification(formData: FormData) {
       : null;
 
   if (!["campaign", "adset", "ad"].includes(level) || !id) {
-    return;
+    return {
+      status: "error",
+      message: "Item do relatorio nao identificado.",
+      nonce,
+    };
   }
 
   try {
@@ -427,8 +438,22 @@ async function saveWhatsappClassification(formData: FormData) {
       body: JSON.stringify({ level, id, override }),
     });
     revalidatePath("/reports");
+    return {
+      status: "success",
+      message:
+        override === "manual_include"
+          ? "Item incluido nos relatorios de WhatsApp."
+          : override === "manual_exclude"
+            ? "Item excluido dos relatorios de WhatsApp."
+            : "Classificacao automatica restaurada.",
+      nonce,
+    };
   } catch {
-    return;
+    return {
+      status: "error",
+      message: "Nao foi possivel salvar a revisao. Tente novamente.",
+      nonce,
+    };
   }
 }
 
@@ -714,26 +739,74 @@ const adSummaryCopy: ReportEntityCopy = {
 };
 
 function ReviewActions({
+  classification,
   id,
   level,
 }: {
+  classification?: PerformanceRow["whatsappClassification"];
   id: string;
   level: "campaign" | "adset" | "ad";
 }) {
+  const labels: Record<
+    NonNullable<PerformanceRow["whatsappClassification"]>,
+    string
+  > = {
+    auto_whatsapp: "WhatsApp automatico",
+    creative_whatsapp: "WhatsApp pelo criativo",
+    detected_by_leads: "WhatsApp pelos leads",
+    manual_include: "Incluido manualmente",
+    manual_exclude: "Excluido manualmente",
+    needs_review: "Revisao necessaria",
+    not_whatsapp: "Fora do WhatsApp",
+  };
+  const hasManualOverride =
+    classification === "manual_include" || classification === "manual_exclude";
+
   return (
-    <form className="review-actions" action={saveWhatsappClassification}>
-      <input type="hidden" name="level" value={level} />
-      <input type="hidden" name="id" value={id} />
-      <button type="submit" name="override" value="manual_include">
-        Incluir
-      </button>
-      <button type="submit" name="override" value="manual_exclude">
-        Excluir
-      </button>
-      <button type="submit" name="override" value="">
-        Resetar
-      </button>
-    </form>
+    <div className="review-control">
+      <span
+        className={`review-state${classification === "manual_exclude" ? " excluded" : ""}`}
+      >
+        {classification ? labels[classification] : "Classificacao automatica"}
+      </span>
+      <BackofficeActionForm
+        action={saveWhatsappClassification}
+        className="review-actions"
+      >
+        <input type="hidden" name="level" value={level} />
+        <input type="hidden" name="id" value={id} />
+        <button
+          aria-pressed={classification === "manual_include"}
+          className={
+            classification === "manual_include" ? "is-active" : undefined
+          }
+          type="submit"
+          name="override"
+          value="manual_include"
+        >
+          Incluir
+        </button>
+        <button
+          aria-pressed={classification === "manual_exclude"}
+          className={
+            classification === "manual_exclude" ? "is-active" : undefined
+          }
+          type="submit"
+          name="override"
+          value="manual_exclude"
+        >
+          Excluir
+        </button>
+        <button
+          disabled={!hasManualOverride}
+          type="submit"
+          name="override"
+          value=""
+        >
+          Resetar
+        </button>
+      </BackofficeActionForm>
+    </div>
   );
 }
 
@@ -1928,7 +2001,11 @@ export default async function ReportsPage({
                     />
                     <td>
                       {canSyncMetaReports ? (
-                        <ReviewActions level="campaign" id={row.id} />
+                        <ReviewActions
+                          classification={row.whatsappClassification}
+                          level="campaign"
+                          id={row.id}
+                        />
                       ) : (
                         <span className="tag">{noReviewPermission}</span>
                       )}
@@ -2034,7 +2111,11 @@ export default async function ReportsPage({
                       />
                       <td>
                         {canSyncMetaReports ? (
-                          <ReviewActions level="adset" id={row.id} />
+                          <ReviewActions
+                            classification={row.whatsappClassification}
+                            level="adset"
+                            id={row.id}
+                          />
                         ) : (
                           <span className="tag">{noReviewPermission}</span>
                         )}
@@ -2152,7 +2233,11 @@ export default async function ReportsPage({
                       />
                       <td>
                         {canSyncMetaReports ? (
-                          <ReviewActions level="ad" id={row.id} />
+                          <ReviewActions
+                            classification={row.whatsappClassification}
+                            level="ad"
+                            id={row.id}
+                          />
                         ) : (
                           <span className="tag">{noReviewPermission}</span>
                         )}
