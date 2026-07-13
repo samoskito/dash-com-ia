@@ -333,7 +333,10 @@ export class ExternalSyncService {
     const sourceRowKey = `external-row:${connector.id}:leads:${row.externalRowId}`;
 
     try {
-      const firstMessageAt = this.parseExternalDate(row.firstMessageAt);
+      const firstMessageAt = this.parseCalendarDateOrTimestamp(
+        row.firstMessageAt,
+        connector.timezone
+      );
       const lastMessageAt = row.lastMessageAt
         ? this.parseExternalDate(row.lastMessageAt)
         : firstMessageAt;
@@ -683,7 +686,7 @@ export class ExternalSyncService {
         continue;
       }
 
-      const occurredAt = this.parseHistoricalMilestoneDate(
+      const occurredAt = this.parseCalendarDateOrTimestamp(
         milestone.occurredAt,
         connector.timezone
       );
@@ -728,7 +731,7 @@ export class ExternalSyncService {
     }
   }
 
-  private parseHistoricalMilestoneDate(value: string, timezone: string): Date {
+  private parseCalendarDateOrTimestamp(value: string, timezone: string): Date {
     const dateOnly = /^(\d{4}-\d{2}-\d{2})(?:[ T]00:00:00(?:\.0+)?)?$/.exec(
       value
     );

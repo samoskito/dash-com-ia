@@ -19,8 +19,8 @@ import type {
 import { PrismaService } from "../common/prisma/prisma.service";
 import { FunnelConfigurationService } from "../conversion-rules/funnel-configuration.service";
 import {
+  dateRangeInTimezone,
   dateInTimezone,
-  startOfDateInTimezone,
 } from "../external-data/external-event-policy";
 import {
   MetaAdapter,
@@ -882,6 +882,7 @@ export class MetaReportingService {
       (campaign) => campaign.campaignId,
     );
     const summaryScope = this.summaryMetricScope(input, campaignIds);
+    const needsWorkspaceMetrics = input.includeSummary || input.includeDaily;
     const [
       conversionLogs,
       leads,
@@ -891,10 +892,10 @@ export class MetaReportingService {
     ] = await Promise.all([
       this.getMetricConversionEvents(input, { campaignIds }),
       this.getLeads(input, { campaignIds }),
-      input.includeSummary
+      needsWorkspaceMetrics
         ? this.getMetricConversionEvents(input, summaryScope)
         : Promise.resolve([]),
-      input.includeSummary
+      needsWorkspaceMetrics
         ? this.getLeads(input, summaryScope)
         : Promise.resolve([]),
       input.includeDaily && input.since && input.until && campaignIds.length
@@ -2462,8 +2463,7 @@ export class MetaReportingService {
     since: string;
     until: string;
   }): ReportDailyComparisonPointDto[] {
-    const timezone =
-      process.env.WPPTRACK_REPORT_TIMEZONE ?? "America/Sao_Paulo";
+    const timezone = this.reportTimezone();
     const metaByDate = new Map<string, number>();
 
     for (const insight of input.dailyInsights) {
@@ -2500,36 +2500,36 @@ export class MetaReportingService {
   }
 
   private eventPeriodWhere(input: { since?: string; until?: string }) {
-    return input.since && input.until
-      ? {
-          eventOccurredAt: {
-            gte: new Date(`${input.since}T00:00:00.000Z`),
-            lte: new Date(`${input.until}T23:59:59.999Z`),
-          },
-        }
-      : {};
+    if (!input.since || !input.until) {
+      return {};
+    }
+
+    return {
+      eventOccurredAt: dateRangeInTimezone(
+        input.since,
+        input.until,
+        this.reportTimezone(),
+      ),
+    };
   }
 
   private leadPeriodWhere(input: { since?: string; until?: string }) {
-    return input.since && input.until
-      ? {
-          OR: [
-            {
-              firstMessageAt: {
-                gte: new Date(`${input.since}T00:00:00.000Z`),
-                lte: new Date(`${input.until}T23:59:59.999Z`),
-              },
-            },
-            {
-              firstMessageAt: null,
-              createdAt: {
-                gte: new Date(`${input.since}T00:00:00.000Z`),
-                lte: new Date(`${input.until}T23:59:59.999Z`),
-              },
-            },
-          ],
-        }
-      : {};
+    if (!input.since || !input.until) {
+      return {};
+    }
+
+    const period = dateRangeInTimezone(
+      input.since,
+      input.until,
+      this.reportTimezone(),
+    );
+
+    return {
+      OR: [
+        { firstMessageAt: period },
+        { firstMessageAt: null, createdAt: period },
+      ],
+    };
   }
 
   private async conversionAuditContext(
@@ -2604,22 +2604,17 @@ export class MetaReportingService {
       return {};
     }
 
-    const timezone =
-      process.env.WPPTRACK_REPORT_TIMEZONE ?? "America/Sao_Paulo";
-    const nextDate = new Date(`${input.until}T00:00:00.000Z`);
-    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
-
     return {
-      eventOccurredAt: {
-        gte: startOfDateInTimezone(input.since, timezone),
-        lte: new Date(
-          startOfDateInTimezone(
-            nextDate.toISOString().slice(0, 10),
-            timezone,
-          ).getTime() - 1,
-        ),
-      },
+      eventOccurredAt: dateRangeInTimezone(
+        input.since,
+        input.until,
+        this.reportTimezone(),
+      ),
     };
+  }
+
+  private reportTimezone(): string {
+    return process.env.WPPTRACK_REPORT_TIMEZONE ?? "America/Sao_Paulo";
   }
 
   private uniqueStrings(values: Array<string | null>): string[] {

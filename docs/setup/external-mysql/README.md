@@ -25,6 +25,8 @@ The schema derives a stable cursor inside the read-only views. It does not alter
 
 `Reimportar leads` rereads `vw_wpptrack_leads` without moving the incremental lead cursor or incrementing lead duplicate counters. It refreshes the full phone display, timestamps, attribution and status in the WppTrack projection.
 
+`first_message_at` values that contain only a calendar date (or midnight without an explicit offset) are interpreted in the connector timezone, normally `America/Sao_Paulo`. Operational timestamps such as `updated_at` and event `occurred_at` remain UTC. This distinction prevents a local midnight from being displayed and grouped on the previous day.
+
 During this explicit refresh, `qualified_at` and `purchased_at` create missing `QualifiedLead` and `Purchase` records with delivery status `imported`. These historical records are countable in the dashboard but are never queued for Meta CAPI. A lead with `first_message_at` and no conversion log is displayed and filterable as `LeadSubmitted` without fabricating a provider event ID.
 
 ## n8n dual-write contract

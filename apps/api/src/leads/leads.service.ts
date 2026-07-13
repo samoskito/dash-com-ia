@@ -11,7 +11,7 @@ import {
   hashPhoneIdentity,
   normalizePhoneIdentity,
 } from "../common/phone/phone-identity";
-import { startOfDateInTimezone } from "../external-data/external-event-policy";
+import { dateRangeInTimezone } from "../external-data/external-event-policy";
 
 const leadPeriodTimezone = "America/Sao_Paulo";
 
@@ -611,27 +611,11 @@ export class LeadsService {
       return null;
     }
 
-    return {
-      ...(query.since
-        ? { gte: startOfDateInTimezone(query.since, leadPeriodTimezone) }
-        : {}),
-      ...(query.until
-        ? {
-            lte: new Date(
-              startOfDateInTimezone(
-                this.nextDate(query.until),
-                leadPeriodTimezone,
-              ).getTime() - 1,
-            ),
-          }
-        : {}),
-    };
-  }
-
-  private nextDate(dateText: string): string {
-    const date = new Date(`${dateText}T00:00:00.000Z`);
-    date.setUTCDate(date.getUTCDate() + 1);
-    return date.toISOString().slice(0, 10);
+    return dateRangeInTimezone(
+      query.since,
+      query.until,
+      leadPeriodTimezone,
+    );
   }
 
   private statusFromEvent(

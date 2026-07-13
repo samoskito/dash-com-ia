@@ -2406,8 +2406,8 @@ describe("meta reporting service", () => {
         where: expect.objectContaining({
           status: { not: "skipped" },
           eventOccurredAt: {
-            gte: new Date("2026-07-01T00:00:00.000Z"),
-            lte: new Date("2026-07-02T23:59:59.999Z"),
+            gte: new Date("2026-07-01T03:00:00.000Z"),
+            lte: new Date("2026-07-03T02:59:59.999Z"),
           },
         }),
       }),
@@ -2418,15 +2418,15 @@ describe("meta reporting service", () => {
           OR: [
             {
               firstMessageAt: {
-                gte: new Date("2026-07-01T00:00:00.000Z"),
-                lte: new Date("2026-07-02T23:59:59.999Z"),
+                gte: new Date("2026-07-01T03:00:00.000Z"),
+                lte: new Date("2026-07-03T02:59:59.999Z"),
               },
             },
             {
               firstMessageAt: null,
               createdAt: {
-                gte: new Date("2026-07-01T00:00:00.000Z"),
-                lte: new Date("2026-07-02T23:59:59.999Z"),
+                gte: new Date("2026-07-01T03:00:00.000Z"),
+                lte: new Date("2026-07-03T02:59:59.999Z"),
               },
             },
           ],
@@ -2674,6 +2674,43 @@ describe("meta reporting service", () => {
     ]);
     expect(report.summary?.realConversations).toBe(2);
     expect(report.summary?.metaConversationsStarted).toBe(176);
+  });
+
+  it("keeps late-night Sao Paulo conversations in the selected local day", async () => {
+    const { db, service } = createHarness();
+    db.leads.push({
+      id: "lead_late_local_day",
+      workspaceId: "workspace_1",
+      name: "Conversa noturna",
+      phoneDisplay: "+55 11 99999-4050",
+      phoneHash: "phone_late",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      firstMessageAt: new Date("2026-07-03T02:59:59.999Z"),
+      createdAt: new Date("2026-07-03T02:59:59.999Z"),
+    });
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      businessId: "business_1",
+      includeDaily: true,
+    });
+
+    expect(report.dailyComparison?.[1]).toEqual({
+      date: "2026-07-02",
+      metaConversationsStarted: 76,
+      realConversations: 2,
+    });
   });
 
   it("persists confirmed zero days when Meta omits an inactive date", async () => {

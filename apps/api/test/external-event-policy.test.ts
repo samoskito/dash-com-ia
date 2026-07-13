@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildExternalEventIdentity,
+  dateRangeInTimezone,
   dateInTimezone,
   ExternalEventIdentityError,
   startOfDateInTimezone
@@ -102,5 +103,16 @@ describe("external event identity policies", () => {
 
     expect(occurredAt.toISOString()).toBe("2026-07-11T03:00:00.000Z");
     expect(dateInTimezone(occurredAt, "America/Sao_Paulo")).toBe("2026-07-11");
+  });
+
+  it("builds an inclusive Sao Paulo period without shifting calendar days", () => {
+    const range = dateRangeInTimezone(
+      "2026-07-12",
+      "2026-07-13",
+      "America/Sao_Paulo"
+    );
+
+    expect(range.gte?.toISOString()).toBe("2026-07-12T03:00:00.000Z");
+    expect(range.lte?.toISOString()).toBe("2026-07-14T02:59:59.999Z");
   });
 });

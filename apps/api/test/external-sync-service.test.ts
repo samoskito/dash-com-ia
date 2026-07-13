@@ -187,6 +187,7 @@ describe("ExternalSyncService", () => {
   it("refreshes lead projections without moving cursors or duplicate counters", async () => {
     const historicalLeadRow: ExternalLeadRow = {
       ...leadRow,
+      firstMessageAt: "2026-07-11 00:00:00.000",
       qualifiedAt: "2026-07-11 00:00:00.000",
       purchasedAt: "2026-07-12 00:00:00.000"
     };
@@ -282,7 +283,8 @@ describe("ExternalSyncService", () => {
         phone: "5511999999999",
         adId: "ad_1",
         campaignId: "campaign_1",
-        adSetId: "adset_1"
+        adSetId: "adset_1",
+        firstMessageAt: new Date("2026-07-11T03:00:00.000Z")
       })
     );
     expect(prisma.metaAd.findMany).toHaveBeenCalledTimes(1);

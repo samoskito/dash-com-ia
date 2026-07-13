@@ -150,6 +150,24 @@ export function startOfDateInTimezone(
   return new Date(candidate);
 }
 
+export function dateRangeInTimezone(
+  since: string | undefined,
+  until: string | undefined,
+  timezone: string
+): { gte?: Date; lte?: Date } {
+  return {
+    ...(since ? { gte: startOfDateInTimezone(since, timezone) } : {}),
+    ...(until
+      ? {
+          lte: new Date(
+            startOfDateInTimezone(nextCalendarDate(until), timezone).getTime() -
+              1
+          )
+        }
+      : {})
+  };
+}
+
 function required(value: string, field: string): string {
   const parsed = optional(value);
 
@@ -167,4 +185,15 @@ function optional(value?: string | null): string | null {
 
 function encodePart(value: string): string {
   return encodeURIComponent(value);
+}
+
+function nextCalendarDate(dateText: string): string {
+  const date = new Date(`${dateText}T00:00:00.000Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Invalid local date");
+  }
+
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
 }
