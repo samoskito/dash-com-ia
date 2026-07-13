@@ -381,6 +381,14 @@ Implementation status - shared shell - 2026-07-12:
 - Automated browser inspection covered desktop expanded/collapsed at 1440 x 1000 and mobile closed/open at 390 x 844. Every state matched viewport width, the logout action remained inside the sidebar and the old subtitle was absent.
 - All 112 web tests, web typecheck and the Next production build pass. The next page group after product-owner shell approval is Overview.
 
+Implementation status - Overview - 2026-07-13:
+
+- Replaced the compact stage-card row with a recognizable conversion funnel based on the approved Renato reference: desktop uses proportional curved segments and mobile uses a dedicated vertical progression without horizontal scrolling.
+- The funnel remains dynamic, follows the report-provided stage order and labels, and shows the conversion rate from each previous stage without changing reporting formulas.
+- `ROAS com recompra` is rendered only when the period contains a repurchase count or repurchase revenue. The purchase KPI also omits the misleading `0 recompra` suffix when only first purchases exist.
+- Automated inspection covered 1440 x 1000 and 390 x 844 with populated representative data. Both layouts matched viewport width; the desktop SVG contained one segment per stage and the mobile alternative replaced it without clipped labels.
+- All 113 web tests and web typecheck pass. The Overview page now awaits product-owner visual approval before the review advances to Leads.
+
 ## 13. Block 5 - External Connector Productization and Native Providers
 
 After Blocks 1 through 4.5, evolve the approved data foundation into a customer-facing connector platform:
@@ -410,4 +418,4 @@ For every block:
 
 ## 15. Current Next Action
 
-Present the completed shared-shell review for product-owner approval and, once approved, start the **Overview** page audit. Continue **Block 4.5 - Full Platform Layout Review** page by page with desktop/mobile evidence. Keep the CAPI gate collecting automatic real QualifiedLead and Purchase samples without changing n8n or enabling duplicate sends. Start **Block 5 - External Connector Productization and Native Providers** only after the full-platform layout review is approved.
+Present the completed **Overview** review for product-owner approval and, once approved, start the **Leads** page audit. Continue **Block 4.5 - Full Platform Layout Review** page by page with desktop/mobile evidence. Keep the CAPI gate collecting automatic real QualifiedLead and Purchase samples without changing n8n or enabling duplicate sends. Start **Block 5 - External Connector Productization and Native Providers** only after the full-platform layout review is approved.

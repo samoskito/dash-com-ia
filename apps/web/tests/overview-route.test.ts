@@ -135,9 +135,58 @@ describe("overview route", () => {
     expect(html).toContain("3 conversas organicas");
     expect(html).toContain("Receita trafego");
     expect(html).toContain("Receita organica");
+    expect(html).toContain("Funil de conversao");
+    expect(html).toContain("Base do funil");
+    expect(html).toContain("da etapa anterior");
+    expect(html).toContain("conversion-funnel-chart");
+    expect(html).toContain("1 primeira compra");
+    expect(html).not.toContain("ROAS com recompra");
+    expect(html).not.toContain("0 recompra");
     expect(html).toContain(">1<");
     expect(html).not.toContain("LeadSubmitted");
     expect(html).not.toContain("Black Friday WhatsApp");
+  });
+
+  it("shows repurchase ROAS only when the period contains repurchases", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          workspaceId: "workspace_1",
+          rangeLabel: "Ultimos 7 dias",
+          campaigns: [
+            {
+              id: "cmp_1",
+              name: "Campanha com recompra",
+              status: "active",
+              ...reportMetrics({
+                purchases: 2,
+                firstPurchases: 1,
+                repurchases: 1,
+                repurchaseRevenueCents: 15000,
+                roasWithRepurchase: 4.5,
+                funnelSteps: [
+                  ...reportMetrics().funnelSteps,
+                  {
+                    key: "repurchase",
+                    label: "Recompra",
+                    value: 1,
+                    costCents: 10000
+                  }
+                ]
+              })
+            }
+          ]
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const element = await OverviewPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("ROAS com recompra");
+    expect(html).toContain("4.50x");
+    expect(html).toContain("1 primeira compra, 1 recompra");
   });
 
   it("renders an empty overview state without mock campaign data", async () => {

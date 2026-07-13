@@ -227,10 +227,6 @@ function weightedRoas(
     : null;
 }
 
-function percent(part: number, total: number): number {
-  return total > 0 ? Math.round((part / total) * 100) : 0;
-}
-
 function ratePercent(rate: number | null): number {
   return rate === null ? 0 : Math.round(rate * 100);
 }
@@ -282,8 +278,18 @@ function ratioLabel(value: number | null): string {
   return value === null ? "-" : `${value.toFixed(2)}x`;
 }
 
-function funnelWidth(part: number, total: number): string {
-  return `${Math.max(percent(part, total), part > 0 ? 3 : 0)}%`;
+function purchaseBreakdownLabel(firstPurchases: number, repurchases: number): string {
+  if (firstPurchases === 0 && repurchases === 0) {
+    return "Nenhuma compra no periodo";
+  }
+
+  const firstPurchaseLabel = `${firstPurchases} ${firstPurchases === 1 ? "primeira compra" : "primeiras compras"}`;
+
+  if (repurchases === 0) {
+    return firstPurchaseLabel;
+  }
+
+  return `${firstPurchaseLabel}, ${repurchases} ${repurchases === 1 ? "recompra" : "recompras"}`;
 }
 
 function funnelStep(
@@ -334,6 +340,16 @@ export default async function OverviewPage() {
   const trackingScoreStyle = hasTrackingSample
     ? ({ "--tracking-rate": `${trackedRate}%` } as CSSProperties)
     : undefined;
+  const hasRepurchases = campaign.repurchases > 0 || campaign.repurchaseRevenueCents > 0;
+  const funnelStages: ReportFunnelStepDto[] = [
+    {
+      key: "meta_conversations",
+      label: "Conversas Meta",
+      value: campaign.metaConversationsStarted,
+      costCents: campaign.costPerMetaConversationCents
+    },
+    ...campaign.funnelSteps
+  ];
 
   return (
     <section className="page-stack">
@@ -389,7 +405,7 @@ export default async function OverviewPage() {
         <Metric
           label="Compras"
           value={dataAvailable ? String(campaign.purchases) : "-"}
-          delta={dataAvailable ? `${campaign.firstPurchases} primeira compra, ${campaign.repurchases} recompra` : "Aguardando resposta da API"}
+          delta={dataAvailable ? purchaseBreakdownLabel(campaign.firstPurchases, campaign.repurchases) : "Aguardando resposta da API"}
           unavailable={!dataAvailable}
         />
       </div>
@@ -431,24 +447,16 @@ export default async function OverviewPage() {
                 label="ROAS aquisicao"
                 value={ratioLabel(campaign.roasAcquisition)}
               />
-              <OverviewSummaryValue
-                label="ROAS com recompra"
-                value={ratioLabel(campaign.roasWithRepurchase)}
-              />
+              {hasRepurchases ? (
+                <OverviewSummaryValue
+                  label="ROAS com recompra"
+                  value={ratioLabel(campaign.roasWithRepurchase)}
+                />
+              ) : null}
             </div>
           ) : null}
           {dataAvailable ? (
-            <div className="funnel-row" aria-label="Resumo do funil">
-              <FunnelStep label="Meta conv." value={campaign.metaConversationsStarted} width="100%" />
-              {campaign.funnelSteps.map((step) => (
-                <FunnelStep
-                  key={step.key}
-                  label={step.label}
-                  value={step.value}
-                  width={funnelWidth(step.value, campaign.metaConversationsStarted)}
-                />
-              ))}
-            </div>
+            <ConversionFunnel stages={funnelStages} />
           ) : (
             <div className="overview-unavailable" role="status">
               <span className="status-dot" aria-hidden="true" />
@@ -562,15 +570,163 @@ function Metric({
   );
 }
 
-function FunnelStep({ label, value, width }: { label: string; value: number; width: string }) {
+function ConversionFunnel({ stages }: { stages: ReportFunnelStepDto[] }) {
+  const palette = [
+    "var(--mint)",
+    "var(--teal)",
+    "var(--cyan)",
+    "var(--blue)",
+    "var(--amber)",
+    "var(--coral)"
+  ];
+  const viewWidth = 1000;
+  const viewHeight = 176;
+  const centerY = viewHeight / 2;
+  const maximumHalfHeight = centerY - 14;
+  const minimumHalfHeight = 10;
+  const firstValue = stages[0]?.value ?? 0;
+  const visualBase = Math.max(firstValue, 1);
+  const segmentWidth = viewWidth / Math.max(stages.length, 1);
+  const halfHeight = (value: number) =>
+    Math.max(
+      minimumHalfHeight,
+      Math.round(Math.min(value / visualBase, 1) * maximumHalfHeight)
+    );
+  const boundaries = stages.map((stage) => halfHeight(stage.value));
+  const lastBoundary = boundaries[boundaries.length - 1] ?? minimumHalfHeight;
+  boundaries.push(Math.max(6, Math.round(lastBoundary * 0.52)));
+  const segmentPath = (index: number) => {
+    const startX = index * segmentWidth;
+    const endX = (index + 1) * segmentWidth;
+    const middleX = startX + segmentWidth / 2;
+    const leftHeight = boundaries[index] ?? minimumHalfHeight;
+    const rightHeight = boundaries[index + 1] ?? minimumHalfHeight;
+
+    return [
+      `M ${startX} ${centerY - leftHeight}`,
+      `C ${middleX} ${centerY - leftHeight} ${middleX} ${centerY - rightHeight} ${endX} ${centerY - rightHeight}`,
+      `L ${endX} ${centerY + rightHeight}`,
+      `C ${middleX} ${centerY + rightHeight} ${middleX} ${centerY + leftHeight} ${startX} ${centerY + leftHeight}`,
+      "Z"
+    ].join(" ");
+  };
+  const rateFromPrevious = (index: number) => {
+    if (index === 0) {
+      return null;
+    }
+
+    const previousValue = stages[index - 1]?.value ?? 0;
+    return previousValue > 0
+      ? Math.round(((stages[index]?.value ?? 0) / previousValue) * 100)
+      : null;
+  };
+  const mobileWidth = (value: number) => {
+    if (firstValue === 0 || value === 0) {
+      return "0%";
+    }
+
+    return `${Math.max(18, Math.min(100, Math.round((value / firstValue) * 100)))}%`;
+  };
+  const funnelLabel = stages
+    .map((stage) => `${stage.label}: ${stage.value}`)
+    .join(", ");
+
   return (
-    <div className="funnel-step">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <div className="signal-bar" aria-hidden="true">
-        <i style={{ width }} />
+    <section className="conversion-funnel" aria-label={`Funil de conversao. ${funnelLabel}`}>
+      <div className="conversion-funnel-heading">
+        <div>
+          <span className="micro-label">Jornada completa</span>
+          <h3>Funil de conversao</h3>
+        </div>
+        <span className="conversion-funnel-stage-count">
+          {stages.length} {stages.length === 1 ? "etapa" : "etapas"}
+        </span>
       </div>
-    </div>
+
+      <div
+        className="conversion-funnel-stage-grid"
+        style={{ "--funnel-stage-count": stages.length } as CSSProperties}
+      >
+        {stages.map((stage, index) => {
+          const rate = rateFromPrevious(index);
+          const color = palette[index % palette.length];
+
+          return (
+            <div
+              className="conversion-funnel-stage"
+              key={`${stage.key}-${index}`}
+              style={{ "--funnel-stage-color": color } as CSSProperties}
+            >
+              <div className="conversion-funnel-stage-label">
+                <span>{index + 1}</span>
+                <strong>{stage.label}</strong>
+              </div>
+              <b>{stage.value}</b>
+              <small>
+                {index === 0
+                  ? "Base do funil"
+                  : rate === null
+                    ? "Sem base anterior"
+                    : `${rate}% da etapa anterior`}
+              </small>
+            </div>
+          );
+        })}
+      </div>
+
+      <svg
+        className="conversion-funnel-chart"
+        viewBox={`0 0 ${viewWidth} ${viewHeight}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={funnelLabel}
+      >
+        {stages.map((stage, index) => (
+          <path
+            d={segmentPath(index)}
+            fill={palette[index % palette.length]}
+            key={`${stage.key}-${index}`}
+          />
+        ))}
+      </svg>
+
+      <div className="conversion-funnel-mobile">
+        {stages.map((stage, index) => {
+          const rate = rateFromPrevious(index);
+          const color = palette[index % palette.length];
+
+          return (
+            <div className="conversion-funnel-mobile-stage" key={`${stage.key}-${index}`}>
+              <div>
+                <span
+                  className="conversion-funnel-mobile-index"
+                  style={{ backgroundColor: color }}
+                >
+                  {index + 1}
+                </span>
+                <strong>{stage.label}</strong>
+                <b>{stage.value}</b>
+              </div>
+              <small>
+                {index === 0
+                  ? "Base do funil"
+                  : rate === null
+                    ? "Sem base anterior"
+                    : `${rate}% da etapa anterior`}
+              </small>
+              <span
+                className="conversion-funnel-mobile-band"
+                style={{
+                  "--funnel-stage-color": color,
+                  "--funnel-mobile-width": mobileWidth(stage.value)
+                } as CSSProperties}
+                aria-hidden="true"
+              />
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

@@ -762,7 +762,7 @@ button {
 
 .overview-finance-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   margin-top: 18px;
   border-block: 1px solid var(--border);
 }
@@ -803,6 +803,137 @@ button {
   font-size: 17px;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+
+.conversion-funnel {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.conversion-funnel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.conversion-funnel-heading h3 {
+  margin: 5px 0 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 21px;
+  line-height: 1.15;
+}
+
+.conversion-funnel-stage-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 27px;
+  padding: 5px 9px;
+  border: 1px solid rgba(56, 199, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(56, 199, 255, 0.06);
+  color: #8ccef0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.conversion-funnel-stage-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--funnel-stage-count), minmax(0, 1fr));
+  margin-top: 20px;
+}
+
+.conversion-funnel-stage {
+  min-width: 0;
+  padding: 0 7px;
+  text-align: center;
+}
+
+.conversion-funnel-stage-label {
+  display: flex;
+  min-height: 35px;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+}
+
+.conversion-funnel-stage-label > span {
+  display: inline-grid;
+  flex: 0 0 19px;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--funnel-stage-color);
+  color: #03110d;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.conversion-funnel-stage-label strong {
+  display: -webkit-box;
+  min-width: 0;
+  max-width: 120px;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: left;
+  text-transform: uppercase;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.conversion-funnel-stage > b {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.conversion-funnel-stage > small {
+  display: block;
+  min-height: 25px;
+  margin-top: 5px;
+  color: var(--funnel-stage-color);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.conversion-funnel-stage:first-child > small {
+  color: var(--ink-muted);
+}
+
+.conversion-funnel-chart {
+  display: block;
+  width: 100%;
+  height: 150px;
+  margin-top: 7px;
+  overflow: visible;
+  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.2));
+}
+
+.conversion-funnel-chart path {
+  stroke: var(--graphite-850);
+  stroke-width: 3px;
+  vector-effect: non-scaling-stroke;
+}
+
+.conversion-funnel-mobile {
+  display: none;
 }
 
 .tracking-health {
@@ -2783,6 +2914,101 @@ td span {
 
   .overview-summary-value:last-child {
     border-bottom: 0;
+  }
+
+  .overview-summary-value:nth-last-child(-n + 2):nth-child(odd) {
+    border-bottom: 0;
+  }
+
+  .conversion-funnel-stage-grid,
+  .conversion-funnel-chart {
+    display: none;
+  }
+
+  .conversion-funnel-heading {
+    align-items: center;
+  }
+
+  .conversion-funnel-heading h3 {
+    font-size: 19px;
+  }
+
+  .conversion-funnel-mobile {
+    display: grid;
+    margin-top: 18px;
+  }
+
+  .conversion-funnel-mobile-stage {
+    position: relative;
+    min-width: 0;
+    padding: 0 0 18px;
+  }
+
+  .conversion-funnel-mobile-stage:not(:last-child)::before {
+    position: absolute;
+    top: 27px;
+    bottom: -1px;
+    left: 13px;
+    width: 1px;
+    background: var(--border);
+    content: "";
+  }
+
+  .conversion-funnel-mobile-stage > div {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 27px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .conversion-funnel-mobile-index {
+    display: inline-grid;
+    width: 27px;
+    height: 27px;
+    place-items: center;
+    border: 3px solid var(--graphite-850);
+    border-radius: 50%;
+    color: #03110d;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 900;
+  }
+
+  .conversion-funnel-mobile-stage strong {
+    min-width: 0;
+    color: var(--ink-soft);
+    font-size: 13px;
+    line-height: 1.25;
+  }
+
+  .conversion-funnel-mobile-stage b {
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-size: 21px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  .conversion-funnel-mobile-stage > small {
+    display: block;
+    margin: 5px 0 0 37px;
+    color: var(--ink-muted);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 800;
+  }
+
+  .conversion-funnel-mobile-band {
+    display: block;
+    width: var(--funnel-mobile-width);
+    height: 8px;
+    margin: 9px auto 0;
+    border-radius: 2px;
+    background: var(--funnel-stage-color);
+    clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 0 100%);
+    opacity: 0.82;
   }
 
   .tracking-health-header,
