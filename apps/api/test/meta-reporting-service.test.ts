@@ -787,7 +787,10 @@ describe("meta reporting service", () => {
         id: "cmp_1",
         override: "manual_include",
       }),
-    ).resolves.toEqual({ ok: true });
+    ).resolves.toEqual({
+      ok: true,
+      whatsappClassification: "manual_include",
+    });
 
     expect(prisma.metaCampaign.updateMany).toHaveBeenCalledWith({
       where: { workspaceId: "workspace_1", campaignId: "cmp_1" },
@@ -1171,19 +1174,28 @@ describe("meta reporting service", () => {
       whatsappClassification: "creative_whatsapp",
     });
 
-    await service.saveWhatsappClassificationOverride({
+    const adSetResult = await service.saveWhatsappClassificationOverride({
       workspaceId: "workspace_1",
       actorUserId: null,
       level: "adset",
       id: "adset_1",
       override: "manual_exclude",
     });
-    await service.saveWhatsappClassificationOverride({
+    const adResult = await service.saveWhatsappClassificationOverride({
       workspaceId: "workspace_1",
       actorUserId: null,
       level: "ad",
       id: "ad_1",
       override: "manual_exclude",
+    });
+
+    expect(adSetResult).toEqual({
+      ok: true,
+      whatsappClassification: "manual_exclude",
+    });
+    expect(adResult).toEqual({
+      ok: true,
+      whatsappClassification: "manual_exclude",
     });
 
     expect(prisma.metaAdSet.updateMany).toHaveBeenCalledWith({
@@ -1227,12 +1239,17 @@ describe("meta reporting service", () => {
       classificationSource: "manual",
     });
 
-    await service.saveWhatsappClassificationOverride({
+    const result = await service.saveWhatsappClassificationOverride({
       workspaceId: "workspace_1",
       actorUserId: "user_1",
       level: "ad",
       id: "ad_1",
       override: null,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      whatsappClassification: "creative_whatsapp",
     });
 
     expect(prisma.metaAd.updateMany).toHaveBeenCalledWith({

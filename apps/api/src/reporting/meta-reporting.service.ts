@@ -1192,7 +1192,10 @@ export class MetaReportingService {
     level: WhatsappOverrideLevel;
     id: string;
     override: WhatsappManualOverride | null;
-  }): Promise<{ ok: true }> {
+  }): Promise<{
+    ok: true;
+    whatsappClassification: WhatsappClassification;
+  }> {
     const data = input.override
       ? {
           classificationOverride: input.override,
@@ -1241,7 +1244,10 @@ export class MetaReportingService {
       },
     });
 
-    return { ok: true };
+    return {
+      ok: true,
+      whatsappClassification: data.whatsappClassification,
+    };
   }
 
   async updateMetaEntityStatus(

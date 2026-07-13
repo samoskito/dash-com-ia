@@ -14,16 +14,14 @@ import type {
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import {
-  BackofficeActionForm,
-  type BackofficeActionState,
-} from "../../../components/backoffice-action-form";
+import type { BackofficeActionState } from "../../../components/backoffice-action-form";
 import { SubmitButton } from "../../../components/submit-button";
 import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { MetaEntityControls } from "./meta-entity-controls";
 import { MetaReportFilters } from "./meta-report-filters";
 import { ReportAdPreview } from "./report-ad-preview";
+import { WhatsappReviewActions } from "./whatsapp-review-actions";
 
 type ReportsSearchParams = Record<string, string | string[] | undefined>;
 type ReportView = "campaigns" | "adsets" | "ads";
@@ -41,6 +39,9 @@ type AdReportsResult = {
   state: ReportFetchState;
 };
 type PerformanceRow = CampaignReportRowDto | AdSetReportRowDto | AdReportRowDto;
+type WhatsappClassification = NonNullable<
+  PerformanceRow["whatsappClassification"]
+>;
 type ReportTotals = {
   spendCents: number;
   metaConversationsStarted: number;
@@ -433,7 +434,10 @@ async function saveWhatsappClassification(
   }
 
   try {
-    await serverApiFetch("/reports/meta/whatsapp-classification", {
+    const result = await serverApiFetch<{
+      ok: true;
+      whatsappClassification: WhatsappClassification;
+    }>("/reports/meta/whatsapp-classification", {
       method: "PUT",
       body: JSON.stringify({ level, id, override }),
     });
@@ -444,9 +448,10 @@ async function saveWhatsappClassification(
         override === "manual_include"
           ? "Item incluido nos relatorios de WhatsApp."
           : override === "manual_exclude"
-            ? "Item excluido dos relatorios de WhatsApp."
+            ? "Item marcado como excluido. Ele continua disponivel no filtro Excluidas."
             : "Classificacao automatica restaurada.",
       nonce,
+      whatsappClassification: result.whatsappClassification,
     };
   } catch {
     return {
@@ -738,85 +743,17 @@ const adSummaryCopy: ReportEntityCopy = {
   unknownPlural: "sem status",
 };
 
-function ReviewActions({
-  classification,
-  id,
-  level,
-}: {
-  classification?: PerformanceRow["whatsappClassification"];
-  id: string;
-  level: "campaign" | "adset" | "ad";
-}) {
-  const labels: Record<
-    NonNullable<PerformanceRow["whatsappClassification"]>,
-    string
-  > = {
-    auto_whatsapp: "WhatsApp automatico",
-    creative_whatsapp: "WhatsApp pelo criativo",
-    detected_by_leads: "WhatsApp pelos leads",
-    manual_include: "Incluido manualmente",
-    manual_exclude: "Excluido manualmente",
-    needs_review: "Revisao necessaria",
-    not_whatsapp: "Fora do WhatsApp",
-  };
-  const hasManualOverride =
-    classification === "manual_include" || classification === "manual_exclude";
-
-  return (
-    <div className="review-control">
-      <span
-        className={`review-state${classification === "manual_exclude" ? " excluded" : ""}`}
-      >
-        {classification ? labels[classification] : "Classificacao automatica"}
-      </span>
-      <BackofficeActionForm
-        action={saveWhatsappClassification}
-        className="review-actions"
-      >
-        <input type="hidden" name="level" value={level} />
-        <input type="hidden" name="id" value={id} />
-        <button
-          aria-pressed={classification === "manual_include"}
-          className={
-            classification === "manual_include" ? "is-active" : undefined
-          }
-          type="submit"
-          name="override"
-          value="manual_include"
-        >
-          Incluir
-        </button>
-        <button
-          aria-pressed={classification === "manual_exclude"}
-          className={
-            classification === "manual_exclude" ? "is-active" : undefined
-          }
-          type="submit"
-          name="override"
-          value="manual_exclude"
-        >
-          Excluir
-        </button>
-        <button
-          disabled={!hasManualOverride}
-          type="submit"
-          name="override"
-          value=""
-        >
-          Resetar
-        </button>
-      </BackofficeActionForm>
-    </div>
-  );
-}
-
 function PerformanceMetricsCells({
+  funnelSteps,
   row,
   realConversationsHref,
 }: {
+  funnelSteps: ReportFunnelStepDto[];
   row: PerformanceRow;
   realConversationsHref: string;
 }) {
+  const rowSteps = new Map(row.funnelSteps.map((step) => [step.key, step]));
+
   return (
     <>
       <td>{money(row.spendCents)}</td>
@@ -824,18 +761,26 @@ function PerformanceMetricsCells({
         {row.metaConversationsStarted}
         <span>{money(row.costPerMetaConversationCents)}</span>
       </td>
-      {row.funnelSteps.map((step) => (
-        <td key={step.key}>
-          {step.key === "real_conversations" ? (
-            <Link className="report-metric-link" href={realConversationsHref}>
-              {step.value}
-            </Link>
-          ) : (
-            step.value
-          )}
-          <span>{money(step.costCents ?? null)}</span>
-        </td>
-      ))}
+      {funnelSteps.map((column) => {
+        const step = rowSteps.get(column.key);
+        const value = step?.value ?? 0;
+
+        return (
+          <td key={column.key}>
+            {column.key === "real_conversations" ? (
+              <Link
+                className="report-metric-link"
+                href={realConversationsHref}
+              >
+                {value}
+              </Link>
+            ) : (
+              value
+            )}
+            <span>{money(step?.costCents ?? null)}</span>
+          </td>
+        );
+      })}
       <td>
         {row.totalReceived}
         <span>{percent(row.trackingRate)}</span>
@@ -1314,7 +1259,7 @@ function PerformanceSummaryFooter({
           </span>
         </td>
         <SummaryMetricsCells totals={summaryTotals} />
-        <td>
+        <td className="performance-review-cell">
           <span className="tag">Total</span>
         </td>
       </tr>
@@ -1949,7 +1894,9 @@ export default async function ReportsPage({
                 <PerformanceMetricHeaders
                   funnelSteps={currentTotals.funnelSteps}
                 />
-                <th>Revisao WhatsApp</th>
+                <th className="performance-review-column">
+                  Revisao WhatsApp
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -1987,6 +1934,7 @@ export default async function ReportsPage({
                       />
                     </td>
                     <PerformanceMetricsCells
+                      funnelSteps={currentTotals.funnelSteps}
                       row={row}
                       realConversationsHref={leadsHref({
                         campaignId: row.id,
@@ -1999,9 +1947,10 @@ export default async function ReportsPage({
                         whatsappClassification,
                       })}
                     />
-                    <td>
+                    <td className="performance-review-cell">
                       {canSyncMetaReports ? (
-                        <ReviewActions
+                        <WhatsappReviewActions
+                          action={saveWhatsappClassification}
                           classification={row.whatsappClassification}
                           level="campaign"
                           id={row.id}
@@ -2029,7 +1978,7 @@ export default async function ReportsPage({
                   <EmptyPerformanceCells
                     funnelSteps={currentTotals.funnelSteps}
                   />
-                  <td>-</td>
+                  <td className="performance-review-cell">-</td>
                 </tr>
               )}
             </tbody>
@@ -2059,7 +2008,9 @@ export default async function ReportsPage({
                   <PerformanceMetricHeaders
                     funnelSteps={currentTotals.funnelSteps}
                   />
-                  <th>Revisao WhatsApp</th>
+                  <th className="performance-review-column">
+                    Revisao WhatsApp
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -2096,6 +2047,7 @@ export default async function ReportsPage({
                         />
                       </td>
                       <PerformanceMetricsCells
+                        funnelSteps={currentTotals.funnelSteps}
                         row={row}
                         realConversationsHref={leadsHref({
                           campaignId: row.campaignId,
@@ -2109,9 +2061,10 @@ export default async function ReportsPage({
                           whatsappClassification,
                         })}
                       />
-                      <td>
+                      <td className="performance-review-cell">
                         {canSyncMetaReports ? (
-                          <ReviewActions
+                          <WhatsappReviewActions
+                            action={saveWhatsappClassification}
                             classification={row.whatsappClassification}
                             level="adset"
                             id={row.id}
@@ -2139,7 +2092,7 @@ export default async function ReportsPage({
                     <EmptyPerformanceCells
                       funnelSteps={currentTotals.funnelSteps}
                     />
-                    <td>-</td>
+                    <td className="performance-review-cell">-</td>
                   </tr>
                 )}
               </tbody>
@@ -2170,7 +2123,9 @@ export default async function ReportsPage({
                   <PerformanceMetricHeaders
                     funnelSteps={currentTotals.funnelSteps}
                   />
-                  <th>Revisao WhatsApp</th>
+                  <th className="performance-review-column">
+                    Revisao WhatsApp
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -2217,6 +2172,7 @@ export default async function ReportsPage({
                         />
                       </td>
                       <PerformanceMetricsCells
+                        funnelSteps={currentTotals.funnelSteps}
                         row={row}
                         realConversationsHref={leadsHref({
                           campaignId: row.campaignId,
@@ -2231,9 +2187,10 @@ export default async function ReportsPage({
                           whatsappClassification,
                         })}
                       />
-                      <td>
+                      <td className="performance-review-cell">
                         {canSyncMetaReports ? (
-                          <ReviewActions
+                          <WhatsappReviewActions
+                            action={saveWhatsappClassification}
                             classification={row.whatsappClassification}
                             level="ad"
                             id={row.id}
@@ -2261,7 +2218,7 @@ export default async function ReportsPage({
                     <EmptyPerformanceCells
                       funnelSteps={currentTotals.funnelSteps}
                     />
-                    <td>-</td>
+                    <td className="performance-review-cell">-</td>
                   </tr>
                 )}
               </tbody>

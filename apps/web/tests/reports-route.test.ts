@@ -240,6 +240,7 @@ function json(value: unknown, status = 200) {
 
 function mockReportsApi(
   options: {
+    campaign?: typeof campaignReport;
     fail?: boolean;
     member?: boolean;
     comparison?: typeof campaignReport;
@@ -287,7 +288,7 @@ function mockReportsApi(
       return json(
         url.includes("since=2026-07-01") && options.comparison
           ? options.comparison
-          : campaignReport,
+          : (options.campaign ?? campaignReport),
       );
     }
 
@@ -400,6 +401,51 @@ describe("reports route", () => {
     expect(html).toContain("Incluido manualmente");
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('class="review-actions"');
+  });
+
+  it("keeps the WhatsApp review cell in the final column when a row has missing funnel steps", async () => {
+    const campaignWithMissingSteps = {
+      ...campaignReport,
+      campaigns: [
+        {
+          ...campaignReport.campaigns[0],
+          funnelSteps: campaignReport.campaigns[0].funnelSteps.slice(0, 1),
+        },
+      ],
+    };
+    mockReportsApi({ campaign: campaignWithMissingSteps });
+    const html = await renderReports();
+    const table = html.match(
+      /<table class="performance-table">([\s\S]*?)<\/table>/,
+    )?.[1];
+    const header = table?.match(/<thead><tr>([\s\S]*?)<\/tr><\/thead>/)?.[1];
+    const row = table?.match(/<tbody><tr[^>]*>([\s\S]*?)<\/tr>/)?.[1];
+    const headerCells = header?.match(/<th(?:\s|>)/g) ?? [];
+    const rowCells = row?.match(/<td(?:\s|>)/g) ?? [];
+
+    expect(headerCells.length).toBeGreaterThan(0);
+    expect(rowCells).toHaveLength(headerCells.length);
+    expect(row).toContain('class="performance-review-cell"');
+  });
+
+  it("renders an excluded WhatsApp item with a persistent selected state", async () => {
+    const excludedCampaign = {
+      ...campaignReport,
+      campaigns: [
+        {
+          ...campaignReport.campaigns[0],
+          whatsappClassification: "manual_exclude",
+        },
+      ],
+    };
+    mockReportsApi({ campaign: excludedCampaign });
+    const html = await renderReports({ whatsappClassification: "excluded" });
+
+    expect(html).toContain("Excluido manualmente");
+    expect(html).toContain('class="review-state excluded"');
+    expect(html).toMatch(
+      /<button[^>]*aria-pressed="true"[^>]*value="manual_exclude"[^>]*>Excluir<\/button>/,
+    );
   });
 
   it("sends hierarchy selection to the selected report endpoint", async () => {

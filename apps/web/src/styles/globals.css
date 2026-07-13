@@ -3952,9 +3952,11 @@ table {
   min-width: 330px;
 }
 
-.performance-table th:last-child,
-.performance-table td:last-child {
-  width: 170px;
+.performance-table .performance-review-column,
+.performance-table .performance-review-cell {
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
 }
 
 .performance-table th:not(:first-child):not(:last-child),
@@ -5516,11 +5518,6 @@ th {
   min-width: 104px;
 }
 
-.performance-table th:last-child,
-.performance-table td:last-child {
-  width: 224px;
-}
-
 .review-control {
   display: grid;
   gap: 8px;
@@ -5531,6 +5528,7 @@ th {
 .review-state {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   min-height: 22px;
   padding: 4px 7px;
   border: 1px solid rgba(66, 240, 168, 0.28);
@@ -5544,9 +5542,22 @@ th {
   white-space: nowrap;
 }
 
+.review-state::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.review-state.included {
+  color: var(--mint);
+}
+
 .review-state.excluded {
   border-color: rgba(242, 193, 78, 0.3);
   background: rgba(242, 193, 78, 0.055);
+  color: var(--sun);
 }
 
 .review-actions {

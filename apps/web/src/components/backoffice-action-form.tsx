@@ -7,6 +7,14 @@ export type BackofficeActionState = {
   status: "idle" | "success" | "error";
   message: string;
   nonce: number;
+  whatsappClassification?:
+    | "auto_whatsapp"
+    | "creative_whatsapp"
+    | "detected_by_leads"
+    | "manual_include"
+    | "manual_exclude"
+    | "needs_review"
+    | "not_whatsapp";
   syncRequest?: {
     connectorId: string;
     requestedAt: number;
