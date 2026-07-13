@@ -229,6 +229,12 @@ function createHarness() {
           matchesWhere(account, args?.where),
         ),
       ),
+      findFirst: vi.fn(
+        async (args?: { where?: Record<string, unknown> }) =>
+          db.reportingAccounts.find((account) =>
+            matchesWhere(account, args?.where),
+          ) ?? null,
+      ),
       update: vi.fn(
         async ({
           where,
@@ -487,6 +493,8 @@ function createHarness() {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         objective: "OUTCOME_SALES",
+        dailyBudgetCents: 49500,
+        lifetimeBudgetCents: null,
       },
     ]),
     listAdSets: vi.fn(async () => [
@@ -497,6 +505,8 @@ function createHarness() {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         destinationType: "WHATSAPP" as string | null,
+        dailyBudgetCents: null,
+        lifetimeBudgetCents: null,
       },
     ]),
     listAds: vi.fn(async () => [
@@ -508,6 +518,7 @@ function createHarness() {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
+        thumbnailUrl: "https://example.com/ad-1.jpg" as string | null,
         callToActionType: "WHATSAPP_MESSAGE" as string | null,
       },
     ]),
@@ -559,6 +570,8 @@ function createHarness() {
         metaConversationsStarted: 40,
       },
     ]),
+    updateEntityStatus: vi.fn(async () => undefined),
+    updateEntityBudget: vi.fn(async () => undefined),
   };
   const service = new MetaReportingService(
     prisma as never,
@@ -596,6 +609,165 @@ function createHarness() {
 }
 
 describe("meta reporting service", () => {
+  it("updates a Meta entity status only when the local snapshot still matches", async () => {
+    const { db, metaAdapter, service } = createHarness();
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      adAccountId: "act_123",
+      campaignId: "cmp_1",
+      status: "ACTIVE",
+    });
+
+    await expect(
+      service.updateMetaEntityStatus({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        level: "campaign",
+        id: "cmp_1",
+        expectedStatus: "ACTIVE",
+        targetStatus: "PAUSED",
+      }),
+    ).resolves.toEqual({ ok: true, level: "campaign", id: "cmp_1" });
+
+    expect(metaAdapter.updateEntityStatus).toHaveBeenCalledWith({
+      accessToken: "EAAB-secret-token",
+      id: "cmp_1",
+      status: "PAUSED",
+    });
+    expect(db.campaigns[0]?.status).toBe("PAUSED");
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        action: "meta.entity.status_updated",
+        resultStatus: "success",
+        targetId: "cmp_1",
+      }),
+    );
+
+    await expect(
+      service.updateMetaEntityStatus({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        level: "campaign",
+        id: "cmp_1",
+        expectedStatus: "ACTIVE",
+        targetStatus: "PAUSED",
+      }),
+    ).rejects.toThrow("O status mudou");
+    expect(metaAdapter.updateEntityStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the local snapshot unchanged when Meta rejects a status update", async () => {
+    const { db, metaAdapter, service } = createHarness();
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      adAccountId: "act_123",
+      campaignId: "cmp_1",
+      status: "ACTIVE",
+    });
+    metaAdapter.updateEntityStatus.mockRejectedValueOnce(
+      new Error("Graph permission denied"),
+    );
+
+    await expect(
+      service.updateMetaEntityStatus({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        level: "campaign",
+        id: "cmp_1",
+        expectedStatus: "ACTIVE",
+        targetStatus: "PAUSED",
+      }),
+    ).rejects.toThrow("A Meta nao confirmou");
+
+    expect(db.campaigns[0]?.status).toBe("ACTIVE");
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        action: "meta.entity.status_updated",
+        resultStatus: "failed",
+        targetId: "cmp_1",
+      }),
+    );
+  });
+
+  it("does not report a false mutation failure when only audit persistence fails", async () => {
+    const { db, prisma, service } = createHarness();
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      adAccountId: "act_123",
+      campaignId: "cmp_1",
+      status: "ACTIVE",
+    });
+    prisma.auditLog.create.mockRejectedValueOnce(
+      new Error("Audit storage unavailable"),
+    );
+
+    await expect(
+      service.updateMetaEntityStatus({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        level: "campaign",
+        id: "cmp_1",
+        expectedStatus: "ACTIVE",
+        targetStatus: "PAUSED",
+      }),
+    ).resolves.toEqual({ ok: true, level: "campaign", id: "cmp_1" });
+
+    expect(db.campaigns[0]?.status).toBe("PAUSED");
+  });
+
+  it("updates ABO ad set budgets and blocks ad set writes for CBO campaigns", async () => {
+    const { db, metaAdapter, service } = createHarness();
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      adAccountId: "act_123",
+      campaignId: "cmp_1",
+      dailyBudgetCents: null,
+      lifetimeBudgetCents: null,
+    });
+    db.adSets.push({
+      workspaceId: "workspace_1",
+      adAccountId: "act_123",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      dailyBudgetCents: 50000,
+      lifetimeBudgetCents: null,
+    });
+
+    await expect(
+      service.updateMetaEntityBudget({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        level: "adset",
+        id: "adset_1",
+        budgetType: "daily",
+        expectedBudgetCents: 50000,
+        budgetCents: 65000,
+      }),
+    ).resolves.toEqual({ ok: true, level: "adset", id: "adset_1" });
+    expect(metaAdapter.updateEntityBudget).toHaveBeenCalledWith({
+      accessToken: "EAAB-secret-token",
+      id: "adset_1",
+      budgetType: "daily",
+      budgetCents: 65000,
+    });
+    expect(db.adSets[0]?.dailyBudgetCents).toBe(65000);
+
+    db.campaigns[0]!.dailyBudgetCents = 100000;
+
+    await expect(
+      service.updateMetaEntityBudget({
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        level: "adset",
+        id: "adset_1",
+        budgetType: "daily",
+        expectedBudgetCents: 65000,
+        budgetCents: 70000,
+      }),
+    ).rejects.toThrow("controlado pela campanha");
+    expect(metaAdapter.updateEntityBudget).toHaveBeenCalledTimes(1);
+  });
+
   it("saves a manual include override for campaign snapshots and records audit log", async () => {
     const { db, prisma, service } = createHarness();
     db.campaigns.push({
@@ -1096,6 +1268,8 @@ describe("meta reporting service", () => {
       spendCents: 120000,
       metaConversationsStarted: 176,
       businessId: "business_1",
+      dailyBudgetCents: 49500,
+      lifetimeBudgetCents: null,
       whatsappClassification: "auto_whatsapp",
     });
     expect(db.adSets[0]).toMatchObject({
@@ -1105,6 +1279,8 @@ describe("meta reporting service", () => {
       businessId: "business_1",
       adAccountId: "act_123",
       destinationType: "WHATSAPP",
+      dailyBudgetCents: null,
+      lifetimeBudgetCents: null,
       whatsappClassification: "auto_whatsapp",
     });
     expect(db.ads[0]).toMatchObject({
@@ -1114,6 +1290,7 @@ describe("meta reporting service", () => {
       businessId: "business_1",
       adAccountId: "act_123",
       creativeId: "creative_1",
+      thumbnailUrl: "https://example.com/ad-1.jpg",
       callToActionType: "WHATSAPP_MESSAGE",
       whatsappClassification: "auto_whatsapp",
     });
@@ -1230,6 +1407,8 @@ describe("meta reporting service", () => {
           status: "ACTIVE",
           effectiveStatus: "ACTIVE",
           objective: "OUTCOME_LEADS",
+          dailyBudgetCents: 49500,
+          lifetimeBudgetCents: null,
         },
       ];
     });
@@ -1321,6 +1500,7 @@ describe("meta reporting service", () => {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
+        thumbnailUrl: null as string | null,
         callToActionType: null,
       },
     ]);
@@ -1397,6 +1577,8 @@ describe("meta reporting service", () => {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         destinationType: null as string | null,
+        dailyBudgetCents: null,
+        lifetimeBudgetCents: null,
       },
     ]);
     metaAdapter.listAds.mockResolvedValueOnce([
@@ -1408,6 +1590,7 @@ describe("meta reporting service", () => {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
+        thumbnailUrl: null as string | null,
         callToActionType: null as string | null,
       },
     ]);
@@ -1459,6 +1642,8 @@ describe("meta reporting service", () => {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         destinationType: null as string | null,
+        dailyBudgetCents: null,
+        lifetimeBudgetCents: null,
       },
     ]);
     metaAdapter.listAds.mockResolvedValueOnce([
@@ -1470,6 +1655,7 @@ describe("meta reporting service", () => {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         creativeId: "creative_1",
+        thumbnailUrl: null as string | null,
         callToActionType: null as string | null,
       },
     ]);
@@ -2500,6 +2686,14 @@ describe("meta reporting service", () => {
           campaignName: "Black Friday WhatsApp",
           name: "Publico quente",
           status: "active",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          budget: {
+            owner: "campaign",
+            type: "daily",
+            amountCents: 49500,
+            editable: false,
+          },
           businessId: "business_1",
           adAccountId: "act_123",
           whatsappClassification: "auto_whatsapp",
@@ -2583,6 +2777,9 @@ describe("meta reporting service", () => {
           adSetName: "Publico quente",
           name: "Criativo WhatsApp",
           status: "active",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          thumbnailUrl: "https://example.com/ad-1.jpg",
           businessId: "business_1",
           adAccountId: "act_123",
           whatsappClassification: "auto_whatsapp",

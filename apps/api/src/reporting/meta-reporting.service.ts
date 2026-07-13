@@ -1,4 +1,11 @@
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
   AdReportOverviewDto,
@@ -11,6 +18,9 @@ import type {
   ConversionAuditSourceDto,
   ConversionEventLogStatusDto,
   FunnelStageConfigurationDto,
+  MetaBudgetUpdateInputDto,
+  MetaEntityMutationResultDto,
+  MetaEntityStatusUpdateInputDto,
   MetaStructureReportDto,
   ReportDailyComparisonPointDto,
   ReportOverviewDto,
@@ -135,6 +145,8 @@ type MetaCampaignRecord = {
   status: string | null;
   effectiveStatus?: string | null;
   objective?: string | null;
+  dailyBudgetCents?: number | null;
+  lifetimeBudgetCents?: number | null;
   businessId?: string | null;
   adAccountId?: string | null;
   whatsappClassification?: WhatsappClassification;
@@ -156,6 +168,8 @@ type MetaAdSetRecord = {
   status: string | null;
   effectiveStatus: string | null;
   destinationType?: string | null;
+  dailyBudgetCents?: number | null;
+  lifetimeBudgetCents?: number | null;
   businessId?: string | null;
   adAccountId?: string | null;
   whatsappClassification?: WhatsappClassification;
@@ -172,6 +186,7 @@ type MetaAdRecord = {
   effectiveStatus: string | null;
   destinationType?: string | null;
   callToActionType?: string | null;
+  thumbnailUrl?: string | null;
   businessId?: string | null;
   adAccountId?: string | null;
   whatsappClassification?: WhatsappClassification;
@@ -1226,6 +1241,285 @@ export class MetaReportingService {
     return { ok: true };
   }
 
+  async updateMetaEntityStatus(
+    input: MetaEntityStatusUpdateInputDto & {
+      workspaceId: string;
+      actorUserId: string | null;
+    },
+  ): Promise<MetaEntityMutationResultDto> {
+    let entity: {
+      adAccountId: string | null;
+      status: string | null;
+    } | null;
+
+    if (input.level === "campaign") {
+      entity = await this.prisma.metaCampaign.findFirst({
+        where: { workspaceId: input.workspaceId, campaignId: input.id },
+        select: { adAccountId: true, status: true },
+      });
+    } else if (input.level === "adset") {
+      entity = await this.prisma.metaAdSet.findFirst({
+        where: { workspaceId: input.workspaceId, adSetId: input.id },
+        select: { adAccountId: true, status: true },
+      });
+    } else {
+      entity = await this.prisma.metaAd.findFirst({
+        where: { workspaceId: input.workspaceId, adId: input.id },
+        select: { adAccountId: true, status: true },
+      });
+    }
+
+    if (!entity) {
+      throw new NotFoundException("Item Meta nao encontrado");
+    }
+
+    const currentStatus = this.mutableMetaStatus(entity.status);
+
+    if (!currentStatus) {
+      throw new BadRequestException(
+        "Este item nao pode ser ativado ou pausado no estado atual",
+      );
+    }
+
+    if (currentStatus !== input.expectedStatus) {
+      throw new ConflictException(
+        "O status mudou desde a ultima atualizacao. Sincronize e tente novamente",
+      );
+    }
+
+    if (currentStatus === input.targetStatus) {
+      return { ok: true, level: input.level, id: input.id };
+    }
+
+    const accessToken = await this.metaMutationAccessToken(
+      input.workspaceId,
+      entity.adAccountId,
+    );
+
+    try {
+      await this.metaAdapter.updateEntityStatus({
+        accessToken,
+        id: input.id,
+        status: input.targetStatus,
+      });
+    } catch (error) {
+      await this.recordMetaEntityMutationFailure({
+        workspaceId: input.workspaceId,
+        actorUserId: input.actorUserId,
+        action: "meta.entity.status_updated",
+        level: input.level,
+        id: input.id,
+        before: { status: currentStatus },
+        after: { status: input.targetStatus },
+        error,
+      });
+      throw new BadRequestException(
+        "A Meta nao confirmou a alteracao de status. Sincronize e tente novamente",
+      );
+    }
+
+    try {
+      if (input.level === "campaign") {
+        await this.prisma.metaCampaign.updateMany({
+          where: { workspaceId: input.workspaceId, campaignId: input.id },
+          data: { status: input.targetStatus },
+        });
+      } else if (input.level === "adset") {
+        await this.prisma.metaAdSet.updateMany({
+          where: { workspaceId: input.workspaceId, adSetId: input.id },
+          data: { status: input.targetStatus },
+        });
+      } else {
+        await this.prisma.metaAd.updateMany({
+          where: { workspaceId: input.workspaceId, adId: input.id },
+          data: { status: input.targetStatus },
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `Status alterado na Meta sem atualizar snapshot local: ${this.errorMessage(error)}`,
+      );
+      throw new ConflictException(
+        "A Meta confirmou a alteracao, mas o painel precisa ser sincronizado",
+      );
+    }
+
+    await this.recordMetaEntityMutationSuccess({
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      action: "meta.entity.status_updated",
+      level: input.level,
+      id: input.id,
+      before: { status: currentStatus },
+      after: { status: input.targetStatus },
+    });
+
+    return { ok: true, level: input.level, id: input.id };
+  }
+
+  async updateMetaEntityBudget(
+    input: MetaBudgetUpdateInputDto & {
+      workspaceId: string;
+      actorUserId: string | null;
+    },
+  ): Promise<MetaEntityMutationResultDto> {
+    let adAccountId: string | null = null;
+    let currentBudgetCents: number | null = null;
+
+    if (input.level === "campaign") {
+      const campaign = await this.prisma.metaCampaign.findFirst({
+        where: { workspaceId: input.workspaceId, campaignId: input.id },
+        select: {
+          adAccountId: true,
+          dailyBudgetCents: true,
+          lifetimeBudgetCents: true,
+        },
+      });
+
+      if (!campaign) {
+        throw new NotFoundException("Campanha Meta nao encontrada");
+      }
+
+      adAccountId = campaign.adAccountId;
+      currentBudgetCents =
+        input.budgetType === "daily"
+          ? campaign.dailyBudgetCents
+          : campaign.lifetimeBudgetCents;
+    } else {
+      const adSet = await this.prisma.metaAdSet.findFirst({
+        where: { workspaceId: input.workspaceId, adSetId: input.id },
+        select: {
+          adAccountId: true,
+          campaignId: true,
+          dailyBudgetCents: true,
+          lifetimeBudgetCents: true,
+        },
+      });
+
+      if (!adSet) {
+        throw new NotFoundException("Conjunto Meta nao encontrado");
+      }
+
+      const parentCampaign = await this.prisma.metaCampaign.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          campaignId: adSet.campaignId,
+        },
+        select: { dailyBudgetCents: true, lifetimeBudgetCents: true },
+      });
+
+      if (
+        parentCampaign &&
+        (parentCampaign.dailyBudgetCents !== null ||
+          parentCampaign.lifetimeBudgetCents !== null)
+      ) {
+        throw new BadRequestException(
+          "O orcamento deste conjunto e controlado pela campanha",
+        );
+      }
+
+      adAccountId = adSet.adAccountId;
+      currentBudgetCents =
+        input.budgetType === "daily"
+          ? adSet.dailyBudgetCents
+          : adSet.lifetimeBudgetCents;
+    }
+
+    if (currentBudgetCents === null) {
+      throw new BadRequestException(
+        "Nenhum orcamento editavel foi encontrado neste nivel",
+      );
+    }
+
+    if (currentBudgetCents !== input.expectedBudgetCents) {
+      throw new ConflictException(
+        "O orcamento mudou desde a ultima atualizacao. Sincronize e tente novamente",
+      );
+    }
+
+    if (currentBudgetCents === input.budgetCents) {
+      return { ok: true, level: input.level, id: input.id };
+    }
+
+    const accessToken = await this.metaMutationAccessToken(
+      input.workspaceId,
+      adAccountId,
+    );
+
+    try {
+      await this.metaAdapter.updateEntityBudget({
+        accessToken,
+        id: input.id,
+        budgetType: input.budgetType,
+        budgetCents: input.budgetCents,
+      });
+    } catch (error) {
+      await this.recordMetaEntityMutationFailure({
+        workspaceId: input.workspaceId,
+        actorUserId: input.actorUserId,
+        action: "meta.entity.budget_updated",
+        level: input.level,
+        id: input.id,
+        before: {
+          budgetType: input.budgetType,
+          budgetCents: currentBudgetCents,
+        },
+        after: {
+          budgetType: input.budgetType,
+          budgetCents: input.budgetCents,
+        },
+        error,
+      });
+      throw new BadRequestException(
+        "A Meta nao confirmou a alteracao de orcamento. Sincronize e tente novamente",
+      );
+    }
+
+    const data =
+      input.budgetType === "daily"
+        ? { dailyBudgetCents: input.budgetCents }
+        : { lifetimeBudgetCents: input.budgetCents };
+
+    try {
+      if (input.level === "campaign") {
+        await this.prisma.metaCampaign.updateMany({
+          where: { workspaceId: input.workspaceId, campaignId: input.id },
+          data,
+        });
+      } else {
+        await this.prisma.metaAdSet.updateMany({
+          where: { workspaceId: input.workspaceId, adSetId: input.id },
+          data,
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `Orcamento alterado na Meta sem atualizar snapshot local: ${this.errorMessage(error)}`,
+      );
+      throw new ConflictException(
+        "A Meta confirmou a alteracao, mas o painel precisa ser sincronizado",
+      );
+    }
+
+    await this.recordMetaEntityMutationSuccess({
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      action: "meta.entity.budget_updated",
+      level: input.level,
+      id: input.id,
+      before: {
+        budgetType: input.budgetType,
+        budgetCents: currentBudgetCents,
+      },
+      after: {
+        budgetType: input.budgetType,
+        budgetCents: input.budgetCents,
+      },
+    });
+
+    return { ok: true, level: input.level, id: input.id };
+  }
+
   private async resetWhatsappClassificationData(input: {
     workspaceId: string;
     level: WhatsappOverrideLevel;
@@ -1448,6 +1742,9 @@ export class MetaReportingService {
           : Promise.resolve([]),
         this.getFunnelStages(input.workspaceId),
       ]);
+    const campaignById = new Map(
+      campaigns.map((campaign) => [campaign.campaignId, campaign]),
+    );
     const campaignNames = new Map(
       campaigns.map((campaign) => [campaign.campaignId, campaign.name]),
     );
@@ -1473,6 +1770,7 @@ export class MetaReportingService {
         adSet,
         campaignName:
           campaignNames.get(adSet.campaignId) ?? "Campanha nao resolvida",
+        parentCampaign: campaignById.get(adSet.campaignId),
         conversionLogs: conversionLogsByAdSet.get(adSet.adSetId) ?? [],
         funnelStages,
         leads: leadsByAdSet.get(adSet.adSetId) ?? [],
@@ -1883,6 +2181,116 @@ export class MetaReportingService {
     };
   }
 
+  private mutableMetaStatus(status: string | null): "ACTIVE" | "PAUSED" | null {
+    const normalized = status?.trim().toUpperCase();
+
+    return normalized === "ACTIVE" || normalized === "PAUSED"
+      ? normalized
+      : null;
+  }
+
+  private async metaMutationAccessToken(
+    workspaceId: string,
+    adAccountId: string | null,
+  ): Promise<string> {
+    if (!adAccountId) {
+      throw new BadRequestException(
+        "A conta de anuncios deste item nao foi identificada",
+      );
+    }
+
+    const activeAccount = await this.prisma.metaReportingAccount.findFirst({
+      where: { workspaceId, adAccountId, active: true },
+      select: { id: true },
+    });
+
+    if (!activeAccount) {
+      throw new BadRequestException(
+        "A conta de anuncios precisa estar ativa antes desta alteracao",
+      );
+    }
+
+    const connection = await this.getConnection(workspaceId);
+
+    return this.encryption.decrypt({
+      encryptedAccessToken: connection.encryptedAccessToken,
+      tokenIv: connection.tokenIv,
+      tokenTag: connection.tokenTag,
+    });
+  }
+
+  private async recordMetaEntityMutationAudit(input: {
+    workspaceId: string;
+    actorUserId: string | null;
+    action: string;
+    level: "campaign" | "adset" | "ad";
+    id: string;
+    resultStatus: "success" | "failed";
+    before: Record<string, string | number | null>;
+    after: Record<string, string | number | null>;
+    reason?: string | null;
+  }): Promise<void> {
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: input.workspaceId,
+        actorUserId: input.actorUserId,
+        actorType: input.actorUserId ? "user" : "system",
+        action: input.action,
+        targetType: input.level,
+        targetId: input.id,
+        reason: input.reason ?? null,
+        sourceIp: null,
+        resultStatus: input.resultStatus,
+        beforeSummary: input.before as Prisma.InputJsonValue,
+        afterSummary: input.after as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private async recordMetaEntityMutationFailure(input: {
+    workspaceId: string;
+    actorUserId: string | null;
+    action: string;
+    level: "campaign" | "adset" | "ad";
+    id: string;
+    before: Record<string, string | number | null>;
+    after: Record<string, string | number | null>;
+    error: unknown;
+  }): Promise<void> {
+    try {
+      await this.recordMetaEntityMutationAudit({
+        ...input,
+        resultStatus: "failed",
+        reason: this.errorMessage(input.error).slice(0, 500),
+      });
+    } catch (auditError) {
+      this.logger.warn(
+        `Falha ao auditar mutacao Meta: ${this.errorMessage(auditError)}`,
+      );
+    }
+  }
+
+  private async recordMetaEntityMutationSuccess(input: {
+    workspaceId: string;
+    actorUserId: string | null;
+    action: string;
+    level: "campaign" | "adset" | "ad";
+    id: string;
+    before: Record<string, string | number | null>;
+    after: Record<string, string | number | null>;
+  }): Promise<void> {
+    try {
+      await this.recordMetaEntityMutationAudit({
+        ...input,
+        resultStatus: "success",
+      });
+    } catch (auditError) {
+      this.logger.warn(
+        `Mutacao Meta concluida sem registro de auditoria: ${this.errorMessage(auditError)}`,
+      );
+    }
+  }
+
   private async getConnection(
     workspaceId: string,
   ): Promise<MetaIntegrationRecord> {
@@ -1913,6 +2321,8 @@ export class MetaReportingService {
       status: input.campaign.status,
       effectiveStatus: input.campaign.effectiveStatus,
       objective: input.campaign.objective,
+      dailyBudgetCents: input.campaign.dailyBudgetCents ?? null,
+      lifetimeBudgetCents: input.campaign.lifetimeBudgetCents ?? null,
       whatsappClassification: input.classification,
       classificationSource: input.classificationSource,
       spendCents: input.insight?.spendCents ?? 0,
@@ -1955,6 +2365,8 @@ export class MetaReportingService {
       status: input.adSet.status,
       effectiveStatus: input.adSet.effectiveStatus,
       destinationType: input.adSet.destinationType,
+      dailyBudgetCents: input.adSet.dailyBudgetCents ?? null,
+      lifetimeBudgetCents: input.adSet.lifetimeBudgetCents ?? null,
       whatsappClassification: input.classification,
       classificationSource: input.classificationSource,
       spendCents: input.insight?.spendCents ?? 0,
@@ -2000,6 +2412,7 @@ export class MetaReportingService {
       effectiveStatus: input.ad.effectiveStatus,
       destinationType: input.destinationType,
       creativeId: input.ad.creativeId,
+      thumbnailUrl: input.ad.thumbnailUrl ?? null,
       callToActionType: input.ad.callToActionType,
       whatsappClassification: input.classification,
       classificationSource: input.classificationSource,
@@ -2110,6 +2523,9 @@ export class MetaReportingService {
       id: campaign.campaignId,
       name: campaign.name,
       status: this.toReportStatus(campaign.status),
+      configuredStatus: campaign.status,
+      effectiveStatus: campaign.effectiveStatus ?? null,
+      budget: this.reportBudget(campaign, "campaign", true),
       businessId: campaign.businessId,
       adAccountId: campaign.adAccountId,
       whatsappClassification: campaign.whatsappClassification,
@@ -2120,6 +2536,7 @@ export class MetaReportingService {
   private toAdSetReportRow(input: {
     adSet: MetaAdSetRecord;
     campaignName: string;
+    parentCampaign?: MetaCampaignRecord;
     conversionLogs: ConversionEventRecord[];
     funnelStages: FunnelStageConfigurationDto[];
     leads: LeadRecord[];
@@ -2139,6 +2556,11 @@ export class MetaReportingService {
       campaignName: input.campaignName,
       name: input.adSet.name,
       status: this.toReportStatus(input.adSet.status),
+      configuredStatus: input.adSet.status,
+      effectiveStatus: input.adSet.effectiveStatus,
+      budget:
+        this.reportBudget(input.parentCampaign, "campaign", false) ??
+        this.reportBudget(input.adSet, "adset", true),
       businessId: input.adSet.businessId,
       adAccountId: input.adSet.adAccountId,
       whatsappClassification: input.adSet.whatsappClassification,
@@ -2171,11 +2593,51 @@ export class MetaReportingService {
       adSetName: input.adSetName,
       name: input.ad.name,
       status: this.toReportStatus(input.ad.status),
+      configuredStatus: input.ad.status,
+      effectiveStatus: input.ad.effectiveStatus,
+      thumbnailUrl: input.ad.thumbnailUrl ?? null,
       businessId: input.ad.businessId,
       adAccountId: input.ad.adAccountId,
       whatsappClassification: input.ad.whatsappClassification,
       ...metrics,
     };
+  }
+
+  private reportBudget(
+    record:
+      | Pick<
+          MetaCampaignRecord | MetaAdSetRecord,
+          "dailyBudgetCents" | "lifetimeBudgetCents"
+        >
+      | undefined,
+    owner: "campaign" | "adset",
+    editable: boolean,
+  ): NonNullable<CampaignReportRowDto["budget"]> | null {
+    if (
+      record?.dailyBudgetCents !== null &&
+      record?.dailyBudgetCents !== undefined
+    ) {
+      return {
+        owner,
+        type: "daily",
+        amountCents: record.dailyBudgetCents,
+        editable,
+      };
+    }
+
+    if (
+      record?.lifetimeBudgetCents !== null &&
+      record?.lifetimeBudgetCents !== undefined
+    ) {
+      return {
+        owner,
+        type: "lifetime",
+        amountCents: record.lifetimeBudgetCents,
+        editable,
+      };
+    }
+
+    return null;
   }
 
   private calculateMetrics(input: {

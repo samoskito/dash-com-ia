@@ -812,6 +812,8 @@ model MetaCampaign {
   status                   String?
   effectiveStatus          String?
   objective                String?
+  dailyBudgetCents         Int?
+  lifetimeBudgetCents      Int?
   whatsappClassification   MetaWhatsappClassification  @default(not_whatsapp)
   classificationSource     String?
   classificationOverride   MetaWhatsappClassification?
@@ -865,6 +867,8 @@ model MetaAdSet {
   status                   String?
   effectiveStatus          String?
   destinationType          String?
+  dailyBudgetCents         Int?
+  lifetimeBudgetCents      Int?
   whatsappClassification   MetaWhatsappClassification  @default(not_whatsapp)
   classificationSource     String?
   classificationOverride   MetaWhatsappClassification?
@@ -897,6 +901,7 @@ model MetaAd {
   effectiveStatus          String?
   destinationType          String?
   creativeId               String?
+  thumbnailUrl             String?
   callToActionType         String?
   whatsappClassification   MetaWhatsappClassification  @default(not_whatsapp)
   classificationSource     String?

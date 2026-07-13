@@ -384,6 +384,7 @@ describe("meta adapter oauth", () => {
                 status: "ACTIVE",
                 effective_status: "ACTIVE",
                 destination_type: "WHATSAPP",
+                daily_budget: "45000",
               },
             ],
           }),
@@ -394,7 +395,9 @@ describe("meta adapter oauth", () => {
 
     await expect(
       adapter.listAdSets({ accessToken: "meta-token", adAccountId: "act_123" }),
-    ).resolves.toMatchObject([{ destinationType: "WHATSAPP" }]);
+    ).resolves.toMatchObject([
+      { destinationType: "WHATSAPP", dailyBudgetCents: 45000 },
+    ]);
   });
 
   it("lists ads with creative WhatsApp CTA", async () => {
@@ -413,6 +416,7 @@ describe("meta adapter oauth", () => {
                 creative: {
                   id: "creative_1",
                   call_to_action_type: "WHATSAPP_MESSAGE",
+                  thumbnail_url: "https://example.com/creative.jpg",
                 },
               },
             ],
@@ -425,7 +429,11 @@ describe("meta adapter oauth", () => {
     await expect(
       adapter.listAds({ accessToken: "meta-token", adAccountId: "act_123" }),
     ).resolves.toMatchObject([
-      { creativeId: "creative_1", callToActionType: "WHATSAPP_MESSAGE" },
+      {
+        creativeId: "creative_1",
+        callToActionType: "WHATSAPP_MESSAGE",
+        thumbnailUrl: "https://example.com/creative.jpg",
+      },
     ]);
   });
 
@@ -443,6 +451,7 @@ describe("meta adapter oauth", () => {
                 status: "ACTIVE",
                 effective_status: "ACTIVE",
                 objective: "OUTCOME_SALES",
+                daily_budget: "49500",
               },
             ],
           }),
@@ -460,6 +469,7 @@ describe("meta adapter oauth", () => {
                 campaign_id: "cmp_1",
                 status: "ACTIVE",
                 effective_status: "ACTIVE",
+                lifetime_budget: "120000",
               },
             ],
           }),
@@ -478,6 +488,10 @@ describe("meta adapter oauth", () => {
                 adset_id: "adset_1",
                 status: "ACTIVE",
                 effective_status: "ACTIVE",
+                creative: {
+                  id: "creative_1",
+                  thumbnail_url: "https://example.com/ad-1.jpg",
+                },
               },
             ],
           }),
@@ -599,6 +613,8 @@ describe("meta adapter oauth", () => {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         objective: "OUTCOME_SALES",
+        dailyBudgetCents: 49500,
+        lifetimeBudgetCents: null,
       },
     ]);
     await expect(
@@ -614,6 +630,8 @@ describe("meta adapter oauth", () => {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         destinationType: null,
+        dailyBudgetCents: null,
+        lifetimeBudgetCents: 120000,
       },
     ]);
     await expect(
@@ -629,7 +647,8 @@ describe("meta adapter oauth", () => {
         adSetId: "adset_1",
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
-        creativeId: null,
+        creativeId: "creative_1",
+        thumbnailUrl: "https://example.com/ad-1.jpg",
         callToActionType: null,
       },
     ]);
@@ -701,6 +720,50 @@ describe("meta adapter oauth", () => {
         metaConversationsStarted: 40,
       },
     ]);
+  });
+
+  it("updates Meta entity status and budget with form encoded Graph writes", async () => {
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ success: true }), { status: 200 }),
+    );
+    const adapter = new MetaAdapter(
+      { META_GRAPH_API_VERSION: "v25.0" },
+      fetchMock as unknown as typeof fetch,
+    );
+
+    await adapter.updateEntityStatus({
+      accessToken: "meta-token",
+      id: "cmp_1",
+      status: "PAUSED",
+    });
+    await adapter.updateEntityBudget({
+      accessToken: "meta-token",
+      id: "adset_1",
+      budgetType: "daily",
+      budgetCents: 72500,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://graph.facebook.com/v25.0/cmp_1",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://graph.facebook.com/v25.0/adset_1",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const statusBody = String(
+      (fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body,
+    );
+    const budgetBody = String(
+      (fetchMock.mock.calls[1]?.[1] as RequestInit | undefined)?.body,
+    );
+
+    expect(statusBody).toContain("status=PAUSED");
+    expect(statusBody).toContain("access_token=meta-token");
+    expect(budgetBody).toContain("daily_budget=72500");
   });
 
   it("paginates campaign, ad set and ad insights through paging.next", async () => {

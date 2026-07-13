@@ -70,6 +70,14 @@ const campaignReport = {
       id: "cmp_1",
       name: "Black Friday WhatsApp",
       status: "active",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      budget: {
+        owner: "campaign",
+        type: "daily",
+        amountCents: 49500,
+        editable: true,
+      },
       ...reportMetrics(),
     },
   ],
@@ -94,6 +102,14 @@ const adSetReport = {
       campaignName: "Black Friday WhatsApp",
       name: "Publico quente",
       status: "active",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      budget: {
+        owner: "campaign",
+        type: "daily",
+        amountCents: 49500,
+        editable: false,
+      },
       ...reportMetrics(),
     },
   ],
@@ -120,6 +136,9 @@ const adReport = {
       adSetName: "Publico quente",
       name: "Criativo WhatsApp",
       status: "active",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      thumbnailUrl: "https://cdn.example.test/ad-1.jpg",
       ...reportMetrics(),
     },
   ],
@@ -325,6 +344,11 @@ describe("reports route", () => {
       view: "adsets",
       campaignId: "cmp_1",
     });
+    const adHtml = await renderReports({
+      view: "ads",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+    });
 
     expect(campaignHtml).toContain(
       "campaignId=cmp_1&amp;page=1&amp;pageSize=10&amp;view=adsets",
@@ -337,6 +361,33 @@ describe("reports route", () => {
     expect(adSetHtml).toContain(
       "campaignId=cmp_1&amp;adSetId=adset_1&amp;page=1&amp;pageSize=10&amp;view=ads",
     );
+    expect(adHtml).toContain(
+      "campaignId=cmp_1&amp;adSetId=adset_1&amp;adId=ad_1&amp;page=1&amp;pageSize=10&amp;view=ads",
+    );
+  });
+
+  it("renders ad thumbnails, selection and controlled Meta actions", async () => {
+    mockReportsApi();
+    const campaignHtml = await renderReports();
+    const adHtml = await renderReports({
+      view: "ads",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+    });
+
+    expect(campaignHtml).toContain(
+      'aria-label="Alterar orcamento da campanha Black Friday WhatsApp"',
+    );
+    expect(campaignHtml).toContain(
+      'aria-label="Pausar campanha Black Friday WhatsApp"',
+    );
+    expect(adHtml).toContain("https://cdn.example.test/ad-1.jpg");
+    expect(adHtml).toContain(
+      'aria-label="Ampliar criativo do anuncio Criativo WhatsApp"',
+    );
+    expect(adHtml).toContain('class="is-selected"');
+    expect(adHtml).toContain('name="adId" value="ad_1"');
   });
 
   it("sends hierarchy selection to the selected report endpoint", async () => {

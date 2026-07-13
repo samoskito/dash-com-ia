@@ -14,6 +14,8 @@ import {
   canManageIntegrations,
   conversionAuditDeliveryStateSchema,
   conversionAuditSourceSchema,
+  metaBudgetUpdateInputSchema,
+  metaEntityStatusUpdateInputSchema,
   metaWhatsappOverrideInputSchema,
   type ConversionAuditDeliveryStateDto,
   type ConversionAuditSourceDto,
@@ -297,6 +299,56 @@ export class ReportingController {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
 
     return this.metaReportingService.getMetaStructureReport(workspaceId);
+  }
+
+  @Put("meta/entity-status")
+  async updateMetaEntityStatus(
+    @AuthToken() refreshToken: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = metaEntityStatusUpdateInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    const { authenticated, workspace } =
+      await this.getCurrentWorkspaceContext(refreshToken);
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.metaReportingService.updateMetaEntityStatus({
+      workspaceId: workspace.id,
+      actorUserId: authenticated.user.id ?? null,
+      ...parsed.data,
+    });
+  }
+
+  @Put("meta/budget")
+  async updateMetaEntityBudget(
+    @AuthToken() refreshToken: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = metaBudgetUpdateInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    const { authenticated, workspace } =
+      await this.getCurrentWorkspaceContext(refreshToken);
+
+    if (!canManageIntegrations(workspace.role)) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.metaReportingService.updateMetaEntityBudget({
+      workspaceId: workspace.id,
+      actorUserId: authenticated.user.id ?? null,
+      ...parsed.data,
+    });
   }
 
   @Put("meta/whatsapp-classification")

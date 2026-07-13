@@ -23,6 +23,27 @@ export const metaWhatsappOverrideInputSchema = z.object({
   override: z.enum(["manual_include", "manual_exclude"]).nullable(),
 });
 
+export const metaEntityStatusUpdateInputSchema = z.object({
+  level: z.enum(["campaign", "adset", "ad"]),
+  id: z.string().trim().min(1),
+  expectedStatus: z.enum(["ACTIVE", "PAUSED"]),
+  targetStatus: z.enum(["ACTIVE", "PAUSED"]),
+});
+
+export const metaBudgetUpdateInputSchema = z.object({
+  level: z.enum(["campaign", "adset"]),
+  id: z.string().trim().min(1),
+  budgetType: z.enum(["daily", "lifetime"]),
+  expectedBudgetCents: moneyCentsSchema,
+  budgetCents: z.number().int().positive().max(2_147_483_647),
+});
+
+export const metaEntityMutationResultSchema = z.object({
+  ok: z.literal(true),
+  level: z.enum(["campaign", "adset", "ad"]),
+  id: z.string().min(1),
+});
+
 export const reportFunnelStepKeySchema = z.string().trim().min(1).max(120);
 
 export const reportFunnelStepSchema = z.object({
@@ -40,6 +61,13 @@ export const reportPaginationSchema = z.object({
   totalPages: z.number().int().nonnegative(),
 });
 
+const metaBudgetSnapshotSchema = z.object({
+  owner: z.enum(["campaign", "adset"]),
+  type: z.enum(["daily", "lifetime"]),
+  amountCents: moneyCentsSchema,
+  editable: z.boolean(),
+});
+
 export const campaignReportRowSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -49,6 +77,9 @@ export const campaignReportRowSchema = z.object({
   adAccountId: z.string().min(1).nullable().optional(),
   adAccountName: z.string().min(1).nullable().optional(),
   whatsappClassification: metaWhatsappClassificationSchema.optional(),
+  configuredStatus: z.string().min(1).nullable().optional(),
+  effectiveStatus: z.string().min(1).nullable().optional(),
+  budget: metaBudgetSnapshotSchema.nullable().optional(),
   spendCents: moneyCentsSchema,
   metaConversationsStarted: nonnegativeIntSchema,
   costPerMetaConversationCents: moneyCentsSchema.nullable(),
@@ -84,6 +115,9 @@ export const reportTotalsSchema = campaignReportRowSchema.omit({
   adAccountId: true,
   adAccountName: true,
   whatsappClassification: true,
+  configuredStatus: true,
+  effectiveStatus: true,
+  budget: true,
 });
 
 export const reportDailyComparisonPointSchema = z.object({
@@ -108,6 +142,9 @@ export const reportOverviewSchema = z.object({
 const reportMetricShape = campaignReportRowSchema.omit({
   id: true,
   name: true,
+  configuredStatus: true,
+  effectiveStatus: true,
+  budget: true,
 }).shape;
 
 export const adSetReportRowSchema = z.object({
@@ -115,6 +152,9 @@ export const adSetReportRowSchema = z.object({
   campaignId: z.string().min(1),
   campaignName: z.string().min(1),
   name: z.string().min(1),
+  configuredStatus: z.string().min(1).nullable().optional(),
+  effectiveStatus: z.string().min(1).nullable().optional(),
+  budget: metaBudgetSnapshotSchema.nullable().optional(),
   ...reportMetricShape,
 });
 
@@ -135,6 +175,9 @@ export const adReportRowSchema = z.object({
   adSetId: z.string().min(1),
   adSetName: z.string().min(1),
   name: z.string().min(1),
+  configuredStatus: z.string().min(1).nullable().optional(),
+  effectiveStatus: z.string().min(1).nullable().optional(),
+  thumbnailUrl: z.string().url().nullable().optional(),
   ...reportMetricShape,
 });
 
@@ -288,6 +331,15 @@ export type ConversionAuditSourceDto = z.infer<
 >;
 export type MetaWhatsappClassificationDto = z.infer<
   typeof metaWhatsappClassificationSchema
+>;
+export type MetaEntityStatusUpdateInputDto = z.infer<
+  typeof metaEntityStatusUpdateInputSchema
+>;
+export type MetaBudgetUpdateInputDto = z.infer<
+  typeof metaBudgetUpdateInputSchema
+>;
+export type MetaEntityMutationResultDto = z.infer<
+  typeof metaEntityMutationResultSchema
 >;
 export type MetaWhatsappOverrideInputDto = z.infer<
   typeof metaWhatsappOverrideInputSchema

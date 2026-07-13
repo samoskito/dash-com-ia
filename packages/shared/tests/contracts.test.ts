@@ -44,8 +44,10 @@ import {
   integrationHealthSummarySchema,
   integrationPipelineOverviewSchema,
   metaConversionDestinationSchema,
+  metaBudgetUpdateInputSchema,
   metaCapiTokenInputSchema,
   metaCapiTokenStatusSchema,
+  metaEntityStatusUpdateInputSchema,
   metaWhatsappOverrideInputSchema,
   metaAssetSelectionInputSchema,
   metaAssetsSchema,
@@ -167,6 +169,14 @@ describe("shared contracts", () => {
       adAccountId: "act_123",
       adAccountName: "Conta WhatsApp",
       whatsappClassification: "auto_whatsapp",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      budget: {
+        owner: "campaign",
+        type: "daily",
+        amountCents: 49500,
+        editable: true
+      },
       ...approvedReportMetrics,
       leadSubmitted: 30,
       purchase: 3,
@@ -177,6 +187,7 @@ describe("shared contracts", () => {
     expect(parsed.firstPurchases).toBe(3);
     expect(parsed.repurchases).toBe(2);
     expect(parsed.totalRevenueCents).toBe(500000);
+    expect(parsed.budget?.amountCents).toBe(49500);
     expect(parsed.funnelSteps.map((step) => step.key)).toEqual([
       "real_conversations",
       "qualified_lead",
@@ -318,6 +329,44 @@ describe("shared contracts", () => {
     expect(filters.whatsappClassification).toBe("whatsapp");
   });
 
+  it("validates controlled Meta status and budget operations", () => {
+    const status = metaEntityStatusUpdateInputSchema.parse({
+      level: "ad",
+      id: " ad_1 ",
+      expectedStatus: "PAUSED",
+      targetStatus: "ACTIVE"
+    });
+    const budget = metaBudgetUpdateInputSchema.parse({
+      level: "adset",
+      id: "adset_1",
+      budgetType: "daily",
+      expectedBudgetCents: 45000,
+      budgetCents: 65000
+    });
+
+    expect(status.id).toBe("ad_1");
+    expect(status.targetStatus).toBe("ACTIVE");
+    expect(budget.budgetCents).toBe(65000);
+    expect(() =>
+      metaBudgetUpdateInputSchema.parse({
+        level: "ad",
+        id: "ad_1",
+        budgetType: "daily",
+        expectedBudgetCents: 0,
+        budgetCents: 10000
+      })
+    ).toThrow();
+    expect(() =>
+      metaBudgetUpdateInputSchema.parse({
+        level: "campaign",
+        id: "cmp_1",
+        budgetType: "daily",
+        expectedBudgetCents: 45000,
+        budgetCents: 0
+      })
+    ).toThrow();
+  });
+
   it("validates ad set and ad performance report overviews", () => {
     const adSets = adSetReportOverviewSchema.parse({
       workspaceId: "workspace_1",
@@ -334,6 +383,14 @@ describe("shared contracts", () => {
           adAccountId: "act_123",
           adAccountName: "Conta WhatsApp",
           whatsappClassification: "auto_whatsapp",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          budget: {
+            owner: "adset",
+            type: "daily",
+            amountCents: 45000,
+            editable: true
+          },
           ...approvedReportMetrics
         }
       ]
@@ -355,6 +412,9 @@ describe("shared contracts", () => {
           adAccountId: "act_123",
           adAccountName: "Conta WhatsApp",
           whatsappClassification: "creative_whatsapp",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          thumbnailUrl: "https://cdn.example.test/ad-1.jpg",
           ...approvedReportMetrics
         }
       ]
@@ -364,7 +424,9 @@ describe("shared contracts", () => {
     expect(adSets.adSets[0]?.funnelSteps[0]?.label).toBe(
       "Conversas reais iniciadas"
     );
+    expect(adSets.adSets[0]?.budget?.owner).toBe("adset");
     expect(ads.ads[0]?.adSetName).toBe("Publico quente");
+    expect(ads.ads[0]?.thumbnailUrl).toBe("https://cdn.example.test/ad-1.jpg");
     expect(ads.ads[0]?.roasWithRepurchase).toBe(4.1667);
   });
 

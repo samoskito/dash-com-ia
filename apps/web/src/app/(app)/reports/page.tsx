@@ -14,10 +14,13 @@ import type {
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import type { BackofficeActionState } from "../../../components/backoffice-action-form";
 import { SubmitButton } from "../../../components/submit-button";
-import { serverApiFetch } from "../../../lib/server-api";
+import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
+import { MetaEntityControls } from "./meta-entity-controls";
 import { MetaReportFilters } from "./meta-report-filters";
+import { ReportAdPreview } from "./report-ad-preview";
 
 type ReportsSearchParams = Record<string, string | string[] | undefined>;
 type ReportView = "campaigns" | "adsets" | "ads";
@@ -429,6 +432,113 @@ async function saveWhatsappClassification(formData: FormData) {
   }
 }
 
+async function updateMetaEntity(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const nonce = Date.now();
+  const intent = formText(formData, "intent");
+  const level = formText(formData, "level");
+  const id = formText(formData, "id");
+
+  if (!id || !["campaign", "adset", "ad"].includes(level)) {
+    return {
+      status: "error",
+      message: "Item Meta nao identificado.",
+      nonce,
+    };
+  }
+
+  try {
+    if (intent === "status") {
+      const expectedStatus = formText(formData, "expectedStatus");
+      const targetStatus = formText(formData, "targetStatus");
+
+      if (
+        !["ACTIVE", "PAUSED"].includes(expectedStatus) ||
+        !["ACTIVE", "PAUSED"].includes(targetStatus)
+      ) {
+        return {
+          status: "error",
+          message: "Status Meta invalido.",
+          nonce,
+        };
+      }
+
+      await serverApiFetch("/reports/meta/entity-status", {
+        method: "PUT",
+        body: JSON.stringify({ level, id, expectedStatus, targetStatus }),
+      });
+      revalidatePath("/reports");
+
+      return {
+        status: "success",
+        message:
+          targetStatus === "ACTIVE"
+            ? "Item ativado na Meta."
+            : "Item pausado na Meta.",
+        nonce,
+      };
+    }
+
+    if (intent === "budget" && ["campaign", "adset"].includes(level)) {
+      const budgetType = formText(formData, "budgetType");
+      const expectedBudgetCents = Number(
+        formText(formData, "expectedBudgetCents"),
+      );
+      const budgetAmount = Number(formText(formData, "budgetAmount"));
+      const budgetCents = Math.round(budgetAmount * 100);
+
+      if (
+        !["daily", "lifetime"].includes(budgetType) ||
+        !Number.isInteger(expectedBudgetCents) ||
+        !Number.isFinite(budgetAmount) ||
+        budgetCents < 1
+      ) {
+        return {
+          status: "error",
+          message: "Informe um orcamento valido.",
+          nonce,
+        };
+      }
+
+      await serverApiFetch("/reports/meta/budget", {
+        method: "PUT",
+        body: JSON.stringify({
+          level,
+          id,
+          budgetType,
+          expectedBudgetCents,
+          budgetCents,
+        }),
+      });
+      revalidatePath("/reports");
+
+      return {
+        status: "success",
+        message: "Orcamento atualizado na Meta.",
+        nonce,
+      };
+    }
+
+    return {
+      status: "error",
+      message: "Alteracao Meta invalida.",
+      nonce,
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      message: isApiRequestError(error)
+        ? error.message
+        : "Nao foi possivel concluir a alteracao na Meta.",
+      nonce,
+    };
+  }
+}
+
 function asStringParam(
   value: string | string[] | undefined,
 ): string | undefined {
@@ -561,14 +671,6 @@ function reportPageHref(
   return `/reports?${params.toString()}`;
 }
 
-function reportStatusChip(status: PerformanceRow["status"]) {
-  return (
-    <span className={`event-chip${status === "paused" ? " warn" : ""}`}>
-      {status}
-    </span>
-  );
-}
-
 const campaignSummaryCopy: ReportEntityCopy = {
   title: "Resumo campanhas",
   singular: "campanha",
@@ -675,7 +777,11 @@ function PerformanceMetricsCells({
   );
 }
 
-function EmptyPerformanceCells({ funnelSteps }: { funnelSteps: ReportFunnelStepDto[] }) {
+function EmptyPerformanceCells({
+  funnelSteps,
+}: {
+  funnelSteps: ReportFunnelStepDto[];
+}) {
   return (
     <>
       <td>{money(0)}</td>
@@ -1080,7 +1186,11 @@ function SummaryMetricsCells({ totals }: { totals: ReportTotals }) {
   );
 }
 
-function PerformanceMetricHeaders({ funnelSteps }: { funnelSteps: ReportFunnelStepDto[] }) {
+function PerformanceMetricHeaders({
+  funnelSteps,
+}: {
+  funnelSteps: ReportFunnelStepDto[];
+}) {
   return (
     <>
       <th>Investimento</th>
@@ -1763,14 +1873,21 @@ export default async function ReportsPage({
             <thead>
               <tr>
                 <th>Campanha</th>
-                <PerformanceMetricHeaders funnelSteps={currentTotals.funnelSteps} />
+                <PerformanceMetricHeaders
+                  funnelSteps={currentTotals.funnelSteps}
+                />
                 <th>Revisao WhatsApp</th>
               </tr>
             </thead>
             <tbody>
               {rows.length > 0 ? (
                 rows.map((row) => (
-                  <tr key={row.id}>
+                  <tr
+                    className={
+                      campaignId === row.id ? "is-selected" : undefined
+                    }
+                    key={row.id}
+                  >
                     <td className="performance-name-cell">
                       <strong>
                         <Link
@@ -1785,7 +1902,16 @@ export default async function ReportsPage({
                           {row.name}
                         </Link>
                       </strong>
-                      {reportStatusChip(row.status)}
+                      <MetaEntityControls
+                        action={updateMetaEntity}
+                        budget={row.budget}
+                        canManage={canSyncMetaReports}
+                        configuredStatus={row.configuredStatus}
+                        effectiveStatus={row.effectiveStatus}
+                        id={row.id}
+                        level="campaign"
+                        name={row.name}
+                      />
                     </td>
                     <PerformanceMetricsCells
                       row={row}
@@ -1823,7 +1949,9 @@ export default async function ReportsPage({
                         : syncCampaignHint}
                     </span>
                   </td>
-                  <EmptyPerformanceCells funnelSteps={currentTotals.funnelSteps} />
+                  <EmptyPerformanceCells
+                    funnelSteps={currentTotals.funnelSteps}
+                  />
                   <td>-</td>
                 </tr>
               )}
@@ -1851,14 +1979,19 @@ export default async function ReportsPage({
               <thead>
                 <tr>
                   <th>Conjunto</th>
-                  <PerformanceMetricHeaders funnelSteps={currentTotals.funnelSteps} />
+                  <PerformanceMetricHeaders
+                    funnelSteps={currentTotals.funnelSteps}
+                  />
                   <th>Revisao WhatsApp</th>
                 </tr>
               </thead>
               <tbody>
                 {adSetRows.length > 0 ? (
                   adSetRows.map((row) => (
-                    <tr key={row.id}>
+                    <tr
+                      className={adSetId === row.id ? "is-selected" : undefined}
+                      key={row.id}
+                    >
                       <td className="performance-name-cell">
                         <strong>
                           <Link
@@ -1874,7 +2007,16 @@ export default async function ReportsPage({
                           </Link>
                         </strong>
                         <span>{row.campaignName}</span>
-                        {reportStatusChip(row.status)}
+                        <MetaEntityControls
+                          action={updateMetaEntity}
+                          budget={row.budget}
+                          canManage={canSyncMetaReports}
+                          configuredStatus={row.configuredStatus}
+                          effectiveStatus={row.effectiveStatus}
+                          id={row.id}
+                          level="adset"
+                          name={row.name}
+                        />
                       </td>
                       <PerformanceMetricsCells
                         row={row}
@@ -1913,7 +2055,9 @@ export default async function ReportsPage({
                           : syncAdSetHint}
                       </span>
                     </td>
-                    <EmptyPerformanceCells funnelSteps={currentTotals.funnelSteps} />
+                    <EmptyPerformanceCells
+                      funnelSteps={currentTotals.funnelSteps}
+                    />
                     <td>-</td>
                   </tr>
                 )}
@@ -1942,20 +2086,53 @@ export default async function ReportsPage({
               <thead>
                 <tr>
                   <th>Anuncio</th>
-                  <PerformanceMetricHeaders funnelSteps={currentTotals.funnelSteps} />
+                  <PerformanceMetricHeaders
+                    funnelSteps={currentTotals.funnelSteps}
+                  />
                   <th>Revisao WhatsApp</th>
                 </tr>
               </thead>
               <tbody>
                 {adRows.length > 0 ? (
                   adRows.map((row) => (
-                    <tr key={row.id}>
+                    <tr
+                      className={adId === row.id ? "is-selected" : undefined}
+                      key={row.id}
+                    >
                       <td className="performance-name-cell">
-                        <strong>{row.name}</strong>
-                        <span>
-                          {row.campaignName} / {row.adSetName}
-                        </span>
-                        {reportStatusChip(row.status)}
+                        <div className="report-ad-entity">
+                          <ReportAdPreview
+                            adName={row.name}
+                            thumbnailUrl={row.thumbnailUrl}
+                          />
+                          <div className="report-entity-copy">
+                            <strong>
+                              <Link
+                                href={reportViewHref("ads", {
+                                  ...reportFilters,
+                                  campaignId: row.campaignId,
+                                  adSetId: row.adSetId,
+                                  adId: row.id,
+                                  page: 1,
+                                })}
+                              >
+                                {row.name}
+                              </Link>
+                            </strong>
+                            <span>
+                              {row.campaignName} / {row.adSetName}
+                            </span>
+                          </div>
+                        </div>
+                        <MetaEntityControls
+                          action={updateMetaEntity}
+                          canManage={canSyncMetaReports}
+                          configuredStatus={row.configuredStatus}
+                          effectiveStatus={row.effectiveStatus}
+                          id={row.id}
+                          level="ad"
+                          name={row.name}
+                        />
                       </td>
                       <PerformanceMetricsCells
                         row={row}
@@ -1995,7 +2172,9 @@ export default async function ReportsPage({
                           : syncAdHint}
                       </span>
                     </td>
-                    <EmptyPerformanceCells funnelSteps={currentTotals.funnelSteps} />
+                    <EmptyPerformanceCells
+                      funnelSteps={currentTotals.funnelSteps}
+                    />
                     <td>-</td>
                   </tr>
                 )}

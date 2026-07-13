@@ -40,6 +40,15 @@ type MetaGraphListResponse<T> = {
   };
 };
 
+type MetaGraphMutationResponse = {
+  success?: unknown;
+  error?: {
+    message?: unknown;
+    type?: unknown;
+    code?: unknown;
+  };
+};
+
 type MetaBusinessGraphNode = {
   id?: unknown;
   name?: unknown;
@@ -75,6 +84,8 @@ export type MetaCampaignAsset = {
   status: string | null;
   effectiveStatus: string | null;
   objective: string | null;
+  dailyBudgetCents: number | null;
+  lifetimeBudgetCents: number | null;
 };
 
 export type MetaAdSetAsset = {
@@ -84,6 +95,8 @@ export type MetaAdSetAsset = {
   status: string | null;
   effectiveStatus: string | null;
   destinationType: string | null;
+  dailyBudgetCents: number | null;
+  lifetimeBudgetCents: number | null;
 };
 
 export type MetaAdAsset = {
@@ -94,6 +107,7 @@ export type MetaAdAsset = {
   status: string | null;
   effectiveStatus: string | null;
   creativeId: string | null;
+  thumbnailUrl: string | null;
   callToActionType: string | null;
 };
 
@@ -134,6 +148,8 @@ type MetaCampaignGraphNode = {
   status?: unknown;
   effective_status?: unknown;
   objective?: unknown;
+  daily_budget?: unknown;
+  lifetime_budget?: unknown;
 };
 
 type MetaAdSetGraphNode = {
@@ -143,6 +159,8 @@ type MetaAdSetGraphNode = {
   status?: unknown;
   effective_status?: unknown;
   destination_type?: unknown;
+  daily_budget?: unknown;
+  lifetime_budget?: unknown;
 };
 
 type MetaAdGraphNode = {
@@ -155,6 +173,7 @@ type MetaAdGraphNode = {
   creative?: {
     id?: unknown;
     call_to_action_type?: unknown;
+    thumbnail_url?: unknown;
   };
 };
 
@@ -521,7 +540,7 @@ export class MetaAdapter implements IntegrationAdapter {
   }): Promise<MetaCampaignAsset[]> {
     const response = await this.getGraphList<MetaCampaignGraphNode>(
       `/${input.adAccountId}/campaigns`,
-      "id,name,status,effective_status,objective",
+      "id,name,status,effective_status,objective,daily_budget,lifetime_budget",
       input.accessToken,
     );
 
@@ -532,6 +551,8 @@ export class MetaAdapter implements IntegrationAdapter {
         status: this.asString(item.status),
         effectiveStatus: this.asString(item.effective_status),
         objective: this.asString(item.objective),
+        dailyBudgetCents: this.asMinorCurrencyUnit(item.daily_budget),
+        lifetimeBudgetCents: this.asMinorCurrencyUnit(item.lifetime_budget),
       }))
       .filter((item): item is MetaCampaignAsset =>
         Boolean(item.id && item.name),
@@ -544,7 +565,7 @@ export class MetaAdapter implements IntegrationAdapter {
   }): Promise<MetaAdSetAsset[]> {
     const response = await this.getGraphList<MetaAdSetGraphNode>(
       `/${input.adAccountId}/adsets`,
-      "id,name,campaign_id,status,effective_status,destination_type",
+      "id,name,campaign_id,status,effective_status,destination_type,daily_budget,lifetime_budget",
       input.accessToken,
     );
 
@@ -556,6 +577,8 @@ export class MetaAdapter implements IntegrationAdapter {
         status: this.asString(item.status),
         effectiveStatus: this.asString(item.effective_status),
         destinationType: this.asString(item.destination_type),
+        dailyBudgetCents: this.asMinorCurrencyUnit(item.daily_budget),
+        lifetimeBudgetCents: this.asMinorCurrencyUnit(item.lifetime_budget),
       }))
       .filter((item): item is MetaAdSetAsset =>
         Boolean(item.id && item.name && item.campaignId),
@@ -568,7 +591,7 @@ export class MetaAdapter implements IntegrationAdapter {
   }): Promise<MetaAdAsset[]> {
     const response = await this.getGraphList<MetaAdGraphNode>(
       `/${input.adAccountId}/ads`,
-      "id,name,campaign_id,adset_id,status,effective_status,creative{id,call_to_action_type}",
+      "id,name,campaign_id,adset_id,status,effective_status,creative{id,call_to_action_type,thumbnail_url}",
       input.accessToken,
     );
 
@@ -581,11 +604,34 @@ export class MetaAdapter implements IntegrationAdapter {
         status: this.asString(item.status),
         effectiveStatus: this.asString(item.effective_status),
         creativeId: this.asString(item.creative?.id),
+        thumbnailUrl: this.asString(item.creative?.thumbnail_url),
         callToActionType: this.asString(item.creative?.call_to_action_type),
       }))
       .filter((item): item is MetaAdAsset =>
         Boolean(item.id && item.name && item.campaignId && item.adSetId),
       );
+  }
+
+  async updateEntityStatus(input: {
+    accessToken: string;
+    id: string;
+    status: "ACTIVE" | "PAUSED";
+  }): Promise<void> {
+    await this.postGraphUpdate(input.id, input.accessToken, {
+      status: input.status,
+    });
+  }
+
+  async updateEntityBudget(input: {
+    accessToken: string;
+    id: string;
+    budgetType: "daily" | "lifetime";
+    budgetCents: number;
+  }): Promise<void> {
+    await this.postGraphUpdate(input.id, input.accessToken, {
+      [input.budgetType === "daily" ? "daily_budget" : "lifetime_budget"]:
+        String(input.budgetCents),
+    });
   }
 
   async listCampaignInsights(input: {
@@ -762,6 +808,17 @@ export class MetaAdapter implements IntegrationAdapter {
     return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
   }
 
+  private asMinorCurrencyUnit(value: unknown): number | null {
+    const parsed =
+      typeof value === "number"
+        ? value
+        : typeof value === "string" && value.trim()
+          ? Number(value)
+          : Number.NaN;
+
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+  }
+
   private actionValue(
     actions: MetaInsightGraphNode["actions"],
     actionType: string,
@@ -817,6 +874,37 @@ export class MetaAdapter implements IntegrationAdapter {
     const initialUrl = `https://graph.facebook.com/${this.getGraphApiVersion()}${path}?${params.toString()}`;
 
     return this.getGraphPages<T>(initialUrl, path);
+  }
+
+  private async postGraphUpdate(
+    id: string,
+    accessToken: string,
+    values: Record<string, string>,
+  ): Promise<void> {
+    const body = new URLSearchParams({
+      ...values,
+      access_token: accessToken,
+    });
+    const response = await this.fetchImpl(
+      `https://graph.facebook.com/${this.getGraphApiVersion()}/${id}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body,
+      },
+    );
+    const payload = (await response
+      .json()
+      .catch(() => ({}))) as MetaGraphMutationResponse;
+
+    if (!response.ok || payload.success !== true) {
+      throw new Error(
+        this.asString(payload.error?.message) ??
+          `Meta Graph HTTP ${response.status}`,
+      );
+    }
   }
 
   private async getGraphPages<T>(

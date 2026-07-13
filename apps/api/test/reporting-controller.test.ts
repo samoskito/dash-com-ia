@@ -160,6 +160,16 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         "Black Friday WhatsApp,active,1200.00,176,2,0,2,1,1,1,1,0,1000.00,0.8333333333333334,0.8333333333333334\n",
     })),
     saveWhatsappClassificationOverride: vi.fn(async () => ({ ok: true })),
+    updateMetaEntityStatus: vi.fn(async () => ({
+      ok: true,
+      level: "campaign",
+      id: "cmp_1",
+    })),
+    updateMetaEntityBudget: vi.fn(async () => ({
+      ok: true,
+      level: "adset",
+      id: "adset_1",
+    })),
     syncWorkspaceMetaStructure: vi.fn(async () => ({
       workspaceId: "workspace_1",
       adAccountId: "act_123",
@@ -632,6 +642,103 @@ describe("reporting controller", () => {
       .expect(403);
 
     expect(queueService.enqueueSync).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("updates Meta entity status for workspace managers", async () => {
+    const { app, reportingService } = await createApp("admin");
+
+    await request(app.getHttpServer())
+      .put("/reports/meta/entity-status")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        level: "campaign",
+        id: "cmp_1",
+        expectedStatus: "ACTIVE",
+        targetStatus: "PAUSED",
+      })
+      .expect(200);
+
+    expect(reportingService.updateMetaEntityStatus).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      actorUserId: "user_1",
+      level: "campaign",
+      id: "cmp_1",
+      expectedStatus: "ACTIVE",
+      targetStatus: "PAUSED",
+    });
+
+    await app.close();
+  });
+
+  it("updates Meta budgets and rejects malformed values", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .put("/reports/meta/budget")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        level: "adset",
+        id: "adset_1",
+        budgetType: "daily",
+        expectedBudgetCents: 50000,
+        budgetCents: 65000,
+      })
+      .expect(200);
+
+    expect(reportingService.updateMetaEntityBudget).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      actorUserId: "user_1",
+      level: "adset",
+      id: "adset_1",
+      budgetType: "daily",
+      expectedBudgetCents: 50000,
+      budgetCents: 65000,
+    });
+
+    await request(app.getHttpServer())
+      .put("/reports/meta/budget")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        level: "ad",
+        id: "ad_1",
+        budgetType: "daily",
+        expectedBudgetCents: 50000,
+        budgetCents: 65000,
+      })
+      .expect(400);
+
+    await app.close();
+  });
+
+  it("blocks Meta write operations for workspace members", async () => {
+    const { app, reportingService } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .put("/reports/meta/entity-status")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        level: "ad",
+        id: "ad_1",
+        expectedStatus: "ACTIVE",
+        targetStatus: "PAUSED",
+      })
+      .expect(403);
+    await request(app.getHttpServer())
+      .put("/reports/meta/budget")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        level: "campaign",
+        id: "cmp_1",
+        budgetType: "daily",
+        expectedBudgetCents: 50000,
+        budgetCents: 65000,
+      })
+      .expect(403);
+
+    expect(reportingService.updateMetaEntityStatus).not.toHaveBeenCalled();
+    expect(reportingService.updateMetaEntityBudget).not.toHaveBeenCalled();
 
     await app.close();
   });
