@@ -434,6 +434,7 @@ export class ExternalDataService {
           readyToSendRows: 0,
           sentRows: 0,
           importedRows: 0,
+          notEligibleRows: 0,
           blockedDeliveryRows: 0,
           firstOccurredAt: null,
           lastOccurredAt: null
@@ -502,7 +503,12 @@ export class ExternalDataService {
       ["QualifiedLead", "qualified_lead"],
       ["Purchase", "purchase"]
     ]);
-    const acceptedPaidStatuses = new Set(["ready_to_send", "sent", "imported"]);
+    const acceptedPaidStatuses = new Set([
+      "ready_to_send",
+      "sent",
+      "imported",
+      "not_eligible"
+    ]);
 
     for (const group of deliveryGroups) {
       const eventType = eventTypeByName.get(group.eventName);
@@ -521,6 +527,8 @@ export class ExternalDataService {
         event.sentRows += group._count._all;
       } else if (group.status === "imported") {
         event.importedRows += group._count._all;
+      } else if (group.status === "not_eligible") {
+        event.notEligibleRows += group._count._all;
       }
 
       if (group.businessSource === "paid" && !acceptedPaidStatuses.has(group.status)) {
@@ -552,7 +560,10 @@ export class ExternalDataService {
 
       const reconciledEvents = [...eventMap.values()].map((event) => ({
         ...event,
-        operationalRows: Math.max(0, event.acceptedRows - event.historicalRows)
+        operationalRows: Math.max(
+          0,
+          event.acceptedRows - event.historicalRows - event.notEligibleRows
+        )
       }));
       const blockers: ExternalConnectorReconciliationDto["blockers"] = [];
       const addBlocker = (code: string, message: string) => {

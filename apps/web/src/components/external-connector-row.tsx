@@ -251,6 +251,11 @@ export function ExternalConnectorRow({
                   <small>
                     {event.duplicateDeliveries} repeticoes / {event.quarantinedRows} descartados
                   </small>
+                  {event.notEligibleRows > 0 ? (
+                    <small>
+                      {event.notEligibleRows} sem identificador de clique (nao elegiveis ao CAPI)
+                    </small>
+                  ) : null}
                   {event.blockingRejectedRows > 0 || event.pendingRows > 0 ? (
                     <small className="reconciliation-event-warning">
                       {event.blockingRejectedRows} falhas / {event.pendingRows} pendentes

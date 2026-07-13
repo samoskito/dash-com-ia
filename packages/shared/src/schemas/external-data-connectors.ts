@@ -186,6 +186,7 @@ export const externalEventReconciliationSchema = z.object({
   readyToSendRows: z.number().int().nonnegative(),
   sentRows: z.number().int().nonnegative(),
   importedRows: z.number().int().nonnegative(),
+  notEligibleRows: z.number().int().nonnegative(),
   blockedDeliveryRows: z.number().int().nonnegative(),
   firstOccurredAt: z.string().datetime().nullable(),
   lastOccurredAt: z.string().datetime().nullable(),

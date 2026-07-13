@@ -25,6 +25,7 @@ export const conversionEventLogStatusSchema = z.enum([
   "sent",
   "error",
   "imported",
+  "not_eligible",
   "not_configured",
   "skipped"
 ]);

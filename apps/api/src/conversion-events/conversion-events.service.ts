@@ -88,7 +88,7 @@ export type RecordExternalConversionInput = {
   currency?: string | null;
   contentName?: string | null;
   eventOccurredAt: Date;
-  deliveryStatus?: "imported";
+  deliveryStatus?: "imported" | "not_eligible";
 };
 
 export type RecordExternalConversionResult = {
@@ -103,6 +103,7 @@ type InitialStatus = {
     | "pending_value"
     | "ready_to_send"
     | "imported"
+    | "not_eligible"
     | "skipped";
   errorCode:
     | "MissingAdId"
@@ -349,9 +350,9 @@ export class ConversionEventsService {
     }
 
     const initialStatus: InitialStatus =
-      input.deliveryStatus === "imported"
+      input.deliveryStatus === "imported" || input.deliveryStatus === "not_eligible"
         ? {
-            status: "imported",
+            status: input.deliveryStatus,
             errorCode: null,
             errorMessage: null
           }
@@ -432,13 +433,19 @@ export class ConversionEventsService {
   ): Promise<RecordExternalConversionResult> {
     const promotesHistoricalEvent =
       existing.status === "imported" && input.deliveryStatus !== "imported";
-    const promotedStatus = promotesHistoricalEvent
-      ? this.resolveInitialStatus({
-          eventName: input.eventName,
-          adId: input.adId,
-          ctwaClid: input.ctwaClid,
-          valueCents: input.valueCents,
-        })
+    const promotedStatus: InitialStatus | null = promotesHistoricalEvent
+      ? input.deliveryStatus === "not_eligible"
+        ? {
+            status: "not_eligible",
+            errorCode: null,
+            errorMessage: null
+          }
+        : this.resolveInitialStatus({
+            eventName: input.eventName,
+            adId: input.adId,
+            ctwaClid: input.ctwaClid,
+            valueCents: input.valueCents
+          })
       : null;
     const businessSource =
       existing.businessSource === "paid" || input.businessSource !== "paid"

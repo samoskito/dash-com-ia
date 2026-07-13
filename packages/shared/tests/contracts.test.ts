@@ -1430,6 +1430,7 @@ describe("shared contracts", () => {
         queued: 0,
         blocked: 0,
         failed: 1,
+        notEligible: 0,
         historical: 0,
         discarded: 0
       },
@@ -1661,6 +1662,7 @@ describe("shared contracts", () => {
         readyToSendRows: 1,
         sentRows: 0,
         importedRows: 0,
+        notEligibleRows: 0,
         blockedDeliveryRows: 0,
         firstOccurredAt: "2026-07-12T19:00:00.000Z",
         lastOccurredAt: "2026-07-12T19:00:00.000Z",

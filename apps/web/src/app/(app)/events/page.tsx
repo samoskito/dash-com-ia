@@ -29,6 +29,7 @@ const emptySummary = {
   queued: 0,
   blocked: 0,
   failed: 0,
+  notEligible: 0,
   historical: 0,
   discarded: 0
 };
@@ -112,7 +113,11 @@ function stateChipClass(state: ConversionAuditDeliveryStateDto): string {
     return "event-chip warn";
   }
 
-  if (state === "historical" || state === "discarded") {
+  if (
+    state === "not_eligible" ||
+    state === "historical" ||
+    state === "discarded"
+  ) {
     return "event-chip neutral";
   }
 
@@ -203,6 +208,7 @@ export default async function EventsPage({
           ["Aguardando", summary.queued, "queued"],
           ["Bloqueados", summary.blocked, "blocked"],
           ["Falhas", summary.failed, "failed"],
+          ["Nao elegiveis", summary.notEligible, "not_eligible"],
           ["Historicos", summary.historical, "historical"],
           ["Descartados", summary.discarded, "discarded"]
         ].map(([label, value, state]) => (
@@ -247,6 +253,7 @@ export default async function EventsPage({
           <option value="queued">Aguardando envio</option>
           <option value="blocked">Bloqueados</option>
           <option value="failed">Falhas</option>
+          <option value="not_eligible">Nao elegiveis</option>
           <option value="historical">Historicos</option>
           <option value="discarded">Descartados</option>
         </select>

@@ -41,7 +41,12 @@ function createHarness(overrides?: {
   shadowMode?: boolean;
   capiSendEnabled?: boolean;
   enqueueError?: Error;
+  leadCtwaClid?: string | null;
 }) {
+  const leadCtwaClid =
+    overrides?.leadCtwaClid === undefined
+      ? "ctwa_1"
+      : overrides.leadCtwaClid;
   const prisma = {
     externalIngestionRecord: {
       findUnique: vi.fn(
@@ -78,7 +83,7 @@ function createHarness(overrides?: {
         campaignId: null,
         adSetId: null,
         adId: "120012345678",
-        ctwaClid: "ctwa_1",
+        ctwaClid: leadCtwaClid,
       })),
       findFirst: vi.fn(async () => ({
         id: "lead_1",
@@ -86,7 +91,7 @@ function createHarness(overrides?: {
         campaignId: null,
         adSetId: null,
         adId: "120012345678",
-        ctwaClid: "ctwa_1",
+        ctwaClid: leadCtwaClid,
       })),
       findMany: vi.fn(async (): Promise<Array<{ id: string }>> => []),
       update: vi.fn(async () => ({})),
@@ -106,8 +111,7 @@ function createHarness(overrides?: {
       async (input: { deliveryStatus?: string }) => ({
         conversionEventLogId: "conversion_1",
         status: "created" as const,
-        deliveryStatus:
-          input.deliveryStatus === "imported" ? "imported" : "ready_to_send",
+        deliveryStatus: input.deliveryStatus ?? "ready_to_send",
       }),
     ),
   };
@@ -447,6 +451,30 @@ describe("ExternalEventIngestionService", () => {
     );
     expect(harness.conversionQueue.enqueueSend).not.toHaveBeenCalled();
     expect(harness.prisma.lead.update).not.toHaveBeenCalled();
+  });
+
+  it("keeps an external event without ctwa_clid out of the CAPI queue", async () => {
+    const harness = createHarness({
+      shadowMode: false,
+      capiSendEnabled: true,
+      leadCtwaClid: null,
+    });
+
+    const result = await harness.service.ingest(harness.connector, {
+      ...row,
+      ctwaClid: null,
+    });
+
+    expect(result).toMatchObject({ status: "imported", queued: false });
+    expect(
+      harness.conversionEventsService.recordExternalConversion,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ctwaClid: null,
+        deliveryStatus: "not_eligible",
+      }),
+    );
+    expect(harness.conversionQueue.enqueueSend).not.toHaveBeenCalled();
   });
 
   it("uses the row provider policy so another integration can keep same-day transactions", async () => {

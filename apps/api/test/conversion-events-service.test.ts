@@ -301,6 +301,37 @@ describe("conversion events service", () => {
     });
   });
 
+  it("stores final external events without click context as not eligible", async () => {
+    const { db, service } = createHarness();
+
+    const result = await service.recordExternalConversion({
+      workspaceId: "workspace_1",
+      externalConnectorId: "connector_1",
+      sourceEventId: "qualified-lead-without-click",
+      sourceTrigger: "external_mysql:kinbox_mysql",
+      eventName: "QualifiedLead",
+      eventId: "event_without_click_1",
+      dedupeKey: "external:connector_1:qualified:event_without_click_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      businessSource: "organic",
+      adId: null,
+      ctwaClid: null,
+      eventOccurredAt: new Date("2026-07-11T14:00:00.000Z"),
+      deliveryStatus: "not_eligible"
+    });
+
+    expect(result).toMatchObject({
+      status: "created",
+      deliveryStatus: "not_eligible"
+    });
+    expect(db.logs[0]).toMatchObject({
+      status: "not_eligible",
+      errorCode: null,
+      errorMessage: null
+    });
+  });
+
   it("promotes one historical purchase when the live ledger event arrives", async () => {
     const { db, service } = createHarness();
     const common = {

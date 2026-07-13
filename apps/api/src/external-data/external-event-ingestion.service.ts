@@ -182,6 +182,9 @@ export class ExternalEventIngestionService {
       transactionId: row.transactionId
     });
     const value = this.resolveValue(connector, row, eventType);
+    const ctwaClid = row.ctwaClid ?? lead.ctwaClid;
+    const deliveryStatus =
+      options.deliveryStatus ?? (ctwaClid ? undefined : "not_eligible");
     const conversion = await this.conversionEventsService.recordExternalConversion({
       workspaceId: connector.workspaceId,
       externalConnectorId: connector.id,
@@ -196,7 +199,7 @@ export class ExternalEventIngestionService {
       campaignId: row.campaignId ?? lead.campaignId,
       adSetId: row.adSetId ?? lead.adSetId,
       adId: row.adId ?? lead.adId,
-      ctwaClid: row.ctwaClid ?? lead.ctwaClid,
+      ctwaClid,
       valueCents: value.valueCents,
       valueSource: value.valueSource,
       currency: value.currency,
@@ -205,8 +208,8 @@ export class ExternalEventIngestionService {
           ? (connector.purchaseDefaultContentName ?? null)
           : null,
       eventOccurredAt: occurredAt,
-      ...(options.deliveryStatus
-        ? { deliveryStatus: options.deliveryStatus }
+      ...(deliveryStatus
+        ? { deliveryStatus }
         : {})
     });
     const ingestionStatus = conversion.status === "duplicate" ? "duplicate" : "imported";

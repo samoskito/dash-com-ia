@@ -154,8 +154,8 @@ describe("ExternalDataService", () => {
         )
       },
       conversionEventLog: {
-        groupBy: vi.fn(async () =>
-          [
+        groupBy: vi.fn(async () => [
+          ...[
             ["LeadSubmitted", "conversation_started"],
             ["QualifiedLead", "qualified_lead"],
             ["Purchase", "purchase"]
@@ -165,8 +165,15 @@ describe("ExternalDataService", () => {
             status: "ready_to_send",
             businessSource: "paid",
             _count: { _all: 1 }
-          }))
-        )
+          })),
+          {
+            externalConnectorId: "connector_1",
+            eventName: "QualifiedLead",
+            status: "not_eligible",
+            businessSource: "paid",
+            _count: { _all: 1 }
+          }
+        ])
       },
       metaIntegration: {
         findMany: vi.fn(async () => [
@@ -221,9 +228,11 @@ describe("ExternalDataService", () => {
             eventType: "qualified_lead",
             sourceRows: 7,
             acceptedRows: 2,
-            operationalRows: 2,
+            operationalRows: 1,
             expectedMatchedRows: 1,
-            matchedRows: 1,
+            matchedRows: 2,
+            notEligibleRows: 1,
+            blockedDeliveryRows: 0,
             rejectedRows: 5,
             quarantinedRows: 5,
             blockingRejectedRows: 0

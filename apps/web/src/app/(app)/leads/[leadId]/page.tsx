@@ -49,7 +49,11 @@ function statusTone(status: string) {
 }
 
 function eventStatusLabel(status: string) {
-  return status === "imported" ? "Importado" : status;
+  if (status === "imported") {
+    return "Importado";
+  }
+
+  return status === "not_eligible" ? "Nao elegivel para CAPI" : status;
 }
 
 function AttributionStep({

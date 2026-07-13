@@ -18,6 +18,7 @@ function auditResponse(events: unknown[]) {
       queued: 0,
       blocked: 0,
       failed: events.length > 1 ? 1 : 0,
+      notEligible: 0,
       historical: 0,
       discarded: 0
     },
@@ -188,7 +189,7 @@ describe("events route", () => {
     );
 
     expect(css).toContain(".audit-summary");
-    expect(css).toContain("grid-template-columns: repeat(6, minmax(0, 1fr));");
+    expect(css).toContain("grid-template-columns: repeat(7, minmax(0, 1fr));");
     expect(auditMobileBlock).toContain(
       "grid-template-columns: repeat(2, minmax(0, 1fr));"
     );

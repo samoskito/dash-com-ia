@@ -1073,6 +1073,12 @@ export class DiagnosticsService {
       );
     }
 
+    if (conversionEvent.status === "not_eligible") {
+      throw new BadRequestException(
+        "Evento sem identificador de clique nao e elegivel para envio Meta"
+      );
+    }
+
     const auditLog = await this.prisma.auditLog.create({
       data: {
         workspaceId: conversionEvent.workspaceId,
