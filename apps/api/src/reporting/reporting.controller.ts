@@ -84,6 +84,7 @@ export class ReportingController {
     @Query("status") status?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
     @Query("includeSummary") includeSummary?: string | string[],
+    @Query("includeDaily") includeDaily?: string | string[],
     @Query("page") page?: string | string[],
     @Query("pageSize") pageSize?: string | string[],
   ) {
@@ -102,12 +103,14 @@ export class ReportingController {
     });
     const pagination = this.parseReportPagination(page, pageSize);
     const includeWorkspaceSummary = this.parseBooleanFlag(includeSummary);
+    const includeDailyComparison = this.parseBooleanFlag(includeDaily);
 
     return this.metaReportingService.getCampaignReportOverview({
       workspaceId,
       ...period,
       ...filters,
       ...(includeWorkspaceSummary ? { includeSummary: true } : {}),
+      ...(includeDailyComparison ? { includeDaily: true } : {}),
       ...pagination,
     });
   }
@@ -349,8 +352,7 @@ export class ReportingController {
 
   private defaultUntil(): string {
     const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone:
-        process.env.WPPTRACK_REPORT_TIMEZONE ?? "America/Sao_Paulo",
+      timeZone: process.env.WPPTRACK_REPORT_TIMEZONE ?? "America/Sao_Paulo",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",

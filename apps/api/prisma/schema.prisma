@@ -166,6 +166,7 @@ model Workspace {
   metaConversionDestination   MetaConversionDestination?
   metaReportingAccounts       MetaReportingAccount[]
   metaCampaigns               MetaCampaign[]
+  metaCampaignDailyInsights   MetaCampaignDailyInsight[]
   metaAdSets                  MetaAdSet[]
   metaAds                     MetaAd[]
   externalDataConnectors      ExternalDataConnector[]
@@ -827,6 +828,29 @@ model MetaCampaign {
   @@index([workspaceId, adAccountId])
   @@index([workspaceId, status])
   @@index([workspaceId, businessId, adAccountId, whatsappClassification])
+}
+
+model MetaCampaignDailyInsight {
+  id                       String   @id @default(cuid())
+  workspaceId              String
+  businessId               String
+  adAccountId              String
+  campaignId               String
+  localDate                String
+  spendCents               Int      @default(0)
+  impressions              Int      @default(0)
+  clicks                   Int      @default(0)
+  metaConversationsStarted Int      @default(0)
+  syncedAt                 DateTime @default(now())
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, campaignId, localDate])
+  @@index([workspaceId, localDate])
+  @@index([workspaceId, businessId, adAccountId, localDate])
+  @@index([workspaceId, campaignId, localDate])
 }
 
 model MetaAdSet {

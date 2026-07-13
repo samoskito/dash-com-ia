@@ -1,11 +1,22 @@
 import type {
   CampaignReportRowDto,
+  MetaAssetsDto,
+  ReportDailyComparisonPointDto,
   ReportFunnelStepDto,
-  ReportOverviewDto
+  ReportOverviewDto,
 } from "@wpptrack/shared";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { serverApiFetch } from "../../../lib/server-api";
+import { OverviewFilters } from "./overview-filters";
+
+type OverviewSearchParams = Record<string, string | string[] | undefined>;
+type OverviewFiltersInput = {
+  adAccountId?: string;
+  businessId?: string;
+  since?: string;
+  until?: string;
+};
 
 type OverviewFetchState = "real" | "empty" | "error";
 type OverviewReportResult = {
@@ -20,14 +31,34 @@ function money(cents: number | null) {
 
   return (cents / 100).toLocaleString("pt-BR", {
     currency: "BRL",
-    style: "currency"
+    style: "currency",
   });
 }
 
-async function getOverviewReport(): Promise<OverviewReportResult> {
+async function getOverviewReport(
+  filters: OverviewFiltersInput,
+): Promise<OverviewReportResult> {
   try {
+    const params = new URLSearchParams({
+      includeDaily: "true",
+      includeSummary: "true",
+    });
+
+    if (filters.since && filters.until) {
+      params.set("since", filters.since);
+      params.set("until", filters.until);
+    }
+
+    if (filters.businessId) {
+      params.set("businessId", filters.businessId);
+    }
+
+    if (filters.adAccountId) {
+      params.set("adAccountId", filters.adAccountId);
+    }
+
     const report = await serverApiFetch<ReportOverviewDto>(
-      "/reports/campaigns?includeSummary=true"
+      `/reports/campaigns?${params.toString()}`,
     );
 
     return {
@@ -35,74 +66,94 @@ async function getOverviewReport(): Promise<OverviewReportResult> {
       state:
         report.campaigns.length > 0 || (report.summary?.totalReceived ?? 0) > 0
           ? "real"
-          : "empty"
+          : "empty",
     };
   } catch {
     return {
       report: {
         workspaceId: "unavailable",
         rangeLabel: "API indisponivel",
-        campaigns: []
+        campaigns: [],
       },
-      state: "error"
+      state: "error",
     };
   }
 }
 
+async function getMetaAssets(): Promise<MetaAssetsDto | null> {
+  try {
+    return await serverApiFetch<MetaAssetsDto>("/integrations/meta/assets");
+  } catch {
+    return null;
+  }
+}
+
+function asStringParam(value: string | string[] | undefined) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
-  const spendCents = campaigns.reduce((total, campaign) => total + campaign.spendCents, 0);
+  const spendCents = campaigns.reduce(
+    (total, campaign) => total + campaign.spendCents,
+    0,
+  );
   const metaConversationsStarted = campaigns.reduce(
     (total, campaign) => total + campaign.metaConversationsStarted,
-    0
+    0,
   );
   const realConversations = campaigns.reduce(
     (total, campaign) => total + campaign.realConversations,
-    0
+    0,
   );
   const organicLeads = campaigns.reduce(
     (total, campaign) => total + campaign.organicLeads,
-    0
+    0,
   );
   const totalReceived = campaigns.reduce(
     (total, campaign) => total + campaign.totalReceived,
-    0
+    0,
   );
   const qualifiedLead = campaigns.reduce(
     (total, campaign) => total + campaign.qualifiedLead,
-    0
+    0,
   );
-  const purchases = campaigns.reduce((total, campaign) => total + campaign.purchases, 0);
+  const purchases = campaigns.reduce(
+    (total, campaign) => total + campaign.purchases,
+    0,
+  );
   const firstPurchases = campaigns.reduce(
     (total, campaign) => total + campaign.firstPurchases,
-    0
+    0,
   );
   const repurchases = campaigns.reduce(
     (total, campaign) => total + campaign.repurchases,
-    0
+    0,
   );
   const trafficRevenueCents = campaigns.reduce(
     (total, campaign) => total + campaign.trafficRevenueCents,
-    0
+    0,
   );
   const organicRevenueCents = campaigns.reduce(
     (total, campaign) => total + campaign.organicRevenueCents,
-    0
+    0,
   );
   const totalRevenueCents = trafficRevenueCents + organicRevenueCents;
   const firstPurchaseRevenueCents = campaigns.reduce(
     (total, campaign) => total + campaign.firstPurchaseRevenueCents,
-    0
+    0,
   );
   const repurchaseRevenueCents = campaigns.reduce(
     (total, campaign) => total + campaign.repurchaseRevenueCents,
-    0
+    0,
   );
   const estimatedRevenueCents = campaigns.reduce(
     (total, campaign) => total + campaign.estimatedRevenueCents,
-    0
+    0,
   );
   const visibleFunnelKeys = new Set(
-    campaigns.flatMap((campaign) => campaign.funnelSteps.map((step) => step.key))
+    campaigns.flatMap((campaign) =>
+      campaign.funnelSteps.map((step) => step.key),
+    ),
   );
 
   return {
@@ -111,9 +162,11 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
       campaigns.length === 0
         ? "Nenhuma campanha sincronizada"
         : campaigns.length === 1
-          ? campaigns[0]?.name ?? "Campanha"
+          ? (campaigns[0]?.name ?? "Campanha")
           : "Todas as campanhas",
-    status: campaigns.some((campaign) => campaign.status === "active") ? "active" : "unknown",
+    status: campaigns.some((campaign) => campaign.status === "active")
+      ? "active"
+      : "unknown",
     spendCents,
     metaConversationsStarted,
     costPerMetaConversationCents: costPer(spendCents, metaConversationsStarted),
@@ -137,18 +190,18 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
     hasEstimatedRevenue: estimatedRevenueCents > 0,
     roasAcquisition: weightedRoas(
       campaigns,
-      (campaign) => campaign.roasAcquisition
+      (campaign) => campaign.roasAcquisition,
     ),
     roasWithRepurchase: weightedRoas(
       campaigns,
-      (campaign) => campaign.roasWithRepurchase
+      (campaign) => campaign.roasWithRepurchase,
     ),
     funnelSteps: [
       funnelStep(
         "real_conversations",
         "Conversas reais iniciadas",
         realConversations,
-        costPer(spendCents, realConversations)
+        costPer(spendCents, realConversations),
       ),
       ...(visibleFunnelKeys.has("qualified_lead") || qualifiedLead > 0
         ? [
@@ -156,8 +209,8 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
               "qualified_lead",
               "Lead qualificado",
               qualifiedLead,
-              costPer(spendCents, qualifiedLead)
-            )
+              costPer(spendCents, qualifiedLead),
+            ),
           ]
         : []),
       ...(visibleFunnelKeys.has("purchase") || purchases > 0
@@ -166,8 +219,8 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
               "purchase",
               "Compras",
               purchases,
-              costPer(spendCents, purchases)
-            )
+              costPer(spendCents, purchases),
+            ),
           ]
         : []),
       ...(visibleFunnelKeys.has("first_purchase") || firstPurchases > 0
@@ -176,8 +229,8 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
               "first_purchase",
               "Primeira compra",
               firstPurchases,
-              costPer(spendCents, firstPurchases)
-            )
+              costPer(spendCents, firstPurchases),
+            ),
           ]
         : []),
       ...(visibleFunnelKeys.has("repurchase") || repurchases > 0
@@ -186,11 +239,11 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
               "repurchase",
               "Recompra",
               repurchases,
-              costPer(spendCents, repurchases)
-            )
+              costPer(spendCents, repurchases),
+            ),
           ]
-        : [])
-    ]
+        : []),
+    ],
   };
 }
 
@@ -204,7 +257,7 @@ function ratio(part: number, total: number): number | null {
 
 function weightedRoas(
   campaigns: CampaignReportRowDto[],
-  selectRoas: (campaign: CampaignReportRowDto) => number | null
+  selectRoas: (campaign: CampaignReportRowDto) => number | null,
 ): number | null {
   const weighted = campaigns.reduce(
     (total, campaign) => {
@@ -216,10 +269,10 @@ function weightedRoas(
 
       return {
         revenueBasis: total.revenueBasis + value * campaign.spendCents,
-        spendCents: total.spendCents + campaign.spendCents
+        spendCents: total.spendCents + campaign.spendCents,
       };
     },
-    { revenueBasis: 0, spendCents: 0 }
+    { revenueBasis: 0, spendCents: 0 },
   );
 
   return weighted.spendCents > 0
@@ -232,16 +285,12 @@ function ratePercent(rate: number | null): number {
 }
 
 type TrackingHealthState =
-  | "unavailable"
-  | "waiting"
-  | "healthy"
-  | "attention"
-  | "critical";
+  "unavailable" | "waiting" | "healthy" | "attention" | "critical";
 
 function trackingHealthState(
   reportState: OverviewFetchState,
   totalReceived: number,
-  trackingRate: number | null
+  trackingRate: number | null,
 ): TrackingHealthState {
   if (reportState === "error") {
     return "unavailable";
@@ -268,7 +317,7 @@ function trackingHealthLabel(state: TrackingHealthState): string {
     waiting: "Aguardando conversas",
     healthy: "Cobertura alta",
     attention: "Cobertura moderada",
-    critical: "Cobertura baixa"
+    critical: "Cobertura baixa",
   };
 
   return labels[state];
@@ -278,7 +327,10 @@ function ratioLabel(value: number | null): string {
   return value === null ? "-" : `${value.toFixed(2)}x`;
 }
 
-function purchaseBreakdownLabel(firstPurchases: number, repurchases: number): string {
+function purchaseBreakdownLabel(
+  firstPurchases: number,
+  repurchases: number,
+): string {
   if (firstPurchases === 0 && repurchases === 0) {
     return "Nenhuma compra no periodo";
   }
@@ -296,13 +348,13 @@ function funnelStep(
   key: ReportFunnelStepDto["key"],
   label: ReportFunnelStepDto["label"],
   value: number,
-  costCents: number | null
+  costCents: number | null,
 ): ReportFunnelStepDto {
   return {
     key,
     label,
     value,
-    costCents
+    costCents,
   };
 }
 
@@ -323,33 +375,77 @@ function leadsByAttributionHref(
   return `/leads?${params.toString()}`;
 }
 
-export default async function OverviewPage() {
-  const { report, state: reportState } = await getOverviewReport();
+function reportsHref(filters: OverviewFiltersInput): string {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) {
+      params.set(key, value);
+    }
+  }
+
+  const query = params.toString();
+  return query ? `/reports?${query}` : "/reports";
+}
+
+export default async function OverviewPage({
+  searchParams,
+}: {
+  searchParams?: Promise<OverviewSearchParams>;
+}) {
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const filters: OverviewFiltersInput = {
+    since: asStringParam(resolvedSearchParams.since),
+    until: asStringParam(resolvedSearchParams.until),
+    businessId: asStringParam(resolvedSearchParams.businessId),
+    adAccountId: asStringParam(resolvedSearchParams.adAccountId),
+  };
+  const [{ report, state: reportState }, metaAssets] = await Promise.all([
+    getOverviewReport(filters),
+    getMetaAssets(),
+  ]);
+  const reportingAccounts = (metaAssets?.reportingAccounts ?? []).filter(
+    (account) => account.active,
+  );
   const campaigns = report.campaigns;
   const campaign = report.summary ?? sumCampaigns(campaigns);
   const dataAvailable = reportState !== "error";
-  const trackedRate = dataAvailable && campaign.trackingRate !== null
-    ? ratePercent(campaign.trackingRate)
-    : null;
+  const trackedRate =
+    dataAvailable && campaign.trackingRate !== null
+      ? ratePercent(campaign.trackingRate)
+      : null;
   const trackingState = trackingHealthState(
     reportState,
     campaign.totalReceived,
-    campaign.trackingRate
+    campaign.trackingRate,
   );
-  const hasTrackingSample = trackingState !== "unavailable" && trackingState !== "waiting";
+  const hasTrackingSample =
+    trackingState !== "unavailable" && trackingState !== "waiting";
   const trackingScoreStyle = hasTrackingSample
     ? ({ "--tracking-rate": `${trackedRate}%` } as CSSProperties)
     : undefined;
-  const hasRepurchases = campaign.repurchases > 0 || campaign.repurchaseRevenueCents > 0;
+  const hasRepurchases =
+    campaign.repurchases > 0 || campaign.repurchaseRevenueCents > 0;
   const funnelStages: ReportFunnelStepDto[] = [
     {
       key: "meta_conversations",
       label: "Conversas Meta",
       value: campaign.metaConversationsStarted,
-      costCents: campaign.costPerMetaConversationCents
+      costCents: campaign.costPerMetaConversationCents,
     },
-    ...campaign.funnelSteps
+    ...campaign.funnelSteps,
   ];
+  const selectedBusiness = reportingAccounts.find(
+    (account) => account.businessId === filters.businessId,
+  );
+  const selectedAccount = reportingAccounts.find(
+    (account) => account.adAccountId === filters.adAccountId,
+  );
+  const scopeLabel =
+    selectedAccount?.adAccountName ??
+    selectedBusiness?.businessName ??
+    "Todas as contas";
+  const detailHref = reportsHref(filters);
 
   return (
     <section className="page-stack">
@@ -370,18 +466,33 @@ export default async function OverviewPage() {
               <span className="tag">{report.rangeLabel}</span>
               <span className="tag">{campaigns.length} campanhas</span>
               <span className="tag">
-                {trackedRate === null ? "Aguardando conversas" : `${trackedRate}% rastreadas`}
+                {trackedRate === null
+                  ? "Aguardando conversas"
+                  : `${trackedRate}% rastreadas`}
               </span>
             </>
           )}
         </div>
       </header>
 
+      <OverviewFilters
+        adAccountId={filters.adAccountId}
+        businessId={filters.businessId}
+        hasActiveFilter={Object.values(filters).some(Boolean)}
+        reportingAccounts={reportingAccounts}
+        since={report.since ?? filters.since}
+        until={report.until ?? filters.until}
+      />
+
       <div className="metric-grid">
         <Metric
           label="Conversas Meta"
-          value={dataAvailable ? String(campaign.metaConversationsStarted) : "-"}
-          delta={dataAvailable ? report.rangeLabel : "Aguardando resposta da API"}
+          value={
+            dataAvailable ? String(campaign.metaConversationsStarted) : "-"
+          }
+          delta={
+            dataAvailable ? report.rangeLabel : "Aguardando resposta da API"
+          }
           unavailable={!dataAvailable}
         />
         <Metric
@@ -399,16 +510,35 @@ export default async function OverviewPage() {
         <Metric
           label="Receita trafego"
           value={dataAvailable ? money(campaign.trafficRevenueCents) : "-"}
-          delta={dataAvailable ? `ROAS ${ratioLabel(campaign.roasAcquisition)}` : "Aguardando resposta da API"}
+          delta={
+            dataAvailable
+              ? `ROAS ${ratioLabel(campaign.roasAcquisition)}`
+              : "Aguardando resposta da API"
+          }
           unavailable={!dataAvailable}
         />
         <Metric
           label="Compras"
           value={dataAvailable ? String(campaign.purchases) : "-"}
-          delta={dataAvailable ? purchaseBreakdownLabel(campaign.firstPurchases, campaign.repurchases) : "Aguardando resposta da API"}
+          delta={
+            dataAvailable
+              ? purchaseBreakdownLabel(
+                  campaign.firstPurchases,
+                  campaign.repurchases,
+                )
+              : "Aguardando resposta da API"
+          }
           unavailable={!dataAvailable}
         />
       </div>
+
+      <DailyConversationComparison
+        available={report.dailyComparisonAvailable === true}
+        detailHref={detailHref}
+        points={report.dailyComparison ?? []}
+        reportState={reportState}
+        scopeLabel={scopeLabel}
+      />
 
       <div className="panel-grid">
         <div className="surface-panel">
@@ -424,13 +554,16 @@ export default async function OverviewPage() {
             {reportState === "error"
               ? "Os numeros permanecem ocultos ate a API responder, evitando exibir zero como dado confirmado."
               : campaigns.length > 0
-              ? `Investimento de ${money(campaign.spendCents)} gerou ${campaign.realConversations} conversas reais, ${campaign.organicLeads} conversas organicas e ${money(campaign.totalRevenueCents)} em receita total.`
-              : campaign.totalReceived > 0
-                ? `${campaign.realConversations} ${campaign.realConversations === 1 ? "conversa" : "conversas"} com origem identificada e ${campaign.organicLeads} ${campaign.organicLeads === 1 ? "conversa organica" : "conversas organicas"} foram recebidas. Campanha e conjunto serao exibidos quando a estrutura Meta for resolvida.`
-                : "Nenhuma campanha sincronizada. Use Sincronizar Meta em Relatorios para carregar dados reais."}
+                ? `Investimento de ${money(campaign.spendCents)} gerou ${campaign.realConversations} conversas reais, ${campaign.organicLeads} conversas organicas e ${money(campaign.totalRevenueCents)} em receita total.`
+                : campaign.totalReceived > 0
+                  ? `${campaign.realConversations} ${campaign.realConversations === 1 ? "conversa" : "conversas"} com origem identificada e ${campaign.organicLeads} ${campaign.organicLeads === 1 ? "conversa organica" : "conversas organicas"} foram recebidas. Campanha e conjunto serao exibidos quando a estrutura Meta for resolvida.`
+                  : "Nenhuma campanha sincronizada. Use Sincronizar Meta em Relatorios para carregar dados reais."}
           </p>
           {dataAvailable ? (
-            <div className="overview-finance-strip" aria-label="Saude financeira">
+            <div
+              className="overview-finance-strip"
+              aria-label="Saude financeira"
+            >
               <OverviewSummaryValue
                 label="Receita trafego"
                 value={money(campaign.trafficRevenueCents)}
@@ -462,7 +595,9 @@ export default async function OverviewPage() {
               <span className="status-dot" aria-hidden="true" />
               <div>
                 <strong>Dados temporariamente indisponiveis</strong>
-                <span>Tente novamente quando a API concluir a inicializacao.</span>
+                <span>
+                  Tente novamente quando a API concluir a inicializacao.
+                </span>
               </div>
             </div>
           )}
@@ -472,13 +607,16 @@ export default async function OverviewPage() {
                 ? `${campaigns.length} campanha${campaigns.length === 1 ? "" : "s"} no recorte`
                 : "Detalhamento preservado em Relatorios"}
             </span>
-            <Link className="button ghost" href="/reports">
+            <Link className="button ghost" href={detailHref}>
               Ver relatorios
             </Link>
           </div>
         </div>
 
-        <aside className="surface-panel tracking-health" aria-label="Qualidade do rastreamento">
+        <aside
+          className="surface-panel tracking-health"
+          aria-label="Qualidade do rastreamento"
+        >
           <div className="tracking-health-header">
             <div>
               <span className="eyebrow">Qualidade do rastreamento</span>
@@ -493,7 +631,11 @@ export default async function OverviewPage() {
             <div
               className={`tracking-score ${trackingState}`}
               style={trackingScoreStyle}
-              aria-label={hasTrackingSample ? `${trackedRate}% das conversas identificadas` : trackingHealthLabel(trackingState)}
+              aria-label={
+                hasTrackingSample
+                  ? `${trackedRate}% das conversas identificadas`
+                  : trackingHealthLabel(trackingState)
+              }
             >
               <div>
                 <strong>{hasTrackingSample ? `${trackedRate}%` : "-"}</strong>
@@ -541,7 +683,9 @@ export default async function OverviewPage() {
           <div className="tracking-health-footer">
             <span>Custo por conversa real</span>
             <strong>
-              {dataAvailable ? money(campaign.costPerRealConversationCents) : "-"}
+              {dataAvailable
+                ? money(campaign.costPerRealConversationCents)
+                : "-"}
             </strong>
           </div>
         </aside>
@@ -550,11 +694,185 @@ export default async function OverviewPage() {
   );
 }
 
+function DailyConversationComparison({
+  available,
+  detailHref,
+  points,
+  reportState,
+  scopeLabel,
+}: {
+  available: boolean;
+  detailHref: string;
+  points: ReportDailyComparisonPointDto[];
+  reportState: OverviewFetchState;
+  scopeLabel: string;
+}) {
+  const metaTotal = points.reduce(
+    (total, point) => total + point.metaConversationsStarted,
+    0,
+  );
+  const realTotal = points.reduce(
+    (total, point) => total + point.realConversations,
+    0,
+  );
+  const difference = metaTotal - realTotal;
+  const maximum = Math.max(
+    1,
+    ...points.flatMap((point) => [
+      point.metaConversationsStarted,
+      point.realConversations,
+    ]),
+  );
+  const viewWidth = Math.max(760, points.length * 54 + 92);
+  const viewHeight = 286;
+  const plotTop = 22;
+  const plotBottom = 226;
+  const plotHeight = plotBottom - plotTop;
+  const plotLeft = 48;
+  const plotRight = viewWidth - 24;
+  const plotWidth = plotRight - plotLeft;
+  const groupWidth = plotWidth / Math.max(points.length, 1);
+  const barWidth = Math.min(15, Math.max(6, groupWidth * 0.28));
+  const labelEvery = Math.max(1, Math.ceil(points.length / 10));
+  const barHeight = (value: number) => (value / maximum) * plotHeight;
+  const formatDate = (date: string) => {
+    const [, month, day] = date.split("-");
+    return `${day}/${month}`;
+  };
+  const differenceLabel =
+    difference === 0
+      ? "Volumes conciliados no periodo"
+      : difference > 0
+        ? `${difference} ${difference === 1 ? "conversa" : "conversas"} a mais na Meta`
+        : `${Math.abs(difference)} ${Math.abs(difference) === 1 ? "conversa real" : "conversas reais"} a mais`;
+
+  return (
+    <section
+      className="surface-panel daily-comparison"
+      aria-labelledby="daily-comparison-title"
+    >
+      <div className="daily-comparison-header">
+        <div>
+          <span className="eyebrow">Conciliacao diaria</span>
+          <h2 id="daily-comparison-title">Meta x conversas reais</h2>
+          <p>
+            Compare os volumes dia a dia e localize rapidamente onde surgiu a
+            divergencia.
+          </p>
+        </div>
+        <div
+          className="daily-comparison-summary"
+          aria-label="Resumo do comparativo"
+        >
+          <span>{scopeLabel}</span>
+          <strong>{differenceLabel}</strong>
+        </div>
+      </div>
+
+      {reportState === "error" ? (
+        <div className="daily-comparison-empty" role="status">
+          <strong>Comparativo indisponivel</strong>
+          <span>A API precisa responder para montar a serie diaria.</span>
+        </div>
+      ) : !available ? (
+        <div className="daily-comparison-empty" role="status">
+          <strong>Sincronize este periodo para ver a comparacao diaria</strong>
+          <span>
+            A serie historica da Meta sera registrada na proxima sincronizacao.
+          </span>
+          <Link className="button ghost" href={detailHref}>
+            Abrir relatorios
+          </Link>
+        </div>
+      ) : (
+        <>
+          <div className="daily-comparison-legend" aria-label="Legenda">
+            <span>
+              <i className="meta" aria-hidden="true" />
+              Meta <strong>{metaTotal}</strong>
+            </span>
+            <span>
+              <i className="real" aria-hidden="true" />
+              Conversas reais <strong>{realTotal}</strong>
+            </span>
+          </div>
+          <div className="daily-comparison-scroll">
+            <svg
+              className="daily-comparison-chart"
+              viewBox={`0 0 ${viewWidth} ${viewHeight}`}
+              style={{ minWidth: `${viewWidth}px` }}
+              role="img"
+              aria-label={`Comparacao diaria. Meta ${metaTotal}, conversas reais ${realTotal}.`}
+            >
+              <title>Conversas da Meta e conversas reais por dia</title>
+              {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+                const y = plotBottom - ratio * plotHeight;
+                const value = Math.round(maximum * ratio);
+
+                return (
+                  <g key={ratio}>
+                    <line x1={plotLeft} x2={plotRight} y1={y} y2={y} />
+                    <text x={plotLeft - 10} y={y + 4} textAnchor="end">
+                      {value}
+                    </text>
+                  </g>
+                );
+              })}
+              {points.map((point, index) => {
+                const center = plotLeft + groupWidth * index + groupWidth / 2;
+                const metaHeight = barHeight(point.metaConversationsStarted);
+                const realHeight = barHeight(point.realConversations);
+                const showLabel =
+                  index % labelEvery === 0 || index === points.length - 1;
+
+                return (
+                  <g key={point.date}>
+                    <rect
+                      className="daily-bar meta"
+                      x={center - barWidth - 2}
+                      y={plotBottom - metaHeight}
+                      width={barWidth}
+                      height={metaHeight}
+                      rx="3"
+                    >
+                      <title>{`${formatDate(point.date)} - Meta: ${point.metaConversationsStarted}`}</title>
+                    </rect>
+                    <rect
+                      className="daily-bar real"
+                      x={center + 2}
+                      y={plotBottom - realHeight}
+                      width={barWidth}
+                      height={realHeight}
+                      rx="3"
+                    >
+                      <title>{`${formatDate(point.date)} - Reais: ${point.realConversations}`}</title>
+                    </rect>
+                    {showLabel ? (
+                      <text
+                        className="daily-date-label"
+                        x={center}
+                        y={plotBottom + 26}
+                        textAnchor="middle"
+                      >
+                        {formatDate(point.date)}
+                      </text>
+                    ) : null}
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function Metric({
   label,
   value,
   delta,
-  unavailable = false
+  unavailable = false,
 }: {
   label: string;
   value: string;
@@ -577,7 +895,7 @@ function ConversionFunnel({ stages }: { stages: ReportFunnelStepDto[] }) {
     "var(--cyan)",
     "var(--blue)",
     "var(--amber)",
-    "var(--coral)"
+    "var(--coral)",
   ];
   const viewWidth = 1000;
   const viewHeight = 176;
@@ -590,7 +908,7 @@ function ConversionFunnel({ stages }: { stages: ReportFunnelStepDto[] }) {
   const halfHeight = (value: number) =>
     Math.max(
       minimumHalfHeight,
-      Math.round(Math.min(value / visualBase, 1) * maximumHalfHeight)
+      Math.round(Math.min(value / visualBase, 1) * maximumHalfHeight),
     );
   const boundaries = stages.map((stage) => halfHeight(stage.value));
   const lastBoundary = boundaries[boundaries.length - 1] ?? minimumHalfHeight;
@@ -607,7 +925,7 @@ function ConversionFunnel({ stages }: { stages: ReportFunnelStepDto[] }) {
       `C ${middleX} ${centerY - leftHeight} ${middleX} ${centerY - rightHeight} ${endX} ${centerY - rightHeight}`,
       `L ${endX} ${centerY + rightHeight}`,
       `C ${middleX} ${centerY + rightHeight} ${middleX} ${centerY + leftHeight} ${startX} ${centerY + leftHeight}`,
-      "Z"
+      "Z",
     ].join(" ");
   };
   const rateFromPrevious = (index: number) => {
@@ -632,7 +950,10 @@ function ConversionFunnel({ stages }: { stages: ReportFunnelStepDto[] }) {
     .join(", ");
 
   return (
-    <section className="conversion-funnel" aria-label={`Funil de conversao. ${funnelLabel}`}>
+    <section
+      className="conversion-funnel"
+      aria-label={`Funil de conversao. ${funnelLabel}`}
+    >
       <div className="conversion-funnel-heading">
         <div>
           <span className="micro-label">Jornada completa</span>
@@ -696,7 +1017,10 @@ function ConversionFunnel({ stages }: { stages: ReportFunnelStepDto[] }) {
           const color = palette[index % palette.length];
 
           return (
-            <div className="conversion-funnel-mobile-stage" key={`${stage.key}-${index}`}>
+            <div
+              className="conversion-funnel-mobile-stage"
+              key={`${stage.key}-${index}`}
+            >
               <div>
                 <span
                   className="conversion-funnel-mobile-index"
@@ -716,10 +1040,12 @@ function ConversionFunnel({ stages }: { stages: ReportFunnelStepDto[] }) {
               </small>
               <span
                 className="conversion-funnel-mobile-band"
-                style={{
-                  "--funnel-stage-color": color,
-                  "--funnel-mobile-width": mobileWidth(stage.value)
-                } as CSSProperties}
+                style={
+                  {
+                    "--funnel-stage-color": color,
+                    "--funnel-mobile-width": mobileWidth(stage.value),
+                  } as CSSProperties
+                }
                 aria-hidden="true"
               />
             </div>
@@ -732,7 +1058,7 @@ function ConversionFunnel({ stages }: { stages: ReportFunnelStepDto[] }) {
 
 function OverviewSummaryValue({
   label,
-  value
+  value,
 }: {
   label: string;
   value: string;

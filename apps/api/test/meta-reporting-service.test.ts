@@ -44,16 +44,32 @@ function matchesWhere(
     ) {
       const current = record[key];
 
-      if (!(current instanceof Date)) {
+      if (!(current instanceof Date) && typeof current !== "string") {
         return false;
       }
 
-      if ("gte" in value && current < (value.gte as Date)) {
-        return false;
+      const currentTime = new Date(current).getTime();
+
+      if ("gte" in value) {
+        const minimum = value.gte;
+
+        if (
+          (!(minimum instanceof Date) && typeof minimum !== "string") ||
+          currentTime < new Date(minimum).getTime()
+        ) {
+          return false;
+        }
       }
 
-      if ("lte" in value && current > (value.lte as Date)) {
-        return false;
+      if ("lte" in value) {
+        const maximum = value.lte;
+
+        if (
+          (!(maximum instanceof Date) && typeof maximum !== "string") ||
+          currentTime > new Date(maximum).getTime()
+        ) {
+          return false;
+        }
       }
 
       return true;
@@ -85,6 +101,7 @@ function createHarness() {
       },
     ],
     campaigns: [] as Array<Record<string, unknown>>,
+    dailyInsights: [] as Array<Record<string, unknown>>,
     adSets: [] as Array<Record<string, unknown>>,
     ads: [] as Array<Record<string, unknown>>,
     auditLogs: [] as Array<Record<string, unknown>>,
@@ -263,6 +280,27 @@ function createHarness() {
           );
           records.forEach((record) => Object.assign(record, data));
           return { count: records.length };
+        },
+      ),
+    },
+    metaCampaignDailyInsight: {
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.dailyInsights.filter((insight) =>
+          matchesWhere(insight, args?.where),
+        ),
+      ),
+      deleteMany: vi.fn(async (args?: { where?: Record<string, unknown> }) => {
+        const retained = db.dailyInsights.filter(
+          (insight) => !matchesWhere(insight, args?.where),
+        );
+        const count = db.dailyInsights.length - retained.length;
+        db.dailyInsights.splice(0, db.dailyInsights.length, ...retained);
+        return { count };
+      }),
+      createMany: vi.fn(
+        async ({ data }: { data: Array<Record<string, unknown>> }) => {
+          db.dailyInsights.push(...data);
+          return { count: data.length };
         },
       ),
     },
@@ -480,6 +518,24 @@ function createHarness() {
         impressions: 10000,
         clicks: 420,
         metaConversationsStarted: 176,
+      },
+    ]),
+    listCampaignDailyInsights: vi.fn(async () => [
+      {
+        campaignId: "cmp_1",
+        date: "2026-07-01",
+        spendCents: 70000,
+        impressions: 6000,
+        clicks: 250,
+        metaConversationsStarted: 100,
+      },
+      {
+        campaignId: "cmp_1",
+        date: "2026-07-02",
+        spendCents: 50000,
+        impressions: 4000,
+        clicks: 170,
+        metaConversationsStarted: 76,
       },
     ]),
     listAdSetInsights: vi.fn(async () => [
@@ -2582,5 +2638,92 @@ describe("meta reporting service", () => {
         },
       ],
     });
+  });
+
+  it("returns a daily Meta versus real conversation series scoped by business", async () => {
+    const { service } = createHarness();
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      businessId: "business_1",
+      includeSummary: true,
+      includeDaily: true,
+    });
+
+    expect(report.dailyComparisonAvailable).toBe(true);
+    expect(report.dailyComparison).toEqual([
+      {
+        date: "2026-07-01",
+        metaConversationsStarted: 100,
+        realConversations: 1,
+      },
+      {
+        date: "2026-07-02",
+        metaConversationsStarted: 76,
+        realConversations: 1,
+      },
+    ]);
+    expect(report.summary?.realConversations).toBe(2);
+    expect(report.summary?.metaConversationsStarted).toBe(176);
+  });
+
+  it("persists confirmed zero days when Meta omits an inactive date", async () => {
+    const { db, metaAdapter, service } = createHarness();
+    metaAdapter.listCampaignDailyInsights.mockResolvedValue([
+      {
+        campaignId: "cmp_1",
+        date: "2026-07-01",
+        spendCents: 70000,
+        impressions: 6000,
+        clicks: 250,
+        metaConversationsStarted: 100,
+      },
+    ]);
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    expect(db.dailyInsights).toContainEqual(
+      expect.objectContaining({
+        campaignId: "cmp_1",
+        localDate: "2026-07-02",
+        spendCents: 0,
+        metaConversationsStarted: 0,
+      }),
+    );
+  });
+
+  it("does not expose a partially stored daily period as complete", async () => {
+    const { db, service } = createHarness();
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+    db.dailyInsights.pop();
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      businessId: "business_1",
+      includeDaily: true,
+    });
+
+    expect(report.dailyComparisonAvailable).toBe(false);
   });
 });

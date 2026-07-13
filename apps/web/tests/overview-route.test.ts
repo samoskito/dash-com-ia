@@ -35,32 +35,142 @@ function reportMetrics(overrides: Record<string, unknown> = {}) {
         key: "real_conversations",
         label: "Conversas reais iniciadas",
         value: 6,
-        costCents: 1666
+        costCents: 1666,
       },
       {
         key: "qualified_lead",
         label: "Lead qualificado",
         value: 1,
-        costCents: 10000
+        costCents: 10000,
       },
       {
         key: "purchase",
         label: "Compras",
         value: 1,
-        costCents: 10000
+        costCents: 10000,
       },
       {
         key: "first_purchase",
         label: "Primeira compra",
-        value: 1
-      }
-    ]
+        value: 1,
+      },
+    ],
   };
 
   return { ...metrics, ...overrides };
 }
 
 describe("overview route", () => {
+  it("applies period and Meta account filters and renders the daily comparison", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "2026-07-01 a 2026-07-02",
+            since: "2026-07-01",
+            until: "2026-07-02",
+            campaigns: [
+              {
+                id: "cmp_1",
+                name: "Campanha Real",
+                status: "active",
+                ...reportMetrics(),
+              },
+            ],
+            dailyComparisonAvailable: true,
+            dailyComparison: [
+              {
+                date: "2026-07-01",
+                metaConversationsStarted: 7,
+                realConversations: 5,
+              },
+              {
+                date: "2026-07-02",
+                metaConversationsStarted: 3,
+                realConversations: 1,
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "connected",
+            businesses: [],
+            adAccounts: [],
+            pixels: [],
+            reportingAccounts: [
+              {
+                id: "reporting_1",
+                workspaceId: "workspace_1",
+                businessId: "business_1",
+                businessName: "BM Principal",
+                adAccountId: "act_1",
+                adAccountName: "Conta Principal",
+                currency: "BRL",
+                timezoneName: "America/Sao_Paulo",
+                active: true,
+                syncStatus: "synced",
+                lastSyncedAt: "2026-07-02T12:00:00.000Z",
+                lastSyncSince: "2026-07-01",
+                lastSyncUntil: "2026-07-02",
+                syncError: null,
+              },
+              {
+                id: "reporting_2",
+                workspaceId: "workspace_1",
+                businessId: "business_2",
+                businessName: "BM Secundario",
+                adAccountId: "act_2",
+                adAccountName: "Conta Secundaria",
+                currency: "BRL",
+                timezoneName: "America/Sao_Paulo",
+                active: true,
+                syncStatus: "synced",
+                lastSyncedAt: "2026-07-02T12:00:00.000Z",
+                lastSyncSince: "2026-07-01",
+                lastSyncUntil: "2026-07-02",
+                syncError: null,
+              },
+            ],
+            selection: {
+              businessId: null,
+              adAccountId: null,
+              pixelId: null,
+            },
+            lastSyncedAt: "2026-07-02T12:00:00.000Z",
+            syncError: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const element = await OverviewPage({
+      searchParams: Promise.resolve({
+        since: "2026-07-01",
+        until: "2026-07-02",
+        businessId: "business_1",
+        adAccountId: "act_1",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/reports/campaigns?includeDaily=true&includeSummary=true&since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(html).toContain("Periodo e contas");
+    expect(html).toContain("BM Principal");
+    expect(html).toContain("Conta Principal");
+    expect(html).toContain("Meta x conversas reais");
+    expect(html).toContain("4 conversas a mais na Meta");
+    expect(html).toContain("daily-comparison-chart");
+  });
+
   it("renders aggregated campaign metrics returned by the backend", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(
@@ -72,7 +182,7 @@ describe("overview route", () => {
               id: "cmp_1",
               name: "Campanha Real",
               status: "active",
-              ...reportMetrics()
+              ...reportMetrics(),
             },
             {
               id: "cmp_2",
@@ -102,23 +212,23 @@ describe("overview route", () => {
                     key: "real_conversations",
                     label: "Conversas reais iniciadas",
                     value: 2,
-                    costCents: 2500
-                  }
-                ]
-              })
-            }
-          ]
+                    costCents: 2500,
+                  },
+                ],
+              }),
+            },
+          ],
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
-    const element = await OverviewPage();
+    const element = await OverviewPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/campaigns?includeSummary=true",
-      expect.objectContaining({ credentials: "include" })
+      "http://localhost:3333/reports/campaigns?includeDaily=true&includeSummary=true",
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("2026-07-01 a 2026-07-02");
     expect(html).not.toContain("Campanha Real");
@@ -170,18 +280,18 @@ describe("overview route", () => {
                     key: "repurchase",
                     label: "Recompra",
                     value: 1,
-                    costCents: 10000
-                  }
-                ]
-              })
-            }
-          ]
+                    costCents: 10000,
+                  },
+                ],
+              }),
+            },
+          ],
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
-    const element = await OverviewPage();
+    const element = await OverviewPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("ROAS com recompra");
@@ -195,13 +305,13 @@ describe("overview route", () => {
         JSON.stringify({
           workspaceId: "workspace_1",
           rangeLabel: "Ultimos 7 dias",
-          campaigns: []
+          campaigns: [],
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
-    const element = await OverviewPage();
+    const element = await OverviewPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("Nenhuma campanha sincronizada");
@@ -239,15 +349,15 @@ describe("overview route", () => {
               totalRevenueCents: 0,
               firstPurchaseRevenueCents: 0,
               roasAcquisition: null,
-              roasWithRepurchase: null
-            })
-          }
+              roasWithRepurchase: null,
+            }),
+          },
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
-    const element = await OverviewPage();
+    const element = await OverviewPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("0 campanhas");
@@ -258,16 +368,18 @@ describe("overview route", () => {
 
   it("renders an unavailable overview state without mock campaign data", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response("offline", { status: 503 })
+      new Response("offline", { status: 503 }),
     );
 
-    const element = await OverviewPage();
+    const element = await OverviewPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("API indisponivel");
     expect(html).toContain("Nao foi possivel carregar relatorios");
     expect(html).toContain("Dados temporariamente indisponiveis");
-    expect(html).toContain("Valores indisponiveis nao foram tratados como zero");
+    expect(html).toContain(
+      "Valores indisponiveis nao foram tratados como zero",
+    );
     expect(html).not.toContain("0% conciliadas");
     expect(html).not.toContain("Black Friday WhatsApp");
   });

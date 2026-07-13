@@ -386,8 +386,12 @@ Implementation status - Overview - 2026-07-13:
 - Replaced the compact stage-card row with a recognizable conversion funnel based on the approved Renato reference: desktop uses proportional curved segments and mobile uses a dedicated vertical progression without horizontal scrolling.
 - The funnel remains dynamic, follows the report-provided stage order and labels, and shows the conversion rate from each previous stage without changing reporting formulas.
 - `ROAS com recompra` is rendered only when the period contains a repurchase count or repurchase revenue. The purchase KPI also omits the misleading `0 recompra` suffix when only first purchases exist.
+- Added a compact global filter band for period, configured Business Manager and configured ad account. BM/account selectors appear only when the workspace has more than one available option, and the selected scope is applied to KPIs, chart, funnel and report links.
+- Added the daily `Conversas Meta x conversas reais` comparison. Meta Insights are now synchronized with `time_increment=1` into `MetaCampaignDailyInsight`; real conversations are grouped by their first lead/event occurrence in the local reporting date. Missing daily Meta history is shown as a synchronization requirement instead of fabricated zeroes.
+- Daily Meta synchronization stores a dense campaign/date series, including confirmed zero days. The chart is released only when every campaign in the selected scope covers every day in the requested interval, preventing partial history from looking complete.
 - Automated inspection covered 1440 x 1000 and 390 x 844 with populated representative data. Both layouts matched viewport width; the desktop SVG contained one segment per stage and the mobile alternative replaced it without clipped labels.
-- All 113 web tests and web typecheck pass. The Overview page now awaits product-owner visual approval before the review advances to Leads.
+- The new filter/chart state was also inspected at 1440 x 1000 and 390 x 844: no browser errors or page overflow, all four filters remained usable, desktop displayed the complete seven-day chart and mobile contained the wider chart inside its own horizontal scroll region.
+- The complete automated suite currently passes with 56 shared-contract tests, 482 API tests and 114 web tests. API and web production builds also pass. The Overview page now awaits product-owner visual approval before the review advances to Leads.
 
 ## 13. Block 5 - External Connector Productization and Native Providers
 

@@ -86,6 +86,12 @@ export const reportTotalsSchema = campaignReportRowSchema.omit({
   whatsappClassification: true,
 });
 
+export const reportDailyComparisonPointSchema = z.object({
+  date: reportDateSchema,
+  metaConversationsStarted: nonnegativeIntSchema,
+  realConversations: nonnegativeIntSchema,
+});
+
 export const reportOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
@@ -94,6 +100,8 @@ export const reportOverviewSchema = z.object({
   campaigns: z.array(campaignReportRowSchema),
   summary: campaignReportRowSchema.optional(),
   totals: reportTotalsSchema.optional(),
+  dailyComparison: z.array(reportDailyComparisonPointSchema).optional(),
+  dailyComparisonAvailable: z.boolean().optional(),
   pagination: reportPaginationSchema.optional(),
 });
 
@@ -249,6 +257,9 @@ export const reportFiltersSchema = z.object({
 
 export type CampaignReportRowDto = z.infer<typeof campaignReportRowSchema>;
 export type ReportTotalsDto = z.infer<typeof reportTotalsSchema>;
+export type ReportDailyComparisonPointDto = z.infer<
+  typeof reportDailyComparisonPointSchema
+>;
 export type ReportOverviewDto = z.infer<typeof reportOverviewSchema>;
 export type AdSetReportRowDto = z.infer<typeof adSetReportRowSchema>;
 export type AdSetReportOverviewDto = z.infer<typeof adSetReportOverviewSchema>;

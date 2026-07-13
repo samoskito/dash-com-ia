@@ -4,16 +4,16 @@ import type {
   MetaBusinessAssetDto,
   MetaOAuthCallbackResultDto,
   MetaPageAssetDto,
-  MetaPixelAssetDto
+  MetaPixelAssetDto,
 } from "@wpptrack/shared";
 import {
   RUNTIME_FETCH,
-  type RuntimeFetch
+  type RuntimeFetch,
 } from "../../common/runtime/runtime.module";
 import type {
   IntegrationAdapter,
   IntegrationEnv,
-  IntegrationHealthDto
+  IntegrationHealthDto,
 } from "../integration.types";
 import { INTEGRATION_ENV } from "../integration.types";
 
@@ -105,6 +105,10 @@ export type MetaCampaignInsight = {
   metaConversationsStarted: number;
 };
 
+export type MetaCampaignDailyInsight = MetaCampaignInsight & {
+  date: string;
+};
+
 export type MetaAdSetInsight = {
   adSetId: string;
   campaignId: string;
@@ -161,6 +165,8 @@ type MetaInsightGraphNode = {
   spend?: unknown;
   impressions?: unknown;
   clicks?: unknown;
+  date_start?: unknown;
+  date_stop?: unknown;
   actions?: Array<{
     action_type?: unknown;
     value?: unknown;
@@ -175,17 +181,21 @@ export class MetaAdapter implements IntegrationAdapter {
     @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env,
     @Optional()
     @Inject(RUNTIME_FETCH)
-    private readonly fetchImpl: RuntimeFetch = fetch
+    private readonly fetchImpl: RuntimeFetch = fetch,
   ) {}
 
   async getHealth(): Promise<IntegrationHealthDto> {
-    const hasCredentials = Boolean(this.env.META_APP_ID && this.env.META_APP_SECRET);
+    const hasCredentials = Boolean(
+      this.env.META_APP_ID && this.env.META_APP_SECRET,
+    );
 
     return {
       provider: this.provider,
       status: hasCredentials ? "connected" : "disconnected",
       checkedAt: new Date().toISOString(),
-      message: hasCredentials ? undefined : "Missing META_APP_ID or META_APP_SECRET"
+      message: hasCredentials
+        ? undefined
+        : "Missing META_APP_ID or META_APP_SECRET",
     };
   }
 
@@ -194,7 +204,7 @@ export class MetaAdapter implements IntegrationAdapter {
       client_id: this.env.META_APP_ID ?? "",
       redirect_uri: this.env.META_OAUTH_REDIRECT_URL ?? "",
       scope: this.getScopes().join(","),
-      response_type: "code"
+      response_type: "code",
     });
 
     if (state) {
@@ -218,7 +228,7 @@ export class MetaAdapter implements IntegrationAdapter {
     const missingEnv = this.missingEnv([
       "META_APP_ID",
       "META_APP_SECRET",
-      "META_OAUTH_REDIRECT_URL"
+      "META_OAUTH_REDIRECT_URL",
     ]);
 
     if (missingEnv.length > 0) {
@@ -231,8 +241,8 @@ export class MetaAdapter implements IntegrationAdapter {
           expiresInSeconds: null,
           scopes: [],
           missingEnv,
-          message: `Missing ${missingEnv.join(", ")}`
-        }
+          message: `Missing ${missingEnv.join(", ")}`,
+        },
       };
     }
 
@@ -240,14 +250,16 @@ export class MetaAdapter implements IntegrationAdapter {
       client_id: this.env.META_APP_ID ?? "",
       redirect_uri: this.env.META_OAUTH_REDIRECT_URL ?? "",
       client_secret: this.env.META_APP_SECRET ?? "",
-      code: input.code
+      code: input.code,
     });
 
     try {
       const response = await this.fetchImpl(
-        `https://graph.facebook.com/${this.getGraphApiVersion()}/oauth/access_token?${params.toString()}`
+        `https://graph.facebook.com/${this.getGraphApiVersion()}/oauth/access_token?${params.toString()}`,
       );
-      const payload = (await response.json().catch(() => ({}))) as MetaTokenResponse;
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as MetaTokenResponse;
       const shortLivedAccessToken = this.asString(payload.access_token);
 
       if (!response.ok || !shortLivedAccessToken) {
@@ -262,13 +274,13 @@ export class MetaAdapter implements IntegrationAdapter {
             missingEnv: [],
             message:
               this.asString(payload.error?.message) ??
-              `Meta OAuth HTTP ${response.status}`
-          }
+              `Meta OAuth HTTP ${response.status}`,
+          },
         };
       }
 
       const extendedToken = await this.exchangeForLongLivedToken(
-        shortLivedAccessToken
+        shortLivedAccessToken,
       );
 
       return {
@@ -277,14 +289,16 @@ export class MetaAdapter implements IntegrationAdapter {
           provider: "meta",
           status: "connected",
           tokenType:
-            extendedToken.tokenType ?? this.asString(payload.token_type) ?? "bearer",
+            extendedToken.tokenType ??
+            this.asString(payload.token_type) ??
+            "bearer",
           expiresInSeconds:
             extendedToken.expiresInSeconds ??
             this.asPositiveInteger(payload.expires_in),
           scopes: this.getScopes(),
           missingEnv: [],
-          message: "Meta OAuth conectado"
-        }
+          message: "Meta OAuth conectado",
+        },
       };
     } catch (error) {
       return {
@@ -296,14 +310,15 @@ export class MetaAdapter implements IntegrationAdapter {
           expiresInSeconds: null,
           scopes: [],
           missingEnv: [],
-          message: error instanceof Error ? error.message : "Erro ao trocar code Meta"
-        }
+          message:
+            error instanceof Error ? error.message : "Erro ao trocar code Meta",
+        },
       };
     }
   }
 
   private async exchangeForLongLivedToken(
-    shortLivedAccessToken: string
+    shortLivedAccessToken: string,
   ): Promise<{
     accessToken: string;
     tokenType: string | null;
@@ -313,25 +328,27 @@ export class MetaAdapter implements IntegrationAdapter {
       grant_type: "fb_exchange_token",
       client_id: this.env.META_APP_ID ?? "",
       client_secret: this.env.META_APP_SECRET ?? "",
-      fb_exchange_token: shortLivedAccessToken
+      fb_exchange_token: shortLivedAccessToken,
     });
     const response = await this.fetchImpl(
-      `https://graph.facebook.com/${this.getGraphApiVersion()}/oauth/access_token?${params.toString()}`
+      `https://graph.facebook.com/${this.getGraphApiVersion()}/oauth/access_token?${params.toString()}`,
     );
-    const payload = (await response.json().catch(() => ({}))) as MetaTokenResponse;
+    const payload = (await response
+      .json()
+      .catch(() => ({}))) as MetaTokenResponse;
     const accessToken = this.asString(payload.access_token);
 
     if (!response.ok || !accessToken) {
       throw new Error(
         this.asString(payload.error?.message) ??
-          `Meta long-lived token HTTP ${response.status}`
+          `Meta long-lived token HTTP ${response.status}`,
       );
     }
 
     return {
       accessToken,
       tokenType: this.asString(payload.token_type),
-      expiresInSeconds: this.asPositiveInteger(payload.expires_in)
+      expiresInSeconds: this.asPositiveInteger(payload.expires_in),
     };
   }
 
@@ -341,17 +358,17 @@ export class MetaAdapter implements IntegrationAdapter {
     const response = await this.getGraphList<MetaBusinessGraphNode>(
       "/me/businesses",
       "id,name,verification_status",
-      input.accessToken
+      input.accessToken,
     );
 
     return response
       .map((item) => ({
         id: this.asString(item.id),
         name: this.asString(item.name),
-        verificationStatus: this.asString(item.verification_status)
+        verificationStatus: this.asString(item.verification_status),
       }))
-      .filter(
-        (item): item is MetaBusinessAssetDto => Boolean(item.id && item.name)
+      .filter((item): item is MetaBusinessAssetDto =>
+        Boolean(item.id && item.name),
       );
   }
 
@@ -362,7 +379,7 @@ export class MetaAdapter implements IntegrationAdapter {
     const response = await this.getGraphList<MetaAdAccountGraphNode>(
       `/${input.businessId}/owned_ad_accounts`,
       "id,name,account_status,currency,timezone_name",
-      input.accessToken
+      input.accessToken,
     );
 
     return response
@@ -372,10 +389,10 @@ export class MetaAdapter implements IntegrationAdapter {
         name: this.asString(item.name),
         accountStatus: this.asString(item.account_status),
         currency: this.asString(item.currency),
-        timezoneName: this.asString(item.timezone_name)
+        timezoneName: this.asString(item.timezone_name),
       }))
-      .filter(
-        (item): item is MetaAdAccountAssetDto => Boolean(item.id && item.name)
+      .filter((item): item is MetaAdAccountAssetDto =>
+        Boolean(item.id && item.name),
       );
   }
 
@@ -386,7 +403,7 @@ export class MetaAdapter implements IntegrationAdapter {
     const response = await this.getGraphList<MetaPixelGraphNode>(
       `/${input.businessId}/adspixels`,
       "id,name",
-      input.accessToken
+      input.accessToken,
     );
 
     return response
@@ -402,7 +419,7 @@ export class MetaAdapter implements IntegrationAdapter {
           id,
           businessId: input.businessId,
           name,
-          code: null
+          code: null,
         };
       })
       .filter((item): item is MetaPixelAssetDto => Boolean(item));
@@ -415,7 +432,7 @@ export class MetaAdapter implements IntegrationAdapter {
     const response = await this.getGraphList<MetaPixelGraphNode>(
       `/${input.adAccountId}/adspixels`,
       "id,name",
-      input.accessToken
+      input.accessToken,
     );
 
     return response
@@ -431,19 +448,17 @@ export class MetaAdapter implements IntegrationAdapter {
           id,
           businessId: null,
           name,
-          code: null
+          code: null,
         };
       })
       .filter((item): item is MetaPixelAssetDto => Boolean(item));
   }
 
-  async listPages(input: {
-    accessToken: string;
-  }): Promise<MetaPageAssetDto[]> {
+  async listPages(input: { accessToken: string }): Promise<MetaPageAssetDto[]> {
     const response = await this.getGraphList<MetaPageGraphNode>(
       "/me/accounts",
       "id,name",
-      input.accessToken
+      input.accessToken,
     );
 
     return response
@@ -458,7 +473,7 @@ export class MetaAdapter implements IntegrationAdapter {
         return {
           id,
           businessId: null,
-          name
+          name,
         };
       })
       .filter((item): item is MetaPageAssetDto => Boolean(item));
@@ -472,13 +487,13 @@ export class MetaAdapter implements IntegrationAdapter {
       this.getGraphList<MetaPageGraphNode>(
         `/${input.businessId}/owned_pages`,
         "id,name",
-        input.accessToken
+        input.accessToken,
       ),
       this.getGraphList<MetaPageGraphNode>(
         `/${input.businessId}/client_pages`,
         "id,name",
-        input.accessToken
-      )
+        input.accessToken,
+      ),
     ]);
     const pagesById = new Map<string, MetaPageAssetDto>();
 
@@ -493,7 +508,7 @@ export class MetaAdapter implements IntegrationAdapter {
       pagesById.set(id, {
         id,
         businessId: input.businessId,
-        name
+        name,
       });
     }
 
@@ -507,7 +522,7 @@ export class MetaAdapter implements IntegrationAdapter {
     const response = await this.getGraphList<MetaCampaignGraphNode>(
       `/${input.adAccountId}/campaigns`,
       "id,name,status,effective_status,objective",
-      input.accessToken
+      input.accessToken,
     );
 
     return response
@@ -516,9 +531,11 @@ export class MetaAdapter implements IntegrationAdapter {
         name: this.asString(item.name),
         status: this.asString(item.status),
         effectiveStatus: this.asString(item.effective_status),
-        objective: this.asString(item.objective)
+        objective: this.asString(item.objective),
       }))
-      .filter((item): item is MetaCampaignAsset => Boolean(item.id && item.name));
+      .filter((item): item is MetaCampaignAsset =>
+        Boolean(item.id && item.name),
+      );
   }
 
   async listAdSets(input: {
@@ -528,7 +545,7 @@ export class MetaAdapter implements IntegrationAdapter {
     const response = await this.getGraphList<MetaAdSetGraphNode>(
       `/${input.adAccountId}/adsets`,
       "id,name,campaign_id,status,effective_status,destination_type",
-      input.accessToken
+      input.accessToken,
     );
 
     return response
@@ -538,11 +555,10 @@ export class MetaAdapter implements IntegrationAdapter {
         campaignId: this.asString(item.campaign_id),
         status: this.asString(item.status),
         effectiveStatus: this.asString(item.effective_status),
-        destinationType: this.asString(item.destination_type)
+        destinationType: this.asString(item.destination_type),
       }))
-      .filter(
-        (item): item is MetaAdSetAsset =>
-          Boolean(item.id && item.name && item.campaignId)
+      .filter((item): item is MetaAdSetAsset =>
+        Boolean(item.id && item.name && item.campaignId),
       );
   }
 
@@ -553,7 +569,7 @@ export class MetaAdapter implements IntegrationAdapter {
     const response = await this.getGraphList<MetaAdGraphNode>(
       `/${input.adAccountId}/ads`,
       "id,name,campaign_id,adset_id,status,effective_status,creative{id,call_to_action_type}",
-      input.accessToken
+      input.accessToken,
     );
 
     return response
@@ -565,11 +581,10 @@ export class MetaAdapter implements IntegrationAdapter {
         status: this.asString(item.status),
         effectiveStatus: this.asString(item.effective_status),
         creativeId: this.asString(item.creative?.id),
-        callToActionType: this.asString(item.creative?.call_to_action_type)
+        callToActionType: this.asString(item.creative?.call_to_action_type),
       }))
-      .filter(
-        (item): item is MetaAdAsset =>
-          Boolean(item.id && item.name && item.campaignId && item.adSetId)
+      .filter((item): item is MetaAdAsset =>
+        Boolean(item.id && item.name && item.campaignId && item.adSetId),
       );
   }
 
@@ -582,7 +597,7 @@ export class MetaAdapter implements IntegrationAdapter {
     const payload = await this.listInsights({
       ...input,
       fields: "campaign_id,spend,impressions,clicks,actions",
-      level: "campaign"
+      level: "campaign",
     });
 
     return payload
@@ -593,11 +608,40 @@ export class MetaAdapter implements IntegrationAdapter {
         clicks: this.asInteger(item.clicks),
         metaConversationsStarted: this.actionValue(
           item.actions,
-          "onsite_conversion.messaging_conversation_started_7d"
-        )
+          "onsite_conversion.messaging_conversation_started_7d",
+        ),
       }))
-      .filter(
-        (item): item is MetaCampaignInsight => Boolean(item.campaignId)
+      .filter((item): item is MetaCampaignInsight => Boolean(item.campaignId));
+  }
+
+  async listCampaignDailyInsights(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+  }): Promise<MetaCampaignDailyInsight[]> {
+    const payload = await this.listInsights({
+      ...input,
+      fields:
+        "campaign_id,date_start,date_stop,spend,impressions,clicks,actions",
+      level: "campaign",
+      timeIncrement: 1,
+    });
+
+    return payload
+      .map((item) => ({
+        campaignId: this.asString(item.campaign_id),
+        date: this.asString(item.date_start),
+        spendCents: this.asMoneyCents(item.spend),
+        impressions: this.asInteger(item.impressions),
+        clicks: this.asInteger(item.clicks),
+        metaConversationsStarted: this.actionValue(
+          item.actions,
+          "onsite_conversion.messaging_conversation_started_7d",
+        ),
+      }))
+      .filter((item): item is MetaCampaignDailyInsight =>
+        Boolean(item.campaignId && item.date),
       );
   }
 
@@ -610,7 +654,7 @@ export class MetaAdapter implements IntegrationAdapter {
     const payload = await this.listInsights({
       ...input,
       fields: "campaign_id,adset_id,spend,impressions,clicks,actions",
-      level: "adset"
+      level: "adset",
     });
 
     return payload
@@ -622,12 +666,11 @@ export class MetaAdapter implements IntegrationAdapter {
         clicks: this.asInteger(item.clicks),
         metaConversationsStarted: this.actionValue(
           item.actions,
-          "onsite_conversion.messaging_conversation_started_7d"
-        )
+          "onsite_conversion.messaging_conversation_started_7d",
+        ),
       }))
-      .filter(
-        (item): item is MetaAdSetInsight =>
-          Boolean(item.adSetId && item.campaignId)
+      .filter((item): item is MetaAdSetInsight =>
+        Boolean(item.adSetId && item.campaignId),
       );
   }
 
@@ -640,7 +683,7 @@ export class MetaAdapter implements IntegrationAdapter {
     const payload = await this.listInsights({
       ...input,
       fields: "campaign_id,adset_id,ad_id,spend,impressions,clicks,actions",
-      level: "ad"
+      level: "ad",
     });
 
     return payload
@@ -653,12 +696,11 @@ export class MetaAdapter implements IntegrationAdapter {
         clicks: this.asInteger(item.clicks),
         metaConversationsStarted: this.actionValue(
           item.actions,
-          "onsite_conversion.messaging_conversation_started_7d"
-        )
+          "onsite_conversion.messaging_conversation_started_7d",
+        ),
       }))
-      .filter(
-        (item): item is MetaAdInsight =>
-          Boolean(item.adId && item.adSetId && item.campaignId)
+      .filter((item): item is MetaAdInsight =>
+        Boolean(item.adId && item.adSetId && item.campaignId),
       );
   }
 
@@ -722,10 +764,10 @@ export class MetaAdapter implements IntegrationAdapter {
 
   private actionValue(
     actions: MetaInsightGraphNode["actions"],
-    actionType: string
+    actionType: string,
   ): number {
     const action = actions?.find(
-      (item) => this.asString(item.action_type) === actionType
+      (item) => this.asString(item.action_type) === actionType,
     );
 
     return this.asInteger(action?.value);
@@ -738,6 +780,7 @@ export class MetaAdapter implements IntegrationAdapter {
     level: "campaign" | "adset" | "ad";
     since: string;
     until: string;
+    timeIncrement?: number;
   }): Promise<MetaInsightGraphNode[]> {
     const params = new URLSearchParams({
       fields: input.fields,
@@ -745,38 +788,40 @@ export class MetaAdapter implements IntegrationAdapter {
       limit: "100",
       time_range: JSON.stringify({
         since: input.since,
-        until: input.until
+        until: input.until,
       }),
-      access_token: input.accessToken
+      access_token: input.accessToken,
     });
-    const initialUrl =
-      `https://graph.facebook.com/${this.getGraphApiVersion()}/${input.adAccountId}/insights?${params.toString()}`;
+
+    if (input.timeIncrement) {
+      params.set("time_increment", String(input.timeIncrement));
+    }
+    const initialUrl = `https://graph.facebook.com/${this.getGraphApiVersion()}/${input.adAccountId}/insights?${params.toString()}`;
 
     return this.getGraphPages<MetaInsightGraphNode>(
       initialUrl,
-      `/${input.adAccountId}/insights?level=${input.level}`
+      `/${input.adAccountId}/insights?level=${input.level}`,
     );
   }
 
   private async getGraphList<T>(
     path: string,
     fields: string,
-    accessToken: string
+    accessToken: string,
   ): Promise<T[]> {
     const params = new URLSearchParams({
       fields,
       limit: "100",
-      access_token: accessToken
+      access_token: accessToken,
     });
-    const initialUrl =
-      `https://graph.facebook.com/${this.getGraphApiVersion()}${path}?${params.toString()}`;
+    const initialUrl = `https://graph.facebook.com/${this.getGraphApiVersion()}${path}?${params.toString()}`;
 
     return this.getGraphPages<T>(initialUrl, path);
   }
 
   private async getGraphPages<T>(
     initialUrl: string,
-    operation: string
+    operation: string,
   ): Promise<T[]> {
     const startedAt = Date.now();
     let nextUrl: string | null = initialUrl;
@@ -787,12 +832,14 @@ export class MetaAdapter implements IntegrationAdapter {
       for (let page = 0; nextUrl && page < 100; page += 1) {
         pageCount = page + 1;
         const response = await this.fetchImpl(nextUrl);
-        const payload = (await response.json().catch(() => ({}))) as MetaGraphListResponse<T>;
+        const payload = (await response
+          .json()
+          .catch(() => ({}))) as MetaGraphListResponse<T>;
 
         if (!response.ok) {
           throw new Error(
             this.asString(payload.error?.message) ??
-              `Meta Graph HTTP ${response.status}`
+              `Meta Graph HTTP ${response.status}`,
           );
         }
 
@@ -805,7 +852,7 @@ export class MetaAdapter implements IntegrationAdapter {
 
       if (nextUrl) {
         throw new Error(
-          `Meta Graph pagination exceeded 100 pages for ${operation}`
+          `Meta Graph pagination exceeded 100 pages for ${operation}`,
         );
       }
 
@@ -815,7 +862,7 @@ export class MetaAdapter implements IntegrationAdapter {
         operation,
         Date.now() - startedAt,
         pageCount,
-        data.length
+        data.length,
       );
     }
   }
@@ -824,7 +871,7 @@ export class MetaAdapter implements IntegrationAdapter {
     path: string,
     durationMs: number,
     pageCount: number,
-    itemCount: number
+    itemCount: number,
   ): void {
     const thresholdMs = Number(this.env.META_GRAPH_SLOW_LOG_MS ?? 1500);
 
@@ -836,7 +883,7 @@ export class MetaAdapter implements IntegrationAdapter {
       path,
       durationMs,
       pageCount,
-      itemCount
+      itemCount,
     });
   }
 }

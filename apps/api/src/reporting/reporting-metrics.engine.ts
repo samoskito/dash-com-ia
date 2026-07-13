@@ -21,6 +21,7 @@ export type ReportingMetricLead = {
   adId: string | null;
   ctwaClid?: string | null;
   firstMessageAt: Date | null;
+  createdAt?: Date;
 };
 
 export type ReportingMetricEvent = {
@@ -167,10 +168,7 @@ export class ReportingMetricsEngine {
         metaConversationsStarted,
       ),
       realConversations,
-      costPerRealConversationCents: this.costPer(
-        spendCents,
-        realConversations,
-      ),
+      costPerRealConversationCents: this.costPer(spendCents, realConversations),
       organicLeads,
       totalReceived,
       trackingRate:
@@ -207,6 +205,55 @@ export class ReportingMetricsEngine {
         firstPurchaseRevenueCents,
       }),
     };
+  }
+
+  dailyRealConversationCounts(
+    input: Pick<ReportingMetricsCalculationInput, "events" | "leads">,
+    dateKey: (date: Date) => string,
+  ): Map<string, number> {
+    const firstOccurrenceByIdentity = new Map<string, string>();
+    const register = (identity: string, occurredAt?: Date | null) => {
+      if (!occurredAt) {
+        return;
+      }
+
+      const day = dateKey(occurredAt);
+      const current = firstOccurrenceByIdentity.get(identity);
+
+      if (!current || day < current) {
+        firstOccurrenceByIdentity.set(identity, day);
+      }
+    };
+
+    for (const lead of input.leads) {
+      if (this.isPaidRealConversation(lead)) {
+        register(
+          this.identityKey(lead, `lead:${lead.id}`),
+          lead.firstMessageAt ?? lead.createdAt,
+        );
+      }
+    }
+
+    for (const event of input.events) {
+      if (
+        event.eventName === "LeadSubmitted" &&
+        this.isCountableEvent(event) &&
+        this.isPaidLeadEvent(event)
+      ) {
+        register(
+          this.identityKey(event, `event:${event.id}`),
+          event.eventOccurredAt,
+        );
+      }
+    }
+
+    const counts = new Map<string, number>();
+
+    for (const day of firstOccurrenceByIdentity.values()) {
+      counts.set(day, (counts.get(day) ?? 0) + 1);
+    }
+
+    return counts;
   }
 
   private realConversationIds(
@@ -314,7 +361,10 @@ export class ReportingMetricsEngine {
           ];
 
           if (stage.eventName === "Purchase") {
-            if (input.firstPurchases > 0 || input.firstPurchaseRevenueCents > 0) {
+            if (
+              input.firstPurchases > 0 ||
+              input.firstPurchaseRevenueCents > 0
+            ) {
               steps.push(
                 this.step(
                   "first_purchase",
@@ -440,8 +490,9 @@ export class ReportingMetricsEngine {
       return input.purchases;
     }
 
-    return input.countableEvents.filter((event) => event.eventName === eventName)
-      .length;
+    return input.countableEvents.filter(
+      (event) => event.eventName === eventName,
+    ).length;
   }
 
   private funnelStageKey(eventName: string): string {

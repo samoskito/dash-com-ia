@@ -6,21 +6,24 @@ describe("meta adapter oauth", () => {
     const adapter = new MetaAdapter({
       META_APP_ID: "app_123",
       META_APP_SECRET: "secret",
-      META_OAUTH_REDIRECT_URL: "https://api.wpptrack.com/integrations/meta/callback",
+      META_OAUTH_REDIRECT_URL:
+        "https://api.wpptrack.com/integrations/meta/callback",
       META_GRAPH_API_VERSION: "v25.0",
       META_OAUTH_SCOPES:
-        "ads_read,ads_management,business_management,pages_show_list,pages_read_engagement"
+        "ads_read,ads_management,business_management,pages_show_list,pages_read_engagement",
     });
 
     const url = new URL(adapter.getOAuthAuthorizationUrl("state-token"));
 
-    expect(url.origin + url.pathname).toBe("https://www.facebook.com/v25.0/dialog/oauth");
+    expect(url.origin + url.pathname).toBe(
+      "https://www.facebook.com/v25.0/dialog/oauth",
+    );
     expect(url.searchParams.get("client_id")).toBe("app_123");
     expect(url.searchParams.get("redirect_uri")).toBe(
-      "https://api.wpptrack.com/integrations/meta/callback"
+      "https://api.wpptrack.com/integrations/meta/callback",
     );
     expect(url.searchParams.get("scope")).toBe(
-      "ads_read,ads_management,business_management,pages_show_list,pages_read_engagement"
+      "ads_read,ads_management,business_management,pages_show_list,pages_read_engagement",
     );
     expect(url.searchParams.get("scope")).not.toContain("read_insights");
     expect(url.searchParams.get("response_type")).toBe("code");
@@ -37,9 +40,9 @@ describe("meta adapter oauth", () => {
           JSON.stringify({
             access_token: "EAAB-long-lived-token",
             token_type: "bearer",
-            expires_in: 5183944
+            expires_in: 5183944,
           }),
-          { status: 200 }
+          { status: 200 },
         );
       }
 
@@ -47,40 +50,41 @@ describe("meta adapter oauth", () => {
         JSON.stringify({
           access_token: "EAAB-secret-token",
           token_type: "bearer",
-          expires_in: 3600
+          expires_in: 3600,
         }),
-        { status: 200 }
+        { status: 200 },
       );
     }) as unknown as typeof fetch;
     const adapter = new MetaAdapter(
       {
         META_APP_ID: "app_123",
         META_APP_SECRET: "secret",
-        META_OAUTH_REDIRECT_URL: "https://api.wpptrack.com/integrations/meta/callback",
+        META_OAUTH_REDIRECT_URL:
+          "https://api.wpptrack.com/integrations/meta/callback",
         META_GRAPH_API_VERSION: "v25.0",
-        META_OAUTH_SCOPES: "ads_read,business_management"
+        META_OAUTH_SCOPES: "ads_read,business_management",
       },
-      fetchMock
+      fetchMock,
     );
 
     const result = await adapter.exchangeCode({ code: "oauth-code" });
     const requestUrl = new URL(fetchCalls[0] ?? "");
 
     expect(requestUrl.origin + requestUrl.pathname).toBe(
-      "https://graph.facebook.com/v25.0/oauth/access_token"
+      "https://graph.facebook.com/v25.0/oauth/access_token",
     );
     expect(requestUrl.searchParams.get("client_id")).toBe("app_123");
     expect(requestUrl.searchParams.get("redirect_uri")).toBe(
-      "https://api.wpptrack.com/integrations/meta/callback"
+      "https://api.wpptrack.com/integrations/meta/callback",
     );
     expect(requestUrl.searchParams.get("client_secret")).toBe("secret");
     expect(requestUrl.searchParams.get("code")).toBe("oauth-code");
     const longLivedRequestUrl = new URL(fetchCalls[1] ?? "");
     expect(longLivedRequestUrl.searchParams.get("grant_type")).toBe(
-      "fb_exchange_token"
+      "fb_exchange_token",
     );
     expect(longLivedRequestUrl.searchParams.get("fb_exchange_token")).toBe(
-      "EAAB-secret-token"
+      "EAAB-secret-token",
     );
     expect(result).toEqual({
       provider: "meta",
@@ -89,7 +93,7 @@ describe("meta adapter oauth", () => {
       expiresInSeconds: 5183944,
       scopes: ["ads_read", "business_management"],
       missingEnv: [],
-      message: "Meta OAuth conectado"
+      message: "Meta OAuth conectado",
     });
     expect(JSON.stringify(result)).not.toContain("EAAB-secret-token");
     expect(JSON.stringify(result)).not.toContain("EAAB-long-lived-token");
@@ -102,26 +106,27 @@ describe("meta adapter oauth", () => {
             JSON.stringify({
               access_token: "EAAB-long-lived-token",
               token_type: "bearer",
-              expires_in: 5183944
+              expires_in: 5183944,
             }),
-            { status: 200 }
+            { status: 200 },
           )
         : new Response(
             JSON.stringify({
               access_token: "EAAB-secret-token",
               token_type: "bearer",
-              expires_in: 3600
+              expires_in: 3600,
             }),
-            { status: 200 }
-          )
+            { status: 200 },
+          ),
     ) as unknown as typeof fetch;
     const adapter = new MetaAdapter(
       {
         META_APP_ID: "app_123",
         META_APP_SECRET: "secret",
-        META_OAUTH_REDIRECT_URL: "https://api.wpptrack.com/integrations/meta/callback"
+        META_OAUTH_REDIRECT_URL:
+          "https://api.wpptrack.com/integrations/meta/callback",
       },
-      fetchMock
+      fetchMock,
     );
 
     const result = await adapter.exchangeCodeForToken({ code: "oauth-code" });
@@ -129,22 +134,26 @@ describe("meta adapter oauth", () => {
     expect(result.accessToken).toBe("EAAB-long-lived-token");
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.publicResult.status).toBe("connected");
-    expect(JSON.stringify(result.publicResult)).not.toContain("EAAB-secret-token");
     expect(JSON.stringify(result.publicResult)).not.toContain(
-      "EAAB-long-lived-token"
+      "EAAB-secret-token",
+    );
+    expect(JSON.stringify(result.publicResult)).not.toContain(
+      "EAAB-long-lived-token",
     );
   });
 
   it("returns configure_env when callback exchange is missing required env", async () => {
     const adapter = new MetaAdapter({
       META_APP_ID: "app_123",
-      META_APP_SECRET: "secret"
+      META_APP_SECRET: "secret",
     });
 
-    await expect(adapter.exchangeCode({ code: "oauth-code" })).resolves.toMatchObject({
+    await expect(
+      adapter.exchangeCode({ code: "oauth-code" }),
+    ).resolves.toMatchObject({
       provider: "meta",
       status: "configure_env",
-      missingEnv: ["META_OAUTH_REDIRECT_URL"]
+      missingEnv: ["META_OAUTH_REDIRECT_URL"],
     });
   });
 
@@ -161,11 +170,11 @@ describe("meta adapter oauth", () => {
               {
                 id: "business_1",
                 name: "BM Principal",
-                verification_status: "verified"
-              }
-            ]
+                verification_status: "verified",
+              },
+            ],
           }),
-          { status: 200 }
+          { status: 200 },
         );
       }
 
@@ -178,11 +187,11 @@ describe("meta adapter oauth", () => {
                 name: "Conta WhatsApp",
                 account_status: 1,
                 currency: "BRL",
-                timezone_name: "America/Sao_Paulo"
-              }
-            ]
+                timezone_name: "America/Sao_Paulo",
+              },
+            ],
           }),
-          { status: 200 }
+          { status: 200 },
         );
       }
 
@@ -193,42 +202,42 @@ describe("meta adapter oauth", () => {
               {
                 id: "pixel_1",
                 name: "Pixel Loja",
-                code: "1234567890"
-              }
-            ]
+                code: "1234567890",
+              },
+            ],
           }),
-          { status: 200 }
+          { status: 200 },
         );
       }
 
       return new Response(
         JSON.stringify({
-          data: []
+          data: [],
         }),
-        { status: 200 }
+        { status: 200 },
       );
     }) as unknown as typeof fetch;
     const adapter = new MetaAdapter(
       {
-        META_GRAPH_API_VERSION: "v25.0"
+        META_GRAPH_API_VERSION: "v25.0",
       },
-      fetchMock
+      fetchMock,
     );
 
     await expect(
-      adapter.listBusinesses({ accessToken: "EAAB-secret-token" })
+      adapter.listBusinesses({ accessToken: "EAAB-secret-token" }),
     ).resolves.toEqual([
       {
         id: "business_1",
         name: "BM Principal",
-        verificationStatus: "verified"
-      }
+        verificationStatus: "verified",
+      },
     ]);
     await expect(
       adapter.listOwnedAdAccounts({
         accessToken: "EAAB-secret-token",
-        businessId: "business_1"
-      })
+        businessId: "business_1",
+      }),
     ).resolves.toEqual([
       {
         id: "act_123",
@@ -236,24 +245,26 @@ describe("meta adapter oauth", () => {
         name: "Conta WhatsApp",
         accountStatus: "1",
         currency: "BRL",
-        timezoneName: "America/Sao_Paulo"
-      }
+        timezoneName: "America/Sao_Paulo",
+      },
     ]);
     await expect(
       adapter.listBusinessPixels({
         accessToken: "EAAB-secret-token",
-        businessId: "business_1"
-      })
+        businessId: "business_1",
+      }),
     ).resolves.toEqual([
       {
         id: "pixel_1",
         businessId: "business_1",
         name: "Pixel Loja",
-        code: null
-      }
+        code: null,
+      },
     ]);
     expect(fetchCalls[0]).toContain("access_token=EAAB-secret-token");
-    expect(fetchCalls[1]).toContain("fields=id%2Cname%2Caccount_status%2Ccurrency%2Ctimezone_name");
+    expect(fetchCalls[1]).toContain(
+      "fields=id%2Cname%2Caccount_status%2Ccurrency%2Ctimezone_name",
+    );
     expect(fetchCalls[2]).toContain("fields=id%2Cname");
     expect(fetchCalls[2]).not.toContain("code");
   });
@@ -271,11 +282,11 @@ describe("meta adapter oauth", () => {
                 name: "Conta Pagina 2",
                 account_status: 1,
                 currency: "BRL",
-                timezone_name: "America/Sao_Paulo"
-              }
-            ]
+                timezone_name: "America/Sao_Paulo",
+              },
+            ],
           }),
-          { status: 200 }
+          { status: 200 },
         );
       }
 
@@ -287,76 +298,74 @@ describe("meta adapter oauth", () => {
               name: "Conta Pagina 1",
               account_status: 1,
               currency: "BRL",
-              timezone_name: "America/Sao_Paulo"
-            }
+              timezone_name: "America/Sao_Paulo",
+            },
           ],
           paging: {
-            next: "https://graph.facebook.com/v25.0/business_1/owned_ad_accounts?page=2"
-          }
+            next: "https://graph.facebook.com/v25.0/business_1/owned_ad_accounts?page=2",
+          },
         }),
-        { status: 200 }
+        { status: 200 },
       );
     }) as unknown as typeof fetch;
     const adapter = new MetaAdapter(
       {
-        META_GRAPH_API_VERSION: "v25.0"
+        META_GRAPH_API_VERSION: "v25.0",
       },
-      fetchMock
+      fetchMock,
     );
 
     await expect(
       adapter.listOwnedAdAccounts({
         accessToken: "EAAB-secret-token",
-        businessId: "business_1"
-      })
+        businessId: "business_1",
+      }),
     ).resolves.toEqual([
       expect.objectContaining({
         id: "act_1",
         businessId: "business_1",
-        name: "Conta Pagina 1"
+        name: "Conta Pagina 1",
       }),
       expect.objectContaining({
         id: "act_2",
         businessId: "business_1",
-        name: "Conta Pagina 2"
-      })
+        name: "Conta Pagina 2",
+      }),
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("lists Meta pages for conversion destination from the selected business", async () => {
     const fetchCalls: string[] = [];
-    const fetcher = vi.fn(
-      async (input: string | URL | Request) => {
-        fetchCalls.push(String(input));
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      fetchCalls.push(String(input));
 
-        if (String(input).includes("/business_1/client_pages")) {
-          return new Response(
-            JSON.stringify({
-              data: [{ id: "page_2", name: "Pagina Cliente" }]
-            }),
-            { status: 200 }
-          );
-        }
-
+      if (String(input).includes("/business_1/client_pages")) {
         return new Response(
           JSON.stringify({
-            data: [{ id: "page_1", name: "Pagina Principal" }]
+            data: [{ id: "page_2", name: "Pagina Cliente" }],
           }),
-          { status: 200 }
+          { status: 200 },
         );
       }
-    ) as unknown as typeof fetch;
+
+      return new Response(
+        JSON.stringify({
+          data: [{ id: "page_1", name: "Pagina Principal" }],
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
     const adapter = new MetaAdapter({}, fetcher);
 
     await expect(
       adapter.listBusinessPages({
         accessToken: "meta-token",
-        businessId: "business_1"
-      })
+        businessId: "business_1",
+      }),
     ).resolves.toEqual([
       { id: "page_1", businessId: "business_1", name: "Pagina Principal" },
-      { id: "page_2", businessId: "business_1", name: "Pagina Cliente" }
+      { id: "page_2", businessId: "business_1", name: "Pagina Cliente" },
     ]);
     expect(fetchCalls[0]).toContain("/business_1/owned_pages");
     expect(fetchCalls[1]).toContain("/business_1/client_pages");
@@ -374,17 +383,17 @@ describe("meta adapter oauth", () => {
                 campaign_id: "cmp_1",
                 status: "ACTIVE",
                 effective_status: "ACTIVE",
-                destination_type: "WHATSAPP"
-              }
-            ]
+                destination_type: "WHATSAPP",
+              },
+            ],
           }),
-          { status: 200 }
-        )
+          { status: 200 },
+        ),
     ) as unknown as typeof fetch;
     const adapter = new MetaAdapter({}, fetcher);
 
     await expect(
-      adapter.listAdSets({ accessToken: "meta-token", adAccountId: "act_123" })
+      adapter.listAdSets({ accessToken: "meta-token", adAccountId: "act_123" }),
     ).resolves.toMatchObject([{ destinationType: "WHATSAPP" }]);
   });
 
@@ -403,20 +412,20 @@ describe("meta adapter oauth", () => {
                 effective_status: "ACTIVE",
                 creative: {
                   id: "creative_1",
-                  call_to_action_type: "WHATSAPP_MESSAGE"
-                }
-              }
-            ]
+                  call_to_action_type: "WHATSAPP_MESSAGE",
+                },
+              },
+            ],
           }),
-          { status: 200 }
-        )
+          { status: 200 },
+        ),
     ) as unknown as typeof fetch;
     const adapter = new MetaAdapter({}, fetcher);
 
     await expect(
-      adapter.listAds({ accessToken: "meta-token", adAccountId: "act_123" })
+      adapter.listAds({ accessToken: "meta-token", adAccountId: "act_123" }),
     ).resolves.toMatchObject([
-      { creativeId: "creative_1", callToActionType: "WHATSAPP_MESSAGE" }
+      { creativeId: "creative_1", callToActionType: "WHATSAPP_MESSAGE" },
     ]);
   });
 
@@ -433,11 +442,11 @@ describe("meta adapter oauth", () => {
                 name: "Black Friday WhatsApp",
                 status: "ACTIVE",
                 effective_status: "ACTIVE",
-                objective: "OUTCOME_SALES"
-              }
-            ]
+                objective: "OUTCOME_SALES",
+              },
+            ],
           }),
-          { status: 200 }
+          { status: 200 },
         );
       }
 
@@ -450,11 +459,11 @@ describe("meta adapter oauth", () => {
                 name: "Publico quente",
                 campaign_id: "cmp_1",
                 status: "ACTIVE",
-                effective_status: "ACTIVE"
-              }
-            ]
+                effective_status: "ACTIVE",
+              },
+            ],
           }),
-          { status: 200 }
+          { status: 200 },
         );
       }
 
@@ -468,11 +477,11 @@ describe("meta adapter oauth", () => {
                 campaign_id: "cmp_1",
                 adset_id: "adset_1",
                 status: "ACTIVE",
-                effective_status: "ACTIVE"
-              }
-            ]
+                effective_status: "ACTIVE",
+              },
+            ],
           }),
-          { status: 200 }
+          { status: 200 },
         );
       }
 
@@ -488,14 +497,15 @@ describe("meta adapter oauth", () => {
                 clicks: "210",
                 actions: [
                   {
-                    action_type: "onsite_conversion.messaging_conversation_started_7d",
-                    value: "80"
-                  }
-                ]
-              }
-            ]
+                    action_type:
+                      "onsite_conversion.messaging_conversation_started_7d",
+                    value: "80",
+                  },
+                ],
+              },
+            ],
           }),
-          { status: 200 }
+          { status: 200 },
         );
       }
 
@@ -512,14 +522,40 @@ describe("meta adapter oauth", () => {
                 clicks: "105",
                 actions: [
                   {
-                    action_type: "onsite_conversion.messaging_conversation_started_7d",
-                    value: "40"
-                  }
-                ]
-              }
-            ]
+                    action_type:
+                      "onsite_conversion.messaging_conversation_started_7d",
+                    value: "40",
+                  },
+                ],
+              },
+            ],
           }),
-          { status: 200 }
+          { status: 200 },
+        );
+      }
+
+      if (new URL(url).searchParams.get("time_increment") === "1") {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                campaign_id: "cmp_1",
+                date_start: "2026-07-01",
+                date_stop: "2026-07-01",
+                spend: "700.25",
+                impressions: "6000",
+                clicks: "250",
+                actions: [
+                  {
+                    action_type:
+                      "onsite_conversion.messaging_conversation_started_7d",
+                    value: "100",
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200 },
         );
       }
 
@@ -533,42 +569,43 @@ describe("meta adapter oauth", () => {
               clicks: "420",
               actions: [
                 {
-                  action_type: "onsite_conversion.messaging_conversation_started_7d",
-                  value: "176"
-                }
-              ]
-            }
-          ]
+                  action_type:
+                    "onsite_conversion.messaging_conversation_started_7d",
+                  value: "176",
+                },
+              ],
+            },
+          ],
         }),
-        { status: 200 }
+        { status: 200 },
       );
     }) as unknown as typeof fetch;
     const adapter = new MetaAdapter(
       {
-        META_GRAPH_API_VERSION: "v25.0"
+        META_GRAPH_API_VERSION: "v25.0",
       },
-      fetchMock
+      fetchMock,
     );
 
     await expect(
       adapter.listCampaigns({
         accessToken: "EAAB-secret-token",
-        adAccountId: "act_123"
-      })
+        adAccountId: "act_123",
+      }),
     ).resolves.toEqual([
       {
         id: "cmp_1",
         name: "Black Friday WhatsApp",
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
-        objective: "OUTCOME_SALES"
-      }
+        objective: "OUTCOME_SALES",
+      },
     ]);
     await expect(
       adapter.listAdSets({
         accessToken: "EAAB-secret-token",
-        adAccountId: "act_123"
-      })
+        adAccountId: "act_123",
+      }),
     ).resolves.toEqual([
       {
         id: "adset_1",
@@ -576,14 +613,14 @@ describe("meta adapter oauth", () => {
         campaignId: "cmp_1",
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
-        destinationType: null
-      }
+        destinationType: null,
+      },
     ]);
     await expect(
       adapter.listAds({
         accessToken: "EAAB-secret-token",
-        adAccountId: "act_123"
-      })
+        adAccountId: "act_123",
+      }),
     ).resolves.toEqual([
       {
         id: "ad_1",
@@ -593,32 +630,49 @@ describe("meta adapter oauth", () => {
         status: "ACTIVE",
         effectiveStatus: "ACTIVE",
         creativeId: null,
-        callToActionType: null
-      }
+        callToActionType: null,
+      },
     ]);
     await expect(
       adapter.listCampaignInsights({
         accessToken: "EAAB-secret-token",
         adAccountId: "act_123",
         since: "2026-07-01",
-        until: "2026-07-02"
-      })
+        until: "2026-07-02",
+      }),
     ).resolves.toEqual([
       {
         campaignId: "cmp_1",
         spendCents: 120055,
         impressions: 10000,
         clicks: 420,
-        metaConversationsStarted: 176
-      }
+        metaConversationsStarted: 176,
+      },
+    ]);
+    await expect(
+      adapter.listCampaignDailyInsights({
+        accessToken: "EAAB-secret-token",
+        adAccountId: "act_123",
+        since: "2026-07-01",
+        until: "2026-07-02",
+      }),
+    ).resolves.toEqual([
+      {
+        campaignId: "cmp_1",
+        date: "2026-07-01",
+        spendCents: 70025,
+        impressions: 6000,
+        clicks: 250,
+        metaConversationsStarted: 100,
+      },
     ]);
     await expect(
       adapter.listAdSetInsights({
         accessToken: "EAAB-secret-token",
         adAccountId: "act_123",
         since: "2026-07-01",
-        until: "2026-07-02"
-      })
+        until: "2026-07-02",
+      }),
     ).resolves.toEqual([
       {
         adSetId: "adset_1",
@@ -626,16 +680,16 @@ describe("meta adapter oauth", () => {
         spendCents: 60010,
         impressions: 5000,
         clicks: 210,
-        metaConversationsStarted: 80
-      }
+        metaConversationsStarted: 80,
+      },
     ]);
     await expect(
       adapter.listAdInsights({
         accessToken: "EAAB-secret-token",
         adAccountId: "act_123",
         since: "2026-07-01",
-        until: "2026-07-02"
-      })
+        until: "2026-07-02",
+      }),
     ).resolves.toEqual([
       {
         adId: "ad_1",
@@ -644,8 +698,8 @@ describe("meta adapter oauth", () => {
         spendCents: 30005,
         impressions: 2500,
         clicks: 105,
-        metaConversationsStarted: 40
-      }
+        metaConversationsStarted: 40,
+      },
     ]);
   });
 
@@ -665,7 +719,7 @@ describe("meta adapter oauth", () => {
         spend: String(page * 10),
         impressions: String(page * 100),
         clicks: String(page * 5),
-        actions: []
+        actions: [],
       };
 
       return new Response(
@@ -674,45 +728,42 @@ describe("meta adapter oauth", () => {
           ...(page === 1
             ? {
                 paging: {
-                  next: `https://graph.facebook.com/v25.0/act_123/insights?level=${level}&after=page_2`
-                }
+                  next: `https://graph.facebook.com/v25.0/act_123/insights?level=${level}&after=page_2`,
+                },
               }
-            : {})
+            : {}),
         }),
-        { status: 200 }
+        { status: 200 },
       );
     }) as unknown as typeof fetch;
     const adapter = new MetaAdapter(
       { META_GRAPH_API_VERSION: "v25.0" },
-      fetchMock
+      fetchMock,
     );
     const input = {
       accessToken: "EAAB-secret-token",
       adAccountId: "act_123",
       since: "2026-07-06",
-      until: "2026-07-12"
+      until: "2026-07-12",
     };
 
     const [campaigns, adSets, ads] = await Promise.all([
       adapter.listCampaignInsights(input),
       adapter.listAdSetInsights(input),
-      adapter.listAdInsights(input)
+      adapter.listAdInsights(input),
     ]);
 
     expect(campaigns.map((item) => item.campaignId)).toEqual([
       "cmp_1",
-      "cmp_2"
+      "cmp_2",
     ]);
-    expect(adSets.map((item) => item.adSetId)).toEqual([
-      "adset_1",
-      "adset_2"
-    ]);
+    expect(adSets.map((item) => item.adSetId)).toEqual(["adset_1", "adset_2"]);
     expect(ads.map((item) => item.adId)).toEqual(["ad_1", "ad_2"]);
     expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(
       requestedUrls
         .filter((url) => !url.includes("after=page_2"))
-        .every((url) => url.includes("limit=100"))
+        .every((url) => url.includes("limit=100")),
     ).toBe(true);
   });
 });
