@@ -6,9 +6,11 @@ Design: docs/plans/2026-07-13-wpptrack-access-email-meta-connections-design.md
 
 ## 1. Goal
 
-Implement secure multi-workspace access, delegated team management, Brevo transactional email, closed invitation onboarding, edition-gated Google login and guided OAuth/manual Meta connections.
+Implement secure multi-workspace access, delegated team management, Brevo transactional email, closed invitation onboarding, feature-gated Google login and guided OAuth/manual Meta connections for the current client SaaS.
 
 The work must be incremental and reversible. The active Barbieri OAuth connection, assets, CAPI destination and current production runtime remain unchanged until a later explicit cutover checkpoint.
+
+This repository is exclusively the client product. The course/student application will be created only after this product is complete by cloning it into a different Git repository, deployment environment and secret set. Student-specific modes, copy, onboarding and teaching documentation are outside this plan.
 
 ## 2. Global Gates
 
@@ -55,9 +57,11 @@ Purpose: establish explicit configuration and regression coverage before behavio
 
 ### Tasks
 
-- [ ] Add an architecture note in config documentation for the two edition profiles:
-  - SaaS: OAuth and manual Meta enabled, Google disabled by default.
-  - Student: manual Meta enabled, OAuth hidden/blocked, Google optionally enabled.
+- [ ] Add an architecture note for the current client product:
+  - OAuth and manual Meta are supported;
+  - OAuth remains highlighted and recommended;
+  - Google is disabled by default;
+  - no student profile is created in this repository.
 - [ ] Add and parse backend flags:
   - AUTH_GOOGLE_ENABLED;
   - META_CONNECTION_MODES;
@@ -454,7 +458,7 @@ Purpose: turn current invitation records into a complete closed-registration flo
 
 The platform owner can provision the responsible owner, and that owner or delegated team manager can invite its team without public signup.
 
-## 10. Wave 7 - Google Feature Gate and Student Guide
+## 10. Wave 7 - Google Feature Gate
 
 Purpose: keep Google available in code while disabled in the current SaaS.
 
@@ -465,15 +469,6 @@ Purpose: keep Google available in code while disabled in the current SaaS.
 - [ ] Require verified Google email.
 - [ ] Permit login only for an existing user or a valid invited identity according to the invitation flow.
 - [ ] Never create a workspace from Google OAuth.
-- [ ] Add docs/setup/auth/google-login.md covering:
-  - Google Cloud project;
-  - OAuth consent screen;
-  - authorized origin;
-  - exact callback URI;
-  - client ID/secret environment values;
-  - test users and publishing;
-  - common redirect errors;
-  - closed-registration behavior.
 
 ### Tests
 
@@ -485,7 +480,7 @@ Purpose: keep Google available in code while disabled in the current SaaS.
 
 ### Acceptance
 
-The current SaaS remains email/password-first. A student can enable Google later with its own credentials by following the guide.
+The current SaaS remains email/password-first. The frontend and backend both reject Google while the flag is disabled.
 
 ## 11. Wave 8 - Normalized Meta Schema Beside Legacy
 
@@ -701,36 +696,7 @@ Purpose: make the normalized model operational without guessing and without dist
 
 New manual connections can report and send CAPI through exact mappings. Existing OAuth execution remains unchanged. No event can select an arbitrary first token or destination.
 
-## 15. Wave 12 - Edition Profiles and Teaching Documentation
-
-Purpose: make the same codebase configurable for current SaaS and student distribution.
-
-### Tasks
-
-- [ ] Define one edition configuration source validated at startup.
-- [ ] SaaS profile:
-  - OAuth highlighted;
-  - manual token available;
-  - Quick and Advanced available;
-  - Google disabled by default.
-- [ ] Student profile:
-  - OAuth Meta hidden and backend-blocked;
-  - manual token highlighted;
-  - Quick default, Advanced available;
-  - Google optional with student credentials;
-  - public registration still disabled unless a future explicit product decision changes it.
-- [ ] Add docs/setup/meta/manual-token-quick.md.
-- [ ] Add docs/setup/meta/manual-token-advanced.md.
-- [ ] Explain system-user token creation, required permissions and secure handling.
-- [ ] Explain matrix/shared and dedicated destination patterns.
-- [ ] Explain token rotation without suggesting policy evasion or insecure sharing.
-- [ ] Add troubleshooting for permissions, assets and invalid destinations.
-
-### Acceptance
-
-The edition is enforced by backend capability checks. A student can follow the documented manual path without access to WppTrack's Meta OAuth application credentials.
-
-## 16. Wave 13 - Final Security Audit and Controlled Rollout
+## 15. Wave 12 - Final Security Audit and Controlled Rollout
 
 Purpose: validate the complete system before broad production enablement.
 
@@ -774,7 +740,7 @@ Barbieri is not automatically migrated at the end of this plan. A separate propo
 
 Without that approval, Barbieri remains on the legacy-compatible OAuth path indefinitely.
 
-## 17. Validation Commands
+## 16. Validation Commands
 
 Run focused tests during each wave and the full suite before release:
 
@@ -790,7 +756,7 @@ Run focused tests during each wave and the full suite before release:
 
 When a Windows Prisma DLL is locked by a running dev process, stop that process or use the repository's established isolated TypeScript/build verification. Do not treat unrelated generated-file churn as part of the feature.
 
-## 18. Definition of Done
+## 17. Definition of Done
 
 The initiative is done only when:
 
@@ -798,11 +764,10 @@ The initiative is done only when:
 - roles and delegated team management match the approved matrix;
 - Brevo delivers all three transactional email types;
 - invitation onboarding works for new and existing users without public signup;
-- Google is safely edition-gated;
+- Google is safely feature-gated;
 - Meta OAuth remains the default current-SaaS path;
 - manual Quick and Advanced support the approved token/BM/destination structures;
 - reporting and CAPI route through explicit connections without guessing;
 - secrets remain encrypted and redacted;
-- student setup documentation is complete;
 - the final security audit passes;
 - Barbieri remains uninterrupted unless separately approved for migration.

@@ -79,7 +79,7 @@ The missing or incomplete behavior is:
 - owner and admin permissions are too close to each other;
 - the session resolves the first membership instead of an explicit active workspace;
 - there is no workspace selector for a normal multi-workspace user;
-- Google login is always presented instead of being edition-configurable;
+- Google login is always presented instead of being feature-gated;
 - Meta assumes a single OAuth-oriented integration and a single conversion destination per workspace;
 - the current standalone CAPI token field conflicts with the approved manual-token contract.
 
@@ -287,22 +287,16 @@ Reset links expire after 30 minutes and are one-time. Verification links expire 
 
 ## 8. Google Login
 
-Google remains in the codebase but is edition-configurable.
-
-Current SaaS:
+Google remains in the codebase but is disabled in this client SaaS until a later product decision:
 
 - AUTH_GOOGLE_ENABLED=false;
 - button hidden;
 - start and callback routes reject use when disabled;
 - no behavioral change for existing email/password users.
 
-Student edition:
+If Google is enabled in this repository in the future, a verified Google email may authenticate only an existing or invited identity. Google never creates a workspace, enables public registration or accepts an unverified email.
 
-- Google can be enabled with the student's own Google Cloud credentials;
-- official setup documentation explains consent screen, allowed origins, callback URL, environment variables and test mode;
-- a verified Google email may authenticate an existing or invited identity;
-- Google never creates a workspace or enables public registration;
-- an unverified Google email is rejected.
+The course/student application is not an edition of this deployed project. It will be created later by cloning the completed product into a separate repository and environment. Google Cloud teaching material and student-specific defaults belong to that future repository, not to this implementation.
 
 ## 9. Guided Meta Connection Experience
 
@@ -319,7 +313,6 @@ The integration flow starts with:
 **Connect with permanent token**
 
 - secondary path for selected clients;
-- primary path in the student edition, where OAuth is hidden;
 - starts with guided validation before anything is persisted as active.
 
 This is one connection platform with two credential sources, not two independent Meta systems.
@@ -351,14 +344,15 @@ For multi-BM or rotating structures:
 
 Progressive disclosure keeps the common setup simple while preserving the full model underneath.
 
-### 9.3 Edition profile
+### 9.3 Current repository scope
 
-Use an edition-level capability such as META_CONNECTION_MODES:
+This client SaaS supports META_CONNECTION_MODES=oauth,manual:
 
-- current SaaS: oauth,manual;
-- student edition: manual.
+- OAuth remains highlighted and recommended;
+- manual token supports selected simple and advanced client structures;
+- the backend enforces enabled modes, because hiding a UI card alone is insufficient.
 
-The backend enforces enabled modes. Hiding a UI card alone is insufficient.
+META_CONNECTION_MODES remains a generic deployment capability, not a student-edition system. A future course repository may reuse it after cloning, but no student profile, branding, onboarding or teaching documentation is implemented here.
 
 ## 10. Normalized Meta Domain Model
 
@@ -485,13 +479,12 @@ The approved order is:
 3. role matrix and delegated team management;
 4. SMTP and transactional email;
 5. password reset, verification and full invitation onboarding;
-6. Google feature flag and student guide;
+6. Google feature gate;
 7. normalized Meta schema beside the current connection;
 8. guided manual quick setup;
 9. advanced multi-BM, multi-token and shared-destination setup;
 10. exact reporting/CAPI routing and shadow comparison;
-11. edition profiles and complete student documentation;
-12. final security review and controlled production rollout.
+11. final security review and controlled production rollout.
 
 Barbieri's no-touch guarantee is a gate on every Meta wave.
 
@@ -513,6 +506,7 @@ Barbieri's no-touch guarantee is a gate on every Meta wave.
 - Tokens never reappear in API/UI/logs after submission.
 - Barbieri keeps operating without reconnection or configuration changes.
 - Cross-tenant automated tests cover reads, writes, jobs, exports and integrations.
+- No student-specific mode, copy, onboarding or documentation is shipped in this repository.
 
 ## 16. Final Security Review
 
