@@ -27,6 +27,7 @@
     "bullmq": "^5.79.2",
     "ioredis": "^5.11.1",
     "mysql2": "^3.14.5",
+    "nodemailer": "^9.0.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^3.23.8"
@@ -35,6 +36,7 @@
     "@nestjs/cli": "^10.4.5",
     "@nestjs/testing": "^10.4.4",
     "@types/node": "^22.7.4",
+    "@types/nodemailer": "^8.0.1",
     "@types/supertest": "^7.2.0",
     "prisma": "^6.19.3",
     "supertest": "^7.0.0",

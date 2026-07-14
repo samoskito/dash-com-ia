@@ -9,8 +9,9 @@ const readyPayload = {
   service: "wpptrack-api",
   dependencies: {
     database: "ok",
-    redis: "ok"
-  }
+    redis: "ok",
+    email: "disabled",
+  },
 };
 
 async function createAppWithHealth(healthService: {
@@ -22,11 +23,10 @@ async function createAppWithHealth(healthService: {
     providers: [
       {
         provide: HealthService,
-        useValue: healthService
-      }
-    ]
-  })
-    .compile();
+        useValue: healthService,
+      },
+    ],
+  }).compile();
 
   const app = moduleRef.createNestApplication();
   await app.init();
@@ -37,12 +37,12 @@ async function createAppWithHealth(healthService: {
 describe("API health", () => {
   it("returns service health", async () => {
     const app = await createAppWithHealth({
-        getLiveness: () => ({
-          status: "ok",
-          service: "wpptrack-api"
-        }),
-        getReadiness: async () => readyPayload
-      });
+      getLiveness: () => ({
+        status: "ok",
+        service: "wpptrack-api",
+      }),
+      getReadiness: async () => readyPayload,
+    });
 
     await request(app.getHttpServer())
       .get("/health")
@@ -50,7 +50,7 @@ describe("API health", () => {
       .expect(({ body }) => {
         expect(body).toEqual({
           status: "ok",
-          service: "wpptrack-api"
+          service: "wpptrack-api",
         });
       });
 
@@ -59,12 +59,12 @@ describe("API health", () => {
 
   it("returns readiness when database and redis are available", async () => {
     const app = await createAppWithHealth({
-        getLiveness: () => ({
-          status: "ok",
-          service: "wpptrack-api"
-        }),
-        getReadiness: async () => readyPayload
-      });
+      getLiveness: () => ({
+        status: "ok",
+        service: "wpptrack-api",
+      }),
+      getReadiness: async () => readyPayload,
+    });
 
     await request(app.getHttpServer())
       .get("/health/ready")
@@ -78,19 +78,20 @@ describe("API health", () => {
 
   it("returns service unavailable when readiness dependency checks fail", async () => {
     const app = await createAppWithHealth({
-        getLiveness: () => ({
-          status: "ok",
-          service: "wpptrack-api"
-        }),
-        getReadiness: async () => ({
-          status: "degraded",
-          service: "wpptrack-api",
-          dependencies: {
-            database: "ok",
-            redis: "error"
-          }
-        })
-      });
+      getLiveness: () => ({
+        status: "ok",
+        service: "wpptrack-api",
+      }),
+      getReadiness: async () => ({
+        status: "degraded",
+        service: "wpptrack-api",
+        dependencies: {
+          database: "ok",
+          redis: "error",
+          email: "disabled",
+        },
+      }),
+    });
 
     await request(app.getHttpServer())
       .get("/health/ready")

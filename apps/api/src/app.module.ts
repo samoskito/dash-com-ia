@@ -8,6 +8,7 @@ import { QueueModule } from "./common/queue/queue.module";
 import { RuntimeModule } from "./common/runtime/runtime.module";
 import { ConversionRulesModule } from "./conversion-rules/conversion-rules.module";
 import { DiagnosticsModule } from "./diagnostics/diagnostics.module";
+import { EmailModule } from "./email/email.module";
 import { ExternalDataModule } from "./external-data/external-data.module";
 import { HealthController } from "./health/health.controller";
 import { HealthService } from "./health/health.service";
@@ -21,6 +22,7 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
   imports: [
     RuntimeModule,
     QueueModule,
+    EmailModule,
     PrismaModule,
     AuthModule,
     WorkspacesModule,

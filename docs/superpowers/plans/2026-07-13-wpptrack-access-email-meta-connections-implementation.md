@@ -1,7 +1,7 @@
 # WppTrack Access, Email and Meta Connections Implementation Plan
 
 Date: 2026-07-13
-Status: Waves 0-3 implemented and validated locally; Wave 4 not started
+Status: Waves 0-4 implemented and validated locally; Wave 4 staging delivery pending; Wave 5 not started
 Design: docs/plans/2026-07-13-wpptrack-access-email-meta-connections-design.md
 
 ## 1. Goal
@@ -363,40 +363,40 @@ Purpose: implement a reusable, observable transactional email delivery path.
 
 ### Dependencies and module
 
-- [ ] Add nodemailer and its TypeScript types to apps/api.
-- [ ] Create EmailModule with:
+- [x] Add nodemailer and its TypeScript types to apps/api.
+- [x] Create EmailModule with:
   - transport factory;
   - message renderer;
   - queue producer;
   - BullMQ processor;
   - redacted delivery audit.
-- [ ] Use smtp-relay.brevo.com, port 587 and STARTTLS in production configuration.
-- [ ] Configure sender noreply@rastrack.app and reply-to suporte@rastrack.app.
-- [ ] Add a fake/in-memory transport for tests.
+- [x] Use smtp-relay.brevo.com, port 587 and STARTTLS in production configuration.
+- [x] Configure sender noreply@rastrack.app and reply-to suporte@rastrack.app.
+- [x] Add a fake/in-memory transport for tests.
 
 ### Queue behavior
 
-- [ ] Assign deterministic idempotency keys per email action token/version.
-- [ ] Retry transient failures with bounded exponential backoff.
-- [ ] Do not retry permanent recipient/configuration failures forever.
-- [ ] Record queued, sent and failed states without tokenized links or message bodies.
-- [ ] Add a health check that verifies configuration shape without sending email.
+- [x] Assign deterministic idempotency keys per email action token/version.
+- [x] Retry transient failures with bounded exponential backoff.
+- [x] Do not retry permanent recipient/configuration failures forever.
+- [x] Record queued, sent and failed states without tokenized links or message bodies.
+- [x] Add a health check that verifies configuration shape without sending email.
 
 ### Templates
 
-- [ ] Shared responsive HTML/text shell.
-- [ ] Workspace invitation.
-- [ ] Password reset.
-- [ ] Email verification.
-- [ ] Safe absolute links derived from validated WEB_ORIGIN.
+- [x] Shared responsive HTML/text shell.
+- [x] Workspace invitation.
+- [x] Password reset.
+- [x] Email verification.
+- [x] Safe absolute links derived from validated WEB_ORIGIN.
 
 ### Tests
 
-- [ ] Correct sender and reply-to.
-- [ ] HTML and text alternatives.
-- [ ] No secret or raw token in logs/jobs/audit assertions.
-- [ ] Retry classification.
-- [ ] Invalid production URL/config fails startup.
+- [x] Correct sender and reply-to.
+- [x] HTML and text alternatives.
+- [x] No secret or raw token in logs/jobs/audit assertions.
+- [x] Retry classification.
+- [x] Invalid production URL/config fails startup.
 
 ### Likely files
 
@@ -415,6 +415,20 @@ Brevo can deliver a test email in a staging environment. Production SMTP keys ar
 ### Deploy checkpoint
 
 Deploy with EMAIL_PROVIDER disabled first, validate health, then enable SMTP in staging. Do not test by inviting a real customer until sender-domain authentication and reply-to are confirmed.
+
+### Implementation checkpoint - 2026-07-14
+
+- Wave 4 code is complete locally. No SMTP credential was added, no message was sent and `EMAIL_PROVIDER` remains disabled by default.
+- `EmailModule` now owns configuration, responsive HTML/text rendering, encrypted BullMQ envelopes, deterministic delivery IDs, the Brevo/Nodemailer transport, bounded retries, permanent-failure handling, redacted audit records and configuration-only health reporting.
+- The three templates are workspace invitation, password reset and email verification. Links are built only from the validated `WEB_ORIGIN` and fixed application paths.
+- Recipient, tokenized URL, template data and rendered content are AES-256-GCM encrypted before entering Redis. Workspace scope, template and recipient hash are authenticated as associated data. A tampered job is rejected without trusting its workspace for audit scope.
+- The envelope key is derived with HKDF from the Brevo SMTP key. `SMTP_PASSWORD` rotation must happen only after the `transactional-email` queue is drained; the deploy runbook records this rule.
+- Production SMTP configuration is pinned to `smtp-relay.brevo.com:587`, mandatory STARTTLS, `noreply@rastrack.app` and reply-to `suporte@rastrack.app`. The SMTP password must be a Brevo SMTP key, not an API key.
+- `/health/ready` now reports `email: disabled`, `email: ok` or `email: error` without opening an SMTP connection or exposing credentials. Disabled email does not degrade readiness.
+- Focused email/configuration/health tests passed. Full local validation passed with 60 shared tests, 633 API tests and 130 web tests; shared/API/web typechecks, Prisma validate, direct Nest production build and `git diff --check` passed.
+- The existing auth and workspace flows are intentionally not wired to the queue in this wave. Password reset and verification delivery belong to Wave 5; invitation delivery and onboarding belong to Wave 6.
+- The remaining Wave 4 acceptance action is a controlled internal staging delivery after Brevo sender-domain authentication and secret-store configuration. Production stays disabled until that checkpoint.
+- No push or production deploy was performed. The active Barbieri OAuth, assets, reporting, CAPI and n8n runtime were not changed.
 
 ## 8. Wave 5 - Password Reset and Email Verification Delivery
 

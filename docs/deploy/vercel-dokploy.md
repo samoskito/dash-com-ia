@@ -108,7 +108,7 @@ liberado para o produto. Para preparar SMTP sem habilitar envio antes da hora:
 
 ```env
 EMAIL_PROVIDER=
-SMTP_HOST=
+SMTP_HOST=smtp-relay.brevo.com
 SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=
@@ -117,6 +117,27 @@ EMAIL_FROM_NAME=WppTrack
 EMAIL_FROM_ADDRESS=noreply@rastrack.app
 EMAIL_REPLY_TO=suporte@rastrack.app
 ```
+
+Ative somente depois de autenticar o dominio remetente na Brevo e validar em
+staging:
+
+```env
+EMAIL_PROVIDER=smtp
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_SECURE=false
+```
+
+`SMTP_USER` recebe o login SMTP da Brevo. `SMTP_PASSWORD` recebe uma chave SMTP
+da Brevo, nunca uma API key. O relay usa STARTTLS obrigatorio na porta 587.
+`/health/ready` valida apenas o formato seguro da configuracao e informa
+`email: disabled` ou `email: ok`; o healthcheck nao envia mensagens.
+
+Os envelopes da fila sao criptografados com uma chave derivada da chave SMTP e
+nao carregam token, link, destinatario ou corpo em texto aberto no Redis. Antes
+de rotacionar `SMTP_PASSWORD`, pause novos disparos e deixe a fila
+`transactional-email` terminar; depois da troca, reenvie apenas entregas que
+ainda estavam pendentes.
 
 ## Build
 

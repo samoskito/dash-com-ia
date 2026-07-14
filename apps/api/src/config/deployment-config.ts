@@ -49,7 +49,7 @@ function invalid(field: string, expectation: string): never {
 function requiredValue(
   env: Environment,
   field: string,
-  preserveWhitespace = false
+  preserveWhitespace = false,
 ): string {
   const value = env[field];
 
@@ -63,7 +63,7 @@ function requiredValue(
 function parseBoolean(
   field: string,
   value: string | undefined,
-  fallback?: boolean
+  fallback?: boolean,
 ): boolean {
   const normalized = value?.trim().toLowerCase();
 
@@ -97,12 +97,12 @@ function parseMetaConnectionMode(value: string): MetaConnectionMode {
 
   return invalid(
     "META_CONNECTION_MODES",
-    "expected a comma-separated list containing only oauth and manual"
+    "expected a comma-separated list containing only oauth and manual",
   );
 }
 
 function parseMetaConnectionModes(
-  value: string | undefined
+  value: string | undefined,
 ): MetaConnectionMode[] {
   const normalized = value?.trim();
 
@@ -159,19 +159,52 @@ function parseEmailConfig(env: Environment): EmailConfig {
     invalid("EMAIL_PROVIDER", "expected empty or smtp");
   }
 
+  const smtp = {
+    host: requiredValue(env, "SMTP_HOST"),
+    port: parseSmtpPort(requiredValue(env, "SMTP_PORT")),
+    secure: parseBoolean("SMTP_SECURE", env.SMTP_SECURE),
+    user: requiredValue(env, "SMTP_USER"),
+    password: requiredValue(env, "SMTP_PASSWORD", true),
+    fromName: requiredValue(env, "EMAIL_FROM_NAME"),
+    fromAddress: parseEmailAddress(env, "EMAIL_FROM_ADDRESS"),
+    replyTo: parseEmailAddress(env, "EMAIL_REPLY_TO"),
+  };
+
+  assertProductionBrevoConfig(env, smtp);
+
   return {
     provider,
-    smtp: {
-      host: requiredValue(env, "SMTP_HOST"),
-      port: parseSmtpPort(requiredValue(env, "SMTP_PORT")),
-      secure: parseBoolean("SMTP_SECURE", env.SMTP_SECURE),
-      user: requiredValue(env, "SMTP_USER"),
-      password: requiredValue(env, "SMTP_PASSWORD", true),
-      fromName: requiredValue(env, "EMAIL_FROM_NAME"),
-      fromAddress: parseEmailAddress(env, "EMAIL_FROM_ADDRESS"),
-      replyTo: parseEmailAddress(env, "EMAIL_REPLY_TO")
-    }
+    smtp,
   };
+}
+
+function assertProductionBrevoConfig(env: Environment, smtp: SmtpConfig): void {
+  if (env.NODE_ENV?.trim().toLowerCase() !== "production") {
+    return;
+  }
+
+  if (smtp.host.toLowerCase() !== "smtp-relay.brevo.com") {
+    invalid("SMTP_HOST", "expected smtp-relay.brevo.com in production");
+  }
+
+  if (smtp.port !== 587) {
+    invalid("SMTP_PORT", "expected port 587 for Brevo STARTTLS in production");
+  }
+
+  if (smtp.secure) {
+    invalid("SMTP_SECURE", "expected false for Brevo STARTTLS on port 587");
+  }
+
+  if (smtp.fromAddress.toLowerCase() !== "noreply@rastrack.app") {
+    invalid(
+      "EMAIL_FROM_ADDRESS",
+      "expected noreply@rastrack.app in production",
+    );
+  }
+
+  if (smtp.replyTo.toLowerCase() !== "suporte@rastrack.app") {
+    invalid("EMAIL_REPLY_TO", "expected suporte@rastrack.app in production");
+  }
 }
 
 function isLocalhost(hostname: string): boolean {
@@ -214,7 +247,7 @@ function parseWebOrigin(env: Environment): string {
   if (parsed.protocol !== "https:" && !localHttpAllowed) {
     invalid(
       "WEB_ORIGIN",
-      "expected HTTPS, except HTTP localhost in development or test"
+      "expected HTTPS, except HTTP localhost in development or test",
     );
   }
 
@@ -222,16 +255,16 @@ function parseWebOrigin(env: Environment): string {
 }
 
 export function parseDeploymentConfig(
-  env: Environment = process.env
+  env: Environment = process.env,
 ): DeploymentConfig {
   return {
     authGoogleEnabled: parseBoolean(
       "AUTH_GOOGLE_ENABLED",
       env.AUTH_GOOGLE_ENABLED,
-      false
+      false,
     ),
     metaConnectionModes: parseMetaConnectionModes(env.META_CONNECTION_MODES),
     email: parseEmailConfig(env),
-    webOrigin: parseWebOrigin(env)
+    webOrigin: parseWebOrigin(env),
   };
 }
