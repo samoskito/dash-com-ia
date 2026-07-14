@@ -11,11 +11,12 @@ const normalizedEmailSchema = z
 export const clientWorkspaceProvisionInputSchema = z.object({
   workspaceName: z.string().trim().min(2).max(120),
   ownerName: z.string().trim().min(2).max(120),
-  ownerEmail: normalizedEmailSchema,
-  ownerPassword: z.preprocess(
-    (value) => (value === "" ? undefined : value),
-    z.string().min(8).max(256).optional()
-  )
+  ownerEmail: normalizedEmailSchema
+});
+
+export const clientOwnerAccessDeliverySchema = z.object({
+  mode: z.enum(["activation", "existing_account"]),
+  delivery: z.enum(["email_queued", "failed", "not_configured"])
 });
 
 export const clientWorkspaceProvisionResultSchema = z.object({
@@ -30,7 +31,13 @@ export const clientWorkspaceProvisionResultSchema = z.object({
     name: z.string().min(1).nullable(),
     email: z.string().email(),
     role: z.literal("owner")
-  })
+  }),
+  access: clientOwnerAccessDeliverySchema
+});
+
+export const clientOwnerAccessResendResultSchema = z.object({
+  ok: z.literal(true),
+  access: clientOwnerAccessDeliverySchema
 });
 
 export const backofficeClientWorkspaceSchema = z.object({
@@ -91,6 +98,12 @@ export type ClientWorkspaceProvisionInputDto = z.infer<
 >;
 export type ClientWorkspaceProvisionResultDto = z.infer<
   typeof clientWorkspaceProvisionResultSchema
+>;
+export type ClientOwnerAccessDeliveryDto = z.infer<
+  typeof clientOwnerAccessDeliverySchema
+>;
+export type ClientOwnerAccessResendResultDto = z.infer<
+  typeof clientOwnerAccessResendResultSchema
 >;
 export type BackofficeClientWorkspaceDto = z.infer<
   typeof backofficeClientWorkspaceSchema

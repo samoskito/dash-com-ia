@@ -86,6 +86,15 @@ export const emailVerificationConfirmSchema = z.object({
   emailVerifiedAt: z.string().datetime()
 });
 
+export const accountActivationConfirmInputSchema = z.object({
+  token: z.string().trim().min(16),
+  password: z.string().min(8).max(256)
+});
+
+export const accountActivationConfirmSchema = z.object({
+  ok: z.literal(true)
+});
+
 export type LoginDto = z.infer<typeof loginSchema>;
 export type RegisterDto = z.infer<typeof registerSchema>;
 export type GoogleOAuthStartDto = z.infer<typeof googleOAuthStartSchema>;
@@ -118,4 +127,10 @@ export type EmailVerificationConfirmInputDto = z.infer<
 >;
 export type EmailVerificationConfirmDto = z.infer<
   typeof emailVerificationConfirmSchema
+>;
+export type AccountActivationConfirmInputDto = z.infer<
+  typeof accountActivationConfirmInputSchema
+>;
+export type AccountActivationConfirmDto = z.infer<
+  typeof accountActivationConfirmSchema
 >;

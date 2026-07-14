@@ -552,6 +552,62 @@ The platform owner can provision the responsible owner, and that owner or delega
 - No production deploy of Wave 6 was performed. Deploy the enum migration first, then API/email processor, then web. Verify create, sent, resend, existing-user acceptance and new-user acceptance with an internal workspace before inviting a customer.
 - For application rollback to code that does not understand `sent` and `failed`, first normalize active rows back to `pending`; keep the additive PostgreSQL enum values in place because enum value removal is destructive.
 
+## 9.1 Wave 6B - Secure Client Owner Activation
+
+Purpose: complete private client provisioning without creating or emailing a
+plaintext initial password.
+
+### API and data
+
+- [x] Add a one-time `account_activation` action token scoped to the provisioned workspace.
+- [x] Provision a new responsible owner without a password and without marking the email verified.
+- [x] Queue a seven-day activation email after the workspace transaction succeeds.
+- [x] Preserve credentials for an existing identity and send a workspace-access notice instead.
+- [x] Activate password, email verification, token consumption, session and active workspace atomically.
+- [x] Add an audited resend endpoint that rotates outstanding activation links.
+- [x] Return delivery state to the backoffice without exposing token or password.
+
+### Web
+
+- [x] Remove the initial-password field from private client provisioning.
+- [x] Add a public create-password activation route with generic invalid-link handling.
+- [x] Add resend-access action and delivery feedback to the client backoffice.
+
+### Tests and security
+
+- [x] New owner receives activation rather than a password.
+- [x] Existing identity keeps its password and receives only an access notice.
+- [x] Used, expired, superseded and unauthorized activation links fail generically.
+- [x] Concurrent activation creates one session and consumes the token once.
+- [x] Activation lands only in the workspace bound to the token.
+- [x] No API response, audit record or log contains a usable token or plaintext password.
+
+### Rollout
+
+Deploy the additive migration and API first, then the web. An older web may
+still send `ownerPassword`; the API schema strips it and never persists it.
+Email failure leaves a valid owner membership so the platform operator can use
+the resend action after delivery recovers.
+
+### Implementation checkpoint - 2026-07-14
+
+- New client owners now receive a seven-day, one-time activation link and create
+  their own password. Existing identities keep their credentials and receive an
+  access notice for the new workspace.
+- Provisioning and resend return only delivery state. Tokens are encrypted in
+  queued email payloads, stored only as hashes and excluded from API responses,
+  logs and audits.
+- Activation revalidates the owner membership before password hashing and again
+  inside the transaction. Password creation, email verification, token claim,
+  audit, session creation and active-workspace selection are atomic.
+- Validation passed with 60 shared tests, 655 API tests and 134 web tests, all
+  package typechecks, Prisma schema validation, direct Nest production build,
+  Next production build and `git diff --check`.
+- The activation page was visually checked at desktop and 390 x 844 mobile. The
+  mobile document width remained 390 pixels with no horizontal overflow.
+- Production rollout remains pending. Apply the additive migration and deploy
+  the API/email processor first, then deploy the web application.
+
 ## 10. Wave 7 - Google Feature Gate
 
 Purpose: keep Google available in code while disabled in the current SaaS.

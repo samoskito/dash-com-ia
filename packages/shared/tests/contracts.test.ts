@@ -202,7 +202,7 @@ describe("shared contracts", () => {
     ).toThrow();
   });
 
-  it("allows an omitted password only for private provisioning validation", () => {
+  it("normalizes private provisioning and strips the legacy owner password", () => {
     const parsed = clientWorkspaceProvisionInputSchema.parse({
       workspaceName: "Empresa B",
       ownerName: "Responsavel Existente",
@@ -211,7 +211,7 @@ describe("shared contracts", () => {
     });
 
     expect(parsed.ownerEmail).toBe("owner@empresa.com");
-    expect(parsed.ownerPassword).toBeUndefined();
+    expect(parsed).not.toHaveProperty("ownerPassword");
   });
 
   it("validates campaign report rows", () => {

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from "@nestjs/common";
+import { ConflictException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
@@ -6,14 +6,23 @@ type ExistingUser = {
   id: string;
   name: string | null;
   email: string;
+  passwordHash: string | null;
 };
 
 function createHarness({
   existingUser = null,
-  ownerMembershipExists = false
+  ownerMembershipExists = false,
+  activationDelivery = {
+    mode: "activation" as const,
+    delivery: "email_queued" as const
+  }
 }: {
   existingUser?: ExistingUser | null;
   ownerMembershipExists?: boolean;
+  activationDelivery?: {
+    mode: "activation";
+    delivery: "email_queued" | "failed" | "not_configured";
+  };
 } = {}) {
   let workspaceSequence = 0;
   const auditCreate = vi.fn(async (_args: unknown) => ({}));
@@ -33,9 +42,13 @@ function createHarness({
     name: data.name,
     email: data.email,
     passwordHash: data.passwordHash,
+    emailVerifiedAt: data.emailVerifiedAt,
     createdAt: new Date("2026-07-11T18:00:00.000Z")
   }));
-  const workspaceMemberCreate = vi.fn(async () => ({ id: "member_owner" }));
+  const workspaceMemberCreate = vi.fn(async () => ({
+    id: "member_owner",
+    createdAt: new Date("2026-07-11T18:00:00.000Z")
+  }));
   const workspaceMemberFindFirst = vi.fn(async () =>
     ownerMembershipExists ? { id: "member_existing_owner" } : null
   );
@@ -60,12 +73,30 @@ function createHarness({
   const passwordService = {
     hash: vi.fn(async () => "hashed-client-password")
   };
+  const issueClientOwnerActivation = vi.fn(async () => activationDelivery);
+  const authService = { issueClientOwnerActivation };
+  const enqueue = vi.fn(async () => ({ status: "queued" }));
+  const emailQueue = {
+    isEnabled: vi.fn(() => true),
+    enqueue
+  };
 
   return {
     auditCreate,
+    authService,
+    emailQueue,
+    enqueue,
+    issueClientOwnerActivation,
     passwordService,
     prisma,
-    service: new WorkspacesService(prisma, passwordService as never),
+    service: new WorkspacesService(
+      prisma,
+      passwordService as never,
+      undefined,
+      undefined,
+      authService as never,
+      emailQueue as never
+    ),
     userCreate,
     workspaceCreate,
     workspaceMemberCreate,
@@ -74,31 +105,29 @@ function createHarness({
 }
 
 describe("client workspace provisioning", () => {
-  it("creates workspace, verified owner and audit atomically without exposing passwords", async () => {
+  it("creates an unverified owner and queues a one-time activation without an initial password", async () => {
     const harness = createHarness();
 
     const result = await harness.service.provisionClientWorkspace(
       {
         workspaceName: "Barbieri",
         ownerName: "Cliente Barbieri",
-        ownerEmail: "cliente@barbieri.com.br",
-        ownerPassword: "temporary-strong-password"
+        ownerEmail: "cliente@barbieri.com.br"
       },
       "platform_owner"
     );
 
     expect(result).toMatchObject({
       workspace: { id: "workspace_1", slug: "barbieri" },
-      owner: { id: "user_cliente", role: "owner" }
+      owner: { id: "user_cliente", role: "owner" },
+      access: { mode: "activation", delivery: "email_queued" }
     });
     expect(harness.prisma.$transaction).toHaveBeenCalledOnce();
-    expect(harness.passwordService.hash).toHaveBeenCalledWith(
-      "temporary-strong-password"
-    );
+    expect(harness.passwordService.hash).not.toHaveBeenCalled();
     expect(harness.userCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        passwordHash: "hashed-client-password",
-        emailVerifiedAt: expect.any(Date)
+        passwordHash: null,
+        emailVerifiedAt: null
       })
     });
     expect(harness.workspaceMemberCreate).toHaveBeenCalledWith({
@@ -108,34 +137,39 @@ describe("client workspace provisioning", () => {
         role: "owner"
       }
     });
-    const auditPayload = harness.auditCreate.mock.calls[0]?.[0];
-    expect(JSON.stringify(auditPayload)).not.toContain(
-      "temporary-strong-password"
-    );
+    expect(harness.issueClientOwnerActivation).toHaveBeenCalledWith({
+      userId: "user_cliente",
+      workspaceId: "workspace_1"
+    });
+    expect(JSON.stringify(harness.auditCreate.mock.calls)).not.toContain("cliente@barbieri.com.br");
     expect(JSON.stringify(result)).not.toContain("password");
   });
 
-  it("requires an initial password only when the email is new", async () => {
-    const harness = createHarness();
+  it("keeps a provisioned workspace available when activation delivery fails", async () => {
+    const harness = createHarness({
+      activationDelivery: { mode: "activation", delivery: "failed" }
+    });
 
-    await expect(
-      harness.service.provisionClientWorkspace(
-        {
-          workspaceName: "Empresa Nova",
-          ownerName: "Novo Responsavel",
-          ownerEmail: "novo@empresa.com"
-        },
-        "platform_owner"
-      )
-    ).rejects.toBeInstanceOf(BadRequestException);
-    expect(harness.workspaceCreate).not.toHaveBeenCalled();
+    const result = await harness.service.provisionClientWorkspace(
+      {
+        workspaceName: "Empresa Nova",
+        ownerName: "Novo Responsavel",
+        ownerEmail: "novo@empresa.com"
+      },
+      "platform_owner"
+    );
+
+    expect(result.access).toEqual({ mode: "activation", delivery: "failed" });
+    expect(harness.workspaceCreate).toHaveBeenCalledOnce();
+    expect(harness.workspaceMemberCreate).toHaveBeenCalledOnce();
   });
 
-  it("reuses an existing identity without changing name, provider or password", async () => {
+  it("reuses an existing identity and sends a notice without changing credentials", async () => {
     const existingUser = {
       id: "user_existing",
       name: "Responsavel Existente",
-      email: "cliente@barbieri.com.br"
+      email: "cliente@barbieri.com.br",
+      passwordHash: "existing-password-hash"
     };
     const harness = createHarness({ existingUser });
 
@@ -143,25 +177,37 @@ describe("client workspace provisioning", () => {
       {
         workspaceName: "Nova Empresa",
         ownerName: "Nome que nao deve substituir",
-        ownerEmail: existingUser.email,
-        ownerPassword: "replacement-password"
+        ownerEmail: existingUser.email
       },
       "platform_owner"
     );
 
     expect(result.owner).toEqual({
-      ...existingUser,
+      id: existingUser.id,
+      name: existingUser.name,
+      email: existingUser.email,
       role: "owner"
+    });
+    expect(result.access).toEqual({
+      mode: "existing_account",
+      delivery: "email_queued"
     });
     expect(harness.passwordService.hash).not.toHaveBeenCalled();
     expect(harness.userCreate).not.toHaveBeenCalled();
-    expect(harness.workspaceMemberCreate).toHaveBeenCalledWith({
-      data: {
+    expect(harness.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
         workspaceId: "workspace_1",
-        userId: "user_existing",
-        role: "owner"
-      }
-    });
+        action: expect.objectContaining({
+          type: "WorkspaceMember",
+          id: "member_owner"
+        }),
+        envelope: expect.objectContaining({
+          template: "workspace_access_granted",
+          to: { address: existingUser.email, name: existingUser.name }
+        })
+      })
+    );
+    expect(harness.issueClientOwnerActivation).not.toHaveBeenCalled();
     expect(harness.auditCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         afterSummary: expect.objectContaining({
@@ -176,7 +222,8 @@ describe("client workspace provisioning", () => {
     const existingUser = {
       id: "user_multi_company",
       name: "Gestor Multiempresa",
-      email: "gestor@grupo.com"
+      email: "gestor@grupo.com",
+      passwordHash: "existing-password-hash"
     };
     const harness = createHarness({ existingUser });
 
@@ -212,6 +259,7 @@ describe("client workspace provisioning", () => {
         role: "owner"
       }
     });
+    expect(harness.enqueue).toHaveBeenCalledTimes(2);
   });
 
   it("rejects a second owner membership inside the provisioning transaction", async () => {
@@ -222,8 +270,7 @@ describe("client workspace provisioning", () => {
         {
           workspaceName: "Empresa com Owner",
           ownerName: "Novo Responsavel",
-          ownerEmail: "owner@empresa.com",
-          ownerPassword: "temporary-strong-password"
+          ownerEmail: "owner@empresa.com"
         },
         "platform_owner"
       )

@@ -4,6 +4,8 @@ export const transactionalEmailTemplateNames = [
   "workspace_invitation",
   "password_reset",
   "email_verification",
+  "client_owner_activation",
+  "workspace_access_granted",
 ] as const;
 
 export type TransactionalEmailTemplateName =
@@ -34,6 +36,18 @@ export type EmailVerificationData = {
   expiresAt: string;
 };
 
+export type ClientOwnerActivationEmailData = {
+  recipientName?: string;
+  workspaceName: string;
+  token: string;
+  expiresAt: string;
+};
+
+export type WorkspaceAccessGrantedEmailData = {
+  recipientName?: string;
+  workspaceName: string;
+};
+
 export type TransactionalEmailEnvelope =
   | {
       to: EmailRecipient;
@@ -49,10 +63,20 @@ export type TransactionalEmailEnvelope =
       to: EmailRecipient;
       template: "email_verification";
       data: EmailVerificationData;
+    }
+  | {
+      to: EmailRecipient;
+      template: "client_owner_activation";
+      data: ClientOwnerActivationEmailData;
+    }
+  | {
+      to: EmailRecipient;
+      template: "workspace_access_granted";
+      data: WorkspaceAccessGrantedEmailData;
     };
 
 export type EmailActionReference = {
-  type: "WorkspaceInvite" | "AuthActionToken";
+  type: "WorkspaceInvite" | "WorkspaceMember" | "AuthActionToken";
   id: string;
   version: string;
 };

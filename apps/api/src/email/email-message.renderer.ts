@@ -83,6 +83,49 @@ export class EmailMessageRenderer {
       };
     }
 
+    if (envelope.template === "client_owner_activation") {
+      return {
+        subject: `Crie seu acesso a ${envelope.data.workspaceName} no WppTrack`,
+        body: {
+          preheader: `Seu acesso ao workspace ${envelope.data.workspaceName} esta pronto para ser ativado.`,
+          heading: this.personalizedHeading(
+            envelope.data.recipientName,
+            "Crie sua senha de acesso",
+          ),
+          paragraphs: [
+            `Voce foi definido como responsavel pelo workspace ${envelope.data.workspaceName}.`,
+            `Seu login e ${envelope.to.address}. Por seguranca, nenhuma senha foi criada ou enviada pela plataforma.`,
+            `Este link expira em ${this.formatExpiry(envelope.data.expiresAt)} e so pode ser usado uma vez.`,
+          ],
+          actionLabel: "Criar senha e acessar",
+          actionUrl: this.actionUrl("/login/activate", envelope.data.token),
+          footerNote:
+            "Se voce nao esperava este acesso, ignore esta mensagem ou fale com nosso suporte.",
+        },
+      };
+    }
+
+    if (envelope.template === "workspace_access_granted") {
+      return {
+        subject: `Novo workspace disponivel no WppTrack: ${envelope.data.workspaceName}`,
+        body: {
+          preheader: `O workspace ${envelope.data.workspaceName} foi adicionado a sua conta.`,
+          heading: this.personalizedHeading(
+            envelope.data.recipientName,
+            "um novo workspace esta disponivel",
+          ),
+          paragraphs: [
+            `O workspace ${envelope.data.workspaceName} foi adicionado a sua conta WppTrack.`,
+            `Entre com ${envelope.to.address} e a senha que voce ja utiliza. Suas credenciais nao foram alteradas.`,
+          ],
+          actionLabel: "Entrar no WppTrack",
+          actionUrl: this.loginUrl(),
+          footerNote:
+            "Se voce nao reconhece este acesso, entre em contato com nosso suporte.",
+        },
+      };
+    }
+
     return {
       subject: "Confirme seu e-mail no WppTrack",
       body: {
@@ -172,6 +215,13 @@ export class EmailMessageRenderer {
     const url = new URL(path, `${this.configuration.getWebOrigin()}/`);
     url.searchParams.set("token", token);
     return url.toString();
+  }
+
+  private loginUrl(): string {
+    return new URL(
+      "/login",
+      `${this.configuration.getWebOrigin()}/`,
+    ).toString();
   }
 
   private formatExpiry(value: string): string {

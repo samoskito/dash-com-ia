@@ -59,6 +59,24 @@ const transactionalEmailEnvelopeSchema = z.discriminatedUnion("template", [
       expiresAt: expiry,
     }),
   }),
+  z.object({
+    to: recipient,
+    template: z.literal("client_owner_activation"),
+    data: z.object({
+      recipientName: shortText.optional(),
+      workspaceName: shortText,
+      token,
+      expiresAt: expiry,
+    }),
+  }),
+  z.object({
+    to: recipient,
+    template: z.literal("workspace_access_granted"),
+    data: z.object({
+      recipientName: shortText.optional(),
+      workspaceName: shortText,
+    }),
+  }),
 ]);
 
 @Injectable()

@@ -30,9 +30,7 @@ describe("backoffice clients route", () => {
             connectorCount: 1
           }
         ];
-      } else if (
-        url.endsWith("/backoffice/external-data/connectors?includeHealth=true")
-      ) {
+      } else if (url.endsWith("/backoffice/external-data/connectors?includeHealth=true")) {
         body = [
           {
             connector: {
@@ -149,10 +147,8 @@ describe("backoffice clients route", () => {
     expect(html).toContain("Provisionar workspace");
     expect(html).toContain("Nome do responsavel");
     expect(html).toContain("Email do responsavel");
-    expect(html).toContain("Senha inicial (para novo email)");
-    expect(html).toContain(
-      "Emails existentes mantem a conta e a senha atuais."
-    );
+    expect(html).not.toContain("Senha inicial (para novo email)");
+    expect(html).toContain("O responsavel recebe um link seguro para criar a propria senha.");
     expect(html).toContain("Responsavel da conta");
     expect(html).toContain("Cliente Barbieri");
     expect(html).toContain("MySQL Barbieri");
@@ -172,6 +168,7 @@ describe("backoffice clients route", () => {
     expect(html).toContain("Digite ASSUMIR ENVIO");
     expect(html).toContain("Mantenha o registro no ledger MySQL ativo");
     expect(html).toContain("Acessar");
+    expect(html).toContain("Reenviar acesso");
     expect(html).toContain("Salvar conector");
     expect(html).not.toContain("credentialsEncrypted");
   });

@@ -238,6 +238,29 @@ Owner transfer is a separate high-risk operation and not required in the first d
 
 ## 7. Transactional Email
 
+### 7.0 Client owner activation
+
+Private client provisioning does not ask the platform operator to create or
+communicate an initial password.
+
+- When the responsible owner email is new, provisioning creates the workspace,
+  identity without a password and owner membership atomically. A one-time,
+  hashed activation token bound to that workspace is then delivered by email.
+- The activation link expires after seven days. Successful activation sets the
+  password, verifies the email, consumes competing activation tokens, creates a
+  session and activates the provisioned workspace in one transaction.
+- When the email already belongs to an identity with a password, provisioning
+  preserves its credentials and sends only a notification that the new
+  workspace is available.
+- The backoffice can resend access. Resending rotates an outstanding activation
+  token; it never reveals a usable token or password to the operator.
+- Delivery failure does not roll back the workspace and membership. The
+  backoffice reports the failure and offers the audited resend operation.
+
+Invalid, expired, used or no-longer-authorized activation links share the same
+generic public error state. Tokens, passwords and full activation URLs never
+appear in API responses, logs or audit metadata.
+
 ### 7.1 Provider
 
 Use Brevo through SMTP:
@@ -271,11 +294,13 @@ Secrets remain server-side and outside logs, audit metadata and API responses.
 
 A shared EmailModule renders and queues transactional messages. A worker sends them with retry and exponential backoff.
 
-Initial templates:
+Transactional templates:
 
 - workspace invitation;
 - password reset;
-- email verification.
+- email verification;
+- client owner activation;
+- existing-account workspace access notice.
 
 Delivery status may be audited, but the token, link query string, SMTP credential and full rendered sensitive content may not be stored in logs.
 

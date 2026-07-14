@@ -13,6 +13,7 @@ import {
   Res,
 } from "@nestjs/common";
 import {
+  accountActivationConfirmInputSchema,
   emailVerificationConfirmInputSchema,
   googleOAuthCallbackQuerySchema,
   googleOAuthStartSchema,
@@ -158,6 +159,25 @@ export class AuthController {
     );
 
     return this.authService.resetPassword(input);
+  }
+
+  @Post("account/activate")
+  async activateProvisionedAccount(
+    @Body() body: unknown,
+    @Req() request: AuthRequest,
+    @Res({ passthrough: true }) response: SessionCookieResponse,
+  ) {
+    const input = this.parseBody(
+      accountActivationConfirmInputSchema.safeParse(body),
+    );
+    const result = await this.authService.activateProvisionedAccount(input, {
+      userAgent: firstHeader(request.headers["user-agent"]) ?? null,
+      ipAddress: request.ip ?? null,
+    });
+
+    setSessionCookie(response, result.session, this.env);
+
+    return { ok: true };
   }
 
   @Post("email/verification/start")

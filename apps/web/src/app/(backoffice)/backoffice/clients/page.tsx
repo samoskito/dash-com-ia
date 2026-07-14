@@ -1,5 +1,7 @@
 import type {
   BackofficeClientWorkspaceDto,
+  ClientOwnerAccessResendResultDto,
+  ClientWorkspaceProvisionResultDto,
   ExternalConnectionTestResultDto,
   ExternalDataConnectorDto,
   ExternalConnectorHealthDto,
@@ -99,7 +101,7 @@ async function getPlatformSession(): Promise<PlatformSession | null> {
   }
 }
 
-function actionRedirect(message: string, type: "success" | "error" = "success") {
+function actionRedirect(message: string, type: "success" | "error" = "success"): never {
   const params = new URLSearchParams({ notice: message, noticeType: type });
   redirect(`/backoffice/clients?${params.toString()}`);
 }
@@ -123,24 +125,76 @@ async function provisionClient(
 ): Promise<BackofficeActionState> {
   "use server";
 
-  const ownerPassword = String(formData.get("ownerPassword") ?? "");
-
   try {
-    await serverApiFetch("/backoffice/workspaces", {
-      method: "POST",
-      body: JSON.stringify({
-        workspaceName: String(formData.get("workspaceName") ?? "").trim(),
-        ownerName: String(formData.get("ownerName") ?? "").trim(),
-        ownerEmail: String(formData.get("ownerEmail") ?? "").trim(),
-        ...(ownerPassword ? { ownerPassword } : {})
-      })
-    });
+    const result = await serverApiFetch<ClientWorkspaceProvisionResultDto>(
+      "/backoffice/workspaces",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          workspaceName: String(formData.get("workspaceName") ?? "").trim(),
+          ownerName: String(formData.get("ownerName") ?? "").trim(),
+          ownerEmail: String(formData.get("ownerEmail") ?? "").trim()
+        })
+      }
+    );
     revalidatePath("/backoffice/clients");
+
+    if (result.access.delivery === "failed") {
+      return actionResult(
+        "success",
+        "Cliente criado, mas o email nao foi enfileirado. Use Reenviar acesso."
+      );
+    }
+
+    if (result.access.delivery === "not_configured") {
+      return actionResult(
+        "success",
+        "Cliente criado. O email esta desativado; use Reenviar acesso apos configurar o envio."
+      );
+    }
+
+    return actionResult(
+      "success",
+      result.access.mode === "activation"
+        ? "Cliente criado e email para criar a senha enfileirado."
+        : "Cliente criado e novo workspace comunicado ao responsavel."
+    );
   } catch {
     return actionResult("error", "Nao foi possivel criar o cliente");
   }
+}
 
-  return actionResult("success", "Cliente criado e responsavel vinculado com sucesso");
+async function resendOwnerAccess(formData: FormData) {
+  "use server";
+
+  const workspaceId = String(formData.get("workspaceId") ?? "");
+  const ownerUserId = String(formData.get("ownerUserId") ?? "");
+
+  let result: ClientOwnerAccessResendResultDto;
+
+  try {
+    result = await serverApiFetch<ClientOwnerAccessResendResultDto>(
+      `/backoffice/workspaces/${encodeURIComponent(workspaceId)}/owners/${encodeURIComponent(ownerUserId)}/access-email`,
+      { method: "POST" }
+    );
+  } catch {
+    actionRedirect("Nao foi possivel reenviar o acesso", "error");
+  }
+
+  if (result.access.delivery === "email_queued") {
+    actionRedirect(
+      result.access.mode === "activation"
+        ? "Novo link para criar a senha foi enfileirado"
+        : "Aviso de acesso ao workspace foi enfileirado"
+    );
+  }
+
+  actionRedirect(
+    result.access.delivery === "not_configured"
+      ? "O envio de email nao esta configurado"
+      : "Nao foi possivel enfileirar o email de acesso",
+    "error"
+  );
 }
 
 async function startSupportAccess(formData: FormData) {
@@ -490,13 +544,8 @@ export default async function BackofficeClientsPage({
               Email do responsavel
               <input name="ownerEmail" type="email" required />
             </label>
-            <SecurePasswordInput
-              label="Senha inicial (para novo email)"
-              name="ownerPassword"
-              required={false}
-            />
             <div className="form-command-row">
-              <span>Emails existentes mantem a conta e a senha atuais.</span>
+              <span>O responsavel recebe um link seguro para criar a propria senha.</span>
               <PendingSubmitButton label="Criar cliente" pendingLabel="Criando cliente..." />
             </div>
           </BackofficeActionForm>
@@ -575,6 +624,7 @@ export default async function BackofficeClientsPage({
                 <th>Responsavel da conta</th>
                 <th>Conectores</th>
                 <th>Status</th>
+                <th>Acesso</th>
                 <th>Suporte</th>
               </tr>
             </thead>
@@ -601,6 +651,21 @@ export default async function BackofficeClientsPage({
                       </span>
                     </td>
                     <td>
+                      {workspace.owners[0] ? (
+                        <form action={resendOwnerAccess}>
+                          <input type="hidden" name="workspaceId" value={workspace.id} />
+                          <input type="hidden" name="ownerUserId" value={workspace.owners[0].id} />
+                          <PendingSubmitButton
+                            label="Reenviar acesso"
+                            pendingLabel="Enviando..."
+                            className="button ghost compact-button"
+                          />
+                        </form>
+                      ) : (
+                        <span>Nao disponivel</span>
+                      )}
+                    </td>
+                    <td>
                       <form action={startSupportAccess}>
                         <input type="hidden" name="workspaceId" value={workspace.id} />
                         <PendingSubmitButton
@@ -614,7 +679,7 @@ export default async function BackofficeClientsPage({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={6}>
                     <strong>
                       {workspacesResult.state === "error"
                         ? "Nao foi possivel carregar os workspaces"

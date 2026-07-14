@@ -70,6 +70,10 @@ async function createApp(env: RuntimeEnv = {}) {
       devToken: "reset-token-1234567890",
     })),
     resetPassword: vi.fn(async () => ({ ok: true })),
+    activateProvisionedAccount: vi.fn(async () => ({
+      ok: true,
+      session: authPayload,
+    })),
     requestEmailVerification: vi.fn(async () => ({
       ok: true,
       delivery: "not_configured",
@@ -489,6 +493,33 @@ describe("auth controller", () => {
     expect(authService.confirmEmailVerification).toHaveBeenCalledWith({
       token: "verify-token-1234567890",
     });
+
+    await app.close();
+  });
+
+  it("activates a provisioned account and sets its authenticated session", async () => {
+    const { app, authService } = await createApp({ NODE_ENV: "production" });
+
+    await request(app.getHttpServer())
+      .post("/auth/account/activate")
+      .send({
+        token: "activation-token-1234567890",
+        password: "new-strong-password",
+      })
+      .expect(201)
+      .expect("set-cookie", /wpptrack_session=/)
+      .expect({ ok: true });
+
+    expect(authService.activateProvisionedAccount).toHaveBeenCalledWith(
+      {
+        token: "activation-token-1234567890",
+        password: "new-strong-password",
+      },
+      {
+        ipAddress: "::ffff:127.0.0.1",
+        userAgent: null,
+      },
+    );
 
     await app.close();
   });

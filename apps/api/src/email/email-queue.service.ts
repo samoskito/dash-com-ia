@@ -91,8 +91,15 @@ export class EmailQueueService {
       throw new Error("Transactional email action reference is invalid");
     }
 
-    if (input.action.type === "WorkspaceInvite" && input.workspaceId === null) {
-      throw new Error("Workspace invitation email requires a workspace scope");
+    if (
+      [
+        "workspace_invitation",
+        "client_owner_activation",
+        "workspace_access_granted",
+      ].includes(input.envelope.template) &&
+      input.workspaceId === null
+    ) {
+      throw new Error("Workspace email requires a workspace scope");
     }
   }
 

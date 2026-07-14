@@ -69,6 +69,20 @@ describe("EmailMessageRenderer", () => {
       path: "/login/verify",
       actionLabel: "Confirmar e-mail",
     },
+    {
+      envelope: {
+        to: { address: "responsavel@example.com", name: "Responsavel" },
+        template: "client_owner_activation",
+        data: {
+          recipientName: "Responsavel",
+          workspaceName: "Empresa Exemplo",
+          token: rawToken,
+          expiresAt: "2026-07-21T12:00:00.000Z",
+        },
+      },
+      path: "/login/activate",
+      actionLabel: "Criar senha e acessar",
+    },
   ])(
     "renders $envelope.template with HTML and text",
     ({ envelope, path, actionLabel }) => {
@@ -93,6 +107,25 @@ describe("EmailMessageRenderer", () => {
       expect(message.html).toContain('lang="pt-BR"');
     },
   );
+
+  it("renders an existing-account notice without a password or token", () => {
+    const configuration = new EmailConfigurationService(smtpEnvironment());
+    const renderer = new EmailMessageRenderer(configuration);
+    const message = renderer.render({
+      to: { address: "responsavel@example.com", name: "Responsavel" },
+      template: "workspace_access_granted",
+      data: {
+        recipientName: "Responsavel",
+        workspaceName: "Nova Empresa",
+      },
+    });
+
+    expect(message.subject).toContain("Nova Empresa");
+    expect(message.text).toContain("Entrar no WppTrack");
+    expect(message.text).toContain("http://localhost:3000/login");
+    expect(message.text).toContain("senha que voce ja utiliza");
+    expect(message.text).not.toContain(rawToken);
+  });
 
   it("escapes user-controlled display values before rendering HTML", () => {
     const configuration = new EmailConfigurationService(smtpEnvironment());

@@ -67,6 +67,22 @@ export class BackofficeWorkspacesController {
     );
   }
 
+  @Post(":workspaceId/owners/:ownerUserId/access-email")
+  async resendOwnerAccess(
+    @AuthToken() refreshToken: string,
+    @Param("workspaceId") workspaceId: string,
+    @Param("ownerUserId") ownerUserId: string
+  ) {
+    const platformAdmin =
+      await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    return this.workspacesService.resendClientOwnerAccess(
+      workspaceId,
+      ownerUserId,
+      platformAdmin.id
+    );
+  }
+
   @Delete("support-access")
   async stopSupportAccess(@AuthToken() refreshToken: string) {
     const platformAdmin =

@@ -22,9 +22,7 @@ async function createApp() {
         slug: "comunidade-nod",
         operationalStatus: "active",
         createdAt: "2026-07-02T03:00:00.000Z",
-        owners: [
-          { id: "client_1", name: "Cliente", email: "cliente@empresa.com" }
-        ],
+        owners: [{ id: "client_1", name: "Cliente", email: "cliente@empresa.com" }],
         connectorCount: 1
       }
     ]),
@@ -40,6 +38,17 @@ async function createApp() {
         name: "Cliente Barbieri",
         email: "cliente@barbieri.com.br",
         role: "owner"
+      },
+      access: {
+        mode: "activation",
+        delivery: "email_queued"
+      }
+    })),
+    resendClientOwnerAccess: vi.fn(async () => ({
+      ok: true,
+      access: {
+        mode: "activation",
+        delivery: "email_queued"
       }
     })),
     listBillingConfigurations: vi.fn(async () => [
@@ -149,18 +158,40 @@ describe("backoffice workspaces controller", () => {
       .send({
         workspaceName: "Barbieri",
         ownerName: "Cliente Barbieri",
-        ownerEmail: "cliente@barbieri.com.br",
-        ownerPassword: "temporary-strong-password"
+        ownerEmail: "cliente@barbieri.com.br"
       })
       .expect(201)
       .expect(({ body }) => {
         expect(body.workspace.slug).toBe("barbieri");
         expect(body.owner.role).toBe("owner");
+        expect(body.access.delivery).toBe("email_queued");
         expect(JSON.stringify(body)).not.toContain("password");
       });
 
     expect(workspacesService.provisionClientWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ ownerEmail: "cliente@barbieri.com.br" }),
+      "user_1"
+    );
+    await app.close();
+  });
+
+  it("resends access to an explicitly scoped workspace owner", async () => {
+    const { app, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/backoffice/workspaces/workspace_1/owners/client_1/access-email")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          ok: true,
+          access: { mode: "activation", delivery: "email_queued" }
+        });
+      });
+
+    expect(workspacesService.resendClientOwnerAccess).toHaveBeenCalledWith(
+      "workspace_1",
+      "client_1",
       "user_1"
     );
     await app.close();
@@ -205,12 +236,8 @@ describe("backoffice workspaces controller", () => {
         expect(body.asaasCustomerId).toBe("cus_asaas_1");
       });
 
-    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
-      "refresh-token"
-    );
-    expect(workspacesService.getBillingConfiguration).toHaveBeenCalledWith(
-      "workspace_1"
-    );
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith("refresh-token");
+    expect(workspacesService.getBillingConfiguration).toHaveBeenCalledWith("workspace_1");
 
     await app.close();
   });
@@ -227,9 +254,7 @@ describe("backoffice workspaces controller", () => {
         expect(body[1].asaasCustomerId).toBeNull();
       });
 
-    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
-      "refresh-token"
-    );
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith("refresh-token");
     expect(workspacesService.listBillingConfigurations).toHaveBeenCalled();
 
     await app.close();
@@ -248,9 +273,7 @@ describe("backoffice workspaces controller", () => {
         expect(body[0].providerInstanceId).toBe("uazapi_1");
       });
 
-    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
-      "refresh-token"
-    );
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith("refresh-token");
     expect(workspacesService.listBackofficeWhatsappInstances).toHaveBeenCalled();
 
     await app.close();
@@ -270,9 +293,7 @@ describe("backoffice workspaces controller", () => {
         expect(body.asaasCustomerId).toBe("cus_asaas_2");
       });
 
-    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
-      "refresh-token"
-    );
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith("refresh-token");
     expect(workspacesService.updateBillingConfiguration).toHaveBeenCalledWith(
       "workspace_1",
       {
@@ -298,9 +319,7 @@ describe("backoffice workspaces controller", () => {
         expect(body.operationalStatus).toBe("blocked");
       });
 
-    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith(
-      "refresh-token"
-    );
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalledWith("refresh-token");
     expect(workspacesService.updateOperationalStatus).toHaveBeenCalledWith(
       "workspace_1",
       {

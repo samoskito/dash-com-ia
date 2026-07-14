@@ -11,8 +11,11 @@ import {
 import { Prisma, type WorkspaceInvite } from "@prisma/client";
 import {
   backofficeClientWorkspaceListSchema,
+  clientOwnerAccessResendResultSchema,
   clientWorkspaceProvisionResultSchema,
   type BackofficeClientWorkspaceDto,
+  type ClientOwnerAccessDeliveryDto,
+  type ClientOwnerAccessResendResultDto,
   type ClientWorkspaceProvisionInputDto,
   type ClientWorkspaceProvisionResultDto,
   type CurrentWorkspaceDto,
@@ -164,19 +167,13 @@ export class WorkspacesService {
   ): Promise<ClientWorkspaceProvisionResultDto> {
     const existingUser = await this.prisma.user.findUnique({
       where: { email: input.ownerEmail },
-      select: { id: true, name: true, email: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        passwordHash: true,
+      },
     });
-
-    if (!existingUser && !input.ownerPassword) {
-      throw new BadRequestException(
-        "Senha inicial obrigatoria para um novo responsavel",
-      );
-    }
-
-    const passwordHash =
-      !existingUser && input.ownerPassword
-        ? await this.passwordService.hash(input.ownerPassword)
-        : null;
     const result = await this.prisma.$transaction(async (tx) => {
       const slug = await this.resolveWorkspaceSlug(tx, input.workspaceName);
       const workspace = await tx.workspace.create({
@@ -191,9 +188,9 @@ export class WorkspacesService {
           data: {
             name: input.ownerName,
             email: input.ownerEmail,
-            passwordHash: passwordHash!,
+            passwordHash: null,
             authProvider: "email",
-            emailVerifiedAt: new Date(),
+            emailVerifiedAt: null,
           },
         }));
 
@@ -209,7 +206,7 @@ export class WorkspacesService {
         throw new ConflictException("Workspace ja possui um responsavel");
       }
 
-      await tx.workspaceMember.create({
+      const member = await tx.workspaceMember.create({
         data: {
           workspaceId: workspace.id,
           userId: owner.id,
@@ -230,13 +227,32 @@ export class WorkspacesService {
             workspaceName: workspace.name,
             workspaceSlug: workspace.slug,
             ownerUserId: owner.id,
-            ownerEmail: owner.email,
+            ownerEmailHash: this.hashAuditValue(owner.email),
             reusedExistingUser: Boolean(existingUser),
           },
         },
       });
 
-      return { workspace, owner };
+      return { workspace, owner, member };
+    });
+    const access = await this.deliverClientOwnerAccess({
+      workspace: result.workspace,
+      owner: result.owner,
+      member: result.member,
+    });
+    await this.recordWorkspaceAudit({
+      workspaceId: result.workspace.id,
+      actorUserId,
+      actorType: "platform_admin",
+      action: "workspace.client_owner_access_delivery_requested",
+      targetType: "WorkspaceMember",
+      targetId: result.member.id,
+      resultStatus: access.delivery,
+      afterSummary: {
+        accessMode: access.mode,
+        delivery: access.delivery,
+        recipientEmailHash: this.hashAuditValue(result.owner.email),
+      } as Prisma.InputJsonValue,
     });
 
     return clientWorkspaceProvisionResultSchema.parse({
@@ -252,7 +268,125 @@ export class WorkspacesService {
         email: result.owner.email,
         role: "owner",
       },
+      access,
     });
+  }
+
+  async resendClientOwnerAccess(
+    workspaceId: string,
+    ownerUserId: string,
+    actorUserId: string,
+  ): Promise<ClientOwnerAccessResendResultDto> {
+    const member = await this.prisma.workspaceMember.findFirst({
+      where: {
+        workspaceId,
+        userId: ownerUserId,
+        role: "owner",
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        workspace: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            passwordHash: true,
+          },
+        },
+      },
+    });
+
+    if (!member) {
+      throw new NotFoundException("Responsavel nao encontrado");
+    }
+
+    const access = await this.deliverClientOwnerAccess({
+      workspace: member.workspace,
+      owner: member.user,
+      member,
+    });
+    await this.recordWorkspaceAudit({
+      workspaceId,
+      actorUserId,
+      actorType: "platform_admin",
+      action: "workspace.client_owner_access_resent",
+      targetType: "WorkspaceMember",
+      targetId: member.id,
+      resultStatus: access.delivery,
+      afterSummary: {
+        accessMode: access.mode,
+        delivery: access.delivery,
+        recipientEmailHash: this.hashAuditValue(member.user.email),
+      } as Prisma.InputJsonValue,
+    });
+
+    return clientOwnerAccessResendResultSchema.parse({
+      ok: true,
+      access,
+    });
+  }
+
+  private async deliverClientOwnerAccess(input: {
+    workspace: { id: string; name: string };
+    owner: {
+      id: string;
+      name: string | null;
+      email: string;
+      passwordHash: string | null;
+    };
+    member: { id: string; createdAt: Date };
+  }): Promise<ClientOwnerAccessDeliveryDto> {
+    if (!input.owner.passwordHash) {
+      if (!this.authService) {
+        return { mode: "activation", delivery: "failed" };
+      }
+
+      try {
+        return await this.authService.issueClientOwnerActivation({
+          userId: input.owner.id,
+          workspaceId: input.workspace.id,
+        });
+      } catch {
+        return { mode: "activation", delivery: "failed" };
+      }
+    }
+
+    if (!this.emailQueue?.isEnabled()) {
+      return { mode: "existing_account", delivery: "not_configured" };
+    }
+
+    try {
+      await this.emailQueue.enqueue({
+        workspaceId: input.workspace.id,
+        action: {
+          type: "WorkspaceMember",
+          id: input.member.id,
+          version: `${input.member.createdAt.toISOString()}:${randomBytes(8).toString("hex")}`,
+        },
+        envelope: {
+          to: {
+            address: input.owner.email,
+            name: input.owner.name ?? undefined,
+          },
+          template: "workspace_access_granted",
+          data: {
+            recipientName: input.owner.name ?? undefined,
+            workspaceName: input.workspace.name,
+          },
+        },
+      });
+
+      return { mode: "existing_account", delivery: "email_queued" };
+    } catch {
+      return { mode: "existing_account", delivery: "failed" };
+    }
   }
 
   private async resolveWorkspaceSlug(
@@ -1363,7 +1497,7 @@ export class WorkspacesService {
 
   private requireAuthService(): AuthService {
     if (!this.authService) {
-      throw new Error("AuthService is required for invitation onboarding");
+      throw new Error("AuthService is required for account onboarding");
     }
 
     return this.authService;

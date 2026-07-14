@@ -15,8 +15,11 @@ import {
   Optional,
   UnauthorizedException,
 } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type {
+  AccountActivationConfirmDto,
+  AccountActivationConfirmInputDto,
+  ClientOwnerAccessDeliveryDto,
   EmailVerificationConfirmDto,
   EmailVerificationConfirmInputDto,
   EmailVerificationStartDto,
@@ -51,6 +54,7 @@ const refreshTokenBytes = 32;
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 30;
 const passwordResetTtlMs = 1000 * 60 * 30;
 const emailVerificationTtlMs = 1000 * 60 * 60 * 24;
+const accountActivationTtlMs = 1000 * 60 * 60 * 24 * 7;
 const loginFailureWindowMs = 1000 * 60 * 15;
 const loginFailureLimit = 5;
 const passwordResetRequestWindowMs = 1000 * 60 * 15;
@@ -117,10 +121,12 @@ type CreatedWorkspaceOwnership = {
   workspaceSlug: string;
   memberId: string;
 };
-type AuthActionTokenType = "password_reset" | "email_verification";
+type AuthActionTokenType =
+  "password_reset" | "email_verification" | "account_activation";
 type AuthActionTokenRecord = {
   id: string;
   userId: string;
+  workspaceId: string | null;
   type: AuthActionTokenType;
   tokenHash: string;
   expiresAt: Date;
@@ -157,6 +163,10 @@ type GoogleOAuthCallbackServiceResult =
 export type AuthSessionResult = AuthenticatedUser & {
   refreshToken: string;
   expiresAt: Date;
+};
+
+export type AccountActivationResult = AccountActivationConfirmDto & {
+  session: AuthSessionResult;
 };
 
 @Injectable()
@@ -794,6 +804,201 @@ export class AuthService {
     }
 
     return this.createActionToken(user, "password_reset", passwordResetTtlMs);
+  }
+
+  async issueClientOwnerActivation(input: {
+    userId: string;
+    workspaceId: string;
+  }): Promise<ClientOwnerAccessDeliveryDto> {
+    const membership = await this.prisma.workspaceMember.findFirst({
+      where: {
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        role: "owner",
+      },
+      select: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            passwordHash: true,
+          },
+        },
+        workspace: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!membership || membership.user.passwordHash) {
+      throw this.invalidAccountActivation();
+    }
+
+    const token = randomBytes(32).toString("hex");
+    const actionToken = await this.prisma.$transaction(async (tx) => {
+      await tx.authActionToken.updateMany({
+        where: {
+          userId: membership.user.id,
+          workspaceId: membership.workspace.id,
+          type: "account_activation",
+          usedAt: null,
+        },
+        data: { usedAt: new Date() },
+      });
+
+      return tx.authActionToken.create({
+        data: {
+          userId: membership.user.id,
+          workspaceId: membership.workspace.id,
+          type: "account_activation",
+          tokenHash: this.hashActionToken(token),
+          expiresAt: new Date(Date.now() + accountActivationTtlMs),
+        },
+      });
+    });
+
+    if (!this.emailQueue?.isEnabled()) {
+      return { mode: "activation", delivery: "not_configured" };
+    }
+
+    try {
+      await this.emailQueue.enqueue({
+        workspaceId: membership.workspace.id,
+        action: {
+          type: "AuthActionToken",
+          id: actionToken.id,
+          version: actionToken.expiresAt.toISOString(),
+        },
+        envelope: {
+          to: {
+            address: membership.user.email,
+            name: membership.user.name ?? undefined,
+          },
+          template: "client_owner_activation",
+          data: {
+            recipientName: membership.user.name ?? undefined,
+            workspaceName: membership.workspace.name,
+            token,
+            expiresAt: actionToken.expiresAt.toISOString(),
+          },
+        },
+      });
+
+      return { mode: "activation", delivery: "email_queued" };
+    } catch {
+      await this.safeCreateAuditLog({
+        workspaceId: membership.workspace.id,
+        actorUserId: null,
+        actorType: "system",
+        action: "auth.account_activation_email_queue_failed",
+        targetType: "AuthActionToken",
+        targetId: actionToken.id,
+        reason: "Transactional email queue unavailable",
+        sourceIp: null,
+        resultStatus: "failed",
+        beforeSummary: null,
+        afterSummary: { type: "account_activation" },
+      });
+
+      return { mode: "activation", delivery: "failed" };
+    }
+  }
+
+  async activateProvisionedAccount(
+    input: AccountActivationConfirmInputDto,
+    context: AuthRequestContext = {},
+  ): Promise<AccountActivationResult> {
+    await this.assertAccountActivationCandidate(input.token);
+    const passwordHash = await this.passwordService.hash(input.password);
+    const now = new Date();
+    const session = await this.prisma.$transaction(async (tx) => {
+      const token = await this.consumeActionTokenInTransaction(
+        tx,
+        "account_activation",
+        input.token,
+        now,
+      );
+
+      if (!token.workspaceId) {
+        throw this.invalidAccountActivation();
+      }
+
+      const membership = await tx.workspaceMember.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId: token.workspaceId,
+            userId: token.userId,
+          },
+        },
+        select: {
+          id: true,
+          role: true,
+        },
+      });
+      const user = await tx.user.findUnique({
+        where: { id: token.userId },
+        select: {
+          id: true,
+          emailVerifiedAt: true,
+          passwordHash: true,
+        },
+      });
+
+      if (!membership || membership.role !== "owner" || !user?.id) {
+        throw this.invalidAccountActivation();
+      }
+
+      const activated = await tx.user.updateMany({
+        where: {
+          id: user.id,
+          passwordHash: null,
+        },
+        data: {
+          passwordHash,
+          emailVerifiedAt: user.emailVerifiedAt ?? now,
+        },
+      });
+
+      if (activated.count !== 1) {
+        throw this.invalidAccountActivation();
+      }
+
+      await tx.authActionToken.updateMany({
+        where: {
+          userId: user.id,
+          type: "account_activation",
+          usedAt: null,
+        },
+        data: { usedAt: now },
+      });
+      await tx.auditLog.create({
+        data: {
+          workspaceId: token.workspaceId,
+          actorUserId: user.id,
+          actorType: "user",
+          action: "auth.account_activated",
+          targetType: "User",
+          targetId: user.id,
+          resultStatus: "success",
+          beforeSummary: Prisma.JsonNull,
+          afterSummary: {
+            memberId: membership.id,
+            emailVerified: true,
+          },
+        },
+      });
+
+      return this.createSessionForUser(user.id, context, {
+        activeWorkspaceId: token.workspaceId,
+        transaction: tx,
+      });
+    });
+
+    return { ok: true, session };
   }
 
   async resetPassword(
@@ -1842,6 +2047,46 @@ export class AuthService {
 
   private getTokenDelivery(): "email_queued" | "not_configured" {
     return this.emailQueue?.isEnabled() ? "email_queued" : "not_configured";
+  }
+
+  private invalidAccountActivation(): BadRequestException {
+    return new BadRequestException("Link de ativacao invalido ou expirado");
+  }
+
+  private async assertAccountActivationCandidate(token: string): Promise<void> {
+    const record = await this.prisma.authActionToken.findFirst({
+      where: {
+        type: "account_activation",
+        tokenHash: this.hashActionToken(token),
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: {
+        userId: true,
+        workspaceId: true,
+        user: {
+          select: { passwordHash: true },
+        },
+      },
+    });
+
+    if (!record?.workspaceId || record.user.passwordHash) {
+      throw this.invalidAccountActivation();
+    }
+
+    const membership = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: record.workspaceId,
+          userId: record.userId,
+        },
+      },
+      select: { role: true },
+    });
+
+    if (membership?.role !== "owner") {
+      throw this.invalidAccountActivation();
+    }
   }
 
   private shouldExposeDevTokens(): boolean {

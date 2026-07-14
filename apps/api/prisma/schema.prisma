@@ -119,6 +119,7 @@ enum MetaWhatsappClassification {
 enum AuthActionTokenType {
   password_reset
   email_verification
+  account_activation
 }
 
 model User {
@@ -182,6 +183,7 @@ model Workspace {
   activeSessions              AuthSession[]                @relation("AuthSessionActiveWorkspace")
   supportSessions             AuthSession[]                @relation("AuthSessionSupportWorkspace")
   lastSelectedByUsers         User[]                       @relation("UserLastWorkspace")
+  actionTokens                AuthActionToken[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
@@ -248,17 +250,20 @@ model AuthSession {
 }
 
 model AuthActionToken {
-  id        String              @id @default(cuid())
-  userId    String
-  type      AuthActionTokenType
-  tokenHash String              @unique
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime            @default(now())
+  id          String              @id @default(cuid())
+  userId      String
+  workspaceId String?
+  type        AuthActionTokenType
+  tokenHash   String              @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime            @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  user      User       @relation(fields: [userId], references: [id])
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
   @@index([userId, type, usedAt])
+  @@index([workspaceId, type, usedAt])
   @@index([type, expiresAt])
 }
 
