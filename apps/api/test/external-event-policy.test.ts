@@ -4,6 +4,8 @@ import {
   dateRangeInTimezone,
   dateInTimezone,
   ExternalEventIdentityError,
+  shouldFilterExternalConversationWithoutCtwa,
+  shouldFilterExternalLeadWithoutCtwa,
   startOfDateInTimezone
 } from "../src/external-data/external-event-policy";
 
@@ -15,6 +17,29 @@ const base = {
 };
 
 describe("external event identity policies", () => {
+  it("requires CTWA only for the paid-only Kinbox external flow", () => {
+    expect(shouldFilterExternalLeadWithoutCtwa("kinbox_mysql", null)).toBe(
+      true
+    );
+    expect(
+      shouldFilterExternalConversationWithoutCtwa(
+        "kinbox_mysql",
+        "conversation_started",
+        ""
+      )
+    ).toBe(true);
+    expect(
+      shouldFilterExternalConversationWithoutCtwa(
+        "kinbox_mysql",
+        "qualified_lead",
+        null
+      )
+    ).toBe(false);
+    expect(shouldFilterExternalLeadWithoutCtwa("direct_api", null)).toBe(
+      false
+    );
+  });
+
   it("deduplicates Kinbox purchases by lead and local calendar day", () => {
     const first = buildExternalEventIdentity({
       ...base,

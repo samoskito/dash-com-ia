@@ -22,6 +22,10 @@ import { MetaEntityControls } from "./meta-entity-controls";
 import { MetaReportFilters } from "./meta-report-filters";
 import { ReportAdPreview } from "./report-ad-preview";
 import { WhatsappReviewActions } from "./whatsapp-review-actions";
+import {
+  resolveWhatsappReviewActionState,
+  type WhatsappClassification,
+} from "./whatsapp-review-state";
 
 type ReportsSearchParams = Record<string, string | string[] | undefined>;
 type ReportView = "campaigns" | "adsets" | "ads";
@@ -39,9 +43,6 @@ type AdReportsResult = {
   state: ReportFetchState;
 };
 type PerformanceRow = CampaignReportRowDto | AdSetReportRowDto | AdReportRowDto;
-type WhatsappClassification = NonNullable<
-  PerformanceRow["whatsappClassification"]
->;
 type ReportTotals = {
   spendCents: number;
   metaConversationsStarted: number;
@@ -436,7 +437,7 @@ async function saveWhatsappClassification(
   try {
     const result = await serverApiFetch<{
       ok: true;
-      whatsappClassification: WhatsappClassification;
+      whatsappClassification?: WhatsappClassification;
     }>("/reports/meta/whatsapp-classification", {
       method: "PUT",
       body: JSON.stringify({ level, id, override }),
@@ -451,7 +452,10 @@ async function saveWhatsappClassification(
             ? "Item marcado como excluido. Ele continua disponivel no filtro Excluidas."
             : "Classificacao automatica restaurada.",
       nonce,
-      whatsappClassification: result.whatsappClassification,
+      ...resolveWhatsappReviewActionState(
+        override,
+        result.whatsappClassification,
+      ),
     };
   } catch {
     return {

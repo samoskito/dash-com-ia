@@ -107,6 +107,7 @@ function createHarness() {
     auditLogs: [] as Array<Record<string, unknown>>,
     integrationLogs: [] as Array<Record<string, unknown>>,
     diagnosticEvents: [] as Array<Record<string, unknown>>,
+    externalIngestionRecords: [] as Array<Record<string, unknown>>,
     conversionRules: [
       {
         workspaceId: "workspace_1",
@@ -388,6 +389,11 @@ function createHarness() {
       ),
     },
     conversionEventLog: {
+      findFirst: vi.fn(
+        async (args?: { where?: Record<string, unknown> }) =>
+          db.conversionLogs.find((log) => matchesWhere(log, args?.where)) ??
+          null,
+      ),
       findMany: vi.fn(
         async (args?: {
           where?: Record<string, unknown>;
@@ -431,6 +437,14 @@ function createHarness() {
           records.forEach((record) => Object.assign(record, data));
           return { count: records.length };
         },
+      ),
+    },
+    externalIngestionRecord: {
+      findFirst: vi.fn(
+        async (args?: { where?: Record<string, unknown> }) =>
+          db.externalIngestionRecords.find((record) =>
+            matchesWhere(record, args?.where),
+          ) ?? null,
       ),
     },
     lead: {
@@ -995,7 +1009,7 @@ describe("meta reporting service", () => {
         status: "not_eligible",
         sourceTrigger: "external_mysql:kinbox_mysql",
         leadId: null,
-        phoneHash: null,
+        phoneHash: "phone_without_click",
         campaignId: null,
         adSetId: null,
         adId: null,
@@ -1033,9 +1047,168 @@ describe("meta reporting service", () => {
       id: "conversion_without_click",
       deliveryState: "not_eligible",
       statusLabel: "Nao elegivel",
-      statusDetail: "Sem identificador de clique, sem envio para a Meta",
-      errorCode: null,
-      errorMessage: null,
+      statusDetail:
+        "Campos obrigatorios ausentes: anuncio de origem, identificador de clique",
+      errorCode: "MissingAdId",
+      errorMessage: "Anuncio de origem nao identificado",
+    });
+  });
+
+  it("returns stored source, request, and Meta response for one workspace event", async () => {
+    const { db, prisma, service } = createHarness();
+    db.conversionLogs = [
+      {
+        id: "conversion_detail_1",
+        workspaceId: "workspace_1",
+        eventName: "QualifiedLead",
+        eventOccurredAt: new Date("2026-07-02T12:00:00.000Z"),
+        sentAt: new Date("2026-07-02T12:01:00.000Z"),
+        status: "sent",
+        sourceTrigger: "external_mysql:kinbox_mysql",
+        sourceEventId: "external_101",
+        eventId: "qualified_ctwa_1",
+        dedupeKey: "qualified_ctwa_1",
+        leadId: "lead_1",
+        phoneHash: "phone_a",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
+        ctwaClid: "ctwa_1",
+        pixelId: "pixel_1",
+        pageId: "page_1",
+        valueCents: null,
+        valueSource: null,
+        currency: null,
+        contentName: null,
+        customData: null,
+        sourcePayload: {
+          schema: "external_event_row_v1",
+          externalRowId: "101",
+          phone: "***1020"
+        },
+        providerRequestPayload: {
+          data: [{ event_name: "QualifiedLead" }],
+          access_token: "must-not-leak"
+        },
+        providerResponseSummary: {
+          events_received: 1,
+          access_token: "must-not-leak"
+        },
+        errorCode: null,
+        errorMessage: null
+      }
+    ];
+
+    const result = await service.getConversionEventAuditDetail({
+      workspaceId: "workspace_1",
+      eventId: "conversion_detail_1"
+    });
+
+    expect(result).toMatchObject({
+      id: "conversion_detail_1",
+      reason: null,
+      missingFields: [],
+      sourceSnapshot: {
+        mode: "stored_normalized",
+        payload: {
+          externalRowId: "101",
+          phone: "***1020"
+        }
+      },
+      metaRequest: {
+        mode: "stored",
+        payload: {
+          access_token: "[redacted]"
+        }
+      },
+      metaResponse: {
+        mode: "stored",
+        payload: {
+          events_received: 1,
+          access_token: "[redacted]"
+        }
+      }
+    });
+    expect(prisma.conversionEventLog.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: "conversion_detail_1",
+          workspaceId: "workspace_1"
+        }
+      })
+    );
+    expect(JSON.stringify(result)).not.toContain("must-not-leak");
+  });
+
+  it("labels historical summaries and reconstructed Meta requests honestly", async () => {
+    const { db, service } = createHarness();
+    db.conversionLogs = [
+      {
+        id: "conversion_historical_1",
+        workspaceId: "workspace_1",
+        eventName: "LeadSubmitted",
+        eventOccurredAt: new Date("2026-07-02T12:00:00.000Z"),
+        sentAt: new Date("2026-07-02T12:01:00.000Z"),
+        status: "sent",
+        sourceTrigger: "external_mysql:kinbox_mysql",
+        sourceEventId: "external_100",
+        eventId: "lead_wamid_1",
+        dedupeKey: "lead_wamid_1",
+        leadId: "lead_1",
+        phoneHash: "phone_a",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        adId: "ad_1",
+        ctwaClid: "ctwa_1",
+        pixelId: "pixel_1",
+        pageId: "page_1",
+        valueCents: null,
+        valueSource: null,
+        currency: null,
+        contentName: null,
+        customData: null,
+        sourcePayload: null,
+        providerRequestPayload: null,
+        providerResponseSummary: { events_received: 1 },
+        errorCode: null,
+        errorMessage: null
+      }
+    ];
+    db.externalIngestionRecords = [
+      {
+        workspaceId: "workspace_1",
+        conversionEventLogId: "conversion_historical_1",
+        summaryPayload: {
+          sourceEventName: "LeadSubmitted",
+          externalLeadId: "lead_external_1"
+        },
+        errorCode: null,
+        errorMessage: null
+      }
+    ];
+
+    const result = await service.getConversionEventAuditDetail({
+      workspaceId: "workspace_1",
+      eventId: "conversion_historical_1"
+    });
+
+    expect(result.sourceSnapshot).toMatchObject({
+      mode: "historical_summary",
+      payload: {
+        sourceEventName: "LeadSubmitted",
+        externalLeadId: "lead_external_1"
+      }
+    });
+    expect(result.metaRequest).toMatchObject({
+      mode: "reconstructed",
+      payload: {
+        data: [
+          expect.objectContaining({
+            event_name: "LeadSubmitted",
+            event_id: "lead_wamid_1"
+          })
+        ]
+      }
     });
   });
 

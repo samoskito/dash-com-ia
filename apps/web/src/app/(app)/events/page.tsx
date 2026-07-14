@@ -6,6 +6,7 @@ import type {
 import Link from "next/link";
 import { formatDateTime } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
+import { EventAuditDetails } from "./event-audit-details";
 
 type EventsSearchParams = Record<string, string | string[] | undefined>;
 
@@ -305,6 +306,7 @@ export default async function EventsPage({
               <th>Campanha</th>
               <th>Entrega</th>
               <th>Ocorrido / enviado</th>
+              <th>Auditoria</th>
             </tr>
           </thead>
           <tbody>
@@ -341,7 +343,14 @@ export default async function EventsPage({
                     </span>
                     <span>{event.statusDetail}</span>
                     {event.errorMessage ? (
-                      <span className="audit-error-copy">
+                      <span
+                        className={
+                          event.deliveryState === "failed" ||
+                          event.deliveryState === "blocked"
+                            ? "audit-error-copy"
+                            : "audit-reason-copy"
+                        }
+                      >
                         {event.errorMessage}
                       </span>
                     ) : null}
@@ -354,11 +363,17 @@ export default async function EventsPage({
                         : "Ainda nao enviado"}
                     </span>
                   </td>
+                  <td>
+                    <EventAuditDetails
+                      eventId={event.id}
+                      eventLabel={event.eventLabel}
+                    />
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={6}>
                   <strong>
                     {result.state === "error"
                       ? "Nao foi possivel carregar a auditoria"

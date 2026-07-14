@@ -5,8 +5,8 @@ This foundation imports WhatsApp data from the standardized customer MySQL witho
 ## Source responsibilities
 
 - Meta OAuth and Graph API remain the recurring source for campaigns, ad accounts and media metrics.
-- `vw_wpptrack_leads` supplies historical and current WhatsApp leads.
-- `vw_wpptrack_events` supplies append-only conversations and conversion events.
+- `vw_wpptrack_leads` supplies historical and current paid WhatsApp leads with CTWA.
+- `vw_wpptrack_events` supplies paid conversations and conversion events with CTWA.
 - The legacy `facebook_ads_*` and `contas_anuncio_*` tables are not queried by WppTrack after the Meta connection is active.
 
 ## Install order
@@ -19,7 +19,13 @@ This foundation imports WhatsApp data from the standardized customer MySQL witho
 6. Test the connection, activate the connector and run the first sync in shadow mode.
 7. Compare counts before enabling CAPI delivery from WppTrack.
 
-The schema derives a stable cursor inside the read-only views. It does not alter, lock, delete or overwrite the existing lead table.
+The schema derives a stable cursor inside the read-only views. On a new install it does not alter, lock, delete or overwrite the existing lead table.
+
+## Paid-traffic-only policy
+
+The reviewed Kinbox contract is intentionally traffic-only. A message without `ctwa_clid` remains recoverable in the raw `wpptrack_webhook_inbox`, but it must not enter `wpptrack_tracking_events`, the legacy lead table, the WppTrack lead projection or the UI.
+
+For an installation that previously accepted organic messages, replace `{{CLIENT_SUFFIX}}` and run `migrations/20260713_paid_traffic_only.sql` once after activating the corrected n8n workflow. The migration deletes only rows without CTWA from the two external business tables and recreates both views with the same filter. The PostgreSQL deploy migration `20260714040000_external_paid_traffic_only` removes the corresponding unsent organic projections from WppTrack.
 
 ## Historical projection refresh
 
@@ -27,7 +33,7 @@ The schema derives a stable cursor inside the read-only views. It does not alter
 
 `first_message_at` values that contain only a calendar date (or midnight without an explicit offset) are interpreted in the connector timezone, normally `America/Sao_Paulo`. Operational timestamps such as `updated_at` and event `occurred_at` remain UTC. This distinction prevents a local midnight from being displayed and grouped on the previous day.
 
-During this explicit refresh, `qualified_at` and `purchased_at` create missing `QualifiedLead` and `Purchase` records with delivery status `imported`. These historical records are countable in the dashboard but are never queued for Meta CAPI. A lead with `first_message_at` and no conversion log is displayed and filterable as `LeadSubmitted` without fabricating a provider event ID.
+During this explicit refresh, `qualified_at` and `purchased_at` create missing `QualifiedLead` and `Purchase` records with delivery status `imported`. These historical records are countable in the dashboard but are never queued for Meta CAPI. Rows without CTWA are filtered before projection and cannot be reconstructed as `LeadSubmitted` by a reimport.
 
 ## Creative preview
 
@@ -99,7 +105,7 @@ WppTrack snapshots the configured average purchase value during ingestion and la
 
 Use `event_type='conversation_started'`, `provider='meta_whatsapp_official'` and the WhatsApp message ID (`wamid`) as both `external_event_id` and part of `dedupe_key`. Preserve `ctwa_clid`, `source_id` as `ad_id`, `source_url`, phone and event timestamp.
 
-The reviewed Barbieri replacement is `n8n/meta-conversation-started-dual-write.json`. By explicit operator decision it does not validate POST signatures: it accepts the normal webhook JSON body, stores every delivery in `wpptrack_webhook_inbox` before returning `200`, handles all messages in a batched payload, records the ledger before legacy effects, and leaves the current paid `LeadSubmitted` CAPI path active only for shadow reconciliation. A no-side-effect test workflow that accepts a real Meta payload is available at `n8n/meta-conversation-replay-safe-test.json`. Import and test instructions are in `n8n/README.md`.
+The reviewed Barbieri replacement is `n8n/meta-conversation-started-dual-write.json`. By explicit operator decision it does not validate POST signatures: it accepts the normal webhook JSON body, stores every delivery in `wpptrack_webhook_inbox` before returning `200`, handles all messages in a batched payload, stops messages without CTWA before any business read/write and records paid events in the ledger before legacy effects. The old n8n `LeadSubmitted` HTTP node remains disconnected because WppTrack already owns `conversation_started` delivery. A no-side-effect test workflow that accepts a real Meta payload is available at `n8n/meta-conversation-replay-safe-test.json`. Import and test instructions are in `n8n/README.md`.
 
 ## Security corrections before cutover
 

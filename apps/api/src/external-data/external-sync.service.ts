@@ -16,6 +16,7 @@ import {
 } from "./external-event-ingestion.service";
 import {
   dateInTimezone,
+  shouldFilterExternalLeadWithoutCtwa,
   startOfDateInTimezone
 } from "./external-event-policy";
 import {
@@ -29,6 +30,7 @@ export type ExternalSyncCounts = {
   read: number;
   imported: number;
   duplicates: number;
+  filtered: number;
   rejected: number;
   queued: number;
   removed: number;
@@ -229,12 +231,25 @@ export class ExternalSyncService {
         batchSize
       );
       counts.read += rows.length;
+      const eligibleRows = rows.filter((row) => {
+        if (
+          shouldFilterExternalLeadWithoutCtwa(
+            connector.provider,
+            row.ctwaClid
+          )
+        ) {
+          counts.filtered += 1;
+          return false;
+        }
+
+        return true;
+      });
       const hierarchyByAdId = await this.loadMetaAdHierarchy(
         connector.workspaceId,
-        rows
+        eligibleRows
       );
 
-      for (const row of rows) {
+      for (const row of eligibleRows) {
         const hierarchy = row.adId
           ? hierarchyByAdId.get(row.adId)
           : undefined;
@@ -801,6 +816,7 @@ export class ExternalSyncService {
       read: 0,
       imported: 0,
       duplicates: 0,
+      filtered: 0,
       rejected: 0,
       queued: 0,
       removed: 0
@@ -811,6 +827,7 @@ export class ExternalSyncService {
     target.read += source.read;
     target.imported += source.imported;
     target.duplicates += source.duplicates;
+    target.filtered += source.filtered;
     target.rejected += source.rejected;
     target.queued += source.queued;
     target.removed += source.removed;

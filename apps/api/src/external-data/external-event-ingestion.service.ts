@@ -13,7 +13,8 @@ import { ConversionEventsService } from "../conversion-events/conversion-events.
 import { LeadsService } from "../leads/leads.service";
 import {
   buildExternalEventIdentity,
-  ExternalEventIdentityError
+  ExternalEventIdentityError,
+  shouldFilterExternalConversationWithoutCtwa
 } from "./external-event-policy";
 import type { ExternalEventRow } from "./external-mysql.adapter";
 
@@ -37,7 +38,7 @@ export type ExternalEventConnectorContext = {
 
 export type ExternalEventIngestionResult = {
   externalRowId: string;
-  status: "imported" | "duplicate" | "rejected";
+  status: "imported" | "duplicate" | "filtered" | "rejected";
   leadId: string | null;
   conversionEventLogId: string | null;
   queued: boolean;
@@ -74,6 +75,23 @@ export class ExternalEventIngestionService {
     row: ExternalEventRow,
     options: ExternalEventIngestionOptions = {}
   ): Promise<ExternalEventIngestionResult> {
+    if (
+      shouldFilterExternalConversationWithoutCtwa(
+        connector.provider,
+        row.eventType,
+        row.ctwaClid
+      )
+    ) {
+      return {
+        externalRowId: row.externalRowId,
+        status: "filtered",
+        leadId: null,
+        conversionEventLogId: null,
+        queued: false,
+        errorCode: null
+      };
+    }
+
     const sourceRowKey = [
       "external-row",
       connector.id,
@@ -188,6 +206,7 @@ export class ExternalEventIngestionService {
     });
     const value = this.resolveValue(connector, row, eventType);
     const ctwaClid = row.ctwaClid ?? lead.ctwaClid;
+    const sourcePayload = this.sourceAuditPayload(row);
     const cutoverAt = this.cutoverAt(connector, eventType);
     const deliveryStatus =
       options.deliveryStatus ??
@@ -219,6 +238,7 @@ export class ExternalEventIngestionService {
           ? (connector.purchaseDefaultContentName ?? null)
           : null,
       eventOccurredAt: occurredAt,
+      sourcePayload,
       ...(deliveryStatus
         ? { deliveryStatus }
         : {})
@@ -245,7 +265,8 @@ export class ExternalEventIngestionService {
         internalDedupeKey: identity.dedupeKey,
         identityPolicy: identity.policy,
         eventLocalDate: identity.localDate,
-        valueSource: value.valueSource
+        valueSource: value.valueSource,
+        sourcePayload
       } as Prisma.InputJsonValue
     };
     const record = existingRecordId
@@ -535,6 +556,40 @@ export class ExternalEventIngestionService {
       : null;
   }
 
+  private sourceAuditPayload(row: ExternalEventRow): Record<string, unknown> {
+    return {
+      schema: "external_event_row_v1",
+      externalRowId: row.externalRowId,
+      dedupeKey: row.dedupeKey,
+      provider: row.provider,
+      eventType: row.eventType,
+      sourceEventName: row.sourceEventName,
+      externalEventId: row.externalEventId,
+      externalLeadId: row.externalLeadId,
+      transactionId: row.transactionId,
+      phone: this.maskPhoneForAudit(row.phone),
+      phoneRedacted: true,
+      occurredAt: row.occurredAt,
+      eventLocalDate: row.eventLocalDate,
+      adId: row.adId,
+      adSetId: row.adSetId,
+      campaignId: row.campaignId,
+      ctwaClid: row.ctwaClid,
+      sourceUrl: row.sourceUrl,
+      valueCents: row.valueCents,
+      currency: row.currency,
+      valueSource: row.valueSource,
+      duplicateCount: row.duplicateCount,
+      updatedAt: row.updatedAt
+    };
+  }
+
+  private maskPhoneForAudit(value: string): string | null {
+    const digits = value.replace(/\D/g, "");
+
+    return digits ? `***${digits.slice(-4)}` : null;
+  }
+
   private resolveValue(
     connector: ExternalEventConnectorContext,
     row: ExternalEventRow,
@@ -689,7 +744,8 @@ export class ExternalEventIngestionService {
           errorMessage: this.safeErrorMessage(errorCode),
           summaryPayload: {
             sourceEventName: row.sourceEventName,
-            externalLeadId: row.externalLeadId
+            externalLeadId: row.externalLeadId,
+            sourcePayload: this.sourceAuditPayload(row)
           } as Prisma.InputJsonValue
         },
         update: {

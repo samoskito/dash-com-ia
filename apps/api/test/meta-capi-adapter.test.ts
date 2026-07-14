@@ -71,6 +71,7 @@ describe("meta capi adapter", () => {
       "https://graph.facebook.com/v21.0/pixel_1/events?access_token=meta-token"
     );
     const body = parseRequestBody(fetchMock);
+    expect(result.requestPayload).toEqual(body);
     expect(body.data[0]).toMatchObject({
       event_name: "QualifiedLead",
       event_id: "workspace_1:lead_1:rule_1:QualifiedLead:ad_1",
@@ -134,6 +135,7 @@ describe("meta capi adapter", () => {
 
       expect(result).toMatchObject({
         status: "not_configured",
+        requestPayload: null,
         responseSummary: null,
         errorCode
       });
@@ -230,6 +232,9 @@ describe("meta capi adapter", () => {
 
     expect(result).toEqual({
       status: "error",
+      requestPayload: expect.objectContaining({
+        data: expect.any(Array)
+      }),
       responseSummary: {
         error: {
           message: "Invalid parameter",
@@ -256,6 +261,9 @@ describe("meta capi adapter", () => {
 
     expect(result).toMatchObject({
       status: "error",
+      requestPayload: expect.objectContaining({
+        data: expect.any(Array)
+      }),
       responseSummary: null,
       errorMessage: "Meta CAPI network request failed",
       errorCode: "MetaCapiNetworkError"

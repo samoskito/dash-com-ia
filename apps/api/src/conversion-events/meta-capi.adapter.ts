@@ -2,7 +2,10 @@ import type {
   ConversionEventCustomDataDto,
   ConversionEventNameDto
 } from "@wpptrack/shared";
-import { buildMetaCapiPayload } from "./meta-capi-payload.builder";
+import {
+  buildMetaCapiPayload,
+  type MetaCapiPayload
+} from "./meta-capi-payload.builder";
 
 type MetaCapiEnv = Record<string, string | undefined>;
 type Fetcher = typeof fetch;
@@ -36,6 +39,7 @@ export type MetaCapiSendEventInput = {
 
 export type MetaCapiSendEventResult = {
   status: "not_configured" | "sent" | "error";
+  requestPayload: MetaCapiPayload | null;
   responseSummary: Record<string, unknown> | null;
   errorMessage: string | null;
   errorCode: MetaCapiSendEventErrorCode;
@@ -95,6 +99,20 @@ export class MetaCapiAdapter {
       `https://graph.facebook.com/${version}/${pixelId}/events`
     );
     url.searchParams.set("access_token", accessToken);
+    const requestPayload = buildMetaCapiPayload({
+      eventName: input.eventName,
+      eventTime: input.eventTime ?? new Date(),
+      eventId: input.dedupeKey,
+      phoneHash,
+      ctwaClid,
+      pageId,
+      adId,
+      valueCents: input.valueCents ?? null,
+      currency: input.currency ?? null,
+      contentName: input.contentName ?? null,
+      customData: input.customData ?? null,
+      testEventCode: input.testEventCode ?? null
+    });
 
     let response: Response;
     try {
@@ -103,26 +121,12 @@ export class MetaCapiAdapter {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(
-          buildMetaCapiPayload({
-            eventName: input.eventName,
-            eventTime: input.eventTime ?? new Date(),
-            eventId: input.dedupeKey,
-            phoneHash,
-            ctwaClid,
-            pageId,
-            adId,
-            valueCents: input.valueCents ?? null,
-            currency: input.currency ?? null,
-            contentName: input.contentName ?? null,
-            customData: input.customData ?? null,
-            testEventCode: input.testEventCode ?? null
-          })
-        )
+        body: JSON.stringify(requestPayload)
       });
     } catch (error) {
       return {
         status: "error",
+        requestPayload,
         responseSummary: null,
         errorMessage: "Meta CAPI network request failed",
         errorCode: "MetaCapiNetworkError"
@@ -137,6 +141,7 @@ export class MetaCapiAdapter {
     if (!response.ok) {
       return {
         status: "error",
+        requestPayload,
         responseSummary: payload,
         errorMessage: "Meta CAPI request failed",
         errorCode: "MetaCapiRejected"
@@ -145,6 +150,7 @@ export class MetaCapiAdapter {
 
     return {
       status: "sent",
+      requestPayload,
       responseSummary: payload,
       errorMessage: null,
       errorCode: null
@@ -160,6 +166,7 @@ export class MetaCapiAdapter {
   ): MetaCapiSendEventResult {
     return {
       status: "not_configured",
+      requestPayload: null,
       responseSummary: null,
       errorMessage,
       errorCode

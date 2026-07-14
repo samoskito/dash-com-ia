@@ -94,6 +94,9 @@ describe("events route", () => {
     expect(html).toContain("+55 11 99999-1020");
     expect(html).toContain("Campanha WhatsApp");
     expect(html).toContain("Recebido pela Meta");
+    expect(html).toContain("Auditoria");
+    expect(html).toContain("Inspecionar");
+    expect(html).toContain("Auditoria do evento");
     expect(html).toContain('href="/leads/lead_1"');
     expect(html).toContain('name="status"');
     expect(html).toContain('name="source"');

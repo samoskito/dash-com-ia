@@ -78,7 +78,8 @@ SELECT
   NULLIF(wa.`thumbnail`, '') AS `thumbnail_url`,
   NULLIF(wa.`status`, '') AS `status`,
   wa.`updated_at` AS `updated_at`
-FROM `whatsapp_anuncio_{{CLIENT_SUFFIX}}` wa;
+FROM `whatsapp_anuncio_{{CLIENT_SUFFIX}}` wa
+WHERE NULLIF(TRIM(wa.`ctwaclid`), '') IS NOT NULL;
 
 CREATE OR REPLACE VIEW `vw_wpptrack_events` AS
 SELECT
@@ -103,7 +104,8 @@ SELECT
   e.`value_source`,
   e.`duplicate_count`,
   e.`updated_at`
-FROM `wpptrack_tracking_events` e;
+FROM `wpptrack_tracking_events` e
+WHERE NULLIF(TRIM(e.`ctwa_clid`), '') IS NOT NULL;
 
 -- Replace the account name before running these grants. Do not reuse the n8n user.
 -- CREATE USER 'wpptrack_reader'@'%' IDENTIFIED BY 'GENERATE_A_STRONG_PASSWORD';

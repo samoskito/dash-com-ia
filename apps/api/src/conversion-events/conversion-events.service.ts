@@ -62,6 +62,7 @@ type ConversionEventLogRecord = {
   ctwaClid: string | null;
   attributionStatus: string | null;
   dedupeKey: string | null;
+  sourcePayload: Prisma.JsonValue | null;
   customData: Prisma.JsonValue | null;
   valueCents: number | null;
   currency: string | null;
@@ -89,6 +90,7 @@ export type RecordExternalConversionInput = {
   currency?: string | null;
   contentName?: string | null;
   eventOccurredAt: Date;
+  sourcePayload?: Record<string, unknown> | null;
   deliveryStatus?: "imported" | "not_eligible" | "shadow_observed";
 };
 
@@ -351,21 +353,7 @@ export class ConversionEventsService {
       return this.reconcileExistingExternalConversion(existing, input);
     }
 
-    const initialStatus: InitialStatus =
-      ["imported", "not_eligible", "shadow_observed"].includes(
-        input.deliveryStatus ?? ""
-      )
-        ? {
-            status: input.deliveryStatus as InitialStatus["status"],
-            errorCode: null,
-            errorMessage: null
-          }
-        : this.resolveInitialStatus({
-            eventName: input.eventName,
-            adId: input.adId,
-            ctwaClid: input.ctwaClid,
-            valueCents: input.valueCents
-          });
+    const initialStatus = this.resolveExternalInitialStatus(input);
     const purchaseKind = await this.resolvePurchaseKind({
       workspaceId: input.workspaceId,
       eventName: input.eventName,
@@ -399,6 +387,9 @@ export class ConversionEventsService {
           valueCents: input.valueCents ?? null,
           currency: input.currency ?? null,
           contentName: input.contentName ?? null,
+          sourcePayload: input.sourcePayload
+            ? (input.sourcePayload as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
           customData: Prisma.JsonNull,
           errorCode: initialStatus.errorCode,
           errorMessage: initialStatus.errorMessage
@@ -438,18 +429,7 @@ export class ConversionEventsService {
     const promotesHistoricalEvent =
       existing.status === "imported" && input.deliveryStatus !== "imported";
     const promotedStatus: InitialStatus | null = promotesHistoricalEvent
-      ? input.deliveryStatus === "not_eligible" || input.deliveryStatus === "shadow_observed"
-        ? {
-            status: input.deliveryStatus,
-            errorCode: null,
-            errorMessage: null
-          }
-        : this.resolveInitialStatus({
-            eventName: input.eventName,
-            adId: input.adId,
-            ctwaClid: input.ctwaClid,
-            valueCents: input.valueCents
-          })
+      ? this.resolveExternalInitialStatus(input)
       : null;
     const businessSource =
       existing.businessSource === "paid" || input.businessSource !== "paid"
@@ -471,6 +451,9 @@ export class ConversionEventsService {
         valueCents: existing.valueCents ?? input.valueCents ?? null,
         valueSource: existing.valueSource ?? input.valueSource ?? null,
         currency: existing.currency ?? input.currency ?? null,
+        ...(existing.sourcePayload == null && input.sourcePayload
+          ? { sourcePayload: input.sourcePayload as Prisma.InputJsonValue }
+          : {}),
         ...(promotesHistoricalEvent
           ? {
               sourceEventId: input.sourceEventId,
@@ -640,6 +623,9 @@ export class ConversionEventsService {
         sentAt: result.status === "sent" ? new Date() : null,
         pixelId: resolvedDestination.pixelId,
         pageId: resolvedDestination.pageId,
+        providerRequestPayload: result.requestPayload
+          ? (result.requestPayload as Prisma.InputJsonValue)
+          : Prisma.JsonNull,
         providerResponseSummary:
           result.responseSummary ? result.responseSummary as Prisma.InputJsonValue : Prisma.JsonNull,
         errorCode: result.errorCode,
@@ -760,6 +746,7 @@ export class ConversionEventsService {
     startedAt: Date,
     result: {
       status: SendReadyEventResult["status"];
+      requestPayload: unknown;
       responseSummary: unknown;
       errorMessage: string | null;
       errorCode: MetaCapiSendEventErrorCode;
@@ -805,6 +792,7 @@ export class ConversionEventsService {
             valueCents: log.valueCents,
             currency: log.currency,
             contentName: log.contentName,
+            payload: result.requestPayload,
             errorCode: result.errorCode
           } as Prisma.InputJsonValue,
           responseSummary:
@@ -990,6 +978,46 @@ export class ConversionEventsService {
       status: "ready_to_send",
       errorCode: null,
       errorMessage: null
+    };
+  }
+
+  private resolveExternalInitialStatus(
+    input: RecordExternalConversionInput
+  ): InitialStatus {
+    if (
+      input.deliveryStatus === "imported" ||
+      input.deliveryStatus === "shadow_observed"
+    ) {
+      return {
+        status: input.deliveryStatus,
+        errorCode: null,
+        errorMessage: null
+      };
+    }
+
+    const resolved = this.resolveInitialStatus({
+      eventName: input.eventName,
+      adId: input.adId,
+      ctwaClid: input.ctwaClid,
+      valueCents: input.valueCents
+    });
+
+    if (input.deliveryStatus !== "not_eligible") {
+      return resolved;
+    }
+
+    return {
+      status: "not_eligible",
+      errorCode:
+        resolved.errorCode === "MissingAdId" ||
+        resolved.errorCode === "MissingCtwaClid"
+          ? resolved.errorCode
+          : null,
+      errorMessage:
+        resolved.errorCode === "MissingAdId" ||
+        resolved.errorCode === "MissingCtwaClid"
+          ? resolved.errorMessage
+          : null
     };
   }
 }

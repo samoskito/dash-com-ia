@@ -15,6 +15,7 @@ export type BackofficeActionState = {
     | "manual_exclude"
     | "needs_review"
     | "not_whatsapp";
+  whatsappClassificationReset?: boolean;
   syncRequest?: {
     connectorId: string;
     requestedAt: number;

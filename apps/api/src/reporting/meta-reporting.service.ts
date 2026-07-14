@@ -14,8 +14,11 @@ import type {
   AdSetReportRowDto,
   CampaignReportRowDto,
   ConversionAuditDeliveryStateDto,
+  ConversionAuditEventDetailDto,
+  ConversionAuditEventDto,
   ConversionAuditOverviewDto,
   ConversionAuditSourceDto,
+  ConversionEventCustomDataDto,
   ConversionEventLogStatusDto,
   FunnelStageConfigurationDto,
   MetaBudgetUpdateInputDto,
@@ -27,6 +30,8 @@ import type {
   ReportPaginationDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { isSupportedConversionEventName } from "../conversion-events/conversion-event-registry";
+import { buildMetaCapiPayload } from "../conversion-events/meta-capi-payload.builder";
 import { FunnelConfigurationService } from "../conversion-rules/funnel-configuration.service";
 import {
   dateRangeInTimezone,
@@ -206,6 +211,7 @@ type ConversionAuditEventRecord = {
   campaignId: string | null;
   adSetId: string | null;
   adId: string | null;
+  ctwaClid: string | null;
   pixelId: string | null;
   pageId: string | null;
   eventOccurredAt: Date;
@@ -214,7 +220,28 @@ type ConversionAuditEventRecord = {
   providerResponseSummary: unknown;
   errorCode: string | null;
   errorMessage: string | null;
+  valueCents: number | null;
   valueSource: "actual" | "configured_average" | "manual" | null;
+};
+
+type ConversionAuditEventDetailRecord = ConversionAuditEventRecord & {
+  workspaceId: string | null;
+  eventId: string | null;
+  dedupeKey: string | null;
+  sourceEventId: string | null;
+  sourcePayload: unknown;
+  providerRequestPayload: unknown;
+  customData: unknown;
+  currency: string | null;
+  contentName: string | null;
+};
+
+type ConversionAuditContext = {
+  leadsById: Map<string, ConversionAuditLeadRecord>;
+  leadsByPhoneHash: Map<string, ConversionAuditLeadRecord>;
+  campaigns: Map<string, ConversionAuditCampaignRecord>;
+  adSets: Map<string, ConversionAuditAdSetRecord>;
+  ads: Map<string, ConversionAuditAdRecord>;
 };
 
 type ConversionAuditLeadRecord = {
@@ -1078,6 +1105,7 @@ export class MetaReportingService {
           campaignId: true,
           adSetId: true,
           adId: true,
+          ctwaClid: true,
           pixelId: true,
           pageId: true,
           eventOccurredAt: true,
@@ -1086,6 +1114,7 @@ export class MetaReportingService {
           providerResponseSummary: true,
           errorCode: true,
           errorMessage: true,
+          valueCents: true,
           valueSource: true,
         },
       }) as Promise<ConversionAuditEventRecord[]>,
@@ -1132,57 +1161,134 @@ export class MetaReportingService {
         totalItems: total,
         totalPages: Math.ceil(total / input.pageSize),
       },
-      events: events.map((event) => {
-        const lead =
-          (event.leadId ? context.leadsById.get(event.leadId) : undefined) ??
-          (event.phoneHash
-            ? context.leadsByPhoneHash.get(event.phoneHash)
-            : undefined);
-        const deliveryState = this.conversionAuditDeliveryState(event.status);
-        const source = this.conversionAuditSource(event.sourceTrigger);
+      events: events.map((event) =>
+        this.conversionAuditEventDto(event, eventLabels, context),
+      ),
+    };
+  }
 
-        return {
-          id: event.id,
-          eventName: event.eventName,
-          eventLabel:
-            eventLabels.get(event.eventName) ??
-            this.conversionEventLabel(event.eventName),
-          deliveryState,
-          statusLabel: this.conversionAuditStatusLabel(event.status),
-          statusDetail: this.conversionAuditStatusDetail(event.status),
-          source,
-          sourceLabel: this.conversionAuditSourceLabel(source),
-          leadId: lead?.id ?? null,
-          leadName: lead?.name ?? null,
-          phoneDisplay: lead?.phoneDisplay ?? null,
-          campaignId: event.campaignId,
-          campaignName: event.campaignId
-            ? (context.campaigns.get(event.campaignId)?.name ?? null)
-            : null,
-          adSetId: event.adSetId,
-          adSetName: event.adSetId
-            ? (context.adSets.get(event.adSetId)?.name ?? null)
-            : null,
-          adId: event.adId,
-          adName: event.adId
-            ? (context.ads.get(event.adId)?.name ?? null)
-            : null,
-          pixelId: event.pixelId,
-          pageId: event.pageId,
-          occurredAt: event.eventOccurredAt.toISOString(),
-          sentAt: event.sentAt?.toISOString() ?? null,
-          status: event.status,
-          providerResponseSummary:
-            event.status === "sent" && event.providerResponseSummary != null
-              ? "Meta confirmou o recebimento"
-              : null,
-          errorCode: event.errorCode,
-          errorMessage: event.errorCode
-            ? this.conversionAuditSafeError(event.errorCode)
-            : null,
-          valueSource: event.valueSource ?? null,
-        };
+  async getConversionEventAuditDetail(input: {
+    workspaceId: string;
+    eventId: string;
+  }): Promise<ConversionAuditEventDetailDto> {
+    const event = (await this.prisma.conversionEventLog.findFirst({
+      where: {
+        id: input.eventId,
+        workspaceId: input.workspaceId,
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        eventName: true,
+        leadId: true,
+        phoneHash: true,
+        sourceTrigger: true,
+        campaignId: true,
+        adSetId: true,
+        adId: true,
+        pixelId: true,
+        pageId: true,
+        eventId: true,
+        dedupeKey: true,
+        sourceEventId: true,
+        ctwaClid: true,
+        eventOccurredAt: true,
+        sentAt: true,
+        status: true,
+        sourcePayload: true,
+        providerRequestPayload: true,
+        providerResponseSummary: true,
+        customData: true,
+        valueCents: true,
+        valueSource: true,
+        currency: true,
+        contentName: true,
+        errorCode: true,
+        errorMessage: true,
+      },
+    })) as ConversionAuditEventDetailRecord | null;
+
+    if (!event) {
+      throw new NotFoundException("Evento de conversao nao encontrado");
+    }
+
+    const [funnelStages, ingestionRecord, context] = await Promise.all([
+      this.getFunnelStages(input.workspaceId),
+      this.prisma.externalIngestionRecord.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          conversionEventLogId: event.id,
+        },
+        orderBy: { lastReceivedAt: "desc" },
+        select: {
+          summaryPayload: true,
+          errorCode: true,
+          errorMessage: true,
+        },
       }),
+      this.conversionAuditContext(input.workspaceId, [event]),
+    ]);
+    const eventLabels = new Map<string, string>(
+      funnelStages.map((stage) => [stage.eventName, stage.label]),
+    );
+    const base = this.conversionAuditEventDto(event, eventLabels, context);
+    const sourceSnapshot = this.conversionAuditSourceSnapshot(
+      event,
+      ingestionRecord?.summaryPayload,
+    );
+    const storedRequest = this.conversionAuditObject(
+      event.providerRequestPayload,
+    );
+    const reconstructedRequest = storedRequest
+      ? null
+      : this.reconstructMetaCapiRequest(event);
+    const response = this.conversionAuditObject(
+      event.providerResponseSummary,
+    );
+    const missingFields = this.conversionAuditMissingFields(event);
+    const reasonCode =
+      event.errorCode ??
+      ingestionRecord?.errorCode ??
+      this.conversionAuditInferredReasonCode(event, missingFields);
+
+    return {
+      ...base,
+      reasonCode,
+      reason: reasonCode
+        ? this.conversionAuditSafeError(reasonCode)
+        : missingFields.length
+          ? this.conversionAuditMissingFieldsReason(missingFields)
+          : null,
+      missingFields,
+      sourceSnapshot,
+      metaRequest: storedRequest
+        ? {
+            mode: "stored",
+            label: "Payload exato armazenado no envio",
+            payload: storedRequest,
+          }
+        : reconstructedRequest
+          ? {
+              mode: "reconstructed",
+              label: "Payload reconstruido a partir do evento historico",
+              payload: reconstructedRequest,
+            }
+          : {
+              mode: "unavailable",
+              label: "Payload de envio indisponivel",
+              payload: null,
+            },
+      metaResponse: response
+        ? {
+            mode: "stored",
+            label: "Resposta armazenada da Meta",
+            payload: response,
+          }
+        : {
+            mode: "unavailable",
+            label: "Nenhuma resposta da Meta armazenada",
+            payload: null,
+          },
     };
   }
 
@@ -3005,10 +3111,294 @@ export class MetaReportingService {
     };
   }
 
+  private conversionAuditEventDto(
+    event: ConversionAuditEventRecord,
+    eventLabels: Map<string, string>,
+    context: ConversionAuditContext,
+  ): ConversionAuditEventDto {
+    const lead =
+      (event.leadId ? context.leadsById.get(event.leadId) : undefined) ??
+      (event.phoneHash
+        ? context.leadsByPhoneHash.get(event.phoneHash)
+        : undefined);
+    const deliveryState = this.conversionAuditDeliveryState(event.status);
+    const source = this.conversionAuditSource(event.sourceTrigger);
+    const inferredErrorCode =
+      event.errorCode ??
+      this.conversionAuditInferredReasonCode(
+        event,
+        this.conversionAuditMissingFields(event),
+      );
+
+    return {
+      id: event.id,
+      eventName: event.eventName,
+      eventLabel:
+        eventLabels.get(event.eventName) ??
+        this.conversionEventLabel(event.eventName),
+      deliveryState,
+      statusLabel: this.conversionAuditStatusLabel(event.status),
+      statusDetail: this.conversionAuditStatusDetail(event.status, event),
+      source,
+      sourceLabel: this.conversionAuditSourceLabel(source),
+      leadId: lead?.id ?? null,
+      leadName: lead?.name ?? null,
+      phoneDisplay: lead?.phoneDisplay ?? null,
+      campaignId: event.campaignId,
+      campaignName: event.campaignId
+        ? (context.campaigns.get(event.campaignId)?.name ?? null)
+        : null,
+      adSetId: event.adSetId,
+      adSetName: event.adSetId
+        ? (context.adSets.get(event.adSetId)?.name ?? null)
+        : null,
+      adId: event.adId,
+      adName: event.adId
+        ? (context.ads.get(event.adId)?.name ?? null)
+        : null,
+      pixelId: event.pixelId,
+      pageId: event.pageId,
+      occurredAt: event.eventOccurredAt.toISOString(),
+      sentAt: event.sentAt?.toISOString() ?? null,
+      status: event.status,
+      providerResponseSummary:
+        event.status === "sent" && event.providerResponseSummary != null
+          ? "Meta confirmou o recebimento"
+          : null,
+      errorCode: inferredErrorCode,
+      errorMessage: inferredErrorCode
+        ? this.conversionAuditSafeError(inferredErrorCode)
+        : null,
+      valueSource: event.valueSource ?? null,
+    };
+  }
+
+  private conversionAuditSourceSnapshot(
+    event: ConversionAuditEventDetailRecord,
+    ingestionSummary: unknown,
+  ): ConversionAuditEventDetailDto["sourceSnapshot"] {
+    const stored = this.conversionAuditObject(event.sourcePayload);
+    if (stored) {
+      return {
+        mode: "stored_normalized",
+        label: "Entrada normalizada armazenada",
+        payload: stored,
+      };
+    }
+
+    const summary = this.conversionAuditObject(ingestionSummary);
+    const nestedSource = summary
+      ? this.conversionAuditObject(summary.sourcePayload)
+      : null;
+    if (nestedSource) {
+      return {
+        mode: "stored_normalized",
+        label: "Entrada normalizada armazenada na ingestao",
+        payload: nestedSource,
+      };
+    }
+
+    if (summary) {
+      return {
+        mode: "historical_summary",
+        label: "Resumo historico com contexto interno reconstruido",
+        payload: {
+          ...summary,
+          reconstructedEventContext:
+            this.conversionAuditReconstructedSource(event),
+        },
+      };
+    }
+
+    return {
+      mode: "reconstructed",
+      label: "Registro interno reconstruido; entrada original indisponivel",
+      payload: this.conversionAuditReconstructedSource(event),
+    };
+  }
+
+  private conversionAuditReconstructedSource(
+    event: ConversionAuditEventDetailRecord,
+  ): Record<string, unknown> {
+    return {
+      sourceTrigger: event.sourceTrigger,
+      sourceEventId: event.sourceEventId,
+      eventId: event.eventId,
+      eventName: event.eventName,
+      eventOccurredAt: event.eventOccurredAt.toISOString(),
+      phoneHash: event.phoneHash,
+      campaignId: event.campaignId,
+      adSetId: event.adSetId,
+      adId: event.adId,
+      ctwaClid: event.ctwaClid,
+      valueCents: event.valueCents,
+      currency: event.currency,
+      contentName: event.contentName,
+    };
+  }
+
+  private reconstructMetaCapiRequest(
+    event: ConversionAuditEventDetailRecord,
+  ): Record<string, unknown> | null {
+    const eventId = event.eventId ?? event.dedupeKey;
+    if (
+      !isSupportedConversionEventName(event.eventName) ||
+      !eventId ||
+      !event.phoneHash ||
+      !event.ctwaClid ||
+      !event.pageId ||
+      !event.adId
+    ) {
+      return null;
+    }
+
+    const customData = this.conversionAuditObject(event.customData) as
+      | ConversionEventCustomDataDto
+      | null;
+
+    return buildMetaCapiPayload({
+      eventName: event.eventName,
+      eventTime: event.eventOccurredAt,
+      eventId,
+      phoneHash: event.phoneHash,
+      ctwaClid: event.ctwaClid,
+      pageId: event.pageId,
+      adId: event.adId,
+      valueCents: event.valueCents,
+      currency: event.currency,
+      contentName: event.contentName,
+      customData,
+    }) as unknown as Record<string, unknown>;
+  }
+
+  private conversionAuditObject(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+
+    return this.conversionAuditSanitizeValue(value) as Record<string, unknown>;
+  }
+
+  private conversionAuditSanitizeValue(
+    value: unknown,
+    key = "",
+  ): unknown {
+    if (
+      key &&
+      /(access[_-]?token|authorization|password|secret|encrypted|tokenIv|tokenTag)/i.test(
+        key,
+      )
+    ) {
+      return "[redacted]";
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => this.conversionAuditSanitizeValue(item));
+    }
+
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([entryKey, entryValue]) => [
+          entryKey,
+          this.conversionAuditSanitizeValue(entryValue, entryKey),
+        ]),
+      );
+    }
+
+    return value;
+  }
+
+  private conversionAuditMissingFields(
+    event: Pick<
+      ConversionAuditEventDetailRecord,
+      | "eventName"
+      | "status"
+      | "phoneHash"
+      | "adId"
+      | "ctwaClid"
+      | "pixelId"
+      | "pageId"
+      | "valueCents"
+    >,
+  ): string[] {
+    const missing: string[] = [];
+
+    if (!event.phoneHash) {
+      missing.push("phone_hash");
+    }
+    if (!event.adId) {
+      missing.push("ad_id");
+    }
+    if (!event.ctwaClid) {
+      missing.push("ctwa_clid");
+    }
+    if (event.eventName === "Purchase" && event.valueCents == null) {
+      missing.push("value");
+    }
+    if (event.status === "not_configured") {
+      if (!event.pixelId) {
+        missing.push("pixel_id");
+      }
+      if (!event.pageId) {
+        missing.push("page_id");
+      }
+    }
+
+    return missing;
+  }
+
+  private conversionAuditInferredReasonCode(
+    event: Pick<ConversionAuditEventRecord, "status">,
+    missingFields: string[],
+  ): string | null {
+    if (
+      !["not_eligible", "pending_meta_context", "pending_value", "not_configured"].includes(
+        event.status,
+      )
+    ) {
+      return null;
+    }
+
+    if (missingFields.includes("phone_hash")) {
+      return "MissingPhoneHash";
+    }
+    if (missingFields.includes("ad_id")) {
+      return "MissingAdId";
+    }
+    if (missingFields.includes("ctwa_clid")) {
+      return "MissingCtwaClid";
+    }
+    if (missingFields.includes("value")) {
+      return "EventValueMissing";
+    }
+    if (
+      missingFields.includes("pixel_id") ||
+      missingFields.includes("page_id")
+    ) {
+      return "MissingMetaDestination";
+    }
+
+    return null;
+  }
+
+  private conversionAuditMissingFieldsReason(missingFields: string[]): string {
+    const labels: Record<string, string> = {
+      phone_hash: "telefone identificavel",
+      ad_id: "anuncio de origem",
+      ctwa_clid: "identificador de clique",
+      value: "valor da conversao",
+      pixel_id: "pixel Meta",
+      page_id: "pagina Facebook",
+    };
+    const readable = missingFields.map((field) => labels[field] ?? field);
+
+    return `Campos obrigatorios ausentes: ${readable.join(", ")}`;
+  }
+
   private async conversionAuditContext(
     workspaceId: string,
     events: ConversionAuditEventRecord[],
-  ) {
+  ): Promise<ConversionAuditContext> {
     const leadIds = this.uniqueStrings(events.map((event) => event.leadId));
     const phoneHashes = this.uniqueStrings(
       events.map((event) => event.phoneHash),
@@ -3206,6 +3596,7 @@ export class MetaReportingService {
 
   private conversionAuditStatusDetail(
     status: ConversionEventLogStatusDto,
+    event?: ConversionAuditEventRecord,
   ): string {
     const details: Record<ConversionEventLogStatusDto, string> = {
       pending_meta_context: "Aguardando identificacao de anuncio e conversa",
@@ -3215,13 +3606,25 @@ export class MetaReportingService {
       sent: "Recebido pela Meta",
       error: "O envio nao foi concluido",
       imported: "Marco historico, sem reenvio para a Meta",
-      not_eligible: "Sem identificador de clique, sem envio para a Meta",
+      not_eligible: event
+        ? this.conversionAuditNotEligibleDetail(event)
+        : "Sem dados obrigatorios, sem envio para a Meta",
       shadow_observed: "Coletado antes do corte, sem envio pelo WppTrack",
       not_configured: "Destino Meta ainda nao configurado",
       skipped: "Descartado pelas regras de validacao",
     };
 
     return details[status];
+  }
+
+  private conversionAuditNotEligibleDetail(
+    event: ConversionAuditEventRecord,
+  ): string {
+    const missingFields = this.conversionAuditMissingFields(event);
+
+    return missingFields.length
+      ? this.conversionAuditMissingFieldsReason(missingFields)
+      : "Sem dados obrigatorios, sem envio para a Meta";
   }
 
   private conversionAuditSource(

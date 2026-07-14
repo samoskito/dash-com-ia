@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Get,
   Inject,
+  Param,
   Post,
   Put,
   Query,
@@ -271,6 +272,19 @@ export class ReportingController {
         "Tamanho de pagina invalido",
         100,
       ),
+    });
+  }
+
+  @Get("conversions/audit/:eventId")
+  async getConversionEventAuditDetail(
+    @AuthToken() refreshToken: string,
+    @Param("eventId") eventId: string,
+  ) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.metaReportingService.getConversionEventAuditDetail({
+      workspaceId,
+      eventId,
     });
   }
 

@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
 import { MetaCapiAdapter } from "../src/conversion-events/meta-capi.adapter";
 
-function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
+function createHarness(metaCapiAdapter?: {
+  sendEvent(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+}) {
   const db = {
     integrationLogs: [] as Array<Record<string, unknown>>,
     diagnosticEvents: [] as Array<Record<string, unknown>>,
@@ -167,6 +169,7 @@ function createHarness(metaCapiAdapter?: Pick<MetaCapiAdapter, "sendEvent">) {
       (metaCapiAdapter ?? {
         sendEvent: async () => ({
           status: "not_configured" as const,
+          requestPayload: null,
           responseSummary: null,
           errorMessage: "Meta CAPI token, pixel id or page id not configured",
           errorCode: "MissingMetaDestination" as const
@@ -359,6 +362,11 @@ describe("conversion events service", () => {
       adId: null,
       ctwaClid: null,
       eventOccurredAt: new Date("2026-07-11T14:00:00.000Z"),
+      sourcePayload: {
+        schema: "external_event_row_v1",
+        adId: null,
+        ctwaClid: null
+      },
       deliveryStatus: "not_eligible"
     });
 
@@ -368,8 +376,12 @@ describe("conversion events service", () => {
     });
     expect(db.logs[0]).toMatchObject({
       status: "not_eligible",
-      errorCode: null,
-      errorMessage: null
+      errorCode: "MissingAdId",
+      sourcePayload: {
+        schema: "external_event_row_v1",
+        adId: null,
+        ctwaClid: null
+      }
     });
   });
 
@@ -713,6 +725,14 @@ describe("conversion events service", () => {
 
         return {
           status: "sent" as const,
+          requestPayload: {
+            data: [
+              {
+                event_name: "Purchase",
+                event_id: "workspace_1:lead_1:rule_1:Purchase:ad_1"
+              }
+            ]
+          },
           responseSummary: {
             events_received: 1
           },
@@ -762,6 +782,14 @@ describe("conversion events service", () => {
       status: "sent",
       providerResponseSummary: {
         events_received: 1
+      },
+      providerRequestPayload: {
+        data: [
+          {
+            event_name: "Purchase",
+            event_id: "workspace_1:lead_1:rule_1:Purchase:ad_1"
+          }
+        ]
       },
       errorMessage: null
     });

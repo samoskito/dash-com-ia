@@ -113,6 +113,14 @@ assert.equal(
   workflow.connections["Responder 200"].main[0][0].node,
   "Normalizar payload oficial",
 );
+assert.equal(
+  workflow.connections["Separar mensagens"].main[0][0].node,
+  "Somente mensagens com CTWA",
+);
+assert.equal(
+  workflow.connections["Somente mensagens com CTWA"].main[0][0].node,
+  "Buscar historico da conversa",
+);
 
 for (const removedName of [
   "Calcular assinatura Meta",
@@ -158,11 +166,26 @@ assert.match(
   node("Filter").parameters.conditions.conditions[0].leftValue,
   /ctwaclid/,
 );
+assert.match(
+  node("Somente mensagens com CTWA").parameters.conditions.conditions[0]
+    .leftValue,
+  /ctwaclid/,
+);
+assert.equal(
+  node("Somente mensagens com CTWA").parameters.conditions.conditions[0]
+    .operator.operation,
+  "notEmpty",
+);
 assert.equal(workflow.connections.Wait1.main[0][0].node, "Filter");
 assert.equal(
   workflow.connections.Filter.main[0][0].node,
   "Inserir ou atualizar Lead no Banco",
 );
+assert.equal(
+  workflow.connections["Filtra page_id e pixel_id"].main[0][0].node,
+  "atualizar dados",
+);
+assert.equal(workflow.connections["Envia convers\u00e3o de Lead"], undefined);
 assert.equal(
   workflow.connections["Inserir ou atualizar Lead no Banco"].main[0][0].node,
   "Acerta Fuso",
@@ -328,7 +351,8 @@ const classified = await executeCode("Classificar inicio de conversa", [
 
 assert.equal(classified.length, 4);
 assert.equal(classified[0].json.continue_legacy, true);
-assert.equal(classified[1].json.continue_legacy, true);
+assert.equal(classified[1].json.should_register, false);
+assert.equal(classified[1].json.continue_legacy, false);
 assert.equal(classified[2].json.should_register, false);
 assert.equal(classified[2].json.continue_legacy, false);
 assert.equal(classified[3].json.event_exists, true);
@@ -343,7 +367,7 @@ const continueLegacy = await executeCode(
     return { all: () => classified };
   },
 );
-assert.equal(continueLegacy.length, 2);
+assert.equal(continueLegacy.length, 1);
 assert.equal(
   continueLegacy.every((item) => item.json.continue_legacy),
   true,
@@ -400,8 +424,9 @@ console.log(
         "durable_inbox_before_ack",
         "deterministic_delivery_retry_key",
         "batched_messages",
-        "first_organic_contact",
+        "organic_message_filtered_before_business_storage",
         "ctwa_gate_before_legacy_write",
+        "wpptrack_owns_conversation_capi",
         "later_organic_message_ignored",
         "same_wamid_retry_ledger_only",
         "status_only_acknowledged",

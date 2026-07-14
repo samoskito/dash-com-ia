@@ -140,6 +140,7 @@ describe("ExternalSyncService", () => {
       read: 1,
       imported: 1,
       duplicates: 0,
+      filtered: 0,
       rejected: 0,
       queued: 0,
       removed: 0
@@ -186,12 +187,24 @@ describe("ExternalSyncService", () => {
     );
   });
 
-  it("refreshes lead projections without moving cursors or duplicate counters", async () => {
+  it("refreshes only paid lead projections without moving cursors or duplicate counters", async () => {
     const historicalLeadRow: ExternalLeadRow = {
       ...leadRow,
       firstMessageAt: "2026-07-11 00:00:00.000",
       qualifiedAt: "2026-07-11 00:00:00.000",
       purchasedAt: "2026-07-12 00:00:00.000"
+    };
+    const organicLeadRow: ExternalLeadRow = {
+      ...leadRow,
+      externalRowId: "organic-lead-row",
+      externalLeadId: "organic-lead",
+      phone: "5511888888888",
+      adId: null,
+      ctwaClid: null,
+      sourceUrl: null,
+      thumbnailUrl: null,
+      qualifiedAt: null,
+      purchasedAt: null
     };
     const prisma = {
       externalDataConnector: {
@@ -246,7 +259,7 @@ describe("ExternalSyncService", () => {
     const adapter = {
       readLeadsPage: vi
         .fn()
-        .mockResolvedValueOnce([historicalLeadRow])
+        .mockResolvedValueOnce([organicLeadRow, historicalLeadRow])
         .mockResolvedValueOnce([]),
       readEventsPage: vi.fn()
     };
@@ -281,6 +294,9 @@ describe("ExternalSyncService", () => {
     });
 
     expect(result.counts.imported).toBe(1);
+    expect(result.counts.filtered).toBe(1);
+    expect(result.counts.read).toBe(2);
+    expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledOnce();
     expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
         phone: "5511999999999",

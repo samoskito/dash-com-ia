@@ -272,6 +272,30 @@ export const conversionAuditEventSchema = z.object({
     .default(null),
 });
 
+export const conversionAuditPayloadModeSchema = z.enum([
+  "stored",
+  "stored_normalized",
+  "historical_summary",
+  "reconstructed",
+  "unavailable",
+]);
+
+export const conversionAuditPayloadSnapshotSchema = z.object({
+  mode: conversionAuditPayloadModeSchema,
+  label: z.string().min(1),
+  payload: z.record(z.unknown()).nullable(),
+});
+
+export const conversionAuditEventDetailSchema =
+  conversionAuditEventSchema.extend({
+    reasonCode: z.string().min(1).nullable(),
+    reason: z.string().min(1).nullable(),
+    missingFields: z.array(z.string().min(1)),
+    sourceSnapshot: conversionAuditPayloadSnapshotSchema,
+    metaRequest: conversionAuditPayloadSnapshotSchema,
+    metaResponse: conversionAuditPayloadSnapshotSchema,
+  });
+
 export const conversionAuditSummarySchema = z.object({
   total: z.number().int().nonnegative(),
   sent: z.number().int().nonnegative(),
@@ -324,6 +348,15 @@ export type ReportFunnelStepDto = z.infer<typeof reportFunnelStepSchema>;
 export type ReportPaginationDto = z.infer<typeof reportPaginationSchema>;
 export type ConversionAuditEventDto = z.infer<
   typeof conversionAuditEventSchema
+>;
+export type ConversionAuditEventDetailDto = z.infer<
+  typeof conversionAuditEventDetailSchema
+>;
+export type ConversionAuditPayloadModeDto = z.infer<
+  typeof conversionAuditPayloadModeSchema
+>;
+export type ConversionAuditPayloadSnapshotDto = z.infer<
+  typeof conversionAuditPayloadSnapshotSchema
 >;
 export type ConversionAuditOverviewDto = z.infer<
   typeof conversionAuditOverviewSchema

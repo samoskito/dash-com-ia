@@ -7,6 +7,7 @@ import {
   canViewReports,
   campaignReportRowSchema,
   clientNavigation,
+  conversionAuditEventDetailSchema,
   conversionAuditEventSchema,
   conversionAuditOverviewSchema,
   conversionEventErrorCodeSchema,
@@ -1478,6 +1479,60 @@ describe("shared contracts", () => {
 
     expect(event.eventLabel).toBe("Compras");
     expect(overview.events[1]?.errorCode).toBe("MetaCapiRejected");
+  });
+
+  it("validates detailed conversion audit payload snapshots", () => {
+    const detail = conversionAuditEventDetailSchema.parse({
+      id: "audit_event_1",
+      eventName: "QualifiedLead",
+      eventLabel: "Lead qualificado",
+      deliveryState: "sent",
+      statusLabel: "Enviado",
+      statusDetail: "Recebido pela Meta",
+      source: "external_integration",
+      sourceLabel: "Integracao externa",
+      leadId: "lead_1",
+      leadName: "Mariana Alves",
+      phoneDisplay: "+55 11 99999-1020",
+      campaignId: "cmp_1",
+      campaignName: "Campanha WhatsApp",
+      adSetId: "adset_1",
+      adSetName: "Conjunto aberto",
+      adId: "ad_1",
+      adName: "Anuncio 1",
+      pixelId: "pixel_1",
+      pageId: "page_1",
+      occurredAt: "2026-07-02T03:00:00.000Z",
+      sentAt: "2026-07-02T03:01:00.000Z",
+      status: "sent",
+      providerResponseSummary: "Meta confirmou o recebimento",
+      errorCode: null,
+      errorMessage: null,
+      valueSource: null,
+      reasonCode: null,
+      reason: null,
+      missingFields: [],
+      sourceSnapshot: {
+        mode: "stored_normalized",
+        label: "Entrada normalizada armazenada",
+        payload: { ctwaClid: "ctwa_1" }
+      },
+      metaRequest: {
+        mode: "stored",
+        label: "Payload exato armazenado no envio",
+        payload: { data: [{ event_name: "QualifiedLead" }] }
+      },
+      metaResponse: {
+        mode: "stored",
+        label: "Resposta armazenada da Meta",
+        payload: { events_received: 1 }
+      }
+    });
+
+    expect(detail.metaRequest.payload).toEqual({
+      data: [{ event_name: "QualifiedLead" }]
+    });
+    expect(detail.sourceSnapshot.mode).toBe("stored_normalized");
   });
 
   it("validates conversion rules with value defaults for Purchase", () => {

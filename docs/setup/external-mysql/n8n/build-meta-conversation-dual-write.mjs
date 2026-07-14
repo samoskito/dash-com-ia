@@ -610,6 +610,38 @@ return events.map((event) => ({ json: event }));`,
   name: "Separar mensagens",
 };
 
+const paidTrafficGateNode = {
+  parameters: {
+    conditions: {
+      options: {
+        caseSensitive: true,
+        leftValue: "",
+        typeValidation: "strict",
+        version: 2,
+      },
+      conditions: [
+        {
+          id: "cd28a379-9d9e-4da3-99c2-22a322272535",
+          leftValue: '={{ String($json.ctwaclid || "").trim() }}',
+          rightValue: "",
+          operator: {
+            type: "string",
+            operation: "notEmpty",
+            singleValue: true,
+          },
+        },
+      ],
+      combinator: "and",
+    },
+    options: {},
+  },
+  type: "n8n-nodes-base.filter",
+  typeVersion: 2.2,
+  position: [2784, 496],
+  id: "f67d7b40-b7eb-4ca2-85ec-596f33b84216",
+  name: "Somente mensagens com CTWA",
+};
+
 const historyLookupNode = {
   parameters: {
     operation: "executeQuery",
@@ -668,8 +700,7 @@ for (const [index, item] of $input.all().entries()) {
   const eventExists = Number(item.json.event_exists || 0) === 1;
   const contactExists = Number(item.json.contact_exists || 0) === 1;
   const hasPaidAttribution = Boolean(String(event.ctwaclid || '').trim());
-  const shouldRegister =
-    eventExists || hasPaidAttribution || !contactExists;
+  const shouldRegister = eventExists || hasPaidAttribution;
 
   output.push({
     json: {
@@ -841,7 +872,8 @@ const stickyNote = {
 4. wpptrack_test_mode dentro do body assinado executa um dry-run sem efeitos de producao.
 5. Cada messages[].id gera no maximo um conversation_started.
 6. Retries incrementam duplicate_count e nao repetem o fluxo legado.
-7. A tabela legada e o LeadSubmitted continuam apenas para mensagens com CTWA durante a sombra.`,
+7. Apenas mensagens com CTWA passam para historico, ledger e lead.
+8. O envio LeadSubmitted do n8n fica desconectado; Conversas pertencem ao WppTrack.`,
     height: 336,
     width: 1104,
   },
@@ -868,6 +900,7 @@ workflow.nodes.push(
   normalizePayloadNode,
   acceptedResponseNode,
   splitMessagesNode,
+  paidTrafficGateNode,
   historyLookupNode,
   classifyConversationNode,
   testModeIfNode,
@@ -878,20 +911,26 @@ workflow.nodes.push(
 );
 
 setPosition(postWebhook, 320, 576);
-setPosition(editFields, 3904, 496);
-setPosition(waitNode, 4128, 496);
-setPosition(paidFilter, 4352, 496);
-setPosition(legacyUpsert, 4576, 496);
-setPosition(timezoneNode, 4800, 496);
-setPosition(timestampNode, 5024, 496);
-setPosition(phoneHashNode, 5248, 496);
-setPosition(tokenLookupNode, 5472, 496);
-setPosition(loopNode, 5696, 496);
-setPosition(pixelLookupNode, 5920, 512);
-setPosition(pixelFilterNode, 6144, 496);
-setPosition(metaLeadNode, 6368, 496);
-setPosition(legacyStatusNode, 6592, 496);
-setPosition(legacyUpdateNode, 6816, 496);
+setPosition(historyLookupNode, 3008, 496);
+setPosition(classifyConversationNode, 3232, 496);
+setPosition(testModeIfNode, 3456, 496);
+setPosition(safeTestResultNode, 3680, 736);
+setPosition(registerConversationNode, 3680, 496);
+setPosition(continueLegacyNode, 3904, 496);
+setPosition(editFields, 4128, 496);
+setPosition(waitNode, 4352, 496);
+setPosition(paidFilter, 4576, 496);
+setPosition(legacyUpsert, 4800, 496);
+setPosition(timezoneNode, 5024, 496);
+setPosition(timestampNode, 5248, 496);
+setPosition(phoneHashNode, 5472, 496);
+setPosition(tokenLookupNode, 5696, 496);
+setPosition(loopNode, 5920, 496);
+setPosition(pixelLookupNode, 6144, 512);
+setPosition(pixelFilterNode, 6368, 496);
+setPosition(metaLeadNode, 5696, 256);
+setPosition(legacyStatusNode, 5696, 496);
+setPosition(legacyUpdateNode, 5920, 496);
 
 workflow.connections = {
   Webhook: {
@@ -937,6 +976,9 @@ workflow.connections = {
     main: [[connection("Separar mensagens")]],
   },
   "Separar mensagens": {
+    main: [[connection("Somente mensagens com CTWA")]],
+  },
+  "Somente mensagens com CTWA": {
     main: [[connection("Buscar historico da conversa")]],
   },
   "Buscar historico da conversa": {
@@ -991,10 +1033,7 @@ workflow.connections = {
     ],
   },
   "Filtra page_id e pixel_id": {
-    main: [[connection(metaLeadNode.name)]],
-  },
-  [metaLeadNode.name]: {
-    main: [[connection("atualizar dados")], [connection("atualizar dados")]],
+    main: [[connection("atualizar dados")]],
   },
   "atualizar dados": {
     main: [[connection(legacyUpdateNode.name)]],

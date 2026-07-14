@@ -103,12 +103,14 @@ The artifact:
 - accepts the normal parsed JSON body without HMAC validation or a Crypto credential, by explicit operator decision;
 - stores every delivery in `wpptrack_webhook_inbox` before returning `200`, so a downstream failure remains recoverable;
 - reads every `entry[].changes[].value.messages[]` item instead of assuming the first array item;
-- inserts `conversation_started` with provider `meta_whatsapp_official` before the legacy lead/CAPI flow;
+- requires a non-empty `ctwa_clid` immediately after splitting the messages, before history lookup, ledger or lead writes;
+- inserts paid `conversation_started` with provider `meta_whatsapp_official` before the legacy lead/CAPI flow;
 - uses `meta:conversation:<phone_number_id>:<wamid>` as the dedupe key and stores the `wamid` as `external_event_id`;
 - preserves the original message timestamp, phone, `ctwa_clid`, `source_id` as `ad_id`, and `source_url`;
-- accepts the first known organic contact but ignores later organic messages as new conversations;
+- terminates every message without CTWA after the durable inbox, without creating a business lead or event;
 - increments `duplicate_count` for a repeated `wamid` without repeating the legacy upsert or CAPI send;
-- keeps the legacy `whatsapp_anuncio_barbieri` upsert and `LeadSubmitted` only for paid CTWA messages during shadow reconciliation, with the CTWA filter before the legacy write and a stable `event_id` based on the `wamid`;
+- keeps the legacy `whatsapp_anuncio_barbieri` upsert only for paid CTWA messages, with the CTWA filter before the legacy write;
+- keeps the old n8n `LeadSubmitted` HTTP node disconnected because WppTrack already owns `conversation_started` delivery after the approved cutover;
 - acknowledges valid status-only payloads without creating an event;
 - recognizes `wpptrack_test_mode=true` and routes it to a no-side-effect dry-run result;
 - removes production `pinData`, the disconnected subscription node with an inline Meta token, workflow/webhook IDs and n8n credential IDs;
@@ -122,8 +124,10 @@ The artifact:
 4. In the imported workflow's GET `IF` node, replace `REPLACE_WITH_EXISTING_META_VERIFY_TOKEN` with the verification token already present in the old workflow.
 5. Select the existing n8n MySQL write credential in `Guardar entrega antes do ACK`, `Buscar historico da conversa`, `Registrar conversation_started`, `Inserir ou atualizar Lead no Banco`, `Buscar tokens` and `atualizacao lead no banco`. Never use `wpptrack_reader`.
 6. Confirm that the POST path is `Webhook1 -> Preparar entrega Meta -> Guardar entrega antes do ACK -> Restaurar entrega salva -> Responder 200`.
-7. During a controlled window, deactivate the old workflow and immediately activate the replacement. Both cannot own the same GET/POST production path.
-8. Run the safe test described below and keep the old workflow inactive for immediate rollback until the result is confirmed.
+7. Confirm that `Filtra page_id e pixel_id` goes directly to `atualizar dados` and that `Envia conversao de Lead` has no connection. Reconnecting it while WppTrack owns Conversas would duplicate CAPI delivery.
+8. During a controlled window, deactivate the old workflow and immediately activate the replacement. Both cannot own the same GET/POST production path.
+9. Replace `{{CLIENT_SUFFIX}}` and run `../migrations/20260713_paid_traffic_only.sql` once. It removes only business rows without CTWA and recreates both read views with the paid-only filter; it preserves `wpptrack_webhook_inbox`.
+10. Run the safe test described below and keep the old workflow inactive for immediate rollback until the result is confirmed.
 
 ### Official Meta test
 
@@ -135,7 +139,7 @@ Use `meta-conversation-replay-safe-test.json` to test before a real lead:
 4. The main workflow must return `EVENT_RECEIVED`, insert one row with `is_test=1` into `wpptrack_webhook_inbox`, and finish at `Resultado do teste seguro`.
 5. Confirm that `production_side_effects_executed=false`. `Registrar conversation_started`, legacy lead writes and Meta CAPI must remain unexecuted.
 
-This dry-run tests the real POST path, durable MySQL write, payload normalization, history lookup and paid/organic classification without changing the event ledger, a lead or Meta CAPI.
+This dry-run tests the real POST path, durable MySQL write, payload normalization, the early CTWA gate and the paid path without changing the event ledger, a lead or Meta CAPI.
 
 Verification query:
 
@@ -164,7 +168,7 @@ Expected result:
 - `external_event_id` contains the official `wamid`;
 - a paid first message preserves `ctwa_clid` and `ad_id`;
 - a retry keeps one row and increments `duplicate_count`;
-- a later organic message from an already known phone creates no second conversation event.
+- a message without CTWA, including the first contact from a phone, creates no conversation event or lead row.
 
 The Meta access token embedded in the disconnected source node must be rotated even though that node was removed from the artifact.
 
@@ -183,7 +187,7 @@ For each event type:
 4. Keep the remaining workflow effects active unless they are separately migrated.
 5. Validate one event created after the WppTrack activation time before moving to the next type.
 
-If rollback is needed, restore the n8n Meta HTTP node first and only then use `Reverter CAPI` in WppTrack. Never delete rows already recorded in `wpptrack_tracking_events`.
+If rollback is needed, restore the n8n Meta HTTP node first and only then use `Reverter CAPI` in WppTrack. Never delete paid/CTWA ledger rows manually. The reviewed `20260713_paid_traffic_only.sql` cleanup is the only intentional deletion and targets only out-of-scope rows without CTWA.
 
 ## Regeneration
 

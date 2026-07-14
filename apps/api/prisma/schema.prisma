@@ -344,6 +344,8 @@ model ConversionEventLog {
   externalConnectorId     String?
   sourceEventId           String?
   sentAt                  DateTime?
+  sourcePayload           Json?
+  providerRequestPayload  Json?
   providerResponseSummary Json?
   customData              Json?
   valueCents              Int?

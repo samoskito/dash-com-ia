@@ -1,17 +1,13 @@
 "use client";
 
-import type { CampaignReportRowDto } from "@wpptrack/shared";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   BackofficeActionForm,
   type BackofficeActionState,
   type BackofficeFormAction,
 } from "../../../components/backoffice-action-form";
-
-type WhatsappClassification = NonNullable<
-  CampaignReportRowDto["whatsappClassification"]
->;
+import type { WhatsappClassification } from "./whatsapp-review-state";
 
 const classificationLabels: Record<WhatsappClassification, string> = {
   auto_whatsapp: "WhatsApp automatico",
@@ -63,14 +59,38 @@ export function WhatsappReviewActions({
 }) {
   const [currentClassification, setCurrentClassification] =
     useState(classification);
+  const locallyConfirmedStateRef = useRef<
+    WhatsappClassification | "automatic_reset" | null
+  >(null);
 
   useEffect(() => {
+    const locallyConfirmedState = locallyConfirmedStateRef.current;
+
+    if (locallyConfirmedState === "automatic_reset") {
+      if (
+        classification === "manual_include" ||
+        classification === "manual_exclude"
+      ) {
+        return;
+      }
+    } else if (
+      locallyConfirmedState &&
+      classification !== locallyConfirmedState
+    ) {
+      return;
+    }
+
+    locallyConfirmedStateRef.current = null;
     setCurrentClassification(classification);
   }, [classification]);
 
   const handleSuccess = useCallback((state: BackofficeActionState) => {
     if (state.whatsappClassification) {
+      locallyConfirmedStateRef.current = state.whatsappClassification;
       setCurrentClassification(state.whatsappClassification);
+    } else if (state.whatsappClassificationReset) {
+      locallyConfirmedStateRef.current = "automatic_reset";
+      setCurrentClassification(undefined);
     }
   }, []);
 

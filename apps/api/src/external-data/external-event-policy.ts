@@ -26,6 +26,24 @@ export class ExternalEventIdentityError extends Error {
   }
 }
 
+export function shouldFilterExternalLeadWithoutCtwa(
+  connectorProvider: string,
+  ctwaClid?: string | null
+): boolean {
+  return connectorProvider === "kinbox_mysql" && !optional(ctwaClid);
+}
+
+export function shouldFilterExternalConversationWithoutCtwa(
+  connectorProvider: string,
+  eventType: string,
+  ctwaClid?: string | null
+): boolean {
+  return (
+    eventType === "conversation_started" &&
+    shouldFilterExternalLeadWithoutCtwa(connectorProvider, ctwaClid)
+  );
+}
+
 export function buildExternalEventIdentity(
   input: ExternalEventIdentityInput
 ): ExternalEventIdentity {

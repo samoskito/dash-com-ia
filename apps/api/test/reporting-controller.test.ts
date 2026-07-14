@@ -153,13 +153,62 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         },
       ],
     })),
+    getConversionEventAuditDetail: vi.fn(async () => ({
+      id: "conversion_1",
+      eventName: "LeadSubmitted",
+      eventLabel: "Conversas reais iniciadas",
+      deliveryState: "sent",
+      statusLabel: "Enviado",
+      statusDetail: "Recebido pela Meta",
+      source: "external_integration",
+      sourceLabel: "Integracao externa",
+      leadId: "lead_1",
+      leadName: "Mariana Alves",
+      phoneDisplay: "+55 11 99999-1020",
+      campaignId: "cmp_1",
+      campaignName: "Campanha WhatsApp",
+      adSetId: "adset_1",
+      adSetName: "Conjunto aberto",
+      adId: "ad_1",
+      adName: "Anuncio 1",
+      pixelId: "pixel_1",
+      pageId: "page_1",
+      occurredAt: "2026-07-02T12:00:00.000Z",
+      sentAt: "2026-07-02T12:01:00.000Z",
+      status: "sent",
+      providerResponseSummary: "Meta confirmou o recebimento",
+      errorCode: null,
+      errorMessage: null,
+      valueSource: null,
+      reasonCode: null,
+      reason: null,
+      missingFields: [],
+      sourceSnapshot: {
+        mode: "stored_normalized",
+        label: "Entrada normalizada armazenada",
+        payload: { externalRowId: "101" },
+      },
+      metaRequest: {
+        mode: "stored",
+        label: "Payload exato armazenado no envio",
+        payload: { data: [{ event_name: "LeadSubmitted" }] },
+      },
+      metaResponse: {
+        mode: "stored",
+        label: "Resposta armazenada da Meta",
+        payload: { events_received: 1 },
+      },
+    })),
     getCampaignReportCsv: vi.fn(async () => ({
       filename: "wpptrack-campanhas-2026-07-01-2026-07-02.csv",
       content:
         "Campanha,Status,Investimento,Conversas Meta,Conversas reais,Leads organicos,Total recebido,Taxa de rastreio,Lead qualificado,Compras,Primeiras compras,Recompras,Receita total,ROAS aquisicao,ROAS com recompra\n" +
         "Black Friday WhatsApp,active,1200.00,176,2,0,2,1,1,1,1,0,1000.00,0.8333333333333334,0.8333333333333334\n",
     })),
-    saveWhatsappClassificationOverride: vi.fn(async () => ({ ok: true })),
+    saveWhatsappClassificationOverride: vi.fn(async () => ({
+      ok: true,
+      whatsappClassification: "manual_include",
+    })),
     updateMetaEntityStatus: vi.fn(async () => ({
       ok: true,
       level: "campaign",
@@ -345,6 +394,31 @@ describe("reporting controller", () => {
       page: 2,
       pageSize: 10,
     });
+
+    await app.close();
+  });
+
+  it("returns one conversion audit detail scoped to the current workspace", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/conversions/audit/conversion_1")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.id).toBe("conversion_1");
+        expect(body.metaRequest.payload.data[0].event_name).toBe(
+          "LeadSubmitted",
+        );
+        expect(body.metaResponse.payload.events_received).toBe(1);
+      });
+
+    expect(reportingService.getConversionEventAuditDetail).toHaveBeenCalledWith(
+      {
+        workspaceId: "workspace_1",
+        eventId: "conversion_1",
+      },
+    );
 
     await app.close();
   });
@@ -756,7 +830,10 @@ describe("reporting controller", () => {
       })
       .expect(200)
       .expect(({ body }) => {
-        expect(body).toEqual({ ok: true });
+        expect(body).toEqual({
+          ok: true,
+          whatsappClassification: "manual_include",
+        });
       });
 
     expect(

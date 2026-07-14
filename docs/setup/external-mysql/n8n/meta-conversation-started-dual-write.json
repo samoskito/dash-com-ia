@@ -11,7 +11,10 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [-112, -64]
+      "position": [
+        -112,
+        -64
+      ]
     },
     {
       "parameters": {
@@ -28,7 +31,10 @@
       "name": "IF",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [112, -64]
+      "position": [
+        112,
+        -64
+      ]
     },
     {
       "parameters": {
@@ -40,7 +46,10 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [336, -96]
+      "position": [
+        336,
+        -96
+      ]
     },
     {
       "parameters": {
@@ -53,7 +62,10 @@
       "name": "Webhook1",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [320, 576]
+      "position": [
+        320,
+        576
+      ]
     },
     {
       "parameters": {
@@ -82,7 +94,10 @@
       },
       "type": "n8n-nodes-base.filter",
       "typeVersion": 2.2,
-      "position": [3456, 496],
+      "position": [
+        3680,
+        496
+      ],
       "id": "40fcfb67-b0cd-4c41-80de-15bf12d03a95",
       "name": "Filter"
     },
@@ -164,7 +179,10 @@
       "name": "Edit Fields",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.3,
-      "position": [3008, 496]
+      "position": [
+        3232,
+        496
+      ]
     },
     {
       "parameters": {
@@ -176,7 +194,10 @@
       "name": "[HASH] Phone1",
       "type": "n8n-nodes-base.crypto",
       "typeVersion": 1,
-      "position": [4352, 496]
+      "position": [
+        4576,
+        496
+      ]
     },
     {
       "parameters": {
@@ -189,7 +210,10 @@
       "name": "Acerta Fuso",
       "type": "n8n-nodes-base.dateTime",
       "typeVersion": 2,
-      "position": [3904, 496]
+      "position": [
+        4128,
+        496
+      ]
     },
     {
       "parameters": {
@@ -213,7 +237,10 @@
       "name": "Busca Pixel",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [5024, 512],
+      "position": [
+        5248,
+        512
+      ],
       "retryOnFail": true,
       "waitBetweenTries": 5000,
       "onError": "continueErrorOutput"
@@ -231,7 +258,10 @@
       "name": "Gera Timestamp",
       "type": "n8n-nodes-base.dateTime",
       "typeVersion": 2,
-      "position": [4128, 496]
+      "position": [
+        4352,
+        496
+      ]
     },
     {
       "parameters": {
@@ -241,7 +271,10 @@
       "name": "Filtra page_id e pixel_id",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [5248, 496]
+      "position": [
+        5472,
+        496
+      ]
     },
     {
       "parameters": {
@@ -257,7 +290,10 @@
       },
       "type": "n8n-nodes-base.mySql",
       "typeVersion": 2.4,
-      "position": [3680, 496],
+      "position": [
+        3904,
+        496
+      ],
       "id": "1f83b90d-28cf-4699-acd7-6586a4bfdd4a",
       "name": "Inserir ou atualizar Lead no Banco",
       "alwaysOutputData": false,
@@ -281,7 +317,10 @@
       },
       "type": "n8n-nodes-base.mySql",
       "typeVersion": 2.5,
-      "position": [4576, 496],
+      "position": [
+        4800,
+        496
+      ],
       "id": "74c41a33-fff9-4661-8936-7c922c788bcd",
       "name": "Buscar tokens",
       "credentials": {
@@ -296,7 +335,10 @@
       },
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [4800, 496],
+      "position": [
+        5024,
+        496
+      ],
       "id": "54364df5-d9a9-4b83-8a57-d7ff0402b0e9",
       "name": "Loop Over Items"
     },
@@ -328,7 +370,10 @@
       },
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [5696, 496],
+      "position": [
+        5696,
+        496
+      ],
       "id": "9569d5d2-095f-4e68-88d3-300e9430367b",
       "name": "atualizar dados"
     },
@@ -346,7 +391,10 @@
       },
       "type": "n8n-nodes-base.mySql",
       "typeVersion": 2.4,
-      "position": [5920, 496],
+      "position": [
+        5920,
+        496
+      ],
       "id": "bf12d849-0e99-423a-b444-9603d4235187",
       "name": "atualização lead no banco",
       "credentials": {
@@ -377,7 +425,10 @@
       "name": "Envia conversão de Lead",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [5472, 496],
+      "position": [
+        5696,
+        256
+      ],
       "onError": "continueErrorOutput"
     },
     {
@@ -386,7 +437,10 @@
       },
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [3232, 496],
+      "position": [
+        3456,
+        496
+      ],
       "id": "f67a5fa5-559e-43bc-8c5c-51433c18b3a6",
       "name": "Wait1"
     },
@@ -396,7 +450,10 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [544, 576],
+      "position": [
+        544,
+        576
+      ],
       "id": "435339fc-da2c-477d-a62e-e202ce1e975d",
       "name": "Preparar entrega Meta"
     },
@@ -410,7 +467,10 @@
       },
       "type": "n8n-nodes-base.mySql",
       "typeVersion": 2.5,
-      "position": [768, 576],
+      "position": [
+        768,
+        576
+      ],
       "id": "1c8bc953-8580-4ed2-a824-97bc9b92bd74",
       "name": "Guardar entrega antes do ACK",
       "retryOnFail": true,
@@ -428,7 +488,10 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1440, 496],
+      "position": [
+        1440,
+        496
+      ],
       "id": "81adf284-30db-4835-a56a-4f01116e7e6f",
       "name": "Normalizar payload oficial"
     },
@@ -442,7 +505,10 @@
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
-      "position": [1216, 576],
+      "position": [
+        1216,
+        576
+      ],
       "id": "82fc1ce3-2bfe-428c-aeee-49aa832df1ee",
       "name": "Responder 200"
     },
@@ -452,9 +518,46 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1664, 496],
+      "position": [
+        1664,
+        496
+      ],
       "id": "9e9480b9-a2ef-43f2-a99b-9800c1862d67",
       "name": "Separar mensagens"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cd28a379-9d9e-4da3-99c2-22a322272535",
+              "leftValue": "={{ String($json.ctwaclid || \"\").trim() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        1888,
+        496
+      ],
+      "id": "f67d7b40-b7eb-4ca2-85ec-596f33b84216",
+      "name": "Somente mensagens com CTWA"
     },
     {
       "parameters": {
@@ -466,7 +569,10 @@
       },
       "type": "n8n-nodes-base.mySql",
       "typeVersion": 2.5,
-      "position": [1888, 496],
+      "position": [
+        2112,
+        496
+      ],
       "id": "45ad9861-6c59-43df-9df6-98d1f036dd6c",
       "name": "Buscar historico da conversa",
       "credentials": {
@@ -477,11 +583,14 @@
     },
     {
       "parameters": {
-        "jsCode": "const output = [];\n\nfor (const [index, item] of $input.all().entries()) {\n  let event = item.json.event_json;\n\n  if (typeof event === 'string') {\n    event = JSON.parse(event);\n  }\n\n  if (!event || typeof event !== 'object') {\n    throw new Error('Conversation lookup did not preserve the normalized event');\n  }\n\n  const eventExists = Number(item.json.event_exists || 0) === 1;\n  const contactExists = Number(item.json.contact_exists || 0) === 1;\n  const hasPaidAttribution = Boolean(String(event.ctwaclid || '').trim());\n  const shouldRegister =\n    eventExists || hasPaidAttribution || !contactExists;\n\n  output.push({\n    json: {\n      ...event,\n      event_exists: eventExists,\n      contact_exists: contactExists,\n      should_register: shouldRegister,\n      continue_legacy: shouldRegister && !eventExists,\n    },\n    pairedItem: { item: index },\n  });\n}\n\nreturn output;"
+        "jsCode": "const output = [];\n\nfor (const [index, item] of $input.all().entries()) {\n  let event = item.json.event_json;\n\n  if (typeof event === 'string') {\n    event = JSON.parse(event);\n  }\n\n  if (!event || typeof event !== 'object') {\n    throw new Error('Conversation lookup did not preserve the normalized event');\n  }\n\n  const eventExists = Number(item.json.event_exists || 0) === 1;\n  const contactExists = Number(item.json.contact_exists || 0) === 1;\n  const hasPaidAttribution = Boolean(String(event.ctwaclid || '').trim());\n  const shouldRegister = eventExists || hasPaidAttribution;\n\n  output.push({\n    json: {\n      ...event,\n      event_exists: eventExists,\n      contact_exists: contactExists,\n      should_register: shouldRegister,\n      continue_legacy: shouldRegister && !eventExists,\n    },\n    pairedItem: { item: index },\n  });\n}\n\nreturn output;"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2112, 496],
+      "position": [
+        2336,
+        496
+      ],
       "id": "613c9677-59e9-4311-985b-95b0f9820374",
       "name": "Classificar inicio de conversa"
     },
@@ -512,7 +621,10 @@
       },
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [2336, 496],
+      "position": [
+        2560,
+        496
+      ],
       "id": "3285e28f-cfa1-4d96-ac50-5fb85c756a38",
       "name": "Modo de teste seguro?"
     },
@@ -522,7 +634,10 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2560, 736],
+      "position": [
+        2784,
+        736
+      ],
       "id": "1d7239ea-4aeb-4c10-a32a-d34f01731aa3",
       "name": "Resultado do teste seguro"
     },
@@ -536,7 +651,10 @@
       },
       "type": "n8n-nodes-base.mySql",
       "typeVersion": 2.5,
-      "position": [2560, 496],
+      "position": [
+        2784,
+        496
+      ],
       "id": "8fac4be3-d538-40a3-958c-c6766fbab00f",
       "name": "Registrar conversation_started",
       "credentials": {
@@ -551,18 +669,24 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2784, 496],
+      "position": [
+        3008,
+        496
+      ],
       "id": "c78868c0-e813-44b0-b9be-d5c7247fc86e",
       "name": "Continuar fluxo legado"
     },
     {
       "parameters": {
-        "content": "# Meta Oficial -> WppTrack\n\n1. O POST e aceito sem validacao de assinatura HMAC.\n2. Toda entrega e salva no inbox antes do ACK 200.\n3. O payload JSON normal do Webhook alimenta a normalizacao.\n4. wpptrack_test_mode executa um dry-run sem efeitos de producao.\n5. Cada messages[].id gera no maximo um conversation_started.\n6. Retries incrementam duplicate_count e nao repetem o fluxo legado.\n7. A tabela legada e o LeadSubmitted continuam apenas para mensagens com CTWA durante a sombra.",
+        "content": "# Meta Oficial -> WppTrack\n\n1. O POST e aceito sem validacao de assinatura HMAC.\n2. Toda entrega e salva no inbox antes do ACK 200.\n3. O payload JSON normal do Webhook alimenta a normalizacao.\n4. wpptrack_test_mode executa um dry-run sem efeitos de producao.\n5. Cada messages[].id gera no maximo um conversation_started.\n6. Retries incrementam duplicate_count e nao repetem o fluxo legado.\n7. Apenas mensagens com CTWA passam para historico, ledger e lead.\n8. O envio LeadSubmitted do n8n fica desconectado; Conversas pertencem ao WppTrack.",
         "height": 336,
         "width": 1104
       },
       "type": "n8n-nodes-base.stickyNote",
-      "position": [1600, 80],
+      "position": [
+        1600,
+        80
+      ],
       "typeVersion": 1,
       "id": "6f49f39a-3ebd-4eeb-bba0-7ac393778c12",
       "name": "Contrato Meta Oficial WppTrack"
@@ -573,7 +697,10 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [992, 576],
+      "position": [
+        992,
+        576
+      ],
       "id": "0ccb9b07-1015-4fd9-b4fd-430e38f11911",
       "name": "Restaurar entrega salva"
     }
@@ -636,6 +763,17 @@
       ]
     },
     "Separar mensagens": {
+      "main": [
+        [
+          {
+            "node": "Somente mensagens com CTWA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Somente mensagens com CTWA": {
       "main": [
         [
           {
@@ -828,24 +966,6 @@
     },
     "Filtra page_id e pixel_id": {
       "main": [
-        [
-          {
-            "node": "Envia conversão de Lead",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Envia conversão de Lead": {
-      "main": [
-        [
-          {
-            "node": "atualizar dados",
-            "type": "main",
-            "index": 0
-          }
-        ],
         [
           {
             "node": "atualizar dados",

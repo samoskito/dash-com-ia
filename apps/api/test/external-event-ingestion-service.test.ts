@@ -169,7 +169,27 @@ describe("ExternalEventIngestionService", () => {
         valueCents: 400_000,
         valueSource: "configured_average",
         currency: "BRL",
+        sourcePayload: expect.objectContaining({
+          schema: "external_event_row_v1",
+          externalRowId: "101",
+          phone: "***9999",
+          phoneRedacted: true,
+          adId: "120012345678",
+          ctwaClid: "ctwa_1"
+        })
       }),
+    );
+    expect(harness.prisma.externalIngestionRecord.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          summaryPayload: expect.objectContaining({
+            sourcePayload: expect.objectContaining({
+              provider: "kinbox_mysql",
+              phone: "***9999"
+            })
+          })
+        })
+      })
     );
   });
 
@@ -524,6 +544,45 @@ describe("ExternalEventIngestionService", () => {
         deliveryStatus: "not_eligible",
       }),
     );
+    expect(harness.conversionQueue.enqueueSend).not.toHaveBeenCalled();
+  });
+
+  it("filters a Kinbox conversation without ctwa_clid before any business storage", async () => {
+    const harness = createHarness({
+      shadowMode: false,
+      capiSendEnabled: true,
+      leadCtwaClid: null,
+    });
+    const result = await harness.service.ingest(harness.connector, {
+      ...row,
+      externalRowId: "organic_conversation_1",
+      provider: "meta_whatsapp_official",
+      eventType: "conversation_started",
+      externalEventId: "wamid.organic",
+      transactionId: null,
+      ctwaClid: null,
+      valueCents: null,
+      currency: null,
+      valueSource: null,
+    });
+
+    expect(result).toEqual({
+      externalRowId: "organic_conversation_1",
+      status: "filtered",
+      leadId: null,
+      conversionEventLogId: null,
+      queued: false,
+      errorCode: null,
+    });
+    expect(
+      harness.prisma.externalIngestionRecord.findUnique,
+    ).not.toHaveBeenCalled();
+    expect(
+      harness.leadsService.upsertFromWhatsappWebhook,
+    ).not.toHaveBeenCalled();
+    expect(
+      harness.conversionEventsService.recordExternalConversion,
+    ).not.toHaveBeenCalled();
     expect(harness.conversionQueue.enqueueSend).not.toHaveBeenCalled();
   });
 
