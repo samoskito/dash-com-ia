@@ -428,7 +428,8 @@ Deploy with EMAIL_PROVIDER disabled first, validate health, then enable SMTP in 
 - `/health/ready` now reports `email: disabled`, `email: ok` or `email: error` without opening an SMTP connection or exposing credentials. Disabled email does not degrade readiness.
 - Focused email/configuration/health tests passed. Full local validation passed with 60 shared tests, 633 API tests and 130 web tests; shared/API/web typechecks, Prisma validate, direct Nest production build and `git diff --check` passed.
 - The existing auth and workspace flows are intentionally not wired to the queue in this wave. Password reset and verification delivery belong to Wave 5; invitation delivery and onboarding belong to Wave 6.
-- The remaining Wave 4 acceptance action is a controlled internal staging delivery after Brevo sender-domain authentication and secret-store configuration. Production stays disabled until that checkpoint.
+- Production SMTP verification and a controlled external delivery were completed on 2026-07-14. Brevo authentication returned `SMTP_VERIFY_OK`; the compiled WppTrack transport reported one accepted and zero rejected recipients, and receipt was confirmed in the destination mailbox.
+- Outbound transactional email infrastructure is accepted. Public invitation/reset/verification rollout remains blocked until the inbound mailbox for `suporte@rastrack.app` is configured so the production reply-to address can receive responses.
 - No push or production deploy was performed. The active Barbieri OAuth, assets, reporting, CAPI and n8n runtime were not changed.
 
 ## 8. Wave 5 - Password Reset and Email Verification Delivery
