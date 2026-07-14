@@ -618,6 +618,7 @@ describe("ExternalDataService", () => {
 
     expect(enqueueSync).toHaveBeenCalledWith({
       connectorId: "connector_1",
+      workspaceId: "workspace_1",
       streams: ["leads"],
       projectionRefresh: true,
       requestedByUserId: "admin_1"
@@ -705,6 +706,7 @@ describe("ExternalDataService", () => {
     });
     expect(enqueueSync).toHaveBeenCalledWith({
       connectorId: "connector_1",
+      workspaceId: "workspace_1",
       streams: ["events"],
       requestedByUserId: "admin_1"
     });

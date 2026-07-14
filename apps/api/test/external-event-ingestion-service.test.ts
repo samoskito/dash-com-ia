@@ -520,6 +520,7 @@ describe("ExternalEventIngestionService", () => {
     );
     expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledWith(
       "conversion_1",
+      "workspace_1"
     );
   });
 
@@ -672,6 +673,7 @@ describe("ExternalEventIngestionService", () => {
     );
     expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledWith(
       "conversion_1",
+      "workspace_1"
     );
   });
 });

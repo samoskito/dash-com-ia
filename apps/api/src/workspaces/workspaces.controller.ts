@@ -3,11 +3,13 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Inject,
   Patch,
   Post
 } from "@nestjs/common";
 import {
+  workspaceActiveInputSchema,
   workspaceInviteAcceptInputSchema,
   workspaceInviteInputSchema,
   workspaceUpdateInputSchema
@@ -24,9 +26,33 @@ export class WorkspacesController {
     private readonly workspacesService: WorkspacesService
   ) {}
 
+  @Get()
+  async list(@AuthToken() refreshToken: string) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    return this.workspacesService.listAvailableWorkspaces(authenticated);
+  }
+
   @Get("current")
   async current(@AuthToken() refreshToken: string) {
     const authenticated = await this.authService.getSession(refreshToken);
+    return this.workspacesService.getCurrentWorkspace(authenticated);
+  }
+
+  @Post("active")
+  @HttpCode(200)
+  async setActive(@AuthToken() refreshToken: string, @Body() body: unknown) {
+    const parsed = workspaceActiveInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    await this.authService.setActiveWorkspace(
+      refreshToken,
+      parsed.data.workspaceId
+    );
+    const authenticated = await this.authService.getSession(refreshToken);
+
     return this.workspacesService.getCurrentWorkspace(authenticated);
   }
 
@@ -83,6 +109,15 @@ export class WorkspacesController {
     }
 
     const authenticated = await this.authService.getSession(refreshToken);
-    return this.workspacesService.acceptInvite(authenticated, parsed.data);
+    const accepted = await this.workspacesService.acceptInvite(
+      authenticated,
+      parsed.data
+    );
+    await this.authService.setActiveWorkspace(
+      refreshToken,
+      accepted.workspaceId
+    );
+
+    return accepted;
   }
 }

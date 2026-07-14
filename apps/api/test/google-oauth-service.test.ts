@@ -135,4 +135,46 @@ describe("google oauth service", () => {
       message: "Bad authorization code"
     });
   });
+
+  it("rejects a Google profile whose email is not verified", async () => {
+    let requestCount = 0;
+    const service = createService(
+      {
+        GOOGLE_CLIENT_ID: "client_123",
+        GOOGLE_CLIENT_SECRET: "secret_123",
+        GOOGLE_REDIRECT_URI: "https://api.wpptrack.test/auth/google/callback"
+      },
+      (async () => {
+        requestCount += 1;
+
+        if (requestCount === 1) {
+          return new Response(
+            JSON.stringify({ access_token: "google-access-token" }),
+            { status: 200 }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            sub: "google-user-1",
+            email: "member@example.com",
+            email_verified: false,
+            name: "Member"
+          }),
+          { status: 200 }
+        );
+      }) as typeof fetch
+    );
+    const start = service.getGoogleOAuthStart({ redirectTo: "/overview" });
+
+    const result = await service.handleGoogleOAuthCallback({
+      code: "oauth-code",
+      state: start.state!
+    });
+
+    expect(result).toMatchObject({
+      action: "exchange_failed",
+      message: "Email Google nao verificado"
+    });
+  });
 });

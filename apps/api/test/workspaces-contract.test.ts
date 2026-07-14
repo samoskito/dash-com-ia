@@ -80,6 +80,7 @@ describe("workspace contracts", () => {
           authProvider: "email",
           emailVerifiedAt: null
         },
+        activeWorkspaceId: "workspace_1",
         workspaces: [
           {
             id: "workspace_1",
@@ -130,6 +131,7 @@ describe("workspace contracts", () => {
           authProvider: "email",
           emailVerifiedAt: null
         },
+        activeWorkspaceId: "workspace_1",
         workspaces: [
           {
             id: "workspace_1",
@@ -155,6 +157,7 @@ describe("workspace contracts", () => {
         emailVerifiedAt: null,
         platformRole: "platform_owner"
       },
+      activeWorkspaceId: "workspace_owner",
       workspaces: [
         {
           id: "workspace_owner",

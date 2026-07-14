@@ -5,7 +5,7 @@ import { MetaAdapter } from "../src/integrations/meta/meta.adapter";
 import { UazapiAdapter } from "../src/integrations/uazapi/uazapi.adapter";
 
 describe("integrations service", () => {
-  it("returns a Meta OAuth redirect action with the real authorization URL", () => {
+  it("returns a Meta OAuth redirect action with the real authorization URL", async () => {
     const service = new IntegrationsService(
       new MetaAdapter({
         META_APP_ID: "app_123",
@@ -23,7 +23,7 @@ describe("integrations service", () => {
       }
     );
 
-    const action = service.getMetaStartAction();
+    const action = await service.getMetaStartAction();
 
     expect(action.action).toBe("oauth_redirect");
     expect(action.href).toContain("https://www.facebook.com/v25.0/dialog/oauth");
@@ -31,7 +31,7 @@ describe("integrations service", () => {
     expect(action.missingEnv).toEqual([]);
   });
 
-  it("requires redirect URL before starting Meta OAuth", () => {
+  it("requires redirect URL before starting Meta OAuth", async () => {
     const service = new IntegrationsService(
       new MetaAdapter({
         META_APP_ID: "app_123",
@@ -45,11 +45,40 @@ describe("integrations service", () => {
       }
     );
 
-    expect(service.getMetaStartAction()).toMatchObject({
+    await expect(service.getMetaStartAction()).resolves.toMatchObject({
       provider: "meta",
       action: "configure_env",
       missingEnv: ["META_OAUTH_REDIRECT_URL"]
     });
+  });
+
+  it("does not start Meta OAuth when the deployment enables only manual mode", async () => {
+    const metaAdapter = new MetaAdapter({});
+    const exchangeSpy = vi.spyOn(metaAdapter, "exchangeCodeForToken");
+    const service = new IntegrationsService(
+      metaAdapter,
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {
+        META_CONNECTION_MODES: "manual",
+        META_APP_ID: "app_123",
+        META_APP_SECRET: "secret",
+        META_OAUTH_REDIRECT_URL:
+          "https://api.wpptrack.com/integrations/meta/callback"
+      }
+    );
+
+    await expect(service.getMetaStartAction()).resolves.toMatchObject({
+      action: "configure_env",
+      missingEnv: ["META_CONNECTION_MODES=oauth"]
+    });
+    await expect(
+      service.handleMetaCallback({ code: "meta-code", state: "state" })
+    ).resolves.toMatchObject({
+      status: "exchange_failed",
+      message: "OAuth Meta desabilitado neste ambiente"
+    });
+    expect(exchangeSpy).not.toHaveBeenCalled();
   });
 
   it("delegates Meta callback exchange to the adapter", async () => {
@@ -79,10 +108,43 @@ describe("integrations service", () => {
         selectedPixelId: null
       }))
     };
-    const env = {
-      META_TOKEN_ENCRYPTION_KEY: "state-secret"
+    const states: Array<Record<string, any>> = [];
+    const prisma = {
+      metaOAuthState: {
+        create: vi.fn(async ({ data }) => {
+          const state = {
+            id: "state_1",
+            consumedAt: null,
+            createdAt: new Date(),
+            ...data
     };
-    const stateService = new IntegrationsService(
+          states.push(state);
+          return state;
+        }),
+        findUnique: vi.fn(
+          async ({ where }) =>
+            states.find((state) => state.stateHash === where.stateHash) ?? null
+        ),
+        updateMany: vi.fn(async ({ where, data }) => {
+          const state = states.find((candidate) => candidate.id === where.id);
+
+          if (
+            !state ||
+            state.consumedAt ||
+            state.expiresAt.getTime() <= where.expiresAt.gt.getTime()
+          ) {
+            return { count: 0 };
+          }
+
+          state.consumedAt = data.consumedAt;
+          return { count: 1 };
+        })
+      },
+      workspaceMember: {
+        findUnique: vi.fn(async () => ({ id: "member_1", role: "admin" }))
+      }
+    };
+    const service = new IntegrationsService(
       metaAdapter,
       new UazapiAdapter({}),
       new AsaasAdapter({}),
@@ -92,17 +154,11 @@ describe("integrations service", () => {
         META_OAUTH_REDIRECT_URL: "https://api.wpptrack.com/integrations/meta/callback",
         META_TOKEN_ENCRYPTION_KEY: "state-secret"
       },
-      metaConnectionsService as never
+      metaConnectionsService as never,
+      prisma as never
     );
-    const start = stateService.getMetaStartAction("workspace_1");
+    const start = await service.getMetaStartAction("workspace_1", "user_1");
     const state = new URL(start.href ?? "").searchParams.get("state");
-    const service = new IntegrationsService(
-      metaAdapter,
-      new UazapiAdapter({}),
-      new AsaasAdapter({}),
-      env,
-      metaConnectionsService as never
-    );
 
     await expect(
       service.handleMetaCallback({ code: "meta-code", state: state ?? "" })
@@ -115,6 +171,8 @@ describe("integrations service", () => {
       }
     });
     expect(exchangeSpy).toHaveBeenCalledWith({ code: "meta-code" });
+    expect(states[0]?.stateHash).not.toBe(state);
+    expect(states[0]?.userId).toBe("user_1");
     expect(metaConnectionsService.saveOAuthConnection).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       accessToken: "EAAB-secret-token",
@@ -122,6 +180,110 @@ describe("integrations service", () => {
       expiresInSeconds: 5183944,
       scopes: ["ads_read"]
     });
+
+    await expect(
+      service.handleMetaCallback({ code: "replayed-code", state: state ?? "" })
+    ).resolves.toMatchObject({
+      status: "exchange_failed",
+      message: "State OAuth Meta invalido ou expirado"
+    });
+    expect(exchangeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a Meta OAuth state when the actor lost workspace membership", async () => {
+    const metaAdapter = new MetaAdapter({});
+    const exchangeSpy = vi.spyOn(metaAdapter, "exchangeCodeForToken");
+    let savedState: Record<string, any> | null = null;
+    const prisma = {
+      metaOAuthState: {
+        create: vi.fn(async ({ data }) => {
+          savedState = {
+            id: "state_1",
+            consumedAt: null,
+            ...data
+          };
+          return savedState;
+        }),
+        findUnique: vi.fn(async () => savedState),
+        updateMany: vi.fn()
+      },
+      workspaceMember: {
+        findUnique: vi.fn(async () => null)
+      }
+    };
+    const service = new IntegrationsService(
+      metaAdapter,
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {
+        META_APP_ID: "app_123",
+        META_APP_SECRET: "secret",
+        META_OAUTH_REDIRECT_URL:
+          "https://api.wpptrack.com/integrations/meta/callback",
+        META_TOKEN_ENCRYPTION_KEY: "state-secret"
+      },
+      {} as never,
+      prisma as never
+    );
+    const start = await service.getMetaStartAction("workspace_1", "user_1");
+    const state = new URL(start.href ?? "").searchParams.get("state") ?? "";
+
+    await expect(
+      service.handleMetaCallback({ code: "meta-code", state })
+    ).resolves.toMatchObject({
+      status: "exchange_failed",
+      message: "State OAuth Meta invalido ou expirado"
+    });
+    expect(exchangeSpy).not.toHaveBeenCalled();
+    expect(prisma.metaOAuthState.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Meta OAuth state when the actor lost integration permission", async () => {
+    const metaAdapter = new MetaAdapter({});
+    const exchangeSpy = vi.spyOn(metaAdapter, "exchangeCodeForToken");
+    let savedState: Record<string, any> | null = null;
+    const prisma = {
+      metaOAuthState: {
+        create: vi.fn(async ({ data }) => {
+          savedState = {
+            id: "state_1",
+            consumedAt: null,
+            ...data
+          };
+          return savedState;
+        }),
+        findUnique: vi.fn(async () => savedState),
+        updateMany: vi.fn()
+      },
+      workspaceMember: {
+        findUnique: vi.fn(async () => ({ id: "member_1", role: "member" }))
+      }
+    };
+    const service = new IntegrationsService(
+      metaAdapter,
+      new UazapiAdapter({}),
+      new AsaasAdapter({}),
+      {
+        META_APP_ID: "app_123",
+        META_APP_SECRET: "secret",
+        META_OAUTH_REDIRECT_URL:
+          "https://api.wpptrack.com/integrations/meta/callback",
+        META_TOKEN_ENCRYPTION_KEY: "state-secret"
+      },
+      {} as never,
+      prisma as never
+    );
+    const start = await service.getMetaStartAction("workspace_1", "user_1");
+    const state = new URL(start.href ?? "").searchParams.get("state") ?? "";
+
+    await expect(
+      service.handleMetaCallback({ code: "meta-code", state })
+    ).resolves.toMatchObject({
+      status: "exchange_failed",
+      message: "State OAuth Meta invalido ou expirado"
+    });
+    expect(exchangeSpy).not.toHaveBeenCalled();
+    expect(prisma.metaOAuthState.updateMany).not.toHaveBeenCalled();
   });
 
   it("returns sanitized Meta connection status for a workspace", async () => {

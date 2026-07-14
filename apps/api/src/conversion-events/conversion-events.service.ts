@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type {
@@ -166,6 +166,7 @@ export type SendReadyEventResult = {
 };
 
 type SendReadyEventOptions = {
+  workspaceId?: string;
   testEventCode?: string;
 };
 
@@ -549,7 +550,10 @@ export class ConversionEventsService {
       };
     }
 
-    return this.sendReadyEvent(log.id, { testEventCode: input.testEventCode });
+    return this.sendReadyEvent(log.id, {
+      workspaceId: input.workspaceId,
+      testEventCode: input.testEventCode
+    });
   }
 
   async sendReadyEvent(
@@ -557,8 +561,17 @@ export class ConversionEventsService {
     options: SendReadyEventOptions = {}
   ): Promise<SendReadyEventResult> {
     const log = (await this.prisma.conversionEventLog.findUnique({
-      where: { id: logId }
+      where: {
+        id: logId,
+        ...(options.workspaceId === undefined
+          ? {}
+          : { workspaceId: options.workspaceId })
+      }
     })) as ConversionEventLogRecord | null;
+
+    if (!log && options.workspaceId !== undefined) {
+      throw new NotFoundException("Evento de conversao nao encontrado");
+    }
 
     const eventId = log?.eventId ?? log?.dedupeKey ?? null;
     if (!log || log.status !== "ready_to_send" || !eventId) {

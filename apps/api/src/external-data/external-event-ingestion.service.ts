@@ -299,7 +299,10 @@ export class ExternalEventIngestionService {
       this.isLiveEvent(connector, eventType, occurredAt)
     ) {
       try {
-        await this.conversionQueue.enqueueSend(conversion.conversionEventLogId);
+        await this.conversionQueue.enqueueSend(
+          conversion.conversionEventLogId,
+          connector.workspaceId
+        );
         queued = true;
       } catch (error) {
         await this.prisma.externalIngestionRecord.update({
@@ -694,7 +697,10 @@ export class ExternalEventIngestionService {
       }
     }
 
-    await this.conversionQueue.enqueueSend(record.conversionEventLogId);
+    await this.conversionQueue.enqueueSend(
+      record.conversionEventLogId,
+      connector.workspaceId
+    );
     return true;
   }
 

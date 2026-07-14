@@ -18,6 +18,8 @@ export const workspaceSchema = z.object({
   operationalStatus: z.enum(workspaceOperationalStatuses).default("active")
 });
 
+export const workspaceListSchema = z.array(workspaceSchema);
+
 export const currentWorkspaceSchema = workspaceSchema.extend({
   permissions: workspacePermissionsSchema,
   accessMode: z.enum(["member", "platform_support"]).optional(),
@@ -26,6 +28,10 @@ export const currentWorkspaceSchema = workspaceSchema.extend({
 
 export const workspaceUpdateInputSchema = z.object({
   name: z.string().trim().min(2).max(120)
+});
+
+export const workspaceActiveInputSchema = z.object({
+  workspaceId: z.string().trim().min(1)
 });
 
 export const workspaceBillingSchema = z.object({
@@ -91,10 +97,14 @@ export const workspaceInviteAcceptSchema = z.object({
 });
 
 export type WorkspaceDto = z.infer<typeof workspaceSchema>;
+export type WorkspaceListDto = z.infer<typeof workspaceListSchema>;
 export type WorkspacePermissionsDto = z.infer<
   typeof workspacePermissionsSchema
 >;
 export type CurrentWorkspaceDto = z.infer<typeof currentWorkspaceSchema>;
+export type WorkspaceActiveInputDto = z.infer<
+  typeof workspaceActiveInputSchema
+>;
 export type WorkspaceUpdateInputDto = z.infer<
   typeof workspaceUpdateInputSchema
 >;

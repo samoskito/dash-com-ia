@@ -11,9 +11,6 @@ import {
 import { Prisma } from "@prisma/client";
 import {
   backofficeClientWorkspaceListSchema,
-  canManageIntegrations,
-  canManageWorkspaceBilling,
-  canViewReports,
   clientWorkspaceProvisionResultSchema,
   type BackofficeClientWorkspaceDto,
   type ClientWorkspaceProvisionInputDto,
@@ -27,6 +24,7 @@ import {
   type WorkspaceInviteAcceptDto,
   type WorkspaceInviteAcceptInputDto,
   type WorkspaceInviteInputDto,
+  type WorkspaceListDto,
   type WorkspaceMemberDto,
   type WorkspaceUpdateInputDto,
   type WorkspaceRole
@@ -34,6 +32,7 @@ import {
 import { PrismaService } from "../common/prisma/prisma.service";
 import { PasswordService } from "../auth/password.service";
 import type { AuthenticatedUser } from "../auth/session.types";
+import { WorkspaceContextService } from "./workspace-context.service";
 
 export type WorkspacePermissions = {
   canInviteMembers: boolean;
@@ -77,38 +76,22 @@ export class WorkspacesService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Optional()
     @Inject(PasswordService)
-    private readonly passwordService: PasswordService = new PasswordService()
+    private readonly passwordService: PasswordService = new PasswordService(),
+    @Optional()
+    @Inject(WorkspaceContextService)
+    private readonly workspaceContext: WorkspaceContextService = new WorkspaceContextService()
   ) {}
 
   getPermissions(role: WorkspaceRole): WorkspacePermissions {
-    return {
-      canInviteMembers: role === "owner" || role === "admin",
-      canManageBilling: canManageWorkspaceBilling(role),
-      canManageIntegrations: canManageIntegrations(role),
-      canViewReports: canViewReports(role)
-    };
+    return this.workspaceContext.getPermissions(role);
+  }
+
+  listAvailableWorkspaces(authenticated: AuthenticatedUser): WorkspaceListDto {
+    return this.workspaceContext.listMemberships(authenticated);
   }
 
   getCurrentWorkspace(authenticated: AuthenticatedUser): CurrentWorkspaceDto {
-    const workspace = authenticated.workspaces[0];
-
-    if (!workspace) {
-      throw new NotFoundException("Workspace nao encontrado");
-    }
-
-    const isPlatformSupport =
-      authenticated.supportContext?.workspaceId === workspace.id;
-
-    if (workspace.operationalStatus === "blocked" && !isPlatformSupport) {
-      throw new ForbiddenException("Workspace bloqueado operacionalmente");
-    }
-
-    return {
-      ...workspace,
-      permissions: this.getPermissions(workspace.role),
-      accessMode: isPlatformSupport ? "platform_support" : "member",
-      platformRole: authenticated.user.platformRole ?? null
-    };
+    return this.workspaceContext.getCurrentWorkspace(authenticated);
   }
 
   async listClientWorkspaces(): Promise<BackofficeClientWorkspaceDto[]> {

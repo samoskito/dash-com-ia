@@ -68,7 +68,8 @@ export class IntegrationsController {
     @AuthToken() refreshToken: string,
     @Query("workspaceId") expectedWorkspaceId?: string
   ) {
-    const workspace = await this.getCurrentWorkspace(refreshToken);
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
 
     if (
       expectedWorkspaceId &&
@@ -83,7 +84,10 @@ export class IntegrationsController {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
-    return this.integrationsService.getMetaStartAction(workspace.id);
+    return this.integrationsService.getMetaStartAction(
+      workspace.id,
+      authenticated.user.id
+    );
   }
 
   @Get("meta/callback")

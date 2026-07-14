@@ -25,11 +25,13 @@ function createHarness() {
     }))
   };
   const conversionEventsQueueService = {
-    enqueueSend: vi.fn(async (conversionEventLogId: string) => ({
+    enqueueSend: vi.fn(
+      async (conversionEventLogId: string, _workspaceId: string) => ({
       conversionEventLogId,
       jobId: `conversion-send_${conversionEventLogId}`,
       status: "queued" as const
-    }))
+      })
+    )
   };
   const matchesWhere = (
     record: Record<string, unknown>,
@@ -1190,7 +1192,8 @@ describe("diagnostics service", () => {
       jobAttemptId: "job_attempt_1"
     });
     expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
-      "conversion_1"
+      "conversion_1",
+      "workspace_1"
     );
     expect(conversionEventLogs[0]).toMatchObject({
       status: "ready_to_send",

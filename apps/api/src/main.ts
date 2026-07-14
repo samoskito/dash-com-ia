@@ -1,14 +1,16 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
+import { parseDeploymentConfig } from "./config/deployment-config";
 import { getApiPort } from "./config/env";
 import { loadLocalEnv } from "./config/load-env";
 
 async function bootstrap() {
   loadLocalEnv();
+  const deploymentConfig = parseDeploymentConfig();
   const { AppModule } = await import("./app.module");
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.enableCors({
-    origin: process.env.WEB_ORIGIN ?? "http://localhost:3000",
+    origin: deploymentConfig.webOrigin,
     credentials: true
   });
 

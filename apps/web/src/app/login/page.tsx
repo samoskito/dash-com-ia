@@ -25,6 +25,10 @@ function loginErrorMessage(error: string | undefined): string | null {
     return "Nao foi possivel concluir o login com Google.";
   }
 
+  if (error === "google_disabled") {
+    return "Login com Google nao esta disponivel neste ambiente.";
+  }
+
   return "Nao foi possivel autenticar. Tente novamente.";
 }
 
@@ -34,7 +38,11 @@ export default async function LoginPage({
   searchParams?: Promise<LoginSearchParams>;
 }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
-  const initialError = loginErrorMessage(asStringParam(resolvedSearchParams.error));
+  const initialError = loginErrorMessage(
+    asStringParam(resolvedSearchParams.error)
+  );
+  const googleEnabled =
+    process.env.AUTH_GOOGLE_ENABLED?.trim().toLowerCase() === "true";
 
   return (
     <main className="standalone-page login-page">
@@ -70,7 +78,7 @@ export default async function LoginPage({
           </div>
         </div>
 
-        <LoginForm initialError={initialError} />
+        <LoginForm initialError={initialError} googleEnabled={googleEnabled} />
       </section>
     </main>
   );

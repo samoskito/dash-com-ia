@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { Test } from "@nestjs/testing";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { BillingService } from "../src/billing/billing.service";
 import { ConversionEventsQueueService } from "../src/common/queue/conversion-events-queue.service";
@@ -11,8 +11,19 @@ import { LeadsService } from "../src/leads/leads.service";
 import { PrismaService } from "../src/common/prisma/prisma.service";
 import { WebhooksController } from "../src/webhooks/webhooks.controller";
 
+const asaasWebhookToken = "secure-asaas-webhook-token";
+const metaAppSecret = "secure-meta-app-secret";
+const uazapiWebhookToken = "secure-uazapi-webhook-token";
+
+beforeEach(() => {
+  process.env.ASAAS_WEBHOOK_AUTH_TOKEN = asaasWebhookToken;
+  process.env.META_APP_SECRET = metaAppSecret;
+  process.env.UAZAPI_WEBHOOK_AUTH_TOKEN = uazapiWebhookToken;
+});
+
 afterEach(() => {
   delete process.env.ASAAS_WEBHOOK_AUTH_TOKEN;
+  delete process.env.META_APP_SECRET;
   delete process.env.META_WEBHOOK_VERIFY_TOKEN;
   delete process.env.UAZAPI_WEBHOOK_AUTH_TOKEN;
 });
@@ -26,6 +37,10 @@ async function createApp() {
     }))
   };
   const billingService = {
+    resolveAsaasPaymentWebhookContext: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      paymentId: "pay_asaas_1"
+    })),
     processAsaasPaymentWebhook: vi.fn(async () => ({
       processed: true,
       status: "paid",
@@ -62,11 +77,13 @@ async function createApp() {
     listReadyLogIds: vi.fn(async (logIds: string[]) => logIds)
   };
   const conversionEventsQueueService = {
-    enqueueSend: vi.fn(async (conversionEventLogId: string) => ({
+    enqueueSend: vi.fn(
+      async (conversionEventLogId: string, _workspaceId: string) => ({
       conversionEventLogId,
       jobId: `conversion-send_${conversionEventLogId}`,
       status: "queued"
-    }))
+      })
+    )
   };
   const leadsService = {
     upsertFromWhatsappWebhook: vi.fn(async () => ({
@@ -79,10 +96,24 @@ async function createApp() {
         async (): Promise<{
           id: string;
           workspaceId: string;
-          providerInstanceId?: string;
+          providerInstanceId: string | null;
           webhookTokenHash?: string;
         } | null> => null
-      )
+      ),
+      findMany: vi.fn(async () => [
+        {
+          id: "wpp_1",
+          workspaceId: "workspace_1",
+          providerInstanceId: "provider_instance_1"
+        }
+      ])
+    },
+    metaConversionDestination: {
+      findMany: vi.fn(async () => [
+        {
+          workspaceId: "workspace_1"
+        }
+      ])
     }
   };
 
@@ -102,7 +133,7 @@ async function createApp() {
     ]
   }).compile();
 
-  const app = moduleRef.createNestApplication();
+  const app = moduleRef.createNestApplication({ rawBody: true });
   await app.init();
 
   return {
@@ -115,6 +146,12 @@ async function createApp() {
     leadsService,
     prismaService
   };
+}
+
+function signMetaPayload(payload: Record<string, unknown>) {
+  return `sha256=${createHmac("sha256", metaAppSecret)
+    .update(JSON.stringify(payload))
+    .digest("hex")}`;
 }
 
 describe("webhooks controller", () => {
@@ -170,10 +207,13 @@ describe("webhooks controller", () => {
     await request(app.getHttpServer())
       .post("/webhooks/uazapi")
       .set("x-workspace-id", "workspace_1")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
       .send({
         event: "message.received",
         id: "evt_uazapi_1",
-        token: "secret",
+        instance: {
+          id: "provider_instance_1"
+        },
         message: {
           text: "Oi, quero comprar"
         },
@@ -211,6 +251,7 @@ describe("webhooks controller", () => {
         source: "uazapi",
         eventType: "message.received",
         externalEventId: "evt_uazapi_1",
+        idempotencyKey: "uazapi:workspace_1:wpp_1:evt_uazapi_1",
         leadId: "lead_external_1",
         phoneHash: expectedPhoneHash,
         campaignId: "cmp_1",
@@ -261,10 +302,12 @@ describe("webhooks controller", () => {
       })
     );
     expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
-      "automatic_1"
+      "automatic_1",
+      "workspace_1"
     );
     expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
-      "conversion_1"
+      "conversion_1",
+      "workspace_1"
     );
 
     await app.close();
@@ -297,9 +340,13 @@ describe("webhooks controller", () => {
     await request(app.getHttpServer())
       .post("/webhooks/uazapi")
       .set("x-workspace-id", "workspace_1")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
       .send({
         event: "message.received",
         id: "evt_uazapi_referral_1",
+        instance: {
+          id: "provider_instance_1"
+        },
         message: {
           text: "fechei",
           referral: {
@@ -385,7 +432,8 @@ describe("webhooks controller", () => {
     ]);
     expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledOnce();
     expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
-      "conversion_ready_1"
+      "conversion_ready_1",
+      "workspace_1"
     );
 
     await app.close();
@@ -409,9 +457,13 @@ describe("webhooks controller", () => {
     await request(app.getHttpServer())
       .post("/webhooks/uazapi")
       .set("x-workspace-id", "workspace_1")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
       .send({
         event: "message.received",
         id: "evt_uazapi_1",
+        instance: {
+          id: "provider_instance_1"
+        },
         message: {
           text: "Oi, quero comprar"
         }
@@ -471,24 +523,91 @@ describe("webhooks controller", () => {
     await app.close();
   });
 
+  it("fails closed when the legacy Uazapi secret is not configured", async () => {
+    delete process.env.UAZAPI_WEBHOOK_AUTH_TOKEN;
+    const { app, diagnosticsService, conversionRulesService, prismaService } =
+      await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_missing_secret",
+        instance: {
+          id: "provider_instance_1"
+        }
+      })
+      .expect(401);
+
+    expect(prismaService.whatsappInstance.findMany).not.toHaveBeenCalled();
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+    expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects legacy Uazapi tenant claims that diverge from the verified instance", async () => {
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      leadsService,
+      prismaService
+    } = await createApp();
+    prismaService.whatsappInstance.findMany.mockResolvedValueOnce([
+      {
+        id: "wpp_b",
+        workspaceId: "workspace_b",
+        providerInstanceId: "provider_instance_b"
+      }
+    ]);
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
+      .set("x-workspace-id", "workspace_a")
+      .send({
+        event: "message.received",
+        id: "evt_cross_tenant",
+        workspaceId: "workspace_a",
+        whatsappInstanceId: "wpp_a",
+        instance: {
+          id: "provider_instance_b"
+        }
+      })
+      .expect(401);
+
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+    expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
+    expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it("accepts Uazapi webhooks with valid auth token from header or query", async () => {
-    process.env.UAZAPI_WEBHOOK_AUTH_TOKEN = "secure-uazapi-webhook-token";
     const { app, diagnosticsService } = await createApp();
 
     await request(app.getHttpServer())
       .post("/webhooks/uazapi")
-      .set("x-wpptrack-webhook-token", "secure-uazapi-webhook-token")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
       .send({
         event: "message.received",
-        id: "evt_uazapi_2"
+        id: "evt_uazapi_2",
+        instance: {
+          id: "provider_instance_1"
+        }
       })
       .expect(202);
 
     await request(app.getHttpServer())
-      .post("/webhooks/uazapi?token=secure-uazapi-webhook-token")
+      .post(`/webhooks/uazapi?token=${uazapiWebhookToken}`)
       .send({
         event: "message.received",
-        id: "evt_uazapi_3"
+        id: "evt_uazapi_3",
+        instance: {
+          id: "provider_instance_1"
+        }
       })
       .expect(202);
 
@@ -505,14 +624,17 @@ describe("webhooks controller", () => {
       leadsService,
       prismaService
     } = await createApp();
-    prismaService.whatsappInstance.findFirst.mockResolvedValueOnce({
+    prismaService.whatsappInstance.findMany.mockResolvedValueOnce([
+      {
       id: "wpp_1",
       workspaceId: "workspace_1",
       providerInstanceId: "provider_instance_1"
-    });
+      }
+    ]);
 
     await request(app.getHttpServer())
       .post("/webhooks/uazapi")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
       .send({
         event: "message.received",
         id: "evt_uazapi_2",
@@ -526,15 +648,17 @@ describe("webhooks controller", () => {
       })
       .expect(202);
 
-    expect(prismaService.whatsappInstance.findFirst).toHaveBeenCalledWith({
+    expect(prismaService.whatsappInstance.findMany).toHaveBeenCalledWith({
       where: {
         provider: "uazapi",
         providerInstanceId: "provider_instance_1"
       },
       select: {
         id: true,
-        workspaceId: true
-      }
+        workspaceId: true,
+        providerInstanceId: true
+      },
+      take: 2
     });
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -570,6 +694,7 @@ describe("webhooks controller", () => {
     prismaService.whatsappInstance.findFirst.mockResolvedValueOnce({
       id: "wpp_1",
       workspaceId: "workspace_1",
+      providerInstanceId: "provider_instance_1",
       webhookTokenHash: createHash("sha256")
         .update("instance-webhook-secret")
         .digest("hex")
@@ -595,6 +720,7 @@ describe("webhooks controller", () => {
       select: {
         id: true,
         workspaceId: true,
+        providerInstanceId: true,
         webhookTokenHash: true
       }
     });
@@ -632,6 +758,7 @@ describe("webhooks controller", () => {
     prismaService.whatsappInstance.findFirst.mockResolvedValueOnce({
       id: "wpp_1",
       workspaceId: "workspace_1",
+      providerInstanceId: "provider_instance_1",
       webhookTokenHash: createHash("sha256")
         .update("instance-webhook-secret")
         .digest("hex")
@@ -652,11 +779,58 @@ describe("webhooks controller", () => {
     await app.close();
   });
 
+  it("rejects provider instance divergence on the authenticated per-instance route", async () => {
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      leadsService,
+      prismaService
+    } = await createApp();
+    prismaService.whatsappInstance.findFirst.mockResolvedValueOnce({
+      id: "wpp_a",
+      workspaceId: "workspace_a",
+      providerInstanceId: "provider_instance_a",
+      webhookTokenHash: createHash("sha256")
+        .update("instance-webhook-secret")
+        .digest("hex")
+    });
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi/instances/wpp_a?token=instance-webhook-secret")
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_instance_cross_tenant",
+        instance: {
+          id: "provider_instance_b"
+        }
+      })
+      .expect(401);
+
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+    expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
+    expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it("records Asaas and Meta webhooks", async () => {
-    const { app, diagnosticsService, billingService } = await createApp();
+    const { app, diagnosticsService, billingService, prismaService } =
+      await createApp();
+    const metaPayload = {
+      object: "page",
+      id: "evt_meta_1",
+      entry: [
+        {
+          id: "page_1",
+          changes: []
+        }
+      ]
+    };
 
     await request(app.getHttpServer())
       .post("/webhooks/asaas")
+      .set("asaas-access-token", asaasWebhookToken)
       .send({
         event: "PAYMENT_RECEIVED",
         id: "evt_asaas_1",
@@ -669,18 +843,28 @@ describe("webhooks controller", () => {
 
     await request(app.getHttpServer())
       .post("/webhooks/meta")
-      .send({
-        object: "page",
-        id: "evt_meta_1"
-      })
+      .set("x-hub-signature-256", signMetaPayload(metaPayload))
+      .send(metaPayload)
       .expect(202);
 
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
       expect.objectContaining({
         source: "asaas",
-        eventType: "PAYMENT_RECEIVED"
+        eventType: "PAYMENT_RECEIVED",
+        workspaceId: "workspace_1",
+        idempotencyKey: "asaas:workspace_1:pay_asaas_1:evt_asaas_1"
       })
     );
+    expect(
+      billingService.resolveAsaasPaymentWebhookContext
+    ).toHaveBeenCalledWith({
+      event: "PAYMENT_RECEIVED",
+      id: "evt_asaas_1",
+      payment: {
+        id: "pay_asaas_1",
+        status: "RECEIVED"
+      }
+    });
     expect(billingService.processAsaasPaymentWebhook).toHaveBeenCalledWith({
       event: "PAYMENT_RECEIVED",
       id: "evt_asaas_1",
@@ -692,20 +876,29 @@ describe("webhooks controller", () => {
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
       expect.objectContaining({
         source: "meta",
-        eventType: "page"
+        eventType: "page",
+        workspaceId: "workspace_1",
+        idempotencyKey: "meta:workspace_1:page_1:evt_meta_1"
       })
     );
+    expect(
+      prismaService.metaConversionDestination.findMany
+    ).toHaveBeenCalledWith({
+      where: {
+        pageId: "page_1"
+      },
+      select: {
+        workspaceId: true
+      },
+      take: 2
+    });
 
     await app.close();
   });
 
   it("extracts attribution fields from Meta leadgen webhooks", async () => {
     const { app, diagnosticsService } = await createApp();
-
-    await request(app.getHttpServer())
-      .post("/webhooks/meta")
-      .set("x-workspace-id", "workspace_1")
-      .send({
+    const payload = {
         object: "page",
         entry: [
           {
@@ -723,7 +916,13 @@ describe("webhooks controller", () => {
             ]
           }
         ]
-      })
+    };
+
+    await request(app.getHttpServer())
+      .post("/webhooks/meta")
+      .set("x-hub-signature-256", signMetaPayload(payload))
+      .set("x-workspace-id", "workspace_1")
+      .send(payload)
       .expect(202);
 
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
@@ -732,12 +931,115 @@ describe("webhooks controller", () => {
         source: "meta",
         eventType: "meta.leadgen",
         externalEventId: "leadgen_1",
-        idempotencyKey: "meta:leadgen_1",
+        idempotencyKey: "meta:workspace_1:page_1:leadgen_1",
         campaignId: "cmp_1",
         adSetId: "adset_1",
         adId: "ad_1"
       })
     );
+
+    await app.close();
+  });
+
+  it("rejects Meta webhooks with an invalid signature", async () => {
+    const { app, diagnosticsService, prismaService } = await createApp();
+    const payload = {
+      object: "page",
+      entry: [{ id: "page_1", changes: [] }]
+    };
+
+    await request(app.getHttpServer())
+      .post("/webhooks/meta")
+      .set("x-hub-signature-256", `sha256=${"0".repeat(64)}`)
+      .send(payload)
+      .expect(401);
+
+    expect(
+      prismaService.metaConversionDestination.findMany
+    ).not.toHaveBeenCalled();
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects Meta webhooks without a signature", async () => {
+    const { app, diagnosticsService, prismaService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/meta")
+      .send({
+        object: "page",
+        entry: [{ id: "page_1", changes: [] }]
+      })
+      .expect(401);
+
+    expect(
+      prismaService.metaConversionDestination.findMany
+    ).not.toHaveBeenCalled();
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("fails closed when META_APP_SECRET is not configured", async () => {
+    delete process.env.META_APP_SECRET;
+    const { app, diagnosticsService, prismaService } = await createApp();
+    const payload = {
+      object: "page",
+      entry: [{ id: "page_1", changes: [] }]
+    };
+
+    await request(app.getHttpServer())
+      .post("/webhooks/meta")
+      .set("x-hub-signature-256", signMetaPayload(payload))
+      .send(payload)
+      .expect(401);
+
+    expect(
+      prismaService.metaConversionDestination.findMany
+    ).not.toHaveBeenCalled();
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects a Meta workspace claim that diverges from the page owner", async () => {
+    const { app, diagnosticsService } = await createApp();
+    const payload = {
+      object: "page",
+      entry: [{ id: "page_1", changes: [] }]
+    };
+
+    await request(app.getHttpServer())
+      .post("/webhooks/meta")
+      .set("x-hub-signature-256", signMetaPayload(payload))
+      .set("x-workspace-id", "workspace_2")
+      .send(payload)
+      .expect(401);
+
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects a Meta page mapped to more than one workspace", async () => {
+    const { app, diagnosticsService, prismaService } = await createApp();
+    prismaService.metaConversionDestination.findMany.mockResolvedValueOnce([
+      { workspaceId: "workspace_1" },
+      { workspaceId: "workspace_2" }
+    ]);
+    const payload = {
+      object: "page",
+      entry: [{ id: "page_shared", changes: [] }]
+    };
+
+    await request(app.getHttpServer())
+      .post("/webhooks/meta")
+      .set("x-hub-signature-256", signMetaPayload(payload))
+      .send(payload)
+      .expect(401);
+
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
 
     await app.close();
   });
@@ -752,6 +1054,7 @@ describe("webhooks controller", () => {
 
     await request(app.getHttpServer())
       .post("/webhooks/asaas")
+      .set("asaas-access-token", asaasWebhookToken)
       .send({
         event: "PAYMENT_RECEIVED",
         id: "evt_asaas_1",
@@ -796,7 +1099,61 @@ describe("webhooks controller", () => {
       .expect(401);
 
     expect(billingService.processAsaasPaymentWebhook).not.toHaveBeenCalled();
+    expect(
+      billingService.resolveAsaasPaymentWebhookContext
+    ).not.toHaveBeenCalled();
     expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("fails closed when the Asaas webhook secret is not configured", async () => {
+    delete process.env.ASAAS_WEBHOOK_AUTH_TOKEN;
+    const { app, billingService, diagnosticsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/asaas")
+      .set("asaas-access-token", asaasWebhookToken)
+      .send({
+        event: "PAYMENT_RECEIVED",
+        id: "evt_asaas_missing_secret",
+        payment: {
+          id: "pay_asaas_1"
+        }
+      })
+      .expect(401);
+
+    expect(
+      billingService.resolveAsaasPaymentWebhookContext
+    ).not.toHaveBeenCalled();
+    expect(billingService.processAsaasPaymentWebhook).not.toHaveBeenCalled();
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects an Asaas workspace claim that diverges from the verified charge", async () => {
+    const { app, billingService, diagnosticsService } = await createApp();
+    billingService.resolveAsaasPaymentWebhookContext.mockResolvedValueOnce({
+      workspaceId: "workspace_b",
+      paymentId: "pay_asaas_b"
+    });
+
+    await request(app.getHttpServer())
+      .post("/webhooks/asaas")
+      .set("asaas-access-token", asaasWebhookToken)
+      .set("x-workspace-id", "workspace_a")
+      .send({
+        event: "PAYMENT_RECEIVED",
+        id: "evt_asaas_cross_tenant",
+        payment: {
+          id: "pay_asaas_b"
+        }
+      })
+      .expect(401);
+
+    expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
+    expect(billingService.processAsaasPaymentWebhook).not.toHaveBeenCalled();
 
     await app.close();
   });
@@ -810,12 +1167,43 @@ describe("webhooks controller", () => {
       .set("asaas-access-token", "secure-webhook-token-123456789012345")
       .send({
         event: "PAYMENT_RECEIVED",
-        id: "evt_asaas_1"
+        id: "evt_asaas_1",
+        payment: {
+          id: "pay_asaas_1"
+        }
       })
       .expect(202);
 
     expect(billingService.processAsaasPaymentWebhook).toHaveBeenCalledOnce();
 
     await app.close();
+  });
+
+  it("does not return duplicate webhook IDs from another tenant", async () => {
+    const diagnosticEventFindMany = vi.fn();
+    const diagnosticsService = new DiagnosticsService({
+      webhookLog: {
+        findUnique: vi.fn(async () => ({
+          id: "webhook_workspace_b",
+          workspaceId: "workspace_b",
+          source: "uazapi"
+        }))
+      },
+      diagnosticEvent: {
+        findMany: diagnosticEventFindMany
+      }
+    } as never);
+
+    await expect(
+      diagnosticsService.recordWebhookLog({
+        workspaceId: "workspace_a",
+        source: "uazapi",
+        eventType: "message.received",
+        externalEventId: "evt_shared",
+        idempotencyKey: "uazapi:workspace_a:wpp_a:evt_shared"
+      })
+    ).rejects.toMatchObject({ status: 409 });
+
+    expect(diagnosticEventFindMany).not.toHaveBeenCalled();
   });
 });

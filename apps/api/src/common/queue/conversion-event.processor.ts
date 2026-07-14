@@ -1,5 +1,5 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
-import { Inject } from "@nestjs/common";
+import { Inject, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { Job } from "bullmq";
 import { ConversionEventsService } from "../../conversion-events/conversion-events.service";
@@ -8,6 +8,13 @@ import {
   CONVERSION_EVENTS_QUEUE,
   type ConversionEventJobPayload
 } from "./queue.constants";
+
+type LegacyConversionEventJobPayload = Omit<
+  ConversionEventJobPayload,
+  "workspaceId"
+> & { workspaceId?: undefined };
+type ConversionEventWorkerPayload =
+  ConversionEventJobPayload | LegacyConversionEventJobPayload;
 
 @Processor(CONVERSION_EVENTS_QUEUE)
 export class ConversionEventProcessor extends WorkerHost {
@@ -20,21 +27,23 @@ export class ConversionEventProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<ConversionEventJobPayload>) {
-    let result: Awaited<
-      ReturnType<ConversionEventsService["sendReadyEvent"]>
-    >;
+  async process(job: Job<ConversionEventWorkerPayload>) {
+    let result: Awaited<ReturnType<ConversionEventsService["sendReadyEvent"]>>;
+    let workspaceId = job.data.workspaceId;
 
     try {
+      workspaceId = await this.resolveWorkspaceId(job);
       result = await this.conversionEventsService.sendReadyEvent(
-        job.data.conversionEventLogId
+        job.data.conversionEventLogId,
+        { workspaceId }
       );
     } catch (error) {
       await this.recordAttempt(
         job,
         "failed",
         {
-          conversionEventLogId: job.data.conversionEventLogId
+          conversionEventLogId: job.data.conversionEventLogId,
+          workspaceId
         },
         error
       );
@@ -74,8 +83,38 @@ export class ConversionEventProcessor extends WorkerHost {
     return result;
   }
 
+  private async resolveWorkspaceId(
+    job: Job<ConversionEventWorkerPayload>
+  ): Promise<string> {
+    const declaredWorkspaceId = job.data.workspaceId?.trim();
+    if (declaredWorkspaceId) {
+      return declaredWorkspaceId;
+    }
+
+    const log = await this.prisma.conversionEventLog.findUnique({
+      where: { id: job.data.conversionEventLogId },
+      select: { workspaceId: true }
+    });
+
+    if (!log?.workspaceId) {
+      throw new NotFoundException("Evento de conversao nao encontrado");
+    }
+
+    const scopedData: ConversionEventJobPayload = {
+      ...job.data,
+      workspaceId: log.workspaceId
+    };
+    job.data = scopedData;
+
+    if (typeof job.updateData === "function") {
+      await job.updateData(scopedData);
+    }
+
+    return log.workspaceId;
+  }
+
   private async recordAttempt(
-    job: Job<ConversionEventJobPayload>,
+    job: Job<ConversionEventWorkerPayload>,
     status: string,
     summaryPayload: Record<string, unknown>,
     error?: unknown
@@ -88,7 +127,7 @@ export class ConversionEventProcessor extends WorkerHost {
           workspaceId:
             typeof summaryPayload.workspaceId === "string"
               ? summaryPayload.workspaceId
-              : null,
+              : (job.data.workspaceId ?? null),
           queueName: CONVERSION_EVENTS_QUEUE,
           jobId: String(job.id ?? job.data.conversionEventLogId),
           jobName: job.name || "send-conversion-event",

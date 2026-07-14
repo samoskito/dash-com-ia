@@ -1,5 +1,5 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
-import { Inject } from "@nestjs/common";
+import { Inject, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { Job } from "bullmq";
 import { PrismaService } from "../prisma/prisma.service";
@@ -24,9 +24,22 @@ export class DiagnosticProcessor extends WorkerHost {
     const { conversionEventLogId, diagnosticEventId } = job.data;
 
     try {
+      const diagnosticEvent = await this.prisma.diagnosticEvent.findUnique({
+        where: {
+          id: diagnosticEventId,
+          workspaceId: job.data.workspaceId
+        },
+        select: { id: true }
+      });
+
+      if (!diagnosticEvent) {
+        throw new NotFoundException("Evento de diagnostico nao encontrado");
+      }
+
       if (conversionEventLogId) {
         const result = await this.conversionEventsService.sendReadyEvent(
-          conversionEventLogId
+          conversionEventLogId,
+          { workspaceId: job.data.workspaceId }
         );
 
         await this.recordAttempt(job, result.status, {

@@ -21,13 +21,20 @@ export class ConversionEventsQueueService {
   ) {}
 
   async enqueueSend(
-    conversionEventLogId: string
+    conversionEventLogId: string,
+    workspaceId: string
   ): Promise<ConversionEventQueuedResult> {
+    const scopedWorkspaceId = workspaceId.trim();
+    if (!scopedWorkspaceId) {
+      throw new Error("ConversionEventWorkspaceRequired");
+    }
+
     const jobId = createBullJobId("conversion-send", conversionEventLogId);
     const job = await this.queue.add(
       "send-ready-event",
       {
-        conversionEventLogId
+        conversionEventLogId,
+        workspaceId: scopedWorkspaceId
       },
       {
         jobId,

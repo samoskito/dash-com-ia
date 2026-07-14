@@ -12,7 +12,9 @@ describe("conversion events queue service", () => {
     };
     const service = new ConversionEventsQueueService(queue as never);
 
-    await expect(service.enqueueSend("conversion_1")).resolves.toEqual({
+    await expect(
+      service.enqueueSend("conversion_1", "workspace_1")
+    ).resolves.toEqual({
       conversionEventLogId: "conversion_1",
       jobId: "conversion-send_conversion_1",
       status: "queued"
@@ -21,7 +23,8 @@ describe("conversion events queue service", () => {
     expect(queue.add).toHaveBeenCalledWith(
       "send-ready-event",
       {
-        conversionEventLogId: "conversion_1"
+        conversionEventLogId: "conversion_1",
+        workspaceId: "workspace_1"
       },
       expect.objectContaining({
         jobId: "conversion-send_conversion_1",
@@ -29,5 +32,15 @@ describe("conversion events queue service", () => {
       })
     );
     expect(queue.add.mock.calls[0]?.[2]?.jobId).not.toContain(":");
+  });
+
+  it("rejects a new conversion job without a workspace", async () => {
+    const queue = { add: vi.fn() };
+    const service = new ConversionEventsQueueService(queue as never);
+
+    await expect(service.enqueueSend("conversion_1", " ")).rejects.toThrow(
+      "ConversionEventWorkspaceRequired"
+    );
+    expect(queue.add).not.toHaveBeenCalled();
   });
 });

@@ -8,6 +8,11 @@ type GoogleStartResult = {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+
+  if (process.env.AUTH_GOOGLE_ENABLED?.trim().toLowerCase() !== "true") {
+    return NextResponse.redirect(new URL("/login?error=google_disabled", url));
+  }
+
   const redirectTo = url.searchParams.get("redirectTo") ?? "/overview";
 
   try {

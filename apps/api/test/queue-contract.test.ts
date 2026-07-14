@@ -30,11 +30,13 @@ describe("diagnostic queue contract", () => {
 
   it("uses the conversion events queue contract", () => {
     const payload: ConversionEventJobPayload = {
-      conversionEventLogId: "conversion_1"
+      conversionEventLogId: "conversion_1",
+      workspaceId: "workspace_1"
     };
 
     expect(CONVERSION_EVENTS_QUEUE).toBe("conversion-events");
     expect(payload.conversionEventLogId).toBe("conversion_1");
+    expect(payload.workspaceId).toBe("workspace_1");
   });
 
   it("uses the Meta report sync queue contract", () => {

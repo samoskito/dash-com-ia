@@ -3,6 +3,9 @@ import { ConversionEventProcessor } from "../src/common/queue/conversion-event.p
 
 function createPrismaHarness() {
   return {
+    conversionEventLog: {
+      findUnique: vi.fn(async () => ({ workspaceId: "workspace_1" }))
+    },
     jobAttempt: {
       create: vi.fn(async ({ data }) => ({ id: "job_attempt_1", ...data }))
     }
@@ -30,7 +33,8 @@ describe("conversion event processor", () => {
         name: "send-conversion-event",
         attemptsMade: 0,
         data: {
-          conversionEventLogId: "conversion_1"
+          conversionEventLogId: "conversion_1",
+          workspaceId: "workspace_1"
         }
       } as never)
     ).resolves.toEqual({
@@ -40,7 +44,8 @@ describe("conversion event processor", () => {
     });
 
     expect(conversionEventsService.sendReadyEvent).toHaveBeenCalledWith(
-      "conversion_1"
+      "conversion_1",
+      { workspaceId: "workspace_1" }
     );
     expect(prisma.jobAttempt.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -90,7 +95,8 @@ describe("conversion event processor", () => {
         name: "send-conversion-event",
         attemptsMade: 0,
         data: {
-          conversionEventLogId: "conversion_1"
+          conversionEventLogId: "conversion_1",
+          workspaceId: "workspace_1"
         }
       } as never)
     ).resolves.toEqual({
@@ -121,14 +127,15 @@ describe("conversion event processor", () => {
         name: "send-conversion-event",
         attemptsMade: 1,
         data: {
-          conversionEventLogId: "conversion_1"
+          conversionEventLogId: "conversion_1",
+          workspaceId: "workspace_1"
         }
       } as never)
     ).rejects.toThrow("Meta CAPI indisponivel");
 
     expect(prisma.jobAttempt.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        workspaceId: null,
+        workspaceId: "workspace_1",
         queueName: "conversion-events",
         jobId: "bull_job_2",
         jobName: "send-conversion-event",
@@ -140,7 +147,8 @@ describe("conversion event processor", () => {
         errorCode: null,
         errorMessage: "Meta CAPI indisponivel",
         summaryPayload: {
-          conversionEventLogId: "conversion_1"
+          conversionEventLogId: "conversion_1",
+          workspaceId: "workspace_1"
         }
       })
     });
@@ -168,7 +176,8 @@ describe("conversion event processor", () => {
         name: "send-conversion-event",
         attemptsMade: 0,
         data: {
-          conversionEventLogId: "conversion_1"
+          conversionEventLogId: "conversion_1",
+          workspaceId: "workspace_1"
         }
       } as never)
     ).rejects.toThrow("Meta CAPI network request failed");
@@ -195,5 +204,83 @@ describe("conversion event processor", () => {
         })
       })
     });
+  });
+
+  it("forwards the job workspace so a cross-tenant conversion is rejected", async () => {
+    const conversionEventsService = {
+      sendReadyEvent: vi.fn(
+        async (
+          _conversionEventLogId: string,
+          options: { workspaceId: string }
+        ) => {
+          if (options.workspaceId !== "workspace_2") {
+            throw new Error("Evento de conversao nao encontrado");
+          }
+        }
+      )
+    };
+    const prisma = createPrismaHarness();
+    const processor = new ConversionEventProcessor(
+      conversionEventsService as never,
+      prisma as never
+    );
+
+    await expect(
+      processor.process({
+        id: "bull_job_cross_tenant",
+        name: "send-conversion-event",
+        attemptsMade: 0,
+        data: {
+          conversionEventLogId: "conversion_workspace_2",
+          workspaceId: "workspace_1"
+        }
+      } as never)
+    ).rejects.toThrow("Evento de conversao nao encontrado");
+
+    expect(conversionEventsService.sendReadyEvent).toHaveBeenCalledWith(
+      "conversion_workspace_2",
+      {
+        workspaceId: "workspace_1"
+      }
+    );
+  });
+
+  it("scopes a legacy job before dispatching it", async () => {
+    const conversionEventsService = {
+      sendReadyEvent: vi.fn(async () => ({
+        conversionEventLogId: "conversion_1",
+        workspaceId: "workspace_1",
+        status: "sent"
+      }))
+    };
+    const prisma = createPrismaHarness();
+    const updateData = vi.fn(async () => undefined);
+    const processor = new ConversionEventProcessor(
+      conversionEventsService as never,
+      prisma as never
+    );
+
+    await processor.process({
+      id: "bull_job_legacy",
+      name: "send-conversion-event",
+      attemptsMade: 0,
+      updateData,
+      data: {
+        conversionEventLogId: "conversion_1"
+      }
+    } as never);
+
+    expect(prisma.conversionEventLog.findUnique).toHaveBeenCalledWith({
+      where: { id: "conversion_1" },
+      select: { workspaceId: true }
+    });
+    expect(updateData).toHaveBeenCalledWith({
+      conversionEventLogId: "conversion_1",
+      workspaceId: "workspace_1"
+    });
+    expect(conversionEventsService.sendReadyEvent).toHaveBeenCalledWith(
+      "conversion_1",
+      { workspaceId: "workspace_1" }
+    );
   });
 });

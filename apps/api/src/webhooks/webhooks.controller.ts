@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import {
   Body,
   Controller,
@@ -9,9 +9,9 @@ import {
   Param,
   Post,
   Query,
+  RawBody,
   UnauthorizedException
 } from "@nestjs/common";
-import type { DiagnosticSourceDto } from "@wpptrack/shared";
 import { BillingService } from "../billing/billing.service";
 import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
 import { PrismaService } from "../common/prisma/prisma.service";
@@ -22,6 +22,17 @@ import { LeadsService } from "../leads/leads.service";
 import { parseUazapiWebhook } from "./uazapi-webhook-parser";
 
 type WebhookBody = Record<string, unknown>;
+
+type VerifiedUazapiContext = {
+  workspaceId: string;
+  whatsappInstanceId: string;
+  providerInstanceId: string | null;
+};
+
+type VerifiedMetaContext = {
+  workspaceId: string;
+  pageId: string;
+};
 
 @Controller("webhooks")
 export class WebhooksController {
@@ -75,7 +86,7 @@ export class WebhooksController {
       webhookToken ?? this.getBearerToken(authorization) ?? queryToken
     );
 
-    return this.recordUazapiWebhook(body, workspaceId);
+    return this.recordUazapiWebhook(body, undefined, workspaceId);
   }
 
   @Post("uazapi/instances/:instanceId")
@@ -95,6 +106,7 @@ export class WebhooksController {
       select: {
         id: true,
         workspaceId: true,
+        providerInstanceId: true,
         webhookTokenHash: true
       }
     });
@@ -109,53 +121,81 @@ export class WebhooksController {
       throw new UnauthorizedException("Webhook Uazapi nao autorizado");
     }
 
-    return this.recordUazapiWebhook(body, instance.workspaceId, instance.id);
+    return this.recordUazapiWebhook(body, {
+      workspaceId: instance.workspaceId,
+      whatsappInstanceId: instance.id,
+      providerInstanceId: instance.providerInstanceId
+    });
   }
 
   @Post("asaas")
   @HttpCode(202)
-  recordAsaas(
+  async recordAsaas(
     @Body() body: WebhookBody,
     @Headers("asaas-access-token") asaasAccessToken?: string,
     @Headers("x-workspace-id") workspaceId?: string
   ) {
     this.assertAsaasWebhookToken(asaasAccessToken);
+    const context =
+      await this.billingService.resolveAsaasPaymentWebhookContext(body);
 
-    return this.recordAsaasWebhook(body, workspaceId);
+    if (!context) {
+      return {
+        status: "ignored",
+        billing: {
+          processed: false,
+          status: "ignored"
+        }
+      };
+    }
+
+    if (workspaceId && workspaceId !== context.workspaceId) {
+      throw new UnauthorizedException("Webhook Asaas nao autorizado");
+    }
+
+    return this.recordAsaasWebhook(body, context);
   }
 
   @Post("meta")
   @HttpCode(202)
-  recordMeta(
+  async recordMeta(
     @Body() body: WebhookBody,
+    @RawBody() rawBody: Buffer | undefined,
+    @Headers("x-hub-signature-256") signature?: string,
     @Headers("x-workspace-id") workspaceId?: string
   ) {
-    return this.recordMetaWebhook(body, workspaceId);
+    this.assertMetaWebhookSignature(rawBody, signature);
+    const context = await this.resolveMetaContext(body);
+
+    if (workspaceId && workspaceId !== context.workspaceId) {
+      throw new UnauthorizedException("Webhook Meta nao autorizado");
   }
 
-  private record(
-    source: DiagnosticSourceDto,
+    return this.recordMetaWebhook(body, context);
+  }
+
+  private async recordAsaasWebhook(
     body: WebhookBody,
-    workspaceId?: string
+    context: { workspaceId: string; paymentId: string }
   ) {
-    const eventType = this.getEventType(source, body);
+    const eventType = this.firstString(body.event) ?? "asaas.webhook";
     const externalEventId =
       this.firstString(body.id) ??
       this.firstString(body.eventId) ??
       this.firstString(body.externalEventId);
-
-    return this.diagnosticsService.recordWebhookLog({
-      workspaceId,
-      source,
+    const diagnostic = await this.diagnosticsService.recordWebhookLog({
+      workspaceId: context.workspaceId,
+      source: "asaas",
       eventType,
       externalEventId,
-      idempotencyKey: externalEventId ? `${source}:${externalEventId}` : undefined,
+      idempotencyKey: [
+        "asaas",
+        context.workspaceId,
+        context.paymentId,
+        externalEventId ?? eventType
+      ].join(":"),
       summaryPayload: body
     });
-  }
-
-  private async recordAsaasWebhook(body: WebhookBody, workspaceId?: string) {
-    const diagnostic = await this.record("asaas", body, workspaceId);
 
     if (diagnostic.status === "duplicate") {
       return {
@@ -175,7 +215,7 @@ export class WebhooksController {
     };
   }
 
-  private recordMetaWebhook(body: WebhookBody, workspaceId?: string) {
+  private recordMetaWebhook(body: WebhookBody, context: VerifiedMetaContext) {
     const meta = this.getMetaWebhookMetadata(body);
     const externalEventId =
       meta.externalEventId ??
@@ -184,11 +224,13 @@ export class WebhooksController {
       this.firstString(body.externalEventId);
 
     return this.diagnosticsService.recordWebhookLog({
-      workspaceId,
+      workspaceId: context.workspaceId,
       source: "meta",
       eventType: meta.eventType,
       externalEventId,
-      idempotencyKey: externalEventId ? `meta:${externalEventId}` : undefined,
+      idempotencyKey: externalEventId
+        ? `meta:${context.workspaceId}:${context.pageId}:${externalEventId}`
+        : undefined,
       campaignId: meta.campaignId,
       adSetId: meta.adSetId,
       adId: meta.adId,
@@ -266,14 +308,78 @@ export class WebhooksController {
     return null;
   }
 
+  private assertMetaWebhookSignature(
+    rawBody: Buffer | undefined,
+    signature: string | undefined
+  ) {
+    const appSecret = process.env.META_APP_SECRET;
+    const signatureHex = signature?.startsWith("sha256=")
+      ? signature.slice("sha256=".length)
+      : undefined;
+
+    if (
+      !appSecret ||
+      !rawBody ||
+      !signatureHex ||
+      !/^[a-f0-9]{64}$/i.test(signatureHex)
+    ) {
+      throw new UnauthorizedException("Webhook Meta nao autorizado");
+    }
+
+    const expectedSignature = createHmac("sha256", appSecret)
+      .update(rawBody)
+      .digest();
+    const receivedSignature = Buffer.from(signatureHex, "hex");
+
+    if (
+      receivedSignature.length !== expectedSignature.length ||
+      !timingSafeEqual(receivedSignature, expectedSignature)
+    ) {
+      throw new UnauthorizedException("Webhook Meta nao autorizado");
+    }
+  }
+
+  private async resolveMetaContext(
+    body: WebhookBody
+  ): Promise<VerifiedMetaContext> {
+    const entries = Array.isArray(body.entry) ? body.entry : [];
+    const pageIds = Array.from(
+      new Set(
+        entries
+          .map((entry) => this.firstString(this.recordValue(entry)?.id))
+          .filter((pageId): pageId is string => Boolean(pageId))
+      )
+    );
+
+    if (pageIds.length !== 1) {
+      throw new UnauthorizedException("Webhook Meta nao autorizado");
+    }
+
+    const destinations = await this.prisma.metaConversionDestination.findMany({
+      where: {
+        pageId: pageIds[0]
+      },
+      select: {
+        workspaceId: true
+      },
+      take: 2
+    });
+
+    if (destinations.length !== 1) {
+      throw new UnauthorizedException("Webhook Meta nao autorizado");
+    }
+
+    return {
+      workspaceId: destinations[0].workspaceId,
+      pageId: pageIds[0]
+    };
+  }
+
   private assertAsaasWebhookToken(receivedToken?: string) {
     const expectedToken = process.env.ASAAS_WEBHOOK_AUTH_TOKEN;
 
-    if (!expectedToken) {
-      return;
-    }
-
     if (
+      !expectedToken ||
       !receivedToken ||
       this.hashToken(receivedToken) !== this.hashToken(expectedToken)
     ) {
@@ -284,11 +390,8 @@ export class WebhooksController {
   private assertUazapiWebhookToken(receivedToken?: string) {
     const expectedToken = process.env.UAZAPI_WEBHOOK_AUTH_TOKEN;
 
-    if (!expectedToken) {
-      return;
-    }
-
     if (
+      !expectedToken ||
       !receivedToken ||
       this.hashToken(receivedToken) !== this.hashToken(expectedToken)
     ) {
@@ -310,25 +413,37 @@ export class WebhooksController {
 
   private async recordUazapiWebhook(
     body: WebhookBody,
-    workspaceId?: string,
-    whatsappInstanceId?: string
+    verifiedContext?: VerifiedUazapiContext,
+    claimedWorkspaceId?: string
   ) {
     const parsed = parseUazapiWebhook(body);
-    const resolvedContext = await this.resolveUazapiContext(
-      parsed.providerInstanceId
+    const resolvedContext =
+      verifiedContext ??
+      (await this.resolveUazapiContext(parsed.providerInstanceId));
+
+    if (!resolvedContext) {
+      throw new UnauthorizedException("Webhook Uazapi nao autorizado");
+    }
+
+    this.assertUazapiContextMatches(
+      body,
+      parsed.providerInstanceId,
+      claimedWorkspaceId,
+      resolvedContext
     );
-    const resolvedWorkspaceId = workspaceId ?? resolvedContext?.workspaceId;
-    const resolvedWhatsappInstanceId =
-      whatsappInstanceId ??
-      this.firstString(body.whatsappInstanceId) ??
-      resolvedContext?.whatsappInstanceId;
+
     const diagnostic = await this.diagnosticsService.recordWebhookLog({
-      workspaceId: resolvedWorkspaceId,
+      workspaceId: resolvedContext.workspaceId,
       source: "uazapi",
       eventType: parsed.eventType,
       externalEventId: parsed.externalEventId,
       idempotencyKey: parsed.externalEventId
-        ? `uazapi:${parsed.externalEventId}`
+        ? [
+            "uazapi",
+            resolvedContext.workspaceId,
+            resolvedContext.whatsappInstanceId,
+            parsed.externalEventId
+          ].join(":")
         : undefined,
       leadId: parsed.leadId,
       phoneHash: parsed.phoneHash,
@@ -349,28 +464,17 @@ export class WebhooksController {
       };
     }
 
-    if (!resolvedWorkspaceId) {
-      return {
-        ...diagnostic,
-        conversion: {
-          created: [],
-          duplicates: [],
-          queued: []
-        }
-      };
-    }
-
     const triggerInput = {
       messageText: parsed.messageText,
       labels: parsed.labels
     };
     const rules = await this.conversionRulesService.evaluateTriggers(
-      resolvedWorkspaceId,
+      resolvedContext.workspaceId,
       triggerInput
     );
     const lead = await this.leadsService.upsertFromWhatsappWebhook({
-      workspaceId: resolvedWorkspaceId,
-      whatsappInstanceId: resolvedWhatsappInstanceId,
+      workspaceId: resolvedContext.workspaceId,
+      whatsappInstanceId: resolvedContext.whatsappInstanceId,
       name: parsed.contactName,
       phone: parsed.phone,
       phoneHash: parsed.phoneHash,
@@ -385,7 +489,7 @@ export class WebhooksController {
     });
     const automatic =
       await this.conversionEventsService.recordAutomaticLeadSubmitted({
-        workspaceId: resolvedWorkspaceId,
+        workspaceId: resolvedContext.workspaceId,
         leadId: lead?.id ?? parsed.leadId,
         phoneHash: parsed.phoneHash,
         campaignId: parsed.campaignId,
@@ -394,7 +498,7 @@ export class WebhooksController {
         ctwaClid: parsed.ctwaClid
       });
     const conversion = await this.conversionEventsService.recordRuleMatches({
-      workspaceId: resolvedWorkspaceId,
+      workspaceId: resolvedContext.workspaceId,
       rules,
       leadId: lead?.id ?? parsed.leadId,
       phoneHash: parsed.phoneHash,
@@ -409,7 +513,10 @@ export class WebhooksController {
     ]);
     const queued = await Promise.all(
       readyLogIds.map((logId) =>
-        this.conversionEventsQueueService.enqueueSend(logId)
+        this.conversionEventsQueueService.enqueueSend(
+          logId,
+          resolvedContext.workspaceId
+        )
       )
     );
 
@@ -423,44 +530,73 @@ export class WebhooksController {
     };
   }
 
-  private getEventType(source: DiagnosticSourceDto, body: WebhookBody): string {
-    if (source === "asaas") {
-      return this.firstString(body.event) ?? "asaas.webhook";
-    }
-
-    if (source === "uazapi") {
-      return this.firstString(body.event) ?? this.firstString(body.type) ?? "uazapi.webhook";
-    }
-
-    return this.firstString(body.object) ?? this.firstString(body.event) ?? "meta.webhook";
-  }
-
   private firstString(value: unknown): string | undefined {
     return typeof value === "string" && value.trim() ? value : undefined;
   }
 
+  private recordValue(value: unknown): Record<string, unknown> | undefined {
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
+  }
+
+  private assertUazapiContextMatches(
+    body: WebhookBody,
+    providerInstanceId: string | undefined,
+    claimedWorkspaceId: string | undefined,
+    context: VerifiedUazapiContext
+  ) {
+    const workspace = this.recordValue(body.workspace);
+    const claimedWorkspaceIds = [
+      claimedWorkspaceId,
+      this.firstString(body.workspaceId),
+      this.firstString(body.workspace_id),
+      this.firstString(workspace?.id),
+      this.firstString(workspace?.workspaceId)
+    ].filter((value): value is string => Boolean(value));
+    const claimedLocalInstanceIds = [
+      this.firstString(body.whatsappInstanceId),
+      this.firstString(body.whatsapp_instance_id)
+    ].filter((value): value is string => Boolean(value));
+
+    if (
+      claimedWorkspaceIds.some(
+        (workspaceId) => workspaceId !== context.workspaceId
+      ) ||
+      claimedLocalInstanceIds.some(
+        (instanceId) => instanceId !== context.whatsappInstanceId
+      ) ||
+      (providerInstanceId && providerInstanceId !== context.providerInstanceId)
+    ) {
+      throw new UnauthorizedException("Webhook Uazapi nao autorizado");
+    }
+  }
+
   private async resolveUazapiContext(
     providerInstanceId?: string
-  ): Promise<{ workspaceId: string; whatsappInstanceId: string } | null> {
+  ): Promise<VerifiedUazapiContext | null> {
     if (!providerInstanceId) {
       return null;
     }
 
-    const instance = await this.prisma.whatsappInstance.findFirst({
+    const instances = await this.prisma.whatsappInstance.findMany({
       where: {
         provider: "uazapi",
         providerInstanceId
       },
       select: {
         id: true,
-        workspaceId: true
-      }
+        workspaceId: true,
+        providerInstanceId: true
+      },
+      take: 2
     });
 
-    return instance
+    return instances.length === 1
       ? {
-          workspaceId: instance.workspaceId,
-          whatsappInstanceId: instance.id
+          workspaceId: instances[0].workspaceId,
+          whatsappInstanceId: instances[0].id,
+          providerInstanceId: instances[0].providerInstanceId
         }
       : null;
   }

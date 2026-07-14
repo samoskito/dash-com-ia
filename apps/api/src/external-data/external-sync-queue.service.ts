@@ -20,10 +20,16 @@ export class ExternalSyncQueueService {
 
   async enqueueSync(input: {
     connectorId: string;
+    workspaceId: string;
     streams: ExternalSyncStreamDto[];
     projectionRefresh?: boolean;
     requestedByUserId?: string;
   }): Promise<ExternalSyncQueuedResultDto> {
+    const workspaceId = input.workspaceId.trim();
+    if (!workspaceId) {
+      throw new Error("ExternalConnectorWorkspaceRequired");
+    }
+
     const streams = [...new Set(input.streams)].sort();
     const jobId = createBullJobId(
       "external-data-sync",
@@ -51,6 +57,7 @@ export class ExternalSyncQueueService {
       "sync-external-data",
       {
         connectorId: input.connectorId,
+        workspaceId,
         streams,
         projectionRefresh: input.projectionRefresh === true,
         requestedByUserId: input.requestedByUserId

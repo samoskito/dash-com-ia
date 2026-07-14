@@ -10,6 +10,7 @@ const authenticated = {
     authProvider: "email",
     emailVerifiedAt: null
   },
+  activeWorkspaceId: null,
   workspaces: []
 };
 
@@ -21,6 +22,7 @@ const ownerAuthenticated = {
     authProvider: "email",
     emailVerifiedAt: null
   },
+  activeWorkspaceId: "workspace_1",
   workspaces: [
     {
       id: "workspace_1",

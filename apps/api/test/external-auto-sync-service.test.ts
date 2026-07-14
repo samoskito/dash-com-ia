@@ -56,7 +56,10 @@ describe("ExternalAutoSyncService", () => {
     process.env.WPPTRACK_EXTERNAL_SYNC_ENABLED = "true";
     const prisma = {
       externalDataConnector: {
-        findMany: vi.fn(async () => [{ id: "connector_1" }, { id: "connector_2" }])
+        findMany: vi.fn(async () => [
+          { id: "connector_1", workspaceId: "workspace_1" },
+          { id: "connector_2", workspaceId: "workspace_2" }
+        ])
       }
     };
     const queue = { enqueueSync: vi.fn(async () => ({ status: "queued" })) };
@@ -80,6 +83,7 @@ describe("ExternalAutoSyncService", () => {
     );
     expect(queue.enqueueSync).toHaveBeenNthCalledWith(1, {
       connectorId: "connector_1",
+      workspaceId: "workspace_1",
       streams: ["leads", "events"]
     });
   });

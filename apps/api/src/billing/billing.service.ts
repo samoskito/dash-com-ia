@@ -1,4 +1,10 @@
-import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  Optional
+} from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import type {
@@ -31,6 +37,11 @@ export type AsaasPaymentProcessingResult = {
   whatsappInstanceId?: string;
 };
 
+export type AsaasPaymentWebhookContext = {
+  workspaceId: string;
+  paymentId: string;
+};
+
 type PaymentChargeWithActivation = {
   id: string;
   workspaceId: string;
@@ -38,6 +49,7 @@ type PaymentChargeWithActivation = {
   externalChargeId: string | null;
   activation: {
     id: string;
+    workspaceId: string;
     whatsappInstanceId: string;
     whatsappInstance: {
       id: string;
@@ -616,25 +628,7 @@ export class BillingService {
       };
     }
 
-    const charge = (await this.prisma.paymentCharge.findFirst({
-      where: {
-        OR: [
-          {
-            externalChargeId: paymentId
-          },
-          {
-            id: paymentId
-          }
-        ]
-      },
-      include: {
-        activation: {
-          include: {
-            whatsappInstance: true
-          }
-        }
-      }
-    })) as PaymentChargeWithActivation | null;
+    const charge = await this.findAsaasPaymentCharge(paymentId);
 
     if (!charge?.activation) {
       return {
@@ -642,6 +636,8 @@ export class BillingService {
         status: "ignored"
       };
     }
+
+    this.assertAsaasPaymentOwnership(charge);
 
     if (paymentStatus === "failed") {
       await this.prisma.paymentCharge.update({
@@ -781,6 +777,62 @@ export class BillingService {
       activationId: charge.activation.id,
       whatsappInstanceId: charge.activation.whatsappInstanceId
     };
+  }
+
+  async resolveAsaasPaymentWebhookContext(
+    payload: AsaasPaymentWebhookPayload
+  ): Promise<AsaasPaymentWebhookContext | null> {
+    const paymentId = this.getAsaasPaymentId(payload);
+
+    if (!paymentId) {
+      return null;
+    }
+
+    const charge = await this.findAsaasPaymentCharge(paymentId);
+
+    if (!charge?.activation) {
+      return null;
+    }
+
+    this.assertAsaasPaymentOwnership(charge);
+
+    return {
+      workspaceId: charge.workspaceId,
+      paymentId
+    };
+  }
+
+  private async findAsaasPaymentCharge(
+    paymentId: string
+  ): Promise<PaymentChargeWithActivation | null> {
+    const charges = (await this.prisma.paymentCharge.findMany({
+      where: {
+        provider: "asaas",
+        externalChargeId: paymentId
+      },
+      include: {
+        activation: {
+          include: {
+            whatsappInstance: true
+          }
+        }
+      },
+      take: 2
+    })) as PaymentChargeWithActivation[];
+
+    return charges.length === 1 ? charges[0] : null;
+  }
+
+  private assertAsaasPaymentOwnership(charge: PaymentChargeWithActivation) {
+    if (
+      !charge.activation ||
+      charge.activation.workspaceId !== charge.workspaceId ||
+      charge.activation.whatsappInstance.workspaceId !== charge.workspaceId
+    ) {
+      throw new ForbiddenException(
+        "Webhook Asaas com vinculo de tenant invalido"
+      );
+    }
   }
 
   private async prepareProviderActivation(instance: {

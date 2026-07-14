@@ -286,6 +286,7 @@ export class ExternalDataService {
 
     const result = await this.syncQueue.enqueueSync({
       connectorId,
+      workspaceId: connector.workspaceId,
       streams: input.streams,
       requestedByUserId: actorUserId
     });
@@ -316,6 +317,7 @@ export class ExternalDataService {
 
     const result = await this.syncQueue.enqueueSync({
       connectorId,
+      workspaceId: connector.workspaceId,
       streams: ["leads"],
       projectionRefresh: true,
       requestedByUserId: actorUserId
@@ -431,6 +433,7 @@ export class ExternalDataService {
     try {
       const sync = await this.syncQueue.enqueueSync({
         connectorId,
+        workspaceId: connector.workspaceId,
         streams: ["events"],
         requestedByUserId: actorUserId
       });
@@ -643,7 +646,12 @@ export class ExternalDataService {
       }),
       this.prisma.metaConversionDestination.findMany({
         where: { workspaceId: { in: workspaceIds } },
-        select: { workspaceId: true, status: true, pixelId: true, pageId: true }
+        select: {
+          workspaceId: true,
+          status: true,
+          pixelId: true,
+          pageId: true
+        }
       })
     ]);
     const eventsByConnector = new Map<

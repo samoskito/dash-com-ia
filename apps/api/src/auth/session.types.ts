@@ -9,11 +9,13 @@ export type AuthenticatedUser = {
     emailVerifiedAt: Date | null;
     platformRole?: PlatformRole | null;
   };
+  activeWorkspaceId: string | null;
   workspaces: WorkspaceDto[];
   supportContext?: {
     workspaceId: string;
     workspaceName: string;
     workspaceSlug: string;
+    operationalStatus?: "active" | "blocked";
     startedAt: string;
   } | null;
 };

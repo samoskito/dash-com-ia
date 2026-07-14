@@ -290,37 +290,45 @@ function createHarness(
 
         return {
           ...charge,
-          activation:
-            (() => {
-              const activation = db.activations.find(
+          activation: (() => {
+            const activation = db.activations.find(
               (activation) => activation.paymentChargeId === charge.id
-              );
+            );
 
-              return activation
-                ? {
-                    ...activation,
-                    whatsappInstance:
-                      db.instances.find(
-                        (instance) =>
-                          instance.id === activation.whatsappInstanceId
-                      ) ?? null
-                  }
-                : null;
-            })()
+            return activation
+              ? {
+                  ...activation,
+                  whatsappInstance:
+                    db.instances.find(
+                      (instance) =>
+                        instance.id === activation.whatsappInstanceId
+                    ) ?? null
+                }
+              : null;
+          })()
         };
       },
       findMany: async (args) => {
-        const { where } = (args ?? {}) as {
-          where?: { status?: string; workspaceId?: string };
+        const { take, where } = (args ?? {}) as {
+          take?: number;
+          where?: {
+            provider?: string;
+            status?: string;
+            workspaceId?: string;
+            externalChargeId?: string;
+          };
         };
 
-        return db.charges
-          .filter(
-            (charge) =>
-              (!where?.status || charge.status === where.status) &&
-              (!where?.workspaceId || charge.workspaceId === where.workspaceId)
-          )
-          .map((charge) => ({
+        const charges = db.charges.filter(
+          (charge) =>
+            (!where?.provider || charge.provider === where.provider) &&
+            (!where?.status || charge.status === where.status) &&
+            (!where?.workspaceId || charge.workspaceId === where.workspaceId) &&
+            (!where?.externalChargeId ||
+              charge.externalChargeId === where.externalChargeId)
+        );
+
+        return (take ? charges.slice(0, take) : charges).map((charge) => ({
           ...charge,
           createdAt: charge.createdAt ?? new Date("2026-07-02T11:00:00.000Z"),
           workspace:
@@ -334,11 +342,10 @@ function createHarness(
                 ...activation,
                 whatsappInstance:
                   db.instances.find(
-                    (instance) =>
-                      instance.id === activation.whatsappInstanceId
+                    (instance) => instance.id === activation.whatsappInstanceId
                   ) ?? null
               }))[0] ?? null
-          }));
+        }));
       },
       update: async (args) => {
         const { data, where } = args as {
@@ -847,14 +854,22 @@ describe("billing service", () => {
       }
     );
     db.charges[0].externalChargeId = "pay_asaas_1";
-
-    const result = await service.processAsaasPaymentWebhook({
+    const payload = {
       event: "PAYMENT_RECEIVED",
       payment: {
         id: "pay_asaas_1",
         status: "RECEIVED"
       }
+    };
+
+    await expect(
+      service.resolveAsaasPaymentWebhookContext(payload)
+    ).resolves.toEqual({
+      workspaceId: "workspace_1",
+      paymentId: "pay_asaas_1"
     });
+
+    const result = await service.processAsaasPaymentWebhook(payload);
 
     expect(result).toMatchObject({
       processed: true,
@@ -886,6 +901,124 @@ describe("billing service", () => {
         resultStatus: "active"
       })
     );
+  });
+
+  it("does not resolve an Asaas payment by a local charge id", async () => {
+    const { db, service } = createHarness();
+    const checkout = await service.createWhatsappInstanceCheckout(
+      "workspace_1",
+      {
+        instanceName: "Comercial",
+        provider: "uazapi"
+      }
+    );
+    const auditCountBeforeWebhook = db.auditLogs.length;
+    const payload = {
+      event: "PAYMENT_RECEIVED",
+      payment: {
+        id: checkout.chargeId,
+        status: "RECEIVED"
+      }
+    };
+
+    await expect(
+      service.resolveAsaasPaymentWebhookContext(payload)
+    ).resolves.toBeNull();
+    await expect(service.processAsaasPaymentWebhook(payload)).resolves.toEqual({
+      processed: false,
+      status: "ignored"
+    });
+
+    expect(db.charges[0]).toMatchObject({ status: "pending" });
+    expect(db.activations[0]).toMatchObject({ status: "pending_payment" });
+    expect(db.instances[0]).toMatchObject({ status: "pending_payment" });
+    expect(db.auditLogs).toHaveLength(auditCountBeforeWebhook);
+  });
+
+  it("isolates an Asaas charge from another provider using the same external id", async () => {
+    const { db, service } = createHarness();
+    await service.createWhatsappInstanceCheckout("workspace_1", {
+      instanceName: "Comercial",
+      provider: "uazapi"
+    });
+    db.charges[0].externalChargeId = "pay_shared_1";
+    db.charges.push({
+      id: "charge_other_provider",
+      workspaceId: "workspace_other",
+      provider: "other",
+      status: "pending",
+      amountCents: 12900,
+      description: "Charge from another provider",
+      externalChargeId: "pay_shared_1",
+      checkoutUrl: null
+    });
+
+    await expect(
+      service.resolveAsaasPaymentWebhookContext({
+        event: "PAYMENT_RECEIVED",
+        payment: {
+          id: "pay_shared_1",
+          status: "RECEIVED"
+        }
+      })
+    ).resolves.toEqual({
+      workspaceId: "workspace_1",
+      paymentId: "pay_shared_1"
+    });
+  });
+
+  it("rejects an Asaas charge whose activation belongs to another workspace", async () => {
+    const { db, service, uazapiAdapter } = createHarness();
+    await service.createWhatsappInstanceCheckout("workspace_1", {
+      instanceName: "Comercial",
+      provider: "uazapi"
+    });
+    db.charges[0].externalChargeId = "pay_asaas_1";
+    db.activations[0].workspaceId = "workspace_b";
+    const auditCountBeforeWebhook = db.auditLogs.length;
+
+    await expect(
+      service.processAsaasPaymentWebhook({
+        event: "PAYMENT_RECEIVED",
+        payment: {
+          id: "pay_asaas_1",
+          status: "RECEIVED"
+        }
+      })
+    ).rejects.toMatchObject({ status: 403 });
+
+    expect(db.charges[0]).toMatchObject({ status: "pending" });
+    expect(db.activations[0]).toMatchObject({ status: "pending_payment" });
+    expect(db.instances[0]).toMatchObject({ status: "pending_payment" });
+    expect(uazapiAdapter.createInstance).not.toHaveBeenCalled();
+    expect(db.auditLogs).toHaveLength(auditCountBeforeWebhook);
+  });
+
+  it("rejects an Asaas activation whose instance belongs to another workspace", async () => {
+    const { db, service, uazapiAdapter } = createHarness();
+    await service.createWhatsappInstanceCheckout("workspace_1", {
+      instanceName: "Comercial",
+      provider: "uazapi"
+    });
+    db.charges[0].externalChargeId = "pay_asaas_1";
+    db.instances[0].workspaceId = "workspace_b";
+    const auditCountBeforeWebhook = db.auditLogs.length;
+
+    await expect(
+      service.processAsaasPaymentWebhook({
+        event: "PAYMENT_RECEIVED",
+        payment: {
+          id: "pay_asaas_1",
+          status: "RECEIVED"
+        }
+      })
+    ).rejects.toMatchObject({ status: 403 });
+
+    expect(db.charges[0]).toMatchObject({ status: "pending" });
+    expect(db.activations[0]).toMatchObject({ status: "pending_payment" });
+    expect(db.instances[0]).toMatchObject({ status: "pending_payment" });
+    expect(uazapiAdapter.createInstance).not.toHaveBeenCalled();
+    expect(db.auditLogs).toHaveLength(auditCountBeforeWebhook);
   });
 
   it("creates the Uazapi instance after confirmed payment and stores only encrypted token material", async () => {

@@ -51,6 +51,69 @@ const leadRow: ExternalLeadRow = {
 };
 
 describe("ExternalSyncService", () => {
+  it("rejects a cross-tenant connector before decrypting or reading MySQL", async () => {
+    const connector = {
+      id: "connector_workspace_2",
+      workspaceId: "workspace_2",
+      provider: "kinbox_mysql",
+      status: "active",
+      timezone: "America/Sao_Paulo",
+      sslMode: "required",
+      credentialsEncrypted: "encrypted",
+      credentialsIv: "iv",
+      credentialsTag: "tag",
+      shadowMode: true,
+      capiSendEnabled: false,
+      purchaseAverageValueCents: 400_000,
+      defaultCurrency: "BRL"
+    };
+    const prisma = {
+      externalDataConnector: {
+        findUnique: vi.fn(async ({ where }) =>
+          where.id === connector.id &&
+          (where.workspaceId === undefined ||
+            where.workspaceId === connector.workspaceId)
+            ? connector
+            : null
+        ),
+        update: vi.fn()
+      },
+      integrationLog: {
+        create: vi.fn()
+      }
+    };
+    const encryption = { decrypt: vi.fn() };
+    const adapter = {
+      readEventsPage: vi.fn(),
+      readLeadsPage: vi.fn()
+    };
+    const service = new ExternalSyncService(
+      prisma as never,
+      {} as never,
+      encryption as never,
+      adapter as never,
+      {} as never
+    );
+
+    await expect(
+      service.syncConnector("connector_workspace_2", ["events"], {
+        workspaceId: "workspace_1"
+      })
+    ).rejects.toThrow("Conector externo nao encontrado");
+
+    expect(prisma.externalDataConnector.findUnique).toHaveBeenCalledWith({
+      where: {
+        id: "connector_workspace_2",
+        workspaceId: "workspace_1"
+      }
+    });
+    expect(encryption.decrypt).not.toHaveBeenCalled();
+    expect(adapter.readEventsPage).not.toHaveBeenCalled();
+    expect(adapter.readLeadsPage).not.toHaveBeenCalled();
+    expect(prisma.externalDataConnector.update).not.toHaveBeenCalled();
+    expect(prisma.integrationLog.create).not.toHaveBeenCalled();
+  });
+
   it("persists each event page before advancing the independent event cursor", async () => {
     const eventWithAd: ExternalEventRow = {
       ...eventRow,

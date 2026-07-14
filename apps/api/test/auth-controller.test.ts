@@ -27,6 +27,7 @@ const authPayload = {
       operationalStatus: "active"
     }
   ],
+  activeWorkspaceId: "workspace_1",
   refreshToken: "a".repeat(64),
   expiresAt: new Date("2026-08-01T03:00:00.000Z")
 };
@@ -47,7 +48,8 @@ async function createApp(env: RuntimeEnv = {}) {
     login: vi.fn(async () => authPayload),
     getSession: vi.fn(async () => ({
       user: authPayload.user,
-      workspaces: authPayload.workspaces
+      workspaces: authPayload.workspaces,
+      activeWorkspaceId: authPayload.activeWorkspaceId
     })),
     logout: vi.fn(async () => undefined),
     getGoogleOAuthStart: vi.fn(() => ({
@@ -284,7 +286,9 @@ describe("auth controller", () => {
   });
 
   it("returns a Google OAuth start action without contacting Google", async () => {
-    const { app, authService } = await createApp();
+    const { app, authService } = await createApp({
+      AUTH_GOOGLE_ENABLED: "true"
+    });
 
     await request(app.getHttpServer())
       .post("/auth/google/start")
@@ -306,7 +310,9 @@ describe("auth controller", () => {
   });
 
   it("redirects authenticated Google OAuth callbacks back to the web app", async () => {
-    const { app, authService } = await createApp();
+    const { app, authService } = await createApp({
+      AUTH_GOOGLE_ENABLED: "true"
+    });
     authService.handleGoogleOAuthCallback.mockResolvedValueOnce({
       provider: "google",
       action: "authenticated",
@@ -338,7 +344,9 @@ describe("auth controller", () => {
   });
 
   it("sanitizes Google OAuth callback redirects before returning to the web app", async () => {
-    const { app, authService } = await createApp();
+    const { app, authService } = await createApp({
+      AUTH_GOOGLE_ENABLED: "true"
+    });
     authService.handleGoogleOAuthCallback.mockResolvedValueOnce({
       provider: "google",
       action: "authenticated",
@@ -359,7 +367,9 @@ describe("auth controller", () => {
   });
 
   it("redirects Google OAuth callback failures to the login screen", async () => {
-    const { app, authService } = await createApp();
+    const { app, authService } = await createApp({
+      AUTH_GOOGLE_ENABLED: "true"
+    });
 
     await request(app.getHttpServer())
       .get("/auth/google/callback?code=oauth-code&state=state-token")
@@ -379,6 +389,29 @@ describe("auth controller", () => {
         ipAddress: expect.any(String)
       })
     );
+
+    await app.close();
+  });
+
+  it("blocks Google OAuth routes when the deployment flag is disabled", async () => {
+    const { app, authService } = await createApp({
+      AUTH_GOOGLE_ENABLED: "false"
+    });
+
+    await request(app.getHttpServer())
+      .post("/auth/google/start")
+      .send({ redirectTo: "/overview" })
+      .expect(403)
+      .expect(({ body }) => {
+        expect(body.message).toBe("Login com Google desabilitado");
+      });
+
+    await request(app.getHttpServer())
+      .get("/auth/google/callback?code=oauth-code&state=state-token")
+      .expect(403);
+
+    expect(authService.getGoogleOAuthStart).not.toHaveBeenCalled();
+    expect(authService.handleGoogleOAuthCallback).not.toHaveBeenCalled();
 
     await app.close();
   });

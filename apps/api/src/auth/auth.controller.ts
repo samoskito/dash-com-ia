@@ -124,6 +124,7 @@ export class AuthController {
 
   @Post("google/start")
   startGoogleOAuth(@Body() body: unknown) {
+    this.assertGoogleAuthEnabled();
     const input = this.parseBody(googleOAuthStartSchema.safeParse(body));
 
     return this.authService.getGoogleOAuthStart(input);
@@ -135,7 +136,10 @@ export class AuthController {
     @Req() request: AuthRequest,
     @Res() response: OAuthCallbackResponse
   ) {
-    const input = this.parseBody(googleOAuthCallbackQuerySchema.safeParse(query));
+    this.assertGoogleAuthEnabled();
+    const input = this.parseBody(
+      googleOAuthCallbackQuerySchema.safeParse(query)
+    );
     const result = await this.authService.handleGoogleOAuthCallback(input, {
       userAgent: firstHeader(request.headers["user-agent"]) ?? null,
       ipAddress: request.ip ?? null
@@ -241,6 +245,12 @@ export class AuthController {
     }
 
     return this.env.NODE_ENV !== "production";
+  }
+
+  private assertGoogleAuthEnabled(): void {
+    if (this.env.AUTH_GOOGLE_ENABLED?.trim().toLowerCase() !== "true") {
+      throw new ForbiddenException("Login com Google desabilitado");
+    }
   }
 
   private googleCallbackRedirectUrl(result: {

@@ -5,11 +5,16 @@ import { BackofficeWorkspacesController } from "./backoffice-workspaces.controll
 import { WorkspacesController } from "./workspaces.controller";
 import { WorkspacesService } from "./workspaces.service";
 import { PlatformWorkspaceAccessService } from "./platform-workspace-access.service";
+import { WorkspaceContextService } from "./workspace-context.service";
 
 @Module({
   imports: [AuthModule, PrismaModule],
   controllers: [WorkspacesController, BackofficeWorkspacesController],
-  providers: [WorkspacesService, PlatformWorkspaceAccessService],
-  exports: [WorkspacesService]
+  providers: [
+    WorkspacesService,
+    WorkspaceContextService,
+    PlatformWorkspaceAccessService
+  ],
+  exports: [WorkspacesService, WorkspaceContextService]
 })
 export class WorkspacesModule {}

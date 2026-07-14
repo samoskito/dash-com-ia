@@ -3,6 +3,9 @@ import { DiagnosticProcessor } from "../src/common/queue/diagnostic.processor";
 
 function createPrismaHarness() {
   return {
+    diagnosticEvent: {
+      findUnique: vi.fn(async () => ({ id: "diag_1" }))
+    },
     jobAttempt: {
       create: vi.fn(async ({ data }) => ({ id: "job_attempt_1", ...data }))
     }
@@ -48,7 +51,8 @@ describe("diagnostic processor", () => {
     });
 
     expect(conversionEventsService.sendReadyEvent).toHaveBeenCalledWith(
-      "conversion_1"
+      "conversion_1",
+      { workspaceId: "workspace_1" }
     );
     expect(prisma.jobAttempt.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -81,6 +85,7 @@ describe("diagnostic processor", () => {
       }))
     };
     const prisma = {
+      ...createPrismaHarness(),
       jobAttempt: {
         create: vi.fn(async () => {
           throw new Error("database unavailable");
@@ -217,5 +222,76 @@ describe("diagnostic processor", () => {
         })
       })
     });
+  });
+
+  it("rejects a diagnostic from another workspace before retrying its conversion", async () => {
+    const conversionEventsService = {
+      sendReadyEvent: vi.fn()
+    };
+    const prisma = createPrismaHarness();
+    prisma.diagnosticEvent.findUnique.mockResolvedValueOnce(null as never);
+    const processor = new DiagnosticProcessor(
+      conversionEventsService as never,
+      prisma as never
+    );
+
+    await expect(
+      processor.process({
+        id: "bull_job_cross_tenant",
+        name: "retry-diagnostic-event",
+        attemptsMade: 0,
+        data: {
+          diagnosticEventId: "diag_workspace_2",
+          workspaceId: "workspace_1",
+          source: "meta",
+          message: "Meta recusou evento",
+          occurredAt: "2026-07-02T03:00:00.000Z",
+          conversionEventLogId: "conversion_workspace_2"
+        }
+      } as never)
+    ).rejects.toThrow("Evento de diagnostico nao encontrado");
+
+    expect(prisma.diagnosticEvent.findUnique).toHaveBeenCalledWith({
+      where: {
+        id: "diag_workspace_2",
+        workspaceId: "workspace_1"
+      },
+      select: { id: true }
+    });
+    expect(conversionEventsService.sendReadyEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a linked conversion from another workspace", async () => {
+    const conversionEventsService = {
+      sendReadyEvent: vi.fn(async () => {
+        throw new Error("Evento de conversao nao encontrado");
+      })
+    };
+    const prisma = createPrismaHarness();
+    const processor = new DiagnosticProcessor(
+      conversionEventsService as never,
+      prisma as never
+    );
+
+    await expect(
+      processor.process({
+        id: "bull_job_cross_tenant_conversion",
+        name: "retry-diagnostic-event",
+        attemptsMade: 0,
+        data: {
+          diagnosticEventId: "diag_1",
+          workspaceId: "workspace_1",
+          source: "meta",
+          message: "Meta recusou evento",
+          occurredAt: "2026-07-02T03:00:00.000Z",
+          conversionEventLogId: "conversion_workspace_2"
+        }
+      } as never)
+    ).rejects.toThrow("Evento de conversao nao encontrado");
+
+    expect(conversionEventsService.sendReadyEvent).toHaveBeenCalledWith(
+      "conversion_workspace_2",
+      { workspaceId: "workspace_1" }
+    );
   });
 });

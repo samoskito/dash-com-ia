@@ -14,6 +14,7 @@ describe("ExternalSyncQueueService", () => {
     const service = new ExternalSyncQueueService(queue as never);
     const result = await service.enqueueSync({
       connectorId: "connector_1",
+      workspaceId: "workspace_1",
       streams: ["events", "leads", "events"]
     });
 
@@ -39,6 +40,7 @@ describe("ExternalSyncQueueService", () => {
 
     await service.enqueueSync({
       connectorId: "connector_1",
+      workspaceId: "workspace_1",
       streams: ["leads", "events"]
     });
 
@@ -56,14 +58,36 @@ describe("ExternalSyncQueueService", () => {
 
     await service.enqueueSync({
       connectorId: "connector_1",
+      workspaceId: "workspace_1",
       streams: ["leads"],
       projectionRefresh: true
     });
 
     expect(add).toHaveBeenCalledWith(
       "sync-external-data",
-      expect.objectContaining({ projectionRefresh: true }),
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        projectionRefresh: true
+      }),
       expect.any(Object)
     );
+  });
+
+  it("rejects a new connector job without a workspace", async () => {
+    const queue = {
+      getJob: vi.fn(),
+      add: vi.fn()
+    };
+    const service = new ExternalSyncQueueService(queue as never);
+
+    await expect(
+      service.enqueueSync({
+        connectorId: "connector_1",
+        workspaceId: " ",
+        streams: ["events"]
+      })
+    ).rejects.toThrow("ExternalConnectorWorkspaceRequired");
+    expect(queue.getJob).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
   });
 });

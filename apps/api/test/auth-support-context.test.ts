@@ -4,6 +4,7 @@ import { AuthService } from "../src/auth/auth.service";
 function sessionRecord(platformRole: "platform_owner" | null) {
   return {
     id: "session_1",
+    activeWorkspaceId: "workspace_platform",
     revokedAt: null,
     expiresAt: new Date(Date.now() + 60_000),
     supportWorkspaceStartedAt: new Date("2026-07-11T18:00:00.000Z"),
@@ -37,7 +38,7 @@ function sessionRecord(platformRole: "platform_owner" | null) {
 }
 
 describe("auth support workspace context", () => {
-  it("prepends the selected workspace only for a persisted platform user", async () => {
+  it("keeps support context separate from real workspace memberships", async () => {
     const prisma = {
       authSession: {
         findUnique: vi.fn(async () => sessionRecord("platform_owner"))
@@ -52,14 +53,15 @@ describe("auth support workspace context", () => {
     const authenticated = await service.getSession("refresh-token");
 
     expect(authenticated.user.platformRole).toBe("platform_owner");
+    expect(authenticated.activeWorkspaceId).toBe("workspace_platform");
     expect(authenticated.workspaces.map((workspace) => workspace.id)).toEqual([
-      "workspace_barbieri",
       "workspace_platform"
     ]);
     expect(authenticated.supportContext).toEqual({
       workspaceId: "workspace_barbieri",
       workspaceName: "Barbieri",
       workspaceSlug: "barbieri",
+      operationalStatus: "active",
       startedAt: "2026-07-11T18:00:00.000Z"
     });
   });
@@ -79,6 +81,7 @@ describe("auth support workspace context", () => {
     const authenticated = await service.getSession("refresh-token");
 
     expect(authenticated.user.platformRole).toBeNull();
+    expect(authenticated.activeWorkspaceId).toBe("workspace_platform");
     expect(authenticated.workspaces.map((workspace) => workspace.id)).toEqual([
       "workspace_platform"
     ]);

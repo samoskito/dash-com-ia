@@ -13,6 +13,7 @@ const session = {
     authProvider: "email",
     emailVerifiedAt: null
   },
+  activeWorkspaceId: "workspace_1",
   workspaces: [
     {
       id: "workspace_1",
@@ -25,9 +26,11 @@ const session = {
 
 async function createApp() {
   const authService = {
-    getSession: vi.fn(async () => session)
+    getSession: vi.fn(async () => session),
+    setActiveWorkspace: vi.fn(async () => undefined)
   };
   const workspacesService = {
+    listAvailableWorkspaces: vi.fn(() => session.workspaces),
     getCurrentWorkspace: vi.fn(() => ({
       ...session.workspaces[0],
       permissions: {
@@ -97,6 +100,45 @@ async function createApp() {
 }
 
 describe("workspaces controller", () => {
+  it("lists only the authenticated user's workspace memberships", async () => {
+    const { app, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/workspaces")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual(session.workspaces);
+      });
+
+    expect(workspacesService.listAvailableWorkspaces).toHaveBeenCalledWith(
+      session
+    );
+
+    await app.close();
+  });
+
+  it("switches the active workspace and returns the resolved context", async () => {
+    const { app, authService, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/workspaces/active")
+      .set("Authorization", "Bearer refresh-token")
+      .send({ workspaceId: "workspace_1" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.id).toBe("workspace_1");
+      });
+
+    expect(authService.setActiveWorkspace).toHaveBeenCalledWith(
+      "refresh-token",
+      "workspace_1"
+    );
+    expect(workspacesService.getCurrentWorkspace).toHaveBeenCalledWith(session);
+
+    await app.close();
+  });
+
   it("returns the current workspace with permissions", async () => {
     const { app, authService, workspacesService } = await createApp();
 
@@ -199,7 +241,7 @@ describe("workspaces controller", () => {
   });
 
   it("accepts pending workspace invites for the authenticated invited user", async () => {
-    const { app, workspacesService } = await createApp();
+    const { app, authService, workspacesService } = await createApp();
 
     await request(app.getHttpServer())
       .post("/workspaces/invites/accept")
@@ -217,6 +259,10 @@ describe("workspaces controller", () => {
     expect(workspacesService.acceptInvite).toHaveBeenCalledWith(session, {
       token: "invite-token-1234567890"
     });
+    expect(authService.setActiveWorkspace).toHaveBeenCalledWith(
+      "refresh-token",
+      "workspace_1"
+    );
 
     await app.close();
   });

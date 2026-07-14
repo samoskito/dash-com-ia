@@ -1,7 +1,7 @@
 # WppTrack Access, Email and Meta Connections Implementation Plan
 
 Date: 2026-07-13
-Status: Approved, not started
+Status: Waves 0-1 implemented and validated locally; Wave 2 not started
 Design: docs/plans/2026-07-13-wpptrack-access-email-meta-connections-design.md
 
 ## 1. Goal
@@ -57,12 +57,12 @@ Purpose: establish explicit configuration and regression coverage before behavio
 
 ### Tasks
 
-- [ ] Add an architecture note for the current client product:
+- [x] Add an architecture note for the current client product:
   - OAuth and manual Meta are supported;
   - OAuth remains highlighted and recommended;
   - Google is disabled by default;
   - no student profile is created in this repository.
-- [ ] Add and parse backend flags:
+- [x] Add and parse backend flags:
   - AUTH_GOOGLE_ENABLED;
   - META_CONNECTION_MODES;
   - EMAIL_PROVIDER;
@@ -75,13 +75,13 @@ Purpose: establish explicit configuration and regression coverage before behavio
   - EMAIL_FROM_ADDRESS;
   - EMAIL_REPLY_TO;
   - WEB_ORIGIN.
-- [ ] Add safe defaults to .env.example without credentials.
-- [ ] Add startup validation:
+- [x] Add safe defaults to .env.example without credentials.
+- [x] Add startup validation:
   - SMTP fields required only when EMAIL_PROVIDER=smtp;
   - allowed Meta modes are oauth and manual;
   - disabled Google routes cannot start OAuth;
   - WEB_ORIGIN must be an allowed absolute HTTPS origin outside development.
-- [ ] Capture current Barbieri-compatible Meta behavior in regression tests before adding the normalized model.
+- [x] Capture current Barbieri-compatible Meta behavior in regression tests before adding the normalized model.
 
 ### Likely files
 
@@ -112,38 +112,38 @@ Purpose: make the server-side active workspace authoritative before exposing mul
 
 ### Schema
 
-- [ ] Add AuthSession.activeWorkspaceId as an optional workspace reference.
-- [ ] Preserve supportWorkspaceId as a separate platform-support context.
-- [ ] Add indexes needed to resolve active sessions by user and workspace.
-- [ ] Decide whether a user-level lastWorkspaceId is needed. Prefer session state first; only add a user preference when product behavior requires persistence across all sessions.
+- [x] Add AuthSession.activeWorkspaceId as an optional workspace reference.
+- [x] Preserve supportWorkspaceId as a separate platform-support context.
+- [x] Add indexes needed to resolve active sessions by user and workspace.
+- [x] Decide whether a user-level lastWorkspaceId is needed. Prefer session state first; only add a user preference when product behavior requires persistence across all sessions.
 
 ### API
 
-- [ ] Create WorkspaceContextService to resolve:
+- [x] Create WorkspaceContextService to resolve:
   - authenticated user;
   - active customer membership;
   - active workspace;
   - role and membership capabilities;
   - separate platform support context.
-- [ ] Replace getCurrentWorkspace behavior that selects authenticated.workspaces[0].
-- [ ] Add GET /workspaces returning only active memberships for the authenticated user.
-- [ ] Add POST /workspaces/active:
+- [x] Replace getCurrentWorkspace behavior that selects authenticated.workspaces[0].
+- [x] Add GET /workspaces returning only active memberships for the authenticated user.
+- [x] Add POST /workspaces/active:
   - normalize target ID;
   - verify active membership;
   - update only the current session;
   - audit success;
   - return generic 404 on unauthorized/nonexistent targets.
-- [ ] Re-resolve a safe active workspace when membership is removed or suspended.
-- [ ] Ensure logout and session revocation clear all active context.
-- [ ] Require services to use resolved workspace context instead of arbitrary workspace parameters where possible.
+- [x] Re-resolve a safe active workspace when membership is removed or suspended.
+- [x] Ensure logout and session revocation clear all active context.
+- [x] Require services to use resolved workspace context instead of arbitrary workspace parameters where possible.
 
 ### Isolation sweep
 
-- [ ] Inventory all Prisma reads/writes for customer-owned models.
-- [ ] Inventory BullMQ payloads and workers.
-- [ ] Inventory cache keys, export routes, file paths and server actions.
-- [ ] Add workspace scope where missing.
-- [ ] Ensure workers revalidate workspace ownership for referenced connection/resource IDs.
+- [x] Inventory all Prisma reads/writes for customer-owned models.
+- [x] Inventory BullMQ payloads and workers.
+- [x] Inventory cache keys, export routes, file paths and server actions.
+- [x] Add workspace scope where missing.
+- [x] Ensure workers revalidate workspace ownership for referenced connection/resource IDs.
 
 ### Likely files
 
@@ -160,14 +160,14 @@ Purpose: make the server-side active workspace authoritative before exposing mul
 
 ### Tests
 
-- [ ] User A cannot list workspace B.
-- [ ] User A cannot activate workspace B by ID.
-- [ ] Nonexistent and unauthorized IDs have the same status/body shape.
-- [ ] User with memberships A and B can switch between only those two.
-- [ ] Two sessions for the same user can hold different active workspaces.
-- [ ] Removing membership B clears B from affected sessions.
-- [ ] Support context does not create membership or appear in the normal selector.
-- [ ] ID swapping is blocked for leads, reports, integrations, exports and queued jobs.
+- [x] User A cannot list workspace B.
+- [x] User A cannot activate workspace B by ID.
+- [x] Nonexistent and unauthorized IDs have the same status/body shape.
+- [x] User with memberships A and B can switch between only those two.
+- [x] Two sessions for the same user can hold different active workspaces.
+- [x] Removing membership B clears B from affected sessions.
+- [x] Support context does not create membership or appear in the normal selector.
+- [x] ID swapping is blocked for leads, reports, integrations, exports and queued jobs.
 
 ### Acceptance
 
@@ -183,6 +183,19 @@ Deploy migration and API first. Backfill current sessions with their only valid 
 ### Rollback
 
 Keep activeWorkspaceId nullable. The old single-membership fallback may remain temporarily behind a compatibility branch only for sessions with exactly one membership.
+
+### Implementation checkpoint - 2026-07-14
+
+- Waves 0 and 1 are complete in code; no production deploy was performed.
+- Session state remains authoritative and a multi-workspace session never guesses the first membership.
+- Existing live sessions are backfilled only when unrevoked, unexpired and linked to exactly one membership.
+- BullMQ producers carry workspaceId and workers revalidate resource ownership; legacy jobs receive a one-time compatibility resolution.
+- Uazapi and Asaas webhooks fail closed and derive tenant context from verified resources.
+- Direct Meta webhooks require X-Hub-Signature-256 and resolve a unique workspace from the Page ID.
+- Meta OAuth state is hashed, expires after ten minutes, is one-time and revalidates membership plus integration permission.
+- Local validation: 58 shared tests, 586 API tests and 124 web tests passed; shared/API/web typechecks, Prisma validate, Nest build, Next build and git diff --check passed.
+- Normal Prisma engine generation was blocked only by the known Windows DLL lock; generation with --no-engine succeeded.
+- Required deployment order remains migration/API first and web second. Confirm UAZAPI_WEBHOOK_AUTH_TOKEN, ASAAS_WEBHOOK_AUTH_TOKEN, META_APP_SECRET, AUTH_GOOGLE_ENABLED=false and META_CONNECTION_MODES=oauth before release.
 
 ## 5. Wave 2 - Multi-Workspace Product Experience and Provisioning
 
@@ -464,17 +477,17 @@ Purpose: keep Google available in code while disabled in the current SaaS.
 
 ### Tasks
 
-- [ ] Hide the Google button when AUTH_GOOGLE_ENABLED=false.
-- [ ] Reject both OAuth start and callback server-side when disabled.
-- [ ] Require verified Google email.
+- [x] Hide the Google button when AUTH_GOOGLE_ENABLED=false.
+- [x] Reject both OAuth start and callback server-side when disabled.
+- [x] Require verified Google email.
 - [ ] Permit login only for an existing user or a valid invited identity according to the invitation flow.
 - [ ] Never create a workspace from Google OAuth.
 
 ### Tests
 
-- [ ] Button absent and routes blocked when disabled.
-- [ ] Existing user login when enabled.
-- [ ] Unverified email rejected.
+- [x] Button absent and routes blocked when disabled.
+- [x] Existing user login when enabled.
+- [x] Unverified email rejected.
 - [ ] Unknown, uninvited email rejected.
 - [ ] No workspace auto-provisioning.
 

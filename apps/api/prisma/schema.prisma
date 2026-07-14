@@ -131,10 +131,11 @@ model User {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  memberships  WorkspaceMember[]
-  sessions     AuthSession[]
-  actionTokens AuthActionToken[]
-  auditLogs    AuditLog[]
+  memberships     WorkspaceMember[]
+  sessions        AuthSession[]
+  actionTokens    AuthActionToken[]
+  metaOAuthStates MetaOAuthState[]
+  auditLogs       AuditLog[]
 }
 
 model Workspace {
@@ -169,8 +170,10 @@ model Workspace {
   metaCampaignDailyInsights   MetaCampaignDailyInsight[]
   metaAdSets                  MetaAdSet[]
   metaAds                     MetaAd[]
+  metaOAuthStates             MetaOAuthState[]
   externalDataConnectors      ExternalDataConnector[]
   externalIngestionRecords    ExternalIngestionRecord[]
+  activeSessions              AuthSession[]                @relation("AuthSessionActiveWorkspace")
   supportSessions             AuthSession[]                @relation("AuthSessionSupportWorkspace")
 
   @@index([asaasCustomerId])
@@ -216,6 +219,7 @@ model WhatsappInstance {
 model AuthSession {
   id                        String    @id @default(cuid())
   userId                    String
+  activeWorkspaceId         String?
   supportWorkspaceId        String?
   supportWorkspaceStartedAt DateTime?
   refreshHash               String    @unique
@@ -226,9 +230,12 @@ model AuthSession {
   createdAt                 DateTime  @default(now())
 
   user             User       @relation(fields: [userId], references: [id])
+  activeWorkspace  Workspace? @relation("AuthSessionActiveWorkspace", fields: [activeWorkspaceId], references: [id], onDelete: SetNull)
   supportWorkspace Workspace? @relation("AuthSessionSupportWorkspace", fields: [supportWorkspaceId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([userId, activeWorkspaceId])
+  @@index([activeWorkspaceId])
   @@index([supportWorkspaceId])
 }
 
@@ -245,6 +252,22 @@ model AuthActionToken {
 
   @@index([userId, type, usedAt])
   @@index([type, expiresAt])
+}
+
+model MetaOAuthState {
+  id          String    @id @default(cuid())
+  stateHash   String    @unique
+  workspaceId String
+  userId      String
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, consumedAt, expiresAt])
+  @@index([userId, consumedAt, expiresAt])
 }
 
 model WorkspaceInvite {

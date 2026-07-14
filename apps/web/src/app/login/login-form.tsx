@@ -4,7 +4,13 @@ import { useState, type FormEvent } from "react";
 import { loginSchema } from "@wpptrack/shared";
 import { apiFetch } from "../../lib/api";
 
-export function LoginForm({ initialError = null }: { initialError?: string | null }) {
+export function LoginForm({
+  initialError = null,
+  googleEnabled = false
+}: {
+  initialError?: string | null;
+  googleEnabled?: boolean;
+}) {
   const [error, setError] = useState<string | null>(initialError);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -65,9 +71,11 @@ export function LoginForm({ initialError = null }: { initialError?: string | nul
       <button type="submit" disabled={loading}>
         {loading ? "Processando..." : "Entrar"}
       </button>
-      <a className="secondary-button" href="/login/google">
-        Entrar com Google
-      </a>
+      {googleEnabled ? (
+        <a className="secondary-button" href="/login/google">
+          Entrar com Google
+        </a>
+      ) : null}
       <a href="/login/forgot">Esqueci minha senha</a>
     </form>
   );

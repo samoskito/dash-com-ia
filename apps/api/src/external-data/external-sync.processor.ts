@@ -1,5 +1,5 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
-import { Inject } from "@nestjs/common";
+import { Inject, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { Job } from "bullmq";
 import {
@@ -8,6 +8,13 @@ import {
 } from "../common/queue/queue.constants";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { ExternalSyncService } from "./external-sync.service";
+
+type LegacyExternalDataSyncJobPayload = Omit<
+  ExternalDataSyncJobPayload,
+  "workspaceId"
+> & { workspaceId?: undefined };
+type ExternalDataSyncWorkerPayload =
+  ExternalDataSyncJobPayload | LegacyExternalDataSyncJobPayload;
 
 @Processor(EXTERNAL_DATA_SYNC_QUEUE)
 export class ExternalSyncProcessor extends WorkerHost {
@@ -19,16 +26,21 @@ export class ExternalSyncProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<ExternalDataSyncJobPayload>) {
+  async process(job: Job<ExternalDataSyncWorkerPayload>) {
     const startedAt = new Date();
+    let workspaceId = job.data.workspaceId;
 
     try {
+      workspaceId = await this.resolveWorkspaceId(job);
       const result = await this.syncService.syncConnector(
         job.data.connectorId,
         job.data.streams,
-        { projectionRefresh: job.data.projectionRefresh === true }
+        {
+          projectionRefresh: job.data.projectionRefresh === true,
+          workspaceId
+        }
       );
-      await this.recordAttempt(job, "completed", startedAt, {
+      await this.recordAttempt(job, "completed", startedAt, workspaceId, {
         connectorId: result.connectorId,
         streams: result.streams,
         counts: result.counts,
@@ -40,6 +52,7 @@ export class ExternalSyncProcessor extends WorkerHost {
         job,
         "failed",
         startedAt,
+        workspaceId,
         {
           connectorId: job.data.connectorId,
           streams: job.data.streams,
@@ -51,22 +64,48 @@ export class ExternalSyncProcessor extends WorkerHost {
     }
   }
 
+  private async resolveWorkspaceId(
+    job: Job<ExternalDataSyncWorkerPayload>
+  ): Promise<string> {
+    const declaredWorkspaceId = job.data.workspaceId?.trim();
+    if (declaredWorkspaceId) {
+      return declaredWorkspaceId;
+    }
+
+    const connector = await this.prisma.externalDataConnector.findUnique({
+      where: { id: job.data.connectorId },
+      select: { workspaceId: true }
+    });
+
+    if (!connector) {
+      throw new NotFoundException("Conector externo nao encontrado");
+    }
+
+    const scopedData: ExternalDataSyncJobPayload = {
+      ...job.data,
+      workspaceId: connector.workspaceId
+    };
+    job.data = scopedData;
+
+    if (typeof job.updateData === "function") {
+      await job.updateData(scopedData);
+    }
+
+    return connector.workspaceId;
+  }
+
   private async recordAttempt(
-    job: Job<ExternalDataSyncJobPayload>,
+    job: Job<ExternalDataSyncWorkerPayload>,
     status: string,
     startedAt: Date,
+    workspaceId: string | undefined,
     summary: Record<string, unknown>,
     error?: unknown
   ): Promise<void> {
     try {
-      const connector = await this.prisma.externalDataConnector.findUnique({
-        where: { id: job.data.connectorId },
-        select: { workspaceId: true }
-      });
-
       await this.prisma.jobAttempt.create({
         data: {
-          workspaceId: connector?.workspaceId ?? null,
+          workspaceId: workspaceId ?? null,
           queueName: EXTERNAL_DATA_SYNC_QUEUE,
           jobId: String(job.id ?? job.data.connectorId),
           jobName: job.name || "sync-external-data",

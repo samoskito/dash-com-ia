@@ -64,11 +64,18 @@ function createHarness(metaCapiAdapter?: {
           : null
     },
     conversionEventLog: {
-      findUnique: async ({ where }: { where: { id?: string; dedupeKey?: string } }) =>
+      findUnique: async ({
+        where
+      }: {
+        where: { id?: string; dedupeKey?: string; workspaceId?: string };
+      }) =>
         db.logs.find(
           (log) =>
-            (where.id !== undefined && log.id === where.id) ||
-            (where.dedupeKey !== undefined && log.dedupeKey === where.dedupeKey)
+            (where.workspaceId === undefined ||
+              log.workspaceId === where.workspaceId) &&
+            ((where.id !== undefined && log.id === where.id) ||
+              (where.dedupeKey !== undefined &&
+                log.dedupeKey === where.dedupeKey))
         ) ?? null,
       findMany: async ({ where }: { where: { id: { in: string[] }; status?: string } }) =>
         db.logs.filter(
@@ -412,6 +419,26 @@ describe("conversion events service", () => {
       status: "skipped",
     });
     expect(db.logs[0]).toMatchObject({ status: "shadow_observed" });
+    expect(adapter.sendEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cross-tenant ready event before calling Meta CAPI", async () => {
+    const adapter = { sendEvent: vi.fn() };
+    const { service } = createHarness(adapter);
+    await service.recordAutomaticLeadSubmitted({
+      workspaceId: "workspace_2",
+      leadId: "lead_workspace_2",
+      phoneHash: "phone_hash_workspace_2",
+      adId: "ad_2",
+      ctwaClid: "ctwa_2"
+    });
+
+    await expect(
+      service.sendReadyEvent("conversion_1", {
+        workspaceId: "workspace_1"
+      })
+    ).rejects.toThrow("Evento de conversao nao encontrado");
+
     expect(adapter.sendEvent).not.toHaveBeenCalled();
   });
 

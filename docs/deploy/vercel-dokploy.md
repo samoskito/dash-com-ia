@@ -60,6 +60,7 @@ Meta:
 ```env
 META_APP_ID=
 META_APP_SECRET=
+META_CONNECTION_MODES=oauth
 META_CAPI_ACCESS_TOKEN=
 META_OAUTH_REDIRECT_URL=https://api.seudominio.com/integrations/meta/callback
 META_GRAPH_API_VERSION=v21.0
@@ -67,6 +68,10 @@ META_OAUTH_SCOPES=ads_read,ads_management,business_management,pages_show_list,pa
 META_TOKEN_ENCRYPTION_KEY=troque-por-chave-forte-de-32-bytes-ou-mais
 META_WEBHOOK_VERIFY_TOKEN=troque-por-token-forte-do-webhook-meta
 ```
+
+O `POST /webhooks/meta` valida automaticamente `X-Hub-Signature-256` com
+`META_APP_SECRET` e associa o evento a um unico workspace pelo Page ID. Nao
+envie nem confie em `x-workspace-id` como origem do tenant.
 
 Uazapi:
 
@@ -85,12 +90,32 @@ ASAAS_API_KEY=
 ASAAS_WEBHOOK_AUTH_TOKEN=
 ```
 
+`UAZAPI_WEBHOOK_AUTH_TOKEN` e `ASAAS_WEBHOOK_AUTH_TOKEN` sao obrigatorios para
+as respectivas rotas publicas; sem o segredo configurado, a API falha fechada
+com `401`.
+
 ## Variaveis do Web
 
 Na Vercel:
 
 ```env
 NEXT_PUBLIC_API_URL=https://api.seudominio.com
+AUTH_GOOGLE_ENABLED=false
+```
+
+Na API, mantenha `AUTH_GOOGLE_ENABLED=false` enquanto o login Google nao estiver
+liberado para o produto. Para preparar SMTP sem habilitar envio antes da hora:
+
+```env
+EMAIL_PROVIDER=
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASSWORD=
+EMAIL_FROM_NAME=WppTrack
+EMAIL_FROM_ADDRESS=noreply@rastrack.app
+EMAIL_REPLY_TO=suporte@rastrack.app
 ```
 
 ## Build

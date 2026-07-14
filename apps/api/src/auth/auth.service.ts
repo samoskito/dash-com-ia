@@ -82,6 +82,7 @@ type SessionUserRecord = EmailLoginUserRecord;
 type AuthSessionRecord = {
   id?: string;
   userId?: string;
+  activeWorkspaceId?: string | null;
   revokedAt: Date | null;
   expiresAt: Date;
   supportWorkspaceStartedAt?: Date | null;
@@ -250,7 +251,8 @@ export class AuthService {
             memberships: {
               include: {
                 workspace: true
-              }
+              },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }]
             }
           }
         },
@@ -266,11 +268,106 @@ export class AuthService {
       throw this.invalidCredentials();
     }
 
-    return this.toAuthenticatedUser(
+    const authenticated = this.toAuthenticatedUser(
       session.user,
+      session.activeWorkspaceId ?? null,
       session.supportWorkspace ?? null,
       session.supportWorkspaceStartedAt ?? null
     );
+
+    if (
+      session.id &&
+      session.activeWorkspaceId !== undefined &&
+      session.activeWorkspaceId !== authenticated.activeWorkspaceId
+    ) {
+      await this.prisma.authSession.updateMany({
+        where: {
+          id: session.id,
+          revokedAt: null,
+          expiresAt: { gt: new Date() }
+        },
+        data: {
+          activeWorkspaceId: authenticated.activeWorkspaceId
+        }
+      });
+    }
+
+    return authenticated;
+  }
+
+  async setActiveWorkspace(
+    refreshToken: string,
+    workspaceId: string
+  ): Promise<void> {
+    const refreshHash = this.hashRefreshToken(refreshToken);
+    const session = await this.prisma.authSession.findUnique({
+      where: { refreshHash },
+      select: {
+        id: true,
+        userId: true,
+        activeWorkspaceId: true,
+        revokedAt: true,
+        expiresAt: true
+      }
+    });
+
+    if (
+      !session ||
+      session.revokedAt ||
+      session.expiresAt.getTime() <= Date.now()
+    ) {
+      throw this.invalidCredentials();
+    }
+
+    const membership = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId: session.userId
+        }
+      },
+      select: {
+        workspaceId: true
+      }
+    });
+
+    if (!membership) {
+      throw new NotFoundException("Workspace nao encontrado");
+    }
+
+    const updated = await this.prisma.authSession.updateMany({
+      where: {
+        id: session.id,
+        userId: session.userId,
+        revokedAt: null,
+        expiresAt: { gt: new Date() }
+      },
+      data: {
+        activeWorkspaceId: membership.workspaceId
+      }
+    });
+
+    if (updated.count === 0) {
+      throw this.invalidCredentials();
+    }
+
+    await this.safeCreateAuditLog({
+      workspaceId: membership.workspaceId,
+      actorUserId: session.userId,
+      actorType: "user",
+      action: "workspace.active_changed",
+      targetType: "Workspace",
+      targetId: membership.workspaceId,
+      reason: null,
+      sourceIp: null,
+      resultStatus: "success",
+      beforeSummary: {
+        workspaceId: session.activeWorkspaceId
+      },
+      afterSummary: {
+        workspaceId: membership.workspaceId
+      }
+    });
   }
 
   async setSupportWorkspace(
@@ -446,7 +543,8 @@ export class AuthService {
             memberships: {
               include: {
                 workspace: true
-              }
+              },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }]
             }
           }
         }
@@ -459,13 +557,21 @@ export class AuthService {
         revokedAt: null
       },
       data: {
-        revokedAt: new Date()
+        revokedAt: new Date(),
+        activeWorkspaceId: null,
+        supportWorkspaceId: null,
+        supportWorkspaceStartedAt: null
       }
     });
 
     if (session && !session.revokedAt) {
+      const activeWorkspaceId = this.resolveActiveMemberWorkspaceId(
+        session.user,
+        session.activeWorkspaceId ?? null
+      );
+
       await this.safeCreateAuditLog({
-        workspaceId: session.user.memberships[0]?.workspace.id ?? null,
+        workspaceId: activeWorkspaceId,
         actorUserId: session.user.id,
         actorType: "user",
         action: "auth.logout",
@@ -564,14 +670,16 @@ export class AuthService {
 
     const profile = await this.getGoogleUserInfo(token.accessToken);
 
-    if (!profile.googleId || !profile.email) {
+    if (!profile.googleId || !profile.email || !profile.emailVerified) {
       return {
         provider: "google",
         action: "exchange_failed",
         missingEnv: [],
         codeReceived: true,
         redirectTo,
-        message: profile.message
+        message:
+          profile.message ??
+          (!profile.emailVerified ? "Email Google nao verificado" : undefined)
       };
     }
 
@@ -672,7 +780,10 @@ export class AuthService {
         revokedAt: null
       },
       data: {
-        revokedAt: new Date()
+        revokedAt: new Date(),
+        activeWorkspaceId: null,
+        supportWorkspaceId: null,
+        supportWorkspaceStartedAt: null
       }
     });
     await this.safeCreateAuditLog({
@@ -740,7 +851,8 @@ export class AuthService {
         memberships: {
           include: {
             workspace: true
-          }
+          },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }]
         }
       }
     })) as EmailLoginUserRecord | null;
@@ -782,10 +894,12 @@ export class AuthService {
 
     const refreshToken = randomBytes(refreshTokenBytes).toString("hex");
     const expiresAt = new Date(Date.now() + sessionTtlMs);
+    const authenticated = this.toAuthenticatedUser(user);
 
     await this.prisma.authSession.create({
       data: {
         userId: user.id,
+        activeWorkspaceId: authenticated.activeWorkspaceId,
         refreshHash: this.hashRefreshToken(refreshToken),
         userAgent: context.userAgent ?? null,
         ipAddress: context.ipAddress ?? null,
@@ -794,7 +908,7 @@ export class AuthService {
     });
 
     return {
-      ...this.toAuthenticatedUser(user, null, null),
+      ...authenticated,
       refreshToken,
       expiresAt
     };
@@ -1007,6 +1121,7 @@ export class AuthService {
 
   private toAuthenticatedUser(
     user: EmailLoginUserRecord,
+    activeWorkspaceId: string | null = null,
     supportWorkspace: AuthSessionRecord["supportWorkspace"] = null,
     supportWorkspaceStartedAt: Date | null = null
   ): AuthenticatedUser {
@@ -1028,28 +1143,17 @@ export class AuthService {
             workspaceId: activeSupportWorkspace.id,
             workspaceName: activeSupportWorkspace.name,
             workspaceSlug: activeSupportWorkspace.slug,
-            startedAt: (
-              supportWorkspaceStartedAt ?? new Date()
-            ).toISOString()
-          }
-        : null;
-    const workspaces = supportContext && activeSupportWorkspace
-      ? [
-          {
-            id: activeSupportWorkspace.id,
-            name: activeSupportWorkspace.name,
-            slug: activeSupportWorkspace.slug,
-            role: "owner" as const,
-            operationalStatus:
-              activeSupportWorkspace.operationalStatus === "blocked"
-                ? "blocked" as const
-                : "active" as const
-          },
-          ...memberWorkspaces.filter(
-            (workspace) => workspace.id !== activeSupportWorkspace.id
-          )
-        ]
-      : memberWorkspaces;
+          operationalStatus:
+            activeSupportWorkspace.operationalStatus === "blocked"
+              ? ("blocked" as const)
+              : ("active" as const),
+          startedAt: (supportWorkspaceStartedAt ?? new Date()).toISOString()
+        }
+      : null;
+    const resolvedActiveWorkspaceId = this.resolveActiveMemberWorkspaceId(
+      user,
+      activeWorkspaceId
+    );
 
     return {
       user: {
@@ -1060,9 +1164,28 @@ export class AuthService {
         emailVerifiedAt: user.emailVerifiedAt ?? null,
         platformRole
       },
-      workspaces,
+      activeWorkspaceId: resolvedActiveWorkspaceId,
+      workspaces: memberWorkspaces,
       supportContext
     };
+  }
+
+  private resolveActiveMemberWorkspaceId(
+    user: EmailLoginUserRecord,
+    activeWorkspaceId: string | null
+  ): string | null {
+    if (
+      activeWorkspaceId &&
+      user.memberships.some(
+        (membership) => membership.workspace.id === activeWorkspaceId
+      )
+    ) {
+      return activeWorkspaceId;
+    }
+
+    return user.memberships.length === 1
+      ? (user.memberships[0]?.workspace.id ?? null)
+      : null;
   }
 
   private resolvePlatformRole(user: EmailLoginUserRecord): PlatformRole | null {
@@ -1225,7 +1348,7 @@ export class AuthService {
     context: AuthRequestContext
   ): Promise<void> {
     await this.safeCreateAuditLog({
-      workspaceId: session.workspaces[0]?.id ?? null,
+      workspaceId: session.activeWorkspaceId,
       actorUserId: session.user.id,
       actorType: "user",
       action: "auth.login_succeeded",
@@ -1308,7 +1431,9 @@ export class AuthService {
     try {
       const decoded = JSON.parse(
         Buffer.from(payload, "base64url").toString("utf8")
-      ) as { redirectTo?: unknown };
+      ) as {
+        redirectTo?: unknown;
+      };
 
       return this.safeRedirectPath(decoded.redirectTo);
     } catch {

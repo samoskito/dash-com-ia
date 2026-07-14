@@ -360,7 +360,7 @@ describe("integrations controller", () => {
   });
 
   it("returns Meta start action without calling Meta", async () => {
-    const { app } = await createApp();
+    const { app, service } = await createApp();
 
     await request(app.getHttpServer())
       .get("/integrations/meta/start")
@@ -370,6 +370,11 @@ describe("integrations controller", () => {
         expect(body.action).toBe("configure_env");
         expect(body.missingEnv).toContain("META_APP_ID");
       });
+
+    expect(service.getMetaStartAction).toHaveBeenCalledWith(
+      "workspace_1",
+      "user_1"
+    );
 
     await app.close();
   });

@@ -1,6 +1,8 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { Inject, Injectable, Optional } from "@nestjs/common";
+import { canManageIntegrations } from "@wpptrack/shared";
 import type {
+  WorkspaceRole,
   MetaConnectionDto,
   MetaCapiTokenInputDto,
   MetaCapiTokenStatusDto,
@@ -25,6 +27,8 @@ import { MetaAdapter } from "./meta/meta.adapter";
 import { MetaAssetsService } from "./meta/meta-assets.service";
 import { MetaConnectionsService } from "./meta/meta-connections.service";
 import { UazapiAdapter } from "./uazapi/uazapi.adapter";
+
+const metaOAuthStateTtlMs = 1000 * 60 * 10;
 
 @Injectable()
 export class IntegrationsService {
@@ -54,7 +58,19 @@ export class IntegrationsService {
     };
   }
 
-  getMetaStartAction(workspaceId?: string): IntegrationStartActionDto {
+  async getMetaStartAction(
+    workspaceId?: string,
+    actorUserId?: string
+  ): Promise<IntegrationStartActionDto> {
+    if (!this.isMetaOAuthEnabled()) {
+      return {
+        provider: "meta",
+        action: "configure_env",
+        label: "OAuth Meta desabilitado",
+        missingEnv: ["META_CONNECTION_MODES=oauth"]
+      };
+    }
+
     const requiredEnv = [
       "META_APP_ID",
       "META_APP_SECRET",
@@ -73,13 +89,15 @@ export class IntegrationsService {
       };
     }
 
+    const state = workspaceId
+      ? await this.createMetaOAuthState(workspaceId, actorUserId)
+      : undefined;
+
     return {
       provider: "meta",
       action: "oauth_redirect",
       label: "Conectar Meta via OAuth",
-      href: this.metaAdapter.getOAuthAuthorizationUrl(
-        workspaceId ? this.createMetaOAuthState(workspaceId) : undefined
-      ),
+      href: this.metaAdapter.getOAuthAuthorizationUrl(state),
       missingEnv: []
     };
   }
@@ -87,6 +105,44 @@ export class IntegrationsService {
   async handleMetaCallback(
     input: MetaOAuthCallbackQueryDto
   ): Promise<MetaOAuthCallbackResultDto> {
+    if (!this.isMetaOAuthEnabled()) {
+      return {
+        provider: "meta",
+        status: "exchange_failed",
+        tokenType: null,
+        expiresInSeconds: null,
+        scopes: [],
+        missingEnv: [],
+        message: "OAuth Meta desabilitado neste ambiente"
+      };
+    }
+
+    if (!input.state) {
+      return {
+        provider: "meta",
+        status: "exchange_failed",
+        tokenType: null,
+        expiresInSeconds: null,
+        scopes: [],
+        missingEnv: [],
+        message: "State OAuth Meta ausente"
+      };
+    }
+
+    const workspaceId = await this.consumeMetaOAuthState(input.state);
+
+    if (!workspaceId) {
+      return {
+        provider: "meta",
+        status: "exchange_failed",
+        tokenType: null,
+        expiresInSeconds: null,
+        scopes: [],
+        missingEnv: [],
+        message: "State OAuth Meta invalido ou expirado"
+      };
+    }
+
     const exchange = await this.metaAdapter.exchangeCodeForToken({
       code: input.code
     });
@@ -98,25 +154,8 @@ export class IntegrationsService {
       return exchange.publicResult;
     }
 
-    if (!input.state) {
-      return {
-        ...exchange.publicResult,
-        status: "exchange_failed",
-        message: "State OAuth Meta ausente"
-      };
-    }
-
-    const workspaceId = this.readMetaOAuthState(input.state);
-
-    if (!workspaceId) {
-      return {
-        ...exchange.publicResult,
-        status: "exchange_failed",
-        message: "State OAuth Meta invalido"
-      };
-    }
-
-    const connection = await this.requireMetaConnectionsService().saveOAuthConnection({
+    const connection =
+      await this.requireMetaConnectionsService().saveOAuthConnection({
       workspaceId,
       accessToken: exchange.accessToken,
       tokenType: exchange.publicResult.tokenType,
@@ -580,57 +619,90 @@ export class IntegrationsService {
     };
   }
 
-  private createMetaOAuthState(workspaceId: string): string {
-    const payload = Buffer.from(
-      JSON.stringify({
-        workspaceId,
-        nonce: randomBytes(16).toString("hex")
-      })
-    ).toString("base64url");
-    const signature = this.signStatePayload(payload);
-
-    return `${payload}.${signature}`;
-  }
-
-  private readMetaOAuthState(state: string): string | null {
-    const [payload, signature] = state.split(".");
-
-    if (!payload || !signature) {
-      return null;
+  private async createMetaOAuthState(
+    workspaceId: string,
+    actorUserId?: string
+  ): Promise<string> {
+    if (!actorUserId) {
+      throw new Error("Usuario ausente ao iniciar OAuth Meta");
     }
 
-    const expected = this.signStatePayload(payload);
-    const expectedBuffer = Buffer.from(expected);
-    const signatureBuffer = Buffer.from(signature);
+    const state = randomBytes(32).toString("base64url");
+
+    await this.requirePrisma().metaOAuthState.create({
+      data: {
+        stateHash: this.hashMetaOAuthState(state),
+        workspaceId,
+        userId: actorUserId,
+        expiresAt: new Date(Date.now() + metaOAuthStateTtlMs)
+      }
+    });
+
+    return state;
+  }
+
+  private async consumeMetaOAuthState(state: string): Promise<string | null> {
+    const prisma = this.requirePrisma();
+    const now = new Date();
+    const savedState = await prisma.metaOAuthState.findUnique({
+      where: { stateHash: this.hashMetaOAuthState(state) },
+      select: {
+        id: true,
+        workspaceId: true,
+        userId: true,
+        expiresAt: true,
+        consumedAt: true
+    }
+    });
 
     if (
-      expectedBuffer.length !== signatureBuffer.length ||
-      !timingSafeEqual(expectedBuffer, signatureBuffer)
+      !savedState ||
+      savedState.consumedAt ||
+      savedState.expiresAt.getTime() <= now.getTime()
     ) {
       return null;
     }
 
-    try {
-      const decoded = JSON.parse(
-        Buffer.from(payload, "base64url").toString("utf8")
-      ) as { workspaceId?: unknown };
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: savedState.workspaceId,
+          userId: savedState.userId
+        }
+      },
+      select: { id: true, role: true }
+    });
 
-      return typeof decoded.workspaceId === "string" && decoded.workspaceId
-        ? decoded.workspaceId
-        : null;
-    } catch {
+    if (
+      !membership ||
+      !canManageIntegrations(membership.role as WorkspaceRole)
+    ) {
       return null;
     }
+
+    const consumed = await prisma.metaOAuthState.updateMany({
+      where: {
+        id: savedState.id,
+        consumedAt: null,
+        expiresAt: { gt: now }
+      },
+      data: { consumedAt: now }
+    });
+
+    return consumed.count === 1 ? savedState.workspaceId : null;
   }
 
-  private signStatePayload(payload: string): string {
-    const secret = this.env.META_TOKEN_ENCRYPTION_KEY;
+  private hashMetaOAuthState(state: string): string {
+    return createHash("sha256").update(state).digest("hex");
+  }
 
-    if (!secret) {
-      throw new Error("Missing META_TOKEN_ENCRYPTION_KEY");
-    }
+  private isMetaOAuthEnabled(): boolean {
+    const modes = (this.env.META_CONNECTION_MODES ?? "oauth")
+      .split(",")
+      .map((mode) => mode.trim().toLowerCase())
+      .filter(Boolean);
 
-    return createHmac("sha256", secret).update(payload).digest("base64url");
+    return modes.includes("oauth");
   }
 
   private requireMetaConnectionsService(): MetaConnectionsService {
@@ -639,5 +711,13 @@ export class IntegrationsService {
     }
 
     return this.metaConnectionsService;
+  }
+
+  private requirePrisma(): PrismaService {
+    if (!this.prisma) {
+      throw new Error("PrismaService indisponivel para OAuth Meta");
+    }
+
+    return this.prisma;
   }
 }

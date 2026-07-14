@@ -83,10 +83,15 @@ export class ExternalSyncService {
   async syncConnector(
     connectorId: string,
     requestedStreams: ExternalSyncStreamDto[],
-    options: { projectionRefresh?: boolean } = {}
+    options: { projectionRefresh?: boolean; workspaceId?: string } = {}
   ): Promise<ExternalConnectorSyncResult> {
     const connector = (await this.prisma.externalDataConnector.findUnique({
-      where: { id: connectorId }
+      where: {
+        id: connectorId,
+        ...(options.workspaceId === undefined
+          ? {}
+          : { workspaceId: options.workspaceId })
+      }
     })) as ConnectorRecord | null;
 
     if (!connector) {

@@ -15,6 +15,7 @@ export interface DiagnosticJobPayload {
 
 export interface ConversionEventJobPayload {
   conversionEventLogId: string;
+  workspaceId: string;
 }
 
 export interface MetaReportSyncJobPayload {
@@ -25,6 +26,7 @@ export interface MetaReportSyncJobPayload {
 
 export interface ExternalDataSyncJobPayload {
   connectorId: string;
+  workspaceId: string;
   streams: Array<"leads" | "events">;
   projectionRefresh?: boolean;
   requestedByUserId?: string;

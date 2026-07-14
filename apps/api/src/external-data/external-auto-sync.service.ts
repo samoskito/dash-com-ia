@@ -88,7 +88,7 @@ export class ExternalAutoSyncService
           syncEnabled: true,
           workspace: { operationalStatus: "active" }
         },
-        select: { id: true },
+        select: { id: true, workspaceId: true },
         take: config.connectorLimit,
         orderBy: [{ lastSyncCompletedAt: "asc" }, { updatedAt: "asc" }]
       });
@@ -99,6 +99,7 @@ export class ExternalAutoSyncService
         try {
           await this.queueService.enqueueSync({
             connectorId: connector.id,
+            workspaceId: connector.workspaceId,
             streams: ["leads", "events"]
           });
           enqueued += 1;

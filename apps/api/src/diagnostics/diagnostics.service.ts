@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
@@ -245,6 +246,15 @@ export class DiagnosticsService {
       })) as WebhookLogRecord | null;
 
       if (existing) {
+        if (
+          existing.workspaceId !== (input.workspaceId ?? null) ||
+          existing.source !== input.source
+        ) {
+          throw new ConflictException(
+            "Webhook idempotency key belongs to another context"
+          );
+        }
+
         const existingEvents = (await this.prisma.diagnosticEvent.findMany({
           where: { webhookLogId: existing.id },
           orderBy: { occurredAt: "asc" },
@@ -1079,6 +1089,12 @@ export class DiagnosticsService {
       );
     }
 
+    if (!conversionEvent.workspaceId) {
+      throw new BadRequestException(
+        "Evento sem workspace nao pode ser reenviado"
+      );
+    }
+
     const auditLog = await this.prisma.auditLog.create({
       data: {
         workspaceId: conversionEvent.workspaceId,
@@ -1109,7 +1125,8 @@ export class DiagnosticsService {
     });
 
     const queued = await this.conversionEventsQueueService?.enqueueSend(
-      conversionEvent.id
+      conversionEvent.id,
+      conversionEvent.workspaceId
     );
     const jobId =
       queued?.jobId ?? createBullJobId("conversion-send", conversionEvent.id);
