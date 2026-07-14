@@ -1,8 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Inject, Injectable, Optional } from "@nestjs/common";
-import { canManageIntegrations } from "@wpptrack/shared";
 import type {
-  WorkspaceRole,
   MetaConnectionDto,
   MetaCapiTokenInputDto,
   MetaCapiTokenStatusDto,
@@ -20,6 +18,7 @@ import type {
   MetaOAuthCallbackResultDto
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { WorkspaceAccessPolicyService } from "../workspaces/workspace-access-policy.service";
 import { AsaasAdapter } from "./asaas/asaas.adapter";
 import type { IntegrationEnv } from "./integration.types";
 import { INTEGRATION_ENV } from "./integration.types";
@@ -44,7 +43,10 @@ export class IntegrationsService {
     private readonly prisma?: PrismaService,
     @Optional()
     @Inject(MetaAssetsService)
-    private readonly metaAssetsService?: MetaAssetsService
+    private readonly metaAssetsService?: MetaAssetsService,
+    @Optional()
+    @Inject(WorkspaceAccessPolicyService)
+    private readonly accessPolicy: WorkspaceAccessPolicyService = new WorkspaceAccessPolicyService()
   ) {}
 
   async getHealthSummary(): Promise<IntegrationHealthSummaryDto> {
@@ -670,12 +672,15 @@ export class IntegrationsService {
           userId: savedState.userId
         }
       },
-      select: { id: true, role: true }
+      select: { id: true, role: true, canManageMembers: true }
     });
 
     if (
       !membership ||
-      !canManageIntegrations(membership.role as WorkspaceRole)
+      !this.accessPolicy.getPermissions(
+        membership.role,
+        membership.canManageMembers
+      ).canManageIntegrations
     ) {
       return null;
     }

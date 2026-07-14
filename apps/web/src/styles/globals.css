@@ -2463,6 +2463,7 @@ td span {
 .workspace-name-form input,
 .invite-form input,
 .invite-form select,
+.member-role-form select,
 .funnel-stage-row input:not([type="checkbox"]),
 .funnel-stage-row select,
 .rule-builder-fields input,
@@ -2608,6 +2609,92 @@ td span {
   text-transform: uppercase;
 }
 
+.member-manager-label {
+  color: var(--mint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.member-controls {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-self: end;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.member-role-form,
+.member-manager-form,
+.member-remove-form,
+.invite-actions,
+.invite-actions form {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.member-role-form select {
+  width: 142px;
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.member-manager-form {
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
+.member-manager-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.member-manager-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--mint);
+}
+
+.team-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--ink-soft);
+}
+
+.team-icon-button:hover,
+.team-icon-button:focus-visible {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.07);
+  outline: none;
+}
+
+.team-icon-button.danger {
+  border-color: rgba(255, 107, 95, 0.42);
+  color: var(--coral);
+}
+
+.team-icon-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
 .invite-panel {
   display: grid;
   align-content: start;
@@ -2625,6 +2712,10 @@ td span {
 .invite-form {
   display: grid;
   gap: 10px;
+}
+
+.invite-form .button {
+  gap: 8px;
 }
 
 .pending-invites {
@@ -2646,6 +2737,10 @@ td span {
   display: grid;
   gap: 3px;
   min-width: 0;
+}
+
+.invite-actions {
+  flex: 0 0 auto;
 }
 
 .pending-invites strong {
@@ -3216,6 +3311,17 @@ td span {
   .member-role {
     justify-items: start;
     text-align: left;
+  }
+
+  .member-controls {
+    grid-column: auto;
+    justify-self: stretch;
+    justify-content: flex-start;
+  }
+
+  .member-manager-form {
+    padding-left: 0;
+    border-left: 0;
   }
 
   .funnel-stage-order {

@@ -1,5 +1,9 @@
 import type { PlatformRole, WorkspaceDto } from "@wpptrack/shared";
 
+type AuthenticatedWorkspace = WorkspaceDto & {
+  canManageMembers?: boolean;
+};
+
 export type AuthenticatedUser = {
   user: {
     id: string;
@@ -10,7 +14,7 @@ export type AuthenticatedUser = {
     platformRole?: PlatformRole | null;
   };
   activeWorkspaceId: string | null;
-  workspaces: WorkspaceDto[];
+  workspaces: AuthenticatedWorkspace[];
   supportContext?: {
     workspaceId: string;
     workspaceName: string;

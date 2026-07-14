@@ -24,6 +24,18 @@ const session = {
   ]
 };
 
+const ownerPermissions = {
+  canInviteMembers: true,
+  canManageMembers: true,
+  canGrantMemberManager: true,
+  canManageBilling: true,
+  canManageIntegrations: true,
+  canManageWorkspaceSettings: true,
+  canTransferOwnership: true,
+  canViewReports: true,
+  canExportReports: true
+};
+
 async function createApp() {
   const authService = {
     getSession: vi.fn(async () => session),
@@ -33,22 +45,12 @@ async function createApp() {
     listAvailableWorkspaces: vi.fn(() =>
       session.workspaces.map((workspace) => ({
         ...workspace,
-        permissions: {
-          canInviteMembers: true,
-          canManageBilling: true,
-          canManageIntegrations: true,
-          canViewReports: true
-        }
+        permissions: ownerPermissions
       }))
     ),
     getCurrentWorkspace: vi.fn(() => ({
       ...session.workspaces[0],
-      permissions: {
-        canInviteMembers: true,
-        canManageBilling: true,
-        canManageIntegrations: true,
-        canViewReports: true
-      }
+      permissions: ownerPermissions
     })),
     listMembers: vi.fn(async () => [
       {
@@ -57,6 +59,7 @@ async function createApp() {
         email: "owner@wpptrack.com",
         name: "Owner",
         role: "owner",
+        canManageMembers: false,
         joinedAt: "2026-07-02T03:00:00.000Z"
       }
     ]),
@@ -72,12 +75,7 @@ async function createApp() {
     updateCurrentWorkspace: vi.fn(async () => ({
       ...session.workspaces[0],
       name: "Loja Samuel",
-      permissions: {
-        canInviteMembers: true,
-        canManageBilling: true,
-        canManageIntegrations: true,
-        canViewReports: true
-      }
+      permissions: ownerPermissions
     })),
     createInvite: vi.fn(async () => ({
       id: "invite_1",
@@ -86,6 +84,43 @@ async function createApp() {
       status: "pending",
       expiresAt: "2026-07-09T03:00:00.000Z",
       acceptToken: "invite-token-1234567890"
+    })),
+    updateMemberRole: vi.fn(async () => ({
+      id: "member_2",
+      userId: "user_2",
+      email: "admin@wpptrack.com",
+      name: "Admin",
+      role: "member",
+      canManageMembers: false,
+      joinedAt: "2026-07-02T04:00:00.000Z"
+    })),
+    updateMemberManagerCapability: vi.fn(async () => ({
+      id: "member_2",
+      userId: "user_2",
+      email: "admin@wpptrack.com",
+      name: "Admin",
+      role: "admin",
+      canManageMembers: true,
+      joinedAt: "2026-07-02T04:00:00.000Z"
+    })),
+    removeMember: vi.fn(async () => ({
+      memberId: "member_2",
+      status: "removed"
+    })),
+    resendInvite: vi.fn(async () => ({
+      id: "invite_1",
+      email: "admin@wpptrack.com",
+      role: "admin",
+      status: "pending",
+      expiresAt: "2026-07-16T03:00:00.000Z",
+      acceptToken: "rotated-token-1234567890"
+    })),
+    revokeInvite: vi.fn(async () => ({
+      id: "invite_1",
+      email: "admin@wpptrack.com",
+      role: "admin",
+      status: "revoked",
+      expiresAt: "2026-07-09T03:00:00.000Z"
     })),
     acceptInvite: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -122,12 +157,7 @@ describe("workspaces controller", () => {
           expect.objectContaining({
             id: "workspace_1",
             role: "owner",
-            permissions: {
-              canInviteMembers: true,
-              canManageBilling: true,
-              canManageIntegrations: true,
-              canViewReports: true
-            }
+            permissions: ownerPermissions
           })
         ]);
       });
@@ -259,6 +289,81 @@ describe("workspaces controller", () => {
       email: "admin@wpptrack.com",
       role: "admin"
     });
+
+    await app.close();
+  });
+
+  it("updates member roles and delegated team management", async () => {
+    const { app, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .patch("/workspaces/current/members/member_2/role")
+      .set("Authorization", "Bearer refresh-token")
+      .send({ role: "member" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.role).toBe("member");
+      });
+    await request(app.getHttpServer())
+      .patch("/workspaces/current/members/member_2/member-manager")
+      .set("Authorization", "Bearer refresh-token")
+      .send({ canManageMembers: true })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.canManageMembers).toBe(true);
+      });
+
+    expect(workspacesService.updateMemberRole).toHaveBeenCalledWith(
+      session,
+      "member_2",
+      { role: "member" }
+    );
+    expect(
+      workspacesService.updateMemberManagerCapability
+    ).toHaveBeenCalledWith(session, "member_2", {
+      canManageMembers: true
+    });
+
+    await app.close();
+  });
+
+  it("removes members and manages pending invitations", async () => {
+    const { app, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .delete("/workspaces/current/members/member_2")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.status).toBe("removed");
+      });
+    await request(app.getHttpServer())
+      .post("/workspaces/current/invites/invite_1/resend")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.acceptToken).toBe("rotated-token-1234567890");
+      });
+    await request(app.getHttpServer())
+      .delete("/workspaces/current/invites/invite_1")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.status).toBe("revoked");
+      });
+
+    expect(workspacesService.removeMember).toHaveBeenCalledWith(
+      session,
+      "member_2"
+    );
+    expect(workspacesService.resendInvite).toHaveBeenCalledWith(
+      session,
+      "invite_1"
+    );
+    expect(workspacesService.revokeInvite).toHaveBeenCalledWith(
+      session,
+      "invite_1"
+    );
 
     await app.close();
   });

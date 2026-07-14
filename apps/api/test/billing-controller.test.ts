@@ -42,10 +42,15 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       ...session.workspaces[0],
       role,
       permissions: {
-        canInviteMembers: role === "owner" || role === "admin",
+        canInviteMembers: role === "owner",
+        canManageMembers: role === "owner",
+        canGrantMemberManager: role === "owner",
         canManageBilling: role === "owner",
         canManageIntegrations: role === "owner" || role === "admin",
-        canViewReports: true
+        canManageWorkspaceSettings: role === "owner" || role === "admin",
+        canTransferOwnership: role === "owner",
+        canViewReports: true,
+        canExportReports: true
       }
     }))
   };
@@ -162,6 +167,23 @@ describe("billing controller", () => {
 
   it("rejects checkout creation for workspace members", async () => {
     const { app, billingService } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .post("/billing/whatsapp-instance/checkout")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        instanceName: "Comercial",
+        provider: "uazapi"
+      })
+      .expect(403);
+
+    expect(billingService.createWhatsappInstanceCheckout).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects checkout creation for workspace administrators", async () => {
+    const { app, billingService } = await createApp("admin");
 
     await request(app.getHttpServer())
       .post("/billing/whatsapp-instance/checkout")

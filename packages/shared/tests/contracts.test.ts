@@ -173,10 +173,15 @@ describe("shared contracts", () => {
         role: "admin",
         operationalStatus: "active",
         permissions: {
-          canInviteMembers: true,
+          canInviteMembers: false,
+          canManageMembers: false,
+          canGrantMemberManager: false,
           canManageBilling: false,
           canManageIntegrations: true,
-          canViewReports: true
+          canManageWorkspaceSettings: true,
+          canTransferOwnership: false,
+          canViewReports: true,
+          canExportReports: true
         }
       }
     ]);
@@ -906,9 +911,14 @@ describe("shared contracts", () => {
       platformRole: "platform_owner",
       permissions: {
         canInviteMembers: true,
+        canManageMembers: true,
+        canGrantMemberManager: true,
         canManageBilling: true,
         canManageIntegrations: true,
-        canViewReports: true
+        canManageWorkspaceSettings: true,
+        canTransferOwnership: true,
+        canViewReports: true,
+        canExportReports: true
       }
     });
     const member = workspaceMemberSchema.parse({
@@ -917,6 +927,7 @@ describe("shared contracts", () => {
       email: "owner@wpptrack.com",
       name: "Owner",
       role: "owner",
+      canManageMembers: false,
       joinedAt: "2026-07-02T03:00:00.000Z"
     });
     const inviteInput = workspaceInviteInputSchema.parse({

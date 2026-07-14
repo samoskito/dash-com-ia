@@ -10,12 +10,14 @@ import type {
 } from "@wpptrack/shared";
 import { conversionEventDisplayLabels } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
+import { UserPlus } from "lucide-react";
 import {
   BackofficeActionForm,
   type BackofficeActionState
 } from "../../../components/backoffice-action-form";
 import { ConversionRuleBuilder } from "../../../components/conversion-rule-builder";
 import { PendingSubmitButton } from "../../../components/pending-submit-button";
+import { TeamActionButton } from "../../../components/team-action-button";
 import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
@@ -95,7 +97,7 @@ function eventSupportsCommercialValue(eventName: string): boolean {
 
 function workspaceRoleLabel(role: WorkspaceMemberDto["role"]): string {
   if (role === "owner") {
-    return "Responsavel da conta";
+    return "Owner";
   }
 
   if (role === "admin") {
@@ -105,13 +107,18 @@ function workspaceRoleLabel(role: WorkspaceMemberDto["role"]): string {
   return "Analista";
 }
 
-function workspaceRoleDescription(role: WorkspaceMemberDto["role"]): string {
+function workspaceRoleDescription(
+  role: WorkspaceMemberDto["role"],
+  canManageMembers = false
+): string {
   if (role === "owner") {
     return "Equipe, integracoes e cobranca";
   }
 
   if (role === "admin") {
-    return "Equipe e integracoes";
+    return canManageMembers
+      ? "Operacao, integracoes e gestao da equipe"
+      : "Operacao e integracoes";
   }
 
   return "Leads e relatorios";
@@ -311,6 +318,22 @@ function shortDate(value: string): string {
   });
 }
 
+function inviteStatusLabel(status: WorkspaceInviteDto["status"]): string {
+  if (status === "accepted") {
+    return "Aceito";
+  }
+
+  if (status === "revoked") {
+    return "Revogado";
+  }
+
+  if (status === "expired") {
+    return "Expirado";
+  }
+
+  return "Pendente";
+}
+
 async function createConversionRule(
   _previousState: BackofficeActionState,
   formData: FormData
@@ -456,14 +479,17 @@ async function saveFunnelConfiguration(
   }
 }
 
-async function createWorkspaceInvite(formData: FormData) {
+async function createWorkspaceInvite(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
   "use server";
 
   const email = String(formData.get("email") ?? "").trim();
   const role = String(formData.get("role") ?? "member");
 
   if (!email) {
-    return;
+    return settingsActionState("error", "Informe o email do novo membro.");
   }
 
   try {
@@ -472,8 +498,134 @@ async function createWorkspaceInvite(formData: FormData) {
       body: JSON.stringify({ email, role })
     });
     revalidatePath("/settings");
+    return settingsActionState("success", "Convite criado para a equipe.");
   } catch {
-    return;
+    return settingsActionState("error", "Nao foi possivel criar o convite.");
+  }
+}
+
+async function updateWorkspaceMemberRole(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const memberId = String(formData.get("memberId") ?? "").trim();
+  const role = String(formData.get("role") ?? "member");
+
+  if (!memberId) {
+    return settingsActionState("error", "Membro nao identificado.");
+  }
+
+  try {
+    await serverApiFetch(`/workspaces/current/members/${memberId}/role`, {
+      method: "PATCH",
+      body: JSON.stringify({ role })
+    });
+    revalidatePath("/settings");
+    return settingsActionState("success", "Nivel de acesso atualizado.");
+  } catch {
+    return settingsActionState("error", "Nao foi possivel alterar o acesso.");
+  }
+}
+
+async function updateWorkspaceMemberManager(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const memberId = String(formData.get("memberId") ?? "").trim();
+  const canManageMembers = formData.get("canManageMembers") === "on";
+
+  if (!memberId) {
+    return settingsActionState("error", "Membro nao identificado.");
+  }
+
+  try {
+    await serverApiFetch(
+      `/workspaces/current/members/${memberId}/member-manager`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ canManageMembers })
+      }
+    );
+    revalidatePath("/settings");
+    return settingsActionState("success", "Gestao da equipe atualizada.");
+  } catch {
+    return settingsActionState(
+      "error",
+      "Nao foi possivel alterar a gestao da equipe."
+    );
+  }
+}
+
+async function removeWorkspaceMember(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const memberId = String(formData.get("memberId") ?? "").trim();
+
+  if (!memberId) {
+    return settingsActionState("error", "Membro nao identificado.");
+  }
+
+  try {
+    await serverApiFetch(`/workspaces/current/members/${memberId}`, {
+      method: "DELETE"
+    });
+    revalidatePath("/settings");
+    return settingsActionState("success", "Membro removido do workspace.");
+  } catch {
+    return settingsActionState("error", "Nao foi possivel remover o membro.");
+  }
+}
+
+async function resendWorkspaceInvite(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const inviteId = String(formData.get("inviteId") ?? "").trim();
+
+  if (!inviteId) {
+    return settingsActionState("error", "Convite nao identificado.");
+  }
+
+  try {
+    await serverApiFetch(`/workspaces/current/invites/${inviteId}/resend`, {
+      method: "POST"
+    });
+    revalidatePath("/settings");
+    return settingsActionState("success", "Convite renovado.");
+  } catch {
+    return settingsActionState("error", "Nao foi possivel renovar o convite.");
+  }
+}
+
+async function revokeWorkspaceInvite(
+  _previousState: BackofficeActionState,
+  formData: FormData
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const inviteId = String(formData.get("inviteId") ?? "").trim();
+
+  if (!inviteId) {
+    return settingsActionState("error", "Convite nao identificado.");
+  }
+
+  try {
+    await serverApiFetch(`/workspaces/current/invites/${inviteId}`, {
+      method: "DELETE"
+    });
+    revalidatePath("/settings");
+    return settingsActionState("success", "Convite revogado.");
+  } catch {
+    return settingsActionState("error", "Nao foi possivel revogar o convite.");
   }
 }
 
@@ -553,6 +705,12 @@ export default async function SettingsPage() {
   const funnelLabelByEvent = new Map(funnelStages.map((stage) => [stage.eventName, stage.label]));
   const canManageConversionRules = Boolean(workspace?.permissions.canManageIntegrations);
   const isPlatformSupport = workspace?.accessMode === "platform_support";
+  const canManageTeam = Boolean(
+    workspace?.permissions.canManageMembers && !isPlatformSupport
+  );
+  const canGrantMemberManager = Boolean(
+    workspace?.permissions.canGrantMemberManager && !isPlatformSupport
+  );
   const currentAccessLabel = isPlatformSupport
     ? "Suporte da plataforma"
     : workspace
@@ -561,7 +719,10 @@ export default async function SettingsPage() {
   const currentAccessDescription = isPlatformSupport
     ? "Acesso interno ao workspace do cliente"
     : workspace
-      ? workspaceRoleDescription(workspace.role)
+      ? workspaceRoleDescription(
+          workspace.role,
+          workspace.permissions.canManageMembers
+        )
       : "Nao foi possivel consultar as permissoes";
   const conversionRuleBuilderEvents = supportedConversionEventNames.map((eventName) => ({
     label: eventDisplayLabel(eventName),
@@ -622,7 +783,7 @@ export default async function SettingsPage() {
               </label>
               <button
                 className="button primary"
-                disabled={!workspace?.permissions.canInviteMembers}
+                disabled={!workspace?.permissions.canManageWorkspaceSettings}
                 type="submit"
               >
                 Salvar nome
@@ -684,21 +845,104 @@ export default async function SettingsPage() {
         <div className="team-settings-layout">
           <div className="member-list" aria-label="Membros do workspace">
             {members.length > 0 ? (
-              members.map((member) => (
-                <div className="member-row" key={member.id}>
-                  <span className="member-avatar" aria-hidden="true">
-                    {initials(member.name, member.email)}
-                  </span>
-                  <span className="member-identity">
-                    <strong>{member.name ?? "Usuario sem nome"}</strong>
-                    <small>{member.email}</small>
-                  </span>
-                  <span className="member-role">
-                    <strong>{workspaceRoleLabel(member.role)}</strong>
-                    <small>{workspaceRoleDescription(member.role)}</small>
-                  </span>
-                </div>
-              ))
+              members.map((member) => {
+                const isSelf = member.userId === accountUser?.id;
+                const canManageTarget =
+                  canManageTeam &&
+                  member.role !== "owner" &&
+                  (canGrantMemberManager ||
+                    !member.canManageMembers ||
+                    isSelf);
+
+                return (
+                  <div className="member-row" key={member.id}>
+                    <span className="member-avatar" aria-hidden="true">
+                      {initials(member.name, member.email)}
+                    </span>
+                    <span className="member-identity">
+                      <strong>{member.name ?? "Usuario sem nome"}</strong>
+                      <small>{member.email}</small>
+                    </span>
+                    <span className="member-role">
+                      <strong>{workspaceRoleLabel(member.role)}</strong>
+                      <small>
+                        {workspaceRoleDescription(
+                          member.role,
+                          member.canManageMembers
+                        )}
+                      </small>
+                      {member.canManageMembers ? (
+                        <span className="member-manager-label">
+                          Gerencia equipe
+                        </span>
+                      ) : null}
+                    </span>
+                    {canManageTarget ? (
+                      <div className="member-controls">
+                        <BackofficeActionForm
+                          action={updateWorkspaceMemberRole}
+                          className="member-role-form"
+                        >
+                          <input name="memberId" type="hidden" value={member.id} />
+                          <label>
+                            <span className="sr-only">
+                              Nivel de acesso de {member.email}
+                            </span>
+                            <select
+                              aria-label={`Nivel de acesso de ${member.email}`}
+                              defaultValue={member.role}
+                              name="role"
+                            >
+                              <option value="member">Analista</option>
+                              <option value="admin">Administrador</option>
+                            </select>
+                          </label>
+                          <TeamActionButton
+                            kind="save"
+                            label={`Salvar nivel de ${member.email}`}
+                          />
+                        </BackofficeActionForm>
+                        {canGrantMemberManager && member.role === "admin" ? (
+                          <BackofficeActionForm
+                            action={updateWorkspaceMemberManager}
+                            className="member-manager-form"
+                          >
+                            <input
+                              name="memberId"
+                              type="hidden"
+                              value={member.id}
+                            />
+                            <label className="member-manager-toggle">
+                              <input
+                                defaultChecked={member.canManageMembers}
+                                name="canManageMembers"
+                                type="checkbox"
+                              />
+                              <span>Gerenciar equipe</span>
+                            </label>
+                            <TeamActionButton
+                              kind="shield"
+                              label={`Salvar gestao de equipe de ${member.email}`}
+                            />
+                          </BackofficeActionForm>
+                        ) : null}
+                        <BackofficeActionForm
+                          action={removeWorkspaceMember}
+                          className="member-remove-form"
+                        >
+                          <input name="memberId" type="hidden" value={member.id} />
+                          <TeamActionButton
+                            confirmMessage={`Remover ${member.email} deste workspace?`}
+                            danger
+                            kind="remove"
+                            label={`Remover ${member.email}`}
+                          />
+                        </BackofficeActionForm>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })
             ) : (
               <p className="muted">Nenhum membro retornado pela API.</p>
             )}
@@ -709,40 +953,83 @@ export default async function SettingsPage() {
               <span className="micro-label">Novo acesso</span>
               <strong>Convidar membro</strong>
             </div>
-            <form className="invite-form" action={createWorkspaceInvite}>
-              <label>
-                <span>Email</span>
-                <input name="email" type="email" placeholder="pessoa@empresa.com" />
-              </label>
-              <label>
-                <span>Nivel de acesso</span>
-                <select name="role" defaultValue="member">
-                  <option value="member">Analista</option>
-                  <option value="admin">Administrador</option>
-                </select>
-              </label>
-              <button
-                className="button primary"
-                disabled={!workspace?.permissions.canInviteMembers}
-                type="submit"
+            {canManageTeam ? (
+              <BackofficeActionForm
+                action={createWorkspaceInvite}
+                className="invite-form"
+                resetOnSuccess
               >
-                Enviar convite
-              </button>
-            </form>
+                <label>
+                  <span>Email</span>
+                  <input
+                    name="email"
+                    type="email"
+                    placeholder="pessoa@empresa.com"
+                  />
+                </label>
+                <label>
+                  <span>Nivel de acesso</span>
+                  <select name="role" defaultValue="member">
+                    <option value="member">Analista</option>
+                    <option value="admin">Administrador</option>
+                  </select>
+                </label>
+                <button className="button primary" type="submit">
+                  <UserPlus aria-hidden="true" size={16} strokeWidth={2} />
+                  Enviar convite
+                </button>
+              </BackofficeActionForm>
+            ) : (
+              <p className="muted">Apenas gestores da equipe podem convidar.</p>
+            )}
             <div className="pending-invites">
-              <span className="micro-label">Pendentes</span>
+              <span className="micro-label">Convites</span>
               {invites.length > 0 ? (
                 invites.map((invite) => (
                   <div key={invite.id}>
                     <span>
                       <strong>{invite.email}</strong>
-                      <small>Expira em {shortDate(invite.expiresAt)}</small>
+                      <small>
+                        {inviteStatusLabel(invite.status)} | {workspaceRoleLabel(invite.role)}
+                        {invite.status === "pending"
+                          ? ` | expira em ${shortDate(invite.expiresAt)}`
+                          : ""}
+                      </small>
                     </span>
-                    <span className="status-chip neutral">{workspaceRoleLabel(invite.role)}</span>
+                    {canManageTeam && invite.status !== "accepted" ? (
+                      <div className="invite-actions">
+                        <BackofficeActionForm action={resendWorkspaceInvite}>
+                          <input name="inviteId" type="hidden" value={invite.id} />
+                          <TeamActionButton
+                            kind="resend"
+                            label={`Reenviar convite para ${invite.email}`}
+                          />
+                        </BackofficeActionForm>
+                        {invite.status === "pending" ? (
+                          <BackofficeActionForm action={revokeWorkspaceInvite}>
+                            <input
+                              name="inviteId"
+                              type="hidden"
+                              value={invite.id}
+                            />
+                            <TeamActionButton
+                              confirmMessage={`Revogar o convite de ${invite.email}?`}
+                              danger
+                              kind="revoke"
+                              label={`Revogar convite de ${invite.email}`}
+                            />
+                          </BackofficeActionForm>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="status-chip neutral">
+                        {inviteStatusLabel(invite.status)}
+                      </span>
+                    )}
                   </div>
                 ))
               ) : (
-                <small>Nenhum convite pendente</small>
+                <small>Nenhum convite registrado</small>
               )}
             </div>
           </aside>

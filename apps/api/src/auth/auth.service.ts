@@ -57,6 +57,7 @@ const passwordResetRequestLimit = 3;
 
 type WorkspaceMembershipRecord = {
   role: AuthenticatedUser["workspaces"][number]["role"];
+  canManageMembers?: boolean;
   workspace: {
     id: string;
     name: string;
@@ -1156,6 +1157,7 @@ export class AuthService {
       name: membership.workspace.name,
       slug: membership.workspace.slug,
       role: membership.role,
+      canManageMembers: membership.canManageMembers === true,
       operationalStatus:
         membership.workspace.operationalStatus === "blocked"
           ? "blocked" as const

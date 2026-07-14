@@ -2,9 +2,11 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Inject,
+  Param,
   Patch,
   Post
 } from "@nestjs/common";
@@ -12,6 +14,8 @@ import {
   workspaceActiveInputSchema,
   workspaceInviteAcceptInputSchema,
   workspaceInviteInputSchema,
+  workspaceMemberManagerUpdateInputSchema,
+  workspaceMemberRoleUpdateInputSchema,
   workspaceUpdateInputSchema
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
@@ -88,6 +92,55 @@ export class WorkspacesController {
     return this.workspacesService.listInvites(workspace.id);
   }
 
+  @Patch("current/members/:memberId/role")
+  async updateMemberRole(
+    @AuthToken() refreshToken: string,
+    @Param("memberId") memberId: string,
+    @Body() body: unknown
+  ) {
+    const parsed = workspaceMemberRoleUpdateInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    const authenticated = await this.authService.getSession(refreshToken);
+    return this.workspacesService.updateMemberRole(
+      authenticated,
+      memberId,
+      parsed.data
+    );
+  }
+
+  @Patch("current/members/:memberId/member-manager")
+  async updateMemberManager(
+    @AuthToken() refreshToken: string,
+    @Param("memberId") memberId: string,
+    @Body() body: unknown
+  ) {
+    const parsed = workspaceMemberManagerUpdateInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    const authenticated = await this.authService.getSession(refreshToken);
+    return this.workspacesService.updateMemberManagerCapability(
+      authenticated,
+      memberId,
+      parsed.data
+    );
+  }
+
+  @Delete("current/members/:memberId")
+  async removeMember(
+    @AuthToken() refreshToken: string,
+    @Param("memberId") memberId: string
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    return this.workspacesService.removeMember(authenticated, memberId);
+  }
+
   @Post("current/invites")
   async createInvite(@AuthToken() refreshToken: string, @Body() body: unknown) {
     const parsed = workspaceInviteInputSchema.safeParse(body);
@@ -98,6 +151,24 @@ export class WorkspacesController {
 
     const authenticated = await this.authService.getSession(refreshToken);
     return this.workspacesService.createInvite(authenticated, parsed.data);
+  }
+
+  @Post("current/invites/:inviteId/resend")
+  async resendInvite(
+    @AuthToken() refreshToken: string,
+    @Param("inviteId") inviteId: string
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    return this.workspacesService.resendInvite(authenticated, inviteId);
+  }
+
+  @Delete("current/invites/:inviteId")
+  async revokeInvite(
+    @AuthToken() refreshToken: string,
+    @Param("inviteId") inviteId: string
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    return this.workspacesService.revokeInvite(authenticated, inviteId);
   }
 
   @Post("invites/accept")

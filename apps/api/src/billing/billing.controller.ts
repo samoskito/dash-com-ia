@@ -7,10 +7,7 @@ import {
   Inject,
   Post
 } from "@nestjs/common";
-import {
-  canManageWorkspaceBilling,
-  whatsappInstanceCheckoutInputSchema
-} from "@wpptrack/shared";
+import { whatsappInstanceCheckoutInputSchema } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
@@ -45,10 +42,10 @@ export class BillingController {
       throw new BadRequestException("Payload invalido");
     }
 
-    const { role, userId, workspaceId } =
+    const { canManageBilling, userId, workspaceId } =
       await this.getCurrentWorkspaceContext(refreshToken);
 
-    if (!canManageWorkspaceBilling(role)) {
+    if (!canManageBilling) {
       throw new ForbiddenException("Sem permissao para gerenciar cobranca");
     }
 
@@ -60,7 +57,7 @@ export class BillingController {
   }
 
   private async getCurrentWorkspaceContext(refreshToken: string): Promise<{
-    role: "owner" | "admin" | "member";
+    canManageBilling: boolean;
     userId: string;
     workspaceId: string;
   }> {
@@ -68,7 +65,7 @@ export class BillingController {
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
 
     return {
-      role: workspace.role,
+      canManageBilling: workspace.permissions.canManageBilling,
       userId: authenticated.user.id,
       workspaceId: workspace.id
     };

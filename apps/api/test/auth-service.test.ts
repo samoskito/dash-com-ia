@@ -411,6 +411,7 @@ describe("auth service session lifecycle", () => {
         name: "Comunidade NOD",
         slug: "comunidade-nod",
         role: "owner",
+        canManageMembers: false,
         operationalStatus: "active"
       }
     ]);

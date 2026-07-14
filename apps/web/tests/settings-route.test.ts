@@ -35,17 +35,39 @@ function funnelConfigurationResponse() {
   );
 }
 
+function workspacePermissions(
+  role: "owner" | "admin" | "member",
+  delegatedManager = false
+) {
+  const canManageMembers =
+    role === "owner" || (role === "admin" && delegatedManager);
+
+  return {
+    canInviteMembers: canManageMembers,
+    canManageMembers,
+    canGrantMemberManager: role === "owner",
+    canManageBilling: role === "owner",
+    canManageIntegrations: role === "owner" || role === "admin",
+    canManageWorkspaceSettings: role === "owner" || role === "admin",
+    canTransferOwnership: role === "owner",
+    canViewReports: true,
+    canExportReports: true
+  };
+}
+
 function mockSettingsFetch(options: {
   rulesBody: unknown;
   rulesStatus?: number;
   workspaceStatus?: number;
   workspaceRole?: "owner" | "admin" | "member";
+  workspaceCanManageMembers?: boolean;
   workspaceAccessMode?: "member" | "platform_support";
   membersStatus?: number;
   authStatus?: number;
 }) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
+    const role = options.workspaceRole ?? "owner";
 
     if (url.endsWith("/conversion-rules")) {
       return new Response(JSON.stringify(options.rulesBody), {
@@ -78,7 +100,6 @@ function mockSettingsFetch(options: {
     }
 
     if (url.endsWith("/workspaces/current")) {
-      const role = options.workspaceRole ?? "owner";
       return new Response(
         JSON.stringify({
           id: "workspace_1",
@@ -86,12 +107,10 @@ function mockSettingsFetch(options: {
           slug: "loja-samuel",
           role,
           accessMode: options.workspaceAccessMode ?? "member",
-          permissions: {
-            canInviteMembers: role === "owner" || role === "admin",
-            canManageBilling: role === "owner",
-            canManageIntegrations: role === "owner" || role === "admin",
-            canViewReports: true
-          }
+          permissions: workspacePermissions(
+            role,
+            options.workspaceCanManageMembers
+          )
         }),
         {
           status: options.workspaceStatus ?? 200,
@@ -108,7 +127,9 @@ function mockSettingsFetch(options: {
             userId: "user_1",
             email: "samuel@example.com",
             name: "Samuel",
-            role: "owner",
+            role,
+            canManageMembers:
+              role === "admin" && options.workspaceCanManageMembers === true,
             joinedAt: "2026-07-02T10:00:00.000Z"
           }
         ]),
@@ -172,12 +193,7 @@ describe("settings route", () => {
             name: "Loja Samuel",
             slug: "loja-samuel",
             role: "owner",
-            permissions: {
-              canInviteMembers: true,
-              canManageBilling: true,
-              canManageIntegrations: true,
-              canViewReports: true
-            }
+            permissions: workspacePermissions("owner")
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
@@ -192,6 +208,7 @@ describe("settings route", () => {
               email: "samuel@example.com",
               name: "Samuel",
               role: "owner",
+              canManageMembers: false,
               joinedAt: "2026-07-02T10:00:00.000Z"
             },
             {
@@ -200,6 +217,7 @@ describe("settings route", () => {
               email: "trafego@example.com",
               name: null,
               role: "admin",
+              canManageMembers: false,
               joinedAt: "2026-07-02T11:00:00.000Z"
             }
           ]),
@@ -250,7 +268,7 @@ describe("settings route", () => {
     );
     expect(html).toContain("Loja Samuel");
     expect(html).toContain("loja-samuel");
-    expect(html).toContain("Responsavel da conta");
+    expect(html).toContain("Owner");
     expect(html).toContain("Administrador");
     expect(html).toContain("Analista");
     expect(html).toContain('name="workspaceName"');
@@ -261,14 +279,49 @@ describe("settings route", () => {
     expect(html).toContain("Enviar verificacao");
     expect(html).toContain("trafego@example.com");
     expect(html).toContain("convite@example.com");
-    expect(html).toContain("pending");
+    expect(html).toContain("Pendente");
     expect(html).not.toContain("secret-token-not-for-list");
     expect(html).toContain("Convidar membro");
     expect(html).toContain("Nivel de acesso");
+    expect(html).toContain("Gerenciar equipe");
     expect(html).not.toContain("3 usuarios ativos");
     expect(html).toContain("Jornada do funil");
     expect(html).toContain("Salvar jornada");
     expect(html.match(/name="stageProduct:/g)).toHaveLength(1);
+  });
+
+  it("keeps regular admins operational without sending team controls in HTML", async () => {
+    mockSettingsFetch({
+      workspaceRole: "admin",
+      workspaceCanManageMembers: false,
+      rulesBody: []
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Administrador");
+    expect(html).toContain("Operacao e integracoes");
+    expect(html).toContain("Apenas gestores da equipe podem convidar.");
+    expect(html).not.toContain('placeholder="pessoa@empresa.com"');
+    expect(html).not.toContain("member-role-form");
+    expect(html).not.toContain("member-manager-toggle");
+  });
+
+  it("lets delegated admins manage the team without granting delegation", async () => {
+    mockSettingsFetch({
+      workspaceRole: "admin",
+      workspaceCanManageMembers: true,
+      rulesBody: []
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Operacao, integracoes e gestao da equipe");
+    expect(html).toContain('placeholder="pessoa@empresa.com"');
+    expect(html).toContain("member-role-form");
+    expect(html).not.toContain("member-manager-toggle");
   });
 
   it("renders conversion rules returned by the backend", async () => {
@@ -359,12 +412,7 @@ describe("settings route", () => {
             name: "Loja Samuel",
             slug: "loja-samuel",
             role: "owner",
-            permissions: {
-              canInviteMembers: true,
-              canManageBilling: true,
-              canManageIntegrations: true,
-              canViewReports: true
-            }
+            permissions: workspacePermissions("owner")
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );

@@ -12,7 +12,6 @@ import {
   Res,
 } from "@nestjs/common";
 import {
-  canManageIntegrations,
   conversionAuditDeliveryStateSchema,
   conversionAuditSourceSchema,
   metaBudgetUpdateInputSchema,
@@ -91,7 +90,13 @@ export class ReportingController {
     @Query("page") page?: string | string[],
     @Query("pageSize") pageSize?: string | string[],
   ) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const workspace = await this.getCurrentWorkspace(refreshToken);
+
+    if (!workspace.permissions.canExportReports) {
+      throw new ForbiddenException("Sem permissao para exportar relatorios");
+    }
+
+    const workspaceId = workspace.id;
     const period = this.parseReportPeriod(since, until);
     const filters = this.parseReportFilters({
       businessId,
@@ -297,7 +302,7 @@ export class ReportingController {
     const workspace = await this.getCurrentWorkspace(refreshToken);
     const period = this.parseReportPeriod(since, until);
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para sincronizar relatorios");
     }
 
@@ -329,7 +334,7 @@ export class ReportingController {
     const { authenticated, workspace } =
       await this.getCurrentWorkspaceContext(refreshToken);
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
@@ -354,7 +359,7 @@ export class ReportingController {
     const { authenticated, workspace } =
       await this.getCurrentWorkspaceContext(refreshToken);
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
@@ -379,7 +384,7 @@ export class ReportingController {
     const { authenticated, workspace } =
       await this.getCurrentWorkspaceContext(refreshToken);
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
@@ -392,6 +397,10 @@ export class ReportingController {
 
   private async getCurrentWorkspaceId(refreshToken: string): Promise<string> {
     const workspace = await this.getCurrentWorkspace(refreshToken);
+
+    if (!workspace.permissions.canViewReports) {
+      throw new ForbiddenException("Sem permissao para visualizar relatorios");
+    }
 
     return workspace.id;
   }

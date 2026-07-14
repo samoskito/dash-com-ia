@@ -94,6 +94,7 @@ describe("auth contracts", () => {
         name: "WppTrack",
         slug: "wpptrack",
         role: "owner",
+        canManageMembers: false,
         operationalStatus: "blocked"
       }
     ]);

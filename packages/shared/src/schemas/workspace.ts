@@ -5,9 +5,14 @@ export const workspaceOperationalStatuses = ["active", "blocked"] as const;
 
 export const workspacePermissionsSchema = z.object({
   canInviteMembers: z.boolean(),
+  canManageMembers: z.boolean(),
+  canGrantMemberManager: z.boolean(),
   canManageBilling: z.boolean(),
   canManageIntegrations: z.boolean(),
-  canViewReports: z.boolean()
+  canManageWorkspaceSettings: z.boolean(),
+  canTransferOwnership: z.boolean(),
+  canViewReports: z.boolean(),
+  canExportReports: z.boolean()
 });
 
 export const workspaceSchema = z.object({
@@ -70,7 +75,16 @@ export const workspaceMemberSchema = z.object({
   email: z.string().email(),
   name: z.string().nullable(),
   role: z.enum(workspaceRoles),
+  canManageMembers: z.boolean(),
   joinedAt: z.string().datetime()
+});
+
+export const workspaceMemberRoleUpdateInputSchema = z.object({
+  role: z.enum(["admin", "member"])
+});
+
+export const workspaceMemberManagerUpdateInputSchema = z.object({
+  canManageMembers: z.boolean()
 });
 
 export const workspaceInviteInputSchema = z.object({
@@ -130,6 +144,12 @@ export type WorkspaceOperationalStatusUpdateInputDto = z.infer<
   typeof workspaceOperationalStatusUpdateInputSchema
 >;
 export type WorkspaceMemberDto = z.infer<typeof workspaceMemberSchema>;
+export type WorkspaceMemberRoleUpdateInputDto = z.infer<
+  typeof workspaceMemberRoleUpdateInputSchema
+>;
+export type WorkspaceMemberManagerUpdateInputDto = z.infer<
+  typeof workspaceMemberManagerUpdateInputSchema
+>;
 export type WorkspaceInviteInputDto = z.infer<
   typeof workspaceInviteInputSchema
 >;

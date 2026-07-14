@@ -6,6 +6,23 @@ import { WhatsappConnectionsController } from "../src/integrations/whatsapp-conn
 import { WhatsappConnectionsService } from "../src/integrations/whatsapp-connections.service";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
+function workspacePermissions(role: "owner" | "admin" | "member") {
+  const isOwner = role === "owner";
+  const isAdmin = role === "admin";
+
+  return {
+    canInviteMembers: isOwner,
+    canManageMembers: isOwner,
+    canGrantMemberManager: isOwner,
+    canManageBilling: isOwner,
+    canManageIntegrations: isOwner || isAdmin,
+    canManageWorkspaceSettings: isOwner || isAdmin,
+    canTransferOwnership: isOwner,
+    canViewReports: true,
+    canExportReports: true
+  };
+}
+
 async function createApp(role: "owner" | "admin" | "member" = "owner") {
   const authService = {
     getSession: vi.fn(async () => ({
@@ -21,7 +38,8 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           id: "workspace_1",
           name: "Cliente",
           slug: "cliente",
-          role
+          role,
+          permissions: workspacePermissions(role)
         }
       ]
     }))

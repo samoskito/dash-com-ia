@@ -15,7 +15,6 @@ import {
   Res
 } from "@nestjs/common";
 import {
-  canManageIntegrations,
   metaAssetSelectionInputSchema,
   metaCapiTokenInputSchema,
   metaConversionDestinationInputSchema,
@@ -80,7 +79,7 @@ export class IntegrationsController {
       );
     }
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
@@ -198,7 +197,7 @@ export class IntegrationsController {
         ? body.businessId.trim()
         : null;
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
@@ -238,7 +237,7 @@ export class IntegrationsController {
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
     const input = this.parseBody(metaAssetSelectionInputSchema.safeParse(body));
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
@@ -258,7 +257,7 @@ export class IntegrationsController {
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
     const input = this.parseBody(metaCapiTokenInputSchema.safeParse(body));
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
@@ -287,7 +286,7 @@ export class IntegrationsController {
       metaConversionDestinationInputSchema.safeParse(body)
     );
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
@@ -314,7 +313,7 @@ export class IntegrationsController {
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
     const input = this.parseBody(metaReportingAccountInputSchema.safeParse(body));
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
@@ -337,7 +336,7 @@ export class IntegrationsController {
       metaReportingAccountStatusInputSchema.safeParse(body)
     );
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 

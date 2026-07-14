@@ -25,21 +25,21 @@ import {
   type WorkspaceInviteAcceptInputDto,
   type WorkspaceInviteInputDto,
   type WorkspaceListDto,
+  type WorkspaceMemberManagerUpdateInputDto,
   type WorkspaceMemberDto,
+  type WorkspaceMemberRoleUpdateInputDto,
+  type WorkspacePermissionsDto,
   type WorkspaceUpdateInputDto,
   type WorkspaceRole
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { PasswordService } from "../auth/password.service";
 import type { AuthenticatedUser } from "../auth/session.types";
+import {
+  WorkspaceAccessPolicyService,
+  type WorkspacePolicySubject
+} from "./workspace-access-policy.service";
 import { WorkspaceContextService } from "./workspace-context.service";
-
-export type WorkspacePermissions = {
-  canInviteMembers: boolean;
-  canManageBilling: boolean;
-  canManageIntegrations: boolean;
-  canViewReports: boolean;
-};
 
 type WorkspaceBillingRecord = {
   id: string;
@@ -79,11 +79,17 @@ export class WorkspacesService {
     private readonly passwordService: PasswordService = new PasswordService(),
     @Optional()
     @Inject(WorkspaceContextService)
-    private readonly workspaceContext: WorkspaceContextService = new WorkspaceContextService()
+    private readonly workspaceContext: WorkspaceContextService = new WorkspaceContextService(),
+    @Optional()
+    @Inject(WorkspaceAccessPolicyService)
+    private readonly accessPolicy: WorkspaceAccessPolicyService = new WorkspaceAccessPolicyService()
   ) {}
 
-  getPermissions(role: WorkspaceRole): WorkspacePermissions {
-    return this.workspaceContext.getPermissions(role);
+  getPermissions(
+    role: WorkspaceRole,
+    canManageMembers = false
+  ): WorkspacePermissionsDto {
+    return this.workspaceContext.getPermissions(role, canManageMembers);
   }
 
   listAvailableWorkspaces(authenticated: AuthenticatedUser): WorkspaceListDto {
@@ -271,6 +277,7 @@ export class WorkspacesService {
       email: member.user.email,
       name: member.user.name,
       role: member.role,
+      canManageMembers: member.canManageMembers,
       joinedAt: member.createdAt.toISOString()
     }));
   }
@@ -292,13 +299,166 @@ export class WorkspacesService {
     }));
   }
 
+  async updateMemberRole(
+    authenticated: AuthenticatedUser,
+    memberId: string,
+    input: WorkspaceMemberRoleUpdateInputDto
+  ): Promise<WorkspaceMemberDto> {
+    const { actor, workspace } = this.requireTeamManager(authenticated);
+    const target = await this.findWorkspaceMember(workspace.id, memberId);
+
+    if (
+      !this.accessPolicy.canManageMember(
+        actor,
+        target,
+        target.userId === authenticated.user.id
+      )
+    ) {
+      throw new ForbiddenException("Sem permissao para alterar este membro");
+    }
+
+    const updated = await this.prisma.workspaceMember.update({
+      where: { id: target.id },
+      data: {
+        role: input.role,
+        canManageMembers:
+          input.role === "admin" ? target.canManageMembers : false
+      },
+      include: { user: true }
+    });
+    await this.recordWorkspaceAudit({
+      workspaceId: workspace.id,
+      actorUserId: authenticated.user.id,
+      action: "workspace.member_role_updated",
+      targetType: "WorkspaceMember",
+      targetId: target.id,
+      resultStatus: "success",
+      beforeSummary: {
+        role: target.role,
+        canManageMembers: target.canManageMembers
+      } as Prisma.InputJsonValue,
+      afterSummary: {
+        role: updated.role,
+        canManageMembers: updated.canManageMembers
+      } as Prisma.InputJsonValue
+    });
+
+    return this.toWorkspaceMemberDto(updated);
+  }
+
+  async updateMemberManagerCapability(
+    authenticated: AuthenticatedUser,
+    memberId: string,
+    input: WorkspaceMemberManagerUpdateInputDto
+  ): Promise<WorkspaceMemberDto> {
+    const workspace = this.getCurrentWorkspace(authenticated);
+
+    if (workspace.accessMode !== "member" || workspace.role !== "owner") {
+      throw new ForbiddenException(
+        "Somente o owner pode delegar a gestao da equipe"
+      );
+    }
+
+    const target = await this.findWorkspaceMember(workspace.id, memberId);
+
+    if (target.role !== "admin") {
+      throw new BadRequestException(
+        "A gestao da equipe so pode ser delegada a administradores"
+      );
+    }
+
+    const updated = await this.prisma.workspaceMember.update({
+      where: { id: target.id },
+      data: { canManageMembers: input.canManageMembers },
+      include: { user: true }
+    });
+    await this.recordWorkspaceAudit({
+      workspaceId: workspace.id,
+      actorUserId: authenticated.user.id,
+      action: "workspace.member_manager_updated",
+      targetType: "WorkspaceMember",
+      targetId: target.id,
+      resultStatus: "success",
+      beforeSummary: {
+        role: target.role,
+        canManageMembers: target.canManageMembers
+      } as Prisma.InputJsonValue,
+      afterSummary: {
+        role: updated.role,
+        canManageMembers: updated.canManageMembers
+      } as Prisma.InputJsonValue
+    });
+
+    return this.toWorkspaceMemberDto(updated);
+  }
+
+  async removeMember(
+    authenticated: AuthenticatedUser,
+    memberId: string
+  ): Promise<{ memberId: string; status: "removed" }> {
+    const { actor, workspace } = this.requireTeamManager(authenticated);
+    const target = await this.findWorkspaceMember(workspace.id, memberId);
+
+    if (
+      !this.accessPolicy.canManageMember(
+        actor,
+        target,
+        target.userId === authenticated.user.id
+      )
+    ) {
+      throw new ForbiddenException("Sem permissao para remover este membro");
+    }
+
+    const revokedAt = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.workspaceMember.delete({
+        where: { id: target.id }
+      });
+      await tx.authSession.updateMany({
+        where: {
+          userId: target.userId,
+          activeWorkspaceId: workspace.id,
+          revokedAt: null
+        },
+        data: { revokedAt }
+      });
+      await tx.user.updateMany({
+        where: {
+          id: target.userId,
+          lastWorkspaceId: workspace.id
+        },
+        data: { lastWorkspaceId: null }
+      });
+    });
+    await this.recordWorkspaceAudit({
+      workspaceId: workspace.id,
+      actorUserId: authenticated.user.id,
+      action: "workspace.member_removed",
+      targetType: "WorkspaceMember",
+      targetId: target.id,
+      resultStatus: "success",
+      beforeSummary: {
+        userId: target.userId,
+        role: target.role,
+        canManageMembers: target.canManageMembers
+      } as Prisma.InputJsonValue,
+      afterSummary: {
+        status: "removed",
+        activeWorkspaceSessionsRevokedAt: revokedAt.toISOString()
+      } as Prisma.InputJsonValue
+    });
+
+    return { memberId: target.id, status: "removed" };
+  }
+
   async updateCurrentWorkspace(
     authenticated: AuthenticatedUser,
     input: WorkspaceUpdateInputDto
   ): Promise<CurrentWorkspaceDto> {
     const workspace = this.getCurrentWorkspace(authenticated);
 
-    if (!workspace.permissions.canInviteMembers) {
+    if (!workspace.permissions.canManageWorkspaceSettings) {
       throw new ForbiddenException("Sem permissao para atualizar workspace");
     }
 
@@ -589,11 +749,7 @@ export class WorkspacesService {
     authenticated: AuthenticatedUser,
     input: WorkspaceInviteInputDto
   ): Promise<WorkspaceInviteDto> {
-    const workspace = this.getCurrentWorkspace(authenticated);
-
-    if (!workspace.permissions.canInviteMembers) {
-      throw new ForbiddenException("Sem permissao para convidar membros");
-    }
+    const { workspace } = this.requireTeamManager(authenticated);
 
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
     const acceptToken = randomBytes(32).toString("hex");
@@ -628,6 +784,102 @@ export class WorkspacesService {
       status: invite.status,
       expiresAt: invite.expiresAt.toISOString(),
       acceptToken
+    };
+  }
+
+  async resendInvite(
+    authenticated: AuthenticatedUser,
+    inviteId: string
+  ): Promise<WorkspaceInviteDto> {
+    const { workspace } = this.requireTeamManager(authenticated);
+    const invite = await this.findWorkspaceInvite(workspace.id, inviteId);
+
+    if (invite.status === "accepted") {
+      throw new BadRequestException("Convite ja foi aceito");
+    }
+
+    const acceptToken = randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
+    const updated = await this.prisma.workspaceInvite.update({
+      where: { id: invite.id },
+      data: {
+        tokenHash: this.hashInviteToken(acceptToken),
+        status: "pending",
+        expiresAt,
+        acceptedAt: null
+      }
+    });
+    await this.recordWorkspaceAudit({
+      workspaceId: workspace.id,
+      actorUserId: authenticated.user.id,
+      action: "workspace.invite_resent",
+      targetType: "WorkspaceInvite",
+      targetId: invite.id,
+      resultStatus: "pending",
+      beforeSummary: {
+        invitedEmailHash: this.hashAuditValue(invite.email),
+        role: invite.role,
+        status: invite.status,
+        expiresAt: invite.expiresAt.toISOString()
+      } as Prisma.InputJsonValue,
+      afterSummary: {
+        invitedEmailHash: this.hashAuditValue(updated.email),
+        role: updated.role,
+        status: updated.status,
+        expiresAt: updated.expiresAt.toISOString()
+      } as Prisma.InputJsonValue
+    });
+
+    return {
+      id: updated.id,
+      email: updated.email,
+      role: updated.role,
+      status: updated.status,
+      expiresAt: updated.expiresAt.toISOString(),
+      acceptToken
+    };
+  }
+
+  async revokeInvite(
+    authenticated: AuthenticatedUser,
+    inviteId: string
+  ): Promise<WorkspaceInviteDto> {
+    const { workspace } = this.requireTeamManager(authenticated);
+    const invite = await this.findWorkspaceInvite(workspace.id, inviteId);
+
+    if (invite.status === "accepted") {
+      throw new BadRequestException("Convite ja foi aceito");
+    }
+
+    const updated = await this.prisma.workspaceInvite.update({
+      where: { id: invite.id },
+      data: { status: "revoked" }
+    });
+    await this.recordWorkspaceAudit({
+      workspaceId: workspace.id,
+      actorUserId: authenticated.user.id,
+      action: "workspace.invite_revoked",
+      targetType: "WorkspaceInvite",
+      targetId: invite.id,
+      resultStatus: "revoked",
+      beforeSummary: {
+        invitedEmailHash: this.hashAuditValue(invite.email),
+        role: invite.role,
+        status: invite.status
+      } as Prisma.InputJsonValue,
+      afterSummary: {
+        invitedEmailHash: this.hashAuditValue(updated.email),
+        role: updated.role,
+        status: updated.status
+      } as Prisma.InputJsonValue
+    });
+
+    return {
+      id: updated.id,
+      email: updated.email,
+      role: updated.role,
+      status: updated.status,
+      expiresAt: updated.expiresAt.toISOString()
     };
   }
 
@@ -721,6 +973,85 @@ export class WorkspacesService {
     });
 
     return result;
+  }
+
+  private requireTeamManager(authenticated: AuthenticatedUser): {
+    actor: WorkspacePolicySubject;
+    workspace: CurrentWorkspaceDto;
+  } {
+    const workspace = this.getCurrentWorkspace(authenticated);
+    const membership = authenticated.workspaces.find(
+      (candidate) => candidate.id === workspace.id
+    );
+
+    if (
+      workspace.accessMode !== "member" ||
+      !membership ||
+      !workspace.permissions.canManageMembers
+    ) {
+      throw new ForbiddenException("Sem permissao para gerenciar membros");
+    }
+
+    return {
+      actor: {
+        role: membership.role,
+        canManageMembers: membership.canManageMembers === true
+      },
+      workspace
+    };
+  }
+
+  private async findWorkspaceMember(workspaceId: string, memberId: string) {
+    const member = await this.prisma.workspaceMember.findFirst({
+      where: {
+        id: memberId,
+        workspaceId
+      },
+      include: { user: true }
+    });
+
+    if (!member) {
+      throw new NotFoundException("Membro nao encontrado");
+    }
+
+    return member;
+  }
+
+  private async findWorkspaceInvite(workspaceId: string, inviteId: string) {
+    const invite = await this.prisma.workspaceInvite.findFirst({
+      where: {
+        id: inviteId,
+        workspaceId
+      }
+    });
+
+    if (!invite) {
+      throw new NotFoundException("Convite nao encontrado");
+    }
+
+    return invite;
+  }
+
+  private toWorkspaceMemberDto(member: {
+    id: string;
+    userId: string;
+    role: WorkspaceRole;
+    canManageMembers: boolean;
+    createdAt: Date;
+    user: {
+      email: string;
+      name: string | null;
+    };
+  }): WorkspaceMemberDto {
+    return {
+      id: member.id,
+      userId: member.userId,
+      email: member.user.email,
+      name: member.user.name,
+      role: member.role,
+      canManageMembers: member.canManageMembers,
+      joinedAt: member.createdAt.toISOString()
+    };
   }
 
   private hashInviteToken(token: string): string {

@@ -42,10 +42,15 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       ...session.workspaces[0],
       role,
       permissions: {
-        canInviteMembers: role === "owner" || role === "admin",
+        canInviteMembers: role === "owner",
+        canManageMembers: role === "owner",
+        canGrantMemberManager: role === "owner",
         canManageBilling: role === "owner",
         canManageIntegrations: role === "owner" || role === "admin",
-        canViewReports: true
+        canManageWorkspaceSettings: role === "owner" || role === "admin",
+        canTransferOwnership: role === "owner",
+        canViewReports: true,
+        canExportReports: true
       }
     }))
   };

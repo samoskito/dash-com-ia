@@ -30,6 +30,23 @@ const health = {
   ]
 };
 
+function workspacePermissions(role: "owner" | "admin" | "member") {
+  const isOwner = role === "owner";
+  const isAdmin = role === "admin";
+
+  return {
+    canInviteMembers: isOwner,
+    canManageMembers: isOwner,
+    canGrantMemberManager: isOwner,
+    canManageBilling: isOwner,
+    canManageIntegrations: isOwner || isAdmin,
+    canManageWorkspaceSettings: isOwner || isAdmin,
+    canTransferOwnership: isOwner,
+    canViewReports: true,
+    canExportReports: true
+  };
+}
+
 async function createApp(role: "owner" | "admin" | "member" = "owner") {
   const service = {
     getHealthSummary: vi.fn(async () => health),
@@ -320,7 +337,8 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       id: "workspace_1",
       name: "Workspace",
       slug: "workspace",
-      role
+      role,
+      permissions: workspacePermissions(role)
     }))
   };
 

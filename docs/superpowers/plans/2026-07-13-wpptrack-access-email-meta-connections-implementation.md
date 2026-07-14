@@ -1,7 +1,7 @@
 # WppTrack Access, Email and Meta Connections Implementation Plan
 
 Date: 2026-07-13
-Status: Waves 0-2 implemented and validated locally; Wave 3 not started
+Status: Waves 0-3 implemented and validated locally; Wave 4 not started
 Design: docs/plans/2026-07-13-wpptrack-access-email-meta-connections-design.md
 
 ## 1. Goal
@@ -272,14 +272,14 @@ Purpose: separate owner, operational admin, delegated team manager and analyst a
 
 ### Schema
 
-- [ ] Add WorkspaceMember.canManageMembers with default false.
-- [ ] Preserve owner/admin/member enum compatibility; expose member as Analyst in product copy.
-- [ ] Add constraints/service invariants for exactly one effective owner.
+- [x] Add WorkspaceMember.canManageMembers with default false.
+- [x] Preserve owner/admin/member enum compatibility; expose member as Analyst in product copy.
+- [x] Add constraints/service invariants for exactly one effective owner.
 
 ### Authorization
 
-- [ ] Centralize workspace permissions in one policy service.
-- [ ] Define capabilities:
+- [x] Centralize workspace permissions in one policy service.
+- [x] Define capabilities:
   - viewReports;
   - exportReports;
   - manageIntegrations;
@@ -288,27 +288,27 @@ Purpose: separate owner, operational admin, delegated team manager and analyst a
   - grantMemberManager;
   - manageBilling;
   - transferOwnership.
-- [ ] Replace checks that infer permission only from role.
-- [ ] Ensure regular Admin cannot invite or change members.
-- [ ] Ensure delegated Admin cannot affect owner or another delegated Admin.
+- [x] Replace checks that infer permission only from role.
+- [x] Ensure regular Admin cannot invite or change members.
+- [x] Ensure delegated Admin cannot affect owner or another delegated Admin.
 
 ### API
 
-- [ ] Add member role update endpoint.
-- [ ] Add member removal endpoint.
-- [ ] Add owner-only delegated management toggle.
-- [ ] Add invitation resend and revoke endpoints.
-- [ ] Prevent self-removal when it would leave no owner.
-- [ ] Audit invitation, role, capability and removal changes.
-- [ ] Revoke affected active sessions immediately after membership removal.
+- [x] Add member role update endpoint.
+- [x] Add member removal endpoint.
+- [x] Add owner-only delegated management toggle.
+- [x] Add invitation resend and revoke endpoints.
+- [x] Prevent self-removal when it would leave no owner.
+- [x] Audit invitation, role, capability and removal changes.
+- [x] Revoke affected active sessions immediately after membership removal.
 
 ### Web
 
-- [ ] Rebuild Settings > Team around members and invitations.
-- [ ] Use permission-aware actions and confirmations.
-- [ ] Label roles Owner, Administrador and Analista.
-- [ ] Expose Gerenciar equipe as an owner-controlled Admin toggle.
-- [ ] Keep billing and ownership controls out of non-owner HTML.
+- [x] Rebuild Settings > Team around members and invitations.
+- [x] Use permission-aware actions and confirmations.
+- [x] Label roles Owner, Administrador and Analista.
+- [x] Expose Gerenciar equipe as an owner-controlled Admin toggle.
+- [x] Keep billing and ownership controls out of non-owner HTML.
 
 ### Likely files
 
@@ -324,17 +324,38 @@ Purpose: separate owner, operational admin, delegated team manager and analyst a
 
 ### Test matrix
 
-- [ ] Owner: all workspace/team/billing capabilities.
-- [ ] Regular Admin: operations/integrations, no team/billing/ownership.
-- [ ] Delegated Admin: allowed team actions only.
-- [ ] Analyst: read-only product access.
-- [ ] Delegated Admin cannot grant canManageMembers.
-- [ ] Delegated Admin cannot alter owner or peer team manager.
-- [ ] Role is isolated per workspace for the same user.
+- [x] Owner: all workspace/team/billing capabilities.
+- [x] Regular Admin: operations/integrations, no team/billing/ownership.
+- [x] Delegated Admin: allowed team actions only.
+- [x] Analyst: read-only product access.
+- [x] Delegated Admin cannot grant canManageMembers.
+- [x] Delegated Admin cannot alter owner or peer team manager.
+- [x] Role is isolated per workspace for the same user.
 
 ### Acceptance
 
 The approved matrix is enforced by API tests, not only by hidden buttons.
+
+### Deploy checkpoint
+
+No deployment was performed in this checkpoint. When release is explicitly authorized, deploy the delegated-team migration and API before the web interface, verify the canonical owner and role matrix in an internal workspace, and only then expose team actions to customer owners. Barbieri remains untouched.
+
+### Rollback
+
+The web controls and API endpoints can be rolled back without dropping the backward-compatible capability field. The new column defaults to false, while Owner authority continues to derive from the canonical role. Keep the column and owner uniqueness guard in place during an application rollback to avoid losing the security invariant.
+
+### Implementation checkpoint - 2026-07-14
+
+- WorkspaceMember now carries a per-workspace delegated-management flag restricted to Admin memberships; the migration fails closed if historical workspaces do not have exactly one Owner and prevents a second Owner.
+- WorkspaceAccessPolicyService derives reporting, export, integration, workspace, team, billing and ownership capabilities from the current membership. Customer controllers no longer infer mutable authority directly from role.
+- Owner can delegate team management to an Admin. Regular Admin cannot mutate the team, and delegated Admin cannot grant delegation or affect the Owner or another delegated manager.
+- Member role updates, member removal, invitation resend and invitation revocation are workspace-scoped, audited and return generic not-found results for cross-workspace identifiers.
+- Removing a membership revokes sessions active in that workspace and clears a matching last-workspace preference without affecting the user's other companies.
+- Settings > Team renders Owner, Administrador and Analista labels, permission-aware role/delegation/removal actions, confirmations and invitation lifecycle controls. Unauthorized controls are absent from the HTML.
+- Chrome/Playwright visual QA passed at 1440 x 1000 and 390 x 844 with long emails, delegated-management controls and invitation states. Both viewports had zero horizontal overflow.
+- Local validation: 60 shared tests, 610 API tests and 130 web tests passed; all package typechecks, Prisma validate, direct Nest build, Next production build and git diff --check passed.
+- The normal API package build retriggered Prisma generation and encountered the known Windows DLL rename lock while local servers held the generated engine. Prisma validation, API typecheck and direct Nest production compilation all passed with the already-generated client.
+- No push or production deploy was performed. The active Barbieri OAuth, assets, reporting, CAPI and n8n runtime were not changed.
 
 ## 7. Wave 4 - SMTP Infrastructure with Brevo
 

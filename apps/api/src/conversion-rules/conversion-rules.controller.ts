@@ -11,7 +11,6 @@ import {
   Put
 } from "@nestjs/common";
 import {
-  canManageIntegrations,
   conversionRuleCreateInputSchema,
   conversionRuleUpdateInputSchema,
   conversionTriggerEvaluationInputSchema,
@@ -61,7 +60,7 @@ export class ConversionRulesController {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
@@ -83,7 +82,7 @@ export class ConversionRulesController {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 
@@ -109,7 +108,7 @@ export class ConversionRulesController {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
 
-    if (!canManageIntegrations(workspace.role)) {
+    if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
     }
 

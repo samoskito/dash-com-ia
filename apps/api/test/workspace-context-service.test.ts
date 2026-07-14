@@ -29,6 +29,7 @@ function authenticated(
         name: "Empresa B",
         slug: "empresa-b",
         role: "admin",
+        canManageMembers: true,
         operationalStatus: "active"
       }
     ],
@@ -72,18 +73,28 @@ describe("WorkspaceContextService", () => {
         id: "workspace_a",
         permissions: {
           canInviteMembers: false,
+          canManageMembers: false,
+          canGrantMemberManager: false,
           canManageBilling: false,
           canManageIntegrations: false,
-          canViewReports: true
+          canManageWorkspaceSettings: false,
+          canTransferOwnership: false,
+          canViewReports: true,
+          canExportReports: true
         }
       }),
       expect.objectContaining({
         id: "workspace_b",
         permissions: {
           canInviteMembers: true,
+          canManageMembers: true,
+          canGrantMemberManager: false,
           canManageBilling: false,
           canManageIntegrations: true,
-          canViewReports: true
+          canManageWorkspaceSettings: true,
+          canTransferOwnership: false,
+          canViewReports: true,
+          canExportReports: true
         }
       })
     ]);

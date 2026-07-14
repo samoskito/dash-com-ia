@@ -7,6 +7,23 @@ import { MetaReportingService } from "../src/reporting/meta-reporting.service";
 import { ReportingController } from "../src/reporting/reporting.controller";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
+function workspacePermissions(role: "owner" | "admin" | "member") {
+  const isOwner = role === "owner";
+  const isAdmin = role === "admin";
+
+  return {
+    canInviteMembers: isOwner,
+    canManageMembers: isOwner,
+    canGrantMemberManager: isOwner,
+    canManageBilling: isOwner,
+    canManageIntegrations: isOwner || isAdmin,
+    canManageWorkspaceSettings: isOwner || isAdmin,
+    canTransferOwnership: isOwner,
+    canViewReports: true,
+    canExportReports: true
+  };
+}
+
 const reportMetricsFixture = {
   spendCents: 120000,
   metaConversationsStarted: 176,
@@ -261,6 +278,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       name: "Workspace",
       slug: "workspace",
       role,
+      permissions: workspacePermissions(role)
     })),
   };
   const moduleRef = await Test.createTestingModule({

@@ -11,6 +11,29 @@ vi.mock("next/navigation", () => ({
   })
 }));
 
+const analystPermissions = {
+  canInviteMembers: false,
+  canManageMembers: false,
+  canGrantMemberManager: false,
+  canManageBilling: false,
+  canManageIntegrations: false,
+  canManageWorkspaceSettings: false,
+  canTransferOwnership: false,
+  canViewReports: true,
+  canExportReports: true
+};
+
+const ownerPermissions = {
+  ...analystPermissions,
+  canInviteMembers: true,
+  canManageMembers: true,
+  canGrantMemberManager: true,
+  canManageBilling: true,
+  canManageIntegrations: true,
+  canManageWorkspaceSettings: true,
+  canTransferOwnership: true
+};
+
 describe("navigation", () => {
   it("keeps the client panel focused on final customer operations", () => {
     expect(clientNavigation.map((item) => item.id)).toEqual([
@@ -51,12 +74,7 @@ describe("navigation", () => {
           role: "owner",
           operationalStatus: "active",
           platformRole: "platform_owner",
-          permissions: {
-            canInviteMembers: true,
-            canManageBilling: true,
-            canManageIntegrations: true,
-            canViewReports: true
-          }
+          permissions: ownerPermissions
         },
         children: createElement("p", null, "Panel content")
       })
@@ -109,12 +127,7 @@ describe("navigation", () => {
           slug: "comunidade-nod",
           role: "owner",
           operationalStatus: "active",
-          permissions: {
-            canInviteMembers: true,
-            canManageBilling: true,
-            canManageIntegrations: true,
-            canViewReports: true
-          }
+          permissions: ownerPermissions
         },
         children: createElement("p", null, "Panel content")
       })
@@ -131,12 +144,7 @@ describe("navigation", () => {
   });
 
   it("renders only API-authorized workspaces with human role labels", () => {
-    const permissions = {
-      canInviteMembers: false,
-      canManageBilling: false,
-      canManageIntegrations: false,
-      canViewReports: true
-    };
+    const permissions = analystPermissions;
     const html = renderToStaticMarkup(
       createElement(AppShell, {
         workspace: {
@@ -145,7 +153,7 @@ describe("navigation", () => {
           slug: "empresa-a",
           role: "owner",
           operationalStatus: "active",
-          permissions: { ...permissions, canManageBilling: true }
+          permissions: ownerPermissions
         },
         workspaces: [
           {
@@ -154,7 +162,7 @@ describe("navigation", () => {
             slug: "empresa-a",
             role: "owner",
             operationalStatus: "active",
-            permissions: { ...permissions, canManageBilling: true }
+            permissions: ownerPermissions
           },
           {
             id: "workspace_b",
@@ -188,12 +196,7 @@ describe("navigation", () => {
           role: "owner",
           operationalStatus: "active",
           accessMode: "platform_support",
-          permissions: {
-            canInviteMembers: true,
-            canManageBilling: true,
-            canManageIntegrations: true,
-            canViewReports: true
-          }
+          permissions: ownerPermissions
         },
         children: createElement("p", null, "Panel content")
       })

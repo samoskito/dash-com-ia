@@ -39,9 +39,14 @@ describe("workspace contracts", () => {
 
     expect(service.getPermissions("owner")).toEqual({
       canInviteMembers: true,
+      canManageMembers: true,
+      canGrantMemberManager: true,
       canManageBilling: true,
       canManageIntegrations: true,
-      canViewReports: true
+      canManageWorkspaceSettings: true,
+      canTransferOwnership: true,
+      canViewReports: true,
+      canExportReports: true
     });
   });
 
@@ -49,10 +54,15 @@ describe("workspace contracts", () => {
     const service = new WorkspacesService(prisma as never);
 
     expect(service.getPermissions("admin")).toEqual({
-      canInviteMembers: true,
+      canInviteMembers: false,
+      canManageMembers: false,
+      canGrantMemberManager: false,
       canManageBilling: false,
       canManageIntegrations: true,
-      canViewReports: true
+      canManageWorkspaceSettings: true,
+      canTransferOwnership: false,
+      canViewReports: true,
+      canExportReports: true
     });
   });
 
@@ -61,9 +71,25 @@ describe("workspace contracts", () => {
 
     expect(service.getPermissions("member")).toEqual({
       canInviteMembers: false,
+      canManageMembers: false,
+      canGrantMemberManager: false,
       canManageBilling: false,
       canManageIntegrations: false,
-      canViewReports: true
+      canManageWorkspaceSettings: false,
+      canTransferOwnership: false,
+      canViewReports: true,
+      canExportReports: true
+    });
+  });
+
+  it("grants delegated team management only to the selected admin membership", () => {
+    const service = new WorkspacesService(prisma as never);
+
+    expect(service.getPermissions("admin", true)).toMatchObject({
+      canManageMembers: true,
+      canGrantMemberManager: false,
+      canManageBilling: false,
+      canManageIntegrations: true
     });
   });
 

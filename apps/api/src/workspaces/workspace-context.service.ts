@@ -4,31 +4,38 @@ import {
   NotFoundException
 } from "@nestjs/common";
 import {
-  canManageIntegrations,
-  canManageWorkspaceBilling,
-  canViewReports,
   type CurrentWorkspaceDto,
   type WorkspaceListDto,
   type WorkspacePermissionsDto,
   type WorkspaceRole
 } from "@wpptrack/shared";
 import type { AuthenticatedUser } from "../auth/session.types";
+import { WorkspaceAccessPolicyService } from "./workspace-access-policy.service";
 
 @Injectable()
 export class WorkspaceContextService {
-  getPermissions(role: WorkspaceRole): WorkspacePermissionsDto {
-    return {
-      canInviteMembers: role === "owner" || role === "admin",
-      canManageBilling: canManageWorkspaceBilling(role),
-      canManageIntegrations: canManageIntegrations(role),
-      canViewReports: canViewReports(role)
-    };
+  constructor(
+    private readonly accessPolicy: WorkspaceAccessPolicyService = new WorkspaceAccessPolicyService()
+  ) {}
+
+  getPermissions(
+    role: WorkspaceRole,
+    canManageMembers = false
+  ): WorkspacePermissionsDto {
+    return this.accessPolicy.getPermissions(role, canManageMembers);
   }
 
   listMemberships(authenticated: AuthenticatedUser): WorkspaceListDto {
     return authenticated.workspaces.map((workspace) => ({
-      ...workspace,
-      permissions: this.getPermissions(workspace.role)
+      id: workspace.id,
+      name: workspace.name,
+      slug: workspace.slug,
+      role: workspace.role,
+      operationalStatus: workspace.operationalStatus,
+      permissions: this.getPermissions(
+        workspace.role,
+        workspace.canManageMembers === true
+      )
     }));
   }
 
@@ -66,8 +73,15 @@ export class WorkspaceContextService {
     }
 
     return {
-      ...workspace,
-      permissions: this.getPermissions(workspace.role),
+      id: workspace.id,
+      name: workspace.name,
+      slug: workspace.slug,
+      role: workspace.role,
+      operationalStatus: workspace.operationalStatus,
+      permissions: this.getPermissions(
+        workspace.role,
+        workspace.canManageMembers === true
+      ),
       accessMode: "member",
       platformRole: authenticated.user.platformRole ?? null
     };

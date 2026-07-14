@@ -46,6 +46,9 @@ type FakePrisma = {
       orderBy: { createdAt: "desc" };
     }) => Promise<Record<string, unknown>[]>;
     findUnique: (args: { where: { tokenHash: string } }) => Promise<Record<string, unknown> | null>;
+    findFirst: (args: {
+      where: { id: string; workspaceId: string };
+    }) => Promise<Record<string, unknown> | null>;
     update: (args: { data: Record<string, unknown>; where: { id: string } }) => Promise<Record<string, unknown>>;
   };
   auditLog: {
@@ -102,6 +105,15 @@ function createHarness() {
         db.invites.filter((invite) => invite.workspaceId === where.workspaceId),
       findUnique: async ({ where }: { where: { tokenHash: string } }) =>
         db.invites.find((invite) => invite.tokenHash === where.tokenHash) ?? null,
+      findFirst: async ({
+        where
+      }: {
+        where: { id: string; workspaceId: string };
+      }) =>
+        db.invites.find(
+          (invite) =>
+            invite.id === where.id && invite.workspaceId === where.workspaceId
+        ) ?? null,
       update: async ({ data, where }: { data: Record<string, unknown>; where: { id: string } }) => {
         const index = db.invites.findIndex((invite) => invite.id === where.id);
         db.invites[index] = {
@@ -196,6 +208,56 @@ describe("workspace invite service", () => {
     ]);
     expect(invites[0]).not.toHaveProperty("tokenHash");
     expect(invites[0]).not.toHaveProperty("acceptToken");
+  });
+
+  it("resends an invitation with a rotated token and audited public state", async () => {
+    const { db, service } = createHarness();
+    const previousHash = db.invites[0].tokenHash;
+
+    const resent = await service.resendInvite(
+      ownerAuthenticated,
+      "invite_1"
+    );
+
+    expect(resent).toMatchObject({
+      id: "invite_1",
+      status: "pending"
+    });
+    expect(resent.acceptToken).toBeDefined();
+    expect(db.invites[0].tokenHash).not.toBe(previousHash);
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        action: "workspace.invite_resent",
+        actorUserId: "user_1",
+        targetId: "invite_1",
+        resultStatus: "pending"
+      })
+    );
+    expect(JSON.stringify(db.auditLogs)).not.toContain(resent.acceptToken);
+    expect(JSON.stringify(db.auditLogs)).not.toContain(db.invites[0].tokenHash);
+  });
+
+  it("revokes a pending invitation without exposing its token", async () => {
+    const { db, service } = createHarness();
+
+    const revoked = await service.revokeInvite(
+      ownerAuthenticated,
+      "invite_1"
+    );
+
+    expect(revoked).toMatchObject({
+      id: "invite_1",
+      status: "revoked"
+    });
+    expect(revoked).not.toHaveProperty("acceptToken");
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        action: "workspace.invite_revoked",
+        actorUserId: "user_1",
+        targetId: "invite_1",
+        resultStatus: "revoked"
+      })
+    );
   });
 
   it("accepts a pending invite and creates a workspace membership", async () => {
