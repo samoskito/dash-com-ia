@@ -946,6 +946,7 @@ describe("meta reporting service", () => {
           occurredAt: "2026-07-02T12:00:00.000Z",
           sentAt: "2026-07-02T12:01:00.000Z",
           status: "sent",
+          canRetry: false,
           providerResponseSummary: "Meta confirmou o recebimento",
           errorCode: null,
           errorMessage: null,
@@ -974,6 +975,7 @@ describe("meta reporting service", () => {
           occurredAt: "2026-07-01T12:00:00.000Z",
           sentAt: null,
           status: "pending_value",
+          canRetry: false,
           providerResponseSummary: null,
           errorCode: "EventValueMissing",
           errorMessage: "Valor do evento nao configurado",
@@ -1084,24 +1086,24 @@ describe("meta reporting service", () => {
         sourcePayload: {
           schema: "external_event_row_v1",
           externalRowId: "101",
-          phone: "***1020"
+          phone: "***1020",
         },
         providerRequestPayload: {
           data: [{ event_name: "QualifiedLead" }],
-          access_token: "must-not-leak"
+          access_token: "must-not-leak",
         },
         providerResponseSummary: {
           events_received: 1,
-          access_token: "must-not-leak"
+          access_token: "must-not-leak",
         },
         errorCode: null,
-        errorMessage: null
-      }
+        errorMessage: null,
+      },
     ];
 
     const result = await service.getConversionEventAuditDetail({
       workspaceId: "workspace_1",
-      eventId: "conversion_detail_1"
+      eventId: "conversion_detail_1",
     });
 
     expect(result).toMatchObject({
@@ -1112,30 +1114,30 @@ describe("meta reporting service", () => {
         mode: "stored_normalized",
         payload: {
           externalRowId: "101",
-          phone: "***1020"
-        }
+          phone: "***1020",
+        },
       },
       metaRequest: {
         mode: "stored",
         payload: {
-          access_token: "[redacted]"
-        }
+          access_token: "[redacted]",
+        },
       },
       metaResponse: {
         mode: "stored",
         payload: {
           events_received: 1,
-          access_token: "[redacted]"
-        }
-      }
+          access_token: "[redacted]",
+        },
+      },
     });
     expect(prisma.conversionEventLog.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
           id: "conversion_detail_1",
-          workspaceId: "workspace_1"
-        }
-      })
+          workspaceId: "workspace_1",
+        },
+      }),
     );
     expect(JSON.stringify(result)).not.toContain("must-not-leak");
   });
@@ -1171,8 +1173,8 @@ describe("meta reporting service", () => {
         providerRequestPayload: null,
         providerResponseSummary: { events_received: 1 },
         errorCode: null,
-        errorMessage: null
-      }
+        errorMessage: null,
+      },
     ];
     db.externalIngestionRecords = [
       {
@@ -1180,24 +1182,24 @@ describe("meta reporting service", () => {
         conversionEventLogId: "conversion_historical_1",
         summaryPayload: {
           sourceEventName: "LeadSubmitted",
-          externalLeadId: "lead_external_1"
+          externalLeadId: "lead_external_1",
         },
         errorCode: null,
-        errorMessage: null
-      }
+        errorMessage: null,
+      },
     ];
 
     const result = await service.getConversionEventAuditDetail({
       workspaceId: "workspace_1",
-      eventId: "conversion_historical_1"
+      eventId: "conversion_historical_1",
     });
 
     expect(result.sourceSnapshot).toMatchObject({
       mode: "historical_summary",
       payload: {
         sourceEventName: "LeadSubmitted",
-        externalLeadId: "lead_external_1"
-      }
+        externalLeadId: "lead_external_1",
+      },
     });
     expect(result.metaRequest).toMatchObject({
       mode: "reconstructed",
@@ -1205,10 +1207,10 @@ describe("meta reporting service", () => {
         data: [
           expect.objectContaining({
             event_name: "LeadSubmitted",
-            event_id: "lead_wamid_1"
-          })
-        ]
-      }
+            event_id: "lead_wamid_1",
+          }),
+        ],
+      },
     });
   });
 
@@ -1331,6 +1333,48 @@ describe("meta reporting service", () => {
         sourceTrigger: { startsWith: "external_mysql:" },
       }),
       _count: { _all: true },
+    });
+  });
+
+  it("marks only Meta network failures as eligible for manual retry", async () => {
+    const { db, service } = createHarness();
+    db.conversionLogs = [
+      {
+        id: "conversion_network_error",
+        workspaceId: "workspace_1",
+        eventName: "LeadSubmitted",
+        eventOccurredAt: new Date("2026-07-02T12:00:00.000Z"),
+        sentAt: null,
+        status: "error",
+        sourceTrigger: "external_mysql:kinbox_mysql",
+        leadId: null,
+        phoneHash: "phone_hash_1",
+        campaignId: null,
+        adSetId: null,
+        adId: "ad_1",
+        pixelId: "pixel_1",
+        pageId: "page_1",
+        providerResponseSummary: null,
+        errorCode: "MetaCapiNetworkError",
+        errorMessage: "fetch failed",
+        valueSource: null,
+      },
+    ];
+
+    const result = await service.getConversionEventAudit({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(result.events[0]).toMatchObject({
+      id: "conversion_network_error",
+      canRetry: true,
+      errorCode: "MetaCapiNetworkError",
+      errorMessage: "Falha de comunicacao com a Meta",
     });
   });
 

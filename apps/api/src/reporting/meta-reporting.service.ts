@@ -3161,6 +3161,8 @@ export class MetaReportingService {
       occurredAt: event.eventOccurredAt.toISOString(),
       sentAt: event.sentAt?.toISOString() ?? null,
       status: event.status,
+      canRetry:
+        event.status === "error" && event.errorCode === "MetaCapiNetworkError",
       providerResponseSummary:
         event.status === "sent" && event.providerResponseSummary != null
           ? "Meta confirmou o recebimento"

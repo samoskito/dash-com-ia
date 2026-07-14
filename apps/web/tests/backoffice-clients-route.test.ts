@@ -168,7 +168,7 @@ describe("backoffice clients route", () => {
     expect(html).toContain("Digite ASSUMIR ENVIO");
     expect(html).toContain("Mantenha o registro no ledger MySQL ativo");
     expect(html).toContain("Acessar");
-    expect(html).toContain("Reenviar acesso");
+    expect(html).toContain("Enviar e-mail de acesso");
     expect(html).toContain("Salvar conector");
     expect(html).not.toContain("credentialsEncrypted");
   });

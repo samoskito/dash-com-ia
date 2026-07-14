@@ -1555,6 +1555,7 @@ describe("shared contracts", () => {
     });
 
     expect(event.eventLabel).toBe("Compras");
+    expect(event.canRetry).toBe(false);
     expect(overview.events[1]?.errorCode).toBe("MetaCapiRejected");
   });
 

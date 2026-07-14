@@ -54,4 +54,43 @@ export class ConversionEventsQueueService {
       status: "queued"
     };
   }
+
+  async retrySend(
+    conversionEventLogId: string,
+    workspaceId: string
+  ): Promise<ConversionEventQueuedResult> {
+    const scopedWorkspaceId = workspaceId.trim();
+    if (!scopedWorkspaceId) {
+      throw new Error("ConversionEventWorkspaceRequired");
+    }
+
+    const jobId = createBullJobId("conversion-send", conversionEventLogId);
+    const existing = await this.queue.getJob(jobId);
+
+    if (existing) {
+      const state = await existing.getState();
+
+      if (state === "delayed") {
+        await existing.promote();
+
+        return {
+          conversionEventLogId,
+          jobId,
+          status: "queued"
+        };
+      }
+
+      if (["active", "waiting", "prioritized"].includes(state)) {
+        return {
+          conversionEventLogId,
+          jobId,
+          status: "queued"
+        };
+      }
+
+      await existing.remove();
+    }
+
+    return this.enqueueSend(conversionEventLogId, scopedWorkspaceId);
+  }
 }

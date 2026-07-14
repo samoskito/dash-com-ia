@@ -365,6 +365,7 @@ export default async function EventsPage({
                   </td>
                   <td>
                     <EventAuditDetails
+                      canRetry={event.canRetry}
                       eventId={event.id}
                       eventLabel={event.eventLabel}
                     />

@@ -43,4 +43,51 @@ describe("conversion events queue service", () => {
     );
     expect(queue.add).not.toHaveBeenCalled();
   });
+
+  it("recreates a finished failed job before a manual retry", async () => {
+    const existing = {
+      getState: vi.fn(async () => "failed"),
+      promote: vi.fn(),
+      remove: vi.fn(async () => undefined)
+    };
+    const queue = {
+      getJob: vi.fn(async () => existing),
+      add: vi.fn(
+        async (_name: string, _data: unknown, options: { jobId: string }) => ({
+          id: options.jobId
+        })
+      )
+    };
+    const service = new ConversionEventsQueueService(queue as never);
+
+    await expect(
+      service.retrySend("conversion_1", "workspace_1")
+    ).resolves.toEqual({
+      conversionEventLogId: "conversion_1",
+      jobId: "conversion-send_conversion_1",
+      status: "queued"
+    });
+
+    expect(existing.remove).toHaveBeenCalledOnce();
+    expect(queue.add).toHaveBeenCalledOnce();
+  });
+
+  it("promotes an automatic retry that is still delayed", async () => {
+    const existing = {
+      getState: vi.fn(async () => "delayed"),
+      promote: vi.fn(async () => undefined),
+      remove: vi.fn()
+    };
+    const queue = {
+      getJob: vi.fn(async () => existing),
+      add: vi.fn()
+    };
+    const service = new ConversionEventsQueueService(queue as never);
+
+    await service.retrySend("conversion_1", "workspace_1");
+
+    expect(existing.promote).toHaveBeenCalledOnce();
+    expect(existing.remove).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
+  });
 });

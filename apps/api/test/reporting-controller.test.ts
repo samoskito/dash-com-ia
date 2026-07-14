@@ -2,6 +2,7 @@ import { Test } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { AuthService } from "../src/auth/auth.service";
+import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
 import { MetaReportSyncQueueService } from "../src/reporting/meta-report-sync-queue.service";
 import { MetaReportingService } from "../src/reporting/meta-reporting.service";
 import { ReportingController } from "../src/reporting/reporting.controller";
@@ -20,7 +21,7 @@ function workspacePermissions(role: "owner" | "admin" | "member") {
     canManageWorkspaceSettings: isOwner || isAdmin,
     canTransferOwnership: isOwner,
     canViewReports: true,
-    canExportReports: true
+    canExportReports: true,
   };
 }
 
@@ -74,7 +75,13 @@ const reportMetricsFixture = {
   ],
 };
 
-async function createApp(role: "owner" | "admin" | "member" = "owner") {
+async function createApp(
+  role: "owner" | "admin" | "member" = "owner",
+  options: {
+    accessMode?: "member" | "platform_support";
+    platformRole?: "platform_owner" | "platform_operator" | null;
+  } = {},
+) {
   const reportingService = {
     getCampaignReportOverview: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -164,6 +171,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           occurredAt: "2026-07-02T12:00:00.000Z",
           sentAt: "2026-07-02T12:01:00.000Z",
           status: "sent",
+          canRetry: false,
           providerResponseSummary: "events_received: 1",
           errorCode: null,
           errorMessage: null,
@@ -193,6 +201,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       occurredAt: "2026-07-02T12:00:00.000Z",
       sentAt: "2026-07-02T12:01:00.000Z",
       status: "sent",
+      canRetry: false,
       providerResponseSummary: "Meta confirmou o recebimento",
       errorCode: null,
       errorMessage: null,
@@ -261,6 +270,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         name: "Owner",
         authProvider: "email",
         emailVerifiedAt: null,
+        platformRole: options.platformRole ?? null,
       },
       workspaces: [
         {
@@ -278,7 +288,18 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       name: "Workspace",
       slug: "workspace",
       role,
-      permissions: workspacePermissions(role)
+      permissions: workspacePermissions(role),
+      accessMode: options.accessMode ?? "member",
+      platformRole: options.platformRole ?? null,
+    })),
+  };
+  const diagnosticsService = {
+    retryConversionEvent: vi.fn(async () => ({
+      ok: true,
+      status: "queued",
+      diagnosticEventId: "diagnostic_1",
+      auditLogId: "audit_1",
+      jobAttemptId: "attempt_1",
     })),
   };
   const moduleRef = await Test.createTestingModule({
@@ -288,12 +309,13 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       { provide: MetaReportSyncQueueService, useValue: queueService },
       { provide: AuthService, useValue: authService },
       { provide: WorkspacesService, useValue: workspacesService },
+      { provide: DiagnosticsService, useValue: diagnosticsService },
     ],
   }).compile();
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, queueService, reportingService };
+  return { app, diagnosticsService, queueService, reportingService };
 }
 
 describe("reporting controller", () => {
@@ -439,6 +461,66 @@ describe("reporting controller", () => {
     );
 
     await app.close();
+  });
+
+  it("lets a workspace owner retry only through the scoped customer endpoint", async () => {
+    const { app, diagnosticsService } = await createApp("owner");
+
+    await request(app.getHttpServer())
+      .post("/reports/conversions/audit/conversion_1/retry")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(201);
+
+    expect(diagnosticsService.retryConversionEvent).toHaveBeenCalledWith(
+      "conversion_1",
+      { reason: "Reenvio manual de falha transitoria Meta" },
+      {
+        workspaceId: "workspace_1",
+        actorUserId: "user_1",
+        actorType: "workspace_owner",
+        transientOnly: true,
+        requesterLabel: "pelo owner do workspace",
+      },
+    );
+
+    await app.close();
+  });
+
+  it("allows platform owners in support mode and blocks other roles", async () => {
+    const platformOwner = await createApp("owner", {
+      accessMode: "platform_support",
+      platformRole: "platform_owner",
+    });
+
+    await request(platformOwner.app.getHttpServer())
+      .post("/reports/conversions/audit/conversion_1/retry")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(201);
+    expect(
+      platformOwner.diagnosticsService.retryConversionEvent,
+    ).toHaveBeenCalledWith(
+      "conversion_1",
+      expect.any(Object),
+      expect.objectContaining({ actorType: "platform_owner" }),
+    );
+    await platformOwner.app.close();
+
+    const platformOperator = await createApp("owner", {
+      accessMode: "platform_support",
+      platformRole: "platform_operator",
+    });
+    await request(platformOperator.app.getHttpServer())
+      .post("/reports/conversions/audit/conversion_1/retry")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(403);
+    await platformOperator.app.close();
+
+    const member = await createApp("member");
+    await request(member.app.getHttpServer())
+      .post("/reports/conversions/audit/conversion_1/retry")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(403);
+    await member.app.close();
   });
 
   it("rejects invalid conversion audit filters", async () => {

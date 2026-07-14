@@ -22,6 +22,7 @@ import {
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
+import { DiagnosticsService } from "../diagnostics/diagnostics.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { MetaReportSyncQueueService } from "./meta-report-sync-queue.service";
 import { MetaReportingService } from "./meta-reporting.service";
@@ -69,6 +70,8 @@ export class ReportingController {
     private readonly authService: AuthService,
     @Inject(WorkspacesService)
     private readonly workspacesService: WorkspacesService,
+    @Inject(DiagnosticsService)
+    private readonly diagnosticsService: DiagnosticsService,
   ) {}
 
   @Get("campaigns")
@@ -258,13 +261,19 @@ export class ReportingController {
     @Query("page") page?: string | string[],
     @Query("pageSize") pageSize?: string | string[],
   ) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const workspace = await this.getCurrentWorkspace(refreshToken);
+
+    if (!workspace.permissions.canViewReports) {
+      throw new ForbiddenException("Sem permissao para visualizar relatorios");
+    }
+
+    const workspaceId = workspace.id;
     const period = this.parseReportPeriod(since, until);
     const eventNameFilter = this.trimOptional(eventName);
     const deliveryState = this.parseConversionAuditStatus(status);
     const sourceFilter = this.parseConversionAuditSource(source);
 
-    return this.metaReportingService.getConversionEventAudit({
+    const report = await this.metaReportingService.getConversionEventAudit({
       workspaceId,
       ...period,
       ...(eventNameFilter ? { eventName: eventNameFilter } : {}),
@@ -278,6 +287,14 @@ export class ReportingController {
         100,
       ),
     });
+
+    return {
+      ...report,
+      events: report.events.map((event) => ({
+        ...event,
+        canRetry: event.canRetry && this.canRetryMetaEvent(workspace),
+      })),
+    };
   }
 
   @Get("conversions/audit/:eventId")
@@ -285,12 +302,52 @@ export class ReportingController {
     @AuthToken() refreshToken: string,
     @Param("eventId") eventId: string,
   ) {
-    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const workspace = await this.getCurrentWorkspace(refreshToken);
 
-    return this.metaReportingService.getConversionEventAuditDetail({
-      workspaceId,
+    if (!workspace.permissions.canViewReports) {
+      throw new ForbiddenException("Sem permissao para visualizar relatorios");
+    }
+
+    const detail =
+      await this.metaReportingService.getConversionEventAuditDetail({
+        workspaceId: workspace.id,
+        eventId,
+      });
+
+    return {
+      ...detail,
+      canRetry: detail.canRetry && this.canRetryMetaEvent(workspace),
+    };
+  }
+
+  @Post("conversions/audit/:eventId/retry")
+  async retryConversionEventAudit(
+    @AuthToken() refreshToken: string,
+    @Param("eventId") eventId: string,
+  ) {
+    const { authenticated, workspace } =
+      await this.getCurrentWorkspaceContext(refreshToken);
+
+    if (!this.canRetryMetaEvent(workspace)) {
+      throw new ForbiddenException(
+        "Somente o owner pode reenviar eventos Meta",
+      );
+    }
+
+    return this.diagnosticsService.retryConversionEvent(
       eventId,
-    });
+      { reason: "Reenvio manual de falha transitoria Meta" },
+      {
+        workspaceId: workspace.id,
+        actorUserId: authenticated.user.id,
+        actorType:
+          workspace.accessMode === "platform_support"
+            ? "platform_owner"
+            : "workspace_owner",
+        transientOnly: true,
+        requesterLabel: "pelo owner do workspace",
+      },
+    );
   }
 
   @Post("meta/sync")
@@ -416,6 +473,16 @@ export class ReportingController {
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
 
     return { authenticated, workspace };
+  }
+
+  private canRetryMetaEvent(
+    workspace: ReturnType<WorkspacesService["getCurrentWorkspace"]>,
+  ): boolean {
+    if (workspace.accessMode === "platform_support") {
+      return workspace.platformRole === "platform_owner";
+    }
+
+    return workspace.role === "owner";
   }
 
   private defaultSince(): string {

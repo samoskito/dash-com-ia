@@ -4,6 +4,7 @@ import { AuthModule } from "../auth/auth.module";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { META_REPORT_SYNC_QUEUE } from "../common/queue/queue.constants";
 import { ConversionRulesModule } from "../conversion-rules/conversion-rules.module";
+import { DiagnosticsModule } from "../diagnostics/diagnostics.module";
 import { IntegrationsModule } from "../integrations/integrations.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { MetaReportSyncProcessor } from "./meta-report-sync.processor";
@@ -18,6 +19,7 @@ import { WhatsappCampaignClassifierService } from "./whatsapp-campaign-classifie
   imports: [
     AuthModule,
     WorkspacesModule,
+    DiagnosticsModule,
     ConversionRulesModule,
     IntegrationsModule,
     BullModule.registerQueue({

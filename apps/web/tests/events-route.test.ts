@@ -62,6 +62,7 @@ describe("events route", () => {
               occurredAt: "2026-07-12T15:00:00.000Z",
               sentAt: "2026-07-12T15:01:00.000Z",
               status: "sent",
+              canRetry: false,
               providerResponseSummary: "Meta confirmou o recebimento",
               errorCode: null,
               errorMessage: null,
@@ -132,6 +133,7 @@ describe("events route", () => {
               occurredAt: "2026-07-12T15:00:00.000Z",
               sentAt: null,
               status: "error",
+              canRetry: false,
               providerResponseSummary: null,
               errorCode: "MetaCapiRejected",
               errorMessage: "A Meta recusou o evento",
@@ -154,6 +156,61 @@ describe("events route", () => {
     expect(html).toContain("A Meta recusou o evento");
     expect(html).toContain("Lead nao vinculado");
     expect(html).toContain("Ainda nao enviado");
+    expect(html).not.toContain("Reenviar");
+  });
+
+  it("shows retry only for an authorized transient Meta network failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify(
+          auditResponse([
+            {
+              id: "event_network_error",
+              eventName: "LeadSubmitted",
+              eventLabel: "Conversas reais iniciadas",
+              deliveryState: "failed",
+              statusLabel: "Falhou",
+              statusDetail: "O envio nao foi concluido",
+              source: "external_integration",
+              sourceLabel: "Integracao externa",
+              leadId: "lead_1",
+              leadName: "Mariana Alves",
+              phoneDisplay: "+55 11 99999-1020",
+              campaignId: "cmp_1",
+              campaignName: "Campanha WhatsApp",
+              adSetId: null,
+              adSetName: null,
+              adId: "ad_1",
+              adName: "Anuncio 1",
+              pixelId: "pixel_1",
+              pageId: "page_1",
+              occurredAt: "2026-07-12T15:00:00.000Z",
+              sentAt: null,
+              status: "error",
+              canRetry: true,
+              providerResponseSummary: null,
+              errorCode: "MetaCapiNetworkError",
+              errorMessage: "Falha de comunicacao com a Meta",
+              valueSource: null
+            }
+          ])
+        ),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const element = await EventsPage({
+      searchParams: Promise.resolve({
+        since: "2026-07-06",
+        until: "2026-07-12"
+      })
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Falha de comunicacao com a Meta");
+    expect(html).toContain("Reenviar");
+    expect(html).toContain('name="eventId"');
+    expect(html).toContain('value="event_network_error"');
   });
 
   it("renders an unavailable state without invented events", async () => {

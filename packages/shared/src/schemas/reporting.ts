@@ -263,6 +263,7 @@ export const conversionAuditEventSchema = z.object({
   occurredAt: z.string().min(1),
   sentAt: z.string().min(1).nullable(),
   status: conversionEventLogStatusSchema,
+  canRetry: z.boolean().default(false),
   providerResponseSummary: z.string().min(1).nullable(),
   errorCode: z.string().min(1).nullable(),
   errorMessage: z.string().min(1).nullable(),

@@ -1,4 +1,5 @@
 import type {
+  ClientOwnerAccessResendResultDto,
   ConversionEventNameDto,
   ConversionRuleDto,
   CurrentWorkspaceDto,
@@ -673,6 +674,52 @@ async function revokeWorkspaceInvite(
   }
 }
 
+async function resendWorkspaceOwnerAccess(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const workspaceId = String(formData.get("workspaceId") ?? "").trim();
+  const ownerUserId = String(formData.get("ownerUserId") ?? "").trim();
+
+  if (!workspaceId || !ownerUserId) {
+    return settingsActionState(
+      "error",
+      "Responsavel da conta nao identificado.",
+    );
+  }
+
+  try {
+    const result = await serverApiFetch<ClientOwnerAccessResendResultDto>(
+      `/backoffice/workspaces/${encodeURIComponent(workspaceId)}/owners/${encodeURIComponent(ownerUserId)}/access-email`,
+      { method: "POST" },
+    );
+    revalidatePath("/settings");
+
+    if (result.access.delivery === "email_queued") {
+      return settingsActionState(
+        "success",
+        result.access.mode === "activation"
+          ? "Novo link para criar a senha foi enviado."
+          : "Email com o acesso ao workspace foi enviado.",
+      );
+    }
+
+    return settingsActionState(
+      "error",
+      result.access.delivery === "not_configured"
+        ? "O envio de email nao esta configurado."
+        : "Nao foi possivel enfileirar o email de acesso.",
+    );
+  } catch {
+    return settingsActionState(
+      "error",
+      "Nao foi possivel reenviar o email de acesso.",
+    );
+  }
+}
+
 async function updateWorkspaceProfile(formData: FormData) {
   "use server";
 
@@ -753,11 +800,16 @@ export default async function SettingsPage() {
     workspace?.permissions.canManageIntegrations,
   );
   const isPlatformSupport = workspace?.accessMode === "platform_support";
+  const isPlatformOwnerSupport = Boolean(
+    isPlatformSupport && workspace?.platformRole === "platform_owner",
+  );
   const canManageTeam = Boolean(
-    workspace?.permissions.canManageMembers && !isPlatformSupport,
+    workspace?.permissions.canManageMembers &&
+    (!isPlatformSupport || isPlatformOwnerSupport),
   );
   const canGrantMemberManager = Boolean(
-    workspace?.permissions.canGrantMemberManager && !isPlatformSupport,
+    workspace?.permissions.canGrantMemberManager &&
+    (!isPlatformSupport || isPlatformOwnerSupport),
   );
   const currentAccessLabel = isPlatformSupport
     ? "Suporte da plataforma"
@@ -1014,6 +1066,29 @@ export default async function SettingsPage() {
                         </BackofficeActionForm>
                       </div>
                     ) : null}
+                    {isPlatformOwnerSupport && member.role === "owner" ? (
+                      <div className="member-controls member-owner-controls">
+                        <BackofficeActionForm
+                          action={resendWorkspaceOwnerAccess}
+                        >
+                          <input
+                            name="workspaceId"
+                            type="hidden"
+                            value={workspace?.id ?? ""}
+                          />
+                          <input
+                            name="ownerUserId"
+                            type="hidden"
+                            value={member.userId}
+                          />
+                          <PendingSubmitButton
+                            className="button ghost compact-button"
+                            label="Reenviar e-mail de acesso"
+                            pendingLabel="Enviando..."
+                          />
+                        </BackofficeActionForm>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })
@@ -1079,9 +1154,10 @@ export default async function SettingsPage() {
                             type="hidden"
                             value={invite.id}
                           />
-                          <TeamActionButton
-                            kind="resend"
-                            label={`Reenviar convite para ${invite.email}`}
+                          <PendingSubmitButton
+                            className="button ghost compact-button"
+                            label="Reenviar"
+                            pendingLabel="Enviando..."
                           />
                         </BackofficeActionForm>
                         {["pending", "sent", "failed"].includes(

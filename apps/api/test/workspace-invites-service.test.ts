@@ -37,6 +37,30 @@ const ownerAuthenticated = {
   ],
 };
 
+function platformSupportAuthenticated(
+  platformRole: "platform_owner" | "platform_operator",
+) {
+  return {
+    user: {
+      id: `user_${platformRole}`,
+      email: `${platformRole}@wpptrack.com`,
+      name: platformRole,
+      authProvider: "email",
+      emailVerifiedAt: null,
+      platformRole,
+    },
+    activeWorkspaceId: null,
+    workspaces: [],
+    supportContext: {
+      workspaceId: "workspace_1",
+      workspaceName: "Comunidade NOD",
+      workspaceSlug: "comunidade-nod",
+      operationalStatus: "active" as const,
+      startedAt: "2026-07-02T03:00:00.000Z",
+    },
+  };
+}
+
 type InviteRecord = {
   id: string;
   workspaceId: string;
@@ -339,6 +363,30 @@ describe("workspace invite service", () => {
         resultStatus: "failed",
       }),
     );
+  });
+
+  it("lets only the platform owner manage invites during support access", async () => {
+    const { db, service } = createHarness();
+
+    await service.createInvite(platformSupportAuthenticated("platform_owner"), {
+      email: "support-created@wpptrack.com",
+      role: "member",
+    });
+
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        actorType: "platform_owner",
+        action: "workspace.invite_created",
+        workspaceId: "workspace_1",
+      }),
+    );
+
+    await expect(
+      service.createInvite(platformSupportAuthenticated("platform_operator"), {
+        email: "blocked@wpptrack.com",
+        role: "member",
+      }),
+    ).rejects.toThrow("Sem permissao para gerenciar membros");
   });
 
   it("lists invitations without token material", async () => {

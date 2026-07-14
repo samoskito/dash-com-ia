@@ -5,9 +5,12 @@ import type {
   ConversionAuditEventDetailDto,
   ConversionAuditPayloadSnapshotDto
 } from "@wpptrack/shared";
-import { Braces, Check, Copy, Eye, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { Braces, Check, Copy, Eye, RefreshCw, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useFormStatus } from "react-dom";
+import { BackofficeActionForm } from "../../../components/backoffice-action-form";
 import { apiFetch } from "../../../lib/api";
+import { retryMetaEventAction } from "./actions";
 
 type AuditTab = "summary" | "source" | "request" | "response";
 
@@ -109,20 +112,43 @@ function JsonSnapshot({
   );
 }
 
+function RetrySubmitButton({ compact = false }: { compact?: boolean }) {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      className={`button audit-retry-button${compact ? " ghost" : " primary"}`}
+      disabled={pending}
+      title="Reenviar falha de comunicacao com a Meta"
+      type="submit"
+    >
+      <RefreshCw aria-hidden="true" size={16} />
+      {pending ? "Enviando..." : "Reenviar"}
+    </button>
+  );
+}
+
 export function EventAuditDetails({
+  canRetry,
   eventId,
   eventLabel
 }: {
+  canRetry: boolean;
   eventId: string;
   eventLabel: string;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [retryAvailable, setRetryAvailable] = useState(canRetry);
   const [activeTab, setActiveTab] = useState<AuditTab>("summary");
   const [detail, setDetail] = useState<ConversionAuditEventDetailDto | null>(
     null
   );
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setRetryAvailable(canRetry);
+  }, [canRetry]);
 
   async function openDetails() {
     dialogRef.current?.showModal();
@@ -151,17 +177,48 @@ export function EventAuditDetails({
     dialogRef.current?.close();
   }
 
+  function handleRetrySuccess() {
+    setRetryAvailable(false);
+    setDetail((current) =>
+      current
+        ? {
+            ...current,
+            canRetry: false,
+            deliveryState: "queued",
+            status: "ready_to_send",
+            statusLabel: "Aguardando",
+            statusDetail: "Reenvio enfileirado",
+            errorCode: null,
+            errorMessage: null,
+            reason: null,
+            reasonCode: null
+          }
+        : current
+    );
+  }
+
   return (
     <>
-      <button
-        className="button ghost audit-inspect-button"
-        onClick={openDetails}
-        title="Inspecionar evento"
-        type="button"
-      >
-        <Eye aria-hidden="true" size={16} />
-        Inspecionar
-      </button>
+      <div className="audit-row-actions">
+        <button
+          className="button ghost audit-inspect-button"
+          onClick={openDetails}
+          title="Inspecionar evento"
+          type="button"
+        >
+          <Eye aria-hidden="true" size={16} />
+          Inspecionar
+        </button>
+        {retryAvailable ? (
+          <BackofficeActionForm
+            action={retryMetaEventAction}
+            onSuccess={handleRetrySuccess}
+          >
+            <input name="eventId" type="hidden" value={eventId} />
+            <RetrySubmitButton compact />
+          </BackofficeActionForm>
+        ) : null}
+      </div>
 
       <dialog
         className="event-audit-dialog"
@@ -248,6 +305,25 @@ export function EventAuditDetails({
                         {detail.reasonCode ? (
                           <code>{detail.reasonCode}</code>
                         ) : null}
+                      </div>
+                    ) : null}
+
+                    {detail.canRetry ? (
+                      <div className="event-audit-retry">
+                        <span>
+                          <strong>Falha transitoria de comunicacao</strong>
+                          <small>
+                            Uma nova tentativa reutiliza o mesmo identificador
+                            do evento.
+                          </small>
+                        </span>
+                        <BackofficeActionForm
+                          action={retryMetaEventAction}
+                          onSuccess={handleRetrySuccess}
+                        >
+                          <input name="eventId" type="hidden" value={eventId} />
+                          <RetrySubmitButton />
+                        </BackofficeActionForm>
                       </div>
                     ) : null}
 

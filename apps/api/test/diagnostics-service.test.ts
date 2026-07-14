@@ -27,9 +27,16 @@ function createHarness() {
   const conversionEventsQueueService = {
     enqueueSend: vi.fn(
       async (conversionEventLogId: string, _workspaceId: string) => ({
-      conversionEventLogId,
-      jobId: `conversion-send_${conversionEventLogId}`,
-      status: "queued" as const
+        conversionEventLogId,
+        jobId: `conversion-send_${conversionEventLogId}`,
+        status: "queued" as const
+      })
+    ),
+    retrySend: vi.fn(
+      async (conversionEventLogId: string, _workspaceId: string) => ({
+        conversionEventLogId,
+        jobId: `conversion-send_${conversionEventLogId}`,
+        status: "queued" as const
       })
     )
   };
@@ -97,7 +104,11 @@ function createHarness() {
         webhookLogs.push(webhookLog);
         return webhookLog;
       },
-      findUnique: async ({ where }: { where: { id?: string; idempotencyKey?: string } }) =>
+      findUnique: async ({
+        where
+      }: {
+        where: { id?: string; idempotencyKey?: string };
+      }) =>
         webhookLogs.find(
           (webhookLog) =>
             (where.id !== undefined && webhookLog.id === where.id) ||
@@ -189,7 +200,9 @@ function createHarness() {
       },
       findMany: async ({ where }: { where: Record<string, unknown> }) =>
         jobAttempts.filter((jobAttempt) =>
-          Object.entries(where).every(([key, value]) => jobAttempt[key] === value)
+          Object.entries(where).every(
+            ([key, value]) => jobAttempt[key] === value
+          )
         ),
       findManyForList: async ({
         where,
@@ -216,8 +229,9 @@ function createHarness() {
         return integrationLog;
       },
       findUnique: async ({ where }: { where: { id: string } }) =>
-        integrationLogs.find((integrationLog) => integrationLog.id === where.id) ??
-        null,
+        integrationLogs.find(
+          (integrationLog) => integrationLog.id === where.id
+        ) ?? null,
       findMany: async ({
         where,
         take
@@ -259,6 +273,29 @@ function createHarness() {
 
         return conversionEventLogs[index];
       },
+      updateMany: async ({
+        where,
+        data
+      }: {
+        where: Record<string, unknown>;
+        data: Record<string, unknown>;
+      }) => {
+        let count = 0;
+
+        conversionEventLogs.forEach((conversionEventLog, index) => {
+          if (!matchesWhere(conversionEventLog, where)) {
+            return;
+          }
+
+          conversionEventLogs[index] = {
+            ...conversionEventLog,
+            ...data
+          };
+          count += 1;
+        });
+
+        return { count };
+      },
       findMany: async ({
         where,
         take
@@ -299,7 +336,9 @@ function createHarness() {
     }
 
     return jobAttempts.filter((jobAttempt) =>
-      Object.entries(args.where).every(([key, value]) => jobAttempt[key] === value)
+      Object.entries(args.where).every(
+        ([key, value]) => jobAttempt[key] === value
+      )
     );
   };
 
@@ -315,7 +354,9 @@ function createHarness() {
     }
 
     return auditLogs.filter((auditLog) =>
-      Object.entries(args.where).every(([key, value]) => auditLog[key] === value)
+      Object.entries(args.where).every(
+        ([key, value]) => auditLog[key] === value
+      )
     );
   };
 
@@ -651,7 +692,8 @@ describe("diagnostics service", () => {
   });
 
   it("enqueues diagnostic retry jobs with conversion event context when available", async () => {
-    const { diagnosticsQueueService, events, serviceWithQueue } = createHarness();
+    const { diagnosticsQueueService, events, serviceWithQueue } =
+      createHarness();
     await serviceWithQueue.recordEvent({
       workspaceId: "workspace_1",
       source: "meta",
@@ -1191,7 +1233,7 @@ describe("diagnostics service", () => {
       auditLogId: "audit_1",
       jobAttemptId: "job_attempt_1"
     });
-    expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
+    expect(conversionEventsQueueService.retrySend).toHaveBeenCalledWith(
       "conversion_1",
       "workspace_1"
     );
@@ -1231,6 +1273,101 @@ describe("diagnostics service", () => {
       jobAttemptId: "job_attempt_1",
       jobId: "conversion-send_conversion_1"
     });
+  });
+
+  it("scopes customer retries to transient Meta network failures", async () => {
+    const {
+      auditLogs,
+      conversionEventLogs,
+      conversionEventsQueueService,
+      serviceWithQueues
+    } = createHarness();
+    conversionEventLogs.push({
+      id: "conversion_1",
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      sourceTrigger: "external_mysql",
+      eventName: "LeadSubmitted",
+      status: "error",
+      pixelId: "pixel_1",
+      metaAccountId: "act_1",
+      campaignId: "cmp_1",
+      adSetId: null,
+      adId: "ad_1",
+      attributionStatus: "matched",
+      dedupeKey: "dedupe_1",
+      sentAt: null,
+      errorCode: "MetaCapiNetworkError",
+      errorMessage: "fetch failed",
+      jobId: "conversion-send_conversion_1",
+      createdAt: new Date("2026-07-02T03:00:00.000Z")
+    });
+
+    await serviceWithQueues.retryConversionEvent(
+      "conversion_1",
+      { reason: "Reenvio manual de falha transitoria Meta" },
+      {
+        workspaceId: "workspace_1",
+        actorUserId: "owner_1",
+        actorType: "workspace_owner",
+        transientOnly: true,
+        requesterLabel: "pelo owner do workspace"
+      }
+    );
+
+    expect(conversionEventsQueueService.retrySend).toHaveBeenCalledWith(
+      "conversion_1",
+      "workspace_1"
+    );
+    expect(auditLogs[0]).toMatchObject({
+      workspaceId: "workspace_1",
+      actorUserId: "owner_1",
+      actorType: "workspace_owner"
+    });
+  });
+
+  it("rejects permanent errors and events from another workspace", async () => {
+    const { conversionEventLogs, serviceWithQueues } = createHarness();
+    conversionEventLogs.push({
+      id: "conversion_1",
+      workspaceId: "workspace_1",
+      status: "error",
+      errorCode: "MetaCapiRejected",
+      errorMessage: "rejected",
+      eventName: "LeadSubmitted",
+      sourceTrigger: "external_mysql",
+      leadId: null,
+      phoneHash: "phone_hash_1",
+      pixelId: "pixel_1",
+      metaAccountId: null,
+      campaignId: null,
+      adSetId: null,
+      adId: "ad_1",
+      attributionStatus: "matched",
+      dedupeKey: "dedupe_1",
+      sentAt: null,
+      jobId: null,
+      createdAt: new Date("2026-07-02T03:00:00.000Z")
+    });
+
+    await expect(
+      serviceWithQueues.retryConversionEvent(
+        "conversion_1",
+        { reason: "retry" },
+        { workspaceId: "workspace_1", transientOnly: true }
+      )
+    ).rejects.toThrow(
+      "Somente falhas transitorias de comunicacao podem ser reenviadas"
+    );
+
+    await expect(
+      serviceWithQueues.retryConversionEvent(
+        "conversion_1",
+        { reason: "retry" },
+        { workspaceId: "workspace_2", transientOnly: true }
+      )
+    ).rejects.toThrow("Conversao nao encontrada");
   });
 
   it("rejects retry for conversion events still pending value", async () => {

@@ -474,7 +474,8 @@ export class WorkspacesService {
     memberId: string,
     input: WorkspaceMemberRoleUpdateInputDto,
   ): Promise<WorkspaceMemberDto> {
-    const { actor, workspace } = this.requireTeamManager(authenticated);
+    const { actor, actorType, workspace } =
+      this.requireTeamManager(authenticated);
     const target = await this.findWorkspaceMember(workspace.id, memberId);
 
     if (
@@ -499,6 +500,7 @@ export class WorkspacesService {
     await this.recordWorkspaceAudit({
       workspaceId: workspace.id,
       actorUserId: authenticated.user.id,
+      actorType,
       action: "workspace.member_role_updated",
       targetType: "WorkspaceMember",
       targetId: target.id,
@@ -521,9 +523,10 @@ export class WorkspacesService {
     memberId: string,
     input: WorkspaceMemberManagerUpdateInputDto,
   ): Promise<WorkspaceMemberDto> {
-    const workspace = this.getCurrentWorkspace(authenticated);
+    const { actor, actorType, workspace } =
+      this.requireTeamManager(authenticated);
 
-    if (workspace.accessMode !== "member" || workspace.role !== "owner") {
+    if (actor.role !== "owner") {
       throw new ForbiddenException(
         "Somente o owner pode delegar a gestao da equipe",
       );
@@ -545,6 +548,7 @@ export class WorkspacesService {
     await this.recordWorkspaceAudit({
       workspaceId: workspace.id,
       actorUserId: authenticated.user.id,
+      actorType,
       action: "workspace.member_manager_updated",
       targetType: "WorkspaceMember",
       targetId: target.id,
@@ -566,7 +570,8 @@ export class WorkspacesService {
     authenticated: AuthenticatedUser,
     memberId: string,
   ): Promise<{ memberId: string; status: "removed" }> {
-    const { actor, workspace } = this.requireTeamManager(authenticated);
+    const { actor, actorType, workspace } =
+      this.requireTeamManager(authenticated);
     const target = await this.findWorkspaceMember(workspace.id, memberId);
 
     if (
@@ -604,6 +609,7 @@ export class WorkspacesService {
     await this.recordWorkspaceAudit({
       workspaceId: workspace.id,
       actorUserId: authenticated.user.id,
+      actorType,
       action: "workspace.member_removed",
       targetType: "WorkspaceMember",
       targetId: target.id,
@@ -919,7 +925,7 @@ export class WorkspacesService {
     authenticated: AuthenticatedUser,
     input: WorkspaceInviteInputDto,
   ): Promise<WorkspaceInviteDto> {
-    const { workspace } = this.requireTeamManager(authenticated);
+    const { actorType, workspace } = this.requireTeamManager(authenticated);
 
     const expiresAt = new Date(Date.now() + inviteTtlMs);
     const acceptToken = randomBytes(32).toString("hex");
@@ -935,6 +941,7 @@ export class WorkspacesService {
     await this.recordWorkspaceAudit({
       workspaceId: workspace.id,
       actorUserId: authenticated.user.id,
+      actorType,
       action: "workspace.invite_created",
       targetType: "WorkspaceInvite",
       targetId: invite.id,
@@ -966,7 +973,7 @@ export class WorkspacesService {
     authenticated: AuthenticatedUser,
     inviteId: string,
   ): Promise<WorkspaceInviteDto> {
-    const { workspace } = this.requireTeamManager(authenticated);
+    const { actorType, workspace } = this.requireTeamManager(authenticated);
     const invite = await this.findWorkspaceInvite(workspace.id, inviteId);
 
     if (invite.status === "accepted") {
@@ -987,6 +994,7 @@ export class WorkspacesService {
     await this.recordWorkspaceAudit({
       workspaceId: workspace.id,
       actorUserId: authenticated.user.id,
+      actorType,
       action: "workspace.invite_resent",
       targetType: "WorkspaceInvite",
       targetId: invite.id,
@@ -1024,7 +1032,7 @@ export class WorkspacesService {
     authenticated: AuthenticatedUser,
     inviteId: string,
   ): Promise<WorkspaceInviteDto> {
-    const { workspace } = this.requireTeamManager(authenticated);
+    const { actorType, workspace } = this.requireTeamManager(authenticated);
     const invite = await this.findWorkspaceInvite(workspace.id, inviteId);
 
     if (invite.status === "accepted") {
@@ -1038,6 +1046,7 @@ export class WorkspacesService {
     await this.recordWorkspaceAudit({
       workspaceId: workspace.id,
       actorUserId: authenticated.user.id,
+      actorType,
       action: "workspace.invite_revoked",
       targetType: "WorkspaceInvite",
       targetId: invite.id,
@@ -1534,9 +1543,25 @@ export class WorkspacesService {
 
   private requireTeamManager(authenticated: AuthenticatedUser): {
     actor: WorkspacePolicySubject;
+    actorType: "platform_owner" | "user";
     workspace: CurrentWorkspaceDto;
   } {
     const workspace = this.getCurrentWorkspace(authenticated);
+    const isPlatformOwnerSupport =
+      workspace.accessMode === "platform_support" &&
+      authenticated.user.platformRole === "platform_owner";
+
+    if (isPlatformOwnerSupport) {
+      return {
+        actor: {
+          role: "owner",
+          canManageMembers: true,
+        },
+        actorType: "platform_owner",
+        workspace,
+      };
+    }
+
     const membership = authenticated.workspaces.find(
       (candidate) => candidate.id === workspace.id,
     );
@@ -1554,6 +1579,7 @@ export class WorkspacesService {
         role: membership.role,
         canManageMembers: membership.canManageMembers === true,
       },
+      actorType: "user",
       workspace,
     };
   }

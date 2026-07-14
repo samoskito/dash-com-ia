@@ -62,6 +62,7 @@ function mockSettingsFetch(options: {
   workspaceRole?: "owner" | "admin" | "member";
   workspaceCanManageMembers?: boolean;
   workspaceAccessMode?: "member" | "platform_support";
+  workspacePlatformRole?: "platform_owner" | "platform_operator" | null;
   membersStatus?: number;
   authStatus?: number;
 }) {
@@ -107,6 +108,7 @@ function mockSettingsFetch(options: {
           slug: "loja-samuel",
           role,
           accessMode: options.workspaceAccessMode ?? "member",
+          platformRole: options.workspacePlatformRole ?? null,
           permissions: workspacePermissions(
             role,
             options.workspaceCanManageMembers,
@@ -515,9 +517,10 @@ describe("settings route", () => {
     expect(html).not.toContain("Pausar");
   });
 
-  it("identifies platform support without presenting it as workspace ownership", async () => {
+  it("lets the platform owner manage the team and resend owner access in support mode", async () => {
     mockSettingsFetch({
       workspaceAccessMode: "platform_support",
+      workspacePlatformRole: "platform_owner",
       workspaceRole: "owner",
       rulesBody: [],
     });
@@ -527,7 +530,26 @@ describe("settings route", () => {
 
     expect(html).toContain("Suporte da plataforma");
     expect(html).toContain("Acesso interno ao workspace do cliente");
+    expect(html).toContain('placeholder="pessoa@empresa.com"');
+    expect(html).toContain("Reenviar e-mail de acesso");
     expect(html).not.toContain("Slug loja-samuel com papel owner");
+  });
+
+  it("keeps platform operators read-only for customer team management", async () => {
+    mockSettingsFetch({
+      workspaceAccessMode: "platform_support",
+      workspacePlatformRole: "platform_operator",
+      workspaceRole: "owner",
+      rulesBody: [],
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Suporte da plataforma");
+    expect(html).toContain("Apenas gestores da equipe podem convidar.");
+    expect(html).not.toContain('placeholder="pessoa@empresa.com"');
+    expect(html).not.toContain("Reenviar e-mail de acesso");
   });
 
   it("renders an unavailable state without demo rules when conversion rules fail", async () => {

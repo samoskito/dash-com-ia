@@ -4958,10 +4958,37 @@ button.meta-budget-control:focus-visible {
 }
 
 .audit-inspect-button,
-.audit-copy-button {
+.audit-copy-button,
+.audit-retry-button {
   width: auto;
   gap: 7px;
   white-space: nowrap;
+}
+
+.audit-row-actions {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.event-audit-retry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid rgba(66, 240, 168, 0.24);
+  border-radius: 7px;
+  background: rgba(66, 240, 168, 0.05);
+}
+
+.event-audit-retry > span {
+  display: grid;
+  gap: 4px;
+}
+
+.event-audit-retry small {
+  color: var(--ink-muted);
 }
 
 .event-audit-dialog {
@@ -5206,9 +5233,15 @@ button.meta-budget-control:focus-visible {
   }
 
   .event-audit-summary-line,
+  .event-audit-retry,
   .audit-payload-panel > header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .event-audit-retry form,
+  .event-audit-retry .audit-retry-button {
+    width: 100%;
   }
 
   .audit-json-viewer {

@@ -656,7 +656,7 @@ export default async function BackofficeClientsPage({
                           <input type="hidden" name="workspaceId" value={workspace.id} />
                           <input type="hidden" name="ownerUserId" value={workspace.owners[0].id} />
                           <PendingSubmitButton
-                            label="Reenviar acesso"
+                              label="Enviar e-mail de acesso"
                             pendingLabel="Enviando..."
                             className="button ghost compact-button"
                           />

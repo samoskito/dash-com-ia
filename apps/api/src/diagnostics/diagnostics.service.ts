@@ -169,6 +169,14 @@ type ConversionEventLogRecord = {
   createdAt: Date;
 };
 
+export type ConversionEventRetryContext = {
+  workspaceId?: string;
+  actorUserId?: string | null;
+  actorType?: string;
+  transientOnly?: boolean;
+  requesterLabel?: string;
+};
+
 export type WebhookLogInput = {
   workspaceId?: string;
   source: DiagnosticSourceDto;
@@ -1061,14 +1069,29 @@ export class DiagnosticsService {
 
   async retryConversionEvent(
     id: string,
-    input: DiagnosticRetryInputDto
+    input: DiagnosticRetryInputDto,
+    context: ConversionEventRetryContext = {}
   ): Promise<DiagnosticRetryResultDto> {
     const conversionEvent = (await this.prisma.conversionEventLog.findUnique({
       where: { id }
     })) as ConversionEventLogRecord | null;
 
-    if (!conversionEvent) {
+    if (
+      !conversionEvent ||
+      (context.workspaceId !== undefined &&
+        conversionEvent.workspaceId !== context.workspaceId)
+    ) {
       throw new NotFoundException("Conversao nao encontrada");
+    }
+
+    if (
+      context.transientOnly === true &&
+      (conversionEvent.status !== "error" ||
+        conversionEvent.errorCode !== "MetaCapiNetworkError")
+    ) {
+      throw new BadRequestException(
+        "Somente falhas transitorias de comunicacao podem ser reenviadas"
+      );
     }
 
     if (conversionEvent.status === "pending_value") {
@@ -1095,10 +1118,61 @@ export class DiagnosticsService {
       );
     }
 
+    if (!this.conversionEventsQueueService) {
+      throw new Error("ConversionEventsQueueService is required for retries");
+    }
+
+    const claimed = await this.prisma.conversionEventLog.updateMany({
+      where: {
+        id: conversionEvent.id,
+        workspaceId: conversionEvent.workspaceId,
+        status: conversionEvent.status,
+        errorCode: conversionEvent.errorCode
+      },
+      data: {
+        status: "ready_to_send",
+        sentAt: null,
+        errorCode: null,
+        errorMessage: null
+      }
+    });
+
+    if (claimed.count !== 1) {
+      throw new ConflictException(
+        "O evento ja foi alterado ou esta aguardando reenvio"
+      );
+    }
+
+    let queued: Awaited<ReturnType<ConversionEventsQueueService["retrySend"]>>;
+
+    try {
+      queued = await this.conversionEventsQueueService.retrySend(
+        conversionEvent.id,
+        conversionEvent.workspaceId
+      );
+    } catch (error) {
+      await this.prisma.conversionEventLog.updateMany({
+        where: {
+          id: conversionEvent.id,
+          workspaceId: conversionEvent.workspaceId,
+          status: "ready_to_send"
+        },
+        data: {
+          status: conversionEvent.status,
+          sentAt: conversionEvent.sentAt,
+          jobId: conversionEvent.jobId,
+          errorCode: conversionEvent.errorCode,
+          errorMessage: conversionEvent.errorMessage
+        }
+      });
+      throw error;
+    }
+
     const auditLog = await this.prisma.auditLog.create({
       data: {
         workspaceId: conversionEvent.workspaceId,
-        actorType: "platform",
+        actorUserId: context.actorUserId ?? null,
+        actorType: context.actorType ?? "platform",
         action: "diagnostic.conversion_retry_requested",
         targetType: "ConversionEventLog",
         targetId: conversionEvent.id,
@@ -1124,21 +1198,13 @@ export class DiagnosticsService {
       }
     });
 
-    const queued = await this.conversionEventsQueueService?.enqueueSend(
-      conversionEvent.id,
-      conversionEvent.workspaceId
-    );
     const jobId =
-      queued?.jobId ?? createBullJobId("conversion-send", conversionEvent.id);
+      queued.jobId ?? createBullJobId("conversion-send", conversionEvent.id);
 
     await this.prisma.conversionEventLog.update({
       where: { id: conversionEvent.id },
       data: {
-        status: "ready_to_send",
-        sentAt: null,
-        jobId,
-        errorCode: null,
-        errorMessage: null
+        jobId
       }
     });
 
@@ -1178,7 +1244,7 @@ export class DiagnosticsService {
         severity: "info",
         status: "queued",
         title: "Reenvio Meta CAPI enfileirado",
-        message: `Reenvio do evento ${conversionEvent.eventName} solicitado pelo backoffice.`,
+        message: `Reenvio do evento ${conversionEvent.eventName} solicitado ${context.requesterLabel ?? "pelo backoffice"}.`,
         leadId: conversionEvent.leadId,
         phoneHash: conversionEvent.phoneHash,
         campaignId: conversionEvent.campaignId,

@@ -30,6 +30,30 @@ function authenticated(
   };
 }
 
+function platformSupportAuthenticated(
+  platformRole: "platform_owner" | "platform_operator"
+) {
+  return {
+    user: {
+      id: platformRole,
+      email: `${platformRole}@wpptrack.com`,
+      name: platformRole,
+      authProvider: "email",
+      emailVerifiedAt: null,
+      platformRole
+    },
+    activeWorkspaceId: null,
+    workspaces: [],
+    supportContext: {
+      workspaceId: "workspace_1",
+      workspaceName: "Empresa 1",
+      workspaceSlug: "empresa-1",
+      operationalStatus: "active" as const,
+      startedAt: "2026-07-14T11:00:00.000Z"
+    }
+  };
+}
+
 function member(
   id: string,
   userId: string,
@@ -66,7 +90,11 @@ function createHarness() {
 
   const prismaBase = {
     workspaceMember: {
-      findFirst: async ({ where }: { where: { id: string; workspaceId: string } }) =>
+      findFirst: async ({
+        where
+      }: {
+        where: { id: string; workspaceId: string };
+      }) =>
         members.find(
           (candidate) =>
             candidate.id === where.id &&
@@ -89,7 +117,9 @@ function createHarness() {
         return target;
       },
       delete: async ({ where }: { where: { id: string } }) => {
-        const index = members.findIndex((candidate) => candidate.id === where.id);
+        const index = members.findIndex(
+          (candidate) => candidate.id === where.id
+        );
 
         if (index < 0) {
           throw new Error("member not found");
@@ -128,9 +158,8 @@ function createHarness() {
   };
   const prisma = {
     ...prismaBase,
-    $transaction: async <T>(
-      callback: (tx: typeof prismaBase) => Promise<T>
-    ) => callback(prismaBase)
+    $transaction: async <T>(callback: (tx: typeof prismaBase) => Promise<T>) =>
+      callback(prismaBase)
   };
 
   return {
@@ -220,6 +249,33 @@ describe("workspace member management", () => {
     );
   });
 
+  it("grants full team management only to the platform owner in support mode", async () => {
+    const { auditLogs, service } = createHarness();
+
+    const updated = await service.updateMemberManagerCapability(
+      platformSupportAuthenticated("platform_owner"),
+      "member_admin",
+      { canManageMembers: true }
+    );
+
+    expect(updated.canManageMembers).toBe(true);
+    expect(auditLogs).toContainEqual(
+      expect.objectContaining({
+        actorType: "platform_owner",
+        actorUserId: "platform_owner",
+        action: "workspace.member_manager_updated"
+      })
+    );
+
+    await expect(
+      service.updateMemberRole(
+        platformSupportAuthenticated("platform_operator"),
+        "member_analyst",
+        { role: "admin" }
+      )
+    ).rejects.toThrow("Sem permissao para gerenciar membros");
+  });
+
   it("returns the same not-found result for a member from another workspace", async () => {
     const { service } = createHarness();
 
@@ -233,12 +289,8 @@ describe("workspace member management", () => {
   });
 
   it("removes an ordinary member and revokes only sessions active in that workspace", async () => {
-    const {
-      members,
-      revokedSessionWrites,
-      service,
-      userPreferenceWrites
-    } = createHarness();
+    const { members, revokedSessionWrites, service, userPreferenceWrites } =
+      createHarness();
 
     const result = await service.removeMember(
       authenticated("owner", "owner"),
@@ -272,10 +324,7 @@ describe("workspace member management", () => {
     const { service } = createHarness();
 
     await expect(
-      service.removeMember(
-        authenticated("owner", "owner"),
-        "member_owner"
-      )
+      service.removeMember(authenticated("owner", "owner"), "member_owner")
     ).rejects.toThrow("Sem permissao para remover este membro");
   });
 });
