@@ -129,6 +129,9 @@ export class EmailEnvelopeCryptoService {
         context.workspaceId ?? "global",
         context.template,
         context.recipientHash,
+        context.actionType,
+        context.actionId,
+        context.actionVersion,
       ].join("\n"),
       "utf8",
     );

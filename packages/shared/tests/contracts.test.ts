@@ -85,6 +85,8 @@ import {
   workspaceBillingUpdateInputSchema,
   workspaceInviteAcceptInputSchema,
   workspaceInviteAcceptSchema,
+  workspaceInviteInspectionSchema,
+  workspaceInviteNewUserAcceptInputSchema,
   workspaceInviteSchema,
   workspaceMemberSchema,
   workspaceListSchema,
@@ -93,7 +95,7 @@ import {
   whatsappInstanceCheckoutSchema,
   whatsappInstanceConnectionSchema,
   whatsappInstanceSummarySchema,
-  whatsappInstanceQuoteSchema
+  whatsappInstanceQuoteSchema,
 } from "../src";
 
 describe("shared contracts", () => {
@@ -124,36 +126,36 @@ describe("shared contracts", () => {
         key: "real_conversations",
         label: "Conversas reais iniciadas",
         value: 80,
-        costCents: 1500
+        costCents: 1500,
       },
       {
         key: "qualified_lead",
         label: "Lead qualificado",
         value: 12,
-        costCents: 10000
+        costCents: 10000,
       },
       {
         key: "purchase",
         label: "Compras",
         value: 5,
-        costCents: 24000
+        costCents: 24000,
       },
       {
         key: "first_purchase",
         label: "Primeira compra",
-        value: 3
+        value: 3,
       },
       {
         key: "repurchase",
         label: "Recompra",
-        value: 2
-      }
-    ]
+        value: 2,
+      },
+    ],
   };
 
   it("does not include Clientes in client navigation", () => {
     expect(clientNavigation.map((item) => item.label)).not.toContain(
-      "Clientes"
+      "Clientes",
     );
   });
 
@@ -181,9 +183,9 @@ describe("shared contracts", () => {
           canManageWorkspaceSettings: true,
           canTransferOwnership: false,
           canViewReports: true,
-          canExportReports: true
-        }
-      }
+          canExportReports: true,
+        },
+      },
     ]);
 
     expect(workspaces[0]?.permissions.canManageBilling).toBe(false);
@@ -194,9 +196,9 @@ describe("shared contracts", () => {
           name: "Empresa A",
           slug: "empresa-a",
           role: "admin",
-          operationalStatus: "active"
-        }
-      ])
+          operationalStatus: "active",
+        },
+      ]),
     ).toThrow();
   });
 
@@ -205,7 +207,7 @@ describe("shared contracts", () => {
       workspaceName: "Empresa B",
       ownerName: "Responsavel Existente",
       ownerEmail: "OWNER@EMPRESA.COM",
-      ownerPassword: ""
+      ownerPassword: "",
     });
 
     expect(parsed.ownerEmail).toBe("owner@empresa.com");
@@ -228,12 +230,12 @@ describe("shared contracts", () => {
         owner: "campaign",
         type: "daily",
         amountCents: 49500,
-        editable: true
+        editable: true,
       },
       ...approvedReportMetrics,
       leadSubmitted: 30,
       purchase: 3,
-      roas: 4.2
+      roas: 4.2,
     });
 
     expect(parsed.purchases).toBe(5);
@@ -246,7 +248,7 @@ describe("shared contracts", () => {
       "qualified_lead",
       "purchase",
       "first_purchase",
-      "repurchase"
+      "repurchase",
     ]);
     expect("leadSubmitted" in parsed).toBe(false);
     expect("purchase" in parsed).toBe(false);
@@ -258,7 +260,7 @@ describe("shared contracts", () => {
       id: "cmp_1",
       name: "Black Friday WhatsApp",
       status: "active",
-      ...approvedReportMetrics
+      ...approvedReportMetrics,
     });
 
     expect(parsed.purchases).toBe(5);
@@ -271,7 +273,7 @@ describe("shared contracts", () => {
       "qualified_lead",
       "purchase",
       "first_purchase",
-      "repurchase"
+      "repurchase",
     ]);
   });
 
@@ -282,20 +284,20 @@ describe("shared contracts", () => {
           eventName: "OrderDelivered",
           label: "Pedidos entregues",
           position: 1,
-          visible: true
+          visible: true,
         },
         {
           eventName: "Purchase",
           label: "Vendas",
           position: 2,
-          visible: false
-        }
-      ]
+          visible: false,
+        },
+      ],
     });
 
     expect(configuration.stages[0]?.eventName).toBe("OrderDelivered");
     expect(conversionEventDisplayLabel("OrderDelivered")).toBe(
-      "Pedido entregue"
+      "Pedido entregue",
     );
     expect(conversionEventDisplayLabel("CustomEvent")).toBe("CustomEvent");
   });
@@ -309,7 +311,7 @@ describe("shared contracts", () => {
       pageName: "Pagina Principal",
       status: "configured",
       lastValidatedAt: "2026-07-09T12:00:00.000Z",
-      validationError: null
+      validationError: null,
     });
     const account = metaReportingAccountSchema.parse({
       id: "reporting_1",
@@ -323,7 +325,7 @@ describe("shared contracts", () => {
       active: true,
       syncStatus: "synced",
       lastSyncedAt: "2026-07-09T12:00:00.000Z",
-      syncError: null
+      syncError: null,
     });
 
     expect(destination.pageId).toBe("page_1");
@@ -340,7 +342,7 @@ describe("shared contracts", () => {
       adAccountId: "act_123",
       adAccountName: "Conta WhatsApp",
       whatsappClassification: "auto_whatsapp",
-      ...approvedReportMetrics
+      ...approvedReportMetrics,
     });
 
     expect(row.whatsappClassification).toBe("auto_whatsapp");
@@ -351,12 +353,12 @@ describe("shared contracts", () => {
     const include = metaWhatsappOverrideInputSchema.parse({
       level: "campaign",
       id: " cmp_1 ",
-      override: "manual_include"
+      override: "manual_include",
     });
     const reset = metaWhatsappOverrideInputSchema.parse({
       level: "ad",
       id: "ad_1",
-      override: null
+      override: null,
     });
 
     expect(include.id).toBe("cmp_1");
@@ -366,15 +368,15 @@ describe("shared contracts", () => {
       metaWhatsappOverrideInputSchema.parse({
         level: "business",
         id: "business_1",
-        override: "manual_include"
-      })
+        override: "manual_include",
+      }),
     ).toThrow();
     expect(() =>
       metaWhatsappOverrideInputSchema.parse({
         level: "campaign",
         id: "   ",
-        override: "manual_include"
-      })
+        override: "manual_include",
+      }),
     ).toThrow();
   });
 
@@ -389,14 +391,14 @@ describe("shared contracts", () => {
       level: "ad",
       id: " ad_1 ",
       expectedStatus: "PAUSED",
-      targetStatus: "ACTIVE"
+      targetStatus: "ACTIVE",
     });
     const budget = metaBudgetUpdateInputSchema.parse({
       level: "adset",
       id: "adset_1",
       budgetType: "daily",
       expectedBudgetCents: 45000,
-      budgetCents: 65000
+      budgetCents: 65000,
     });
 
     expect(status.id).toBe("ad_1");
@@ -408,8 +410,8 @@ describe("shared contracts", () => {
         id: "ad_1",
         budgetType: "daily",
         expectedBudgetCents: 0,
-        budgetCents: 10000
-      })
+        budgetCents: 10000,
+      }),
     ).toThrow();
     expect(() =>
       metaBudgetUpdateInputSchema.parse({
@@ -417,8 +419,8 @@ describe("shared contracts", () => {
         id: "cmp_1",
         budgetType: "daily",
         expectedBudgetCents: 45000,
-        budgetCents: 0
-      })
+        budgetCents: 0,
+      }),
     ).toThrow();
   });
 
@@ -444,11 +446,11 @@ describe("shared contracts", () => {
             owner: "adset",
             type: "daily",
             amountCents: 45000,
-            editable: true
+            editable: true,
           },
-          ...approvedReportMetrics
-        }
-      ]
+          ...approvedReportMetrics,
+        },
+      ],
     });
     const ads = adReportOverviewSchema.parse({
       workspaceId: "workspace_1",
@@ -471,20 +473,20 @@ describe("shared contracts", () => {
           effectiveStatus: "ACTIVE",
           thumbnailUrl: "https://cdn.example.test/ad-1.jpg",
           previewUrl: "https://cdn.example.test/ad-1-large.jpg",
-          ...approvedReportMetrics
-        }
-      ]
+          ...approvedReportMetrics,
+        },
+      ],
     });
 
     expect(adSets.adSets[0]?.campaignName).toBe("Black Friday WhatsApp");
     expect(adSets.adSets[0]?.funnelSteps[0]?.label).toBe(
-      "Conversas reais iniciadas"
+      "Conversas reais iniciadas",
     );
     expect(adSets.adSets[0]?.budget?.owner).toBe("adset");
     expect(ads.ads[0]?.adSetName).toBe("Publico quente");
     expect(ads.ads[0]?.thumbnailUrl).toBe("https://cdn.example.test/ad-1.jpg");
     expect(ads.ads[0]?.previewUrl).toBe(
-      "https://cdn.example.test/ad-1-large.jpg"
+      "https://cdn.example.test/ad-1-large.jpg",
     );
     expect(ads.ads[0]?.roasWithRepurchase).toBe(4.1667);
   });
@@ -510,17 +512,17 @@ describe("shared contracts", () => {
                   id: "ad_1",
                   name: "Criativo WhatsApp",
                   status: "ACTIVE",
-                  effectiveStatus: "ACTIVE"
-                }
-              ]
-            }
-          ]
-        }
-      ]
+                  effectiveStatus: "ACTIVE",
+                },
+              ],
+            },
+          ],
+        },
+      ],
     });
 
     expect(parsed.campaigns[0]?.adSets[0]?.ads[0]?.name).toBe(
-      "Criativo WhatsApp"
+      "Criativo WhatsApp",
     );
   });
 
@@ -529,7 +531,7 @@ describe("shared contracts", () => {
       provider: "meta",
       status: "disconnected",
       checkedAt: "2026-07-01T21:30:00.000Z",
-      message: "Missing credentials"
+      message: "Missing credentials",
     });
 
     expect(parsed.provider).toBe("meta");
@@ -541,8 +543,8 @@ describe("shared contracts", () => {
       integrationHealthSchema.parse({
         provider: "stripe",
         status: "online",
-        checkedAt: "not-a-date"
-      })
+        checkedAt: "not-a-date",
+      }),
     ).toThrow();
   });
 
@@ -554,15 +556,15 @@ describe("shared contracts", () => {
           provider: "meta",
           status: "disconnected",
           checkedAt: "2026-07-02T03:00:00.000Z",
-          message: "Missing META_APP_ID or META_APP_SECRET"
-        }
-      ]
+          message: "Missing META_APP_ID or META_APP_SECRET",
+        },
+      ],
     });
     const action = integrationStartActionSchema.parse({
       provider: "meta",
       action: "configure_env",
       label: "Configurar app Meta",
-      missingEnv: ["META_APP_ID", "META_APP_SECRET"]
+      missingEnv: ["META_APP_ID", "META_APP_SECRET"],
     });
 
     expect(summary.providers[0]?.provider).toBe("meta");
@@ -578,15 +580,15 @@ describe("shared contracts", () => {
           key: "webhook",
           label: "Webhook",
           value: 12,
-          detail: "Webhooks Uazapi recebidos"
+          detail: "Webhooks Uazapi recebidos",
         },
         {
           key: "meta_sent",
           label: "Meta ACK",
           value: 7,
-          detail: "Eventos enviados para Meta"
-        }
-      ]
+          detail: "Eventos enviados para Meta",
+        },
+      ],
     });
 
     expect(overview.stages[0]?.value).toBe(12);
@@ -596,12 +598,12 @@ describe("shared contracts", () => {
   it("validates login payloads and normalizes email", () => {
     const parsed = loginSchema.parse({
       email: "  OWNER@WPPTRACK.COM  ",
-      password: "secret123"
+      password: "secret123",
     });
 
     expect(parsed).toEqual({
       email: "owner@wpptrack.com",
-      password: "secret123"
+      password: "secret123",
     });
   });
 
@@ -609,8 +611,8 @@ describe("shared contracts", () => {
     expect(() =>
       loginSchema.parse({
         email: "owner@wpptrack.com",
-        password: "short"
-      })
+        password: "short",
+      }),
     ).toThrow();
   });
 
@@ -619,7 +621,7 @@ describe("shared contracts", () => {
       name: "Samuel",
       email: "SAMUEL@WPPTRACK.COM",
       password: "strong-password",
-      workspaceName: "WppTrack"
+      workspaceName: "WppTrack",
     });
 
     expect(parsed.email).toBe("samuel@wpptrack.com");
@@ -631,14 +633,14 @@ describe("shared contracts", () => {
       registerSchema.parse({
         name: "S",
         email: "samuel@wpptrack.com",
-        password: "strong-password"
-      })
+        password: "strong-password",
+      }),
     ).toThrow();
   });
 
   it("validates google oauth start payloads without requiring oauth wiring", () => {
     const parsed = googleOAuthStartSchema.parse({
-      redirectTo: "/dashboard"
+      redirectTo: "/dashboard",
     });
     const result = googleOAuthStartResultSchema.parse({
       provider: "google",
@@ -646,7 +648,7 @@ describe("shared contracts", () => {
       authorizationUrl:
         "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc",
       missingEnv: [],
-      state: "state-token"
+      state: "state-token",
     });
 
     expect(parsed.redirectTo).toBe("/dashboard");
@@ -656,14 +658,14 @@ describe("shared contracts", () => {
   it("validates google oauth callback scaffolding payloads", () => {
     const query = googleOAuthCallbackQuerySchema.parse({
       code: "oauth-code",
-      state: "state-token"
+      state: "state-token",
     });
     const result = googleOAuthCallbackResultSchema.parse({
       provider: "google",
       action: "exchange_pending",
       missingEnv: [],
       codeReceived: true,
-      redirectTo: "/overview"
+      redirectTo: "/overview",
     });
 
     expect(query.code).toBe("oauth-code");
@@ -676,7 +678,7 @@ describe("shared contracts", () => {
       action: "authenticated",
       missingEnv: [],
       codeReceived: true,
-      redirectTo: "/overview"
+      redirectTo: "/overview",
     });
 
     expect(result.action).toBe("authenticated");
@@ -685,7 +687,7 @@ describe("shared contracts", () => {
   it("validates Meta OAuth callback and sanitized exchange result payloads", () => {
     const query = metaOAuthCallbackQuerySchema.parse({
       code: "meta-code",
-      state: "workspace-state"
+      state: "workspace-state",
     });
     const result = metaOAuthCallbackResultSchema.parse({
       provider: "meta",
@@ -693,12 +695,12 @@ describe("shared contracts", () => {
       tokenType: "bearer",
       expiresInSeconds: 5183944,
       scopes: ["ads_read", "business_management"],
-      message: "Meta OAuth conectado"
+      message: "Meta OAuth conectado",
     });
 
     expect(query.code).toBe("meta-code");
     expect(
-      metaOAuthCallbackQuerySchema.safeParse({ code: "meta-code" }).success
+      metaOAuthCallbackQuerySchema.safeParse({ code: "meta-code" }).success,
     ).toBe(false);
     expect(result.status).toBe("connected");
     expect("accessToken" in result).toBe(false);
@@ -714,7 +716,7 @@ describe("shared contracts", () => {
       connectedAt: "2026-07-02T03:00:00.000Z",
       selectedBusinessId: null,
       selectedAdAccountId: null,
-      selectedPixelId: "pixel_1"
+      selectedPixelId: "pixel_1",
     });
 
     expect(connection.status).toBe("connected");
@@ -729,8 +731,8 @@ describe("shared contracts", () => {
         {
           id: "business_1",
           name: "BM Principal",
-          verificationStatus: "verified"
-        }
+          verificationStatus: "verified",
+        },
       ],
       adAccounts: [
         {
@@ -739,23 +741,23 @@ describe("shared contracts", () => {
           name: "Conta WhatsApp",
           accountStatus: "1",
           currency: "BRL",
-          timezoneName: "America/Sao_Paulo"
-        }
+          timezoneName: "America/Sao_Paulo",
+        },
       ],
       pixels: [
         {
           id: "pixel_1",
           businessId: "business_1",
           name: "Pixel Loja",
-          code: "1234567890"
-        }
+          code: "1234567890",
+        },
       ],
       pages: [
         {
           id: "page_1",
           businessId: "business_1",
-          name: "Pagina Principal"
-        }
+          name: "Pagina Principal",
+        },
       ],
       conversionDestination: {
         workspaceId: "workspace_1",
@@ -765,7 +767,7 @@ describe("shared contracts", () => {
         pageName: "Pagina Principal",
         status: "configured",
         lastValidatedAt: "2026-07-02T12:00:00.000Z",
-        validationError: null
+        validationError: null,
       },
       reportingAccounts: [
         {
@@ -780,21 +782,21 @@ describe("shared contracts", () => {
           active: true,
           syncStatus: "synced",
           lastSyncedAt: "2026-07-02T12:00:00.000Z",
-          syncError: null
-        }
+          syncError: null,
+        },
       ],
       selection: {
         businessId: "business_1",
         adAccountId: "act_123",
-        pixelId: "pixel_1"
+        pixelId: "pixel_1",
       },
       lastSyncedAt: "2026-07-02T12:00:00.000Z",
-      syncError: null
+      syncError: null,
     });
     const input = metaAssetSelectionInputSchema.parse({
       businessId: "business_1",
       adAccountId: "act_123",
-      pixelId: "pixel_1"
+      pixelId: "pixel_1",
     });
 
     expect(assets.businesses[0]?.name).toBe("BM Principal");
@@ -812,8 +814,8 @@ describe("shared contracts", () => {
         {
           id: "business_1",
           name: "BM Principal",
-          verificationStatus: "verified"
-        }
+          verificationStatus: "verified",
+        },
       ],
       adAccounts: [
         {
@@ -822,24 +824,24 @@ describe("shared contracts", () => {
           name: "Conta WhatsApp",
           accountStatus: "1",
           currency: "BRL",
-          timezoneName: "America/Sao_Paulo"
-        }
+          timezoneName: "America/Sao_Paulo",
+        },
       ],
       pixels: [
         {
           id: "pixel_1",
           businessId: "business_1",
           name: "Pixel Loja",
-          code: "1234567890"
-        }
+          code: "1234567890",
+        },
       ],
       selection: {
         businessId: "business_1",
         adAccountId: "act_123",
-        pixelId: "pixel_1"
+        pixelId: "pixel_1",
       },
       lastSyncedAt: "2026-07-02T12:00:00.000Z",
-      syncError: null
+      syncError: null,
     });
 
     expect(assets.pixels[0]?.name).toBe("Pixel Loja");
@@ -848,15 +850,15 @@ describe("shared contracts", () => {
 
   it("validates Meta CAPI token configuration contracts without echoing secrets", () => {
     const saveInput = metaCapiTokenInputSchema.parse({
-      accessToken: "EAAB-capi-token-secret"
+      accessToken: "EAAB-capi-token-secret",
     });
     const clearInput = metaCapiTokenInputSchema.parse({
-      clear: true
+      clear: true,
     });
     const status = metaCapiTokenStatusSchema.parse({
       workspaceId: "workspace_1",
       configured: true,
-      updatedAt: "2026-07-02T03:00:00.000Z"
+      updatedAt: "2026-07-02T03:00:00.000Z",
     });
 
     expect(saveInput.accessToken).toBe("EAAB-capi-token-secret");
@@ -867,29 +869,29 @@ describe("shared contracts", () => {
 
   it("validates password reset and email verification contracts", () => {
     const resetRequest = passwordResetRequestInputSchema.parse({
-      email: " USER@WPPTRACK.COM "
+      email: " USER@WPPTRACK.COM ",
     });
     const resetResult = passwordResetRequestSchema.parse({
       ok: true,
       delivery: "not_configured",
-      devToken: "reset-token-1234567890"
+      devToken: "reset-token-1234567890",
     });
     const resetConfirm = passwordResetConfirmInputSchema.parse({
       token: "reset-token-1234567890",
-      password: "new-strong-password"
+      password: "new-strong-password",
     });
     const resetConfirmed = passwordResetConfirmSchema.parse({ ok: true });
     const verificationStart = emailVerificationStartSchema.parse({
       ok: true,
       delivery: "not_configured",
-      devToken: null
+      devToken: null,
     });
     const verificationConfirm = emailVerificationConfirmInputSchema.parse({
-      token: "verify-token-1234567890"
+      token: "verify-token-1234567890",
     });
     const verified = emailVerificationConfirmSchema.parse({
       ok: true,
-      emailVerifiedAt: "2026-07-02T03:00:00.000Z"
+      emailVerifiedAt: "2026-07-02T03:00:00.000Z",
     });
 
     expect(resetRequest.email).toBe("user@wpptrack.com");
@@ -918,8 +920,8 @@ describe("shared contracts", () => {
         canManageWorkspaceSettings: true,
         canTransferOwnership: true,
         canViewReports: true,
-        canExportReports: true
-      }
+        canExportReports: true,
+      },
     });
     const member = workspaceMemberSchema.parse({
       id: "member_1",
@@ -928,11 +930,11 @@ describe("shared contracts", () => {
       name: "Owner",
       role: "owner",
       canManageMembers: false,
-      joinedAt: "2026-07-02T03:00:00.000Z"
+      joinedAt: "2026-07-02T03:00:00.000Z",
     });
     const inviteInput = workspaceInviteInputSchema.parse({
       email: " ADMIN@WPPTRACK.COM ",
-      role: "admin"
+      role: "admin",
     });
     const invite = workspaceInviteSchema.parse({
       id: "invite_1",
@@ -940,16 +942,28 @@ describe("shared contracts", () => {
       role: "admin",
       status: "pending",
       expiresAt: "2026-07-09T03:00:00.000Z",
-      acceptToken: "invite-token-1234567890"
     });
     const acceptInput = workspaceInviteAcceptInputSchema.parse({
-      token: "invite-token-1234567890"
+      token: "invite-token-1234567890",
     });
     const accepted = workspaceInviteAcceptSchema.parse({
       workspaceId: "workspace_1",
       memberId: "member_2",
       role: "admin",
-      status: "accepted"
+      status: "accepted",
+    });
+    const newUserAccept = workspaceInviteNewUserAcceptInputSchema.parse({
+      token: "invite-token-1234567890",
+      name: " New Member ",
+      password: "strong-password-123",
+    });
+    const inspection = workspaceInviteInspectionSchema.parse({
+      state: "valid",
+      workspaceName: "Comunidade NOD",
+      emailHint: "ad***@wpptrack.com",
+      role: "admin",
+      accountMode: "login",
+      expiresAt: "2026-07-09T03:00:00.000Z",
     });
 
     expect(workspace.permissions.canManageBilling).toBe(true);
@@ -958,14 +972,16 @@ describe("shared contracts", () => {
     expect(member.role).toBe("owner");
     expect(inviteInput.email).toBe("admin@wpptrack.com");
     expect(invite.status).toBe("pending");
-    expect(invite.acceptToken).toBe("invite-token-1234567890");
+    expect(invite).not.toHaveProperty("acceptToken");
     expect(acceptInput.token).toBe("invite-token-1234567890");
     expect(accepted.memberId).toBe("member_2");
+    expect(newUserAccept.name).toBe("New Member");
+    expect(inspection.state).toBe("valid");
   });
 
   it("validates workspace update input", () => {
     const input = workspaceUpdateInputSchema.parse({
-      name: " Loja Samuel "
+      name: " Loja Samuel ",
     });
 
     expect(input.name).toBe("Loja Samuel");
@@ -973,10 +989,10 @@ describe("shared contracts", () => {
 
   it("validates workspace billing configuration for platform backoffice", () => {
     const input = workspaceBillingUpdateInputSchema.parse({
-      asaasCustomerId: "cus_asaas_1"
+      asaasCustomerId: "cus_asaas_1",
     });
     const cleared = workspaceBillingUpdateInputSchema.parse({
-      asaasCustomerId: null
+      asaasCustomerId: null,
     });
     const billing = workspaceBillingSchema.parse({
       id: "workspace_1",
@@ -985,10 +1001,10 @@ describe("shared contracts", () => {
       asaasCustomerId: "cus_asaas_1",
       operationalStatus: "active",
       subscriptionStatus: "active",
-      activeInstances: 2
+      activeInstances: 2,
     });
     const statusInput = workspaceOperationalStatusUpdateInputSchema.parse({
-      operationalStatus: "blocked"
+      operationalStatus: "blocked",
     });
 
     expect(input.asaasCustomerId).toBe("cus_asaas_1");
@@ -1009,7 +1025,7 @@ describe("shared contracts", () => {
         asaasCustomerId: "cus_asaas_1",
         operationalStatus: "active",
         subscriptionStatus: "active",
-        activeInstances: 1
+        activeInstances: 1,
       },
       {
         id: "workspace_2",
@@ -1018,8 +1034,8 @@ describe("shared contracts", () => {
         asaasCustomerId: null,
         operationalStatus: "blocked",
         subscriptionStatus: "not_configured",
-        activeInstances: 0
-      }
+        activeInstances: 0,
+      },
     ]);
 
     expect(workspaces).toHaveLength(2);
@@ -1030,8 +1046,8 @@ describe("shared contracts", () => {
     expect(() =>
       workspaceInviteInputSchema.parse({
         email: "owner2@wpptrack.com",
-        role: "owner"
-      })
+        role: "owner",
+      }),
     ).toThrow();
   });
 
@@ -1046,8 +1062,8 @@ describe("shared contracts", () => {
       message: "Parametro currency ausente",
       summaryPayload: {
         authorization: "secret-token",
-        currency: null
-      }
+        currency: null,
+      },
     });
     const query = diagnosticEventListQuerySchema.parse({
       source: "meta",
@@ -1057,7 +1073,7 @@ describe("shared contracts", () => {
       phoneHash: "phone_hash_1",
       campaignId: "cmp_1",
       errorCode: "MISSING_CURRENCY",
-      limit: "25"
+      limit: "25",
     });
     const detail = diagnosticEventDetailSchema.parse({
       id: "diag_1",
@@ -1077,7 +1093,7 @@ describe("shared contracts", () => {
       jobId: null,
       errorCode: "MISSING_CURRENCY",
       summaryPayload: {
-        currency: null
+        currency: null,
       },
       timeline: [
         {
@@ -1087,8 +1103,8 @@ describe("shared contracts", () => {
           status: "error",
           occurredAt: "2026-07-02T03:00:00.000Z",
           summaryPayload: {
-            currency: null
-          }
+            currency: null,
+          },
         },
         {
           id: "job_attempt_1",
@@ -1096,9 +1112,9 @@ describe("shared contracts", () => {
           label: "retry-diagnostic-event",
           status: "queued",
           occurredAt: "2026-07-02T03:01:00.000Z",
-          summaryPayload: null
-        }
-      ]
+          summaryPayload: null,
+        },
+      ],
     });
 
     expect(create.source).toBe("meta");
@@ -1110,7 +1126,7 @@ describe("shared contracts", () => {
       phoneHash: "phone_hash_1",
       campaignId: "cmp_1",
       errorCode: "MISSING_CURRENCY",
-      limit: 25
+      limit: 25,
     });
     expect(detail.errorCode).toBe("MISSING_CURRENCY");
     expect(detail.timeline[1]?.kind).toBe("job_attempt");
@@ -1118,14 +1134,14 @@ describe("shared contracts", () => {
 
   it("validates diagnostic retry contracts", () => {
     const input = diagnosticRetryInputSchema.parse({
-      reason: "Cliente relatou conversao faltando no relatorio"
+      reason: "Cliente relatou conversao faltando no relatorio",
     });
     const result = diagnosticRetryResultSchema.parse({
       ok: true,
       status: "queued",
       diagnosticEventId: "diag_1",
       auditLogId: "audit_1",
-      jobAttemptId: "job_attempt_1"
+      jobAttemptId: "job_attempt_1",
     });
 
     expect(input.reason).toContain("conversao");
@@ -1146,9 +1162,9 @@ describe("shared contracts", () => {
       payload: {
         message: {
           text: "Venda fechada",
-          token: "[redacted]"
-        }
-      }
+          token: "[redacted]",
+        },
+      },
     });
 
     expect(payload.payloadKind).toBe("summary");
@@ -1162,11 +1178,11 @@ describe("shared contracts", () => {
       activeInstances: 1,
       pricePerInstanceCents: 9900,
       nextInstanceAmountCents: 9900,
-      currency: "BRL"
+      currency: "BRL",
     });
     const input = whatsappInstanceCheckoutInputSchema.parse({
       instanceName: "Comercial",
-      provider: "uazapi"
+      provider: "uazapi",
     });
     const checkout = whatsappInstanceCheckoutSchema.parse({
       workspaceId: "workspace_1",
@@ -1178,7 +1194,7 @@ describe("shared contracts", () => {
       checkoutUrl: null,
       paymentProvider: "asaas",
       paymentProviderStatus: "not_configured",
-      externalChargeId: null
+      externalChargeId: null,
     });
 
     expect(quote.currency).toBe("BRL");
@@ -1196,7 +1212,7 @@ describe("shared contracts", () => {
       pricePerWhatsappInstanceCents: 9900,
       monthlyAmountCents: 29700,
       currentPeriodEnd: "2026-08-02T03:00:00.000Z",
-      asaasSubscriptionId: "sub_asaas_1"
+      asaasSubscriptionId: "sub_asaas_1",
     });
 
     expect(subscription.monthlyAmountCents).toBe(29700);
@@ -1212,7 +1228,7 @@ describe("shared contracts", () => {
       adId: "ad_1",
       since: "2026-07-01",
       until: "2026-07-02",
-      limit: "25"
+      limit: "25",
     });
     const lead = leadListItemSchema.parse({
       id: "lead_1",
@@ -1231,7 +1247,7 @@ describe("shared contracts", () => {
       firstMessageAt: "2026-07-02T03:00:00.000Z",
       lastMessageAt: "2026-07-02T03:10:00.000Z",
       createdAt: "2026-07-02T03:00:00.000Z",
-      updatedAt: "2026-07-02T03:10:00.000Z"
+      updatedAt: "2026-07-02T03:10:00.000Z",
     });
 
     expect(query).toMatchObject({
@@ -1243,7 +1259,7 @@ describe("shared contracts", () => {
       adId: "ad_1",
       since: "2026-07-01",
       until: "2026-07-02",
-      limit: 25
+      limit: 25,
     });
     expect(lead.lastEventName).toBe("QualifiedLead");
     expect(lead.labels).toEqual(["Venda fechada", "VIP"]);
@@ -1268,7 +1284,7 @@ describe("shared contracts", () => {
         firstMessageAt: "2026-07-02T03:00:00.000Z",
         lastMessageAt: "2026-07-02T03:10:00.000Z",
         createdAt: "2026-07-02T03:00:00.000Z",
-        updatedAt: "2026-07-02T03:10:00.000Z"
+        updatedAt: "2026-07-02T03:10:00.000Z",
       },
       attribution: {
         campaignName: "Black Friday WhatsApp",
@@ -1276,8 +1292,8 @@ describe("shared contracts", () => {
         adName: "Criativo WhatsApp",
         creative: {
           thumbnailUrl: "https://cdn.example.test/creative.jpg",
-          destinationUrl: "https://www.instagram.com/p/creative/"
-        }
+          destinationUrl: "https://www.instagram.com/p/creative/",
+        },
       },
       conversionEvents: [
         {
@@ -1293,8 +1309,8 @@ describe("shared contracts", () => {
           errorMessage: null,
           occurredAt: "2026-07-02T03:11:00.000Z",
           sentAt: "2026-07-02T03:13:00.000Z",
-          createdAt: "2026-07-02T03:12:00.000Z"
-        }
+          createdAt: "2026-07-02T03:12:00.000Z",
+        },
       ],
       webhookEvents: [
         {
@@ -1305,14 +1321,14 @@ describe("shared contracts", () => {
           errorCode: null,
           errorMessage: null,
           receivedAt: "2026-07-02T03:01:00.000Z",
-          processedAt: "2026-07-02T03:01:01.000Z"
-        }
-      ]
+          processedAt: "2026-07-02T03:01:01.000Z",
+        },
+      ],
     });
 
     expect(detail.attribution.adName).toBe("Criativo WhatsApp");
     expect(detail.attribution.creative.thumbnailUrl).toBe(
-      "https://cdn.example.test/creative.jpg"
+      "https://cdn.example.test/creative.jpg",
     );
     expect(detail.conversionEvents[0]?.status).toBe("sent");
     expect(detail.webhookEvents[0]?.source).toBe("uazapi");
@@ -1325,7 +1341,7 @@ describe("shared contracts", () => {
       billingStatus: "active",
       connectionStatus: "qr_required",
       qrCode: "base64-or-text-qr",
-      message: "Escaneie o QR Code no WhatsApp Business"
+      message: "Escaneie o QR Code no WhatsApp Business",
     });
 
     expect(connection.provider).toBe("uazapi");
@@ -1340,7 +1356,7 @@ describe("shared contracts", () => {
       billingStatus: "active",
       providerInstanceId: "provider_instance_1",
       checkoutUrl: null,
-      createdAt: "2026-07-02T03:00:00.000Z"
+      createdAt: "2026-07-02T03:00:00.000Z",
     });
 
     expect(instance.billingStatus).toBe("active");
@@ -1353,11 +1369,11 @@ describe("shared contracts", () => {
       name: "Socio Operacional",
       walletId: "wallet_asaas_1",
       email: "socio@wpptrack.com",
-      percentageBps: 2500
+      percentageBps: 2500,
     });
     const update = splitReceiverUpdateInputSchema.parse({
       active: false,
-      percentageBps: 1500
+      percentageBps: 1500,
     });
     const receiver = splitReceiverSchema.parse({
       id: "receiver_1",
@@ -1367,7 +1383,7 @@ describe("shared contracts", () => {
       percentageBps: 2500,
       active: true,
       createdAt: "2026-07-02T03:00:00.000Z",
-      updatedAt: "2026-07-02T03:00:00.000Z"
+      updatedAt: "2026-07-02T03:00:00.000Z",
     });
 
     expect(create.percentageBps).toBe(2500);
@@ -1390,7 +1406,7 @@ describe("shared contracts", () => {
       paidAt: "2026-07-02T12:00:00.000Z",
       createdAt: "2026-07-02T11:00:00.000Z",
       whatsappInstanceId: "wpp_1",
-      whatsappInstanceName: "Comercial"
+      whatsappInstanceName: "Comercial",
     });
     const charges = backofficePaymentChargeListSchema.parse([charge]);
 
@@ -1404,11 +1420,11 @@ describe("shared contracts", () => {
       name: "Plano Growth",
       slug: "growth",
       pricePerWhatsappInstanceCents: 12900,
-      active: true
+      active: true,
     });
     const update = backofficeSubscriptionPlanUpdateInputSchema.parse({
       pricePerWhatsappInstanceCents: 14900,
-      active: false
+      active: false,
     });
     const plan = backofficeSubscriptionPlanSchema.parse({
       id: "plan_1",
@@ -1417,7 +1433,7 @@ describe("shared contracts", () => {
       pricePerWhatsappInstanceCents: 12900,
       active: true,
       createdAt: "2026-07-02T03:00:00.000Z",
-      updatedAt: "2026-07-02T03:00:00.000Z"
+      updatedAt: "2026-07-02T03:00:00.000Z",
     });
 
     expect(create.slug).toBe("growth");
@@ -1427,34 +1443,34 @@ describe("shared contracts", () => {
 
   it("validates supported Meta CAPI WhatsApp event names", () => {
     expect(conversionEventNameSchema.parse("LeadSubmitted")).toBe(
-      "LeadSubmitted"
+      "LeadSubmitted",
     );
     expect(conversionEventNameSchema.parse("QualifiedLead")).toBe(
-      "QualifiedLead"
+      "QualifiedLead",
     );
     expect(conversionEventNameSchema.parse("Purchase")).toBe("Purchase");
     expect(conversionEventNameSchema.parse("OrderDelivered")).toBe(
-      "OrderDelivered"
+      "OrderDelivered",
     );
     expect(() => conversionEventNameSchema.parse("Contact")).toThrow();
   });
 
   it("validates conversion event statuses and error codes", () => {
     expect(conversionEventLogStatusSchema.parse("pending_meta_context")).toBe(
-      "pending_meta_context"
+      "pending_meta_context",
     );
     expect(conversionEventLogStatusSchema.parse("pending_value")).toBe(
-      "pending_value"
+      "pending_value",
     );
     expect(conversionEventLogStatusSchema.parse("imported")).toBe("imported");
     expect(conversionEventLogStatusSchema.parse("shadow_observed")).toBe(
-      "shadow_observed"
+      "shadow_observed",
     );
     expect(conversionEventErrorCodeSchema.parse("MissingCtwaClid")).toBe(
-      "MissingCtwaClid"
+      "MissingCtwaClid",
     );
     expect(conversionEventErrorCodeSchema.parse("MetaCapiRejected")).toBe(
-      "MetaCapiRejected"
+      "MetaCapiRejected",
     );
   });
 
@@ -1484,7 +1500,7 @@ describe("shared contracts", () => {
       status: "sent",
       providerResponseSummary: "events_received: 1",
       errorCode: null,
-      errorMessage: null
+      errorMessage: null,
     });
     const overview = conversionAuditOverviewSchema.parse({
       workspaceId: "workspace_1",
@@ -1498,13 +1514,13 @@ describe("shared contracts", () => {
         notEligible: 0,
         shadowObserved: 0,
         historical: 0,
-        discarded: 0
+        discarded: 0,
       },
       pagination: {
         page: 1,
         pageSize: 25,
         totalItems: 2,
-        totalPages: 1
+        totalPages: 1,
       },
       events: [
         event,
@@ -1533,9 +1549,9 @@ describe("shared contracts", () => {
           status: "error",
           providerResponseSummary: null,
           errorCode: "MetaCapiRejected",
-          errorMessage: "Invalid match key"
-        }
-      ]
+          errorMessage: "Invalid match key",
+        },
+      ],
     });
 
     expect(event.eventLabel).toBe("Compras");
@@ -1576,22 +1592,22 @@ describe("shared contracts", () => {
       sourceSnapshot: {
         mode: "stored_normalized",
         label: "Entrada normalizada armazenada",
-        payload: { ctwaClid: "ctwa_1" }
+        payload: { ctwaClid: "ctwa_1" },
       },
       metaRequest: {
         mode: "stored",
         label: "Payload exato armazenado no envio",
-        payload: { data: [{ event_name: "QualifiedLead" }] }
+        payload: { data: [{ event_name: "QualifiedLead" }] },
       },
       metaResponse: {
         mode: "stored",
         label: "Resposta armazenada da Meta",
-        payload: { events_received: 1 }
-      }
+        payload: { events_received: 1 },
+      },
     });
 
     expect(detail.metaRequest.payload).toEqual({
-      data: [{ event_name: "QualifiedLead" }]
+      data: [{ event_name: "QualifiedLead" }],
     });
     expect(detail.sourceSnapshot.mode).toBe("stored_normalized");
   });
@@ -1606,7 +1622,7 @@ describe("shared contracts", () => {
       defaultValueCents: 19900,
       defaultCurrency: "BRL",
       defaultContentName: "Plano mensal",
-      defaultItems: [{ id: "plan_1", quantity: 1, item_price: 199 }]
+      defaultItems: [{ id: "plan_1", quantity: 1, item_price: 199 }],
     });
 
     expect(input.defaultValueCents).toBe(19900);
@@ -1620,7 +1636,7 @@ describe("shared contracts", () => {
       phoneHash: "phone_hash_1",
       adId: "ad_1",
       ctwaClid: "clid_1",
-      testEventCode: "TEST12345"
+      testEventCode: "TEST12345",
     });
 
     expect(input.testEventCode).toBe("TEST12345");
@@ -1636,7 +1652,7 @@ describe("shared contracts", () => {
       valueCents: 19900,
       currency: "BRL",
       contentName: "Plano mensal",
-      testEventCode: "TEST12345"
+      testEventCode: "TEST12345",
     });
 
     expect(input.eventName).toBe("Purchase");
@@ -1650,11 +1666,11 @@ describe("shared contracts", () => {
       triggerValue: "quero comprar",
       matchMode: "contains",
       eventName: "QualifiedLead",
-      pixelId: "1234567890"
+      pixelId: "1234567890",
     });
     const update = conversionRuleUpdateInputSchema.parse({
       active: false,
-      triggerValue: "VIP"
+      triggerValue: "VIP",
     });
     const rule = conversionRuleSchema.parse({
       id: "rule_1",
@@ -1667,11 +1683,11 @@ describe("shared contracts", () => {
       pixelId: null,
       active: true,
       createdAt: "2026-07-02T03:00:00.000Z",
-      updatedAt: "2026-07-02T03:00:00.000Z"
+      updatedAt: "2026-07-02T03:00:00.000Z",
     });
     const evaluation = conversionTriggerEvaluationInputSchema.parse({
       messageText: "Oi, quero comprar agora",
-      labels: ["Venda fechada"]
+      labels: ["Venda fechada"],
     });
 
     expect(create.eventName).toBe("QualifiedLead");
@@ -1692,11 +1708,11 @@ describe("shared contracts", () => {
         port: 3306,
         database: "tracking",
         username: "wpptrack_reader",
-        password: "secret-value"
+        password: "secret-value",
       },
       shadowMode: true,
       purchaseAverageValueCents: 400000,
-      defaultCurrency: "brl"
+      defaultCurrency: "brl",
     });
     const connector = externalDataConnectorSchema.parse({
       id: "connector_1",
@@ -1721,7 +1737,7 @@ describe("shared contracts", () => {
       lastSyncErrorCode: null,
       cursors: [],
       createdAt: "2026-07-11T17:00:00.000Z",
-      updatedAt: "2026-07-11T17:00:00.000Z"
+      updatedAt: "2026-07-11T17:00:00.000Z",
     });
 
     expect(create.defaultCurrency).toBe("BRL");
@@ -1732,8 +1748,8 @@ describe("shared contracts", () => {
   it("rejects unsafe external connector updates and validates safe health results", () => {
     expect(() =>
       externalDataConnectorUpdateInputSchema.parse({
-        timezone: "Not/A_Timezone"
-      })
+        timezone: "Not/A_Timezone",
+      }),
     ).toThrow();
     expect(() => externalDataConnectorUpdateInputSchema.parse({})).toThrow();
 
@@ -1744,7 +1760,7 @@ describe("shared contracts", () => {
       leadsViewAvailable: true,
       eventsViewAvailable: true,
       errorCode: null,
-      message: "Conexao estabelecida"
+      message: "Conexao estabelecida",
     });
 
     expect(result.latencyMs).toBe(42);
@@ -1761,7 +1777,7 @@ describe("shared contracts", () => {
         connectionConfigured: true,
         destinationConfigured: true,
         pixelId: "pixel_1",
-        pageId: "page_1"
+        pageId: "page_1",
       },
       events: ["conversation_started", "qualified_lead", "purchase"].map(
         (eventType) => ({
@@ -1787,10 +1803,10 @@ describe("shared contracts", () => {
           readyForCutover: true,
           cutoverAt: null,
           firstOccurredAt: "2026-07-12T19:00:00.000Z",
-          lastOccurredAt: "2026-07-12T19:00:00.000Z"
-        })
+          lastOccurredAt: "2026-07-12T19:00:00.000Z",
+        }),
       ),
-      blockers: []
+      blockers: [],
     });
 
     expect(result.readyForCutover).toBe(true);

@@ -6,14 +6,14 @@ import type {
   WhatsappInstanceSummaryDto,
   WhatsappLabelDto,
   WorkspaceInviteDto,
-  WorkspaceMemberDto
+  WorkspaceMemberDto,
 } from "@wpptrack/shared";
 import { conversionEventDisplayLabels } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { UserPlus } from "lucide-react";
 import {
   BackofficeActionForm,
-  type BackofficeActionState
+  type BackofficeActionState,
 } from "../../../components/backoffice-action-form";
 import { ConversionRuleBuilder } from "../../../components/conversion-rule-builder";
 import { PendingSubmitButton } from "../../../components/pending-submit-button";
@@ -71,19 +71,22 @@ const supportedConversionEventNames = [
   "CartAbandoned",
   "InitiateCheckout",
   "Purchase",
-  "OrderCreated"
+  "OrderCreated",
 ] as const;
 
-const eventsWithCommercialValue = new Set<ConversionEventNameDto>(["Purchase", "OrderCreated"]);
+const eventsWithCommercialValue = new Set<ConversionEventNameDto>([
+  "Purchase",
+  "OrderCreated",
+]);
 
 function settingsActionState(
   status: BackofficeActionState["status"],
-  message: string
+  message: string,
 ): BackofficeActionState {
   return {
     status,
     message,
-    nonce: Date.now()
+    nonce: Date.now(),
   };
 }
 
@@ -109,7 +112,7 @@ function workspaceRoleLabel(role: WorkspaceMemberDto["role"]): string {
 
 function workspaceRoleDescription(
   role: WorkspaceMemberDto["role"],
-  canManageMembers = false
+  canManageMembers = false,
 ): string {
   if (role === "owner") {
     return "Equipe, integracoes e cobranca";
@@ -141,10 +144,14 @@ function parseMoneyToCents(value: FormDataEntryValue | null): number | null {
     return null;
   }
 
-  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
+  const normalized = raw.includes(",")
+    ? raw.replace(/\./g, "").replace(",", ".")
+    : raw;
   const amount = Number(normalized);
 
-  return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) : null;
+  return Number.isFinite(amount) && amount > 0
+    ? Math.round(amount * 100)
+    : null;
 }
 
 function productItems(productName: string, valueCents: number | null) {
@@ -164,23 +171,28 @@ function productItems(productName: string, valueCents: number | null) {
     {
       id,
       quantity: 1,
-      ...(valueCents === null ? {} : { item_price: valueCents / 100 })
-    }
+      ...(valueCents === null ? {} : { item_price: valueCents / 100 }),
+    },
   ];
 }
 
 function moneyInputValue(valueCents: number | null | undefined): string {
-  return valueCents == null ? "" : (valueCents / 100).toFixed(2).replace(".", ",");
+  return valueCents == null
+    ? ""
+    : (valueCents / 100).toFixed(2).replace(".", ",");
 }
 
-function moneyLabel(valueCents: number | null | undefined, currency?: string | null): string {
+function moneyLabel(
+  valueCents: number | null | undefined,
+  currency?: string | null,
+): string {
   if (valueCents == null) {
     return "Valor nao informado";
   }
 
   return (valueCents / 100).toLocaleString("pt-BR", {
     currency: currency ?? "BRL",
-    style: "currency"
+    style: "currency",
   });
 }
 
@@ -190,44 +202,47 @@ async function getAccountSettings(): Promise<AccountSettingsResult> {
 
     return {
       user: account.user,
-      state: "real"
+      state: "real",
     };
   } catch {
     return {
       user: null,
-      state: "error"
+      state: "error",
     };
   }
 }
 
 async function getConversionRules(): Promise<ConversionRulesResult> {
   try {
-    const rules = await serverApiFetch<ConversionRuleDto[]>("/conversion-rules");
+    const rules =
+      await serverApiFetch<ConversionRuleDto[]>("/conversion-rules");
 
     return {
       rules,
-      state: rules.length > 0 ? "real" : "empty"
+      state: rules.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       rules: [],
-      state: "error"
+      state: "error",
     };
   }
 }
 
 async function getFunnelConfiguration(): Promise<FunnelConfigurationResult> {
   try {
-    const configuration = await serverApiFetch<FunnelConfigurationDto>("/conversion-rules/funnel");
+    const configuration = await serverApiFetch<FunnelConfigurationDto>(
+      "/conversion-rules/funnel",
+    );
 
     return {
       configuration,
-      state: "real"
+      state: "real",
     };
   } catch {
     return {
       configuration: { stages: [] },
-      state: "error"
+      state: "error",
     };
   }
 }
@@ -237,21 +252,21 @@ async function getWorkspaceSettings(): Promise<WorkspaceSettingsResult> {
     const [workspace, members, invites] = await Promise.all([
       getCurrentWorkspace(),
       serverApiFetch<WorkspaceMemberDto[]>("/workspaces/current/members"),
-      serverApiFetch<WorkspaceInviteDto[]>("/workspaces/current/invites")
+      serverApiFetch<WorkspaceInviteDto[]>("/workspaces/current/invites"),
     ]);
 
     return {
       workspace,
       members,
       invites,
-      state: members.length > 0 ? "real" : "empty"
+      state: members.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       workspace: null,
       members: [],
       invites: [],
-      state: "error"
+      state: "error",
     };
   }
 }
@@ -259,43 +274,48 @@ async function getWorkspaceSettings(): Promise<WorkspaceSettingsResult> {
 async function getWhatsappLabelSuggestions(): Promise<WhatsappLabelSuggestionsResult> {
   try {
     const instances = await serverApiFetch<WhatsappInstanceSummaryDto[]>(
-      "/integrations/whatsapp/instances"
+      "/integrations/whatsapp/instances",
     );
     const activeUazapiInstances = instances.filter(
-      (instance) => instance.provider === "uazapi" && instance.billingStatus === "active"
+      (instance) =>
+        instance.provider === "uazapi" && instance.billingStatus === "active",
     );
-    const configuredTimeout = Number(process.env.WPPTRACK_WEB_PROVIDER_STATUS_TIMEOUT_MS ?? 2000);
+    const configuredTimeout = Number(
+      process.env.WPPTRACK_WEB_PROVIDER_STATUS_TIMEOUT_MS ?? 2000,
+    );
     const timeoutMs =
-      Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 2000;
+      Number.isFinite(configuredTimeout) && configuredTimeout > 0
+        ? configuredTimeout
+        : 2000;
     const labelLists = await Promise.all(
       activeUazapiInstances.map(async (instance) => {
         try {
           return await serverApiFetch<WhatsappLabelDto[]>(
             `/integrations/whatsapp/instances/${instance.id}/labels`,
-            { signal: AbortSignal.timeout(timeoutMs) }
+            { signal: AbortSignal.timeout(timeoutMs) },
           );
         } catch {
           return [];
         }
-      })
+      }),
     );
     const labels = Array.from(
       new Set(
         labelLists
           .flat()
           .map((label) => label.name.trim())
-          .filter(Boolean)
-      )
+          .filter(Boolean),
+      ),
     ).sort((left, right) => left.localeCompare(right, "pt-BR"));
 
     return {
       labels,
-      state: labels.length > 0 ? "real" : "empty"
+      state: labels.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       labels: [],
-      state: "error"
+      state: "error",
     };
   }
 }
@@ -304,7 +324,9 @@ function triggerLabel(rule: Pick<ConversionRuleDto, "triggerType">): string {
   return rule.triggerType === "keyword" ? "Palavra-chave" : "Etiqueta WhatsApp";
 }
 
-function matchLabel(rule: Pick<ConversionRuleDto, "matchMode" | "triggerValue">): string {
+function matchLabel(
+  rule: Pick<ConversionRuleDto, "matchMode" | "triggerValue">,
+): string {
   const mode = rule.matchMode === "exact" ? "igual a" : "contem";
   return `${mode}: ${rule.triggerValue}`;
 }
@@ -314,11 +336,19 @@ function shortDate(value: string): string {
     day: "2-digit",
     month: "2-digit",
     timeZone: displayTimeZone,
-    year: "numeric"
+    year: "numeric",
   });
 }
 
 function inviteStatusLabel(status: WorkspaceInviteDto["status"]): string {
+  if (status === "sent") {
+    return "Enviado";
+  }
+
+  if (status === "failed") {
+    return "Falha no envio";
+  }
+
   if (status === "accepted") {
     return "Aceito";
   }
@@ -336,7 +366,7 @@ function inviteStatusLabel(status: WorkspaceInviteDto["status"]): string {
 
 async function createConversionRule(
   _previousState: BackofficeActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<BackofficeActionState> {
   "use server";
 
@@ -344,9 +374,11 @@ async function createConversionRule(
   const triggerType = String(formData.get("triggerType") ?? "keyword");
   const triggerValue = String(formData.get("triggerValue") ?? "").trim();
   const matchMode = String(formData.get("matchMode") ?? "contains");
-  const requestedEventName = String(formData.get("eventName") ?? "LeadSubmitted");
+  const requestedEventName = String(
+    formData.get("eventName") ?? "LeadSubmitted",
+  );
   const eventName = supportedConversionEventNames.includes(
-    requestedEventName as (typeof supportedConversionEventNames)[number]
+    requestedEventName as (typeof supportedConversionEventNames)[number],
   )
     ? (requestedEventName as ConversionEventNameDto)
     : "LeadSubmitted";
@@ -362,10 +394,15 @@ async function createConversionRule(
     .toUpperCase();
 
   if (!triggerValue) {
-    return settingsActionState("error", "Informe a palavra, frase ou etiqueta do gatilho.");
+    return settingsActionState(
+      "error",
+      "Informe a palavra, frase ou etiqueta do gatilho.",
+    );
   }
 
-  const name = requestedName || `${eventDisplayLabel(eventName)} por ${triggerValue}`.slice(0, 120);
+  const name =
+    requestedName ||
+    `${eventDisplayLabel(eventName)} por ${triggerValue}`.slice(0, 120);
 
   try {
     await serverApiFetch("/conversion-rules", {
@@ -379,11 +416,13 @@ async function createConversionRule(
         pixelId: null,
         defaultValueCents,
         defaultCurrency:
-          acceptsCommercialValue && defaultValueCents !== null ? defaultCurrency : null,
+          acceptsCommercialValue && defaultValueCents !== null
+            ? defaultCurrency
+            : null,
         defaultContentName: productName || null,
         defaultItems: productItems(productName, defaultValueCents),
-        active: true
-      })
+        active: true,
+      }),
     });
     revalidatePath("/settings");
     revalidatePath("/overview");
@@ -397,7 +436,7 @@ async function createConversionRule(
 
 async function updateConversionRuleDetails(
   _previousState: BackofficeActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<BackofficeActionState> {
   "use server";
 
@@ -419,8 +458,8 @@ async function updateConversionRuleDetails(
         defaultValueCents,
         defaultCurrency: defaultValueCents === null ? null : defaultCurrency,
         defaultContentName: productName || null,
-        defaultItems: productItems(productName, defaultValueCents)
-      })
+        defaultItems: productItems(productName, defaultValueCents),
+      }),
     });
     revalidatePath("/settings");
 
@@ -432,7 +471,7 @@ async function updateConversionRuleDetails(
 
 async function saveFunnelConfiguration(
   _previousState: BackofficeActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<BackofficeActionState> {
   "use server";
 
@@ -442,13 +481,18 @@ async function saveFunnelConfiguration(
     .filter(Boolean);
 
   if (eventNames.length === 0) {
-    return settingsActionState("error", "Nenhuma etapa de funil foi encontrada.");
+    return settingsActionState(
+      "error",
+      "Nenhuma etapa de funil foi encontrada.",
+    );
   }
 
   const stages = eventNames.map((eventName, index) => ({
     eventName,
     label: String(formData.get(`stageLabel:${eventName}`) ?? "").trim(),
-    position: Number(formData.get(`stagePosition:${eventName}`) ?? index + 1) || index + 1,
+    position:
+      Number(formData.get(`stagePosition:${eventName}`) ?? index + 1) ||
+      index + 1,
     visible: formData.get(`stageVisible:${eventName}`) === "on",
     defaultValueCents: eventSupportsCommercialValue(eventName)
       ? parseMoneyToCents(formData.get(`stageValue:${eventName}`))
@@ -460,13 +504,13 @@ async function saveFunnelConfiguration(
       : null,
     defaultContentName: eventSupportsCommercialValue(eventName)
       ? String(formData.get(`stageProduct:${eventName}`) ?? "").trim() || null
-      : null
+      : null,
   }));
 
   try {
     await serverApiFetch("/conversion-rules/funnel", {
       method: "PUT",
-      body: JSON.stringify({ stages })
+      body: JSON.stringify({ stages }),
     });
     revalidatePath("/settings");
     revalidatePath("/overview");
@@ -481,7 +525,7 @@ async function saveFunnelConfiguration(
 
 async function createWorkspaceInvite(
   _previousState: BackofficeActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<BackofficeActionState> {
   "use server";
 
@@ -495,7 +539,7 @@ async function createWorkspaceInvite(
   try {
     await serverApiFetch("/workspaces/current/invites", {
       method: "POST",
-      body: JSON.stringify({ email, role })
+      body: JSON.stringify({ email, role }),
     });
     revalidatePath("/settings");
     return settingsActionState("success", "Convite criado para a equipe.");
@@ -506,7 +550,7 @@ async function createWorkspaceInvite(
 
 async function updateWorkspaceMemberRole(
   _previousState: BackofficeActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<BackofficeActionState> {
   "use server";
 
@@ -520,7 +564,7 @@ async function updateWorkspaceMemberRole(
   try {
     await serverApiFetch(`/workspaces/current/members/${memberId}/role`, {
       method: "PATCH",
-      body: JSON.stringify({ role })
+      body: JSON.stringify({ role }),
     });
     revalidatePath("/settings");
     return settingsActionState("success", "Nivel de acesso atualizado.");
@@ -531,7 +575,7 @@ async function updateWorkspaceMemberRole(
 
 async function updateWorkspaceMemberManager(
   _previousState: BackofficeActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<BackofficeActionState> {
   "use server";
 
@@ -547,22 +591,22 @@ async function updateWorkspaceMemberManager(
       `/workspaces/current/members/${memberId}/member-manager`,
       {
         method: "PATCH",
-        body: JSON.stringify({ canManageMembers })
-      }
+        body: JSON.stringify({ canManageMembers }),
+      },
     );
     revalidatePath("/settings");
     return settingsActionState("success", "Gestao da equipe atualizada.");
   } catch {
     return settingsActionState(
       "error",
-      "Nao foi possivel alterar a gestao da equipe."
+      "Nao foi possivel alterar a gestao da equipe.",
     );
   }
 }
 
 async function removeWorkspaceMember(
   _previousState: BackofficeActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<BackofficeActionState> {
   "use server";
 
@@ -574,7 +618,7 @@ async function removeWorkspaceMember(
 
   try {
     await serverApiFetch(`/workspaces/current/members/${memberId}`, {
-      method: "DELETE"
+      method: "DELETE",
     });
     revalidatePath("/settings");
     return settingsActionState("success", "Membro removido do workspace.");
@@ -585,7 +629,7 @@ async function removeWorkspaceMember(
 
 async function resendWorkspaceInvite(
   _previousState: BackofficeActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<BackofficeActionState> {
   "use server";
 
@@ -597,7 +641,7 @@ async function resendWorkspaceInvite(
 
   try {
     await serverApiFetch(`/workspaces/current/invites/${inviteId}/resend`, {
-      method: "POST"
+      method: "POST",
     });
     revalidatePath("/settings");
     return settingsActionState("success", "Convite renovado.");
@@ -608,7 +652,7 @@ async function resendWorkspaceInvite(
 
 async function revokeWorkspaceInvite(
   _previousState: BackofficeActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<BackofficeActionState> {
   "use server";
 
@@ -620,7 +664,7 @@ async function revokeWorkspaceInvite(
 
   try {
     await serverApiFetch(`/workspaces/current/invites/${inviteId}`, {
-      method: "DELETE"
+      method: "DELETE",
     });
     revalidatePath("/settings");
     return settingsActionState("success", "Convite revogado.");
@@ -641,7 +685,7 @@ async function updateWorkspaceProfile(formData: FormData) {
   try {
     await serverApiFetch("/workspaces/current", {
       method: "PATCH",
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ name }),
     });
     revalidatePath("/settings");
   } catch {
@@ -662,7 +706,7 @@ async function updateConversionRuleStatus(formData: FormData) {
   try {
     await serverApiFetch(`/conversion-rules/${ruleId}`, {
       method: "PATCH",
-      body: JSON.stringify({ active })
+      body: JSON.stringify({ active }),
     });
     revalidatePath("/settings");
   } catch {
@@ -675,7 +719,7 @@ async function requestEmailVerification() {
 
   try {
     await serverApiFetch("/auth/email/verification/start", {
-      method: "POST"
+      method: "POST",
     });
     revalidatePath("/settings");
   } catch {
@@ -689,27 +733,31 @@ export default async function SettingsPage() {
     conversionRules,
     funnelConfiguration,
     accountSettings,
-    whatsappLabelSuggestions
+    whatsappLabelSuggestions,
   ] = await Promise.all([
     getWorkspaceSettings(),
     getConversionRules(),
     getFunnelConfiguration(),
     getAccountSettings(),
-    getWhatsappLabelSuggestions()
+    getWhatsappLabelSuggestions(),
   ]);
   const { rules } = conversionRules;
   const { workspace, members, invites } = workspaceSettings;
   const accountUser = accountSettings.user;
   const whatsappLabels = whatsappLabelSuggestions.labels;
   const funnelStages = funnelConfiguration.configuration.stages;
-  const funnelLabelByEvent = new Map(funnelStages.map((stage) => [stage.eventName, stage.label]));
-  const canManageConversionRules = Boolean(workspace?.permissions.canManageIntegrations);
+  const funnelLabelByEvent = new Map(
+    funnelStages.map((stage) => [stage.eventName, stage.label]),
+  );
+  const canManageConversionRules = Boolean(
+    workspace?.permissions.canManageIntegrations,
+  );
   const isPlatformSupport = workspace?.accessMode === "platform_support";
   const canManageTeam = Boolean(
-    workspace?.permissions.canManageMembers && !isPlatformSupport
+    workspace?.permissions.canManageMembers && !isPlatformSupport,
   );
   const canGrantMemberManager = Boolean(
-    workspace?.permissions.canGrantMemberManager && !isPlatformSupport
+    workspace?.permissions.canGrantMemberManager && !isPlatformSupport,
   );
   const currentAccessLabel = isPlatformSupport
     ? "Suporte da plataforma"
@@ -721,14 +769,16 @@ export default async function SettingsPage() {
     : workspace
       ? workspaceRoleDescription(
           workspace.role,
-          workspace.permissions.canManageMembers
+          workspace.permissions.canManageMembers,
         )
       : "Nao foi possivel consultar as permissoes";
-  const conversionRuleBuilderEvents = supportedConversionEventNames.map((eventName) => ({
-    label: eventDisplayLabel(eventName),
-    supportsValue: eventSupportsCommercialValue(eventName),
-    value: eventName
-  }));
+  const conversionRuleBuilderEvents = supportedConversionEventNames.map(
+    (eventName) => ({
+      label: eventDisplayLabel(eventName),
+      supportsValue: eventSupportsCommercialValue(eventName),
+      value: eventName,
+    }),
+  );
   const emptyTitle =
     conversionRules.state === "error"
       ? "Nao foi possivel carregar regras"
@@ -774,12 +824,20 @@ export default async function SettingsPage() {
             <div className="settings-section-heading">
               <span className="micro-label">Workspace</span>
               <strong>{workspace?.name ?? "Workspace indisponivel"}</strong>
-              <small>{workspace ? workspace.slug : "Dados indisponiveis"}</small>
+              <small>
+                {workspace ? workspace.slug : "Dados indisponiveis"}
+              </small>
             </div>
-            <form className="workspace-name-form" action={updateWorkspaceProfile}>
+            <form
+              className="workspace-name-form"
+              action={updateWorkspaceProfile}
+            >
               <label>
                 <span>Nome publico</span>
-                <input defaultValue={workspace?.name ?? ""} name="workspaceName" />
+                <input
+                  defaultValue={workspace?.name ?? ""}
+                  name="workspaceName"
+                />
               </label>
               <button
                 className="button primary"
@@ -798,7 +856,9 @@ export default async function SettingsPage() {
           <div className="account-profile-section">
             <div className="account-identity">
               <span className="member-avatar" aria-hidden="true">
-                {accountUser ? initials(accountUser.name, accountUser.email) : "--"}
+                {accountUser
+                  ? initials(accountUser.name, accountUser.email)
+                  : "--"}
               </span>
               <span>
                 <strong>{accountUser?.name ?? "Conta do usuario"}</strong>
@@ -816,12 +876,20 @@ export default async function SettingsPage() {
               </div>
               <div>
                 <dt>Status</dt>
-                <dd>{accountUser?.emailVerifiedAt ? "Email verificado" : "Email pendente"}</dd>
+                <dd>
+                  {accountUser?.emailVerifiedAt
+                    ? "Email verificado"
+                    : "Email pendente"}
+                </dd>
               </div>
             </dl>
             {!accountUser?.emailVerifiedAt ? (
               <form action={requestEmailVerification}>
-                <button className="button" disabled={!accountUser} type="submit">
+                <button
+                  className="button"
+                  disabled={!accountUser}
+                  type="submit"
+                >
                   Enviar verificacao
                 </button>
               </form>
@@ -850,9 +918,7 @@ export default async function SettingsPage() {
                 const canManageTarget =
                   canManageTeam &&
                   member.role !== "owner" &&
-                  (canGrantMemberManager ||
-                    !member.canManageMembers ||
-                    isSelf);
+                  (canGrantMemberManager || !member.canManageMembers || isSelf);
 
                 return (
                   <div className="member-row" key={member.id}>
@@ -868,7 +934,7 @@ export default async function SettingsPage() {
                       <small>
                         {workspaceRoleDescription(
                           member.role,
-                          member.canManageMembers
+                          member.canManageMembers,
                         )}
                       </small>
                       {member.canManageMembers ? (
@@ -883,7 +949,11 @@ export default async function SettingsPage() {
                           action={updateWorkspaceMemberRole}
                           className="member-role-form"
                         >
-                          <input name="memberId" type="hidden" value={member.id} />
+                          <input
+                            name="memberId"
+                            type="hidden"
+                            value={member.id}
+                          />
                           <label>
                             <span className="sr-only">
                               Nivel de acesso de {member.email}
@@ -930,7 +1000,11 @@ export default async function SettingsPage() {
                           action={removeWorkspaceMember}
                           className="member-remove-form"
                         >
-                          <input name="memberId" type="hidden" value={member.id} />
+                          <input
+                            name="memberId"
+                            type="hidden"
+                            value={member.id}
+                          />
                           <TeamActionButton
                             confirmMessage={`Remover ${member.email} deste workspace?`}
                             danger
@@ -990,8 +1064,9 @@ export default async function SettingsPage() {
                     <span>
                       <strong>{invite.email}</strong>
                       <small>
-                        {inviteStatusLabel(invite.status)} | {workspaceRoleLabel(invite.role)}
-                        {invite.status === "pending"
+                        {inviteStatusLabel(invite.status)} |{" "}
+                        {workspaceRoleLabel(invite.role)}
+                        {["pending", "sent", "failed"].includes(invite.status)
                           ? ` | expira em ${shortDate(invite.expiresAt)}`
                           : ""}
                       </small>
@@ -999,13 +1074,19 @@ export default async function SettingsPage() {
                     {canManageTeam && invite.status !== "accepted" ? (
                       <div className="invite-actions">
                         <BackofficeActionForm action={resendWorkspaceInvite}>
-                          <input name="inviteId" type="hidden" value={invite.id} />
+                          <input
+                            name="inviteId"
+                            type="hidden"
+                            value={invite.id}
+                          />
                           <TeamActionButton
                             kind="resend"
                             label={`Reenviar convite para ${invite.email}`}
                           />
                         </BackofficeActionForm>
-                        {invite.status === "pending" ? (
+                        {["pending", "sent", "failed"].includes(
+                          invite.status,
+                        ) ? (
                           <BackofficeActionForm action={revokeWorkspaceInvite}>
                             <input
                               name="inviteId"
@@ -1042,21 +1123,31 @@ export default async function SettingsPage() {
             <span className="eyebrow">Jornada do funil</span>
             <h2>Etapas exibidas nos indicadores</h2>
             <p className="muted">
-              Defina a ordem e o nome que o cliente ve em Visao geral e Relatorios.
+              Defina a ordem e o nome que o cliente ve em Visao geral e
+              Relatorios.
             </p>
           </div>
-          <span className={`status-chip${funnelConfiguration.state === "error" ? " warn" : ""}`}>
+          <span
+            className={`status-chip${funnelConfiguration.state === "error" ? " warn" : ""}`}
+          >
             {funnelConfiguration.state === "error"
               ? "Configuracao indisponivel"
               : `${funnelStages.filter((stage) => stage.visible).length} etapas visiveis`}
           </span>
         </div>
         {canManageConversionRules && funnelStages.length > 0 ? (
-          <BackofficeActionForm action={saveFunnelConfiguration} className="funnel-config-form">
+          <BackofficeActionForm
+            action={saveFunnelConfiguration}
+            className="funnel-config-form"
+          >
             <div className="funnel-config-list">
               {funnelStages.map((stage) => (
                 <div className="funnel-stage-row" key={stage.eventName}>
-                  <input type="hidden" name="stageEventName" value={stage.eventName} />
+                  <input
+                    type="hidden"
+                    name="stageEventName"
+                    value={stage.eventName}
+                  />
                   <label className="funnel-stage-order">
                     <span>Etapa</span>
                     <input
@@ -1075,7 +1166,9 @@ export default async function SettingsPage() {
                       maxLength={80}
                       name={`stageLabel:${stage.eventName}`}
                     />
-                    <small className="funnel-event-code">{stage.eventName}</small>
+                    <small className="funnel-event-code">
+                      {stage.eventName}
+                    </small>
                   </label>
                   {eventSupportsCommercialValue(stage.eventName) ? (
                     <div className="funnel-commercial-fields">
@@ -1090,7 +1183,9 @@ export default async function SettingsPage() {
                       <label>
                         <span>Valor medio</span>
                         <input
-                          defaultValue={moneyInputValue(stage.defaultValueCents)}
+                          defaultValue={moneyInputValue(
+                            stage.defaultValueCents,
+                          )}
                           inputMode="decimal"
                           name={`stageValue:${stage.eventName}`}
                           placeholder="0,00"
@@ -1109,7 +1204,9 @@ export default async function SettingsPage() {
                       </label>
                     </div>
                   ) : (
-                    <span className="funnel-stage-type">Evento de relacionamento</span>
+                    <span className="funnel-stage-type">
+                      Evento de relacionamento
+                    </span>
                   )}
                   <label className="funnel-stage-visible">
                     <input
@@ -1144,7 +1241,8 @@ export default async function SettingsPage() {
         <span className="eyebrow">Mapeamento de eventos</span>
         <h2>Gatilhos do WhatsApp</h2>
         <p className="muted">
-          Defina o que precisa acontecer na conversa e qual evento sera registrado.
+          Defina o que precisa acontecer na conversa e qual evento sera
+          registrado.
         </p>
         {canManageConversionRules ? (
           <ConversionRuleBuilder
@@ -1190,15 +1288,24 @@ export default async function SettingsPage() {
                     <td data-label="Produto / valor">
                       {eventSupportsCommercialValue(rule.eventName) ? (
                         <>
-                          <strong>{rule.defaultContentName ?? "Sem produto"}</strong>
-                          <span>{moneyLabel(rule.defaultValueCents, rule.defaultCurrency)}</span>
+                          <strong>
+                            {rule.defaultContentName ?? "Sem produto"}
+                          </strong>
+                          <span>
+                            {moneyLabel(
+                              rule.defaultValueCents,
+                              rule.defaultCurrency,
+                            )}
+                          </span>
                         </>
                       ) : (
                         <span>Nao se aplica</span>
                       )}
                     </td>
                     <td data-label="Status">
-                      <span className={`event-chip${rule.active ? "" : " warn"}`}>
+                      <span
+                        className={`event-chip${rule.active ? "" : " warn"}`}
+                      >
                         {rule.active ? "ativo" : "pausado"}
                       </span>
                     </td>
@@ -1212,7 +1319,11 @@ export default async function SettingsPage() {
                                 action={updateConversionRuleDetails}
                                 className="rule-edit-form"
                               >
-                                <input type="hidden" name="ruleId" value={rule.id} />
+                                <input
+                                  type="hidden"
+                                  name="ruleId"
+                                  value={rule.id}
+                                />
                                 <label>
                                   <span>Produto ou servico</span>
                                   <input
@@ -1224,7 +1335,9 @@ export default async function SettingsPage() {
                                 <label>
                                   <span>Valor</span>
                                   <input
-                                    defaultValue={moneyInputValue(rule.defaultValueCents)}
+                                    defaultValue={moneyInputValue(
+                                      rule.defaultValueCents,
+                                    )}
                                     inputMode="decimal"
                                     name="defaultValue"
                                     placeholder="0,00"
@@ -1250,8 +1363,16 @@ export default async function SettingsPage() {
                             </details>
                           ) : null}
                           <form action={updateConversionRuleStatus}>
-                            <input type="hidden" name="ruleId" value={rule.id} />
-                            <input type="hidden" name="active" value={String(!rule.active)} />
+                            <input
+                              type="hidden"
+                              name="ruleId"
+                              value={rule.id}
+                            />
+                            <input
+                              type="hidden"
+                              name="active"
+                              value={String(!rule.active)}
+                            />
                             <button className="button" type="submit">
                               {rule.active ? "Pausar" : "Ativar"}
                             </button>

@@ -1,8 +1,9 @@
 import { BullModule } from "@nestjs/bullmq";
-import { Module } from "@nestjs/common";
+import { Global, Module } from "@nestjs/common";
 import { PrismaModule } from "../common/prisma/prisma.module";
 import { RuntimeModule } from "../common/runtime/runtime.module";
 import { EmailConfigurationService } from "./email-configuration.service";
+import { EmailActionStatusService } from "./email-action-status.service";
 import { EmailDeliveryAuditService } from "./email-delivery-audit.service";
 import { EmailEnvelopeCryptoService } from "./email-envelope-crypto.service";
 import { EmailHealthService } from "./email-health.service";
@@ -12,6 +13,7 @@ import { EmailQueueService } from "./email-queue.service";
 import { createEmailTransport, EMAIL_TRANSPORT } from "./email.transport";
 import { EMAIL_DELIVERY_QUEUE } from "./email.types";
 
+@Global()
 @Module({
   imports: [
     PrismaModule,
@@ -22,6 +24,7 @@ import { EMAIL_DELIVERY_QUEUE } from "./email.types";
   ],
   providers: [
     EmailConfigurationService,
+    EmailActionStatusService,
     EmailEnvelopeCryptoService,
     EmailMessageRenderer,
     EmailDeliveryAuditService,

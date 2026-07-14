@@ -2,7 +2,7 @@ import {
   createHash,
   createHmac,
   randomBytes,
-  timingSafeEqual
+  timingSafeEqual,
 } from "node:crypto";
 import {
   BadRequestException,
@@ -13,7 +13,7 @@ import {
   Injectable,
   NotFoundException,
   Optional,
-  UnauthorizedException
+  UnauthorizedException,
 } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
@@ -33,7 +33,7 @@ import type {
   PlatformUserProvisionInputDto,
   PlatformUserRoleUpdateInputDto,
   PlatformUserDto,
-  RegisterDto
+  RegisterDto,
 } from "@wpptrack/shared";
 import { platformUserListSchema, platformUserSchema } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
@@ -41,8 +41,9 @@ import {
   RUNTIME_ENV,
   RUNTIME_FETCH,
   type RuntimeEnv,
-  type RuntimeFetch
+  type RuntimeFetch,
 } from "../common/runtime/runtime.module";
+import { EmailQueueService } from "../email/email-queue.service";
 import { PasswordService } from "./password.service";
 import type { AuthenticatedUser } from "./session.types";
 
@@ -54,6 +55,8 @@ const loginFailureWindowMs = 1000 * 60 * 15;
 const loginFailureLimit = 5;
 const passwordResetRequestWindowMs = 1000 * 60 * 15;
 const passwordResetRequestLimit = 3;
+const emailVerificationRequestWindowMs = 1000 * 60 * 15;
+const emailVerificationRequestLimit = 3;
 
 type WorkspaceMembershipRecord = {
   role: AuthenticatedUser["workspaces"][number]["role"];
@@ -97,9 +100,14 @@ type AuthSessionRecord = {
   user: SessionUserRecord;
 };
 
-type AuthRequestContext = {
+export type AuthRequestContext = {
   userAgent?: string | null;
   ipAddress?: string | null;
+};
+
+export type AuthSessionCreationOptions = {
+  activeWorkspaceId?: string | null;
+  transaction?: Prisma.TransactionClient;
 };
 
 type CreatedWorkspaceOwnership = {
@@ -134,9 +142,10 @@ type GoogleUserInfoResponse = {
   name?: unknown;
 };
 
-type GoogleOAuthCallbackNonAuthenticatedResult = GoogleOAuthCallbackResultDto & {
-  action: "configure_env" | "exchange_pending" | "exchange_failed";
-};
+type GoogleOAuthCallbackNonAuthenticatedResult =
+  GoogleOAuthCallbackResultDto & {
+    action: "configure_env" | "exchange_pending" | "exchange_failed";
+  };
 
 type GoogleOAuthCallbackServiceResult =
   | GoogleOAuthCallbackNonAuthenticatedResult
@@ -160,16 +169,19 @@ export class AuthService {
     private readonly env: RuntimeEnv = process.env,
     @Optional()
     @Inject(RUNTIME_FETCH)
-    private readonly fetchImpl: RuntimeFetch = fetch
+    private readonly fetchImpl: RuntimeFetch = fetch,
+    @Optional()
+    @Inject(EmailQueueService)
+    private readonly emailQueue?: EmailQueueService,
   ) {}
 
   async register(
     input: RegisterDto,
-    context: AuthRequestContext = {}
+    context: AuthRequestContext = {},
   ): Promise<AuthSessionResult> {
     const email = this.normalizeEmail(input.email);
     const existingUser = await this.prisma.user.findUnique({
-      where: { email }
+      where: { email },
     });
 
     if (existingUser) {
@@ -185,23 +197,23 @@ export class AuthService {
       const workspace = await tx.workspace.create({
         data: {
           name: workspaceName,
-          slug
-        }
+          slug,
+        },
       });
       const user = await tx.user.create({
         data: {
           email,
           name,
-          passwordHash
-        }
+          passwordHash,
+        },
       });
 
       const member = await tx.workspaceMember.create({
         data: {
           workspaceId: workspace.id,
           userId: user.id,
-          role: "owner"
-        }
+          role: "owner",
+        },
       });
 
       return {
@@ -209,7 +221,7 @@ export class AuthService {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
         workspaceSlug: workspace.slug,
-        memberId: member.id
+        memberId: member.id,
       };
     });
     await this.recordInitialWorkspaceOwnership(created, context);
@@ -219,7 +231,7 @@ export class AuthService {
 
   async login(
     input: LoginDto,
-    context: AuthRequestContext = {}
+    context: AuthRequestContext = {},
   ): Promise<AuthSessionResult> {
     const email = this.normalizeEmail(input.email);
 
@@ -236,7 +248,7 @@ export class AuthService {
 
     const session = await this.createSessionForUser(
       authenticated.user.id,
-      context
+      context,
     );
     await this.recordLoginSuccess(session, context);
 
@@ -252,14 +264,14 @@ export class AuthService {
           include: {
             memberships: {
               include: {
-                workspace: true
+                workspace: true,
               },
-              orderBy: [{ createdAt: "asc" }, { id: "asc" }]
-            }
-          }
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            },
+          },
         },
-        supportWorkspace: true
-      }
+        supportWorkspace: true,
+      },
     })) as AuthSessionRecord | null;
 
     if (
@@ -274,7 +286,7 @@ export class AuthService {
       session.user,
       session.activeWorkspaceId ?? null,
       session.supportWorkspace ?? null,
-      session.supportWorkspaceStartedAt ?? null
+      session.supportWorkspaceStartedAt ?? null,
     );
 
     if (
@@ -286,11 +298,11 @@ export class AuthService {
         where: {
           id: session.id,
           revokedAt: null,
-          expiresAt: { gt: new Date() }
+          expiresAt: { gt: new Date() },
         },
         data: {
-          activeWorkspaceId: authenticated.activeWorkspaceId
-        }
+          activeWorkspaceId: authenticated.activeWorkspaceId,
+        },
       });
     }
 
@@ -299,7 +311,7 @@ export class AuthService {
 
   async setActiveWorkspace(
     refreshToken: string,
-    workspaceId: string
+    workspaceId: string,
   ): Promise<void> {
     const refreshHash = this.hashRefreshToken(refreshToken);
     const session = await this.prisma.authSession.findUnique({
@@ -309,8 +321,8 @@ export class AuthService {
         userId: true,
         activeWorkspaceId: true,
         revokedAt: true,
-        expiresAt: true
-      }
+        expiresAt: true,
+      },
     });
 
     if (
@@ -325,12 +337,12 @@ export class AuthService {
       where: {
         workspaceId_userId: {
           workspaceId,
-          userId: session.userId
-        }
+          userId: session.userId,
+        },
       },
       select: {
-        workspaceId: true
-      }
+        workspaceId: true,
+      },
     });
 
     if (!membership) {
@@ -343,17 +355,17 @@ export class AuthService {
           id: session.id,
           userId: session.userId,
           revokedAt: null,
-          expiresAt: { gt: new Date() }
+          expiresAt: { gt: new Date() },
         },
         data: {
-          activeWorkspaceId: membership.workspaceId
-        }
+          activeWorkspaceId: membership.workspaceId,
+        },
       });
 
       if (sessionUpdate.count > 0) {
         await tx.user.update({
           where: { id: session.userId },
-          data: { lastWorkspaceId: membership.workspaceId }
+          data: { lastWorkspaceId: membership.workspaceId },
         });
       }
 
@@ -375,29 +387,29 @@ export class AuthService {
       sourceIp: null,
       resultStatus: "success",
       beforeSummary: {
-        workspaceId: session.activeWorkspaceId
+        workspaceId: session.activeWorkspaceId,
       },
       afterSummary: {
-        workspaceId: membership.workspaceId
-      }
+        workspaceId: membership.workspaceId,
+      },
     });
   }
 
   async setSupportWorkspace(
     refreshToken: string,
-    workspaceId: string | null
+    workspaceId: string | null,
   ): Promise<void> {
     const refreshHash = this.hashRefreshToken(refreshToken);
     const result = await this.prisma.authSession.updateMany({
       where: {
         refreshHash,
         revokedAt: null,
-        expiresAt: { gt: new Date() }
+        expiresAt: { gt: new Date() },
       },
       data: {
         supportWorkspaceId: workspaceId,
-        supportWorkspaceStartedAt: workspaceId ? new Date() : null
-      }
+        supportWorkspaceStartedAt: workspaceId ? new Date() : null,
+      },
     });
 
     if (result.count === 0) {
@@ -414,8 +426,8 @@ export class AuthService {
         name: true,
         email: true,
         platformRole: true,
-        createdAt: true
-      }
+        createdAt: true,
+      },
     });
 
     return platformUserListSchema.parse(
@@ -424,18 +436,18 @@ export class AuthService {
         name: user.name,
         email: user.email,
         role: user.platformRole,
-        createdAt: user.createdAt.toISOString()
-      }))
+        createdAt: user.createdAt.toISOString(),
+      })),
     );
   }
 
   async provisionPlatformUser(
     input: PlatformUserProvisionInputDto,
-    actorUserId: string
+    actorUserId: string,
   ): Promise<PlatformUserDto> {
     const existing = await this.prisma.user.findUnique({
       where: { email: input.email },
-      select: { id: true }
+      select: { id: true },
     });
 
     if (existing) {
@@ -450,8 +462,8 @@ export class AuthService {
         passwordHash,
         authProvider: "email",
         emailVerifiedAt: new Date(),
-        platformRole: input.role
-      }
+        platformRole: input.role,
+      },
     });
 
     await this.safeCreateAuditLog({
@@ -467,8 +479,8 @@ export class AuthService {
       beforeSummary: null,
       afterSummary: {
         email: user.email,
-        platformRole: user.platformRole
-      }
+        platformRole: user.platformRole,
+      },
     });
 
     return platformUserSchema.parse({
@@ -476,14 +488,14 @@ export class AuthService {
       name: user.name,
       email: user.email,
       role: user.platformRole,
-      createdAt: user.createdAt.toISOString()
+      createdAt: user.createdAt.toISOString(),
     });
   }
 
   async updatePlatformUserRole(
     userId: string,
     input: PlatformUserRoleUpdateInputDto,
-    actorUserId: string
+    actorUserId: string,
   ): Promise<PlatformUserDto | { id: string; role: null }> {
     const target = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -492,8 +504,8 @@ export class AuthService {
         name: true,
         email: true,
         platformRole: true,
-        createdAt: true
-      }
+        createdAt: true,
+      },
     });
 
     if (!target) {
@@ -501,22 +513,29 @@ export class AuthService {
     }
 
     if (target.id === actorUserId && input.role !== "platform_owner") {
-      throw new ConflictException("O proprietario nao pode remover o proprio acesso");
+      throw new ConflictException(
+        "O proprietario nao pode remover o proprio acesso",
+      );
     }
 
-    if (target.platformRole === "platform_owner" && input.role !== "platform_owner") {
+    if (
+      target.platformRole === "platform_owner" &&
+      input.role !== "platform_owner"
+    ) {
       const ownerCount = await this.prisma.user.count({
-        where: { platformRole: "platform_owner" }
+        where: { platformRole: "platform_owner" },
       });
 
       if (ownerCount <= 1) {
-        throw new ConflictException("A plataforma precisa manter ao menos um proprietario");
+        throw new ConflictException(
+          "A plataforma precisa manter ao menos um proprietario",
+        );
       }
     }
 
     const updated = await this.prisma.user.update({
       where: { id: target.id },
-      data: { platformRole: input.role }
+      data: { platformRole: input.role },
     });
 
     await this.safeCreateAuditLog({
@@ -530,7 +549,7 @@ export class AuthService {
       sourceIp: null,
       resultStatus: "success",
       beforeSummary: { platformRole: target.platformRole },
-      afterSummary: { platformRole: updated.platformRole }
+      afterSummary: { platformRole: updated.platformRole },
     });
 
     if (!updated.platformRole) {
@@ -542,7 +561,7 @@ export class AuthService {
       name: updated.name,
       email: updated.email,
       role: updated.platformRole,
-      createdAt: updated.createdAt.toISOString()
+      createdAt: updated.createdAt.toISOString(),
     });
   }
 
@@ -555,32 +574,32 @@ export class AuthService {
           include: {
             memberships: {
               include: {
-                workspace: true
+                workspace: true,
               },
-              orderBy: [{ createdAt: "asc" }, { id: "asc" }]
-            }
-          }
-        }
-      }
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            },
+          },
+        },
+      },
     })) as AuthSessionRecord | null;
 
     await this.prisma.authSession.updateMany({
       where: {
         refreshHash,
-        revokedAt: null
+        revokedAt: null,
       },
       data: {
         revokedAt: new Date(),
         activeWorkspaceId: null,
         supportWorkspaceId: null,
-        supportWorkspaceStartedAt: null
-      }
+        supportWorkspaceStartedAt: null,
+      },
     });
 
     if (session && !session.revokedAt) {
       const activeWorkspaceId = this.resolveActiveMemberWorkspaceId(
         session.user,
-        session.activeWorkspaceId ?? null
+        session.activeWorkspaceId ?? null,
       );
 
       await this.safeCreateAuditLog({
@@ -595,20 +614,18 @@ export class AuthService {
         resultStatus: "success",
         beforeSummary: null,
         afterSummary: {
-          userId: session.user.id
-        }
+          userId: session.user.id,
+        },
       });
     }
   }
 
-  getGoogleOAuthStart(
-    input: GoogleOAuthStartDto
-  ): GoogleOAuthStartResultDto {
+  getGoogleOAuthStart(input: GoogleOAuthStartDto): GoogleOAuthStartResultDto {
     const clientId = this.env.GOOGLE_CLIENT_ID;
     const redirectUri = this.env.GOOGLE_REDIRECT_URI;
     const requiredEnv: Array<[string, string | undefined]> = [
       ["GOOGLE_CLIENT_ID", clientId],
-      ["GOOGLE_REDIRECT_URI", redirectUri]
+      ["GOOGLE_REDIRECT_URI", redirectUri],
     ];
     const missingEnv = requiredEnv
       .filter(([, value]) => !value)
@@ -620,7 +637,7 @@ export class AuthService {
         action: "configure_env",
         authorizationUrl: null,
         missingEnv,
-        state: null
+        state: null,
       };
     }
 
@@ -632,7 +649,7 @@ export class AuthService {
       scope: "openid email profile",
       access_type: "offline",
       prompt: "select_account",
-      state
+      state,
     });
 
     return {
@@ -640,18 +657,18 @@ export class AuthService {
       action: "redirect",
       authorizationUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
       missingEnv: [],
-      state
+      state,
     };
   }
 
   async handleGoogleOAuthCallback(
     input: GoogleOAuthCallbackQueryDto,
-    context: AuthRequestContext = {}
+    context: AuthRequestContext = {},
   ): Promise<GoogleOAuthCallbackServiceResult> {
     const requiredEnv: Array<[string, string | undefined]> = [
       ["GOOGLE_CLIENT_ID", this.env.GOOGLE_CLIENT_ID],
       ["GOOGLE_CLIENT_SECRET", this.env.GOOGLE_CLIENT_SECRET],
-      ["GOOGLE_REDIRECT_URI", this.env.GOOGLE_REDIRECT_URI]
+      ["GOOGLE_REDIRECT_URI", this.env.GOOGLE_REDIRECT_URI],
     ];
     const missingEnv = requiredEnv
       .filter(([, value]) => !value)
@@ -664,7 +681,7 @@ export class AuthService {
         action: "configure_env",
         missingEnv,
         codeReceived: true,
-        redirectTo
+        redirectTo,
       };
     }
 
@@ -677,7 +694,7 @@ export class AuthService {
         missingEnv: [],
         codeReceived: true,
         redirectTo,
-        message: token.message
+        message: token.message,
       };
     }
 
@@ -692,7 +709,7 @@ export class AuthService {
         redirectTo,
         message:
           profile.message ??
-          (!profile.emailVerified ? "Email Google nao verificado" : undefined)
+          (!profile.emailVerified ? "Email Google nao verificado" : undefined),
       };
     }
 
@@ -701,9 +718,9 @@ export class AuthService {
         googleId: profile.googleId,
         email: profile.email,
         emailVerified: profile.emailVerified,
-        name: profile.name
+        name: profile.name,
       },
-      context
+      context,
     );
 
     if (!session) {
@@ -713,7 +730,7 @@ export class AuthService {
         missingEnv: [],
         codeReceived: true,
         redirectTo,
-        message: "Usuario ainda nao liberado para acessar a plataforma"
+        message: "Usuario ainda nao liberado para acessar a plataforma",
       };
     }
 
@@ -723,21 +740,27 @@ export class AuthService {
       missingEnv: [],
       codeReceived: true,
       redirectTo,
-      session
+      session,
     };
   }
 
   async requestPasswordReset(
     input: PasswordResetRequestInputDto,
-    context: AuthRequestContext = {}
+    context: AuthRequestContext = {},
   ): Promise<PasswordResetRequestDto> {
     const email = this.normalizeEmail(input.email);
     const user = await this.prisma.user.findUnique({
-      where: { email }
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        passwordHash: true,
+      },
     });
     const rateLimited = await this.isPasswordResetRequestRateLimited(
       email,
-      context
+      context,
     );
 
     if (rateLimited) {
@@ -745,13 +768,13 @@ export class AuthService {
         email,
         user?.id ?? null,
         context,
-        "rate_limited"
+        "rate_limited",
       );
 
       return {
         ok: true,
         delivery: this.getTokenDelivery(),
-        devToken: null
+        devToken: null,
       };
     }
 
@@ -759,100 +782,166 @@ export class AuthService {
       email,
       user?.id ?? null,
       context,
-      "queued"
+      "queued",
     );
 
-    if (!user) {
+    if (!user?.passwordHash) {
       return {
         ok: true,
         delivery: this.getTokenDelivery(),
-        devToken: null
+        devToken: null,
       };
     }
 
-    return this.createActionToken(
-      user.id,
-      "password_reset",
-      passwordResetTtlMs
-    );
+    return this.createActionToken(user, "password_reset", passwordResetTtlMs);
   }
 
   async resetPassword(
-    input: PasswordResetConfirmInputDto
+    input: PasswordResetConfirmInputDto,
   ): Promise<PasswordResetConfirmDto> {
-    const userId = await this.consumeActionToken("password_reset", input.token);
     const passwordHash = await this.passwordService.hash(input.password);
+    const now = new Date();
+    const result = await this.prisma.$transaction(async (tx) => {
+      const token = await this.consumeActionTokenInTransaction(
+        tx,
+        "password_reset",
+        input.token,
+        now,
+      );
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash }
-    });
-    const revokedSessions = await this.prisma.authSession.updateMany({
-      where: {
-        userId,
-        revokedAt: null
-      },
-      data: {
-        revokedAt: new Date(),
-        activeWorkspaceId: null,
-        supportWorkspaceId: null,
-        supportWorkspaceStartedAt: null
-      }
+      await tx.user.update({
+        where: { id: token.userId },
+        data: { passwordHash },
+      });
+      await tx.authActionToken.updateMany({
+        where: {
+          userId: token.userId,
+          type: "password_reset",
+          usedAt: null,
+        },
+        data: { usedAt: now },
+      });
+      const revokedSessions = await tx.authSession.updateMany({
+        where: {
+          userId: token.userId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+          activeWorkspaceId: null,
+          supportWorkspaceId: null,
+          supportWorkspaceStartedAt: null,
+        },
+      });
+
+      return {
+        userId: token.userId,
+        revokedSessions: revokedSessions.count,
+      };
     });
     await this.safeCreateAuditLog({
       workspaceId: null,
-      actorUserId: userId,
+      actorUserId: result.userId,
       actorType: "user",
       action: "auth.password_reset_confirmed",
       targetType: "User",
-      targetId: userId,
+      targetId: result.userId,
       reason: null,
       sourceIp: null,
       resultStatus: "success",
       beforeSummary: null,
       afterSummary: {
-        revokedSessions: revokedSessions.count
-      }
+        revokedSessions: result.revokedSessions,
+      },
     });
 
     return { ok: true };
   }
 
   async requestEmailVerification(
-    refreshToken: string
+    refreshToken: string,
+    context: AuthRequestContext = {},
   ): Promise<EmailVerificationStartDto> {
     const authenticated = await this.getSession(refreshToken);
-    return this.requestEmailVerificationForUser(authenticated.user.id);
+    return this.requestEmailVerificationForUser(authenticated.user.id, context);
   }
 
   async requestEmailVerificationForUser(
-    userId: string
+    userId: string,
+    context: AuthRequestContext = {},
   ): Promise<EmailVerificationStartDto> {
-    await this.assertUserExists(userId);
-    return this.createActionToken(
-      userId,
-      "email_verification",
-      emailVerificationTtlMs
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        emailVerifiedAt: true,
+      },
+    });
+
+    if (!user) {
+      throw this.invalidCredentials();
+    }
+
+    const rateLimited = await this.isEmailVerificationRequestRateLimited(
+      user.id,
+      context,
     );
+
+    if (rateLimited || user.emailVerifiedAt) {
+      await this.recordEmailVerificationRequest(
+        user.id,
+        context,
+        rateLimited ? "rate_limited" : "already_verified",
+      );
+
+      return {
+        ok: true,
+        delivery: this.getTokenDelivery(),
+        devToken: null,
+      };
+    }
+
+    const result = await this.createActionToken(
+      user,
+      "email_verification",
+      emailVerificationTtlMs,
+    );
+    await this.recordEmailVerificationRequest(user.id, context, "queued");
+
+    return result;
   }
 
   async confirmEmailVerification(
-    input: EmailVerificationConfirmInputDto
+    input: EmailVerificationConfirmInputDto,
   ): Promise<EmailVerificationConfirmDto> {
-    const userId = await this.consumeActionToken(
-      "email_verification",
-      input.token
-    );
     const emailVerifiedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const token = await this.consumeActionTokenInTransaction(
+        tx,
+        "email_verification",
+        input.token,
+        emailVerifiedAt,
+      );
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { emailVerifiedAt }
+      await tx.user.update({
+        where: { id: token.userId },
+        data: { emailVerifiedAt },
+      });
+      await tx.authActionToken.updateMany({
+        where: {
+          userId: token.userId,
+          type: "email_verification",
+          usedAt: null,
+        },
+        data: { usedAt: emailVerifiedAt },
+      });
     });
 
     return {
       ok: true,
-      emailVerifiedAt: emailVerifiedAt.toISOString()
+      emailVerifiedAt: emailVerifiedAt.toISOString(),
     };
   }
 
@@ -863,11 +952,11 @@ export class AuthService {
       include: {
         memberships: {
           include: {
-            workspace: true
+            workspace: true,
           },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }]
-        }
-      }
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        },
+      },
     })) as EmailLoginUserRecord | null;
 
     if (!user?.passwordHash) {
@@ -876,7 +965,7 @@ export class AuthService {
 
     const validPassword = await this.passwordService.verify(
       input.password,
-      user.passwordHash
+      user.passwordHash,
     );
 
     if (!validPassword) {
@@ -886,30 +975,43 @@ export class AuthService {
     return this.toAuthenticatedUser(user);
   }
 
-  private async createSessionForUser(
+  async createSessionForUser(
     userId: string,
-    context: AuthRequestContext
+    context: AuthRequestContext = {},
+    options: AuthSessionCreationOptions = {},
   ): Promise<AuthSessionResult> {
-    const user = (await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        memberships: {
-          include: {
-            workspace: true
-          }
-        }
+    const create = async (tx: Prisma.TransactionClient) => {
+      const user = (await tx.user.findUnique({
+        where: { id: userId },
+        include: {
+          memberships: {
+            include: {
+              workspace: true,
+            },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          },
+        },
+      })) as EmailLoginUserRecord | null;
+
+      if (!user) {
+        throw this.invalidCredentials();
       }
-    })) as EmailLoginUserRecord | null;
 
-    if (!user) {
-      throw this.invalidCredentials();
-    }
+      const refreshToken = randomBytes(refreshTokenBytes).toString("hex");
+      const expiresAt = new Date(Date.now() + sessionTtlMs);
+      const requestedWorkspaceId = options.activeWorkspaceId ?? null;
+      const authenticated = this.toAuthenticatedUser(
+        user,
+        requestedWorkspaceId,
+      );
 
-    const refreshToken = randomBytes(refreshTokenBytes).toString("hex");
-    const expiresAt = new Date(Date.now() + sessionTtlMs);
-    const authenticated = this.toAuthenticatedUser(user);
+      if (
+        requestedWorkspaceId &&
+        authenticated.activeWorkspaceId !== requestedWorkspaceId
+      ) {
+        throw this.invalidCredentials();
+      }
 
-    await this.prisma.$transaction(async (tx) => {
       await tx.authSession.create({
         data: {
           userId: user.id,
@@ -917,8 +1019,8 @@ export class AuthService {
           refreshHash: this.hashRefreshToken(refreshToken),
           userAgent: context.userAgent ?? null,
           ipAddress: context.ipAddress ?? null,
-          expiresAt
-        }
+          expiresAt,
+        },
       });
 
       if (
@@ -927,38 +1029,91 @@ export class AuthService {
       ) {
         await tx.user.update({
           where: { id: user.id },
-          data: { lastWorkspaceId: authenticated.activeWorkspaceId }
+          data: { lastWorkspaceId: authenticated.activeWorkspaceId },
         });
       }
+
+      return {
+        ...authenticated,
+        refreshToken,
+        expiresAt,
+      };
+    };
+
+    return options.transaction
+      ? create(options.transaction)
+      : this.prisma.$transaction(create);
+  }
+
+  async activateWorkspaceSessionInTransaction(
+    tx: Prisma.TransactionClient,
+    refreshToken: string,
+    userId: string,
+    workspaceId: string,
+  ): Promise<void> {
+    const membership = await tx.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId,
+        },
+      },
+      select: { id: true },
     });
 
-    return {
-      ...authenticated,
-      refreshToken,
-      expiresAt
-    };
+    if (!membership) {
+      throw this.invalidCredentials();
+    }
+
+    const updated = await tx.authSession.updateMany({
+      where: {
+        refreshHash: this.hashRefreshToken(refreshToken),
+        userId,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      data: {
+        activeWorkspaceId: workspaceId,
+        supportWorkspaceId: null,
+        supportWorkspaceStartedAt: null,
+      },
+    });
+
+    if (updated.count !== 1) {
+      throw this.invalidCredentials();
+    }
+
+    await tx.user.update({
+      where: { id: userId },
+      data: { lastWorkspaceId: workspaceId },
+    });
   }
 
   private async exchangeGoogleCode(
-    code: string
+    code: string,
   ): Promise<{ accessToken: string | null; message?: string }> {
     const body = new URLSearchParams({
       code,
       client_id: this.env.GOOGLE_CLIENT_ID ?? "",
       client_secret: this.env.GOOGLE_CLIENT_SECRET ?? "",
       redirect_uri: this.env.GOOGLE_REDIRECT_URI ?? "",
-      grant_type: "authorization_code"
+      grant_type: "authorization_code",
     });
 
     try {
-      const response = await this.fetchImpl("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
+      const response = await this.fetchImpl(
+        "https://oauth2.googleapis.com/token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body,
         },
-        body
-      });
-      const payload = (await response.json().catch(() => ({}))) as GoogleTokenResponse;
+      );
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as GoogleTokenResponse;
 
       if (!response.ok || !this.asString(payload.access_token)) {
         return {
@@ -966,18 +1121,18 @@ export class AuthService {
           message:
             this.asString(payload.error_description) ??
             this.asString(payload.error) ??
-            `Google OAuth HTTP ${response.status}`
+            `Google OAuth HTTP ${response.status}`,
         };
       }
 
       return {
-        accessToken: this.asString(payload.access_token)
+        accessToken: this.asString(payload.access_token),
       };
     } catch (error) {
       return {
         accessToken: null,
         message:
-          error instanceof Error ? error.message : "Erro ao trocar code Google"
+          error instanceof Error ? error.message : "Erro ao trocar code Google",
       };
     }
   }
@@ -994,11 +1149,13 @@ export class AuthService {
         "https://openidconnect.googleapis.com/v1/userinfo",
         {
           headers: {
-            Authorization: `Bearer ${accessToken}`
-          }
-        }
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
       );
-      const payload = (await response.json().catch(() => ({}))) as GoogleUserInfoResponse;
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as GoogleUserInfoResponse;
 
       if (!response.ok) {
         return {
@@ -1006,7 +1163,7 @@ export class AuthService {
           email: null,
           emailVerified: false,
           name: null,
-          message: `Google userinfo HTTP ${response.status}`
+          message: `Google userinfo HTTP ${response.status}`,
         };
       }
 
@@ -1017,7 +1174,7 @@ export class AuthService {
           : null,
         emailVerified: payload.email_verified === true,
         name: this.asString(payload.name),
-        message: undefined
+        message: undefined,
       };
     } catch (error) {
       return {
@@ -1026,7 +1183,9 @@ export class AuthService {
         emailVerified: false,
         name: null,
         message:
-          error instanceof Error ? error.message : "Erro ao buscar perfil Google"
+          error instanceof Error
+            ? error.message
+            : "Erro ao buscar perfil Google",
       };
     }
   }
@@ -1038,17 +1197,17 @@ export class AuthService {
       emailVerified: boolean;
       name: string | null;
     },
-    context: AuthRequestContext
+    context: AuthRequestContext,
   ): Promise<AuthSessionResult | null> {
     const existingByGoogle = (await this.prisma.user.findUnique({
       where: { googleId: profile.googleId },
       include: {
         memberships: {
           include: {
-            workspace: true
-          }
-        }
-      }
+            workspace: true,
+          },
+        },
+      },
     })) as EmailLoginUserRecord | null;
 
     if (existingByGoogle) {
@@ -1060,10 +1219,10 @@ export class AuthService {
       include: {
         memberships: {
           include: {
-            workspace: true
-          }
-        }
-      }
+            workspace: true,
+          },
+        },
+      },
     })) as EmailLoginUserRecord | null;
 
     if (existingByEmail) {
@@ -1075,8 +1234,8 @@ export class AuthService {
           name: existingByEmail.name ?? profile.name,
           emailVerifiedAt:
             existingByEmail.emailVerifiedAt ??
-            (profile.emailVerified ? new Date() : null)
-        }
+            (profile.emailVerified ? new Date() : null),
+        },
       });
 
       return this.createSessionForUser(existingByEmail.id, context);
@@ -1087,7 +1246,7 @@ export class AuthService {
 
   private async recordInitialWorkspaceOwnership(
     created: CreatedWorkspaceOwnership,
-    context: AuthRequestContext
+    context: AuthRequestContext,
   ): Promise<void> {
     await this.safeCreateAuditLog({
       workspaceId: created.workspaceId,
@@ -1102,8 +1261,8 @@ export class AuthService {
       beforeSummary: null,
       afterSummary: {
         name: created.workspaceName,
-        slug: created.workspaceSlug
-      }
+        slug: created.workspaceSlug,
+      },
     });
     await this.safeCreateAuditLog({
       workspaceId: created.workspaceId,
@@ -1119,14 +1278,14 @@ export class AuthService {
       afterSummary: {
         workspaceId: created.workspaceId,
         userId: created.userId,
-        role: "owner"
-      }
+        role: "owner",
+      },
     });
   }
 
   private async resolveWorkspaceSlug(
     workspaceName: string,
-    tx: Pick<PrismaService, "workspace">
+    tx: Pick<PrismaService, "workspace">,
   ): Promise<string> {
     const baseSlug = this.slugify(workspaceName);
     let candidate = baseSlug;
@@ -1134,7 +1293,7 @@ export class AuthService {
 
     while (
       await tx.workspace.findUnique({
-        where: { slug: candidate }
+        where: { slug: candidate },
       })
     ) {
       candidate = `${baseSlug}-${suffix}`;
@@ -1148,7 +1307,7 @@ export class AuthService {
     user: EmailLoginUserRecord,
     activeWorkspaceId: string | null = null,
     supportWorkspace: AuthSessionRecord["supportWorkspace"] = null,
-    supportWorkspaceStartedAt: Date | null = null
+    supportWorkspaceStartedAt: Date | null = null,
   ): AuthenticatedUser {
     const platformRole = this.resolvePlatformRole(user);
     const activeSupportWorkspace = platformRole ? supportWorkspace : null;
@@ -1160,25 +1319,24 @@ export class AuthService {
       canManageMembers: membership.canManageMembers === true,
       operationalStatus:
         membership.workspace.operationalStatus === "blocked"
-          ? "blocked" as const
-          : "active" as const
+          ? ("blocked" as const)
+          : ("active" as const),
     }));
-    const supportContext =
-      activeSupportWorkspace
-        ? {
-            workspaceId: activeSupportWorkspace.id,
-            workspaceName: activeSupportWorkspace.name,
-            workspaceSlug: activeSupportWorkspace.slug,
+    const supportContext = activeSupportWorkspace
+      ? {
+          workspaceId: activeSupportWorkspace.id,
+          workspaceName: activeSupportWorkspace.name,
+          workspaceSlug: activeSupportWorkspace.slug,
           operationalStatus:
             activeSupportWorkspace.operationalStatus === "blocked"
               ? ("blocked" as const)
               : ("active" as const),
-          startedAt: (supportWorkspaceStartedAt ?? new Date()).toISOString()
+          startedAt: (supportWorkspaceStartedAt ?? new Date()).toISOString(),
         }
       : null;
     const resolvedActiveWorkspaceId = this.resolveActiveMemberWorkspaceId(
       user,
-      activeWorkspaceId
+      activeWorkspaceId,
     );
 
     return {
@@ -1188,23 +1346,23 @@ export class AuthService {
         name: user.name,
         authProvider: user.authProvider ?? "email",
         emailVerifiedAt: user.emailVerifiedAt ?? null,
-        platformRole
+        platformRole,
       },
       activeWorkspaceId: resolvedActiveWorkspaceId,
       workspaces: memberWorkspaces,
-      supportContext
+      supportContext,
     };
   }
 
   private resolveActiveMemberWorkspaceId(
     user: EmailLoginUserRecord,
-    activeWorkspaceId: string | null
+    activeWorkspaceId: string | null,
   ): string | null {
     for (const candidate of [activeWorkspaceId, user.lastWorkspaceId ?? null]) {
       if (
         candidate &&
         user.memberships.some(
-          (membership) => membership.workspace.id === candidate
+          (membership) => membership.workspace.id === candidate,
         )
       ) {
         return candidate;
@@ -1265,12 +1423,12 @@ export class AuthService {
 
   private async assertLoginNotRateLimited(
     email: string,
-    context: AuthRequestContext
+    context: AuthRequestContext,
   ): Promise<void> {
     const filters: Array<{ targetId?: string; sourceIp?: string }> = [
       {
-        targetId: this.hashAuthIdentity(email)
-      }
+        targetId: this.hashAuthIdentity(email),
+      },
     ];
 
     if (context.ipAddress) {
@@ -1282,28 +1440,28 @@ export class AuthService {
         action: "auth.login_failed",
         resultStatus: "failed",
         createdAt: {
-          gte: new Date(Date.now() - loginFailureWindowMs)
+          gte: new Date(Date.now() - loginFailureWindowMs),
         },
-        OR: filters
-      }
+        OR: filters,
+      },
     });
 
     if (recentFailures >= loginFailureLimit) {
       throw new HttpException(
         "Muitas tentativas de login. Tente novamente em alguns minutos.",
-        HttpStatus.TOO_MANY_REQUESTS
+        HttpStatus.TOO_MANY_REQUESTS,
       );
     }
   }
 
   private async isPasswordResetRequestRateLimited(
     email: string,
-    context: AuthRequestContext
+    context: AuthRequestContext,
   ): Promise<boolean> {
     const filters: Array<{ targetId?: string; sourceIp?: string }> = [
       {
-        targetId: this.hashAuthIdentity(email)
-      }
+        targetId: this.hashAuthIdentity(email),
+      },
     ];
 
     if (context.ipAddress) {
@@ -1314,10 +1472,10 @@ export class AuthService {
       where: {
         action: "auth.password_reset_requested",
         createdAt: {
-          gte: new Date(Date.now() - passwordResetRequestWindowMs)
+          gte: new Date(Date.now() - passwordResetRequestWindowMs),
         },
-        OR: filters
-      }
+        OR: filters,
+      },
     });
 
     return recentRequests >= passwordResetRequestLimit;
@@ -1327,7 +1485,7 @@ export class AuthService {
     email: string,
     userId: string | null,
     context: AuthRequestContext,
-    resultStatus: "queued" | "rate_limited"
+    resultStatus: "queued" | "rate_limited",
   ): Promise<void> {
     await this.safeCreateAuditLog({
       workspaceId: null,
@@ -1345,14 +1503,65 @@ export class AuthService {
       beforeSummary: null,
       afterSummary: {
         delivery: this.getTokenDelivery(),
-        userAgent: context.userAgent ?? null
-      }
+        userAgent: context.userAgent ?? null,
+      },
+    });
+  }
+
+  private async isEmailVerificationRequestRateLimited(
+    userId: string,
+    context: AuthRequestContext,
+  ): Promise<boolean> {
+    const filters: Array<{ targetId?: string; sourceIp?: string }> = [
+      { targetId: userId },
+    ];
+
+    if (context.ipAddress) {
+      filters.push({ sourceIp: context.ipAddress });
+    }
+
+    const recentRequests = await this.prisma.auditLog.count({
+      where: {
+        action: "auth.email_verification_requested",
+        createdAt: {
+          gte: new Date(Date.now() - emailVerificationRequestWindowMs),
+        },
+        OR: filters,
+      },
+    });
+
+    return recentRequests >= emailVerificationRequestLimit;
+  }
+
+  private async recordEmailVerificationRequest(
+    userId: string,
+    context: AuthRequestContext,
+    resultStatus: "queued" | "rate_limited" | "already_verified",
+  ): Promise<void> {
+    await this.safeCreateAuditLog({
+      workspaceId: null,
+      actorUserId: userId,
+      actorType: "user",
+      action: "auth.email_verification_requested",
+      targetType: "User",
+      targetId: userId,
+      reason:
+        resultStatus === "rate_limited"
+          ? "Limite de verificacao de email atingido"
+          : null,
+      sourceIp: context.ipAddress ?? null,
+      resultStatus,
+      beforeSummary: null,
+      afterSummary: {
+        delivery: this.getTokenDelivery(),
+        userAgent: context.userAgent ?? null,
+      },
     });
   }
 
   private async recordLoginFailure(
     email: string,
-    context: AuthRequestContext
+    context: AuthRequestContext,
   ): Promise<void> {
     await this.safeCreateAuditLog({
       workspaceId: null,
@@ -1366,14 +1575,14 @@ export class AuthService {
       resultStatus: "failed",
       beforeSummary: null,
       afterSummary: {
-        userAgent: context.userAgent ?? null
-      }
+        userAgent: context.userAgent ?? null,
+      },
     });
   }
 
   private async recordLoginSuccess(
     session: AuthSessionResult,
-    context: AuthRequestContext
+    context: AuthRequestContext,
   ): Promise<void> {
     await this.safeCreateAuditLog({
       workspaceId: session.activeWorkspaceId,
@@ -1388,8 +1597,8 @@ export class AuthService {
       beforeSummary: null,
       afterSummary: {
         authProvider: session.user.authProvider,
-        userAgent: context.userAgent ?? null
-      }
+        userAgent: context.userAgent ?? null,
+      },
     });
   }
 
@@ -1425,8 +1634,8 @@ export class AuthService {
           afterSummary:
             input.afterSummary === null
               ? undefined
-              : (input.afterSummary as Prisma.InputJsonValue)
-        }
+              : (input.afterSummary as Prisma.InputJsonValue),
+        },
       });
     } catch {
       return;
@@ -1437,8 +1646,8 @@ export class AuthService {
     const payload = Buffer.from(
       JSON.stringify({
         redirectTo: this.safeRedirectPath(redirectTo ?? "/overview"),
-        nonce: randomBytes(16).toString("hex")
-      })
+        nonce: randomBytes(16).toString("hex"),
+      }),
     ).toString("base64url");
     const signature = this.signOAuthStatePayload(payload);
 
@@ -1458,7 +1667,7 @@ export class AuthService {
 
     try {
       const decoded = JSON.parse(
-        Buffer.from(payload, "base64url").toString("utf8")
+        Buffer.from(payload, "base64url").toString("utf8"),
       ) as {
         redirectTo?: unknown;
       };
@@ -1485,14 +1694,13 @@ export class AuthService {
 
   private isValidOAuthStateSignature(
     payload: string,
-    signature: string
+    signature: string,
   ): boolean {
     const expected = Buffer.from(this.signOAuthStatePayload(payload));
     const received = Buffer.from(signature);
 
     return (
-      expected.length === received.length &&
-      timingSafeEqual(expected, received)
+      expected.length === received.length && timingSafeEqual(expected, received)
     );
   }
 
@@ -1506,76 +1714,141 @@ export class AuthService {
   }
 
   private async createActionToken(
-    userId: string,
+    user: { id: string; email: string; name: string | null },
     type: AuthActionTokenType,
-    ttlMs: number
+    ttlMs: number,
   ): Promise<PasswordResetRequestDto | EmailVerificationStartDto> {
     const token = randomBytes(32).toString("hex");
-
-    await this.prisma.$transaction(async (tx) => {
+    const actionToken = await this.prisma.$transaction(async (tx) => {
       await tx.authActionToken.updateMany({
         where: {
-          userId,
+          userId: user.id,
           type,
-          usedAt: null
+          usedAt: null,
         },
         data: {
-          usedAt: new Date()
-        }
+          usedAt: new Date(),
+        },
       });
-      await tx.authActionToken.create({
+      return tx.authActionToken.create({
         data: {
-          userId,
+          userId: user.id,
           type,
           tokenHash: this.hashActionToken(token),
-          expiresAt: new Date(Date.now() + ttlMs)
-        }
+          expiresAt: new Date(Date.now() + ttlMs),
+        },
       });
     });
+
+    if (this.emailQueue?.isEnabled()) {
+      try {
+        await this.emailQueue.enqueue({
+          workspaceId: null,
+          action: {
+            type: "AuthActionToken",
+            id: actionToken.id,
+            version: "1",
+          },
+          envelope:
+            type === "password_reset"
+              ? {
+                  to: {
+                    address: user.email,
+                    name: user.name ?? undefined,
+                  },
+                  template: "password_reset",
+                  data: {
+                    recipientName: user.name ?? undefined,
+                    token,
+                    expiresAt: actionToken.expiresAt.toISOString(),
+                  },
+                }
+              : {
+                  to: {
+                    address: user.email,
+                    name: user.name ?? undefined,
+                  },
+                  template: "email_verification",
+                  data: {
+                    recipientName: user.name ?? undefined,
+                    token,
+                    expiresAt: actionToken.expiresAt.toISOString(),
+                  },
+                },
+        });
+      } catch {
+        await this.safeCreateAuditLog({
+          workspaceId: null,
+          actorUserId: user.id,
+          actorType: "system",
+          action: "auth.action_email_queue_failed",
+          targetType: "AuthActionToken",
+          targetId: actionToken.id,
+          reason: "Transactional email queue unavailable",
+          sourceIp: null,
+          resultStatus: "failed",
+          beforeSummary: null,
+          afterSummary: { type },
+        });
+      }
+    }
 
     return {
       ok: true,
       delivery: this.getTokenDelivery(),
-      devToken: this.env.AUTH_EXPOSE_DEV_TOKENS === "true" ? token : null
+      devToken: this.shouldExposeDevTokens() ? token : null,
     };
   }
 
-  private async consumeActionToken(
+  private async consumeActionTokenInTransaction(
+    tx: Prisma.TransactionClient,
     type: AuthActionTokenType,
-    token: string
-  ): Promise<string> {
-    const record = (await this.prisma.authActionToken.findFirst({
+    token: string,
+    now: Date,
+  ): Promise<AuthActionTokenRecord> {
+    const tokenHash = this.hashActionToken(token);
+    const record = (await tx.authActionToken.findFirst({
       where: {
         type,
-        tokenHash: this.hashActionToken(token),
-        usedAt: null
-      }
+        tokenHash,
+      },
     })) as AuthActionTokenRecord | null;
 
-    if (!record || record.expiresAt.getTime() <= Date.now()) {
+    if (
+      !record ||
+      record.usedAt ||
+      record.expiresAt.getTime() <= now.getTime()
+    ) {
       throw new BadRequestException("Token invalido ou expirado");
     }
 
-    await this.prisma.authActionToken.update({
-      where: { id: record.id },
-      data: { usedAt: new Date() }
+    const consumed = await tx.authActionToken.updateMany({
+      where: {
+        id: record.id,
+        type,
+        tokenHash,
+        usedAt: null,
+        expiresAt: { gt: now },
+      },
+      data: { usedAt: now },
     });
 
-    return record.userId;
-  }
-
-  private async assertUserExists(userId: string): Promise<void> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId }
-    });
-
-    if (!user) {
-      throw this.invalidCredentials();
+    if (consumed.count !== 1) {
+      throw new BadRequestException("Token invalido ou expirado");
     }
+
+    return record;
   }
 
   private getTokenDelivery(): "email_queued" | "not_configured" {
-    return this.env.EMAIL_PROVIDER ? "email_queued" : "not_configured";
+    return this.emailQueue?.isEnabled() ? "email_queued" : "not_configured";
+  }
+
+  private shouldExposeDevTokens(): boolean {
+    return (
+      this.env.AUTH_EXPOSE_DEV_TOKENS === "true" &&
+      this.env.NODE_ENV !== "production"
+    );
   }
 
   private hashActionToken(token: string): string {

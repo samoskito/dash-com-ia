@@ -1,7 +1,7 @@
 # WppTrack Access, Email and Meta Connections Implementation Plan
 
 Date: 2026-07-13
-Status: Waves 0-4 implemented and validated locally; Wave 4 staging delivery pending; Wave 5 not started
+Status: Waves 0-6 implemented and validated locally; outbound SMTP accepted in production; Waves 5-6 deploy pending
 Design: docs/plans/2026-07-13-wpptrack-access-email-meta-connections-design.md
 
 ## 1. Goal
@@ -438,26 +438,26 @@ Purpose: connect the existing secure action-token foundation to real email.
 
 ### Password reset
 
-- [ ] Queue a reset email only when the normalized email maps to an eligible user.
-- [ ] Always return the same generic response.
-- [ ] Apply IP and email-fingerprint rate limits.
-- [ ] Preserve 30-minute expiry and one-time consumption.
-- [ ] Revoke other reset tokens after a successful password change.
-- [ ] Revoke active sessions according to the selected security policy, keeping the completing session behavior explicit.
+- [x] Queue a reset email only when the normalized email maps to an eligible user.
+- [x] Always return the same generic response.
+- [x] Apply IP and email-fingerprint rate limits.
+- [x] Preserve 30-minute expiry and one-time consumption.
+- [x] Revoke other reset tokens after a successful password change.
+- [x] Revoke active sessions according to the selected security policy, keeping the completing session behavior explicit.
 
 ### Verification
 
-- [ ] Queue verification email when required.
-- [ ] Preserve 24-hour expiry.
-- [ ] Resend with token rotation and rate limits.
-- [ ] Mark invitation email as verified when invitation onboarding succeeds.
+- [x] Queue verification email when required.
+- [x] Preserve 24-hour expiry.
+- [x] Resend with token rotation and rate limits.
+- [x] Mark invitation email as verified when invitation onboarding succeeds.
 
 ### Tests
 
-- [ ] Known and unknown email responses are indistinguishable.
-- [ ] Expired, used and rotated links fail generically.
-- [ ] No token is exposed unless the existing explicit development-only flag is enabled outside production.
-- [ ] Successful reset invalidates the expected sessions/tokens.
+- [x] Known and unknown email responses are indistinguishable.
+- [x] Expired, used and rotated links fail generically.
+- [x] No token is exposed unless the existing explicit development-only flag is enabled outside production.
+- [x] Successful reset invalidates the expected sessions/tokens.
 
 ### Likely files
 
@@ -474,16 +474,26 @@ Purpose: connect the existing secure action-token foundation to real email.
 
 Forgot-password and verification work end to end through Brevo without account enumeration.
 
+### Implementation checkpoint - 2026-07-14
+
+- Password reset and verification now enqueue encrypted transactional email envelopes through the accepted Brevo transport. The raw action token exists only before envelope encryption and is never returned in production, logged or persisted in audit data.
+- Password reset responses are identical for eligible and unknown emails in production. Limits use source IP plus a hash of the normalized email, without storing the raw attempted address.
+- Reset tokens expire after 30 minutes, verification tokens after 24 hours, both are one-time, and issuing a replacement invalidates the previous active token.
+- A successful password reset atomically consumes the token, rotates all other reset tokens and revokes every active session for the identity. The public reset flow has no completing authenticated session to preserve.
+- Verification resend is rate-limited and rotates the token. Invitation onboarding sets `emailVerifiedAt` because possession of the delivered invitation token verifies the invited address.
+- The web always presents a generic forgot-password response and generic invalid/expired/used link states.
+- No production deploy of Wave 5 was performed. Deploy the API before the web, then test forgot-password and verification with an internal identity. The inbound mailbox for `suporte@rastrack.app` remains an operational follow-up for customer replies, not an outbound SMTP code dependency.
+
 ## 9. Wave 6 - Complete Invitation Onboarding
 
 Purpose: turn current invitation records into a complete closed-registration flow.
 
 ### API
 
-- [ ] Add minimal public invitation inspection by raw token.
-- [ ] Return generic invalid state for expired/revoked/unknown tokens.
-- [ ] Preserve only minimum display data for a valid token.
-- [ ] Add new-user invite acceptance:
+- [x] Add minimal public invitation inspection by raw token.
+- [x] Return generic invalid state for expired/revoked/unknown tokens.
+- [x] Preserve only minimum display data for a valid token.
+- [x] Add new-user invite acceptance:
   - validate token and email;
   - hash password;
   - create user;
@@ -493,27 +503,27 @@ Purpose: turn current invitation records into a complete closed-registration flo
   - create/authenticate session;
   - activate invited workspace;
   - commit atomically.
-- [ ] Add existing-user acceptance after authentication with matching normalized email.
-- [ ] Rotate token on resend and invalidate prior token.
-- [ ] Update status for queued/sent/failed/accepted/revoked/expired.
+- [x] Add existing-user acceptance after authentication with matching normalized email.
+- [x] Rotate token on resend and invalidate prior token.
+- [x] Update status for queued/sent/failed/accepted/revoked/expired.
 
 ### Web
 
-- [ ] Make invite route accessible before app authentication.
-- [ ] Show login continuation for existing users.
-- [ ] Show name/password form for new users.
-- [ ] Handle expired/revoked links with a generic support-oriented state.
-- [ ] Land accepted users in the invited workspace.
+- [x] Make invite route accessible before app authentication.
+- [x] Show login continuation for existing users.
+- [x] Show name/password form for new users.
+- [x] Handle expired/revoked links with a generic support-oriented state.
+- [x] Land accepted users in the invited workspace.
 
 ### Tests
 
-- [ ] New user acceptance.
-- [ ] Existing user acceptance.
-- [ ] Email mismatch.
-- [ ] Expired, used, revoked and superseded tokens.
-- [ ] Concurrent acceptance creates one membership.
-- [ ] Invite cannot grant owner or delegated manager through a crafted payload.
-- [ ] Accepting workspace B does not leak workspace A.
+- [x] New user acceptance.
+- [x] Existing user acceptance.
+- [x] Email mismatch.
+- [x] Expired, used, revoked and superseded tokens.
+- [x] Concurrent acceptance creates one membership.
+- [x] Invite cannot grant owner or delegated manager through a crafted payload.
+- [x] Accepting workspace B does not leak workspace A.
 
 ### Likely files
 
@@ -528,6 +538,19 @@ Purpose: turn current invitation records into a complete closed-registration flo
 ### Acceptance
 
 The platform owner can provision the responsible owner, and that owner or delegated team manager can invite its team without public signup.
+
+### Implementation checkpoint - 2026-07-14
+
+- Invitations no longer expose raw acceptance tokens in API responses. Creation and resend enqueue the token only inside the encrypted email envelope; resend replaces the stored hash and invalidates the old link.
+- Public inspection returns only a generic invalid state or the workspace name, masked email, invited role, required account path and expiry. It never returns user IDs, workspace IDs, full email or membership data.
+- Existing identities must authenticate with the normalized invited email. Login preserves a validated same-origin `redirectTo` and returns the user to the invitation.
+- New-user acceptance is closed-registration only: the valid invitation token supplies the immutable email, and one transaction claims the invite, hashes the password, creates or completes the identity, verifies the email, creates the membership, creates the session and activates the invited workspace.
+- Conditional `updateMany` claims make token and invitation consumption one-time under concurrent requests. Owner and delegated-manager grants are rejected by both shared contracts and service validation.
+- Delivery lifecycle now distinguishes pending, sent, failed, accepted, revoked and expired. Authenticated email job metadata is versioned by invite expiry so an old delivery job cannot update a resent invitation.
+- The public `/invite/accept` route and legacy redirect were validated at 1440 x 1000 and 390 x 844. Invalid, login and account-creation states had no horizontal overflow and did not disclose protected tenant data.
+- Final local validation passed with 60 shared tests, 643 API tests and 132 web tests; all package typechecks, Prisma format/validate, direct Nest production build, Next production build, Prettier and `git diff --check` passed.
+- No production deploy of Wave 6 was performed. Deploy the enum migration first, then API/email processor, then web. Verify create, sent, resend, existing-user acceptance and new-user acceptance with an internal workspace before inviting a customer.
+- For application rollback to code that does not understand `sent` and `failed`, first normalize active rows back to `pending`; keep the additive PostgreSQL enum values in place because enum value removal is destructive.
 
 ## 10. Wave 7 - Google Feature Gate
 

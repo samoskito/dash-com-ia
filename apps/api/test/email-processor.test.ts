@@ -37,6 +37,9 @@ function jobPayload(
     workspaceId: null,
     template: "password_reset" as const,
     recipientHash: "recipient-hash",
+    actionType: "AuthActionToken" as const,
+    actionId: "action-token-1",
+    actionVersion: "1",
   };
   const encrypted = crypto.encrypt(
     {
@@ -73,11 +76,13 @@ describe("EmailProcessor", () => {
     const crypto = new EmailEnvelopeCryptoService(config);
     const transport = new InMemoryEmailTransport();
     const audit = { record: vi.fn(async () => undefined) };
+    const actionStatus = { record: vi.fn(async () => undefined) };
     const processor = new EmailProcessor(
       crypto,
       new EmailMessageRenderer(config),
       transport,
       audit as never,
+      actionStatus as never,
     );
     const payload = jobPayload(crypto);
 
@@ -94,6 +99,13 @@ describe("EmailProcessor", () => {
         recipientHash: "recipient-hash",
         attemptNumber: 1,
         maxAttempts: 4,
+      }),
+    );
+    expect(actionStatus.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "AuthActionToken",
+        actionId: "action-token-1",
+        status: "sent",
       }),
     );
     expect(JSON.stringify(payload)).not.toContain(rawToken);
@@ -117,11 +129,13 @@ describe("EmailProcessor", () => {
       }),
     };
     const audit = { record: vi.fn(async () => undefined) };
+    const actionStatus = { record: vi.fn(async () => undefined) };
     const processor = new EmailProcessor(
       crypto,
       new EmailMessageRenderer(config),
       transport,
       audit as never,
+      actionStatus as never,
     );
 
     await expect(processor.process(job(jobPayload(crypto)))).rejects.toThrow(
@@ -137,6 +151,7 @@ describe("EmailProcessor", () => {
     expect(JSON.stringify(audit.record.mock.calls)).not.toContain(
       "cliente@example.com",
     );
+    expect(actionStatus.record).not.toHaveBeenCalled();
   });
 
   it("marks permanent SMTP failures as unrecoverable", async () => {
@@ -150,11 +165,13 @@ describe("EmailProcessor", () => {
       }),
     };
     const audit = { record: vi.fn(async () => undefined) };
+    const actionStatus = { record: vi.fn(async () => undefined) };
     const processor = new EmailProcessor(
       crypto,
       new EmailMessageRenderer(config),
       transport,
       audit as never,
+      actionStatus as never,
     );
 
     await expect(
@@ -167,6 +184,9 @@ describe("EmailProcessor", () => {
         errorCode: "SMTP_550",
       }),
     );
+    expect(actionStatus.record).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
   });
 
   it("rejects tampered workspace metadata before sending", async () => {
@@ -174,11 +194,13 @@ describe("EmailProcessor", () => {
     const crypto = new EmailEnvelopeCryptoService(config);
     const transport = new InMemoryEmailTransport();
     const audit = { record: vi.fn(async () => undefined) };
+    const actionStatus = { record: vi.fn(async () => undefined) };
     const processor = new EmailProcessor(
       crypto,
       new EmailMessageRenderer(config),
       transport,
       audit as never,
+      actionStatus as never,
     );
     const payload = {
       ...jobPayload(crypto),
@@ -198,6 +220,7 @@ describe("EmailProcessor", () => {
         recipientHash: "unavailable",
       }),
     );
+    expect(actionStatus.record).not.toHaveBeenCalled();
   });
 
   it("classifies expected transport failures without provider messages", () => {
@@ -221,11 +244,13 @@ describe("EmailProcessor", () => {
         throw new Error("audit unavailable");
       }),
     };
+    const actionStatus = { record: vi.fn(async () => undefined) };
     const processor = new EmailProcessor(
       crypto,
       new EmailMessageRenderer(config),
       transport,
       audit as never,
+      actionStatus as never,
     );
 
     await expect(

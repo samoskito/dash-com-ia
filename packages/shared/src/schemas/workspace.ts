@@ -2,6 +2,15 @@ import { z } from "zod";
 import { platformRoles, workspaceRoles } from "../roles";
 
 export const workspaceOperationalStatuses = ["active", "blocked"] as const;
+export const workspaceInviteStatuses = [
+  "pending",
+  "sent",
+  "failed",
+  "accepted",
+  "revoked",
+  "expired",
+] as const;
+const invitationalWorkspaceRoles = ["admin", "member"] as const;
 
 export const workspacePermissionsSchema = z.object({
   canInviteMembers: z.boolean(),
@@ -12,7 +21,7 @@ export const workspacePermissionsSchema = z.object({
   canManageWorkspaceSettings: z.boolean(),
   canTransferOwnership: z.boolean(),
   canViewReports: z.boolean(),
-  canExportReports: z.boolean()
+  canExportReports: z.boolean(),
 });
 
 export const workspaceSchema = z.object({
@@ -20,11 +29,11 @@ export const workspaceSchema = z.object({
   name: z.string().min(1),
   slug: z.string().min(1),
   role: z.enum(workspaceRoles),
-  operationalStatus: z.enum(workspaceOperationalStatuses).default("active")
+  operationalStatus: z.enum(workspaceOperationalStatuses).default("active"),
 });
 
 export const workspaceListEntrySchema = workspaceSchema.extend({
-  permissions: workspacePermissionsSchema
+  permissions: workspacePermissionsSchema,
 });
 
 export const workspaceListSchema = z.array(workspaceListEntrySchema);
@@ -32,15 +41,15 @@ export const workspaceListSchema = z.array(workspaceListEntrySchema);
 export const currentWorkspaceSchema = workspaceSchema.extend({
   permissions: workspacePermissionsSchema,
   accessMode: z.enum(["member", "platform_support"]).optional(),
-  platformRole: z.enum(platformRoles).nullable().optional()
+  platformRole: z.enum(platformRoles).nullable().optional(),
 });
 
 export const workspaceUpdateInputSchema = z.object({
-  name: z.string().trim().min(2).max(120)
+  name: z.string().trim().min(2).max(120),
 });
 
 export const workspaceActiveInputSchema = z.object({
-  workspaceId: z.string().trim().min(1)
+  workspaceId: z.string().trim().min(1),
 });
 
 export const workspaceBillingSchema = z.object({
@@ -54,19 +63,19 @@ export const workspaceBillingSchema = z.object({
     "active",
     "pending",
     "overdue",
-    "cancelled"
+    "cancelled",
   ]),
-  activeInstances: z.number().int().nonnegative()
+  activeInstances: z.number().int().nonnegative(),
 });
 
 export const workspaceBillingListSchema = z.array(workspaceBillingSchema);
 
 export const workspaceBillingUpdateInputSchema = z.object({
-  asaasCustomerId: z.string().trim().min(1).nullable()
+  asaasCustomerId: z.string().trim().min(1).nullable(),
 });
 
 export const workspaceOperationalStatusUpdateInputSchema = z.object({
-  operationalStatus: z.enum(workspaceOperationalStatuses)
+  operationalStatus: z.enum(workspaceOperationalStatuses),
 });
 
 export const workspaceMemberSchema = z.object({
@@ -76,15 +85,15 @@ export const workspaceMemberSchema = z.object({
   name: z.string().nullable(),
   role: z.enum(workspaceRoles),
   canManageMembers: z.boolean(),
-  joinedAt: z.string().datetime()
+  joinedAt: z.string().datetime(),
 });
 
 export const workspaceMemberRoleUpdateInputSchema = z.object({
-  role: z.enum(["admin", "member"])
+  role: z.enum(["admin", "member"]),
 });
 
 export const workspaceMemberManagerUpdateInputSchema = z.object({
-  canManageMembers: z.boolean()
+  canManageMembers: z.boolean(),
 });
 
 export const workspaceInviteInputSchema = z.object({
@@ -93,29 +102,46 @@ export const workspaceInviteInputSchema = z.object({
     .trim()
     .email()
     .transform((email) => email.toLowerCase()),
-  role: z.enum(workspaceRoles).refine((role) => role !== "owner", {
-    message: "Convites nao podem criar owners diretamente"
-  })
+  role: z.enum(invitationalWorkspaceRoles),
 });
 
 export const workspaceInviteSchema = z.object({
   id: z.string().min(1),
   email: z.string().email(),
-  role: z.enum(workspaceRoles),
-  status: z.enum(["pending", "accepted", "revoked", "expired"]),
+  role: z.enum(invitationalWorkspaceRoles),
+  status: z.enum(workspaceInviteStatuses),
   expiresAt: z.string().datetime(),
-  acceptToken: z.string().min(16).optional()
 });
 
 export const workspaceInviteAcceptInputSchema = z.object({
-  token: z.string().trim().min(16)
+  token: z.string().trim().min(16),
 });
+
+export const workspaceInviteNewUserAcceptInputSchema =
+  workspaceInviteAcceptInputSchema.extend({
+    name: z.string().trim().min(2).max(120),
+    password: z.string().min(8).max(128),
+  });
+
+export const workspaceInviteInspectionSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("invalid"),
+  }),
+  z.object({
+    state: z.literal("valid"),
+    workspaceName: z.string().min(1),
+    emailHint: z.string().min(3),
+    role: z.enum(invitationalWorkspaceRoles),
+    accountMode: z.enum(["login", "create"]),
+    expiresAt: z.string().datetime(),
+  }),
+]);
 
 export const workspaceInviteAcceptSchema = z.object({
   workspaceId: z.string().min(1),
   memberId: z.string().min(1),
-  role: z.enum(workspaceRoles),
-  status: z.literal("accepted")
+  role: z.enum(invitationalWorkspaceRoles),
+  status: z.literal("accepted"),
 });
 
 export type WorkspaceDto = z.infer<typeof workspaceSchema>;
@@ -156,6 +182,12 @@ export type WorkspaceInviteInputDto = z.infer<
 export type WorkspaceInviteDto = z.infer<typeof workspaceInviteSchema>;
 export type WorkspaceInviteAcceptInputDto = z.infer<
   typeof workspaceInviteAcceptInputSchema
+>;
+export type WorkspaceInviteNewUserAcceptInputDto = z.infer<
+  typeof workspaceInviteNewUserAcceptInputSchema
+>;
+export type WorkspaceInviteInspectionDto = z.infer<
+  typeof workspaceInviteInspectionSchema
 >;
 export type WorkspaceInviteAcceptDto = z.infer<
   typeof workspaceInviteAcceptSchema

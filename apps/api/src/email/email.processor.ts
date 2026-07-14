@@ -15,6 +15,7 @@ import {
   EMAIL_DELIVERY_QUEUE,
   type EmailDeliveryJobPayload,
 } from "./email.types";
+import { EmailActionStatusService } from "./email-action-status.service";
 
 @Processor(EMAIL_DELIVERY_QUEUE)
 export class EmailProcessor extends WorkerHost {
@@ -24,6 +25,7 @@ export class EmailProcessor extends WorkerHost {
     @Inject(EMAIL_TRANSPORT)
     private readonly transport: EmailTransport,
     private readonly audit: EmailDeliveryAuditService,
+    private readonly actionStatus: EmailActionStatusService,
   ) {
     super();
   }
@@ -38,6 +40,8 @@ export class EmailProcessor extends WorkerHost {
       metadataAuthenticated = true;
       const message = this.renderMessage(envelope);
       const result = await this.transport.send(message);
+
+      await this.safeRecordActionStatus(job.data, "sent");
 
       await this.safeAudit({
         deliveryId: job.data.deliveryId,
@@ -69,6 +73,10 @@ export class EmailProcessor extends WorkerHost {
         failureKind: failure.kind,
         errorCode: failure.code,
       });
+
+      if (!willRetry && metadataAuthenticated) {
+        await this.safeRecordActionStatus(job.data, "failed");
+      }
 
       const safeMessage = `Transactional email delivery failed (${failure.code})`;
 
@@ -158,6 +166,23 @@ export class EmailProcessor extends WorkerHost {
       await this.audit.record(input);
     } catch {
       // Observability failures must not retry a completed provider side effect.
+    }
+  }
+
+  private async safeRecordActionStatus(
+    payload: EmailDeliveryJobPayload,
+    status: "sent" | "failed",
+  ): Promise<void> {
+    try {
+      await this.actionStatus.record({
+        workspaceId: payload.workspaceId,
+        actionType: payload.actionType,
+        actionId: payload.actionId,
+        actionVersion: payload.actionVersion,
+        status,
+      });
+    } catch {
+      // Delivery state is observable, but must never duplicate a provider send.
     }
   }
 }

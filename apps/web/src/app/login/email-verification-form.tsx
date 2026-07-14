@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import {
   emailVerificationConfirmInputSchema,
-  type EmailVerificationConfirmDto
+  type EmailVerificationConfirmDto,
 } from "@wpptrack/shared";
 import { apiFetch } from "../../lib/api";
 
@@ -20,7 +20,7 @@ export function EmailVerificationConfirmForm({ token }: { token: string }) {
 
     const form = new FormData(event.currentTarget);
     const payload = emailVerificationConfirmInputSchema.parse({
-      token: form.get("token")
+      token: form.get("token"),
     });
 
     try {
@@ -28,12 +28,12 @@ export function EmailVerificationConfirmForm({ token }: { token: string }) {
         "/auth/email/verification/confirm",
         {
           method: "POST",
-          body: JSON.stringify(payload)
-        }
+          body: JSON.stringify(payload),
+        },
       );
       setMessage("Email confirmado. Voce ja pode voltar para o painel.");
     } catch {
-      setError("Nao foi possivel confirmar este email com o token informado.");
+      setError("Este link e invalido, expirou ou ja foi utilizado.");
     } finally {
       setLoading(false);
     }

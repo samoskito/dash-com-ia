@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { AuthController } from "../src/auth/auth.controller";
 import { AuthService } from "../src/auth/auth.service";
-import { RUNTIME_ENV, type RuntimeEnv } from "../src/common/runtime/runtime.module";
+import {
+  RUNTIME_ENV,
+  type RuntimeEnv,
+} from "../src/common/runtime/runtime.module";
 
 type GoogleCallbackResult = Awaited<
   ReturnType<AuthService["handleGoogleOAuthCallback"]>
@@ -16,7 +19,7 @@ const authPayload = {
     email: "samuel@wpptrack.com",
     name: "Samuel Choairy",
     authProvider: "email",
-    emailVerifiedAt: null
+    emailVerifiedAt: null,
   },
   workspaces: [
     {
@@ -24,12 +27,12 @@ const authPayload = {
       name: "Comunidade NOD",
       slug: "comunidade-nod",
       role: "owner",
-      operationalStatus: "active"
-    }
+      operationalStatus: "active",
+    },
   ],
   activeWorkspaceId: "workspace_1",
   refreshToken: "a".repeat(64),
-  expiresAt: new Date("2026-08-01T03:00:00.000Z")
+  expiresAt: new Date("2026-08-01T03:00:00.000Z"),
 };
 
 async function createApp(env: RuntimeEnv = {}) {
@@ -40,7 +43,7 @@ async function createApp(env: RuntimeEnv = {}) {
     action: "exchange_pending",
     missingEnv: [],
     codeReceived: true,
-    redirectTo: "/overview"
+    redirectTo: "/overview",
   }));
 
   const authService = {
@@ -49,32 +52,33 @@ async function createApp(env: RuntimeEnv = {}) {
     getSession: vi.fn(async () => ({
       user: authPayload.user,
       workspaces: authPayload.workspaces,
-      activeWorkspaceId: authPayload.activeWorkspaceId
+      activeWorkspaceId: authPayload.activeWorkspaceId,
     })),
     logout: vi.fn(async () => undefined),
     getGoogleOAuthStart: vi.fn(() => ({
       provider: "google",
       action: "redirect",
-      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc",
+      authorizationUrl:
+        "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc",
       missingEnv: [],
-      state: "state-token"
+      state: "state-token",
     })),
     handleGoogleOAuthCallback,
     requestPasswordReset: vi.fn(async () => ({
       ok: true,
       delivery: "not_configured",
-      devToken: "reset-token-1234567890"
+      devToken: "reset-token-1234567890",
     })),
     resetPassword: vi.fn(async () => ({ ok: true })),
     requestEmailVerification: vi.fn(async () => ({
       ok: true,
       delivery: "not_configured",
-      devToken: "verify-token-1234567890"
+      devToken: "verify-token-1234567890",
     })),
     confirmEmailVerification: vi.fn(async () => ({
       ok: true,
-      emailVerifiedAt: "2026-07-02T03:00:00.000Z"
-    }))
+      emailVerifiedAt: "2026-07-02T03:00:00.000Z",
+    })),
   };
 
   const moduleRef = await Test.createTestingModule({
@@ -82,13 +86,13 @@ async function createApp(env: RuntimeEnv = {}) {
     providers: [
       {
         provide: AuthService,
-        useValue: authService
+        useValue: authService,
       },
       {
         provide: RUNTIME_ENV,
-        useValue: env
-      }
-    ]
+        useValue: env,
+      },
+    ],
   }).compile();
 
   const app = moduleRef.createNestApplication();
@@ -107,7 +111,7 @@ describe("auth controller", () => {
         name: "Samuel Choairy",
         email: "samuel@wpptrack.com",
         password: "strong-password",
-        workspaceName: "Comunidade NOD"
+        workspaceName: "Comunidade NOD",
       })
       .expect(403)
       .expect(({ body }) => {
@@ -128,7 +132,7 @@ describe("auth controller", () => {
         name: "Samuel Choairy",
         email: " SAMUEL@WPPTRACK.COM ",
         password: "strong-password",
-        workspaceName: "Comunidade NOD"
+        workspaceName: "Comunidade NOD",
       })
       .expect(201)
       .expect(({ body, headers }) => {
@@ -142,11 +146,11 @@ describe("auth controller", () => {
         name: "Samuel Choairy",
         email: "samuel@wpptrack.com",
         password: "strong-password",
-        workspaceName: "Comunidade NOD"
+        workspaceName: "Comunidade NOD",
       },
       expect.objectContaining({
-        ipAddress: expect.any(String)
-      })
+        ipAddress: expect.any(String),
+      }),
     );
 
     await app.close();
@@ -159,7 +163,7 @@ describe("auth controller", () => {
       .post("/auth/login")
       .send({
         email: "SAMUEL@WPPTRACK.COM",
-        password: "strong-password"
+        password: "strong-password",
       })
       .expect(200)
       .expect(({ body, headers }) => {
@@ -170,11 +174,11 @@ describe("auth controller", () => {
     expect(authService.login).toHaveBeenCalledWith(
       {
         email: "samuel@wpptrack.com",
-        password: "strong-password"
+        password: "strong-password",
       },
       expect.objectContaining({
-        ipAddress: expect.any(String)
-      })
+        ipAddress: expect.any(String),
+      }),
     );
 
     await app.close();
@@ -183,14 +187,14 @@ describe("auth controller", () => {
   it("sets a shared cookie domain when configured for split frontend and API hosts", async () => {
     const { app } = await createApp({
       NODE_ENV: "production",
-      AUTH_COOKIE_DOMAIN: ".rastrack.app"
+      AUTH_COOKIE_DOMAIN: ".rastrack.app",
     });
 
     await request(app.getHttpServer())
       .post("/auth/login")
       .send({
         email: "SAMUEL@WPPTRACK.COM",
-        password: "strong-password"
+        password: "strong-password",
       })
       .expect(200)
       .expect(({ headers }) => {
@@ -199,12 +203,12 @@ describe("auth controller", () => {
           ? setCookie
           : [setCookie ?? ""];
         const sharedCookie = cookies.find((cookie) =>
-          cookie.includes("Domain=.rastrack.app")
+          cookie.includes("Domain=.rastrack.app"),
         );
         const legacyCookieCleanup = cookies.find(
           (cookie) =>
             cookie.includes("wpptrack_session=;") &&
-            !cookie.includes("Domain=")
+            !cookie.includes("Domain="),
         );
 
         expect(sharedCookie).toContain("wpptrack_session=");
@@ -228,7 +232,7 @@ describe("auth controller", () => {
       });
 
     expect(authService.getSession).toHaveBeenCalledWith(
-      authPayload.refreshToken
+      authPayload.refreshToken,
     );
 
     await app.close();
@@ -254,7 +258,7 @@ describe("auth controller", () => {
   it("clears the shared cookie domain when configured", async () => {
     const { app } = await createApp({
       NODE_ENV: "production",
-      AUTH_COOKIE_DOMAIN: ".rastrack.app"
+      AUTH_COOKIE_DOMAIN: ".rastrack.app",
     });
 
     await request(app.getHttpServer())
@@ -270,15 +274,15 @@ describe("auth controller", () => {
           cookies.some(
             (cookie) =>
               cookie.includes("wpptrack_session=;") &&
-              cookie.includes("Domain=.rastrack.app")
-          )
+              cookie.includes("Domain=.rastrack.app"),
+          ),
         ).toBe(true);
         expect(
           cookies.some(
             (cookie) =>
               cookie.includes("wpptrack_session=;") &&
-              !cookie.includes("Domain=")
-          )
+              !cookie.includes("Domain="),
+          ),
         ).toBe(true);
       });
 
@@ -287,13 +291,13 @@ describe("auth controller", () => {
 
   it("returns a Google OAuth start action without contacting Google", async () => {
     const { app, authService } = await createApp({
-      AUTH_GOOGLE_ENABLED: "true"
+      AUTH_GOOGLE_ENABLED: "true",
     });
 
     await request(app.getHttpServer())
       .post("/auth/google/start")
       .send({
-        redirectTo: "/overview"
+        redirectTo: "/overview",
       })
       .expect(201)
       .expect(({ body }) => {
@@ -303,7 +307,7 @@ describe("auth controller", () => {
       });
 
     expect(authService.getGoogleOAuthStart).toHaveBeenCalledWith({
-      redirectTo: "/overview"
+      redirectTo: "/overview",
     });
 
     await app.close();
@@ -311,7 +315,7 @@ describe("auth controller", () => {
 
   it("redirects authenticated Google OAuth callbacks back to the web app", async () => {
     const { app, authService } = await createApp({
-      AUTH_GOOGLE_ENABLED: "true"
+      AUTH_GOOGLE_ENABLED: "true",
     });
     authService.handleGoogleOAuthCallback.mockResolvedValueOnce({
       provider: "google",
@@ -319,7 +323,7 @@ describe("auth controller", () => {
       missingEnv: [],
       codeReceived: true,
       redirectTo: "/reports",
-      session: authPayload
+      session: authPayload,
     } as GoogleCallbackResult);
 
     await request(app.getHttpServer())
@@ -333,11 +337,11 @@ describe("auth controller", () => {
     expect(authService.handleGoogleOAuthCallback).toHaveBeenCalledWith(
       {
         code: "oauth-code",
-        state: "state-token"
+        state: "state-token",
       },
       expect.objectContaining({
-        ipAddress: expect.any(String)
-      })
+        ipAddress: expect.any(String),
+      }),
     );
 
     await app.close();
@@ -345,7 +349,7 @@ describe("auth controller", () => {
 
   it("sanitizes Google OAuth callback redirects before returning to the web app", async () => {
     const { app, authService } = await createApp({
-      AUTH_GOOGLE_ENABLED: "true"
+      AUTH_GOOGLE_ENABLED: "true",
     });
     authService.handleGoogleOAuthCallback.mockResolvedValueOnce({
       provider: "google",
@@ -353,7 +357,7 @@ describe("auth controller", () => {
       missingEnv: [],
       codeReceived: true,
       redirectTo: "https://example.com/phishing",
-      session: authPayload
+      session: authPayload,
     } as GoogleCallbackResult);
 
     await request(app.getHttpServer())
@@ -368,7 +372,7 @@ describe("auth controller", () => {
 
   it("redirects Google OAuth callback failures to the login screen", async () => {
     const { app, authService } = await createApp({
-      AUTH_GOOGLE_ENABLED: "true"
+      AUTH_GOOGLE_ENABLED: "true",
     });
 
     await request(app.getHttpServer())
@@ -376,18 +380,18 @@ describe("auth controller", () => {
       .expect(302)
       .expect(({ headers }) => {
         expect(headers.location).toBe(
-          "http://localhost:3000/login?error=google_pending"
+          "http://localhost:3000/login?error=google_pending",
         );
       });
 
     expect(authService.handleGoogleOAuthCallback).toHaveBeenCalledWith(
       {
         code: "oauth-code",
-        state: "state-token"
+        state: "state-token",
       },
       expect.objectContaining({
-        ipAddress: expect.any(String)
-      })
+        ipAddress: expect.any(String),
+      }),
     );
 
     await app.close();
@@ -395,7 +399,7 @@ describe("auth controller", () => {
 
   it("blocks Google OAuth routes when the deployment flag is disabled", async () => {
     const { app, authService } = await createApp({
-      AUTH_GOOGLE_ENABLED: "false"
+      AUTH_GOOGLE_ENABLED: "false",
     });
 
     await request(app.getHttpServer())
@@ -432,7 +436,7 @@ describe("auth controller", () => {
       .post("/auth/password/reset")
       .send({
         token: "reset-token-1234567890",
-        password: "new-strong-password"
+        password: "new-strong-password",
       })
       .expect(201)
       .expect(({ body }) => {
@@ -441,15 +445,15 @@ describe("auth controller", () => {
 
     expect(authService.requestPasswordReset).toHaveBeenCalledWith(
       {
-        email: "samuel@wpptrack.com"
+        email: "samuel@wpptrack.com",
       },
       expect.objectContaining({
-        ipAddress: expect.any(String)
-      })
+        ipAddress: expect.any(String),
+      }),
     );
     expect(authService.resetPassword).toHaveBeenCalledWith({
       token: "reset-token-1234567890",
-      password: "new-strong-password"
+      password: "new-strong-password",
     });
 
     await app.close();
@@ -476,10 +480,14 @@ describe("auth controller", () => {
       });
 
     expect(authService.requestEmailVerification).toHaveBeenCalledWith(
-      authPayload.refreshToken
+      authPayload.refreshToken,
+      {
+        ipAddress: "::ffff:127.0.0.1",
+        userAgent: null,
+      },
     );
     expect(authService.confirmEmailVerification).toHaveBeenCalledWith({
-      token: "verify-token-1234567890"
+      token: "verify-token-1234567890",
     });
 
     await app.close();

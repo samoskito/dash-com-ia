@@ -15,29 +15,29 @@ function funnelConfigurationResponse() {
           eventName: "LeadSubmitted",
           label: "Conversas reais iniciadas",
           position: 1,
-          visible: true
+          visible: true,
         },
         {
           eventName: "QualifiedLead",
           label: "Oportunidade qualificada",
           position: 2,
-          visible: true
+          visible: true,
         },
         {
           eventName: "Purchase",
           label: "Vendas",
           position: 3,
-          visible: false
-        }
-      ]
+          visible: false,
+        },
+      ],
     }),
-    { status: 200, headers: { "Content-Type": "application/json" } }
+    { status: 200, headers: { "Content-Type": "application/json" } },
   );
 }
 
 function workspacePermissions(
   role: "owner" | "admin" | "member",
-  delegatedManager = false
+  delegatedManager = false,
 ) {
   const canManageMembers =
     role === "owner" || (role === "admin" && delegatedManager);
@@ -51,7 +51,7 @@ function workspacePermissions(
     canManageWorkspaceSettings: role === "owner" || role === "admin",
     canTransferOwnership: role === "owner",
     canViewReports: true,
-    canExportReports: true
+    canExportReports: true,
   };
 }
 
@@ -72,7 +72,7 @@ function mockSettingsFetch(options: {
     if (url.endsWith("/conversion-rules")) {
       return new Response(JSON.stringify(options.rulesBody), {
         status: options.rulesStatus ?? 200,
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
     }
 
@@ -88,14 +88,14 @@ function mockSettingsFetch(options: {
             email: "samuel@example.com",
             name: "Samuel",
             authProvider: "email",
-            emailVerifiedAt: null
+            emailVerifiedAt: null,
           },
-          workspaces: []
+          workspaces: [],
         }),
         {
           status: options.authStatus ?? 200,
-          headers: { "Content-Type": "application/json" }
-        }
+          headers: { "Content-Type": "application/json" },
+        },
       );
     }
 
@@ -109,13 +109,13 @@ function mockSettingsFetch(options: {
           accessMode: options.workspaceAccessMode ?? "member",
           permissions: workspacePermissions(
             role,
-            options.workspaceCanManageMembers
-          )
+            options.workspaceCanManageMembers,
+          ),
         }),
         {
           status: options.workspaceStatus ?? 200,
-          headers: { "Content-Type": "application/json" }
-        }
+          headers: { "Content-Type": "application/json" },
+        },
       );
     }
 
@@ -130,26 +130,26 @@ function mockSettingsFetch(options: {
             role,
             canManageMembers:
               role === "admin" && options.workspaceCanManageMembers === true,
-            joinedAt: "2026-07-02T10:00:00.000Z"
-          }
+            joinedAt: "2026-07-02T10:00:00.000Z",
+          },
         ]),
         {
           status: options.membersStatus ?? 200,
-          headers: { "Content-Type": "application/json" }
-        }
+          headers: { "Content-Type": "application/json" },
+        },
       );
     }
 
     if (url.endsWith("/workspaces/current/invites")) {
       return new Response(JSON.stringify([]), {
         status: 200,
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
     }
 
     return new Response(JSON.stringify({ message: "not found" }), {
       status: 404,
-      headers: { "Content-Type": "application/json" }
+      headers: { "Content-Type": "application/json" },
     });
   });
 }
@@ -162,7 +162,7 @@ describe("settings route", () => {
       if (url.endsWith("/conversion-rules")) {
         return new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
+          headers: { "Content-Type": "application/json" },
         });
       }
 
@@ -178,11 +178,11 @@ describe("settings route", () => {
               email: "samuel@example.com",
               name: "Samuel",
               authProvider: "email",
-              emailVerifiedAt: null
+              emailVerifiedAt: null,
             },
-            workspaces: []
+            workspaces: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+          { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
@@ -193,9 +193,9 @@ describe("settings route", () => {
             name: "Loja Samuel",
             slug: "loja-samuel",
             role: "owner",
-            permissions: workspacePermissions("owner")
+            permissions: workspacePermissions("owner"),
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+          { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
@@ -209,7 +209,7 @@ describe("settings route", () => {
               name: "Samuel",
               role: "owner",
               canManageMembers: false,
-              joinedAt: "2026-07-02T10:00:00.000Z"
+              joinedAt: "2026-07-02T10:00:00.000Z",
             },
             {
               id: "member_2",
@@ -218,10 +218,10 @@ describe("settings route", () => {
               name: null,
               role: "admin",
               canManageMembers: false,
-              joinedAt: "2026-07-02T11:00:00.000Z"
-            }
+              joinedAt: "2026-07-02T11:00:00.000Z",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+          { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
@@ -234,16 +234,15 @@ describe("settings route", () => {
               role: "member",
               status: "pending",
               expiresAt: "2026-07-09T10:00:00.000Z",
-              acceptToken: "secret-token-not-for-list"
-            }
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+          { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
       return new Response(JSON.stringify({ message: "not found" }), {
         status: 404,
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
     });
 
@@ -252,19 +251,19 @@ describe("settings route", () => {
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/workspaces/current",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/workspaces/current/members",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/workspaces/current/invites",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/auth/me",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Loja Samuel");
     expect(html).toContain("loja-samuel");
@@ -294,7 +293,7 @@ describe("settings route", () => {
     mockSettingsFetch({
       workspaceRole: "admin",
       workspaceCanManageMembers: false,
-      rulesBody: []
+      rulesBody: [],
     });
 
     const element = await SettingsPage();
@@ -312,7 +311,7 @@ describe("settings route", () => {
     mockSettingsFetch({
       workspaceRole: "admin",
       workspaceCanManageMembers: true,
-      rulesBody: []
+      rulesBody: [],
     });
 
     const element = await SettingsPage();
@@ -342,9 +341,9 @@ describe("settings route", () => {
           defaultItems: null,
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
 
     const element = await SettingsPage();
@@ -352,7 +351,7 @@ describe("settings route", () => {
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/conversion-rules",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Lead qualificado por palavra");
     expect(html).toContain("Palavra-chave");
@@ -366,10 +365,12 @@ describe("settings route", () => {
     expect(html).toContain("Mensagem contem palavra ou frase");
     expect(html).toContain("quero receber uma proposta hoje");
     expect(html).toContain("Etiqueta e aplicada");
-    expect(html).toContain('<option value="OrderDelivered">Pedido entregue</option>');
+    expect(html).toContain(
+      '<option value="OrderDelivered">Pedido entregue</option>',
+    );
     expect(html).not.toContain('<option value="Contact">Contact</option>');
     expect(html).not.toContain(
-      '<option value="CompleteRegistration">CompleteRegistration</option>'
+      '<option value="CompleteRegistration">CompleteRegistration</option>',
     );
     expect(html).toContain("Pausar");
   });
@@ -381,7 +382,7 @@ describe("settings route", () => {
       if (url.endsWith("/conversion-rules")) {
         return new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
+          headers: { "Content-Type": "application/json" },
         });
       }
 
@@ -397,11 +398,11 @@ describe("settings route", () => {
               email: "samuel@example.com",
               name: "Samuel",
               authProvider: "email",
-              emailVerifiedAt: null
+              emailVerifiedAt: null,
             },
-            workspaces: []
+            workspaces: [],
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+          { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
@@ -412,23 +413,23 @@ describe("settings route", () => {
             name: "Loja Samuel",
             slug: "loja-samuel",
             role: "owner",
-            permissions: workspacePermissions("owner")
+            permissions: workspacePermissions("owner"),
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+          { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
       if (url.endsWith("/workspaces/current/members")) {
         return new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
+          headers: { "Content-Type": "application/json" },
         });
       }
 
       if (url.endsWith("/workspaces/current/invites")) {
         return new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
+          headers: { "Content-Type": "application/json" },
         });
       }
 
@@ -442,10 +443,10 @@ describe("settings route", () => {
               billingStatus: "active",
               providerInstanceId: "provider_instance_1",
               checkoutUrl: null,
-              createdAt: "2026-07-02T03:00:00.000Z"
-            }
+              createdAt: "2026-07-02T03:00:00.000Z",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+          { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
@@ -456,16 +457,16 @@ describe("settings route", () => {
               id: "label_uuid_1",
               name: "Venda fechada",
               colorHex: "#fed428",
-              labelId: "10"
-            }
+              labelId: "10",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+          { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
       return new Response(JSON.stringify({ message: "not found" }), {
         status: 404,
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
     });
 
@@ -474,11 +475,11 @@ describe("settings route", () => {
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/whatsapp/instances",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/whatsapp/instances/wpp_active/labels",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Venda fechada");
     expect(html).toContain('id="whatsapp-label-options"');
@@ -500,9 +501,9 @@ describe("settings route", () => {
           pixelId: null,
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
 
     const element = await SettingsPage();
@@ -518,7 +519,7 @@ describe("settings route", () => {
     mockSettingsFetch({
       workspaceAccessMode: "platform_support",
       workspaceRole: "owner",
-      rulesBody: []
+      rulesBody: [],
     });
 
     const element = await SettingsPage();
@@ -534,7 +535,7 @@ describe("settings route", () => {
       rulesBody: { message: "unavailable" },
       rulesStatus: 503,
       workspaceStatus: 503,
-      membersStatus: 503
+      membersStatus: 503,
     });
 
     const element = await SettingsPage();

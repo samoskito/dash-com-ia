@@ -41,6 +41,9 @@ export class EmailQueueService {
       workspaceId: input.workspaceId,
       template: input.envelope.template,
       recipientHash: this.hash(input.envelope.to.address.trim().toLowerCase()),
+      actionType: input.action.type,
+      actionId: input.action.id,
+      actionVersion: input.action.version,
     } satisfies EmailEnvelopeContext;
     const encrypted = this.crypto.encrypt(input.envelope, context);
     const payload: EmailDeliveryJobPayload = {

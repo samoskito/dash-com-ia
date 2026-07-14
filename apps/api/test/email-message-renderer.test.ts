@@ -40,7 +40,7 @@ describe("EmailMessageRenderer", () => {
           expiresAt: "2026-07-21T12:00:00.000Z",
         },
       },
-      path: "/settings/invites/accept",
+      path: "/invite/accept",
       actionLabel: "Aceitar convite",
     },
     {
@@ -103,6 +103,9 @@ describe("EmailMessageRenderer", () => {
       workspaceId: "workspace-1",
       template: "workspace_invitation" as const,
       recipientHash: "recipient-hash",
+      actionType: "WorkspaceInvite" as const,
+      actionId: "invite-1",
+      actionVersion: "2026-07-21T12:00:00.000Z",
     };
     const encrypted = crypto.encrypt(
       {

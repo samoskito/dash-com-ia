@@ -3,7 +3,7 @@ import { LoginForm } from "./login-form";
 type LoginSearchParams = Record<string, string | string[] | undefined>;
 
 function asStringParam(
-  value: string | string[] | undefined
+  value: string | string[] | undefined,
 ): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -32,14 +32,35 @@ function loginErrorMessage(error: string | undefined): string | null {
   return "Nao foi possivel autenticar. Tente novamente.";
 }
 
+function safeRedirectPath(value: string | undefined): string | null {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value, "http://wpptrack.local");
+
+    if (parsed.origin !== "http://wpptrack.local") {
+      return null;
+    }
+
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
 export default async function LoginPage({
-  searchParams
+  searchParams,
 }: {
   searchParams?: Promise<LoginSearchParams>;
 }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const initialError = loginErrorMessage(
-    asStringParam(resolvedSearchParams.error)
+    asStringParam(resolvedSearchParams.error),
+  );
+  const redirectTo = safeRedirectPath(
+    asStringParam(resolvedSearchParams.redirectTo),
   );
   const googleEnabled =
     process.env.AUTH_GOOGLE_ENABLED?.trim().toLowerCase() === "true";
@@ -54,11 +75,14 @@ export default async function LoginPage({
           <p className="eyebrow">Telemetria de conversoes</p>
           <h1 id="login-title">Entrar no WppTrack</h1>
           <p>
-            Acesse o painel para acompanhar leads, campanhas, eventos Pixel e diagnosticos da sua
-            operacao em uma unica tela de controle.
+            Acesse o painel para acompanhar leads, campanhas, eventos Pixel e
+            diagnosticos da sua operacao em uma unica tela de controle.
           </p>
 
-          <div className="login-status-grid" aria-label="Cobertura da plataforma">
+          <div
+            className="login-status-grid"
+            aria-label="Cobertura da plataforma"
+          >
             <div className="quality-card">
               <span className="micro-label">Leads rastreados</span>
               <strong>Atribuicao por origem</strong>
@@ -78,7 +102,11 @@ export default async function LoginPage({
           </div>
         </div>
 
-        <LoginForm initialError={initialError} googleEnabled={googleEnabled} />
+        <LoginForm
+          initialError={initialError}
+          googleEnabled={googleEnabled}
+          redirectTo={redirectTo}
+        />
       </section>
     </main>
   );

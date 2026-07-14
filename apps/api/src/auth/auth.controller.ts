@@ -10,7 +10,7 @@ import {
   Post,
   Query,
   Req,
-  Res
+  Res,
 } from "@nestjs/common";
 import {
   emailVerificationConfirmInputSchema,
@@ -19,16 +19,16 @@ import {
   loginSchema,
   passwordResetConfirmInputSchema,
   passwordResetRequestInputSchema,
-  registerSchema
+  registerSchema,
 } from "@wpptrack/shared";
 import { extractAuthToken, firstHeader } from "./auth-token";
 import { AuthService, type AuthSessionResult } from "./auth.service";
 import {
-  RUNTIME_ENV,
-  type RuntimeEnv
-} from "../common/runtime/runtime.module";
-
-const sessionCookieName = "wpptrack_session";
+  clearSessionCookies,
+  setSessionCookie,
+  type SessionCookieResponse,
+} from "./session-cookie";
+import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 
 type HeaderValue = string | string[] | undefined;
 
@@ -37,23 +37,7 @@ type AuthRequest = {
   ip?: string;
 };
 
-type CookieResponse = {
-  cookie: (
-    name: string,
-    value: string,
-    options: {
-      httpOnly: boolean;
-      sameSite: "lax";
-      secure: boolean;
-      expires: Date;
-      path: string;
-      domain?: string;
-    }
-  ) => void;
-  clearCookie: (name: string, options: { path: string; domain?: string }) => void;
-};
-
-type OAuthCallbackResponse = CookieResponse & {
+type OAuthCallbackResponse = SessionCookieResponse & {
   redirect: (status: number, url: string) => void;
 };
 
@@ -63,14 +47,14 @@ export class AuthController {
     @Inject(AuthService) private readonly authService: AuthService,
     @Optional()
     @Inject(RUNTIME_ENV)
-    private readonly env: RuntimeEnv = process.env
+    private readonly env: RuntimeEnv = process.env,
   ) {}
 
   @Post("register")
   async register(
     @Body() body: unknown,
     @Req() request: AuthRequest,
-    @Res({ passthrough: true }) response: CookieResponse
+    @Res({ passthrough: true }) response: SessionCookieResponse,
   ): Promise<AuthSessionResult> {
     if (!this.isPublicRegistrationEnabled()) {
       throw new ForbiddenException("Cadastro publico desabilitado");
@@ -79,10 +63,10 @@ export class AuthController {
     const input = this.parseBody(registerSchema.safeParse(body));
     const session = await this.authService.register(input, {
       userAgent: firstHeader(request.headers["user-agent"]) ?? null,
-      ipAddress: request.ip ?? null
+      ipAddress: request.ip ?? null,
     });
 
-    this.setSessionCookie(response, session);
+    setSessionCookie(response, session, this.env);
 
     return session;
   }
@@ -92,15 +76,15 @@ export class AuthController {
   async login(
     @Body() body: unknown,
     @Req() request: AuthRequest,
-    @Res({ passthrough: true }) response: CookieResponse
+    @Res({ passthrough: true }) response: SessionCookieResponse,
   ): Promise<AuthSessionResult> {
     const input = this.parseBody(loginSchema.safeParse(body));
     const session = await this.authService.login(input, {
       userAgent: firstHeader(request.headers["user-agent"]) ?? null,
-      ipAddress: request.ip ?? null
+      ipAddress: request.ip ?? null,
     });
 
-    this.setSessionCookie(response, session);
+    setSessionCookie(response, session, this.env);
 
     return session;
   }
@@ -114,10 +98,10 @@ export class AuthController {
   @HttpCode(200)
   async logout(
     @Req() request: AuthRequest,
-    @Res({ passthrough: true }) response: CookieResponse
+    @Res({ passthrough: true }) response: SessionCookieResponse,
   ) {
     await this.authService.logout(extractAuthToken(request));
-    this.clearSessionCookies(response);
+    clearSessionCookies(response, this.env);
 
     return { ok: true };
   }
@@ -134,19 +118,19 @@ export class AuthController {
   async handleGoogleOAuthCallback(
     @Query() query: Record<string, unknown>,
     @Req() request: AuthRequest,
-    @Res() response: OAuthCallbackResponse
+    @Res() response: OAuthCallbackResponse,
   ) {
     this.assertGoogleAuthEnabled();
     const input = this.parseBody(
-      googleOAuthCallbackQuerySchema.safeParse(query)
+      googleOAuthCallbackQuerySchema.safeParse(query),
     );
     const result = await this.authService.handleGoogleOAuthCallback(input, {
       userAgent: firstHeader(request.headers["user-agent"]) ?? null,
-      ipAddress: request.ip ?? null
+      ipAddress: request.ip ?? null,
     });
 
     if (result.action === "authenticated" && "session" in result) {
-      this.setSessionCookie(response, result.session);
+      setSessionCookie(response, result.session, this.env);
     }
 
     response.redirect(302, this.googleCallbackRedirectUrl(result));
@@ -155,22 +139,22 @@ export class AuthController {
   @Post("password/forgot")
   async requestPasswordReset(
     @Body() body: unknown,
-    @Req() request: AuthRequest
+    @Req() request: AuthRequest,
   ) {
     const input = this.parseBody(
-      passwordResetRequestInputSchema.safeParse(body)
+      passwordResetRequestInputSchema.safeParse(body),
     );
 
     return this.authService.requestPasswordReset(input, {
       userAgent: firstHeader(request.headers["user-agent"]) ?? null,
-      ipAddress: request.ip ?? null
+      ipAddress: request.ip ?? null,
     });
   }
 
   @Post("password/reset")
   async resetPassword(@Body() body: unknown) {
     const input = this.parseBody(
-      passwordResetConfirmInputSchema.safeParse(body)
+      passwordResetConfirmInputSchema.safeParse(body),
     );
 
     return this.authService.resetPassword(input);
@@ -178,19 +162,27 @@ export class AuthController {
 
   @Post("email/verification/start")
   async requestEmailVerification(@Req() request: AuthRequest) {
-    return this.authService.requestEmailVerification(extractAuthToken(request));
+    return this.authService.requestEmailVerification(
+      extractAuthToken(request),
+      {
+        userAgent: firstHeader(request.headers["user-agent"]) ?? null,
+        ipAddress: request.ip ?? null,
+      },
+    );
   }
 
   @Post("email/verification/confirm")
   async confirmEmailVerification(@Body() body: unknown) {
     const input = this.parseBody(
-      emailVerificationConfirmInputSchema.safeParse(body)
+      emailVerificationConfirmInputSchema.safeParse(body),
     );
 
     return this.authService.confirmEmailVerification(input);
   }
 
-  private parseBody<T>(result: { success: true; data: T } | { success: false }): T {
+  private parseBody<T>(
+    result: { success: true; data: T } | { success: false },
+  ): T {
     if (!result.success) {
       throw new BadRequestException("Payload invalido");
     }
@@ -198,47 +190,9 @@ export class AuthController {
     return result.data;
   }
 
-  private setSessionCookie(
-    response: CookieResponse,
-    session: AuthSessionResult
-  ): void {
-    response.cookie(sessionCookieName, session.refreshToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: this.env.NODE_ENV === "production",
-      expires: session.expiresAt,
-      path: "/",
-      ...this.sharedCookieDomainOption()
-    });
-
-    if (this.sharedCookieDomainOption().domain) {
-      response.clearCookie(sessionCookieName, { path: "/" });
-    }
-  }
-
-  private clearSessionCookies(response: CookieResponse): void {
-    response.clearCookie(sessionCookieName, this.sessionCookieClearOptions());
-
-    if (this.sharedCookieDomainOption().domain) {
-      response.clearCookie(sessionCookieName, { path: "/" });
-    }
-  }
-
-  private sessionCookieClearOptions(): { path: string; domain?: string } {
-    return {
-      path: "/",
-      ...this.sharedCookieDomainOption()
-    };
-  }
-
-  private sharedCookieDomainOption(): { domain?: string } {
-    const domain = this.env.AUTH_COOKIE_DOMAIN?.trim();
-
-    return domain ? { domain } : {};
-  }
-
   private isPublicRegistrationEnabled(): boolean {
-    const explicit = this.env.AUTH_PUBLIC_REGISTRATION_ENABLED?.trim().toLowerCase();
+    const explicit =
+      this.env.AUTH_PUBLIC_REGISTRATION_ENABLED?.trim().toLowerCase();
 
     if (explicit) {
       return explicit === "true";
@@ -259,7 +213,7 @@ export class AuthController {
   }): string {
     const webOrigin = (this.env.WEB_ORIGIN ?? "http://localhost:3000").replace(
       /\/$/,
-      ""
+      "",
     );
 
     if (result.action === "authenticated") {

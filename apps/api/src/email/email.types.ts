@@ -69,6 +69,9 @@ export type EmailEnvelopeContext = {
   workspaceId: string | null;
   template: TransactionalEmailTemplateName;
   recipientHash: string;
+  actionType: EmailActionReference["type"];
+  actionId: string;
+  actionVersion: string;
 };
 
 export type EmailDeliveryJobPayload = EncryptedEmailEnvelope &

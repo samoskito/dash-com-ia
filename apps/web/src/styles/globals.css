@@ -3512,6 +3512,40 @@ td span {
 }
 
 @media (max-width: 620px) {
+  .login-page {
+    width: 100%;
+    min-width: 0;
+    padding: 16px;
+  }
+
+  .login-panel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    gap: 20px;
+    padding: 20px;
+  }
+
+  .login-panel > *,
+  .login-form {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .login-panel h1,
+  .login-panel p,
+  .login-form a {
+    overflow-wrap: anywhere;
+  }
+
+  .login-form button,
+  .login-form .secondary-button {
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
+
   .overview-finance-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

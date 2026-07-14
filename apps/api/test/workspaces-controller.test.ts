@@ -11,7 +11,7 @@ const session = {
     email: "owner@wpptrack.com",
     name: "Owner",
     authProvider: "email",
-    emailVerifiedAt: null
+    emailVerifiedAt: null,
   },
   activeWorkspaceId: "workspace_1",
   workspaces: [
@@ -19,9 +19,9 @@ const session = {
       id: "workspace_1",
       name: "Comunidade NOD",
       slug: "comunidade-nod",
-      role: "owner"
-    }
-  ]
+      role: "owner",
+    },
+  ],
 };
 
 const ownerPermissions = {
@@ -33,24 +33,24 @@ const ownerPermissions = {
   canManageWorkspaceSettings: true,
   canTransferOwnership: true,
   canViewReports: true,
-  canExportReports: true
+  canExportReports: true,
 };
 
 async function createApp() {
   const authService = {
     getSession: vi.fn(async () => session),
-    setActiveWorkspace: vi.fn(async () => undefined)
+    setActiveWorkspace: vi.fn(async () => undefined),
   };
   const workspacesService = {
     listAvailableWorkspaces: vi.fn(() =>
       session.workspaces.map((workspace) => ({
         ...workspace,
-        permissions: ownerPermissions
-      }))
+        permissions: ownerPermissions,
+      })),
     ),
     getCurrentWorkspace: vi.fn(() => ({
       ...session.workspaces[0],
-      permissions: ownerPermissions
+      permissions: ownerPermissions,
     })),
     listMembers: vi.fn(async () => [
       {
@@ -60,8 +60,8 @@ async function createApp() {
         name: "Owner",
         role: "owner",
         canManageMembers: false,
-        joinedAt: "2026-07-02T03:00:00.000Z"
-      }
+        joinedAt: "2026-07-02T03:00:00.000Z",
+      },
     ]),
     listInvites: vi.fn(async () => [
       {
@@ -69,13 +69,13 @@ async function createApp() {
         email: "admin@wpptrack.com",
         role: "admin",
         status: "pending",
-        expiresAt: "2026-07-09T03:00:00.000Z"
-      }
+        expiresAt: "2026-07-09T03:00:00.000Z",
+      },
     ]),
     updateCurrentWorkspace: vi.fn(async () => ({
       ...session.workspaces[0],
       name: "Loja Samuel",
-      permissions: ownerPermissions
+      permissions: ownerPermissions,
     })),
     createInvite: vi.fn(async () => ({
       id: "invite_1",
@@ -83,7 +83,6 @@ async function createApp() {
       role: "admin",
       status: "pending",
       expiresAt: "2026-07-09T03:00:00.000Z",
-      acceptToken: "invite-token-1234567890"
     })),
     updateMemberRole: vi.fn(async () => ({
       id: "member_2",
@@ -92,7 +91,7 @@ async function createApp() {
       name: "Admin",
       role: "member",
       canManageMembers: false,
-      joinedAt: "2026-07-02T04:00:00.000Z"
+      joinedAt: "2026-07-02T04:00:00.000Z",
     })),
     updateMemberManagerCapability: vi.fn(async () => ({
       id: "member_2",
@@ -101,11 +100,11 @@ async function createApp() {
       name: "Admin",
       role: "admin",
       canManageMembers: true,
-      joinedAt: "2026-07-02T04:00:00.000Z"
+      joinedAt: "2026-07-02T04:00:00.000Z",
     })),
     removeMember: vi.fn(async () => ({
       memberId: "member_2",
-      status: "removed"
+      status: "removed",
     })),
     resendInvite: vi.fn(async () => ({
       id: "invite_1",
@@ -113,29 +112,50 @@ async function createApp() {
       role: "admin",
       status: "pending",
       expiresAt: "2026-07-16T03:00:00.000Z",
-      acceptToken: "rotated-token-1234567890"
     })),
     revokeInvite: vi.fn(async () => ({
       id: "invite_1",
       email: "admin@wpptrack.com",
       role: "admin",
       status: "revoked",
-      expiresAt: "2026-07-09T03:00:00.000Z"
+      expiresAt: "2026-07-09T03:00:00.000Z",
     })),
     acceptInvite: vi.fn(async () => ({
       workspaceId: "workspace_1",
       memberId: "member_2",
       role: "admin",
-      status: "accepted"
-    }))
+      status: "accepted",
+    })),
+    inspectInvite: vi.fn(async () => ({
+      state: "valid",
+      workspaceName: "Comunidade NOD",
+      emailHint: "ad***@wpptrack.com",
+      role: "admin",
+      accountMode: "create",
+      expiresAt: "2026-07-09T03:00:00.000Z",
+    })),
+    acceptInviteForNewUser: vi.fn(async () => ({
+      accepted: {
+        workspaceId: "workspace_1",
+        memberId: "member_2",
+        role: "admin",
+        status: "accepted",
+      },
+      session: {
+        ...session,
+        activeWorkspaceId: "workspace_1",
+        refreshToken: "new-refresh-token",
+        expiresAt: new Date("2026-08-01T03:00:00.000Z"),
+      },
+    })),
   };
 
   const moduleRef = await Test.createTestingModule({
     controllers: [WorkspacesController],
     providers: [
       { provide: AuthService, useValue: authService },
-      { provide: WorkspacesService, useValue: workspacesService }
-    ]
+      { provide: WorkspacesService, useValue: workspacesService },
+    ],
   }).compile();
 
   const app = moduleRef.createNestApplication();
@@ -157,13 +177,13 @@ describe("workspaces controller", () => {
           expect.objectContaining({
             id: "workspace_1",
             role: "owner",
-            permissions: ownerPermissions
-          })
+            permissions: ownerPermissions,
+          }),
         ]);
       });
 
     expect(workspacesService.listAvailableWorkspaces).toHaveBeenCalledWith(
-      session
+      session,
     );
 
     await app.close();
@@ -183,7 +203,7 @@ describe("workspaces controller", () => {
 
     expect(authService.setActiveWorkspace).toHaveBeenCalledWith(
       "refresh-token",
-      "workspace_1"
+      "workspace_1",
     );
     expect(workspacesService.getCurrentWorkspace).toHaveBeenCalledWith(session);
 
@@ -215,7 +235,7 @@ describe("workspaces controller", () => {
       .patch("/workspaces/current")
       .set("Authorization", "Bearer refresh-token")
       .send({
-        name: " Loja Samuel "
+        name: " Loja Samuel ",
       })
       .expect(200)
       .expect(({ body }) => {
@@ -226,8 +246,8 @@ describe("workspaces controller", () => {
     expect(workspacesService.updateCurrentWorkspace).toHaveBeenCalledWith(
       session,
       {
-        name: "Loja Samuel"
-      }
+        name: "Loja Samuel",
+      },
     );
 
     await app.close();
@@ -276,18 +296,18 @@ describe("workspaces controller", () => {
       .set("Authorization", "Bearer refresh-token")
       .send({
         email: " ADMIN@WPPTRACK.COM ",
-        role: "admin"
+        role: "admin",
       })
       .expect(201)
       .expect(({ body }) => {
         expect(body.email).toBe("admin@wpptrack.com");
         expect(body.status).toBe("pending");
-        expect(body.acceptToken).toBe("invite-token-1234567890");
+        expect(body.acceptToken).toBeUndefined();
       });
 
     expect(workspacesService.createInvite).toHaveBeenCalledWith(session, {
       email: "admin@wpptrack.com",
-      role: "admin"
+      role: "admin",
     });
 
     await app.close();
@@ -316,12 +336,12 @@ describe("workspaces controller", () => {
     expect(workspacesService.updateMemberRole).toHaveBeenCalledWith(
       session,
       "member_2",
-      { role: "member" }
+      { role: "member" },
     );
     expect(
-      workspacesService.updateMemberManagerCapability
+      workspacesService.updateMemberManagerCapability,
     ).toHaveBeenCalledWith(session, "member_2", {
-      canManageMembers: true
+      canManageMembers: true,
     });
 
     await app.close();
@@ -342,7 +362,8 @@ describe("workspaces controller", () => {
       .set("Authorization", "Bearer refresh-token")
       .expect(201)
       .expect(({ body }) => {
-        expect(body.acceptToken).toBe("rotated-token-1234567890");
+        expect(body.status).toBe("pending");
+        expect(body.acceptToken).toBeUndefined();
       });
     await request(app.getHttpServer())
       .delete("/workspaces/current/invites/invite_1")
@@ -354,15 +375,15 @@ describe("workspaces controller", () => {
 
     expect(workspacesService.removeMember).toHaveBeenCalledWith(
       session,
-      "member_2"
+      "member_2",
     );
     expect(workspacesService.resendInvite).toHaveBeenCalledWith(
       session,
-      "invite_1"
+      "invite_1",
     );
     expect(workspacesService.revokeInvite).toHaveBeenCalledWith(
       session,
-      "invite_1"
+      "invite_1",
     );
 
     await app.close();
@@ -375,7 +396,7 @@ describe("workspaces controller", () => {
       .post("/workspaces/invites/accept")
       .set("Authorization", "Bearer refresh-token")
       .send({
-        token: "invite-token-1234567890"
+        token: "invite-token-1234567890",
       })
       .expect(201)
       .expect(({ body }) => {
@@ -384,12 +405,63 @@ describe("workspaces controller", () => {
         expect(body.memberId).toBe("member_2");
       });
 
-    expect(workspacesService.acceptInvite).toHaveBeenCalledWith(session, {
-      token: "invite-token-1234567890"
-    });
-    expect(authService.setActiveWorkspace).toHaveBeenCalledWith(
+    expect(workspacesService.acceptInvite).toHaveBeenCalledWith(
+      session,
+      {
+        token: "invite-token-1234567890",
+      },
       "refresh-token",
-      "workspace_1"
+    );
+    expect(authService.setActiveWorkspace).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("inspects and accepts a new-user invitation without a prior session", async () => {
+    const { app, authService, workspacesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/workspaces/invites/inspect")
+      .query({ token: "invite-token-1234567890" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual(
+          expect.objectContaining({
+            state: "valid",
+            workspaceName: "Comunidade NOD",
+            emailHint: "ad***@wpptrack.com",
+          }),
+        );
+      });
+
+    const response = await request(app.getHttpServer())
+      .post("/workspaces/invites/accept/new")
+      .send({
+        token: "invite-token-1234567890",
+        name: "New Member",
+        password: "strong-password-123",
+      })
+      .expect(201);
+
+    expect(response.body).toMatchObject({
+      workspaceId: "workspace_1",
+      status: "accepted",
+    });
+    expect(response.headers["set-cookie"]?.[0]).toContain("wpptrack_session=");
+    expect(authService.getSession).not.toHaveBeenCalled();
+    expect(workspacesService.inspectInvite).toHaveBeenCalledWith({
+      token: "invite-token-1234567890",
+    });
+    expect(workspacesService.acceptInviteForNewUser).toHaveBeenCalledWith(
+      {
+        token: "invite-token-1234567890",
+        name: "New Member",
+        password: "strong-password-123",
+      },
+      expect.objectContaining({
+        ipAddress: "::ffff:127.0.0.1",
+        userAgent: null,
+      }),
     );
 
     await app.close();

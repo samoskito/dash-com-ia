@@ -6,10 +6,12 @@ import { apiFetch } from "../../lib/api";
 
 export function LoginForm({
   initialError = null,
-  googleEnabled = false
+  googleEnabled = false,
+  redirectTo = null,
 }: {
   initialError?: string | null;
   googleEnabled?: boolean;
+  redirectTo?: string | null;
 }) {
   const [error, setError] = useState<string | null>(initialError);
   const [loading, setLoading] = useState(false);
@@ -23,7 +25,7 @@ export function LoginForm({
     const form = new FormData(event.currentTarget);
     const payload = loginSchema.parse({
       email: form.get("email"),
-      password: form.get("password")
+      password: form.get("password"),
     });
 
     try {
@@ -31,13 +33,15 @@ export function LoginForm({
         user: { platformRole?: string | null };
       }>("/auth/login", {
         method: "POST",
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
-      window.location.href = session.user.platformRole
-        ? "/backoffice/clients"
-        : "/overview";
+      window.location.href =
+        redirectTo ??
+        (session.user.platformRole ? "/backoffice/clients" : "/overview");
     } catch {
-      setError("Nao foi possivel autenticar. Confira os dados e tente novamente.");
+      setError(
+        "Nao foi possivel autenticar. Confira os dados e tente novamente.",
+      );
       setLoading(false);
     }
   }
@@ -72,7 +76,14 @@ export function LoginForm({
         {loading ? "Processando..." : "Entrar"}
       </button>
       {googleEnabled ? (
-        <a className="secondary-button" href="/login/google">
+        <a
+          className="secondary-button"
+          href={
+            redirectTo
+              ? `/login/google?redirectTo=${encodeURIComponent(redirectTo)}`
+              : "/login/google"
+          }
+        >
           Entrar com Google
         </a>
       ) : null}

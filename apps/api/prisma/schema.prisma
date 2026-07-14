@@ -25,6 +25,8 @@ enum AuthProvider {
 
 enum WorkspaceInviteStatus {
   pending
+  sent
+  failed
   accepted
   revoked
   expired

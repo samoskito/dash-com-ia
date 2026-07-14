@@ -55,10 +55,7 @@ export class EmailMessageRenderer {
             `Este convite expira em ${this.formatExpiry(envelope.data.expiresAt)}.`,
           ],
           actionLabel: "Aceitar convite",
-          actionUrl: this.actionUrl(
-            "/settings/invites/accept",
-            envelope.data.token,
-          ),
+          actionUrl: this.actionUrl("/invite/accept", envelope.data.token),
           footerNote:
             "Se você não esperava este convite, ignore esta mensagem ou fale com nosso suporte.",
         },

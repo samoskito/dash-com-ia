@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import {
   passwordResetConfirmInputSchema,
   passwordResetRequestInputSchema,
-  type PasswordResetRequestDto
+  type PasswordResetRequestDto,
 } from "@wpptrack/shared";
 import { apiFetch } from "../../lib/api";
 
@@ -23,7 +23,7 @@ export function PasswordResetRequestForm() {
 
     const form = new FormData(event.currentTarget);
     const payload = passwordResetRequestInputSchema.parse({
-      email: form.get("email")
+      email: form.get("email"),
     });
 
     try {
@@ -31,14 +31,12 @@ export function PasswordResetRequestForm() {
         "/auth/password/forgot",
         {
           method: "POST",
-          body: JSON.stringify(payload)
-        }
+          body: JSON.stringify(payload),
+        },
       );
 
       setMessage(
-        result.delivery === "email_queued"
-          ? "Enviamos as instrucoes para o email informado."
-          : "Pedido registrado. Configure o provedor de email para envio automatico."
+        "Se houver uma conta elegivel para este email, enviaremos as instrucoes de recuperacao.",
       );
       setDevToken(result.devToken);
     } catch {
@@ -83,17 +81,17 @@ export function PasswordResetConfirmForm({ token }: { token: string }) {
     const form = new FormData(event.currentTarget);
     const payload = passwordResetConfirmInputSchema.parse({
       token: form.get("token"),
-      password: form.get("password")
+      password: form.get("password"),
     });
 
     try {
       await apiFetch("/auth/password/reset", {
         method: "POST",
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
       setMessage("Senha redefinida. Voce ja pode entrar novamente.");
     } catch {
-      setError("Nao foi possivel redefinir a senha com este token.");
+      setError("Este link e invalido, expirou ou ja foi utilizado.");
     } finally {
       setLoading(false);
     }

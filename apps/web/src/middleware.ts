@@ -7,12 +7,16 @@ const protectedPrefixes = [
   "/events",
   "/integrations",
   "/settings",
-  "/backoffice"
+  "/backoffice",
 ];
 
 export function middleware(request: NextRequest) {
+  if (request.nextUrl.pathname === "/settings/invites/accept") {
+    return NextResponse.next();
+  }
+
   const isProtected = protectedPrefixes.some((prefix) =>
-    request.nextUrl.pathname.startsWith(prefix)
+    request.nextUrl.pathname.startsWith(prefix),
   );
 
   if (!isProtected) {
@@ -27,7 +31,10 @@ export function middleware(request: NextRequest) {
 
   const loginUrl = request.nextUrl.clone();
   loginUrl.pathname = "/login";
-  loginUrl.searchParams.set("redirectTo", request.nextUrl.pathname);
+  loginUrl.searchParams.set(
+    "redirectTo",
+    `${request.nextUrl.pathname}${request.nextUrl.search}`,
+  );
 
   return NextResponse.redirect(loginUrl);
 }
@@ -40,6 +47,6 @@ export const config = {
     "/events/:path*",
     "/integrations/:path*",
     "/settings/:path*",
-    "/backoffice/:path*"
-  ]
+    "/backoffice/:path*",
+  ],
 };
