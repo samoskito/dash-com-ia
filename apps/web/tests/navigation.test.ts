@@ -7,8 +7,8 @@ import { AppShell } from "../src/components/app-shell";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
-    refresh: () => undefined,
-  }),
+    refresh: () => undefined
+  })
 }));
 
 describe("navigation", () => {
@@ -19,16 +19,16 @@ describe("navigation", () => {
       "reports",
       "events",
       "integrations",
-      "settings",
+      "settings"
     ]);
     expect(clientNavigation.map((item) => item.label)).not.toContain(
-      "Clientes",
+      "Clientes"
     );
   });
 
   it("renders the client navigation in the web app shell", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, null, createElement("p", null, "Panel content")),
+      createElement(AppShell, null, createElement("p", null, "Panel content"))
     );
 
     for (const item of clientNavigation) {
@@ -55,11 +55,11 @@ describe("navigation", () => {
             canInviteMembers: true,
             canManageBilling: true,
             canManageIntegrations: true,
-            canViewReports: true,
-          },
+            canViewReports: true
+          }
         },
-        children: createElement("p", null, "Panel content"),
-      }),
+        children: createElement("p", null, "Panel content")
+      })
     );
 
     expect(html).toContain("Plataforma");
@@ -69,7 +69,7 @@ describe("navigation", () => {
 
   it("renders a sidebar collapse control for dense report screens", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, null, createElement("p", null, "Panel content")),
+      createElement(AppShell, null, createElement("p", null, "Panel content"))
     );
 
     expect(html).toContain('class="sidebar-toggle desktop-sidebar-toggle"');
@@ -79,7 +79,7 @@ describe("navigation", () => {
 
   it("renders an accessible mobile menu without the old product subtitle", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, null, createElement("p", null, "Panel content")),
+      createElement(AppShell, null, createElement("p", null, "Panel content"))
     );
 
     expect(html).toContain('class="mobile-shell-header"');
@@ -92,7 +92,7 @@ describe("navigation", () => {
 
   it("uses an icon and a full label for the logout action", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, null, createElement("p", null, "Panel content")),
+      createElement(AppShell, null, createElement("p", null, "Panel content"))
     );
 
     expect(html).toContain('aria-label="Sair da conta"');
@@ -113,11 +113,11 @@ describe("navigation", () => {
             canInviteMembers: true,
             canManageBilling: true,
             canManageIntegrations: true,
-            canViewReports: true,
-          },
+            canViewReports: true
+          }
         },
-        children: createElement("p", null, "Panel content"),
-      }),
+        children: createElement("p", null, "Panel content")
+      })
     );
 
     expect(html).toContain("Workspace");
@@ -128,6 +128,54 @@ describe("navigation", () => {
     expect(html).not.toContain("Meta v21");
     expect(html).not.toContain("WhatsApp fila");
     expect(html).not.toContain("Pixel ativo");
+  });
+
+  it("renders only API-authorized workspaces with human role labels", () => {
+    const permissions = {
+      canInviteMembers: false,
+      canManageBilling: false,
+      canManageIntegrations: false,
+      canViewReports: true
+    };
+    const html = renderToStaticMarkup(
+      createElement(AppShell, {
+        workspace: {
+          id: "workspace_a",
+          name: "Empresa A",
+          slug: "empresa-a",
+          role: "owner",
+          operationalStatus: "active",
+          permissions: { ...permissions, canManageBilling: true }
+        },
+        workspaces: [
+          {
+            id: "workspace_a",
+            name: "Empresa A",
+            slug: "empresa-a",
+            role: "owner",
+            operationalStatus: "active",
+            permissions: { ...permissions, canManageBilling: true }
+          },
+          {
+            id: "workspace_b",
+            name: "Empresa B",
+            slug: "empresa-b",
+            role: "member",
+            operationalStatus: "active",
+            permissions
+          }
+        ],
+        children: createElement("p", null, "Panel content")
+      })
+    );
+
+    expect(html).toContain("Selecionar empresa");
+    expect(html).toContain("Empresa A");
+    expect(html).toContain("Empresa B");
+    expect(html).toContain("responsavel da conta");
+    expect(html).toContain("analista");
+    expect(html).not.toContain("Empresa Confidencial");
+    expect(html).not.toContain("workspace_secret");
   });
 
   it("makes platform support access explicit and reversible", () => {
@@ -144,17 +192,18 @@ describe("navigation", () => {
             canInviteMembers: true,
             canManageBilling: true,
             canManageIntegrations: true,
-            canViewReports: true,
-          },
+            canViewReports: true
+          }
         },
-        children: createElement("p", null, "Panel content"),
-      }),
+        children: createElement("p", null, "Panel content")
+      })
     );
 
     expect(html).toContain("Acesso de suporte");
     expect(html).toContain("barbieri - acesso de suporte");
     expect(html).toContain("Barbieri");
     expect(html).toContain("Encerrar acesso");
+    expect(html).not.toContain("Selecionar empresa");
   });
 
   it("keeps internal backoffice separate", () => {
@@ -162,18 +211,18 @@ describe("navigation", () => {
       "workspaces",
       "billing",
       "split",
-      "diagnostics",
+      "diagnostics"
     ]);
   });
 
   it("uses an off-canvas mobile menu without widening the app shell", () => {
     const css = readFileSync(
       new URL("../src/styles/globals.css", import.meta.url),
-      "utf8",
+      "utf8"
     );
     const mobileBlock = css.slice(
       css.indexOf("@media (max-width: 900px)"),
-      css.indexOf("@media (max-width: 620px)"),
+      css.indexOf("@media (max-width: 620px)")
     );
 
     expect(mobileBlock).toContain(".app-shell");
@@ -189,7 +238,7 @@ describe("navigation", () => {
   it("protects app routes with the session middleware", () => {
     const middleware = readFileSync(
       new URL("../src/middleware.ts", import.meta.url),
-      "utf8",
+      "utf8"
     );
 
     for (const route of [
@@ -199,7 +248,7 @@ describe("navigation", () => {
       "/events",
       "/integrations",
       "/settings",
-      "/backoffice",
+      "/backoffice"
     ]) {
       expect(middleware).toContain(route);
     }

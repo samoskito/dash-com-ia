@@ -18,7 +18,11 @@ export const workspaceSchema = z.object({
   operationalStatus: z.enum(workspaceOperationalStatuses).default("active")
 });
 
-export const workspaceListSchema = z.array(workspaceSchema);
+export const workspaceListEntrySchema = workspaceSchema.extend({
+  permissions: workspacePermissionsSchema
+});
+
+export const workspaceListSchema = z.array(workspaceListEntrySchema);
 
 export const currentWorkspaceSchema = workspaceSchema.extend({
   permissions: workspacePermissionsSchema,
@@ -70,7 +74,11 @@ export const workspaceMemberSchema = z.object({
 });
 
 export const workspaceInviteInputSchema = z.object({
-  email: z.string().trim().email().transform((email) => email.toLowerCase()),
+  email: z
+    .string()
+    .trim()
+    .email()
+    .transform((email) => email.toLowerCase()),
   role: z.enum(workspaceRoles).refine((role) => role !== "owner", {
     message: "Convites nao podem criar owners diretamente"
   })
@@ -97,6 +105,7 @@ export const workspaceInviteAcceptSchema = z.object({
 });
 
 export type WorkspaceDto = z.infer<typeof workspaceSchema>;
+export type WorkspaceListEntryDto = z.infer<typeof workspaceListEntrySchema>;
 export type WorkspaceListDto = z.infer<typeof workspaceListSchema>;
 export type WorkspacePermissionsDto = z.infer<
   typeof workspacePermissionsSchema
@@ -115,7 +124,8 @@ export type WorkspaceBillingListDto = z.infer<
 export type WorkspaceBillingUpdateInputDto = z.infer<
   typeof workspaceBillingUpdateInputSchema
 >;
-export type WorkspaceOperationalStatus = (typeof workspaceOperationalStatuses)[number];
+export type WorkspaceOperationalStatus =
+  (typeof workspaceOperationalStatuses)[number];
 export type WorkspaceOperationalStatusUpdateInputDto = z.infer<
   typeof workspaceOperationalStatusUpdateInputSchema
 >;

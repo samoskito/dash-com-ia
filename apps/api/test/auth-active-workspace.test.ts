@@ -15,17 +15,20 @@ function liveSession() {
 describe("active workspace session context", () => {
   it("persists a workspace only when the user has a membership", async () => {
     const updateMany = vi.fn(async () => ({ count: 1 }));
+    const userUpdate = vi.fn(async () => ({ id: "user_1" }));
     const auditCreate = vi.fn(async () => ({ id: "audit_1" }));
-    const prisma = {
+    const prisma: any = {
       authSession: {
         findUnique: vi.fn(async () => liveSession()),
         updateMany
       },
+      user: { update: userUpdate },
       workspaceMember: {
         findUnique: vi.fn(async () => ({ workspaceId: "workspace_b" }))
       },
       auditLog: { create: auditCreate }
     };
+    prisma.$transaction = vi.fn(async (callback: any) => callback(prisma));
     const service = new AuthService(prisma as never, {} as never, {});
 
     await service.setActiveWorkspace("refresh-token", "workspace_b");
@@ -45,6 +48,10 @@ describe("active workspace session context", () => {
         data: { activeWorkspaceId: "workspace_b" }
       })
     );
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: "user_1" },
+      data: { lastWorkspaceId: "workspace_b" }
+    });
     expect(auditCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         workspaceId: "workspace_b",
@@ -61,7 +68,7 @@ describe("active workspace session context", () => {
       .mockResolvedValueOnce({ ...liveSession(), id: "session_a" })
       .mockResolvedValueOnce({ ...liveSession(), id: "session_b" });
     const updates: Array<{ id: string; activeWorkspaceId: string }> = [];
-    const prisma = {
+    const prisma: any = {
       authSession: {
         findUnique: findSession,
         updateMany: vi.fn(async ({ where, data }) => {
@@ -76,8 +83,12 @@ describe("active workspace session context", () => {
         findUnique: vi.fn(async ({ where }) => ({
           workspaceId: where.workspaceId_userId.workspaceId
         }))
+      },
+      user: {
+        update: vi.fn(async () => ({ id: "user_1" }))
       }
     };
+    prisma.$transaction = vi.fn(async (callback: any) => callback(prisma));
     const service = new AuthService(prisma as never, {} as never, {});
 
     await service.setActiveWorkspace("refresh-token-a", "workspace_b");
@@ -253,6 +264,107 @@ describe("active workspace session context", () => {
             email: "member@wpptrack.com",
             name: "Member",
             passwordHash: "hash",
+            memberships: [
+              {
+                role: "member",
+                workspace: {
+                  id: "workspace_a",
+                  name: "Empresa A",
+                  slug: "empresa-a",
+                  operationalStatus: "active"
+                }
+              },
+              {
+                role: "admin",
+                workspace: {
+                  id: "workspace_b",
+                  name: "Empresa B",
+                  slug: "empresa-b",
+                  operationalStatus: "active"
+                }
+              }
+            ]
+          }
+        })),
+        updateMany: vi.fn(async () => ({ count: 1 }))
+      }
+    };
+    const service = new AuthService(prisma as never, {} as never, {});
+
+    const session = await service.getSession("refresh-token");
+
+    expect(session.activeWorkspaceId).toBeNull();
+  });
+
+  it("reopens the last selected workspace only when membership is still valid", async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const prisma = {
+      authSession: {
+        findUnique: vi.fn(async () => ({
+          ...liveSession(),
+          activeWorkspaceId: null,
+          supportWorkspace: null,
+          supportWorkspaceStartedAt: null,
+          user: {
+            id: "user_1",
+            email: "member@wpptrack.com",
+            name: "Member",
+            passwordHash: "hash",
+            lastWorkspaceId: "workspace_b",
+            memberships: [
+              {
+                role: "member",
+                workspace: {
+                  id: "workspace_a",
+                  name: "Empresa A",
+                  slug: "empresa-a",
+                  operationalStatus: "active"
+                }
+              },
+              {
+                role: "admin",
+                workspace: {
+                  id: "workspace_b",
+                  name: "Empresa B",
+                  slug: "empresa-b",
+                  operationalStatus: "active"
+                }
+              }
+            ]
+          }
+        })),
+        updateMany
+      }
+    };
+    const service = new AuthService(prisma as never, {} as never, {});
+
+    const session = await service.getSession("refresh-token");
+
+    expect(session.activeWorkspaceId).toBe("workspace_b");
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "session_1",
+        revokedAt: null,
+        expiresAt: { gt: expect.any(Date) }
+      },
+      data: { activeWorkspaceId: "workspace_b" }
+    });
+  });
+
+  it("ignores a stale last-workspace preference without disclosing or guessing", async () => {
+    const prisma = {
+      authSession: {
+        findUnique: vi.fn(async () => ({
+          ...liveSession(),
+          activeWorkspaceId: null,
+          supportWorkspace: null,
+          supportWorkspaceStartedAt: null,
+          user: {
+            id: "user_1",
+            email: "member@wpptrack.com",
+            name: "Member",
+            passwordHash: "hash",
+            lastWorkspaceId: "workspace_secret",
             memberships: [
               {
                 role: "member",

@@ -123,6 +123,8 @@ async function provisionClient(
 ): Promise<BackofficeActionState> {
   "use server";
 
+  const ownerPassword = String(formData.get("ownerPassword") ?? "");
+
   try {
     await serverApiFetch("/backoffice/workspaces", {
       method: "POST",
@@ -130,7 +132,7 @@ async function provisionClient(
         workspaceName: String(formData.get("workspaceName") ?? "").trim(),
         ownerName: String(formData.get("ownerName") ?? "").trim(),
         ownerEmail: String(formData.get("ownerEmail") ?? "").trim(),
-        ownerPassword: String(formData.get("ownerPassword") ?? "")
+        ...(ownerPassword ? { ownerPassword } : {})
       })
     });
     revalidatePath("/backoffice/clients");
@@ -138,7 +140,7 @@ async function provisionClient(
     return actionResult("error", "Nao foi possivel criar o cliente");
   }
 
-  return actionResult("success", "Cliente e responsavel da conta criados com sucesso");
+  return actionResult("success", "Cliente criado e responsavel vinculado com sucesso");
 }
 
 async function startSupportAccess(formData: FormData) {
@@ -488,9 +490,13 @@ export default async function BackofficeClientsPage({
               Email do responsavel
               <input name="ownerEmail" type="email" required />
             </label>
-            <SecurePasswordInput label="Senha inicial" name="ownerPassword" />
+            <SecurePasswordInput
+              label="Senha inicial (para novo email)"
+              name="ownerPassword"
+              required={false}
+            />
             <div className="form-command-row">
-              <span>O cliente podera convidar a propria equipe depois.</span>
+              <span>Emails existentes mantem a conta e a senha atuais.</span>
               <PendingSubmitButton label="Criar cliente" pendingLabel="Criando cliente..." />
             </div>
           </BackofficeActionForm>

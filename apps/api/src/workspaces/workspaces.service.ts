@@ -136,14 +136,19 @@ export class WorkspacesService {
   ): Promise<ClientWorkspaceProvisionResultDto> {
     const existingUser = await this.prisma.user.findUnique({
       where: { email: input.ownerEmail },
-      select: { id: true }
+      select: { id: true, name: true, email: true }
     });
 
-    if (existingUser) {
-      throw new ConflictException("Email do administrador ja cadastrado");
+    if (!existingUser && !input.ownerPassword) {
+      throw new BadRequestException(
+        "Senha inicial obrigatoria para um novo responsavel"
+      );
     }
 
-    const passwordHash = await this.passwordService.hash(input.ownerPassword);
+    const passwordHash =
+      !existingUser && input.ownerPassword
+        ? await this.passwordService.hash(input.ownerPassword)
+        : null;
     const result = await this.prisma.$transaction(async (tx) => {
       const slug = await this.resolveWorkspaceSlug(tx, input.workspaceName);
       const workspace = await tx.workspace.create({
@@ -152,15 +157,29 @@ export class WorkspacesService {
           slug
         }
       });
-      const owner = await tx.user.create({
-        data: {
-          name: input.ownerName,
-          email: input.ownerEmail,
-          passwordHash,
-          authProvider: "email",
-          emailVerifiedAt: new Date()
-        }
+      const owner =
+        existingUser ??
+        (await tx.user.create({
+          data: {
+            name: input.ownerName,
+            email: input.ownerEmail,
+            passwordHash: passwordHash!,
+            authProvider: "email",
+            emailVerifiedAt: new Date()
+          }
+        }));
+
+      const existingOwnerMembership = await tx.workspaceMember.findFirst({
+        where: {
+          workspaceId: workspace.id,
+          role: "owner"
+        },
+        select: { id: true }
       });
+
+      if (existingOwnerMembership) {
+        throw new ConflictException("Workspace ja possui um responsavel");
+      }
 
       await tx.workspaceMember.create({
         data: {
@@ -183,7 +202,8 @@ export class WorkspacesService {
             workspaceName: workspace.name,
             workspaceSlug: workspace.slug,
             ownerUserId: owner.id,
-            ownerEmail: owner.email
+            ownerEmail: owner.email,
+            reusedExistingUser: Boolean(existingUser)
           }
         }
       });
@@ -394,7 +414,9 @@ export class WorkspacesService {
     return workspaces.map((workspace) => this.toWorkspaceBillingDto(workspace));
   }
 
-  async listBackofficeWhatsappInstances(): Promise<BackofficeWhatsappInstanceDto[]> {
+  async listBackofficeWhatsappInstances(): Promise<
+    BackofficeWhatsappInstanceDto[]
+  > {
     const instances = (await this.prisma.whatsappInstance.findMany({
       include: {
         workspace: {
@@ -488,7 +510,9 @@ export class WorkspacesService {
         beforeSummary: this.workspaceBillingAuditSummary(
           before?.asaasCustomerId ?? null
         ),
-        afterSummary: this.workspaceBillingAuditSummary(workspace.asaasCustomerId)
+        afterSummary: this.workspaceBillingAuditSummary(
+          workspace.asaasCustomerId
+        )
       });
     }
 
@@ -765,7 +789,9 @@ export class WorkspacesService {
       operationalStatus: workspace.operationalStatus,
       subscriptionStatus: this.toWorkspaceBillingStatus(subscription?.status),
       activeInstances:
-        subscription?.activeInstances ?? workspace.whatsappInstances?.length ?? 0
+        subscription?.activeInstances ??
+        workspace.whatsappInstances?.length ??
+        0
     };
   }
 
@@ -784,7 +810,9 @@ export class WorkspacesService {
     return "not_configured";
   }
 
-  private toWhatsappProvider(provider: string): BackofficeWhatsappInstanceDto["provider"] {
+  private toWhatsappProvider(
+    provider: string
+  ): BackofficeWhatsappInstanceDto["provider"] {
     return provider === "cloud_api" ? "cloud_api" : "uazapi";
   }
 

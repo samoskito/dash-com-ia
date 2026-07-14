@@ -30,7 +30,17 @@ async function createApp() {
     setActiveWorkspace: vi.fn(async () => undefined)
   };
   const workspacesService = {
-    listAvailableWorkspaces: vi.fn(() => session.workspaces),
+    listAvailableWorkspaces: vi.fn(() =>
+      session.workspaces.map((workspace) => ({
+        ...workspace,
+        permissions: {
+          canInviteMembers: true,
+          canManageBilling: true,
+          canManageIntegrations: true,
+          canViewReports: true
+        }
+      }))
+    ),
     getCurrentWorkspace: vi.fn(() => ({
       ...session.workspaces[0],
       permissions: {
@@ -108,7 +118,18 @@ describe("workspaces controller", () => {
       .set("Authorization", "Bearer refresh-token")
       .expect(200)
       .expect(({ body }) => {
-        expect(body).toEqual(session.workspaces);
+        expect(body).toEqual([
+          expect.objectContaining({
+            id: "workspace_1",
+            role: "owner",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true
+            }
+          })
+        ]);
       });
 
     expect(workspacesService.listAvailableWorkspaces).toHaveBeenCalledWith(
@@ -174,7 +195,9 @@ describe("workspaces controller", () => {
 
     expect(workspacesService.updateCurrentWorkspace).toHaveBeenCalledWith(
       session,
-      { name: "Loja Samuel" }
+      {
+        name: "Loja Samuel"
+      }
     );
 
     await app.close();

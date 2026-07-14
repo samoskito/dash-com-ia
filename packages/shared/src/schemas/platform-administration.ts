@@ -12,7 +12,10 @@ export const clientWorkspaceProvisionInputSchema = z.object({
   workspaceName: z.string().trim().min(2).max(120),
   ownerName: z.string().trim().min(2).max(120),
   ownerEmail: normalizedEmailSchema,
-  ownerPassword: z.string().min(8).max(256)
+  ownerPassword: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(8).max(256).optional()
+  )
 });
 
 export const clientWorkspaceProvisionResultSchema = z.object({
@@ -24,7 +27,7 @@ export const clientWorkspaceProvisionResultSchema = z.object({
   }),
   owner: z.object({
     id: z.string().min(1),
-    name: z.string().min(1),
+    name: z.string().min(1).nullable(),
     email: z.string().email(),
     role: z.literal("owner")
   })

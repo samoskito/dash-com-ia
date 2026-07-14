@@ -16,6 +16,7 @@ type DbUser = {
   authProvider: "email" | "google";
   googleId: string | null;
   emailVerifiedAt: Date | null;
+  lastWorkspaceId: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -39,6 +40,7 @@ type DbMember = {
 type DbSession = {
   id: string;
   userId: string;
+  activeWorkspaceId: string | null;
   refreshHash: string;
   userAgent: string | null;
   ipAddress: string | null;
@@ -76,6 +78,7 @@ type FakePrisma = {
   };
   workspaceMember: {
     create: (args: unknown) => Promise<unknown>;
+    findUnique: (args: unknown) => Promise<unknown>;
   };
   authSession: {
     create: (args: unknown) => Promise<unknown>;
@@ -124,7 +127,8 @@ function createHarness(
           (candidate) =>
             (where.email !== undefined && candidate.email === where.email) ||
             (where.id !== undefined && candidate.id === where.id) ||
-            (where.googleId !== undefined && candidate.googleId === where.googleId)
+            (where.googleId !== undefined &&
+              candidate.googleId === where.googleId)
         );
 
         return user ? includeMemberships(user) : null;
@@ -149,6 +153,7 @@ function createHarness(
           authProvider: data.authProvider ?? "email",
           googleId: data.googleId ?? null,
           emailVerifiedAt: data.emailVerifiedAt ?? null,
+          lastWorkspaceId: null,
           createdAt: now,
           updatedAt: now
         };
@@ -162,7 +167,11 @@ function createHarness(
           data: Partial<
             Pick<
               DbUser,
-              "authProvider" | "googleId" | "emailVerifiedAt" | "name"
+              | "authProvider"
+              | "googleId"
+              | "emailVerifiedAt"
+              | "lastWorkspaceId"
+              | "name"
             >
           >;
         };
@@ -219,22 +228,39 @@ function createHarness(
 
         db.members.push(member);
         return member;
+      },
+      findUnique: async (args) => {
+        const { where } = args as {
+          where: {
+            workspaceId_userId: { workspaceId: string; userId: string };
+          };
+        };
+
+        return (
+          db.members.find(
+            (member) =>
+              member.workspaceId === where.workspaceId_userId.workspaceId &&
+              member.userId === where.workspaceId_userId.userId
+          ) ?? null
+        );
       }
     },
     authSession: {
       create: async (args) => {
         const { data } = args as {
-        data: {
-          userId: string;
-          refreshHash: string;
-          userAgent?: string | null;
-          ipAddress?: string | null;
-          expiresAt: Date;
+          data: {
+            userId: string;
+            activeWorkspaceId?: string | null;
+            refreshHash: string;
+            userAgent?: string | null;
+            ipAddress?: string | null;
+            expiresAt: Date;
+          };
         };
-      };
         const session: DbSession = {
           id: `session_${db.sessions.length + 1}`,
           userId: data.userId,
+          activeWorkspaceId: data.activeWorkspaceId ?? null,
           refreshHash: data.refreshHash,
           userAgent: data.userAgent ?? null,
           ipAddress: data.ipAddress ?? null,
@@ -265,9 +291,9 @@ function createHarness(
       },
       updateMany: async (args) => {
         const { where, data } = args as {
-        where: { refreshHash: string; revokedAt: null };
-        data: { revokedAt: Date };
-      };
+          where: { refreshHash: string; revokedAt: null };
+          data: { revokedAt: Date };
+        };
         let count = 0;
 
         db.sessions = db.sessions.map((session) => {
@@ -393,6 +419,8 @@ describe("auth service session lifecycle", () => {
     expect(db.sessions[0]?.refreshHash).not.toBe(result.refreshToken);
     expect(db.sessions[0]?.userAgent).toBe("Vitest");
     expect(db.sessions[0]?.ipAddress).toBe("127.0.0.1");
+    expect(db.sessions[0]?.activeWorkspaceId).toBe("workspace_1");
+    expect(db.users[0]?.lastWorkspaceId).toBe("workspace_1");
     expect(db.auditLogs).toContainEqual(
       expect.objectContaining({
         workspaceId: "workspace_1",
@@ -575,30 +603,32 @@ describe("auth service session lifecycle", () => {
 
   it("exchanges Google callback code, links an existing user and opens a session", async () => {
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
-    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      fetchCalls.push({ url: String(input), init });
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        fetchCalls.push({ url: String(input), init });
 
-      if (String(input) === "https://oauth2.googleapis.com/token") {
+        if (String(input) === "https://oauth2.googleapis.com/token") {
+          return new Response(
+            JSON.stringify({
+              access_token: "google-access-token",
+              token_type: "Bearer",
+              expires_in: 3600
+            }),
+            { status: 200 }
+          );
+        }
+
         return new Response(
           JSON.stringify({
-            access_token: "google-access-token",
-            token_type: "Bearer",
-            expires_in: 3600
+            sub: "google-user-1",
+            email: " OWNER@WPPTRACK.COM ",
+            email_verified: true,
+            name: "Owner Google"
           }),
           { status: 200 }
         );
       }
-
-      return new Response(
-        JSON.stringify({
-          sub: "google-user-1",
-          email: " OWNER@WPPTRACK.COM ",
-          email_verified: true,
-          name: "Owner Google"
-        }),
-        { status: 200 }
-      );
-    }) as unknown as typeof fetch;
+    ) as unknown as typeof fetch;
     const { db, service } = createHarness(
       {
         GOOGLE_CLIENT_ID: "client_123",

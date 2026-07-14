@@ -26,7 +26,10 @@ export class WorkspaceContextService {
   }
 
   listMemberships(authenticated: AuthenticatedUser): WorkspaceListDto {
-    return authenticated.workspaces;
+    return authenticated.workspaces.map((workspace) => ({
+      ...workspace,
+      permissions: this.getPermissions(workspace.role)
+    }));
   }
 
   getCurrentWorkspace(authenticated: AuthenticatedUser): CurrentWorkspaceDto {

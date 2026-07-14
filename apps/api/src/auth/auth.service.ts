@@ -70,6 +70,7 @@ type EmailLoginUserRecord = {
   email: string;
   name: string | null;
   passwordHash: string | null;
+  lastWorkspaceId?: string | null;
   authProvider?: string;
   googleId?: string | null;
   emailVerifiedAt?: Date | null;
@@ -335,16 +336,27 @@ export class AuthService {
       throw new NotFoundException("Workspace nao encontrado");
     }
 
-    const updated = await this.prisma.authSession.updateMany({
-      where: {
-        id: session.id,
-        userId: session.userId,
-        revokedAt: null,
-        expiresAt: { gt: new Date() }
-      },
-      data: {
-        activeWorkspaceId: membership.workspaceId
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const sessionUpdate = await tx.authSession.updateMany({
+        where: {
+          id: session.id,
+          userId: session.userId,
+          revokedAt: null,
+          expiresAt: { gt: new Date() }
+        },
+        data: {
+          activeWorkspaceId: membership.workspaceId
+        }
+      });
+
+      if (sessionUpdate.count > 0) {
+        await tx.user.update({
+          where: { id: session.userId },
+          data: { lastWorkspaceId: membership.workspaceId }
+        });
       }
+
+      return sessionUpdate;
     });
 
     if (updated.count === 0) {
@@ -896,14 +908,26 @@ export class AuthService {
     const expiresAt = new Date(Date.now() + sessionTtlMs);
     const authenticated = this.toAuthenticatedUser(user);
 
-    await this.prisma.authSession.create({
-      data: {
-        userId: user.id,
-        activeWorkspaceId: authenticated.activeWorkspaceId,
-        refreshHash: this.hashRefreshToken(refreshToken),
-        userAgent: context.userAgent ?? null,
-        ipAddress: context.ipAddress ?? null,
-        expiresAt
+    await this.prisma.$transaction(async (tx) => {
+      await tx.authSession.create({
+        data: {
+          userId: user.id,
+          activeWorkspaceId: authenticated.activeWorkspaceId,
+          refreshHash: this.hashRefreshToken(refreshToken),
+          userAgent: context.userAgent ?? null,
+          ipAddress: context.ipAddress ?? null,
+          expiresAt
+        }
+      });
+
+      if (
+        authenticated.activeWorkspaceId &&
+        authenticated.activeWorkspaceId !== user.lastWorkspaceId
+      ) {
+        await tx.user.update({
+          where: { id: user.id },
+          data: { lastWorkspaceId: authenticated.activeWorkspaceId }
+        });
       }
     });
 
@@ -1174,13 +1198,15 @@ export class AuthService {
     user: EmailLoginUserRecord,
     activeWorkspaceId: string | null
   ): string | null {
-    if (
-      activeWorkspaceId &&
-      user.memberships.some(
-        (membership) => membership.workspace.id === activeWorkspaceId
-      )
-    ) {
-      return activeWorkspaceId;
+    for (const candidate of [activeWorkspaceId, user.lastWorkspaceId ?? null]) {
+      if (
+        candidate &&
+        user.memberships.some(
+          (membership) => membership.workspace.id === candidate
+        )
+      ) {
+        return candidate;
+      }
     }
 
     return user.memberships.length === 1

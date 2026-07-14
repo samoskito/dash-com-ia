@@ -67,9 +67,26 @@ describe("WorkspaceContextService", () => {
       }
     });
 
-    expect(
-      service.listMemberships(session).map((workspace) => workspace.id)
-    ).toEqual(["workspace_a", "workspace_b"]);
+    expect(service.listMemberships(session)).toEqual([
+      expect.objectContaining({
+        id: "workspace_a",
+        permissions: {
+          canInviteMembers: false,
+          canManageBilling: false,
+          canManageIntegrations: false,
+          canViewReports: true
+        }
+      }),
+      expect.objectContaining({
+        id: "workspace_b",
+        permissions: {
+          canInviteMembers: true,
+          canManageBilling: false,
+          canManageIntegrations: true,
+          canViewReports: true
+        }
+      })
+    ]);
     expect(service.getCurrentWorkspace(session)).toMatchObject({
       id: "workspace_customer",
       accessMode: "platform_support"

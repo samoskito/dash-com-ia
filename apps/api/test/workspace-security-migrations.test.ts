@@ -32,4 +32,16 @@ describe("workspace security migration contracts", () => {
     expect(sql).toContain('FOREIGN KEY ("workspaceId")');
     expect(sql).toContain('FOREIGN KEY ("userId")');
   });
+
+  it("stores only a membership-validated last-workspace preference", () => {
+    const sql = migrationSql("20260714052000_user_last_workspace_preference");
+
+    expect(sql).toContain('ADD COLUMN "lastWorkspaceId" TEXT');
+    expect(sql).toContain('INNER JOIN "WorkspaceMember"');
+    expect(sql).toContain('member."workspaceId" = session."activeWorkspaceId"');
+    expect(sql).toContain('session."revokedAt" IS NULL');
+    expect(sql).toContain('session."expiresAt" > CURRENT_TIMESTAMP');
+    expect(sql).toContain('"User_lastWorkspaceId_idx"');
+    expect(sql).toContain("ON DELETE SET NULL");
+  });
 });

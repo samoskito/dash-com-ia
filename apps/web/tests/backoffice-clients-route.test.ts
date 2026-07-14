@@ -149,6 +149,10 @@ describe("backoffice clients route", () => {
     expect(html).toContain("Provisionar workspace");
     expect(html).toContain("Nome do responsavel");
     expect(html).toContain("Email do responsavel");
+    expect(html).toContain("Senha inicial (para novo email)");
+    expect(html).toContain(
+      "Emails existentes mantem a conta e a senha atuais."
+    );
     expect(html).toContain("Responsavel da conta");
     expect(html).toContain("Cliente Barbieri");
     expect(html).toContain("MySQL Barbieri");

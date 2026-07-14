@@ -4,14 +4,25 @@ import { clientNavigation } from "@wpptrack/shared";
 import type {
   CurrentWorkspaceDto,
   WhatsappDataSourceDto,
+  WorkspaceListEntryDto
 } from "@wpptrack/shared";
-import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import {
+  Building2,
+  Check,
+  ChevronsUpDown,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  X
+} from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { LogoutButton } from "./logout-button";
 import { DataAutoRefresh } from "./data-auto-refresh";
 import { exitPlatformSupportAccess } from "../app/actions/platform-support";
+import { switchActiveWorkspace } from "../app/actions/workspaces";
 
 const sidebarStorageKey = "wpptrack-sidebar-collapsed";
 
@@ -20,29 +31,40 @@ function workspaceAccessLabel(workspace: CurrentWorkspaceDto): string {
     return "acesso de suporte";
   }
 
-  if (workspace.role === "owner") {
+  return workspaceRoleLabel(workspace.role).toLowerCase();
+}
+
+function workspaceRoleLabel(role: WorkspaceListEntryDto["role"]): string {
+  if (role === "owner") {
     return "responsavel da conta";
   }
 
-  return workspace.role === "admin" ? "administrador" : "analista";
+  return role === "admin" ? "administrador" : "analista";
 }
 
 export function AppShell({
   children,
   dataSource,
   workspace,
+  workspaces = []
 }: {
   children: ReactNode;
   dataSource?: WhatsappDataSourceDto | null;
   workspace?: CurrentWorkspaceDto | null;
+  workspaces?: WorkspaceListEntryDto[];
 }) {
+  const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [workspaceSwitchError, setWorkspaceSwitchError] = useState(false);
+  const [isWorkspaceSwitchPending, startWorkspaceTransition] = useTransition();
+  const workspaceSelectorRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     setSidebarCollapsed(
-      window.localStorage.getItem(sidebarStorageKey) === "true",
+      window.localStorage.getItem(sidebarStorageKey) === "true"
     );
   }, []);
 
@@ -87,7 +109,67 @@ export function AppShell({
     };
   }, [isMobile, mobileMenuOpen]);
 
+  useEffect(() => {
+    if (!workspaceMenuOpen) {
+      return;
+    }
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!workspaceSelectorRef.current?.contains(event.target as Node)) {
+        setWorkspaceMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setWorkspaceMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    window.addEventListener("keydown", closeOnEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [workspaceMenuOpen]);
+
   const closeMobileMenu = () => setMobileMenuOpen(false);
+  const canSelectWorkspace =
+    workspace?.accessMode !== "platform_support" &&
+    workspaces.length > 0 &&
+    (workspaces.length > 1 || !workspace);
+
+  const openWorkspaceMenu = () => {
+    setWorkspaceSwitchError(false);
+
+    if (sidebarCollapsed && !isMobile) {
+      setSidebarCollapsed(false);
+    }
+
+    setWorkspaceMenuOpen((current) => !current);
+  };
+
+  const selectWorkspace = (workspaceId: string) => {
+    if (workspaceId === workspace?.id || isWorkspaceSwitchPending) {
+      setWorkspaceMenuOpen(false);
+      return;
+    }
+
+    setWorkspaceSwitchError(false);
+    startWorkspaceTransition(async () => {
+      const result = await switchActiveWorkspace(workspaceId);
+
+      if (!result.ok) {
+        setWorkspaceSwitchError(true);
+        return;
+      }
+
+      setWorkspaceMenuOpen(false);
+      closeMobileMenu();
+      router.refresh();
+    });
+  };
 
   return (
     <div
@@ -167,14 +249,90 @@ export function AppShell({
           </button>
         </div>
 
-        <section className="workspace-strip" aria-label="Workspace atual">
-          <span>Workspace</span>
-          <strong>{workspace?.name ?? "Workspace indisponivel"}</strong>
-          <small>
-            {workspace
-              ? `${workspace.slug} - ${workspaceAccessLabel(workspace)}`
-              : "Sessao autenticada"}
-          </small>
+        <section
+          ref={workspaceSelectorRef}
+          className={`workspace-strip${canSelectWorkspace ? " workspace-selector" : ""}`}
+          aria-label="Workspace atual"
+        >
+          {canSelectWorkspace ? (
+            <>
+              <button
+                className="workspace-selector-trigger"
+                type="button"
+                aria-label={`Selecionar empresa. Atual: ${workspace?.name ?? "nenhuma"}`}
+                aria-controls="workspace-selector-menu"
+                aria-expanded={workspaceMenuOpen}
+                onClick={openWorkspaceMenu}
+                title="Selecionar empresa"
+              >
+                <span className="workspace-selector-icon" aria-hidden="true">
+                  <Building2 size={18} strokeWidth={2.1} />
+                </span>
+                <span className="workspace-selector-copy">
+                  <span>Workspace</span>
+                  <strong>{workspace?.name ?? "Selecionar empresa"}</strong>
+                  <small>
+                    {workspace
+                      ? `${workspace.slug} - ${workspaceAccessLabel(workspace)}`
+                      : `${workspaces.length} ${workspaces.length === 1 ? "empresa disponivel" : "empresas disponiveis"}`}
+                  </small>
+                </span>
+                <ChevronsUpDown
+                  className="workspace-selector-chevron"
+                  aria-hidden="true"
+                  size={17}
+                  strokeWidth={2.1}
+                />
+              </button>
+              <div
+                id="workspace-selector-menu"
+                className="workspace-selector-menu"
+                role="menu"
+                aria-label="Empresas autorizadas"
+                hidden={!workspaceMenuOpen}
+              >
+                {workspaces.map((availableWorkspace) => {
+                  const selected = availableWorkspace.id === workspace?.id;
+
+                  return (
+                    <button
+                      key={availableWorkspace.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={selected}
+                      disabled={selected || isWorkspaceSwitchPending}
+                      onClick={() => selectWorkspace(availableWorkspace.id)}
+                    >
+                      <span>
+                        <strong>{availableWorkspace.name}</strong>
+                        <small>
+                          {workspaceRoleLabel(availableWorkspace.role)}
+                        </small>
+                      </span>
+                      {selected ? (
+                        <Check aria-hidden="true" size={17} strokeWidth={2.2} />
+                      ) : null}
+                    </button>
+                  );
+                })}
+                {workspaceSwitchError ? (
+                  <p className="workspace-selector-error" role="alert">
+                    Nao foi possivel abrir esta empresa.
+                  </p>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <>
+              <span>Workspace</span>
+              <strong>{workspace?.name ?? "Workspace indisponivel"}</strong>
+              <small>
+                {workspace
+                  ? `${workspace.slug} - ${workspaceAccessLabel(workspace)}`
+                  : "Sessao autenticada"}
+              </small>
+            </>
+          )}
         </section>
 
         <nav className="sidebar-nav" aria-label="Navegacao principal">
@@ -217,9 +375,7 @@ export function AppShell({
           <p className="nav-label">Conta</p>
           {workspace ? (
             <span
-              className={`status-chip${
-                workspace.operationalStatus === "blocked" ? " warn" : ""
-              }`}
+              className={`status-chip${workspace.operationalStatus === "blocked" ? " warn" : ""}`}
             >
               {workspace.operationalStatus === "blocked"
                 ? "bloqueado"

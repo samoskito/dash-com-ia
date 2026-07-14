@@ -1,7 +1,7 @@
 # WppTrack Access, Email and Meta Connections Implementation Plan
 
 Date: 2026-07-13
-Status: Waves 0-1 implemented and validated locally; Wave 2 not started
+Status: Waves 0-2 implemented and validated locally; Wave 3 not started
 Design: docs/plans/2026-07-13-wpptrack-access-email-meta-connections-design.md
 
 ## 1. Goal
@@ -203,30 +203,30 @@ Purpose: expose the secure foundation to users and allow one identity to partici
 
 ### API and provisioning
 
-- [ ] Update private platform provisioning so an existing email can become owner of a new workspace without password reset or duplicate user creation.
-- [ ] Make workspace + owner membership creation atomic.
-- [ ] Reject creating a second owner membership in the same workspace.
-- [ ] Return the current role/capabilities with workspace list entries.
+- [x] Update private platform provisioning so an existing email can become owner of a new workspace without password reset or duplicate user creation.
+- [x] Make workspace + owner membership creation atomic.
+- [x] Reject creating a second owner membership in the same workspace.
+- [x] Return the current role/capabilities with workspace list entries.
 
 ### Web
 
-- [ ] Add a compact workspace selector to apps/web/src/components/app-shell.tsx.
-- [ ] Show only memberships returned by the API.
-- [ ] Show role label without exposing internal enum names.
-- [ ] Keep stable dimensions in expanded and collapsed sidebar states.
-- [ ] Switch via a server action or same-origin route that calls POST /workspaces/active.
-- [ ] Refresh navigation and page data after switching.
-- [ ] Preserve the explicit platform-support banner and exit action.
-- [ ] On login, open the last valid session workspace.
-- [ ] On invite acceptance, activate the invited workspace.
+- [x] Add a compact workspace selector to apps/web/src/components/app-shell.tsx.
+- [x] Show only memberships returned by the API.
+- [x] Show role label without exposing internal enum names.
+- [x] Keep stable dimensions in expanded and collapsed sidebar states.
+- [x] Switch via a server action or same-origin route that calls POST /workspaces/active.
+- [x] Refresh navigation and page data after switching.
+- [x] Preserve the explicit platform-support banner and exit action.
+- [x] On login, open the last valid session workspace.
+- [x] On invite acceptance, activate the invited workspace.
 
 ### Tests
 
-- [ ] Selector HTML contains only authorized workspaces.
-- [ ] Switch updates active context and subsequent API calls.
-- [ ] Invalid target does not disclose a workspace name or existence.
-- [ ] Existing platform user can own multiple customer workspaces.
-- [ ] Responsive screenshots show no overlap in expanded/collapsed/mobile shell.
+- [x] Selector HTML contains only authorized workspaces.
+- [x] Switch updates active context and subsequent API calls.
+- [x] Invalid target does not disclose a workspace name or existence.
+- [x] Existing platform user can own multiple customer workspaces.
+- [x] Responsive screenshots show no overlap in expanded/collapsed/mobile shell.
 
 ### Likely files
 
@@ -244,6 +244,27 @@ Purpose: expose the secure foundation to users and allow one identity to partici
 - A person can access several companies with a different role in each.
 - It cannot learn about any other workspace.
 - The last active workspace reopens predictably.
+
+### Deploy checkpoint
+
+No deployment was performed in this checkpoint. When release is explicitly authorized, deploy the nullable preference migration and API first, verify workspace listing/switching with two internal companies, and deploy the web selector afterward. Monitor generic workspace-switch 404s and session resolution without logging tenant names or customer payloads. Barbieri remains untouched.
+
+### Rollback
+
+The selector can be rolled back independently from the API. User.lastWorkspaceId is nullable and only a convenience preference; AuthSession.activeWorkspaceId remains authoritative and every preference is revalidated against a live membership before use. A rollback may stop reading/writing the preference without dropping the column immediately.
+
+### Implementation checkpoint - 2026-07-14
+
+- Private provisioning reuses an existing identity by normalized email without changing its password, name or authentication provider; new identities still require an initial password.
+- Workspace and owner membership creation are atomic, and the provisioning path rejects an existing owner before adding another.
+- Workspace list entries now carry the role-derived capability set used by the product shell.
+- New sessions select only a valid session target, a valid saved preference or a deterministic single membership; multiple memberships never fall back to the first row.
+- Switching updates the current session and user preference atomically after membership validation. Unauthorized and nonexistent targets retain the same generic response.
+- The web selector renders only the authenticated API list, stays hidden in support mode, refreshes server data after switching and returns a generic client error without tenant disclosure.
+- Chrome visual QA passed at 1440 x 1000 and 390 x 844 with expanded, open, collapsed and mobile selector states, including long company names and no horizontal overflow.
+- Local validation: 60 shared tests, 592 API tests and 128 web tests passed; all package typechecks, Prisma validate, normal Prisma Client generation, direct Nest build, Next production build and git diff --check passed.
+- The root Turbo build retriggered Prisma generation and encountered the known Windows DLL rename lock after generation had already succeeded; the API and web production builds both passed independently with the validated client.
+- No push or production deploy was performed. The active Barbieri OAuth, assets, reporting, CAPI and n8n runtime were not changed.
 
 ## 6. Wave 3 - Role Matrix and Delegated Team Management
 

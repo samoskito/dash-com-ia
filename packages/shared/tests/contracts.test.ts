@@ -6,6 +6,7 @@ import {
   canManageWorkspaceBilling,
   canViewReports,
   campaignReportRowSchema,
+  clientWorkspaceProvisionInputSchema,
   clientNavigation,
   conversionAuditEventDetailSchema,
   conversionAuditEventSchema,
@@ -86,6 +87,7 @@ import {
   workspaceInviteAcceptSchema,
   workspaceInviteSchema,
   workspaceMemberSchema,
+  workspaceListSchema,
   workspaceSubscriptionSummarySchema,
   whatsappInstanceCheckoutInputSchema,
   whatsappInstanceCheckoutSchema,
@@ -150,7 +152,9 @@ describe("shared contracts", () => {
   };
 
   it("does not include Clientes in client navigation", () => {
-    expect(clientNavigation.map((item) => item.label)).not.toContain("Clientes");
+    expect(clientNavigation.map((item) => item.label)).not.toContain(
+      "Clientes"
+    );
   });
 
   it("keeps owner/admin/member permission basics", () => {
@@ -158,6 +162,49 @@ describe("shared contracts", () => {
     expect(canManageWorkspaceBilling("admin")).toBe(false);
     expect(canManageIntegrations("admin")).toBe(true);
     expect(canViewReports("member")).toBe(true);
+  });
+
+  it("returns role and capabilities with every selectable workspace", () => {
+    const workspaces = workspaceListSchema.parse([
+      {
+        id: "workspace_a",
+        name: "Empresa A",
+        slug: "empresa-a",
+        role: "admin",
+        operationalStatus: "active",
+        permissions: {
+          canInviteMembers: true,
+          canManageBilling: false,
+          canManageIntegrations: true,
+          canViewReports: true
+        }
+      }
+    ]);
+
+    expect(workspaces[0]?.permissions.canManageBilling).toBe(false);
+    expect(() =>
+      workspaceListSchema.parse([
+        {
+          id: "workspace_a",
+          name: "Empresa A",
+          slug: "empresa-a",
+          role: "admin",
+          operationalStatus: "active"
+        }
+      ])
+    ).toThrow();
+  });
+
+  it("allows an omitted password only for private provisioning validation", () => {
+    const parsed = clientWorkspaceProvisionInputSchema.parse({
+      workspaceName: "Empresa B",
+      ownerName: "Responsavel Existente",
+      ownerEmail: "OWNER@EMPRESA.COM",
+      ownerPassword: ""
+    });
+
+    expect(parsed.ownerEmail).toBe("owner@empresa.com");
+    expect(parsed.ownerPassword).toBeUndefined();
   });
 
   it("validates campaign report rows", () => {
@@ -242,7 +289,9 @@ describe("shared contracts", () => {
     });
 
     expect(configuration.stages[0]?.eventName).toBe("OrderDelivered");
-    expect(conversionEventDisplayLabel("OrderDelivered")).toBe("Pedido entregue");
+    expect(conversionEventDisplayLabel("OrderDelivered")).toBe(
+      "Pedido entregue"
+    );
     expect(conversionEventDisplayLabel("CustomEvent")).toBe("CustomEvent");
   });
 
@@ -589,7 +638,8 @@ describe("shared contracts", () => {
     const result = googleOAuthStartResultSchema.parse({
       provider: "google",
       action: "redirect",
-      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc",
+      authorizationUrl:
+        "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc",
       missingEnv: [],
       state: "state-token"
     });
@@ -1700,38 +1750,36 @@ describe("shared contracts", () => {
         connectionConfigured: true,
         destinationConfigured: true,
         pixelId: "pixel_1",
-        pageId: "page_1",
+        pageId: "page_1"
       },
-      events: [
-        "conversation_started",
-        "qualified_lead",
-        "purchase",
-      ].map((eventType) => ({
-        eventType,
-        sourceRows: 1,
-        acceptedRows: 1,
-        operationalRows: 1,
-        historicalRows: 0,
-        expectedMatchedRows: 1,
-        matchedRows: 1,
-        duplicateDeliveries: 0,
-        rejectedRows: 0,
-        quarantinedRows: 0,
-        blockingRejectedRows: 0,
-        pendingRows: 0,
-        readyToSendRows: 1,
-        sentRows: 0,
-        importedRows: 0,
-        notEligibleRows: 0,
-        shadowObservedRows: 0,
-        blockedDeliveryRows: 0,
-        capiActive: false,
-        readyForCutover: true,
-        cutoverAt: null,
-        firstOccurredAt: "2026-07-12T19:00:00.000Z",
-        lastOccurredAt: "2026-07-12T19:00:00.000Z",
-      })),
-      blockers: [],
+      events: ["conversation_started", "qualified_lead", "purchase"].map(
+        (eventType) => ({
+          eventType,
+          sourceRows: 1,
+          acceptedRows: 1,
+          operationalRows: 1,
+          historicalRows: 0,
+          expectedMatchedRows: 1,
+          matchedRows: 1,
+          duplicateDeliveries: 0,
+          rejectedRows: 0,
+          quarantinedRows: 0,
+          blockingRejectedRows: 0,
+          pendingRows: 0,
+          readyToSendRows: 1,
+          sentRows: 0,
+          importedRows: 0,
+          notEligibleRows: 0,
+          shadowObservedRows: 0,
+          blockedDeliveryRows: 0,
+          capiActive: false,
+          readyForCutover: true,
+          cutoverAt: null,
+          firstOccurredAt: "2026-07-12T19:00:00.000Z",
+          lastOccurredAt: "2026-07-12T19:00:00.000Z"
+        })
+      ),
+      blockers: []
     });
 
     expect(result.readyForCutover).toBe(true);
