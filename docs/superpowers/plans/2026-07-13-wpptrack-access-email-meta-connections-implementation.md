@@ -264,7 +264,8 @@ The selector can be rolled back independently from the API. User.lastWorkspaceId
 - Chrome visual QA passed at 1440 x 1000 and 390 x 844 with expanded, open, collapsed and mobile selector states, including long company names and no horizontal overflow.
 - Local validation: 60 shared tests, 592 API tests and 128 web tests passed; all package typechecks, Prisma validate, normal Prisma Client generation, direct Nest build, Next production build and git diff --check passed.
 - The root Turbo build retriggered Prisma generation and encountered the known Windows DLL rename lock after generation had already succeeded; the API and web production builds both passed independently with the validated client.
-- No push or production deploy was performed. The active Barbieri OAuth, assets, reporting, CAPI and n8n runtime were not changed.
+- Commit `05c2a43` was pushed and the disabled-email deployment succeeded. The first SMTP-enabled rollout exposed a Nodemailer default-import incompatibility in the production CommonJS build; the API exited before serving traffic and Docker Swarm completed its automatic rollback. No email was sent, and the active Barbieri OAuth, assets, reporting, CAPI and n8n runtime remained unchanged.
+- The transport hotfix uses the CommonJS-safe named `createTransport` import and adds a subprocess regression test through `ts-node/register/transpile-only`, matching the production module format that Vitest previously masked. The complete API suite, direct TypeScript check, Nest build and a smoke test against the compiled `dist` transport passed locally.
 
 ## 6. Wave 3 - Role Matrix and Delegated Team Management
 

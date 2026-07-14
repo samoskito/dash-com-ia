@@ -1,4 +1,4 @@
-import nodemailer, { type Transporter } from "nodemailer";
+import { createTransport, type Transporter } from "nodemailer";
 import { EmailConfigurationService } from "./email-configuration.service";
 import { EmailTransportFailure } from "./email-delivery-error";
 import type { RenderedEmailMessage } from "./email.types";
@@ -21,7 +21,7 @@ export class NodemailerEmailTransport implements EmailTransport {
   constructor(configuration: EmailConfigurationService) {
     const smtp = configuration.getSmtpConfig();
 
-    this.transporter = nodemailer.createTransport({
+    this.transporter = createTransport({
       host: smtp.host,
       port: smtp.port,
       secure: smtp.secure,
