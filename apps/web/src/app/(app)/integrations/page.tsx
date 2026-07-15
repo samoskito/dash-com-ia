@@ -24,10 +24,12 @@ import {
   createMetaManualCredentialAction,
   disconnectMetaOAuthAction,
   discoverMetaManualAssetsAction,
+  removeMetaManualConnectionAction,
   rotateMetaManualCredentialAction,
   setMetaManualAccountDestinationAction,
   setMetaManualConnectionStatusAction,
   testMetaManualConnectionAction,
+  syncMetaManualHistoryAction,
 } from "./meta-manual-actions";
 import { MetaManualConnectionPanel } from "./meta-manual-connection-panel";
 import {
@@ -1058,6 +1060,8 @@ export default async function IntegrationsPage({
           rotateCredentialAction={rotateMetaManualCredentialAction}
           setConnectionStatusAction={setMetaManualConnectionStatusAction}
           testConnectionAction={testMetaManualConnectionAction}
+          removeConnectionAction={removeMetaManualConnectionAction}
+          syncHistoryAction={syncMetaManualHistoryAction}
           setAccountDestinationAction={setMetaManualAccountDestinationAction}
         />
         <div className="metric-grid compact">

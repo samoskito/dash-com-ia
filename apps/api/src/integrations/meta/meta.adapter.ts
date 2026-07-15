@@ -162,6 +162,8 @@ export type MetaAdInsight = {
   metaConversationsStarted: number;
 };
 
+export type MetaInsightReadMode = "legacy" | "manual";
+
 type MetaCampaignGraphNode = {
   id?: unknown;
   name?: unknown;
@@ -857,6 +859,7 @@ export class MetaAdapter implements IntegrationAdapter {
     adAccountId: string;
     since: string;
     until: string;
+    readMode?: MetaInsightReadMode;
   }): Promise<MetaCampaignInsight[]> {
     const payload = await this.listInsights({
       ...input,
@@ -870,9 +873,9 @@ export class MetaAdapter implements IntegrationAdapter {
         spendCents: this.asMoneyCents(item.spend),
         impressions: this.asInteger(item.impressions),
         clicks: this.asInteger(item.clicks),
-        metaConversationsStarted: this.actionValue(
+        metaConversationsStarted: this.messagingConversationStarted(
           item.actions,
-          "onsite_conversion.messaging_conversation_started_7d",
+          input.readMode,
         ),
       }))
       .filter((item): item is MetaCampaignInsight => Boolean(item.campaignId));
@@ -883,6 +886,7 @@ export class MetaAdapter implements IntegrationAdapter {
     adAccountId: string;
     since: string;
     until: string;
+    readMode?: MetaInsightReadMode;
   }): Promise<MetaCampaignDailyInsight[]> {
     const payload = await this.listInsights({
       ...input,
@@ -899,9 +903,9 @@ export class MetaAdapter implements IntegrationAdapter {
         spendCents: this.asMoneyCents(item.spend),
         impressions: this.asInteger(item.impressions),
         clicks: this.asInteger(item.clicks),
-        metaConversationsStarted: this.actionValue(
+        metaConversationsStarted: this.messagingConversationStarted(
           item.actions,
-          "onsite_conversion.messaging_conversation_started_7d",
+          input.readMode,
         ),
       }))
       .filter((item): item is MetaCampaignDailyInsight =>
@@ -914,6 +918,7 @@ export class MetaAdapter implements IntegrationAdapter {
     adAccountId: string;
     since: string;
     until: string;
+    readMode?: MetaInsightReadMode;
   }): Promise<MetaAdSetInsight[]> {
     const payload = await this.listInsights({
       ...input,
@@ -928,9 +933,9 @@ export class MetaAdapter implements IntegrationAdapter {
         spendCents: this.asMoneyCents(item.spend),
         impressions: this.asInteger(item.impressions),
         clicks: this.asInteger(item.clicks),
-        metaConversationsStarted: this.actionValue(
+        metaConversationsStarted: this.messagingConversationStarted(
           item.actions,
-          "onsite_conversion.messaging_conversation_started_7d",
+          input.readMode,
         ),
       }))
       .filter((item): item is MetaAdSetInsight =>
@@ -943,6 +948,7 @@ export class MetaAdapter implements IntegrationAdapter {
     adAccountId: string;
     since: string;
     until: string;
+    readMode?: MetaInsightReadMode;
   }): Promise<MetaAdInsight[]> {
     const payload = await this.listInsights({
       ...input,
@@ -958,9 +964,9 @@ export class MetaAdapter implements IntegrationAdapter {
         spendCents: this.asMoneyCents(item.spend),
         impressions: this.asInteger(item.impressions),
         clicks: this.asInteger(item.clicks),
-        metaConversationsStarted: this.actionValue(
+        metaConversationsStarted: this.messagingConversationStarted(
           item.actions,
-          "onsite_conversion.messaging_conversation_started_7d",
+          input.readMode,
         ),
       }))
       .filter((item): item is MetaAdInsight =>
@@ -1071,6 +1077,30 @@ export class MetaAdapter implements IntegrationAdapter {
     return this.asInteger(action?.value);
   }
 
+  private messagingConversationStarted(
+    actions: MetaInsightGraphNode["actions"],
+    readMode: MetaInsightReadMode = "legacy",
+  ): number {
+    const legacyValue = this.actionValue(
+      actions,
+      "onsite_conversion.messaging_conversation_started_7d",
+    );
+
+    if (readMode === "legacy") {
+      return legacyValue;
+    }
+
+    const compatibleValues = (actions ?? [])
+      .filter((action) =>
+        this.asString(action.action_type)
+          ?.toLowerCase()
+          .includes("messaging_conversation_started"),
+      )
+      .map((action) => this.asInteger(action.value));
+
+    return Math.max(legacyValue, ...compatibleValues, 0);
+  }
+
   private async listInsights(input: {
     accessToken: string;
     adAccountId: string;
@@ -1079,6 +1109,7 @@ export class MetaAdapter implements IntegrationAdapter {
     since: string;
     until: string;
     timeIncrement?: number;
+    readMode?: MetaInsightReadMode;
   }): Promise<MetaInsightGraphNode[]> {
     const params = new URLSearchParams({
       fields: input.fields,
@@ -1093,6 +1124,12 @@ export class MetaAdapter implements IntegrationAdapter {
 
     if (input.timeIncrement) {
       params.set("time_increment", String(input.timeIncrement));
+    }
+
+    if (input.readMode === "manual") {
+      params.set("action_breakdowns", "action_type");
+      params.set("action_report_time", "conversion");
+      params.set("use_unified_attribution_setting", "true");
     }
     const initialUrl = `https://graph.facebook.com/${this.getGraphApiVersion()}/${input.adAccountId}/insights?${params.toString()}`;
 

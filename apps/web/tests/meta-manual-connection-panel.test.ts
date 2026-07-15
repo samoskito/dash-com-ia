@@ -14,6 +14,8 @@ const actions = {
   rotateCredentialAction: vi.fn(),
   setConnectionStatusAction: vi.fn(),
   testConnectionAction: vi.fn(),
+  removeConnectionAction: vi.fn(),
+  syncHistoryAction: vi.fn(),
   setAccountDestinationAction: vi.fn(),
 };
 
@@ -72,5 +74,99 @@ describe("Meta manual connection panel", () => {
     expect(html).toContain("Usar token permanente");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>/);
     expect(html).not.toContain('name="accessToken"');
+  });
+
+  it("keeps a saved manual structure visible with sync health and management actions", () => {
+    const html = renderToStaticMarkup(
+      createElement(MetaManualConnectionPanel, {
+        workspaceId: "workspace_1",
+        capabilities,
+        initialConfiguration: {
+          workspaceId: "workspace_1",
+          credentials: [
+            {
+              id: "credential_1",
+              workspaceId: "workspace_1",
+              source: "manual",
+              label: "Token BM Cliente",
+              fingerprint: "1234567890abcdef",
+              tokenLast4: "cret",
+              tokenType: "system_user",
+              scopes: ["ads_read", "ads_management"],
+              expiresAt: null,
+              status: "active",
+              lastValidatedAt: "2026-07-14T12:00:00.000Z",
+              validationError: null,
+              rotatedAt: null,
+              createdAt: "2026-07-14T12:00:00.000Z",
+              updatedAt: "2026-07-14T12:00:00.000Z",
+            },
+          ],
+          businessConnections: [
+            {
+              id: "connection_1",
+              workspaceId: "workspace_1",
+              credentialId: "credential_1",
+              businessManagerId: "business_1",
+              businessManagerName: "BM Cliente",
+              status: "active",
+              defaultConversionDestinationId: "destination_1",
+              reportingAccountCount: 1,
+              activeReportingAccountCount: 1,
+              lastValidatedAt: "2026-07-14T12:00:00.000Z",
+              validationError: null,
+              lastSyncedAt: null,
+              createdAt: "2026-07-14T12:00:00.000Z",
+              updatedAt: "2026-07-14T12:00:00.000Z",
+            },
+          ],
+          destinations: [
+            {
+              id: "destination_1",
+              workspaceId: "workspace_1",
+              label: "Pixel cliente",
+              ownerBusinessManagerId: "business_1",
+              pixelId: "pixel_1",
+              pixelName: "Pixel cliente",
+              pageId: "page_1",
+              pageName: "Pagina cliente",
+              status: "configured",
+              lastValidatedAt: "2026-07-14T12:00:00.000Z",
+              validationError: null,
+            },
+          ],
+          reportingAccounts: [
+            {
+              id: "reporting_1",
+              workspaceId: "workspace_1",
+              businessId: "business_1",
+              businessName: "BM Cliente",
+              adAccountId: "act_123",
+              adAccountName: "Conta Cliente",
+              currency: "BRL",
+              timezoneName: "America/Sao_Paulo",
+              businessConnectionId: "connection_1",
+              conversionDestinationId: null,
+              active: true,
+              syncStatus: "error",
+              lastSyncedAt: null,
+              lastSyncSince: null,
+              lastSyncUntil: null,
+              syncError: "Permissao de Insights ausente",
+            },
+          ],
+        },
+        legacyConnected: false,
+        canManage: true,
+        ...actions,
+      }),
+    );
+
+    expect(html).toContain("Tokens, BMs e destinos");
+    expect(html).toContain("BM Cliente");
+    expect(html).toContain("Permissao de Insights ausente");
+    expect(html).toContain("Importar 90 dias");
+    expect(html).toContain('aria-label="Editar BM Cliente"');
+    expect(html).toContain('aria-label="Remover BM Cliente"');
   });
 });

@@ -8,6 +8,10 @@ import type {
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
+import {
+  initialManualMetaSyncLookbackDays,
+  initialManualMetaSyncPeriod,
+} from "./meta-manual-sync-period";
 
 export type MetaManualActionResult = {
   ok: boolean;
@@ -135,10 +139,25 @@ export async function createMetaManualConnectionAction(
       },
     );
 
+    const initialPeriod = initialManualMetaSyncPeriod();
+    let syncQueued = true;
+
+    try {
+      await serverApiFetch(
+        `/reports/meta/sync?since=${initialPeriod.since}&until=${initialPeriod.until}`,
+        { method: "POST" },
+      );
+    } catch {
+      syncQueued = false;
+    }
+
     revalidatePath("/integrations");
+    revalidatePath("/reports");
     return {
       ok: true,
-      message: "Estrutura Meta validada e ativada.",
+      message: syncQueued
+        ? `Estrutura ativada. A importacao inicial dos ultimos ${initialManualMetaSyncLookbackDays} dias foi enfileirada.`
+        : "Estrutura ativada, mas o historico nao entrou na fila. Use Sincronizar Meta em Relatorios.",
       configuration,
     };
   } catch (error) {
@@ -219,6 +238,52 @@ export async function testMetaManualConnectionAction(
     };
   } catch (error) {
     return failure(error, "A conexao nao passou na validacao da Meta.");
+  }
+}
+
+export async function removeMetaManualConnectionAction(
+  connectionId: string,
+  businessManagerId: string,
+): Promise<MetaManualActionResult> {
+  try {
+    const configuration = await serverApiFetch<MetaManualConfigurationDto>(
+      `/integrations/meta/manual/connections/${encodeURIComponent(connectionId)}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ businessManagerId }),
+      },
+    );
+
+    revalidatePath("/integrations");
+    revalidatePath("/reports");
+    return {
+      ok: true,
+      message:
+        "Estrutura removida. O historico foi preservado e as contas deixaram de sincronizar.",
+      configuration,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel remover esta estrutura Meta.");
+  }
+}
+
+export async function syncMetaManualHistoryAction(): Promise<MetaManualActionResult> {
+  const period = initialManualMetaSyncPeriod();
+
+  try {
+    await serverApiFetch(
+      `/reports/meta/sync?since=${period.since}&until=${period.until}`,
+      { method: "POST" },
+    );
+
+    revalidatePath("/integrations");
+    revalidatePath("/reports");
+    return {
+      ok: true,
+      message: `Importacao de ${period.since} a ${period.until} enfileirada. O andamento aparece em cada conta.`,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel enfileirar o historico da Meta.");
   }
 }
 

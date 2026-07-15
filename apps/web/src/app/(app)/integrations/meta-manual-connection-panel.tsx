@@ -12,13 +12,16 @@ import {
   ChevronDown,
   CircleCheck,
   Database,
+  History,
   KeyRound,
   Link2,
   Pause,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   TriangleAlert,
   Unplug,
   X,
@@ -76,6 +79,11 @@ type MetaManualConnectionPanelProps = {
   testConnectionAction: (
     connectionId: string,
   ) => Promise<MetaManualActionResult>;
+  removeConnectionAction: (
+    connectionId: string,
+    businessManagerId: string,
+  ) => Promise<MetaManualActionResult>;
+  syncHistoryAction: () => Promise<MetaManualActionResult>;
   setAccountDestinationAction: (
     reportingAccountId: string,
     conversionDestinationId: string | null,
@@ -263,6 +271,8 @@ export function MetaManualConnectionPanel({
   rotateCredentialAction,
   setConnectionStatusAction,
   testConnectionAction,
+  removeConnectionAction,
+  syncHistoryAction,
   setAccountDestinationAction,
 }: MetaManualConnectionPanelProps) {
   const [configuration, setConfiguration] = useState(initialConfiguration);
@@ -291,11 +301,19 @@ export function MetaManualConnectionPanel({
   const [rotatingCredentialId, setRotatingCredentialId] = useState<
     string | null
   >(null);
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(
+    null,
+  );
+  const [removingConnectionId, setRemovingConnectionId] = useState<
+    string | null
+  >(null);
+  const [removalConfirmation, setRemovalConfirmation] = useState("");
   const [accountDestinationDrafts, setAccountDestinationDrafts] = useState<
     Record<string, string>
   >({});
   const credentialFormRef = useRef<HTMLFormElement>(null);
   const rotateFormRef = useRef<HTMLFormElement>(null);
+  const removeDialogRef = useRef<HTMLDialogElement>(null);
 
   const selectedBusiness = discovery?.businesses.find(
     (business) => business.id === businessId,
@@ -333,6 +351,9 @@ export function MetaManualConnectionPanel({
     businessId &&
     selectedAccountIds.length > 0 &&
     destinationReady,
+  );
+  const removingConnection = configuration?.businessConnections.find(
+    (connection) => connection.id === removingConnectionId,
   );
 
   if (!capabilities.manualEnabled) {
@@ -526,6 +547,111 @@ export function MetaManualConnectionPanel({
     setPendingAction(null);
   }
 
+  async function handleHistorySync() {
+    setPendingAction("history");
+    setNotice(null);
+    const result = await syncHistoryAction();
+    showResult(result);
+    setPendingAction(null);
+  }
+
+  async function handleEditConnection(connectionId: string) {
+    const connection = configuration?.businessConnections.find(
+      (item) => item.id === connectionId,
+    );
+
+    if (!connection) {
+      return;
+    }
+
+    const connectionAccounts =
+      configuration?.reportingAccounts.filter(
+        (account) =>
+          account.businessConnectionId === connection.id && account.active,
+      ) ?? [];
+
+    setSetupOpen(true);
+    setSetupMode("advanced");
+    setPendingAction(`edit:${connectionId}`);
+    setNotice(null);
+    const result = await discoverAssetsAction(
+      connection.credentialId,
+      connection.businessManagerId,
+    );
+
+    if (result.ok && result.discovery) {
+      setDiscovery(result.discovery);
+      setCredentialId(connection.credentialId);
+      setBusinessId(connection.businessManagerId);
+      setBusinessLookupId("");
+      setSelectedAccountIds(
+        connectionAccounts.map((account) => account.adAccountId),
+      );
+      setDirectAccountIds("");
+      setDestinationMode("existing");
+      setExistingDestinationId(connection.defaultConversionDestinationId ?? "");
+      setEditingConnectionId(connection.id);
+      setNotice({
+        tone: "success",
+        message: "Estrutura carregada. Revise e salve as alteracoes.",
+      });
+    } else {
+      showResult(result);
+    }
+
+    setPendingAction(null);
+  }
+
+  async function handleRemoveConnection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const connection = configuration?.businessConnections.find(
+      (item) => item.id === removingConnectionId,
+    );
+
+    if (
+      !connection ||
+      removalConfirmation.trim() !== connection.businessManagerId
+    ) {
+      return;
+    }
+
+    setPendingAction(`remove:${connection.id}`);
+    const result = await removeConnectionAction(
+      connection.id,
+      removalConfirmation.trim(),
+    );
+
+    if (result.ok && result.configuration) {
+      setConfiguration(result.configuration);
+      removeDialogRef.current?.close();
+      setRemovingConnectionId(null);
+      setRemovalConfirmation("");
+
+      if (editingConnectionId === connection.id) {
+        resetSetup();
+      }
+    }
+
+    showResult(result);
+    setPendingAction(null);
+  }
+
+  function openRemovalDialog(connectionId: string) {
+    setRemovingConnectionId(connectionId);
+    setRemovalConfirmation("");
+    removeDialogRef.current?.showModal();
+  }
+
+  function closeRemovalDialog() {
+    if (pendingAction?.startsWith("remove:")) {
+      return;
+    }
+
+    removeDialogRef.current?.close();
+    setRemovingConnectionId(null);
+    setRemovalConfirmation("");
+  }
+
   async function handleConnectionStatus(
     connectionId: string,
     status: "active" | "paused",
@@ -660,6 +786,284 @@ export function MetaManualConnectionPanel({
     setDirectPixelId("");
     setDirectPageId("");
     setOwnerBusinessManagerId("");
+    setEditingConnectionId(null);
+  }
+
+  function startNewConnection() {
+    resetSetup();
+    setSetupOpen(true);
+    setSetupMode("quick");
+    setNotice(null);
+  }
+
+  function renderConfiguredConnections(showNewConnection: boolean) {
+    if ((configuration?.businessConnections.length ?? 0) === 0) {
+      return null;
+    }
+
+    return (
+      <div className="meta-advanced-list">
+        <div className="meta-advanced-list-heading">
+          <div>
+            <span className="eyebrow">Estruturas configuradas</span>
+            <h3>Tokens, BMs e destinos</h3>
+          </div>
+          {showNewConnection && canManage ? (
+            <div className="meta-advanced-list-actions">
+              <button
+                className="button secondary"
+                type="button"
+                disabled={pendingAction !== null}
+                onClick={() => void handleHistorySync()}
+              >
+                <History size={16} />
+                {pendingAction === "history"
+                  ? "Enfileirando..."
+                  : "Importar 90 dias"}
+              </button>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={startNewConnection}
+              >
+                <Plus size={16} /> Nova conexao
+              </button>
+            </div>
+          ) : null}
+        </div>
+        {configuration?.businessConnections.map((connection) => {
+          const credential = configuration.credentials.find(
+            (item) => item.id === connection.credentialId,
+          );
+          const destination = configuration.destinations.find(
+            (item) => item.id === connection.defaultConversionDestinationId,
+          );
+          const connectionAccounts = configuration.reportingAccounts.filter(
+            (account) => account.businessConnectionId === connection.id,
+          );
+          const activeConnectionAccounts = connectionAccounts.filter(
+            (account) => account.active,
+          );
+
+          return (
+            <article className="meta-connection-row" key={connection.id}>
+              <div className="meta-connection-row-head">
+                <div>
+                  <span
+                    className={`event-chip${connection.status === "active" ? "" : " warn"}`}
+                  >
+                    {statusLabel(connection.status)}
+                  </span>
+                  <strong>{connection.businessManagerName}</strong>
+                  <span>{connection.businessManagerId}</span>
+                </div>
+                {canManage ? (
+                  <div className="meta-connection-row-actions">
+                    <button
+                      className="icon-button"
+                      type="button"
+                      title="Editar estrutura"
+                      aria-label={`Editar ${connection.businessManagerName}`}
+                      disabled={pendingAction !== null}
+                      onClick={() => void handleEditConnection(connection.id)}
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button
+                      className="icon-button"
+                      type="button"
+                      title="Testar conexao"
+                      aria-label={`Testar ${connection.businessManagerName}`}
+                      disabled={pendingAction !== null}
+                      onClick={() => void handleConnectionTest(connection.id)}
+                    >
+                      <RefreshCw size={16} />
+                    </button>
+                    <button
+                      className="icon-button"
+                      type="button"
+                      title={
+                        connection.status === "paused"
+                          ? "Reativar conexao"
+                          : "Pausar conexao"
+                      }
+                      aria-label={
+                        connection.status === "paused"
+                          ? `Reativar ${connection.businessManagerName}`
+                          : `Pausar ${connection.businessManagerName}`
+                      }
+                      disabled={pendingAction !== null}
+                      onClick={() =>
+                        void handleConnectionStatus(
+                          connection.id,
+                          connection.status === "paused" ? "active" : "paused",
+                        )
+                      }
+                    >
+                      {connection.status === "paused" ? (
+                        <Play size={16} />
+                      ) : (
+                        <Pause size={16} />
+                      )}
+                    </button>
+                    <button
+                      className="icon-button"
+                      type="button"
+                      title="Trocar token"
+                      aria-label={`Trocar token de ${connection.businessManagerName}`}
+                      disabled={!credential || pendingAction !== null}
+                      onClick={() =>
+                        setRotatingCredentialId(credential?.id ?? null)
+                      }
+                    >
+                      <KeyRound size={16} />
+                    </button>
+                    <button
+                      className="icon-button danger"
+                      type="button"
+                      title="Remover estrutura"
+                      aria-label={`Remover ${connection.businessManagerName}`}
+                      disabled={pendingAction !== null}
+                      onClick={() => openRemovalDialog(connection.id)}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              <div className="meta-connection-facts">
+                <span>
+                  <small>Credencial</small>
+                  <strong>{credential?.label ?? "Indisponivel"}</strong>
+                </span>
+                <span>
+                  <small>Token</small>
+                  <strong>
+                    {credential
+                      ? `final ${credential.tokenLast4}`
+                      : "Indisponivel"}
+                  </strong>
+                </span>
+                <span>
+                  <small>Destino padrao</small>
+                  <strong>
+                    {destination?.label ??
+                      destination?.pixelName ??
+                      "Nao configurado"}
+                  </strong>
+                </span>
+                <span>
+                  <small>Contas</small>
+                  <strong>
+                    {connection.activeReportingAccountCount}/
+                    {connection.reportingAccountCount} ativas
+                  </strong>
+                </span>
+              </div>
+
+              {rotatingCredentialId === credential?.id ? (
+                <form
+                  ref={rotateFormRef}
+                  className="meta-rotate-form"
+                  onSubmit={(event) =>
+                    void handleRotateCredential(event, credential.id)
+                  }
+                >
+                  <input
+                    name="accessToken"
+                    type="password"
+                    minLength={20}
+                    autoComplete="off"
+                    placeholder="Novo token permanente"
+                    required
+                  />
+                  <button
+                    className="button secondary"
+                    type="submit"
+                    disabled={pendingAction !== null}
+                  >
+                    {pendingAction === `rotate:${credential.id}`
+                      ? "Validando..."
+                      : "Validar troca"}
+                  </button>
+                  <button
+                    className="button ghost"
+                    type="button"
+                    onClick={() => setRotatingCredentialId(null)}
+                  >
+                    Cancelar
+                  </button>
+                </form>
+              ) : null}
+
+              {canManage && activeConnectionAccounts.length > 0 ? (
+                <div className="meta-account-sync-list">
+                  {activeConnectionAccounts.map((account) => (
+                    <div
+                      className={account.syncStatus === "error" ? "error" : ""}
+                      key={`sync:${account.id}`}
+                    >
+                      <span>
+                        <strong>{account.adAccountName}</strong>
+                        <small>{account.adAccountId}</small>
+                      </span>
+                      <span className="event-chip">
+                        {syncStatusLabel(account.syncStatus)}
+                      </span>
+                      <small>{accountSyncDetail(account)}</small>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {activeConnectionAccounts.length > 0 ? (
+                <div className="meta-account-overrides">
+                  {activeConnectionAccounts.map((account) => (
+                    <div key={account.id}>
+                      <span>
+                        <strong>{account.adAccountName}</strong>
+                        <small>{account.adAccountId}</small>
+                      </span>
+                      <select
+                        aria-label={`Destino de ${account.adAccountName}`}
+                        value={
+                          accountDestinationDrafts[account.id] ??
+                          account.conversionDestinationId ??
+                          ""
+                        }
+                        onChange={(event) =>
+                          setAccountDestinationDrafts((current) => ({
+                            ...current,
+                            [account.id]: event.currentTarget.value,
+                          }))
+                        }
+                      >
+                        <option value="">Padrao da BM</option>
+                        {configuration.destinations.map((item) => (
+                          <option key={item.id} value={item.id ?? ""}>
+                            {item.label ?? item.pixelName ?? item.pixelId}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        className="button ghost"
+                        type="button"
+                        disabled={pendingAction !== null}
+                        onClick={() =>
+                          void handleAccountDestination(account.id)
+                        }
+                      >
+                        Salvar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    );
   }
 
   return (
@@ -692,7 +1096,11 @@ export function MetaManualConnectionPanel({
           <div className="meta-manual-toolbar">
             <div>
               <span className="eyebrow">Conexao por token</span>
-              <h3>Configurar estrutura Meta</h3>
+              <h3>
+                {editingConnectionId
+                  ? "Editar estrutura Meta"
+                  : "Configurar estrutura Meta"}
+              </h3>
             </div>
             <div
               className="segmented-control"
@@ -1132,8 +1540,12 @@ export function MetaManualConnectionPanel({
                 >
                   <Link2 size={16} />
                   {pendingAction === "activate"
-                    ? "Validando estrutura..."
-                    : "Validar e ativar"}
+                    ? editingConnectionId
+                      ? "Salvando alteracoes..."
+                      : "Validando estrutura..."
+                    : editingConnectionId
+                      ? "Salvar alteracoes"
+                      : "Validar e ativar"}
                 </button>
               </form>
             </section>
@@ -1150,222 +1562,99 @@ export function MetaManualConnectionPanel({
             </div>
           ) : null}
 
-          {setupMode === "advanced" &&
-          (configuration?.businessConnections.length ?? 0) > 0 ? (
-            <div className="meta-advanced-list">
-              <div className="meta-advanced-list-heading">
-                <div>
-                  <span className="eyebrow">Estruturas ativas</span>
-                  <h3>Tokens, BMs e destinos</h3>
-                </div>
-                <button
-                  className="button secondary"
-                  type="button"
-                  onClick={() => {
-                    setDiscovery(null);
-                    setCredentialId("");
-                    setBusinessId("");
-                    setSelectedAccountIds([]);
-                  }}
-                >
-                  <Plus size={16} /> Nova conexao
-                </button>
-              </div>
-              {configuration?.businessConnections.map((connection) => {
-                const credential = configuration.credentials.find(
-                  (item) => item.id === connection.credentialId,
-                );
-                const destination = configuration.destinations.find(
-                  (item) =>
-                    item.id === connection.defaultConversionDestinationId,
-                );
-                const connectionAccounts =
-                  configuration.reportingAccounts.filter(
-                    (account) => account.businessConnectionId === connection.id,
-                  );
-
-                return (
-                  <article className="meta-connection-row" key={connection.id}>
-                    <div className="meta-connection-row-head">
-                      <div>
-                        <span
-                          className={`event-chip${connection.status === "active" ? "" : " warn"}`}
-                        >
-                          {statusLabel(connection.status)}
-                        </span>
-                        <strong>{connection.businessManagerName}</strong>
-                        <span>{connection.businessManagerId}</span>
-                      </div>
-                      <div className="meta-connection-row-actions">
-                        <button
-                          className="icon-button"
-                          type="button"
-                          title="Testar conexao"
-                          aria-label={`Testar ${connection.businessManagerName}`}
-                          disabled={pendingAction !== null}
-                          onClick={() =>
-                            void handleConnectionTest(connection.id)
-                          }
-                        >
-                          <RefreshCw size={16} />
-                        </button>
-                        <button
-                          className="icon-button"
-                          type="button"
-                          title={
-                            connection.status === "paused"
-                              ? "Reativar conexao"
-                              : "Pausar conexao"
-                          }
-                          aria-label={
-                            connection.status === "paused"
-                              ? `Reativar ${connection.businessManagerName}`
-                              : `Pausar ${connection.businessManagerName}`
-                          }
-                          disabled={pendingAction !== null}
-                          onClick={() =>
-                            void handleConnectionStatus(
-                              connection.id,
-                              connection.status === "paused"
-                                ? "active"
-                                : "paused",
-                            )
-                          }
-                        >
-                          {connection.status === "paused" ? (
-                            <Play size={16} />
-                          ) : (
-                            <Pause size={16} />
-                          )}
-                        </button>
-                        <button
-                          className="icon-button"
-                          type="button"
-                          title="Trocar token"
-                          aria-label={`Trocar token de ${connection.businessManagerName}`}
-                          onClick={() =>
-                            setRotatingCredentialId(credential?.id ?? null)
-                          }
-                        >
-                          <KeyRound size={16} />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="meta-connection-facts">
-                      <span>
-                        <small>Credencial</small>
-                        <strong>{credential?.label ?? "Indisponivel"}</strong>
-                      </span>
-                      <span>
-                        <small>Token</small>
-                        <strong>
-                          {credential
-                            ? `final ${credential.tokenLast4}`
-                            : "Indisponivel"}
-                        </strong>
-                      </span>
-                      <span>
-                        <small>Destino padrao</small>
-                        <strong>
-                          {destination?.label ??
-                            destination?.pixelName ??
-                            "Nao configurado"}
-                        </strong>
-                      </span>
-                      <span>
-                        <small>Contas</small>
-                        <strong>
-                          {connection.activeReportingAccountCount}/
-                          {connection.reportingAccountCount} ativas
-                        </strong>
-                      </span>
-                    </div>
-
-                    {rotatingCredentialId === credential?.id ? (
-                      <form
-                        ref={rotateFormRef}
-                        className="meta-rotate-form"
-                        onSubmit={(event) =>
-                          void handleRotateCredential(event, credential.id)
-                        }
-                      >
-                        <input
-                          name="accessToken"
-                          type="password"
-                          minLength={20}
-                          autoComplete="off"
-                          placeholder="Novo token permanente"
-                          required
-                        />
-                        <button
-                          className="button secondary"
-                          type="submit"
-                          disabled={pendingAction !== null}
-                        >
-                          {pendingAction === `rotate:${credential.id}`
-                            ? "Validando..."
-                            : "Validar troca"}
-                        </button>
-                        <button
-                          className="button ghost"
-                          type="button"
-                          onClick={() => setRotatingCredentialId(null)}
-                        >
-                          Cancelar
-                        </button>
-                      </form>
-                    ) : null}
-
-                    {connectionAccounts.length > 0 ? (
-                      <div className="meta-account-overrides">
-                        {connectionAccounts.map((account) => (
-                          <div key={account.id}>
-                            <span>
-                              <strong>{account.adAccountName}</strong>
-                              <small>{account.adAccountId}</small>
-                            </span>
-                            <select
-                              aria-label={`Destino de ${account.adAccountName}`}
-                              value={
-                                accountDestinationDrafts[account.id] ??
-                                account.conversionDestinationId ??
-                                ""
-                              }
-                              onChange={(event) =>
-                                setAccountDestinationDrafts((current) => ({
-                                  ...current,
-                                  [account.id]: event.currentTarget.value,
-                                }))
-                              }
-                            >
-                              <option value="">Padrao da BM</option>
-                              {configuration.destinations.map((item) => (
-                                <option key={item.id} value={item.id ?? ""}>
-                                  {item.label ?? item.pixelName ?? item.pixelId}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              className="button ghost"
-                              type="button"
-                              disabled={pendingAction !== null}
-                              onClick={() =>
-                                void handleAccountDestination(account.id)
-                              }
-                            >
-                              Salvar
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </article>
-                );
-              })}
-            </div>
-          ) : null}
+          {setupMode === "advanced" ? renderConfiguredConnections(false) : null}
         </div>
       ) : null}
+      {!setupOpen && notice ? (
+        <div
+          className={`meta-manual-notice ${notice.tone}`}
+          role="status"
+          aria-live="polite"
+        >
+          {notice.tone === "success" ? <CircleCheck size={16} /> : null}
+          <span>{notice.message}</span>
+        </div>
+      ) : null}
+      {!setupOpen ? renderConfiguredConnections(true) : null}
+
+      <dialog
+        className="meta-action-dialog meta-remove-connection-dialog"
+        ref={removeDialogRef}
+        onCancel={(event) => {
+          if (pendingAction?.startsWith("remove:")) {
+            event.preventDefault();
+            return;
+          }
+
+          closeRemovalDialog();
+        }}
+      >
+        <div className="meta-action-dialog-header">
+          <div>
+            <span className="micro-label">Remover estrutura Meta</span>
+            <h3>{removingConnection?.businessManagerName ?? "Conexao"}</h3>
+          </div>
+          <button
+            className="meta-dialog-close"
+            type="button"
+            aria-label="Fechar confirmacao"
+            title="Fechar"
+            onClick={closeRemovalDialog}
+            disabled={pendingAction?.startsWith("remove:")}
+          >
+            <X size={17} aria-hidden="true" />
+          </button>
+        </div>
+        <form className="meta-action-form" onSubmit={handleRemoveConnection}>
+          <div className="meta-disconnect-warning">
+            <TriangleAlert size={20} aria-hidden="true" />
+            <div>
+              <strong>Esta BM deixara de sincronizar</strong>
+              <p>
+                As contas serao desativadas. Relatorios, eventos e auditorias
+                historicos permanecem preservados.
+              </p>
+            </div>
+          </div>
+          <label className="field-label" htmlFor="meta-remove-confirmation">
+            Digite o ID <strong>{removingConnection?.businessManagerId}</strong>
+          </label>
+          <input
+            id="meta-remove-confirmation"
+            autoComplete="off"
+            value={removalConfirmation}
+            onChange={(event) =>
+              setRemovalConfirmation(event.currentTarget.value)
+            }
+            disabled={pendingAction?.startsWith("remove:")}
+          />
+          <div className="meta-action-dialog-footer">
+            <button
+              className="button"
+              type="button"
+              onClick={closeRemovalDialog}
+              disabled={pendingAction?.startsWith("remove:")}
+            >
+              Cancelar
+            </button>
+            <button
+              className="button danger"
+              type="submit"
+              disabled={
+                !removingConnection ||
+                removalConfirmation.trim() !==
+                  removingConnection.businessManagerId ||
+                pendingAction !== null
+              }
+            >
+              <Trash2 size={16} aria-hidden="true" />
+              {pendingAction?.startsWith("remove:")
+                ? "Removendo..."
+                : "Remover estrutura"}
+            </button>
+          </div>
+        </form>
+      </dialog>
     </div>
   );
 }
@@ -1402,4 +1691,33 @@ function statusLabel(status: string) {
   };
 
   return labels[status] ?? status;
+}
+
+function syncStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: "Aguardando",
+    syncing: "Sincronizando",
+    synced: "Sincronizada",
+    error: "Falhou",
+  };
+
+  return labels[status] ?? status;
+}
+
+function accountSyncDetail(
+  account: MetaManualConfigurationDto["reportingAccounts"][number],
+) {
+  if (account.syncError) {
+    return account.syncError;
+  }
+
+  if (account.lastSyncSince && account.lastSyncUntil) {
+    return `Periodo importado: ${account.lastSyncSince} a ${account.lastSyncUntil}`;
+  }
+
+  if (account.syncStatus === "syncing") {
+    return "Importacao em andamento";
+  }
+
+  return "Aguardando a primeira importacao de Insights";
 }

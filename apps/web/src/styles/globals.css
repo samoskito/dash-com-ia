@@ -6860,6 +6860,18 @@ button.meta-manual-entry[aria-expanded="true"] {
   padding-top: 4px;
 }
 
+.meta-manual-panel > .meta-advanced-list {
+  padding: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.meta-advanced-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .meta-advanced-list-heading .button {
   display: inline-flex;
   width: auto;
@@ -6923,6 +6935,11 @@ button.meta-manual-entry[aria-expanded="true"] {
   color: var(--mint);
 }
 
+.meta-connection-row-actions .icon-button.danger:hover:not(:disabled) {
+  border-color: rgba(255, 107, 95, 0.5);
+  color: var(--coral);
+}
+
 .meta-connection-facts {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -6961,6 +6978,48 @@ button.meta-manual-entry[aria-expanded="true"] {
 .meta-rotate-form {
   grid-template-columns: minmax(220px, 1fr) auto auto;
   align-items: center;
+}
+
+.meta-account-sync-list {
+  display: grid;
+  gap: 6px;
+}
+
+.meta-account-sync-list > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(220px, 1.2fr);
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--border);
+}
+
+.meta-account-sync-list > div > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.meta-account-sync-list strong,
+.meta-account-sync-list small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.meta-account-sync-list small {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.meta-account-sync-list > div.error > small:last-child {
+  color: var(--coral);
+}
+
+.meta-remove-connection-dialog {
+  width: min(540px, calc(100vw - 28px));
+  border-color: rgba(255, 107, 95, 0.38);
 }
 
 .meta-account-overrides {
@@ -7026,6 +7085,7 @@ button.meta-manual-entry[aria-expanded="true"] {
   }
 
   .meta-rotate-form,
+  .meta-account-sync-list > div,
   .meta-account-overrides > div {
     grid-template-columns: minmax(0, 1fr);
   }

@@ -884,6 +884,75 @@ describe("meta adapter oauth", () => {
     expect(budgetBody).toContain("daily_budget=72500");
   });
 
+  it("uses broader conversation action variants only for manual-token Insights", async () => {
+    const requestedUrls: URL[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      requestedUrls.push(new URL(String(input)));
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              campaign_id: "cmp_sales_whatsapp",
+              spend: "593.97",
+              impressions: "4000",
+              clicks: "120",
+              actions: [
+                {
+                  action_type:
+                    "onsite_conversion.messaging_conversation_started_7d",
+                  value: "8",
+                },
+                {
+                  action_type: "messaging_conversation_started",
+                  value: "11",
+                },
+              ],
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+    const adapter = new MetaAdapter(
+      { META_GRAPH_API_VERSION: "v25.0" },
+      fetchMock,
+    );
+    const input = {
+      accessToken: "EAAB-secret-token",
+      adAccountId: "act_123",
+      since: "2026-07-08",
+      until: "2026-07-14",
+    };
+
+    const legacy = await adapter.listCampaignInsights(input);
+    const manual = await adapter.listCampaignInsights({
+      ...input,
+      readMode: "manual",
+    });
+
+    expect(legacy[0]).toMatchObject({
+      spendCents: 59397,
+      metaConversationsStarted: 8,
+    });
+    expect(manual[0]).toMatchObject({
+      spendCents: 59397,
+      metaConversationsStarted: 11,
+    });
+    expect(requestedUrls[0]?.searchParams.has("action_breakdowns")).toBe(false);
+    expect(requestedUrls[0]?.searchParams.has("action_report_time")).toBe(
+      false,
+    );
+    expect(requestedUrls[1]?.searchParams.get("action_breakdowns")).toBe(
+      "action_type",
+    );
+    expect(requestedUrls[1]?.searchParams.get("action_report_time")).toBe(
+      "conversion",
+    );
+    expect(
+      requestedUrls[1]?.searchParams.get("use_unified_attribution_setting"),
+    ).toBe("true");
+  });
+
   it("paginates campaign, ad set and ad insights through paging.next", async () => {
     const requestedUrls: string[] = [];
     const fetchMock = vi.fn(async (input: string | URL | Request) => {

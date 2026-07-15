@@ -363,6 +363,10 @@ export const metaManualBusinessConnectionStatusInputSchema = z.object({
   status: z.enum(["active", "paused"]),
 });
 
+export const metaManualBusinessConnectionRemovalInputSchema = z.object({
+  businessManagerId: z.string().trim().min(1),
+});
+
 export const metaManualConnectionTestResultSchema = z.object({
   connectionId: z.string().min(1),
   credentialId: z.string().min(1),
@@ -482,6 +486,9 @@ export type MetaManualBusinessConnectionInputDto = z.infer<
 >;
 export type MetaManualBusinessConnectionStatusInputDto = z.infer<
   typeof metaManualBusinessConnectionStatusInputSchema
+>;
+export type MetaManualBusinessConnectionRemovalInputDto = z.infer<
+  typeof metaManualBusinessConnectionRemovalInputSchema
 >;
 export type MetaManualConnectionTestResultDto = z.infer<
   typeof metaManualConnectionTestResultSchema

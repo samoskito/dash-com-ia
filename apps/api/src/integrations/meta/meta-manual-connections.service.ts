@@ -13,6 +13,7 @@ import type {
   MetaManualAssetDiscoveryDto,
   MetaManualBusinessConnectionDto,
   MetaManualBusinessConnectionInputDto,
+  MetaManualBusinessConnectionRemovalInputDto,
   MetaManualBusinessConnectionStatusInputDto,
   MetaManualConnectionTestResultDto,
   MetaManualConfigurationDto,
@@ -401,7 +402,7 @@ export class MetaManualConnectionsService {
               businessManagerId: business.id,
             },
           },
-          select: { id: true },
+          select: { id: true, credentialId: true },
         });
       const conflictingAccount = occupiedAccounts.find(
         (account) => account.businessConnectionId !== existingConnection?.id,
@@ -517,6 +518,24 @@ export class MetaManualConnectionsService {
             },
           });
         }
+
+        await transaction.metaReportingAccount.updateMany({
+          where: {
+            workspaceId,
+            businessConnectionId: connection.id,
+            active: true,
+            adAccountId: {
+              notIn: accounts.map((account) => account.id),
+            },
+          },
+          data: {
+            active: false,
+            businessConnectionId: null,
+            conversionDestinationId: null,
+            syncStatus: "pending",
+            syncError: null,
+          },
+        });
 
         await transaction.metaCredential.update({
           where: { id: credential.id },
@@ -694,6 +713,95 @@ export class MetaManualConnectionsService {
       targetId: connectionId,
       resultStatus: "success",
       afterSummary: { status: input.status },
+    });
+
+    return this.listConfiguration(workspaceId);
+  }
+
+  async removeBusinessConnection(
+    workspaceId: string,
+    connectionId: string,
+    input: MetaManualBusinessConnectionRemovalInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    this.requireManualEnabled();
+    const connection = await this.prisma.metaBusinessConnection.findFirst({
+      where: { id: connectionId, workspaceId },
+      select: {
+        id: true,
+        credentialId: true,
+        businessManagerId: true,
+        businessManagerName: true,
+        defaultConversionDestinationId: true,
+      },
+    });
+
+    if (!connection) {
+      throw new NotFoundException("Conexao Meta nao encontrada");
+    }
+
+    if (input.businessManagerId !== connection.businessManagerId) {
+      throw new BadRequestException("Confirme o ID exato da BM para remover");
+    }
+
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const disabledAccounts =
+        await transaction.metaReportingAccount.updateMany({
+          where: {
+            workspaceId,
+            businessConnectionId: connection.id,
+          },
+          data: {
+            active: false,
+            businessConnectionId: null,
+            conversionDestinationId: null,
+            syncStatus: "pending",
+            syncError: null,
+          },
+        });
+
+      await transaction.metaBusinessConnection.deleteMany({
+        where: { id: connection.id, workspaceId },
+      });
+
+      const remainingCredentialConnections =
+        await transaction.metaBusinessConnection.count({
+          where: { workspaceId, credentialId: connection.credentialId },
+        });
+      let credentialRemoved = false;
+
+      if (remainingCredentialConnections === 0) {
+        const deletedCredential = await transaction.metaCredential.deleteMany({
+          where: {
+            id: connection.credentialId,
+            workspaceId,
+            source: "manual",
+          },
+        });
+        credentialRemoved = deletedCredential.count === 1;
+      }
+
+      return {
+        disabledAccountCount: disabledAccounts.count,
+        credentialRemoved,
+      };
+    });
+
+    await this.recordAudit({
+      workspaceId,
+      actorUserId: actorUserId ?? null,
+      action: "meta.manual.business_connection_removed",
+      targetType: "MetaBusinessConnection",
+      targetId: connection.id,
+      resultStatus: "success",
+      beforeSummary: {
+        businessManagerId: connection.businessManagerId,
+        businessManagerName: connection.businessManagerName,
+        credentialId: connection.credentialId,
+        defaultConversionDestinationId:
+          connection.defaultConversionDestinationId,
+      },
+      afterSummary: result,
     });
 
     return this.listConfiguration(workspaceId);
@@ -1114,6 +1222,7 @@ export class MetaManualConnectionsService {
     targetType: string;
     targetId: string;
     resultStatus: string;
+    beforeSummary?: Record<string, unknown>;
     afterSummary: Record<string, unknown>;
   }): Promise<void> {
     try {
@@ -1128,7 +1237,9 @@ export class MetaManualConnectionsService {
           reason: null,
           sourceIp: null,
           resultStatus: input.resultStatus,
-          beforeSummary: undefined,
+          beforeSummary: input.beforeSummary
+            ? (input.beforeSummary as Prisma.InputJsonValue)
+            : undefined,
           afterSummary: input.afterSummary as Prisma.InputJsonValue,
         },
       });

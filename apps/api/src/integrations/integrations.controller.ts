@@ -4,6 +4,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Headers,
@@ -20,6 +21,7 @@ import {
   metaConversionDestinationInputSchema,
   metaManualAccountDestinationInputSchema,
   metaManualBusinessConnectionInputSchema,
+  metaManualBusinessConnectionRemovalInputSchema,
   metaManualBusinessConnectionStatusInputSchema,
   metaManualCredentialInputSchema,
   metaManualCredentialRotationInputSchema,
@@ -345,6 +347,30 @@ export class IntegrationsController {
     return this.integrationsService.testMetaManualBusinessConnection(
       workspace.id,
       connectionId,
+      authenticated.user.id,
+    );
+  }
+
+  @Delete("meta/manual/connections/:id")
+  async removeMetaManualBusinessConnection(
+    @AuthToken() refreshToken: string,
+    @Param("id") connectionId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaManualBusinessConnectionRemovalInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.removeMetaManualBusinessConnection(
+      workspace.id,
+      connectionId,
+      input,
       authenticated.user.id,
     );
   }

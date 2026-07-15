@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { revalidatePath, serverApiFetch } = vi.hoisted(() => ({
   revalidatePath: vi.fn(),
@@ -15,7 +15,10 @@ import {
   createMetaManualConnectionAction,
   createMetaManualCredentialAction,
   disconnectMetaOAuthAction,
+  removeMetaManualConnectionAction,
+  syncMetaManualHistoryAction,
 } from "../src/app/(app)/integrations/meta-manual-actions";
+import { initialManualMetaSyncPeriod } from "../src/app/(app)/integrations/meta-manual-sync-period";
 
 const discovery = {
   credential: {
@@ -42,7 +45,13 @@ const discovery = {
   pages: [],
 };
 
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-07-14T15:00:00.000Z"));
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   revalidatePath.mockReset();
   serverApiFetch.mockReset();
 });
@@ -144,6 +153,53 @@ describe("Meta manual server actions", () => {
           },
         }),
       }),
+    );
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/reports/meta/sync?since=2026-04-16&until=2026-07-14",
+      { method: "POST" },
+    );
+  });
+
+  it("builds a 90-day inclusive initial history period", () => {
+    expect(
+      initialManualMetaSyncPeriod(new Date("2026-07-14T15:00:00.000Z")),
+    ).toEqual({ since: "2026-04-16", until: "2026-07-14" });
+  });
+
+  it("queues a new history import for an already saved structure", async () => {
+    serverApiFetch.mockResolvedValueOnce({ status: "queued" });
+
+    const result = await syncMetaManualHistoryAction();
+
+    expect(result).toMatchObject({ ok: true });
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/reports/meta/sync?since=2026-04-16&until=2026-07-14",
+      { method: "POST" },
+    );
+    expect(revalidatePath).toHaveBeenCalledWith("/reports");
+  });
+
+  it("removes a saved structure with its exact BM confirmation", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      workspaceId: "workspace_1",
+      credentials: [],
+      businessConnections: [],
+      destinations: [],
+      reportingAccounts: [],
+    });
+
+    const result = await removeMetaManualConnectionAction(
+      "connection_1",
+      "business_1",
+    );
+
+    expect(result).toMatchObject({ ok: true });
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/integrations/meta/manual/connections/connection_1",
+      {
+        method: "DELETE",
+        body: JSON.stringify({ businessManagerId: "business_1" }),
+      },
     );
   });
 });

@@ -27,6 +27,7 @@ import type {
   MetaManualAccountDestinationInputDto,
   MetaManualAssetDiscoveryDto,
   MetaManualBusinessConnectionInputDto,
+  MetaManualBusinessConnectionRemovalInputDto,
   MetaManualBusinessConnectionStatusInputDto,
   MetaManualConnectionTestResultDto,
   MetaManualConfigurationDto,
@@ -822,6 +823,20 @@ export class IntegrationsService {
     return this.requireMetaManualConnectionsService().testBusinessConnection(
       workspaceId,
       connectionId,
+      actorUserId,
+    );
+  }
+
+  async removeMetaManualBusinessConnection(
+    workspaceId: string,
+    connectionId: string,
+    input: MetaManualBusinessConnectionRemovalInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().removeBusinessConnection(
+      workspaceId,
+      connectionId,
+      input,
       actorUserId,
     );
   }

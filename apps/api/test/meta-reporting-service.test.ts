@@ -1630,18 +1630,21 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       since: "2026-07-01",
       until: "2026-07-02",
+      readMode: "legacy",
     });
     expect(metaAdapter.listAdSetInsights).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
       adAccountId: "act_123",
       since: "2026-07-01",
       until: "2026-07-02",
+      readMode: "legacy",
     });
     expect(metaAdapter.listAdInsights).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
       adAccountId: "act_123",
       since: "2026-07-01",
       until: "2026-07-02",
+      readMode: "legacy",
     });
     expect(prisma.metaCampaign.upsert).toHaveBeenCalled();
     expect(db.campaigns[0]).toMatchObject({
@@ -1856,6 +1859,13 @@ describe("meta reporting service", () => {
     expect(metaAdapter.listCampaigns).toHaveBeenCalledWith({
       accessToken: "EAAB-manual-exact-token",
       adAccountId: "act_123",
+    });
+    expect(metaAdapter.listCampaignInsights).toHaveBeenCalledWith({
+      accessToken: "EAAB-manual-exact-token",
+      adAccountId: "act_123",
+      since: "2026-07-01",
+      until: "2026-07-09",
+      readMode: "manual",
     });
     expect(prisma.metaBusinessConnection.updateMany).toHaveBeenCalledWith({
       where: { id: "connection_1", workspaceId: "workspace_1" },

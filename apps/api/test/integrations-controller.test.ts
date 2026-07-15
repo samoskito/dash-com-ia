@@ -376,6 +376,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       validatedAt: "2026-07-14T12:00:00.000Z",
       message: "Conexao validada",
     })),
+    removeMetaManualBusinessConnection: vi.fn(async () => manualConfiguration),
     setMetaManualReportingDestination: vi.fn(async () => manualConfiguration),
     getUazapiStartAction: vi.fn(() => ({
       provider: "uazapi",
@@ -1117,6 +1118,25 @@ describe("integrations controller", () => {
     await app.close();
   });
 
+  it("lets an admin remove only an explicitly confirmed manual connection", async () => {
+    const { app, service } = await createApp("admin");
+
+    await request(app.getHttpServer())
+      .delete("/integrations/meta/manual/connections/connection_1")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({ businessManagerId: "business_1" })
+      .expect(200);
+
+    expect(service.removeMetaManualBusinessConnection).toHaveBeenCalledWith(
+      "workspace_1",
+      "connection_1",
+      { businessManagerId: "business_1" },
+      "user_1",
+    );
+
+    await app.close();
+  });
+
   it("rejects every manual Meta write for workspace members", async () => {
     const { app, service } = await createApp("member");
 
@@ -1134,8 +1154,15 @@ describe("integrations controller", () => {
       .set("Cookie", "wpptrack_session=refresh-token")
       .expect(403);
 
+    await request(app.getHttpServer())
+      .delete("/integrations/meta/manual/connections/connection_1")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({ businessManagerId: "business_1" })
+      .expect(403);
+
     expect(service.createMetaManualCredential).not.toHaveBeenCalled();
     expect(service.testMetaManualBusinessConnection).not.toHaveBeenCalled();
+    expect(service.removeMetaManualBusinessConnection).not.toHaveBeenCalled();
 
     await app.close();
   });

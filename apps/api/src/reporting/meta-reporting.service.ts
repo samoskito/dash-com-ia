@@ -425,6 +425,7 @@ export class MetaReportingService {
           account,
           since: input.since,
           until: input.until,
+          insightReadMode: normalizedJob ? "manual" : "legacy",
         });
 
         await this.prisma.metaReportingAccount.update({
@@ -495,6 +496,7 @@ export class MetaReportingService {
     account: MetaReportingAccountRecord;
     since: string;
     until: string;
+    insightReadMode: "legacy" | "manual";
   }): Promise<{
     campaignsSynced: number;
     adSetsSynced: number;
@@ -524,24 +526,28 @@ export class MetaReportingService {
         adAccountId,
         since: input.since,
         until: input.until,
+        readMode: input.insightReadMode,
       }),
       this.metaAdapter.listCampaignDailyInsights({
         accessToken: input.accessToken,
         adAccountId,
         since: input.since,
         until: input.until,
+        readMode: input.insightReadMode,
       }),
       this.metaAdapter.listAdSetInsights({
         accessToken: input.accessToken,
         adAccountId,
         since: input.since,
         until: input.until,
+        readMode: input.insightReadMode,
       }),
       this.metaAdapter.listAdInsights({
         accessToken: input.accessToken,
         adAccountId,
         since: input.since,
         until: input.until,
+        readMode: input.insightReadMode,
       }),
     ]);
     const insightByCampaign = new Map(

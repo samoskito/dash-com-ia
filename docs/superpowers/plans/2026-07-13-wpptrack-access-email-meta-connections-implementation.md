@@ -1,7 +1,7 @@
 # WppTrack Access, Email and Meta Connections Implementation Plan
 
 Date: 2026-07-13
-Status: Waves 0-6 implemented and validated locally; outbound SMTP accepted in production; Waves 5-6 deploy pending
+Status: Waves 0-11 implemented; outbound SMTP accepted in production; manual Meta management and Insights backfill validated locally, deploy pending
 Design: docs/plans/2026-07-13-wpptrack-access-email-meta-connections-design.md
 
 ## 1. Goal
@@ -773,7 +773,7 @@ Purpose: support rotating advertiser BMs and matrix-owned shared conversion asse
   - preserve prior encrypted version only for bounded rollback if security policy permits;
   - audit rotation without secret.
 - [x] Add pause rules that protect active jobs and CAPI routing.
-- [x] Keep destructive disconnect unavailable in this rollout; pause/reactivate preserves mappings and audit history.
+- [x] Add workspace-scoped removal with exact BM confirmation; detach and disable accounts while preserving reports, events, destinations and audits.
 - [x] Add per-connection health and last successful validation/sync.
 
 ### Web
@@ -786,6 +786,8 @@ Purpose: support rotating advertiser BMs and matrix-owned shared conversion asse
 - [x] Show health and affected accounts.
 - [x] Require explicit confirmation for rotate and pause.
 - [x] Keep the quick setup concise; advanced controls appear only after choosing Advanced.
+- [x] Keep saved structures visible after activation with edit, test, pause, token rotation and removal actions.
+- [x] Allow an existing saved structure to queue a 90-day historical import without recreation.
 
 ### Tests
 
@@ -796,6 +798,8 @@ Purpose: support rotating advertiser BMs and matrix-owned shared conversion asse
 - [x] Token failure isolates only its business connection.
 - [x] Ambiguous or missing mapping blocks.
 - [x] Cross-workspace destination/credential IDs are rejected generically.
+- [x] Editing a BM detaches only accounts removed from that structure.
+- [x] Removing one BM keeps a credential still shared by another BM.
 
 ### Acceptance
 
@@ -815,6 +819,9 @@ Purpose: make the normalized model operational without guessing and without dist
 - [x] Validate all referenced IDs again in the worker.
 - [x] Scope snapshots and retries by connection.
 - [x] Mark only affected accounts when a token fails.
+- [x] Queue an inclusive 90-day initial Insights import after manual activation.
+- [x] Show each account's last imported period or redacted sync error in Integrations.
+- [x] Read compatible messaging-conversation action variants for manual-token connections while preserving the exact legacy OAuth query.
 
 ### CAPI
 
@@ -849,6 +856,15 @@ Purpose: make the normalized model operational without guessing and without dist
 ### Acceptance
 
 New manual connections can report and send CAPI through exact mappings. Existing OAuth execution remains unchanged. No event can select an arbitrary first token or destination.
+
+### Operational checkpoint - 2026-07-15
+
+- Manual configurations remain persisted and visible after the guided form closes; operators can edit accounts/destination, test, pause, rotate the token, import 90 days or remove one exact BM.
+- Removal is tenant-scoped, requires the exact BM ID, disables and detaches its reporting accounts, removes an orphan manual credential and preserves historical reports, events, destinations and audit records.
+- Initial activation and the explicit history command enqueue an inclusive 90-day reporting period for every active manual reporting account in the workspace.
+- Manual reporting requests use conversion-time attribution and accept the messaging-conversation action variants returned for WhatsApp campaigns with sales objectives. The legacy OAuth reporting path keeps its prior exact request and action key for Barbieri.
+- `Conversas Meta` comes from Marketing API Insights. `Conversas reais iniciadas` remains the WppTrack event ledger and requires the client's webhook or external event source; one metric is never substituted for the other.
+- Focused validation passed: 62 shared tests, 114 API tests and 35 web tests. Shared/web typechecks passed; API TypeScript passed directly, while Prisma regeneration hit the known Windows DLL lock.
 
 ## 15. Wave 12 - Final Security Audit and Controlled Rollout
 

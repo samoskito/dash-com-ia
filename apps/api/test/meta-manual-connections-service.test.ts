@@ -168,6 +168,21 @@ function createHarness(options?: {
         );
         return { count: matching.length };
       }),
+      deleteMany: vi.fn(async ({ where }: any) => {
+        const index = credentials.findIndex(
+          (item) =>
+            item.id === where.id &&
+            item.workspaceId === where.workspaceId &&
+            item.source === where.source,
+        );
+
+        if (index < 0) {
+          return { count: 0 };
+        }
+
+        credentials.splice(index, 1);
+        return { count: 1 };
+      }),
     },
     metaBusinessConnection: {
       findUnique: vi.fn(
@@ -268,6 +283,27 @@ function createHarness(options?: {
           Object.assign(item, data, { updatedAt: now }),
         );
         return { count: matching.length };
+      }),
+      count: vi.fn(
+        async ({ where }: any) =>
+          connections.filter(
+            (item) =>
+              item.workspaceId === where.workspaceId &&
+              item.credentialId === where.credentialId,
+          ).length,
+      ),
+      deleteMany: vi.fn(async ({ where }: any) => {
+        const index = connections.findIndex(
+          (item) =>
+            item.id === where.id && item.workspaceId === where.workspaceId,
+        );
+
+        if (index < 0) {
+          return { count: 0 };
+        }
+
+        connections.splice(index, 1);
+        return { count: 1 };
       }),
     },
     metaConversionDestination: {
@@ -373,7 +409,14 @@ function createHarness(options?: {
       updateMany: vi.fn(async ({ where, data }: any) => {
         const matching = accounts.filter(
           (item) =>
-            item.id === where.id && item.workspaceId === where.workspaceId,
+            (where.id === undefined || item.id === where.id) &&
+            (where.workspaceId === undefined ||
+              item.workspaceId === where.workspaceId) &&
+            (where.businessConnectionId === undefined ||
+              item.businessConnectionId === where.businessConnectionId) &&
+            (where.active === undefined || item.active === where.active) &&
+            (where.adAccountId?.notIn === undefined ||
+              !where.adAccountId.notIn.includes(item.adAccountId)),
         );
         matching.forEach((item) =>
           Object.assign(item, data, { updatedAt: now }),
@@ -565,6 +608,140 @@ describe("MetaManualConnectionsService", () => {
     expect(JSON.stringify(configuration)).not.toContain(
       "EAAB-permanent-system-user-token",
     );
+  });
+
+  it("updates one saved BM and deactivates accounts removed from its form", async () => {
+    const { accounts, connections, service } = createHarness();
+    const credential = await service.createCredential("workspace_1", {
+      label: "Token BM Principal",
+      accessToken: "EAAB-permanent-system-user-token",
+    });
+
+    await service.createBusinessConnection("workspace_1", {
+      credentialId: credential.credential.id,
+      businessManagerId: "business_1",
+      businessManagerName: "BM Principal",
+      adAccountIds: ["act_1", "act_2"],
+      destination: { pixelId: "pixel_1", pageId: "page_1" },
+    });
+    const destinationId = connections[0]?.defaultConversionDestinationId;
+
+    const updated = await service.createBusinessConnection("workspace_1", {
+      credentialId: credential.credential.id,
+      businessManagerId: "business_1",
+      businessManagerName: "BM Principal editada",
+      adAccountIds: ["act_2"],
+      destination: { existingDestinationId: destinationId },
+    });
+
+    expect(connections).toHaveLength(1);
+    expect(connections[0]?.businessManagerName).toBe("BM Principal");
+    expect(accounts.find((item) => item.adAccountId === "act_1")?.active).toBe(
+      false,
+    );
+    expect(
+      accounts.find((item) => item.adAccountId === "act_1")
+        ?.businessConnectionId,
+    ).toBeNull();
+    expect(accounts.find((item) => item.adAccountId === "act_2")?.active).toBe(
+      true,
+    );
+    expect(updated.businessConnections[0]).toMatchObject({
+      reportingAccountCount: 1,
+      activeReportingAccountCount: 1,
+    });
+  });
+
+  it("removes only the confirmed workspace connection and preserves its history", async () => {
+    const {
+      accounts,
+      audits,
+      connections,
+      credentials,
+      destinations,
+      service,
+    } = createHarness();
+    const credential = await service.createCredential("workspace_1", {
+      label: "Token BM Principal",
+      accessToken: "EAAB-permanent-system-user-token",
+    });
+    const configured = await service.createBusinessConnection("workspace_1", {
+      credentialId: credential.credential.id,
+      businessManagerId: "business_1",
+      businessManagerName: "BM Principal",
+      adAccountIds: ["act_1"],
+      destination: { pixelId: "pixel_1", pageId: "page_1" },
+    });
+    const connectionId = configured.businessConnections[0]!.id;
+
+    await expect(
+      service.removeBusinessConnection("workspace_2", connectionId, {
+        businessManagerId: "business_1",
+      }),
+    ).rejects.toThrow("Conexao Meta nao encontrada");
+    await expect(
+      service.removeBusinessConnection("workspace_1", connectionId, {
+        businessManagerId: "business_errada",
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    const configuration = await service.removeBusinessConnection(
+      "workspace_1",
+      connectionId,
+      { businessManagerId: "business_1" },
+      "user_1",
+    );
+
+    expect(connections).toHaveLength(0);
+    expect(credentials).toHaveLength(0);
+    expect(destinations).toHaveLength(1);
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({
+      active: false,
+      businessConnectionId: null,
+      conversionDestinationId: null,
+    });
+    expect(configuration.businessConnections).toEqual([]);
+    expect(audits).toContainEqual(
+      expect.objectContaining({
+        action: "meta.manual.business_connection_removed",
+        targetId: connectionId,
+      }),
+    );
+  });
+
+  it("keeps a shared credential when another BM still uses it", async () => {
+    const { connections, credentials, service } = createHarness();
+    const credential = await service.createCredential("workspace_1", {
+      label: "Token compartilhado",
+      accessToken: "EAAB-permanent-system-user-token",
+    });
+    await service.createBusinessConnection("workspace_1", {
+      credentialId: credential.credential.id,
+      businessManagerId: "business_1",
+      businessManagerName: "BM 1",
+      adAccountIds: ["act_1"],
+      destination: { pixelId: "pixel_1", pageId: "page_1" },
+    });
+    const second = await service.createBusinessConnection("workspace_1", {
+      credentialId: credential.credential.id,
+      businessManagerId: "business_2",
+      businessManagerName: "BM 2",
+      adAccountIds: ["act_2"],
+      destination: { pixelId: "pixel_2", pageId: "page_2" },
+    });
+
+    await service.removeBusinessConnection(
+      "workspace_1",
+      second.businessConnections.find(
+        (connection) => connection.businessManagerId === "business_1",
+      )!.id,
+      { businessManagerId: "business_1" },
+    );
+
+    expect(connections).toHaveLength(1);
+    expect(credentials).toHaveLength(1);
+    expect(connections[0]?.businessManagerId).toBe("business_2");
   });
 
   it("does not let a credential configure a BM it cannot access", async () => {

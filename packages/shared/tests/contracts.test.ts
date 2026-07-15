@@ -60,6 +60,7 @@ import {
   leadListQuerySchema,
   metaConnectionSchema,
   metaManualBusinessConnectionInputSchema,
+  metaManualBusinessConnectionRemovalInputSchema,
   metaManualCredentialInputSchema,
   metaOAuthCallbackQuerySchema,
   metaOAuthCallbackResultSchema,
@@ -365,6 +366,16 @@ describe("shared contracts", () => {
     expect(sharedDestination.destination.existingDestinationId).toBe(
       "destination_matrix",
     );
+    expect(
+      metaManualBusinessConnectionRemovalInputSchema.parse({
+        businessManagerId: " business_1 ",
+      }),
+    ).toEqual({ businessManagerId: "business_1" });
+    expect(() =>
+      metaManualBusinessConnectionRemovalInputSchema.parse({
+        businessManagerId: " ",
+      }),
+    ).toThrow();
     expect(() =>
       metaManualBusinessConnectionInputSchema.parse({
         credentialId: "credential_1",
