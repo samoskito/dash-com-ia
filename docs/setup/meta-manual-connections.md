@@ -1,18 +1,36 @@
 # Conexao manual com a Meta
 
 Este procedimento habilita a alternativa por token permanente para workspaces
-novos. O OAuth continua sendo a opcao recomendada e aparece primeiro na tela.
+novos e para workspaces OAuth escolhidos para uma troca controlada. O OAuth
+continua sendo a opcao recomendada e aparece primeiro na tela.
 
 ## Protecao dos workspaces existentes
 
 - Nao altere nem reconecte o workspace Barbieri.
-- Um workspace que ja possui `MetaIntegration` OAuth nao aceita gravacoes no
-  modelo manual.
+- Um workspace que possui `MetaIntegration` OAuth nao aceita gravacoes no
+  modelo manual enquanto a conexao OAuth estiver ativa.
 - O token OAuth existente nao e copiado, rotacionado ou recriptografado.
 - Reporting e CAPI desse workspace continuam usando a rota legada atual.
-- A comparacao em sombra registra somente resultados redigidos. Qualquer futura
-  proposta de migracao exige uma janela sustentada de paridade e aprovacao
-  separada; ela nao acontece automaticamente.
+- A troca nunca acontece automaticamente e exige confirmacao explicita dentro
+  do workspace selecionado.
+
+## Troca controlada de OAuth para token
+
+Use este fluxo somente no workspace que foi aprovado para mudar de modelo:
+
+1. Confirme que `META_CONNECTION_MODES=oauth,manual` esta ativo.
+2. Abra `Integracoes` no workspace correto.
+3. Em `Token permanente`, escolha `Desconectar OAuth`.
+4. Revise o alerta e digite `DESCONECTAR META`.
+5. A plataforma apaga somente os tokens OAuth locais e invalida callbacks OAuth
+   pendentes desse workspace.
+6. Cadastre e valide imediatamente o token permanente, BM, contas e destino.
+7. Execute `Testar conexao` antes de retomar reporting e CAPI.
+
+A operacao preserva eventos, campanhas importadas, auditorias, snapshots,
+contas de relatorio e destinos de conversao. Ela nao revoga a autorizacao no
+Facebook e nao altera nenhum outro workspace. Entre a desconexao e a ativacao
+do token permanente, reporting e CAPI ficam interrompidos.
 
 ## Ordem de deploy
 

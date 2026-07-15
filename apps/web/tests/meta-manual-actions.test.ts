@@ -14,6 +14,7 @@ vi.mock("../src/lib/server-api", () => ({
 import {
   createMetaManualConnectionAction,
   createMetaManualCredentialAction,
+  disconnectMetaOAuthAction,
 } from "../src/app/(app)/integrations/meta-manual-actions";
 
 const discovery = {
@@ -47,6 +48,37 @@ afterEach(() => {
 });
 
 describe("Meta manual server actions", () => {
+  it("disconnects OAuth only from the expected workspace", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      workspaceId: "workspace_1",
+      status: "not_connected",
+      disconnectedAt: "2026-07-15T04:30:00.000Z",
+      preserved: {
+        assetSnapshots: 2,
+        reportingAccounts: 1,
+        conversionDestinations: 1,
+      },
+    });
+
+    const result = await disconnectMetaOAuthAction(
+      "workspace_1",
+      "DESCONECTAR META",
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/integrations/meta/oauth/disconnect",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          expectedWorkspaceId: "workspace_1",
+          confirmation: "DESCONECTAR META",
+        }),
+      },
+    );
+    expect(result).toMatchObject({ ok: true });
+    expect(revalidatePath).toHaveBeenCalledWith("/integrations");
+  });
+
   it("submits the token once and never returns it in action state", async () => {
     const accessToken = "EAAB-manual-token-super-secret";
     serverApiFetch.mockResolvedValueOnce(discovery);

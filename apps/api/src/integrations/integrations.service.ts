@@ -1,5 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
-import { Inject, Injectable, Optional } from "@nestjs/common";
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  Optional,
+} from "@nestjs/common";
 import type {
   MetaConnectionDto,
   MetaCapiTokenInputDto,
@@ -16,6 +21,8 @@ import type {
   WhatsappDataSourceDto,
   MetaOAuthCallbackQueryDto,
   MetaOAuthCallbackResultDto,
+  MetaOAuthDisconnectInputDto,
+  MetaOAuthDisconnectResultDto,
   MetaConnectionCapabilitiesDto,
   MetaManualAccountDestinationInputDto,
   MetaManualAssetDiscoveryDto,
@@ -209,6 +216,24 @@ export class IntegrationsService {
     }
 
     return this.metaConnectionsService.getConnection(workspaceId);
+  }
+
+  async disconnectMetaOAuth(
+    workspaceId: string,
+    input: MetaOAuthDisconnectInputDto,
+    actorUserId: string,
+  ): Promise<MetaOAuthDisconnectResultDto> {
+    if (!this.getMetaConnectionCapabilities().manualEnabled) {
+      throw new ConflictException(
+        "A conexao por token permanente nao esta habilitada neste ambiente",
+      );
+    }
+
+    return this.requireMetaConnectionsService().disconnectOAuthConnection({
+      workspaceId,
+      actorUserId,
+      request: input,
+    });
   }
 
   async getMetaAssets(

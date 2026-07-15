@@ -349,6 +349,16 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       oauthEnabled: true,
       manualEnabled: true,
     })),
+    disconnectMetaOAuth: vi.fn(async () => ({
+      workspaceId: "workspace_1",
+      status: "not_connected",
+      disconnectedAt: "2026-07-15T04:30:00.000Z",
+      preserved: {
+        assetSnapshots: 2,
+        reportingAccounts: 1,
+        conversionDestinations: 1,
+      },
+    })),
     getMetaManualConfiguration: vi.fn(async () => manualConfiguration),
     createMetaManualCredential: vi.fn(async () => manualDiscovery),
     discoverMetaManualAssets: vi.fn(async () => manualDiscovery),
@@ -1027,6 +1037,63 @@ describe("integrations controller", () => {
     );
 
     await app.close();
+  });
+
+  it("disconnects OAuth from the current workspace after explicit confirmation", async () => {
+    const { app, service } = await createApp("owner");
+
+    await request(app.getHttpServer())
+      .post("/integrations/meta/oauth/disconnect")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        expectedWorkspaceId: "workspace_1",
+        confirmation: "DESCONECTAR META",
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.status).toBe("not_connected");
+        expect(body.preserved.reportingAccounts).toBe(1);
+      });
+
+    expect(service.disconnectMetaOAuth).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        expectedWorkspaceId: "workspace_1",
+        confirmation: "DESCONECTAR META",
+      },
+      "user_1",
+    );
+
+    await app.close();
+  });
+
+  it("rejects OAuth disconnects for members and stale workspace context", async () => {
+    const memberApp = await createApp("member");
+
+    await request(memberApp.app.getHttpServer())
+      .post("/integrations/meta/oauth/disconnect")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        expectedWorkspaceId: "workspace_1",
+        confirmation: "DESCONECTAR META",
+      })
+      .expect(403);
+    expect(memberApp.service.disconnectMetaOAuth).not.toHaveBeenCalled();
+    await memberApp.app.close();
+
+    const ownerApp = await createApp("owner");
+
+    await request(ownerApp.app.getHttpServer())
+      .post("/integrations/meta/oauth/disconnect")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        expectedWorkspaceId: "workspace_other",
+        confirmation: "DESCONECTAR META",
+      })
+      .expect(409);
+    expect(ownerApp.service.disconnectMetaOAuth).not.toHaveBeenCalled();
+    await ownerApp.app.close();
   });
 
   it("lets an admin test an exact manual Meta connection", async () => {

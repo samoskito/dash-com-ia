@@ -24,6 +24,7 @@ import {
   metaManualCredentialInputSchema,
   metaManualCredentialRotationInputSchema,
   metaOAuthCallbackQuerySchema,
+  metaOAuthDisconnectInputSchema,
   metaReportingAccountInputSchema,
   metaReportingAccountStatusInputSchema,
 } from "@wpptrack/shared";
@@ -175,6 +176,34 @@ export class IntegrationsController {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
 
     return this.integrationsService.getMetaConnection(workspaceId);
+  }
+
+  @Post("meta/oauth/disconnect")
+  async disconnectMetaOAuth(
+    @AuthToken() refreshToken: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaOAuthDisconnectInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    if (input.expectedWorkspaceId !== workspace.id) {
+      throw new ConflictException(
+        "O workspace da sessao mudou. Recarregue a pagina antes de desconectar a Meta",
+      );
+    }
+
+    return this.integrationsService.disconnectMetaOAuth(
+      workspace.id,
+      input,
+      authenticated.user.id,
+    );
   }
 
   @Get("meta/capabilities")

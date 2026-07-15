@@ -63,6 +63,8 @@ import {
   metaManualCredentialInputSchema,
   metaOAuthCallbackQuerySchema,
   metaOAuthCallbackResultSchema,
+  metaOAuthDisconnectInputSchema,
+  metaOAuthDisconnectResultSchema,
   integrationStartActionSchema,
   loginSchema,
   passwordResetConfirmInputSchema,
@@ -376,6 +378,32 @@ describe("shared contracts", () => {
       metaManualCredentialInputSchema.parse({
         label: "Token curto",
         accessToken: "too-short",
+      }),
+    ).toThrow();
+  });
+
+  it("requires the exact workspace and confirmation for OAuth disconnect", () => {
+    const input = metaOAuthDisconnectInputSchema.parse({
+      expectedWorkspaceId: "workspace_1",
+      confirmation: "DESCONECTAR META",
+    });
+    const result = metaOAuthDisconnectResultSchema.parse({
+      workspaceId: "workspace_1",
+      status: "not_connected",
+      disconnectedAt: "2026-07-15T04:30:00.000Z",
+      preserved: {
+        assetSnapshots: 2,
+        reportingAccounts: 1,
+        conversionDestinations: 1,
+      },
+    });
+
+    expect(input.expectedWorkspaceId).toBe("workspace_1");
+    expect(result.preserved.assetSnapshots).toBe(2);
+    expect(() =>
+      metaOAuthDisconnectInputSchema.parse({
+        expectedWorkspaceId: "workspace_1",
+        confirmation: "desconectar",
       }),
     ).toThrow();
   });

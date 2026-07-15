@@ -5,10 +5,26 @@ import { MetaTokenEncryptionService } from "../src/integrations/meta/meta-token-
 function createHarness() {
   const db = {
     records: [] as Array<Record<string, unknown>>,
+    manualCredentials: [] as Array<Record<string, unknown>>,
     snapshots: [] as Array<Record<string, unknown>>,
+    reportingAccounts: [] as Array<Record<string, unknown>>,
+    conversionDestinations: [] as Array<Record<string, unknown>>,
+    oauthStates: [] as Array<Record<string, unknown>>,
     auditLogs: [] as Array<Record<string, unknown>>
   };
   const prisma = {
+    metaCredential: {
+      findFirst: async ({
+        where
+      }: {
+        where: { workspaceId: string; source: string };
+      }) =>
+        db.manualCredentials.find(
+          (record) =>
+            record.workspaceId === where.workspaceId &&
+            record.source === where.source
+        ) ?? null
+    },
     metaIntegration: {
       findUnique: async ({ where }: { where: { workspaceId: string } }) =>
         db.records.find((record) => record.workspaceId === where.workspaceId) ??
@@ -71,13 +87,26 @@ function createHarness() {
         };
 
         return db.records[index];
+      },
+      deleteMany: async ({ where }: { where: { workspaceId: string } }) => {
+        const before = db.records.length;
+        db.records = db.records.filter(
+          (record) => record.workspaceId !== where.workspaceId
+        );
+        return { count: before - db.records.length };
       }
     },
     metaAssetSnapshot: {
+      count: async ({ where }: { where: { workspaceId: string } }) =>
+        db.snapshots.filter(
+          (record) => record.workspaceId === where.workspaceId
+        ).length,
       findUnique: async ({
         where
       }: {
-        where: { workspaceId_snapshotKey: { workspaceId: string; snapshotKey: string } };
+        where: {
+          workspaceId_snapshotKey: { workspaceId: string; snapshotKey: string };
+        };
       }) =>
         db.snapshots.find(
           (record) =>
@@ -91,7 +120,9 @@ function createHarness() {
       }: {
         create: Record<string, unknown>;
         update: Record<string, unknown>;
-        where: { workspaceId_snapshotKey: { workspaceId: string; snapshotKey: string } };
+        where: {
+          workspaceId_snapshotKey: { workspaceId: string; snapshotKey: string };
+        };
       }) => {
         const index = db.snapshots.findIndex(
           (record) =>
@@ -120,6 +151,27 @@ function createHarness() {
         return db.snapshots[index];
       }
     },
+    metaReportingAccount: {
+      count: async ({ where }: { where: { workspaceId: string } }) =>
+        db.reportingAccounts.filter(
+          (record) => record.workspaceId === where.workspaceId
+        ).length
+    },
+    metaConversionDestination: {
+      count: async ({ where }: { where: { workspaceId: string } }) =>
+        db.conversionDestinations.filter(
+          (record) => record.workspaceId === where.workspaceId
+        ).length
+    },
+    metaOAuthState: {
+      deleteMany: async ({ where }: { where: { workspaceId: string } }) => {
+        const before = db.oauthStates.length;
+        db.oauthStates = db.oauthStates.filter(
+          (record) => record.workspaceId !== where.workspaceId
+        );
+        return { count: before - db.oauthStates.length };
+      }
+    },
     auditLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const log = {
@@ -132,6 +184,10 @@ function createHarness() {
       }
     }
   };
+  Object.assign(prisma, {
+    $transaction: async (callback: (transaction: typeof prisma) => unknown) =>
+      callback(prisma)
+  });
   const encryption = new MetaTokenEncryptionService({
     META_TOKEN_ENCRYPTION_KEY: "test-encryption-key"
   });
@@ -186,6 +242,126 @@ describe("meta connections service", () => {
       })
     );
     expect(JSON.stringify(db.auditLogs)).not.toContain("EAAB-secret-token");
+  });
+
+  it("disconnects OAuth only from the confirmed workspace and preserves operational history", async () => {
+    const { db, service } = createHarness();
+
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_client",
+      accessToken: "EAAB-client-secret-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read", "business_management"]
+    });
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_barbieri",
+      accessToken: "EAAB-barbieri-secret-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read", "business_management"]
+    });
+    db.snapshots.push({
+      id: "snapshot_client",
+      workspaceId: "workspace_client",
+      snapshotKey: "root"
+    });
+    db.reportingAccounts.push({
+      id: "reporting_client",
+      workspaceId: "workspace_client"
+    });
+    db.conversionDestinations.push({
+      id: "destination_client",
+      workspaceId: "workspace_client"
+    });
+    db.oauthStates.push(
+      { id: "state_client", workspaceId: "workspace_client" },
+      { id: "state_barbieri", workspaceId: "workspace_barbieri" }
+    );
+
+    const result = await service.disconnectOAuthConnection({
+      workspaceId: "workspace_client",
+      actorUserId: "user_owner",
+      request: {
+        expectedWorkspaceId: "workspace_client",
+        confirmation: "DESCONECTAR META"
+      }
+    });
+
+    expect(result).toMatchObject({
+      workspaceId: "workspace_client",
+      status: "not_connected",
+      preserved: {
+        assetSnapshots: 1,
+        reportingAccounts: 1,
+        conversionDestinations: 1
+      }
+    });
+    expect(db.records.map((record) => record.workspaceId)).toEqual([
+      "workspace_barbieri"
+    ]);
+    expect(db.snapshots).toHaveLength(1);
+    expect(db.reportingAccounts).toHaveLength(1);
+    expect(db.conversionDestinations).toHaveLength(1);
+    expect(db.oauthStates).toEqual([
+      { id: "state_barbieri", workspaceId: "workspace_barbieri" }
+    ]);
+    expect(db.auditLogs).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_client",
+        actorUserId: "user_owner",
+        action: "meta.oauth.disconnected_for_manual",
+        reason: "switch_to_manual",
+        resultStatus: "disconnected"
+      })
+    );
+    expect(JSON.stringify(db.auditLogs)).not.toContain(
+      "EAAB-client-secret-token"
+    );
+  });
+
+  it("refuses an OAuth disconnect after the workspace context changes", async () => {
+    const { db, service } = createHarness();
+
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_client",
+      accessToken: "EAAB-client-secret-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read"]
+    });
+
+    await expect(
+      service.disconnectOAuthConnection({
+        workspaceId: "workspace_client",
+        actorUserId: "user_owner",
+        request: {
+          expectedWorkspaceId: "workspace_other",
+          confirmation: "DESCONECTAR META"
+        }
+      })
+    ).rejects.toThrow("workspace da sessao mudou");
+    expect(db.records).toHaveLength(1);
+  });
+
+  it("prevents OAuth from being added over a manual-token configuration", async () => {
+    const { db, service } = createHarness();
+    db.manualCredentials.push({
+      id: "credential_manual",
+      workspaceId: "workspace_client",
+      source: "manual"
+    });
+
+    await expect(
+      service.saveOAuthConnection({
+        workspaceId: "workspace_client",
+        accessToken: "EAAB-client-secret-token",
+        tokenType: "bearer",
+        expiresInSeconds: 3600,
+        scopes: ["ads_read"]
+      })
+    ).rejects.toThrow("ja iniciou uma conexao por token permanente");
+    expect(db.records).toHaveLength(0);
   });
 
   it("allows the same Facebook token to connect different workspaces", async () => {
@@ -346,9 +522,7 @@ describe("meta connections service", () => {
         { businessId: "business_1", name: "Pixel Loja", code: null },
         { businessId: "business_1", name: "Pixel Remarketing", code: null }
       ],
-      pages: [
-        { businessId: "business_1", name: "Pagina Principal" }
-      ],
+      pages: [{ businessId: "business_1", name: "Pagina Principal" }],
       selection: {
         businessId: null,
         adAccountId: null,
@@ -536,7 +710,11 @@ describe("meta connections service", () => {
         businessId: null,
         status: "connected",
         businesses: [
-          { id: "business_1", name: "BM Principal", verificationStatus: "verified" }
+          {
+            id: "business_1",
+            name: "BM Principal",
+            verificationStatus: "verified"
+          }
         ],
         adAccounts: [],
         pixels: [],
@@ -580,7 +758,10 @@ describe("meta connections service", () => {
       }
     );
 
-    const assets = await service.listAssets("workspace_1", metaAdapter as never);
+    const assets = await service.listAssets(
+      "workspace_1",
+      metaAdapter as never
+    );
 
     expect(assets).toMatchObject({
       workspaceId: "workspace_1",
@@ -694,40 +875,43 @@ describe("meta connections service", () => {
           verificationStatus: null
         }
       ]),
-      listOwnedAdAccounts: vi.fn(async ({ businessId }: { businessId: string }) =>
-        businessId === "business_2"
-          ? [
-              {
-                id: "act_789",
-                name: "Conta Outro BM",
-                accountStatus: "1",
-                currency: "USD",
-                timezoneName: "America/New_York"
-              }
-            ]
-          : []
+      listOwnedAdAccounts: vi.fn(
+        async ({ businessId }: { businessId: string }) =>
+          businessId === "business_2"
+            ? [
+                {
+                  id: "act_789",
+                  name: "Conta Outro BM",
+                  accountStatus: "1",
+                  currency: "USD",
+                  timezoneName: "America/New_York"
+                }
+              ]
+            : []
       ),
-      listBusinessPixels: vi.fn(async ({ businessId }: { businessId: string }) =>
-        businessId === "business_2"
-          ? [
-              {
-                id: "pixel_3",
-                name: "Pixel Outro BM",
-                code: "9999999999"
-              }
-            ]
-          : []
+      listBusinessPixels: vi.fn(
+        async ({ businessId }: { businessId: string }) =>
+          businessId === "business_2"
+            ? [
+                {
+                  id: "pixel_3",
+                  name: "Pixel Outro BM",
+                  code: "9999999999"
+                }
+              ]
+            : []
       ),
-      listBusinessPages: vi.fn(async ({ businessId }: { businessId: string }) =>
-        businessId === "business_2"
-          ? [
-              {
-                id: "page_3",
-                businessId: "business_2",
-                name: "Pagina Outro BM"
-              }
-            ]
-          : []
+      listBusinessPages: vi.fn(
+        async ({ businessId }: { businessId: string }) =>
+          businessId === "business_2"
+            ? [
+                {
+                  id: "page_3",
+                  businessId: "business_2",
+                  name: "Pagina Outro BM"
+                }
+              ]
+            : []
       )
     };
 
@@ -755,7 +939,9 @@ describe("meta connections service", () => {
       status: "connected",
       businesses: [{ name: "BM Principal" }, { name: "BM Secundario" }],
       adAccounts: [{ businessId: "business_2", name: "Conta Outro BM" }],
-      pixels: [{ businessId: "business_2", name: "Pixel Outro BM", code: null }],
+      pixels: [
+        { businessId: "business_2", name: "Pixel Outro BM", code: null }
+      ],
       pages: [{ businessId: "business_2", name: "Pagina Outro BM" }],
       selection: {
         businessId: "business_2",
@@ -832,8 +1018,7 @@ describe("meta connections service", () => {
       adAccounts: [{ businessId: "business_1", id: "act_123" }],
       pixels: [],
       pages: [{ businessId: "business_1", id: "page_1" }],
-      syncError:
-        "A Meta nao permitiu carregar Pixels para o BM selecionado."
+      syncError: "A Meta nao permitiu carregar Pixels para o BM selecionado."
     });
   });
 
@@ -849,11 +1034,15 @@ describe("meta connections service", () => {
     });
 
     await expect(
-      service.saveAssetSelection("workspace_1", {
-        businessId: "business_1",
-        adAccountId: "act_123",
-        pixelId: "pixel_1",
-      }, "user_1")
+      service.saveAssetSelection(
+        "workspace_1",
+        {
+          businessId: "business_1",
+          adAccountId: "act_123",
+          pixelId: "pixel_1"
+        },
+        "user_1"
+      )
     ).resolves.toMatchObject({
       workspaceId: "workspace_1",
       selectedBusinessId: "business_1",
@@ -911,7 +1100,9 @@ describe("meta connections service", () => {
         tokenTag: String(db.records[0]?.capiTokenTag)
       })
     ).toBe("EAAB-capi-token-secret");
-    expect(JSON.stringify(db.auditLogs)).not.toContain("EAAB-capi-token-secret");
+    expect(JSON.stringify(db.auditLogs)).not.toContain(
+      "EAAB-capi-token-secret"
+    );
     expect(db.auditLogs.at(-1)).toMatchObject({
       workspaceId: "workspace_1",
       actorUserId: "user_1",

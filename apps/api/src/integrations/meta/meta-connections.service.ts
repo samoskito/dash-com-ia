@@ -1,4 +1,9 @@
-import { Inject, Injectable } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable
+} from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
   MetaAdAccountAssetDto,
@@ -9,9 +14,12 @@ import type {
   MetaCapiTokenStatusDto,
   MetaConnectionDto,
   MetaConnectionStatusDto,
+  MetaOAuthDisconnectInputDto,
+  MetaOAuthDisconnectResultDto,
   MetaPageAssetDto,
   MetaPixelAssetDto
 } from "@wpptrack/shared";
+import { META_OAUTH_DISCONNECT_CONFIRMATION } from "@wpptrack/shared";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { MetaAdapter } from "./meta.adapter";
 import { MetaTokenEncryptionService } from "./meta-token-encryption.service";
@@ -133,6 +141,17 @@ export class MetaConnectionsService {
   async saveOAuthConnection(
     input: SaveMetaConnectionInput
   ): Promise<MetaConnectionDto> {
+    const manualCredential = await this.prisma.metaCredential.findFirst({
+      where: { workspaceId: input.workspaceId, source: "manual" },
+      select: { id: true }
+    });
+
+    if (manualCredential) {
+      throw new ConflictException(
+        "Este workspace ja iniciou uma conexao por token permanente. Remova a configuracao manual antes de conectar via OAuth"
+      );
+    }
+
     const encrypted = this.encryption.encrypt(input.accessToken);
     const expiresAt = input.expiresInSeconds
       ? new Date(Date.now() + input.expiresInSeconds * 1000)
@@ -172,6 +191,115 @@ export class MetaConnectionsService {
     return this.toDto(connection);
   }
 
+  async disconnectOAuthConnection(input: {
+    workspaceId: string;
+    actorUserId: string;
+    request: MetaOAuthDisconnectInputDto;
+  }): Promise<MetaOAuthDisconnectResultDto> {
+    if (input.request.expectedWorkspaceId !== input.workspaceId) {
+      throw new ConflictException(
+        "O workspace da sessao mudou. Recarregue a pagina antes de desconectar a Meta"
+      );
+    }
+
+    if (input.request.confirmation !== META_OAUTH_DISCONNECT_CONFIRMATION) {
+      throw new BadRequestException("Confirmacao de desconexao invalida");
+    }
+
+    const disconnectedAt = new Date();
+
+    return this.prisma.$transaction(async (transaction) => {
+      const connection = await transaction.metaIntegration.findUnique({
+        where: { workspaceId: input.workspaceId },
+        select: {
+          status: true,
+          tokenType: true,
+          scopes: true,
+          expiresAt: true,
+          selectedBusinessId: true,
+          selectedAdAccountId: true,
+          selectedPixelId: true,
+          capiAccessTokenEncrypted: true
+        }
+      });
+
+      if (!connection) {
+        throw new ConflictException(
+          "A conexao OAuth deste workspace ja foi desconectada"
+        );
+      }
+
+      const [assetSnapshots, reportingAccounts, conversionDestinations] =
+        await Promise.all([
+          transaction.metaAssetSnapshot.count({
+            where: { workspaceId: input.workspaceId }
+          }),
+          transaction.metaReportingAccount.count({
+            where: { workspaceId: input.workspaceId }
+          }),
+          transaction.metaConversionDestination.count({
+            where: { workspaceId: input.workspaceId }
+          })
+        ]);
+      const deleted = await transaction.metaIntegration.deleteMany({
+        where: { workspaceId: input.workspaceId }
+      });
+
+      if (deleted.count !== 1) {
+        throw new ConflictException(
+          "A conexao Meta mudou durante a desconexao. Recarregue a pagina"
+        );
+      }
+
+      await transaction.metaOAuthState.deleteMany({
+        where: { workspaceId: input.workspaceId }
+      });
+      await transaction.auditLog.create({
+        data: {
+          workspaceId: input.workspaceId,
+          actorUserId: input.actorUserId,
+          actorType: "user",
+          action: "meta.oauth.disconnected_for_manual",
+          targetType: "MetaIntegration",
+          targetId: input.workspaceId,
+          reason: "switch_to_manual",
+          sourceIp: null,
+          resultStatus: "disconnected",
+          beforeSummary: {
+            status: connection.status,
+            tokenType: connection.tokenType,
+            scopes: connection.scopes,
+            expiresAt: connection.expiresAt?.toISOString() ?? null,
+            selectedBusinessId: connection.selectedBusinessId,
+            selectedAdAccountId: connection.selectedAdAccountId,
+            selectedPixelId: connection.selectedPixelId,
+            capiTokenConfigured: Boolean(connection.capiAccessTokenEncrypted)
+          },
+          afterSummary: {
+            status: "not_connected",
+            nextConnectionMode: "manual",
+            preserved: {
+              assetSnapshots,
+              reportingAccounts,
+              conversionDestinations
+            }
+          }
+        }
+      });
+
+      return {
+        workspaceId: input.workspaceId,
+        status: "not_connected",
+        disconnectedAt: disconnectedAt.toISOString(),
+        preserved: {
+          assetSnapshots,
+          reportingAccounts,
+          conversionDestinations
+        }
+      };
+    });
+  }
+
   async listAssets(
     workspaceId: string,
     _metaAdapter: Pick<
@@ -209,17 +337,27 @@ export class MetaConnectionsService {
         businessSnapshot
       );
 
-      this.logSlowAssetList(assets, Date.now() - startedAt, requestedBusinessId);
+      this.logSlowAssetList(
+        assets,
+        Date.now() - startedAt,
+        requestedBusinessId
+      );
 
       return assets;
     } catch (error) {
       const result = this.emptyAssets(
         workspaceId,
         "error",
-        error instanceof Error ? error.message : "Erro ao sincronizar ativos Meta"
+        error instanceof Error
+          ? error.message
+          : "Erro ao sincronizar ativos Meta"
       );
 
-      this.logSlowAssetList(result, Date.now() - startedAt, requestedBusinessId);
+      this.logSlowAssetList(
+        result,
+        Date.now() - startedAt,
+        requestedBusinessId
+      );
 
       return result;
     }
@@ -259,7 +397,7 @@ export class MetaConnectionsService {
         (business) => business.id === preferredBusinessId
       )
         ? preferredBusinessId
-        : businesses[0]?.id ?? null;
+        : (businesses[0]?.id ?? null);
       const selectedBusinessExists = Boolean(selectedBusinessId);
       let adAccounts: MetaAdAccountAssetDto[] = [];
       let pixels: MetaPixelAssetDto[] = [];
@@ -358,8 +496,8 @@ export class MetaConnectionsService {
           : null;
       const shouldPersistRequestedBusiness = Boolean(
         requestedBusinessId?.trim() &&
-          selectedBusinessId &&
-          selectedBusinessId !== connection.selectedBusinessId
+        selectedBusinessId &&
+        selectedBusinessId !== connection.selectedBusinessId
       );
       const activeConnection = shouldPersistRequestedBusiness
         ? ((await this.prisma.metaIntegration.update({
@@ -395,7 +533,9 @@ export class MetaConnectionsService {
       return result;
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Erro ao sincronizar ativos Meta";
+        error instanceof Error
+          ? error.message
+          : "Erro ao sincronizar ativos Meta";
 
       await this.upsertAssetSnapshot({
         workspaceId,
@@ -474,9 +614,7 @@ export class MetaConnectionsService {
       afterSummary: {
         configured,
         tokenLast4:
-          !input.clear && input.accessToken
-            ? input.accessToken.slice(-4)
-            : null
+          !input.clear && input.accessToken ? input.accessToken.slice(-4) : null
       } as Prisma.InputJsonValue
     });
 
@@ -565,9 +703,11 @@ export class MetaConnectionsService {
   }
 
   private get metaAssetSnapshots(): MetaAssetSnapshotClient {
-    return (this.prisma as unknown as {
-      metaAssetSnapshot: MetaAssetSnapshotClient;
-    }).metaAssetSnapshot;
+    return (
+      this.prisma as unknown as {
+        metaAssetSnapshot: MetaAssetSnapshotClient;
+      }
+    ).metaAssetSnapshot;
   }
 
   private async findAssetSnapshot(
@@ -648,8 +788,7 @@ export class MetaConnectionsService {
         pixelId: connection.selectedPixelId
       },
       lastSyncedAt: mostSpecificSnapshot?.syncedAt?.toISOString() ?? null,
-      syncError:
-        businessSnapshot?.syncError ?? rootSnapshot?.syncError ?? null
+      syncError: businessSnapshot?.syncError ?? rootSnapshot?.syncError ?? null
     };
   }
 

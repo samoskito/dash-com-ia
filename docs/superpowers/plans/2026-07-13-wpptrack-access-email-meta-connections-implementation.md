@@ -869,6 +869,10 @@ Purpose: validate the complete system before broad production enablement.
 
 ### Production rollout
 
+- [x] Add a controlled OAuth-to-manual transition for one selected workspace.
+- [x] Require the active workspace id and an explicit typed confirmation.
+- [x] Remove only local OAuth credentials/state and preserve historical Meta data.
+- [x] Record the transition in the audit log without exposing token material.
 - [ ] Enable SMTP and send controlled internal tests.
 - [ ] Enable team invitations for an internal/test workspace.
 - [ ] Validate multi-workspace behavior with two test companies and distinct roles.

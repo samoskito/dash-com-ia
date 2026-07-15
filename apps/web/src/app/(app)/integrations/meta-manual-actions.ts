@@ -4,6 +4,7 @@ import type {
   MetaManualAssetDiscoveryDto,
   MetaManualConfigurationDto,
   MetaManualConnectionTestResultDto,
+  MetaOAuthDisconnectResultDto,
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
@@ -15,6 +16,33 @@ export type MetaManualActionResult = {
   configuration?: MetaManualConfigurationDto;
   testResult?: MetaManualConnectionTestResultDto;
 };
+
+export async function disconnectMetaOAuthAction(
+  workspaceId: string,
+  confirmation: string,
+): Promise<MetaManualActionResult> {
+  try {
+    await serverApiFetch<MetaOAuthDisconnectResultDto>(
+      "/integrations/meta/oauth/disconnect",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          expectedWorkspaceId: workspaceId,
+          confirmation,
+        }),
+      },
+    );
+
+    revalidatePath("/integrations");
+    return {
+      ok: true,
+      message:
+        "OAuth desconectado deste workspace. Agora configure o token permanente.",
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel desconectar a conta Meta.");
+  }
+}
 
 export async function createMetaManualCredentialAction(
   formData: FormData,

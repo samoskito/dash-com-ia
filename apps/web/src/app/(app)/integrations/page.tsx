@@ -22,6 +22,7 @@ import { MetaConversionDestinationForm } from "./meta-conversion-destination-for
 import {
   createMetaManualConnectionAction,
   createMetaManualCredentialAction,
+  disconnectMetaOAuthAction,
   discoverMetaManualAssetsAction,
   rotateMetaManualCredentialAction,
   setMetaManualAccountDestinationAction,
@@ -1045,10 +1046,12 @@ export default async function IntegrationsPage({
           )}
         </div>
         <MetaManualConnectionPanel
+          workspaceId={metaConnection?.workspaceId ?? workspace?.id ?? ""}
           capabilities={metaCapabilities}
           initialConfiguration={metaManualResult.data}
           legacyConnected={legacyMetaConnected}
           canManage={canManageIntegrations}
+          disconnectOAuthAction={disconnectMetaOAuthAction}
           createCredentialAction={createMetaManualCredentialAction}
           discoverAssetsAction={discoverMetaManualAssetsAction}
           createConnectionAction={createMetaManualConnectionAction}

@@ -5,6 +5,7 @@ import type {
   MetaManualAssetDiscoveryDto,
   MetaManualConfigurationDto,
 } from "@wpptrack/shared";
+import { META_OAUTH_DISCONNECT_CONFIRMATION } from "@wpptrack/shared";
 import {
   Building2,
   Check,
@@ -18,6 +19,9 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
+  TriangleAlert,
+  Unplug,
+  X,
 } from "lucide-react";
 import type { FormEvent } from "react";
 import { useRef, useState } from "react";
@@ -28,10 +32,15 @@ type SetupMode = "quick" | "advanced";
 type DestinationMode = "discovered" | "direct" | "existing";
 
 type MetaManualConnectionPanelProps = {
+  workspaceId: string;
   capabilities: MetaConnectionCapabilitiesDto;
   initialConfiguration: MetaManualConfigurationDto | null;
   legacyConnected: boolean;
   canManage: boolean;
+  disconnectOAuthAction: (
+    workspaceId: string,
+    confirmation: string,
+  ) => Promise<MetaManualActionResult>;
   createCredentialAction: (
     formData: FormData,
   ) => Promise<MetaManualActionResult>;
@@ -59,11 +68,181 @@ type MetaManualConnectionPanelProps = {
   ) => Promise<MetaManualActionResult>;
 };
 
+type LegacyOAuthMigrationCardProps = {
+  workspaceId: string;
+  canManage: boolean;
+  disconnectOAuthAction: MetaManualConnectionPanelProps["disconnectOAuthAction"];
+};
+
+function LegacyOAuthMigrationCard({
+  workspaceId,
+  canManage,
+  disconnectOAuthAction,
+}: LegacyOAuthMigrationCardProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [confirmation, setConfirmation] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const confirmed = confirmation === META_OAUTH_DISCONNECT_CONFIRMATION;
+
+  function closeDialog() {
+    if (pending) {
+      return;
+    }
+
+    dialogRef.current?.close();
+    setConfirmation("");
+    setError(null);
+  }
+
+  async function handleDisconnect(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!confirmed || pending) {
+      return;
+    }
+
+    setPending(true);
+    setError(null);
+    const result = await disconnectOAuthAction(workspaceId, confirmation);
+
+    if (result.ok) {
+      dialogRef.current?.close();
+      window.location.reload();
+      return;
+    }
+
+    setError(result.message);
+    setPending(false);
+  }
+
+  return (
+    <>
+      <div className="meta-manual-entry locked">
+        <div className="meta-manual-entry-icon" aria-hidden="true">
+          <ShieldCheck size={18} />
+        </div>
+        <div>
+          <span className="micro-label">Conexao alternativa</span>
+          <strong>Token permanente</strong>
+          <p className="muted">
+            O OAuth continua ativo ate uma desconexao confirmada neste
+            workspace. O historico permanece preservado durante a troca.
+          </p>
+        </div>
+        {canManage ? (
+          <button
+            className="button danger"
+            type="button"
+            onClick={() => dialogRef.current?.showModal()}
+          >
+            <Unplug size={16} aria-hidden="true" />
+            Desconectar OAuth
+          </button>
+        ) : (
+          <span className="event-chip">OAuth preservado</span>
+        )}
+      </div>
+
+      <dialog
+        className="meta-action-dialog meta-oauth-disconnect-dialog"
+        ref={dialogRef}
+        onCancel={(event) => {
+          if (pending) {
+            event.preventDefault();
+            return;
+          }
+
+          closeDialog();
+        }}
+      >
+        <div className="meta-action-dialog-header">
+          <div>
+            <span className="micro-label">Troca de conexao</span>
+            <h3>Desconectar a Meta deste workspace?</h3>
+          </div>
+          <button
+            className="meta-dialog-close"
+            type="button"
+            aria-label="Fechar confirmacao"
+            title="Fechar"
+            onClick={closeDialog}
+            disabled={pending}
+          >
+            <X size={17} aria-hidden="true" />
+          </button>
+        </div>
+
+        <form className="meta-action-form" onSubmit={handleDisconnect}>
+          <div className="meta-disconnect-warning">
+            <TriangleAlert size={20} aria-hidden="true" />
+            <div>
+              <strong>Reporting e CAPI serao interrompidos</strong>
+              <p>
+                O envio volta somente depois que o token permanente, a BM, as
+                contas e o destino forem validados.
+              </p>
+            </div>
+          </div>
+
+          <ul className="meta-disconnect-preserved">
+            <li>Eventos, campanhas e auditorias ja registrados permanecem.</li>
+            <li>Snapshots, contas e destinos salvos nao serao apagados.</li>
+            <li>Outros workspaces e a autorizacao no Facebook nao mudam.</li>
+          </ul>
+
+          <label
+            className="field-label"
+            htmlFor="meta-oauth-disconnect-confirmation"
+          >
+            Digite <strong>{META_OAUTH_DISCONNECT_CONFIRMATION}</strong> para
+            confirmar
+          </label>
+          <input
+            id="meta-oauth-disconnect-confirmation"
+            autoComplete="off"
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+            disabled={pending}
+          />
+
+          {error ? (
+            <div className="feedback-banner error" role="alert">
+              <span>{error}</span>
+            </div>
+          ) : null}
+
+          <div className="meta-action-dialog-footer">
+            <button
+              className="button"
+              type="button"
+              onClick={closeDialog}
+              disabled={pending}
+            >
+              Cancelar
+            </button>
+            <button
+              className="button danger"
+              type="submit"
+              disabled={!confirmed || pending}
+            >
+              <Unplug size={16} aria-hidden="true" />
+              {pending ? "Desconectando..." : "Desconectar e usar token"}
+            </button>
+          </div>
+        </form>
+      </dialog>
+    </>
+  );
+}
+
 export function MetaManualConnectionPanel({
+  workspaceId,
   capabilities,
   initialConfiguration,
   legacyConnected,
   canManage,
+  disconnectOAuthAction,
   createCredentialAction,
   discoverAssetsAction,
   createConnectionAction,
@@ -132,20 +311,11 @@ export function MetaManualConnectionPanel({
 
   if (legacyConnected) {
     return (
-      <div className="meta-manual-entry locked">
-        <div className="meta-manual-entry-icon" aria-hidden="true">
-          <ShieldCheck size={18} />
-        </div>
-        <div>
-          <span className="micro-label">Conexao alternativa</span>
-          <strong>Token permanente</strong>
-          <p className="muted">
-            Este workspace permanece protegido na conexao OAuth atual. Uma
-            mudanca de modelo exige migracao separada e aprovada.
-          </p>
-        </div>
-        <span className="event-chip">OAuth preservado</span>
-      </div>
+      <LegacyOAuthMigrationCard
+        workspaceId={workspaceId}
+        canManage={canManage}
+        disconnectOAuthAction={disconnectOAuthAction}
+      />
     );
   }
 

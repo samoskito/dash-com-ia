@@ -70,6 +70,24 @@ export const metaConnectionCapabilitiesSchema = z.object({
   manualEnabled: z.boolean(),
 });
 
+export const META_OAUTH_DISCONNECT_CONFIRMATION = "DESCONECTAR META";
+
+export const metaOAuthDisconnectInputSchema = z.object({
+  expectedWorkspaceId: z.string().trim().min(1),
+  confirmation: z.literal(META_OAUTH_DISCONNECT_CONFIRMATION),
+});
+
+export const metaOAuthDisconnectResultSchema = z.object({
+  workspaceId: z.string().min(1),
+  status: z.literal("not_connected"),
+  disconnectedAt: z.string().datetime(),
+  preserved: z.object({
+    assetSnapshots: z.number().int().nonnegative(),
+    reportingAccounts: z.number().int().nonnegative(),
+    conversionDestinations: z.number().int().nonnegative(),
+  }),
+});
+
 export const metaConnectionSchema = z.object({
   workspaceId: z.string().min(1),
   status: metaConnectionStatusSchema,
@@ -387,6 +405,12 @@ export type MetaOAuthCallbackQueryDto = z.infer<
 >;
 export type MetaOAuthCallbackResultDto = z.infer<
   typeof metaOAuthCallbackResultSchema
+>;
+export type MetaOAuthDisconnectInputDto = z.infer<
+  typeof metaOAuthDisconnectInputSchema
+>;
+export type MetaOAuthDisconnectResultDto = z.infer<
+  typeof metaOAuthDisconnectResultSchema
 >;
 export type MetaConnectionStatusDto = z.infer<
   typeof metaConnectionStatusSchema
