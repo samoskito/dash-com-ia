@@ -202,6 +202,20 @@ const metaAssets = {
   syncError: null,
 };
 
+function metaAssetsWithSyncRange(
+  since: string,
+  until: string,
+): typeof metaAssets {
+  return {
+    ...metaAssets,
+    reportingAccounts: metaAssets.reportingAccounts.map((account) => ({
+      ...account,
+      lastSyncSince: since,
+      lastSyncUntil: until,
+    })),
+  };
+}
+
 const metaStructure = {
   workspaceId: "workspace_1",
   campaigns: [
@@ -244,6 +258,7 @@ function mockReportsApi(
     fail?: boolean;
     member?: boolean;
     comparison?: typeof campaignReport;
+    assets?: typeof metaAssets;
   } = {},
 ) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -269,7 +284,7 @@ function mockReportsApi(
     }
 
     if (url.includes("/integrations/meta/assets")) {
-      return json(metaAssets);
+      return json(options.assets ?? metaAssets);
     }
 
     if (url.includes("/reports/meta/structure")) {
@@ -324,6 +339,67 @@ describe("reports route", () => {
     expect(urls.some((url) => url.includes("/reports/meta/structure"))).toBe(
       false,
     );
+  });
+
+  it("accepts a broader Meta sync period that covers the report", async () => {
+    const fetchMock = mockReportsApi({
+      assets: metaAssetsWithSyncRange("2026-05-01", "2026-07-12"),
+    });
+
+    const html = await renderReports({
+      since: "2026-07-06",
+      until: "2026-07-12",
+    });
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+
+    expect(html).toContain("Meta: 01/05/2026 a 12/07/2026");
+    expect(html).not.toContain("Periodo Meta diferente do relatorio");
+    expect(
+      urls.some(
+        (url) =>
+          url.includes("/reports/campaigns") &&
+          url.includes("includeDaily=true"),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps the warning for ad sets when only a broader aggregate exists", async () => {
+    mockReportsApi({
+      assets: metaAssetsWithSyncRange("2026-05-01", "2026-07-12"),
+    });
+
+    const html = await renderReports({ view: "adsets" });
+
+    expect(html).toContain("Periodo Meta diferente do relatorio");
+  });
+
+  it("keeps the warning when any active Meta account lacks coverage", async () => {
+    const coveredAssets = metaAssetsWithSyncRange(
+      "2026-05-01",
+      "2026-07-12",
+    );
+    mockReportsApi({
+      assets: {
+        ...coveredAssets,
+        reportingAccounts: [
+          ...coveredAssets.reportingAccounts,
+          {
+            ...coveredAssets.reportingAccounts[0],
+            id: "reporting_2",
+            adAccountId: "act_456",
+            adAccountName: "Conta 2",
+            syncStatus: "error",
+          },
+        ],
+      },
+    });
+
+    const html = await renderReports({
+      since: "2026-07-06",
+      until: "2026-07-12",
+    });
+
+    expect(html).toContain("Contas Meta com periodos diferentes");
   });
 
   it("loads only the selected ad set view", async () => {

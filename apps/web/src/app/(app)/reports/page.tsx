@@ -183,7 +183,13 @@ async function getCampaignReports(
   filters: ReportFilters,
 ): Promise<CampaignReportsResult> {
   try {
-    const query = reportQuery(filters);
+    const params = new URLSearchParams(reportQuery(filters));
+
+    if (filters.since && filters.until) {
+      params.set("includeDaily", "true");
+    }
+
+    const query = params.toString();
 
     const report = await serverApiFetch<ReportOverviewDto>(
       query ? `/reports/campaigns?${query}` : "/reports/campaigns",
@@ -772,10 +778,7 @@ function PerformanceMetricsCells({
         return (
           <td key={column.key}>
             {column.key === "real_conversations" ? (
-              <Link
-                className="report-metric-link"
-                href={realConversationsHref}
-              >
+              <Link className="report-metric-link" href={realConversationsHref}>
                 {value}
               </Link>
             ) : (
@@ -1001,6 +1004,32 @@ function metaSyncPeriodState(
   return since && until
     ? { kind: "single", since, until }
     : { kind: "missing" };
+}
+
+function metaSyncCoversPeriod(
+  metaAssets: MetaAssetsDto | null,
+  since?: string,
+  until?: string,
+): boolean {
+  if (!since || !until) {
+    return false;
+  }
+
+  const accounts = (metaAssets?.reportingAccounts ?? []).filter(
+    (account) => account.active,
+  );
+
+  return (
+    accounts.length > 0 &&
+    accounts.every(
+      (account) =>
+        account.syncStatus === "synced" &&
+        Boolean(account.lastSyncSince) &&
+        Boolean(account.lastSyncUntil) &&
+        account.lastSyncSince! <= since &&
+        account.lastSyncUntil! >= until,
+    )
+  );
 }
 
 function dateOnlyLabel(value: string): string {
@@ -1546,6 +1575,11 @@ export default async function ReportsPage({
     metaSyncPeriod.kind === "single" &&
     metaSyncPeriod.since === since &&
     metaSyncPeriod.until === until;
+  const metaPeriodCoversReport = metaSyncCoversPeriod(metaAssets, since, until);
+  const metaPeriodProvidesReport =
+    activeView === "campaigns"
+      ? metaPeriodCoversReport
+      : metaPeriodMatchesReport;
   const rawMetaStructureRows = metaStructureRows(metaStructure);
   const filteredMetaStructureRows = filterMetaStructureRows(
     rawMetaStructureRows,
@@ -1607,7 +1641,7 @@ export default async function ReportsPage({
     campaigns: campaignSummaryCopy,
   }[activeView];
   const metaPeriodWarning: ReportNotice | null =
-    metaSyncPeriod.kind === "none" || metaPeriodMatchesReport
+    metaSyncPeriod.kind === "none" || metaPeriodProvidesReport
       ? null
       : metaSyncPeriod.kind === "single"
         ? {
@@ -1898,9 +1932,7 @@ export default async function ReportsPage({
                 <PerformanceMetricHeaders
                   funnelSteps={currentTotals.funnelSteps}
                 />
-                <th className="performance-review-column">
-                  Revisao WhatsApp
-                </th>
+                <th className="performance-review-column">Revisao WhatsApp</th>
               </tr>
             </thead>
             <tbody>
