@@ -4,7 +4,7 @@ import { clientNavigation } from "@wpptrack/shared";
 import type {
   CurrentWorkspaceDto,
   WhatsappDataSourceDto,
-  WorkspaceListEntryDto
+  WorkspaceListEntryDto,
 } from "@wpptrack/shared";
 import {
   Building2,
@@ -13,7 +13,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  X
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -21,6 +21,11 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { LogoutButton } from "./logout-button";
 import { DataAutoRefresh } from "./data-auto-refresh";
+import { PresentationMask } from "./presentation-mask";
+import {
+  PresentationModeToggle,
+  usePresentationMode,
+} from "./presentation-mode-toggle";
 import { exitPlatformSupportAccess } from "../app/actions/platform-support";
 import { switchActiveWorkspace } from "../app/actions/workspaces";
 
@@ -46,7 +51,7 @@ export function AppShell({
   children,
   dataSource,
   workspace,
-  workspaces = []
+  workspaces = [],
 }: {
   children: ReactNode;
   dataSource?: WhatsappDataSourceDto | null;
@@ -54,6 +59,7 @@ export function AppShell({
   workspaces?: WorkspaceListEntryDto[];
 }) {
   const router = useRouter();
+  const presentationMode = usePresentationMode();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -64,7 +70,7 @@ export function AppShell({
 
   useEffect(() => {
     setSidebarCollapsed(
-      window.localStorage.getItem(sidebarStorageKey) === "true"
+      window.localStorage.getItem(sidebarStorageKey) === "true",
     );
   }, []);
 
@@ -259,7 +265,11 @@ export function AppShell({
               <button
                 className="workspace-selector-trigger"
                 type="button"
-                aria-label={`Selecionar empresa. Atual: ${workspace?.name ?? "nenhuma"}`}
+                aria-label={
+                  presentationMode
+                    ? "Selecionar workspace demonstrativo"
+                    : `Selecionar empresa. Atual: ${workspace?.name ?? "nenhuma"}`
+                }
                 aria-controls="workspace-selector-menu"
                 aria-expanded={workspaceMenuOpen}
                 onClick={openWorkspaceMenu}
@@ -270,11 +280,17 @@ export function AppShell({
                 </span>
                 <span className="workspace-selector-copy">
                   <span>Workspace</span>
-                  <strong>{workspace?.name ?? "Selecionar empresa"}</strong>
+                  <strong>
+                    <PresentationMask placeholder="Workspace demonstrativo">
+                      {workspace?.name ?? "Selecionar empresa"}
+                    </PresentationMask>
+                  </strong>
                   <small>
-                    {workspace
-                      ? `${workspace.slug} - ${workspaceAccessLabel(workspace)}`
-                      : `${workspaces.length} ${workspaces.length === 1 ? "empresa disponivel" : "empresas disponiveis"}`}
+                    <PresentationMask placeholder="acesso demonstrativo">
+                      {workspace
+                        ? `${workspace.slug} - ${workspaceAccessLabel(workspace)}`
+                        : `${workspaces.length} ${workspaces.length === 1 ? "empresa disponivel" : "empresas disponiveis"}`}
+                    </PresentationMask>
                   </small>
                 </span>
                 <ChevronsUpDown
@@ -291,7 +307,7 @@ export function AppShell({
                 aria-label="Empresas autorizadas"
                 hidden={!workspaceMenuOpen}
               >
-                {workspaces.map((availableWorkspace) => {
+                {workspaces.map((availableWorkspace, index) => {
                   const selected = availableWorkspace.id === workspace?.id;
 
                   return (
@@ -304,7 +320,13 @@ export function AppShell({
                       onClick={() => selectWorkspace(availableWorkspace.id)}
                     >
                       <span>
-                        <strong>{availableWorkspace.name}</strong>
+                        <strong>
+                          <PresentationMask
+                            placeholder={`Workspace ${index + 1}`}
+                          >
+                            {availableWorkspace.name}
+                          </PresentationMask>
+                        </strong>
                         <small>
                           {workspaceRoleLabel(availableWorkspace.role)}
                         </small>
@@ -325,11 +347,17 @@ export function AppShell({
           ) : (
             <>
               <span>Workspace</span>
-              <strong>{workspace?.name ?? "Workspace indisponivel"}</strong>
+              <strong>
+                <PresentationMask placeholder="Workspace demonstrativo">
+                  {workspace?.name ?? "Workspace indisponivel"}
+                </PresentationMask>
+              </strong>
               <small>
-                {workspace
-                  ? `${workspace.slug} - ${workspaceAccessLabel(workspace)}`
-                  : "Sessao autenticada"}
+                <PresentationMask placeholder="acesso demonstrativo">
+                  {workspace
+                    ? `${workspace.slug} - ${workspaceAccessLabel(workspace)}`
+                    : "Sessao autenticada"}
+                </PresentationMask>
               </small>
             </>
           )}
@@ -382,6 +410,7 @@ export function AppShell({
                 : "ativo"}
             </span>
           ) : null}
+          <PresentationModeToggle />
           <LogoutButton />
         </section>
       </aside>
@@ -397,7 +426,11 @@ export function AppShell({
           <div className="support-context-bar" role="status">
             <div>
               <span>Acesso de suporte</span>
-              <strong>{workspace.name}</strong>
+              <strong>
+                <PresentationMask placeholder="Workspace demonstrativo">
+                  {workspace.name}
+                </PresentationMask>
+              </strong>
             </div>
             <form action={exitPlatformSupportAccess}>
               <button className="button ghost" type="submit">

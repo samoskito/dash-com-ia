@@ -4,6 +4,7 @@ import type { MetaReportingAccountDto } from "@wpptrack/shared";
 import { Filter, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { usePresentationMode } from "../../../components/presentation-mode-toggle";
 
 type OverviewFiltersProps = {
   adAccountId?: string;
@@ -36,6 +37,7 @@ export function OverviewFilters({
     () => businessesFromAccounts(reportingAccounts),
     [reportingAccounts],
   );
+  const presentationMode = usePresentationMode();
   const [selectedBusinessId, setSelectedBusinessId] = useState(
     businessId ?? "",
   );
@@ -88,40 +90,64 @@ export function OverviewFilters({
       {showBusinessFilter ? (
         <label className="filter-field overview-scope-filter">
           <span>Business Manager</span>
-          <select
-            name="businessId"
-            value={selectedBusinessId}
-            onChange={(event) =>
-              handleBusinessChange(event.currentTarget.value)
-            }
-          >
-            <option value="">Todos os BMs</option>
-            {businesses.map((business) => (
-              <option key={business.id} value={business.id}>
-                {business.name}
-              </option>
-            ))}
-          </select>
+          {presentationMode ? (
+            <>
+              <input
+                type="hidden"
+                name="businessId"
+                value={selectedBusinessId}
+              />
+              <span className="presentation-filter-placeholder">BM oculto</span>
+            </>
+          ) : (
+            <select
+              name="businessId"
+              value={selectedBusinessId}
+              onChange={(event) =>
+                handleBusinessChange(event.currentTarget.value)
+              }
+            >
+              <option value="">Todos os BMs</option>
+              {businesses.map((business) => (
+                <option key={business.id} value={business.id}>
+                  {business.name}
+                </option>
+              ))}
+            </select>
+          )}
         </label>
       ) : null}
 
       {showAccountFilter ? (
         <label className="filter-field overview-scope-filter">
           <span>Conta de anuncio</span>
-          <select
-            name="adAccountId"
-            value={selectedAdAccountId}
-            onChange={(event) =>
-              setSelectedAdAccountId(event.currentTarget.value)
-            }
-          >
-            <option value="">Todas as contas</option>
-            {accounts.map((account) => (
-              <option key={account.id} value={account.adAccountId}>
-                {account.adAccountName}
-              </option>
-            ))}
-          </select>
+          {presentationMode ? (
+            <>
+              <input
+                type="hidden"
+                name="adAccountId"
+                value={selectedAdAccountId}
+              />
+              <span className="presentation-filter-placeholder">
+                Conta oculta
+              </span>
+            </>
+          ) : (
+            <select
+              name="adAccountId"
+              value={selectedAdAccountId}
+              onChange={(event) =>
+                setSelectedAdAccountId(event.currentTarget.value)
+              }
+            >
+              <option value="">Todas as contas</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.adAccountId}>
+                  {account.adAccountName}
+                </option>
+              ))}
+            </select>
+          )}
         </label>
       ) : null}
 

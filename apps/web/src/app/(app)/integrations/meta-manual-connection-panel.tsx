@@ -29,6 +29,7 @@ import {
 import type { FormEvent } from "react";
 import { useRef, useState } from "react";
 import { SearchableSelect } from "../../../components/searchable-select";
+import { PresentationMask } from "../../../components/presentation-mask";
 import type { MetaManualActionResult } from "./meta-manual-actions";
 
 type SetupMode = "quick" | "advanced";
@@ -854,8 +855,16 @@ export function MetaManualConnectionPanel({
                   >
                     {statusLabel(connection.status)}
                   </span>
-                  <strong>{connection.businessManagerName}</strong>
-                  <span>{connection.businessManagerId}</span>
+                  <strong>
+                    <PresentationMask placeholder="Business Manager oculto">
+                      {connection.businessManagerName}
+                    </PresentationMask>
+                  </strong>
+                  <span>
+                    <PresentationMask placeholder="ID oculto">
+                      {connection.businessManagerId}
+                    </PresentationMask>
+                  </span>
                 </div>
                 {canManage ? (
                   <div className="meta-connection-row-actions">
@@ -934,22 +943,30 @@ export function MetaManualConnectionPanel({
               <div className="meta-connection-facts">
                 <span>
                   <small>Credencial</small>
-                  <strong>{credential?.label ?? "Indisponivel"}</strong>
+                  <strong>
+                    <PresentationMask placeholder="Credencial oculta">
+                      {credential?.label ?? "Indisponivel"}
+                    </PresentationMask>
+                  </strong>
                 </span>
                 <span>
                   <small>Token</small>
                   <strong>
-                    {credential
-                      ? `final ${credential.tokenLast4}`
-                      : "Indisponivel"}
+                    <PresentationMask placeholder="Token protegido">
+                      {credential
+                        ? `final ${credential.tokenLast4}`
+                        : "Indisponivel"}
+                    </PresentationMask>
                   </strong>
                 </span>
                 <span>
                   <small>Destino padrao</small>
                   <strong>
-                    {destination?.label ??
-                      destination?.pixelName ??
-                      "Nao configurado"}
+                    <PresentationMask placeholder="Destino oculto">
+                      {destination?.label ??
+                        destination?.pixelName ??
+                        "Nao configurado"}
+                    </PresentationMask>
                   </strong>
                 </span>
                 <span>
@@ -1004,8 +1021,16 @@ export function MetaManualConnectionPanel({
                       key={`sync:${account.id}`}
                     >
                       <span>
-                        <strong>{account.adAccountName}</strong>
-                        <small>{account.adAccountId}</small>
+                        <strong>
+                          <PresentationMask placeholder="Conta de anuncios oculta">
+                            {account.adAccountName}
+                          </PresentationMask>
+                        </strong>
+                        <small>
+                          <PresentationMask placeholder="ID oculto">
+                            {account.adAccountId}
+                          </PresentationMask>
+                        </small>
                       </span>
                       <span className="event-chip">
                         {syncStatusLabel(account.syncStatus)}
@@ -1021,8 +1046,16 @@ export function MetaManualConnectionPanel({
                   {activeConnectionAccounts.map((account) => (
                     <div key={account.id}>
                       <span>
-                        <strong>{account.adAccountName}</strong>
-                        <small>{account.adAccountId}</small>
+                        <strong>
+                          <PresentationMask placeholder="Conta de anuncios oculta">
+                            {account.adAccountName}
+                          </PresentationMask>
+                        </strong>
+                        <small>
+                          <PresentationMask placeholder="ID oculto">
+                            {account.adAccountId}
+                          </PresentationMask>
+                        </small>
                       </span>
                       <select
                         aria-label={`Destino de ${account.adAccountName}`}
@@ -1037,6 +1070,7 @@ export function MetaManualConnectionPanel({
                             [account.id]: event.currentTarget.value,
                           }))
                         }
+                        data-presentation-sensitive-field="true"
                       >
                         <option value="">Padrao da BM</option>
                         {configuration.destinations.map((item) => (
@@ -1170,7 +1204,9 @@ export function MetaManualConnectionPanel({
                   onValueChange={handleCredentialSelection}
                   ariaLabel="Credencial Meta"
                   placeholder="Escolher token salvo"
+                  presentationPlaceholder="Credencial oculta"
                   disabled={pendingAction !== null}
+                  sensitive
                 />
               ) : null}
               <form
@@ -1187,6 +1223,7 @@ export function MetaManualConnectionPanel({
                     maxLength={80}
                     placeholder="Ex.: Token BM principal"
                     required
+                    data-presentation-sensitive-field="true"
                   />
                 </label>
                 <label>
@@ -1198,6 +1235,7 @@ export function MetaManualConnectionPanel({
                     autoComplete="off"
                     placeholder="Cole o token permanente"
                     required
+                    data-presentation-sensitive-field="true"
                   />
                 </label>
                 <button
@@ -1236,7 +1274,9 @@ export function MetaManualConnectionPanel({
                 onValueChange={handleBusinessSelection}
                 ariaLabel="Business Manager"
                 placeholder="Escolher BM"
+                presentationPlaceholder="BM oculto"
                 disabled={!credentialId || pendingAction !== null}
+                sensitive
               />
               {showBusinessLookup ? (
                 <div className="meta-direct-asset-entry">
@@ -1260,6 +1300,7 @@ export function MetaManualConnectionPanel({
                         placeholder="Ex.: 123456789012345"
                         inputMode="numeric"
                         disabled={pendingAction !== null}
+                        data-presentation-sensitive-field="true"
                       />
                     </label>
                     <button
@@ -1298,8 +1339,16 @@ export function MetaManualConnectionPanel({
                           }
                         />
                         <span>
-                          <strong>{account.name}</strong>
-                          <small>{account.id}</small>
+                          <strong>
+                            <PresentationMask placeholder="Conta de anuncios oculta">
+                              {account.name}
+                            </PresentationMask>
+                          </strong>
+                          <small>
+                            <PresentationMask placeholder="ID oculto">
+                              {account.id}
+                            </PresentationMask>
+                          </small>
                         </span>
                         {checked ? <Check size={16} /> : null}
                       </label>
@@ -1324,7 +1373,11 @@ export function MetaManualConnectionPanel({
                     <div key={accountId}>
                       <span>
                         <strong>Conta informada</strong>
-                        <small>{accountId}</small>
+                        <small>
+                          <PresentationMask placeholder="ID oculto">
+                            {accountId}
+                          </PresentationMask>
+                        </small>
                       </span>
                       <button
                         type="button"
@@ -1357,6 +1410,7 @@ export function MetaManualConnectionPanel({
                       placeholder="act_1234567890, act_9876543210"
                       rows={2}
                       disabled={pendingAction !== null}
+                      data-presentation-sensitive-field="true"
                     />
                   </label>
                   <button
@@ -1426,6 +1480,8 @@ export function MetaManualConnectionPanel({
                   onValueChange={setExistingDestinationId}
                   ariaLabel="Destino compartilhado"
                   placeholder="Escolher destino validado"
+                  presentationPlaceholder="Destino oculto"
+                  sensitive
                 />
               ) : destinationMode === "direct" ? (
                 <div className="meta-direct-destination-grid">
@@ -1437,6 +1493,7 @@ export function MetaManualConnectionPanel({
                         setDirectPixelId(event.currentTarget.value)
                       }
                       placeholder="Ex.: 1234567890"
+                      data-presentation-sensitive-field="true"
                     />
                   </label>
                   <label>
@@ -1447,6 +1504,7 @@ export function MetaManualConnectionPanel({
                         setDirectPageId(event.currentTarget.value)
                       }
                       placeholder="Ex.: 9876543210"
+                      data-presentation-sensitive-field="true"
                     />
                   </label>
                   <label>
@@ -1457,6 +1515,7 @@ export function MetaManualConnectionPanel({
                         setOwnerBusinessManagerId(event.currentTarget.value)
                       }
                       placeholder="Opcional para ativos compartilhados"
+                      data-presentation-sensitive-field="true"
                     />
                   </label>
                 </div>
@@ -1473,7 +1532,9 @@ export function MetaManualConnectionPanel({
                     onValueChange={setPixelId}
                     ariaLabel="Pixel ou Dataset"
                     placeholder="Escolher Pixel/Dataset"
+                    presentationPlaceholder="Pixel oculto"
                     disabled={!businessId}
+                    sensitive
                   />
                   <SearchableSelect
                     name="pageId"
@@ -1486,7 +1547,9 @@ export function MetaManualConnectionPanel({
                     onValueChange={setPageId}
                     ariaLabel="Pagina Facebook"
                     placeholder="Escolher Pagina"
+                    presentationPlaceholder="Pagina oculta"
                     disabled={!businessId}
+                    sensitive
                   />
                 </div>
               )}
@@ -1504,14 +1567,20 @@ export function MetaManualConnectionPanel({
                 <div>
                   <dt>Token</dt>
                   <dd>
-                    {selectedCredential?.label ??
-                      discovery?.credential.label ??
-                      "Pendente"}
+                    <PresentationMask placeholder="Credencial oculta">
+                      {selectedCredential?.label ??
+                        discovery?.credential.label ??
+                        "Pendente"}
+                    </PresentationMask>
                   </dd>
                 </div>
                 <div>
                   <dt>BM</dt>
-                  <dd>{selectedBusiness?.name ?? "Pendente"}</dd>
+                  <dd>
+                    <PresentationMask placeholder="Business Manager oculto">
+                      {selectedBusiness?.name ?? "Pendente"}
+                    </PresentationMask>
+                  </dd>
                 </div>
                 <div>
                   <dt>Contas</dt>
@@ -1520,15 +1589,17 @@ export function MetaManualConnectionPanel({
                 <div>
                   <dt>Destino</dt>
                   <dd>
-                    {destinationMode === "existing"
-                      ? (selectedExistingDestination?.label ?? "Pendente")
-                      : destinationMode === "direct"
-                        ? directPixelId && directPageId
-                          ? `${directPixelId} / ${directPageId}`
-                          : "Pendente"
-                        : selectedPixel && selectedPage
-                          ? `${selectedPixel.name} / ${selectedPage.name}`
-                          : "Pendente"}
+                    <PresentationMask placeholder="Destino oculto">
+                      {destinationMode === "existing"
+                        ? (selectedExistingDestination?.label ?? "Pendente")
+                        : destinationMode === "direct"
+                          ? directPixelId && directPageId
+                            ? `${directPixelId} / ${directPageId}`
+                            : "Pendente"
+                          : selectedPixel && selectedPage
+                            ? `${selectedPixel.name} / ${selectedPage.name}`
+                            : "Pendente"}
+                    </PresentationMask>
                   </dd>
                 </div>
               </dl>
@@ -1592,7 +1663,11 @@ export function MetaManualConnectionPanel({
         <div className="meta-action-dialog-header">
           <div>
             <span className="micro-label">Remover estrutura Meta</span>
-            <h3>{removingConnection?.businessManagerName ?? "Conexao"}</h3>
+            <h3>
+              <PresentationMask placeholder="Business Manager oculto">
+                {removingConnection?.businessManagerName ?? "Conexao"}
+              </PresentationMask>
+            </h3>
           </div>
           <button
             className="meta-dialog-close"
@@ -1617,7 +1692,12 @@ export function MetaManualConnectionPanel({
             </div>
           </div>
           <label className="field-label" htmlFor="meta-remove-confirmation">
-            Digite o ID <strong>{removingConnection?.businessManagerId}</strong>
+            Digite o ID{" "}
+            <strong>
+              <PresentationMask placeholder="oculto">
+                {removingConnection?.businessManagerId}
+              </PresentationMask>
+            </strong>
           </label>
           <input
             id="meta-remove-confirmation"
@@ -1627,6 +1707,7 @@ export function MetaManualConnectionPanel({
               setRemovalConfirmation(event.currentTarget.value)
             }
             disabled={pendingAction?.startsWith("remove:")}
+            data-presentation-sensitive-field="true"
           />
           <div className="meta-action-dialog-footer">
             <button

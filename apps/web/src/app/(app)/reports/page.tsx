@@ -15,6 +15,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { BackofficeActionState } from "../../../components/backoffice-action-form";
+import { PresentationMask } from "../../../components/presentation-mask";
 import { SubmitButton } from "../../../components/submit-button";
 import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
@@ -1795,7 +1796,19 @@ export default async function ReportsPage({
             {hierarchySelection.map((item) => (
               <span className="report-scope-item" key={item.label}>
                 <small>{item.label}</small>
-                <strong>{item.value}</strong>
+                <strong>
+                  <PresentationMask
+                    placeholder={
+                      item.label === "Campanha"
+                        ? "Campanha oculta"
+                        : item.label === "Conjunto"
+                          ? "Conjunto oculto"
+                          : "Anuncio oculto"
+                    }
+                  >
+                    {item.value}
+                  </PresentationMask>
+                </strong>
               </span>
             ))}
           </div>
@@ -1955,7 +1968,9 @@ export default async function ReportsPage({
                             page: 1,
                           })}
                         >
-                          {row.name}
+                          <PresentationMask placeholder="Campanha oculta">
+                            {row.name}
+                          </PresentationMask>
                         </Link>
                       </strong>
                       <MetaEntityControls
@@ -2067,10 +2082,16 @@ export default async function ReportsPage({
                               page: 1,
                             })}
                           >
-                            {row.name}
+                            <PresentationMask placeholder="Conjunto oculto">
+                              {row.name}
+                            </PresentationMask>
                           </Link>
                         </strong>
-                        <span>{row.campaignName}</span>
+                        <span>
+                          <PresentationMask placeholder="Campanha oculta">
+                            {row.campaignName}
+                          </PresentationMask>
+                        </span>
                         <MetaEntityControls
                           action={updateMetaEntity}
                           budget={row.budget}
@@ -2189,11 +2210,15 @@ export default async function ReportsPage({
                                   page: 1,
                                 })}
                               >
-                                {row.name}
+                                <PresentationMask placeholder="Anuncio oculto">
+                                  {row.name}
+                                </PresentationMask>
                               </Link>
                             </strong>
                             <span>
-                              {row.campaignName} / {row.adSetName}
+                              <PresentationMask placeholder="Campanha oculta / Conjunto oculto">
+                                {row.campaignName} / {row.adSetName}
+                              </PresentationMask>
                             </span>
                           </div>
                         </div>
@@ -2429,16 +2454,36 @@ export default async function ReportsPage({
                   filteredMetaStructureRows.map((row) => (
                     <tr key={row.key}>
                       <td>
-                        <strong>{row.campaignName}</strong>
+                        <strong>
+                          <PresentationMask placeholder="Campanha oculta">
+                            {row.campaignName}
+                          </PresentationMask>
+                        </strong>
                         <span>{row.campaignObjective ?? "sem objetivo"}</span>
                       </td>
                       <td>
-                        <strong>{row.adSetName}</strong>
-                        <span>{row.adSetId}</span>
+                        <strong>
+                          <PresentationMask placeholder="Conjunto oculto">
+                            {row.adSetName}
+                          </PresentationMask>
+                        </strong>
+                        <span>
+                          <PresentationMask placeholder="ID oculto">
+                            {row.adSetId}
+                          </PresentationMask>
+                        </span>
                       </td>
                       <td>
-                        <strong>{row.adName}</strong>
-                        <span>{row.adId ?? "sem anuncio"}</span>
+                        <strong>
+                          <PresentationMask placeholder="Anuncio oculto">
+                            {row.adName}
+                          </PresentationMask>
+                        </strong>
+                        <span>
+                          <PresentationMask placeholder="ID oculto">
+                            {row.adId ?? "sem anuncio"}
+                          </PresentationMask>
+                        </span>
                       </td>
                       <td>
                         <span

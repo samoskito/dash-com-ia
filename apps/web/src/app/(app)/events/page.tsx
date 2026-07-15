@@ -1,9 +1,10 @@
 import type {
   ConversionAuditDeliveryStateDto,
   ConversionAuditOverviewDto,
-  ConversionAuditSourceDto
+  ConversionAuditSourceDto,
 } from "@wpptrack/shared";
 import Link from "next/link";
+import { PresentationMask } from "../../../components/presentation-mask";
 import { formatDateTime } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { EventAuditDetails } from "./event-audit-details";
@@ -33,11 +34,11 @@ const emptySummary = {
   notEligible: 0,
   shadowObserved: 0,
   historical: 0,
-  discarded: 0
+  discarded: 0,
 };
 
 function asStringParam(
-  value: string | string[] | undefined
+  value: string | string[] | undefined,
 ): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -53,7 +54,7 @@ function dateOnlyInSaoPaulo(date: Date): string {
     timeZone: "America/Sao_Paulo",
     year: "numeric",
     month: "2-digit",
-    day: "2-digit"
+    day: "2-digit",
   }).formatToParts(date);
   const values = new Map(parts.map((part) => [part.type, part.value]));
 
@@ -73,7 +74,7 @@ function auditQuery(filters: AuditFilters, page = filters.page): string {
     since: filters.since,
     until: filters.until,
     page: String(page),
-    pageSize: String(filters.pageSize)
+    pageSize: String(filters.pageSize),
   });
 
   if (filters.eventName) {
@@ -94,12 +95,12 @@ function auditQuery(filters: AuditFilters, page = filters.page): string {
 async function getAudit(filters: AuditFilters): Promise<AuditResult> {
   try {
     const report = await serverApiFetch<ConversionAuditOverviewDto>(
-      `/reports/conversions/audit?${auditQuery(filters)}`
+      `/reports/conversions/audit?${auditQuery(filters)}`,
     );
 
     return {
       state: report.events.length ? "real" : "empty",
-      report
+      report,
     };
   } catch {
     return { state: "error", report: null };
@@ -137,12 +138,12 @@ function auditDate(value: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
     month: "2-digit",
-    year: "numeric"
+    year: "numeric",
   });
 }
 
 export default async function EventsPage({
-  searchParams
+  searchParams,
 }: {
   searchParams?: Promise<EventsSearchParams>;
 }) {
@@ -158,7 +159,7 @@ export default async function EventsPage({
   const page = positiveIntegerParam(asStringParam(params.page), 1);
   const pageSize = Math.min(
     positiveIntegerParam(asStringParam(params.pageSize), 25),
-    100
+    100,
   );
   const filters: AuditFilters = {
     since,
@@ -167,7 +168,7 @@ export default async function EventsPage({
     status,
     source,
     page,
-    pageSize
+    pageSize,
   };
   const result = await getAudit(filters);
   const report = result.report;
@@ -176,7 +177,7 @@ export default async function EventsPage({
     page,
     pageSize,
     totalItems: 0,
-    totalPages: 0
+    totalPages: 0,
   };
   const hasAttention = summary.blocked + summary.failed > 0;
 
@@ -214,7 +215,7 @@ export default async function EventsPage({
           ["Nao elegiveis", summary.notEligible, "not_eligible"],
           ["Em sombra", summary.shadowObserved, "shadow"],
           ["Historicos", summary.historical, "historical"],
-          ["Descartados", summary.discarded, "discarded"]
+          ["Descartados", summary.discarded, "discarded"],
         ].map(([label, value, state]) => (
           <div className={`audit-summary-item ${state}`} key={String(state)}>
             <span>{label}</span>
@@ -321,21 +322,37 @@ export default async function EventsPage({
                   <td>
                     <strong>
                       {event.leadId ? (
-                        <Link href={`/leads/${event.leadId}`}>
-                          {event.leadName ?? "Lead sem nome"}
-                        </Link>
+                        <PresentationMask placeholder="Lead oculto">
+                          <Link href={`/leads/${event.leadId}`}>
+                            {event.leadName ?? "Lead sem nome"}
+                          </Link>
+                        </PresentationMask>
                       ) : (
                         "Lead nao vinculado"
                       )}
                     </strong>
-                    <span>{event.phoneDisplay ?? "Telefone indisponivel"}</span>
+                    <span>
+                      <PresentationMask placeholder="(00) 00000-0000">
+                        {event.phoneDisplay ?? "Telefone indisponivel"}
+                      </PresentationMask>
+                    </span>
                   </td>
                   <td>
                     <strong>
-                      {event.campaignName ?? "Campanha nao resolvida"}
+                      <PresentationMask placeholder="Campanha oculta">
+                        {event.campaignName ?? "Campanha nao resolvida"}
+                      </PresentationMask>
                     </strong>
-                    <span>{event.adSetName ?? "Conjunto nao resolvido"}</span>
-                    <span>{event.adName ?? "Anuncio nao resolvido"}</span>
+                    <span>
+                      <PresentationMask placeholder="Conjunto oculto">
+                        {event.adSetName ?? "Conjunto nao resolvido"}
+                      </PresentationMask>
+                    </span>
+                    <span>
+                      <PresentationMask placeholder="Anuncio oculto">
+                        {event.adName ?? "Anuncio nao resolvido"}
+                      </PresentationMask>
+                    </span>
                   </td>
                   <td>
                     <span className={stateChipClass(event.deliveryState)}>

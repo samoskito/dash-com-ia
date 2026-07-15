@@ -50,4 +50,23 @@ describe("searchable select", () => {
     expect(html).toContain('role="combobox"');
     expect(html).toContain("Ag\u00eancia Barbieri");
   });
+
+  it("renders a neutral replacement for sensitive Meta assets", () => {
+    const html = renderToStaticMarkup(
+      createElement(SearchableSelect, {
+        name: "businessId",
+        value: "business_2",
+        options,
+        onValueChange: () => undefined,
+        ariaLabel: "Business Manager",
+        placeholder: "Buscar BM",
+        presentationPlaceholder: "BM oculto",
+        sensitive: true,
+      }),
+    );
+
+    expect(html).toContain('data-presentation-sensitive="true"');
+    expect(html).toContain('data-presentation-sensitive-field="true"');
+    expect(html).toContain("BM oculto");
+  });
 });

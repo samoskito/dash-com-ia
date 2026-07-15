@@ -1,5 +1,6 @@
 import type { LeadListItemDto, LeadListPageDto } from "@wpptrack/shared";
 import Link from "next/link";
+import { PresentationMask } from "../../../components/presentation-mask";
 import { formatDateTime } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 
@@ -233,6 +234,7 @@ export default async function LeadsPage({
             name="search"
             placeholder="Buscar lead"
             defaultValue={search}
+            data-presentation-sensitive-field="true"
           />
           <select
             className="filter-control"
@@ -271,6 +273,7 @@ export default async function LeadsPage({
             name="label"
             placeholder="Etiqueta"
             defaultValue={label}
+            data-presentation-sensitive-field="true"
           />
         </div>
         <div className="lead-filter-period">
@@ -321,14 +324,22 @@ export default async function LeadsPage({
                 <tr key={lead.id}>
                   <td>
                     <strong>
-                      <Link href={`/leads/${lead.id}`}>
-                        {lead.name ?? "Lead sem nome"}
-                      </Link>
+                      <PresentationMask placeholder="Lead oculto">
+                        <Link href={`/leads/${lead.id}`}>
+                          {lead.name ?? "Lead sem nome"}
+                        </Link>
+                      </PresentationMask>
                     </strong>
-                    <span>{lead.phoneDisplay ?? lead.phoneHash}</span>
+                    <span>
+                      <PresentationMask placeholder="(00) 00000-0000">
+                        {lead.phoneDisplay ?? lead.phoneHash}
+                      </PresentationMask>
+                    </span>
                   </td>
                   <td>
-                    {lead.campaignName ?? "Campanha nao resolvida"}
+                    <PresentationMask placeholder="Campanha oculta">
+                      {lead.campaignName ?? "Campanha nao resolvida"}
+                    </PresentationMask>
                     <span>{sourceLabel(lead.source, lead.adId)}</span>
                     {lead.labels.length > 0 ? (
                       <span>{lead.labels.join(", ")}</span>

@@ -2,6 +2,7 @@
 
 import type { MetaAssetsDto } from "@wpptrack/shared";
 import { useEffect, useMemo, useState } from "react";
+import { usePresentationMode } from "../../../components/presentation-mode-toggle";
 
 type MetaReportFiltersProps = {
   adAccountId?: string;
@@ -99,6 +100,7 @@ export function MetaReportFilters({
     () => (assets?.reportingAccounts ?? []).filter((account) => account.active),
     [assets?.reportingAccounts],
   );
+  const presentationMode = usePresentationMode();
   const businesses = useMemo(
     () => businessesFromReportingAccounts(reportingAccounts),
     [reportingAccounts],
@@ -145,34 +147,54 @@ export function MetaReportFilters({
       <input type="hidden" name="campaignId" value={campaignId ?? ""} />
       <input type="hidden" name="adSetId" value={adSetId ?? ""} />
       <input type="hidden" name="adId" value={adId ?? ""} />
-      <select
-        className="filter-control"
-        name="businessId"
-        value={selectedBusinessId}
-        onChange={(event) => handleBusinessChange(event.currentTarget.value)}
-        aria-label="Filtrar por Business Manager"
-      >
-        <option value="">Todos os BMs</option>
-        {businesses.map((business) => (
-          <option key={business.id} value={business.id}>
-            {business.name}
-          </option>
-        ))}
-      </select>
-      <select
-        className="filter-control"
-        name="adAccountId"
-        value={selectedAdAccountId}
-        onChange={(event) => setSelectedAdAccountId(event.currentTarget.value)}
-        aria-label="Filtrar por conta de anuncio"
-      >
-        <option value="">Todas as contas</option>
-        {accounts.map((account) => (
-          <option key={account.id} value={account.adAccountId}>
-            {account.adAccountName}
-          </option>
-        ))}
-      </select>
+      {presentationMode ? (
+        <>
+          <input type="hidden" name="businessId" value={selectedBusinessId} />
+          <input type="hidden" name="adAccountId" value={selectedAdAccountId} />
+        </>
+      ) : null}
+      {presentationMode ? (
+        <span className="filter-control presentation-filter-placeholder">
+          BM oculto
+        </span>
+      ) : (
+        <select
+          className="filter-control"
+          name="businessId"
+          value={selectedBusinessId}
+          onChange={(event) => handleBusinessChange(event.currentTarget.value)}
+          aria-label="Filtrar por Business Manager"
+        >
+          <option value="">Todos os BMs</option>
+          {businesses.map((business) => (
+            <option key={business.id} value={business.id}>
+              {business.name}
+            </option>
+          ))}
+        </select>
+      )}
+      {presentationMode ? (
+        <span className="filter-control presentation-filter-placeholder">
+          Conta oculta
+        </span>
+      ) : (
+        <select
+          className="filter-control"
+          name="adAccountId"
+          value={selectedAdAccountId}
+          onChange={(event) =>
+            setSelectedAdAccountId(event.currentTarget.value)
+          }
+          aria-label="Filtrar por conta de anuncio"
+        >
+          <option value="">Todas as contas</option>
+          {accounts.map((account) => (
+            <option key={account.id} value={account.adAccountId}>
+              {account.adAccountName}
+            </option>
+          ))}
+        </select>
+      )}
       <select
         className="filter-control"
         name="nameScope"
@@ -191,6 +213,7 @@ export function MetaReportFilters({
         defaultValue={nameContains ?? ""}
         placeholder="Filtrar por nome"
         aria-label="Texto contido no nome"
+        data-presentation-sensitive-field="true"
       />
       <select
         className="filter-control"

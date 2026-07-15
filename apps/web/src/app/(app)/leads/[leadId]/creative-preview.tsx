@@ -2,6 +2,8 @@
 
 import { ExternalLink, ImageOff } from "lucide-react";
 import { useState } from "react";
+import { PresentationMask } from "../../../../components/presentation-mask";
+import { usePresentationMode } from "../../../../components/presentation-mode-toggle";
 
 type CreativePreviewProps = {
   adName: string;
@@ -15,11 +17,15 @@ export function CreativePreview({
   thumbnailUrl,
 }: CreativePreviewProps) {
   const [imageFailed, setImageFailed] = useState(false);
-  const showImage = Boolean(thumbnailUrl) && !imageFailed;
+  const presentationMode = usePresentationMode();
+  const showImage = Boolean(thumbnailUrl) && !imageFailed && !presentationMode;
 
   return (
     <aside className="lead-creative-panel" aria-label="Criativo do anuncio">
-      <div className="lead-creative-media">
+      <div
+        className="lead-creative-media"
+        data-presentation-sensitive-media="true"
+      >
         <span className="lead-creative-badge">Criativo</span>
         {showImage ? (
           <img
@@ -31,7 +37,9 @@ export function CreativePreview({
         ) : (
           <div className="lead-creative-placeholder">
             <ImageOff aria-hidden="true" size={24} strokeWidth={1.7} />
-            <span>Miniatura indisponivel</span>
+            <span>
+              {presentationMode ? "Criativo oculto" : "Miniatura indisponivel"}
+            </span>
           </div>
         )}
       </div>
@@ -39,9 +47,13 @@ export function CreativePreview({
       <div className="lead-creative-caption">
         <div>
           <span className="micro-label">Anuncio atribuido</span>
-          <strong title={adName}>{adName}</strong>
+          <strong>
+            <PresentationMask placeholder="Anuncio oculto">
+              {adName}
+            </PresentationMask>
+          </strong>
         </div>
-        {destinationUrl ? (
+        {destinationUrl && !presentationMode ? (
           <a
             aria-label="Ver anuncio no Instagram em uma nova aba"
             className="button lead-creative-link"

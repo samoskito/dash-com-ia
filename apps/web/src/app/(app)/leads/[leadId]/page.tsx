@@ -3,6 +3,7 @@ import Link from "next/link";
 import { formatDateTime } from "../../../../lib/date-time";
 import { serverApiFetch } from "../../../../lib/server-api";
 import { CreativePreview } from "./creative-preview";
+import { PresentationMask } from "../../../../components/presentation-mask";
 
 type LeadDetailParams = {
   leadId: string;
@@ -72,6 +73,12 @@ function AttributionStep({
   name: string | null;
 }) {
   const resolvedName = name ?? "Nao resolvido";
+  const hiddenName =
+    label === "Campanha"
+      ? "Campanha oculta"
+      : label === "Conjunto"
+        ? "Conjunto oculto"
+        : "Anuncio oculto";
 
   return (
     <li className="lead-attribution-step">
@@ -79,9 +86,15 @@ function AttributionStep({
         <span>{index}</span>
         <span>{label}</span>
       </div>
-      <strong title={resolvedName}>{resolvedName}</strong>
-      <small title={id ?? undefined}>
-        {id ? `ID ${id}` : "ID indisponivel"}
+      <strong>
+        <PresentationMask placeholder={hiddenName}>
+          {resolvedName}
+        </PresentationMask>
+      </strong>
+      <small>
+        <PresentationMask placeholder="ID oculto">
+          {id ? `ID ${id}` : "ID indisponivel"}
+        </PresentationMask>
       </small>
     </li>
   );
@@ -123,8 +136,16 @@ export default async function LeadDetailPage({
       <header className="page-header">
         <div>
           <span className="eyebrow">Lead</span>
-          <h1>{lead.name ?? "Lead sem nome"}</h1>
-          <p>{lead.phoneDisplay ?? lead.phoneHash}</p>
+          <h1>
+            <PresentationMask placeholder="Lead oculto">
+              {lead.name ?? "Lead sem nome"}
+            </PresentationMask>
+          </h1>
+          <p>
+            <PresentationMask placeholder="(00) 00000-0000">
+              {lead.phoneDisplay ?? lead.phoneHash}
+            </PresentationMask>
+          </p>
         </div>
         <div className="header-actions">
           <span className="status-chip">{lead.status}</span>
@@ -200,9 +221,11 @@ export default async function LeadDetailPage({
           <div>
             <dt>IDs Meta</dt>
             <dd>
-              {[lead.campaignId, lead.adSetId, lead.adId]
-                .filter(Boolean)
-                .join(" / ") || "-"}
+              <PresentationMask placeholder="IDs ocultos">
+                {[lead.campaignId, lead.adSetId, lead.adId]
+                  .filter(Boolean)
+                  .join(" / ") || "-"}
+              </PresentationMask>
             </dd>
           </div>
         </dl>
@@ -241,7 +264,11 @@ export default async function LeadDetailPage({
                       ) : null}
                     </td>
                     <td>{event.sourceTrigger}</td>
-                    <td>{event.pixelId ?? "-"}</td>
+                    <td>
+                      <PresentationMask placeholder="Pixel oculto">
+                        {event.pixelId ?? "-"}
+                      </PresentationMask>
+                    </td>
                     <td>{dateTime(event.occurredAt)}</td>
                   </tr>
                 ))

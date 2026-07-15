@@ -3,12 +3,22 @@
 import type {
   ConversionAuditDeliveryStateDto,
   ConversionAuditEventDetailDto,
-  ConversionAuditPayloadSnapshotDto
+  ConversionAuditPayloadSnapshotDto,
 } from "@wpptrack/shared";
-import { Braces, Check, Copy, Eye, RefreshCw, X } from "lucide-react";
+import {
+  Braces,
+  Check,
+  Copy,
+  Eye,
+  RefreshCw,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { BackofficeActionForm } from "../../../components/backoffice-action-form";
+import { PresentationMask } from "../../../components/presentation-mask";
+import { usePresentationMode } from "../../../components/presentation-mode-toggle";
 import { apiFetch } from "../../../lib/api";
 import { retryMetaEventAction } from "./actions";
 
@@ -18,7 +28,7 @@ const tabs: Array<{ id: AuditTab; label: string }> = [
   { id: "summary", label: "Resumo" },
   { id: "source", label: "Entrada" },
   { id: "request", label: "Envio Meta" },
-  { id: "response", label: "Resposta Meta" }
+  { id: "response", label: "Resposta Meta" },
 ];
 
 function stateChipClass(state: ConversionAuditDeliveryStateDto): string {
@@ -49,18 +59,19 @@ function missingFieldLabel(field: string): string {
     ctwa_clid: "Identificador de clique",
     value: "Valor da conversao",
     pixel_id: "Pixel Meta",
-    page_id: "Pagina Facebook"
+    page_id: "Pagina Facebook",
   };
 
   return labels[field] ?? field;
 }
 
 function JsonSnapshot({
-  snapshot
+  snapshot,
 }: {
   snapshot: ConversionAuditPayloadSnapshotDto;
 }) {
   const [copied, setCopied] = useState(false);
+  const presentationMode = usePresentationMode();
   const serialized = snapshot.payload
     ? JSON.stringify(snapshot.payload, null, 2)
     : null;
@@ -82,7 +93,7 @@ function JsonSnapshot({
           <span className="micro-label">Disponibilidade</span>
           <strong>{snapshot.label}</strong>
         </div>
-        {serialized ? (
+        {serialized && !presentationMode ? (
           <button
             className="button ghost audit-copy-button"
             onClick={copyPayload}
@@ -97,7 +108,13 @@ function JsonSnapshot({
           </button>
         ) : null}
       </header>
-      {serialized ? (
+      {serialized && presentationMode ? (
+        <div className="audit-payload-empty presentation-payload-hidden">
+          <ShieldCheck aria-hidden="true" size={24} />
+          <strong>Payload oculto no modo de apresentacao</strong>
+          <span>Desative o modo para inspecionar os dados tecnicos.</span>
+        </div>
+      ) : serialized ? (
         <pre className="audit-json-viewer">
           <code>{serialized}</code>
         </pre>
@@ -131,7 +148,7 @@ function RetrySubmitButton({ compact = false }: { compact?: boolean }) {
 export function EventAuditDetails({
   canRetry,
   eventId,
-  eventLabel
+  eventLabel,
 }: {
   canRetry: boolean;
   eventId: string;
@@ -141,7 +158,7 @@ export function EventAuditDetails({
   const [retryAvailable, setRetryAvailable] = useState(canRetry);
   const [activeTab, setActiveTab] = useState<AuditTab>("summary");
   const [detail, setDetail] = useState<ConversionAuditEventDetailDto | null>(
-    null
+    null,
   );
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -163,8 +180,8 @@ export function EventAuditDetails({
     try {
       setDetail(
         await apiFetch<ConversionAuditEventDetailDto>(
-          `/reports/conversions/audit/${encodeURIComponent(eventId)}`
-        )
+          `/reports/conversions/audit/${encodeURIComponent(eventId)}`,
+        ),
       );
     } catch {
       setFailed(true);
@@ -191,9 +208,9 @@ export function EventAuditDetails({
             errorCode: null,
             errorMessage: null,
             reason: null,
-            reasonCode: null
+            reasonCode: null,
           }
-        : current
+        : current,
     );
   }
 
@@ -234,7 +251,11 @@ export function EventAuditDetails({
             <div>
               <span className="micro-label">Auditoria do evento</span>
               <h3>{detail?.eventLabel ?? eventLabel}</h3>
-              <span className="event-audit-id">{eventId}</span>
+              <span className="event-audit-id">
+                <PresentationMask placeholder="ID do evento oculto">
+                  {eventId}
+                </PresentationMask>
+              </span>
             </div>
             <button
               aria-label="Fechar"
@@ -290,11 +311,19 @@ export function EventAuditDetails({
                       </div>
                       <div>
                         <dt>Pixel</dt>
-                        <dd>{detail.pixelId ?? "Nao resolvido"}</dd>
+                        <dd>
+                          <PresentationMask placeholder="Pixel oculto">
+                            {detail.pixelId ?? "Nao resolvido"}
+                          </PresentationMask>
+                        </dd>
                       </div>
                       <div>
                         <dt>Pagina</dt>
-                        <dd>{detail.pageId ?? "Nao resolvida"}</dd>
+                        <dd>
+                          <PresentationMask placeholder="Pagina oculta">
+                            {detail.pageId ?? "Nao resolvida"}
+                          </PresentationMask>
+                        </dd>
                       </div>
                     </dl>
 

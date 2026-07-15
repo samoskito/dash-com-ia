@@ -18,6 +18,7 @@ import {
 } from "../../../components/backoffice-action-form";
 import { ConversionRuleBuilder } from "../../../components/conversion-rule-builder";
 import { PendingSubmitButton } from "../../../components/pending-submit-button";
+import { PresentationMask } from "../../../components/presentation-mask";
 import { TeamActionButton } from "../../../components/team-action-button";
 import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
@@ -875,20 +876,28 @@ export default async function SettingsPage() {
           <div className="workspace-profile-section">
             <div className="settings-section-heading">
               <span className="micro-label">Workspace</span>
-              <strong>{workspace?.name ?? "Workspace indisponivel"}</strong>
+              <strong>
+                <PresentationMask placeholder="Workspace demonstrativo">
+                  {workspace?.name ?? "Workspace indisponivel"}
+                </PresentationMask>
+              </strong>
               <small>
-                {workspace ? workspace.slug : "Dados indisponiveis"}
+                <PresentationMask placeholder="workspace-demonstrativo">
+                  {workspace ? workspace.slug : "Dados indisponiveis"}
+                </PresentationMask>
               </small>
             </div>
             <form
               className="workspace-name-form"
               action={updateWorkspaceProfile}
+              data-presentation-sensitive-action="true"
             >
               <label>
                 <span>Nome publico</span>
                 <input
                   defaultValue={workspace?.name ?? ""}
                   name="workspaceName"
+                  data-presentation-sensitive-field="true"
                 />
               </label>
               <button
@@ -908,13 +917,23 @@ export default async function SettingsPage() {
           <div className="account-profile-section">
             <div className="account-identity">
               <span className="member-avatar" aria-hidden="true">
-                {accountUser
-                  ? initials(accountUser.name, accountUser.email)
-                  : "--"}
+                <PresentationMask placeholder="--">
+                  {accountUser
+                    ? initials(accountUser.name, accountUser.email)
+                    : "--"}
+                </PresentationMask>
               </span>
               <span>
-                <strong>{accountUser?.name ?? "Conta do usuario"}</strong>
-                <small>{accountUser?.email ?? "Conta indisponivel"}</small>
+                <strong>
+                  <PresentationMask placeholder="Usuario oculto">
+                    {accountUser?.name ?? "Conta do usuario"}
+                  </PresentationMask>
+                </strong>
+                <small>
+                  <PresentationMask placeholder="usuario@exemplo.com">
+                    {accountUser?.email ?? "Conta indisponivel"}
+                  </PresentationMask>
+                </small>
               </span>
             </div>
             <dl className="account-facts">
@@ -936,7 +955,10 @@ export default async function SettingsPage() {
               </div>
             </dl>
             {!accountUser?.emailVerifiedAt ? (
-              <form action={requestEmailVerification}>
+              <form
+                action={requestEmailVerification}
+                data-presentation-sensitive-action="true"
+              >
                 <button
                   className="button"
                   disabled={!accountUser}
@@ -975,11 +997,21 @@ export default async function SettingsPage() {
                 return (
                   <div className="member-row" key={member.id}>
                     <span className="member-avatar" aria-hidden="true">
-                      {initials(member.name, member.email)}
+                      <PresentationMask placeholder="--">
+                        {initials(member.name, member.email)}
+                      </PresentationMask>
                     </span>
                     <span className="member-identity">
-                      <strong>{member.name ?? "Usuario sem nome"}</strong>
-                      <small>{member.email}</small>
+                      <strong>
+                        <PresentationMask placeholder="Usuario oculto">
+                          {member.name ?? "Usuario sem nome"}
+                        </PresentationMask>
+                      </strong>
+                      <small>
+                        <PresentationMask placeholder="usuario@exemplo.com">
+                          {member.email}
+                        </PresentationMask>
+                      </small>
                     </span>
                     <span className="member-role">
                       <strong>{workspaceRoleLabel(member.role)}</strong>
@@ -996,7 +1028,10 @@ export default async function SettingsPage() {
                       ) : null}
                     </span>
                     {canManageTarget ? (
-                      <div className="member-controls">
+                      <div
+                        className="member-controls"
+                        data-presentation-sensitive-action="true"
+                      >
                         <BackofficeActionForm
                           action={updateWorkspaceMemberRole}
                           className="member-role-form"
@@ -1067,7 +1102,10 @@ export default async function SettingsPage() {
                       </div>
                     ) : null}
                     {isPlatformOwnerSupport && member.role === "owner" ? (
-                      <div className="member-controls member-owner-controls">
+                      <div
+                        className="member-controls member-owner-controls"
+                        data-presentation-sensitive-action="true"
+                      >
                         <BackofficeActionForm
                           action={resendWorkspaceOwnerAccess}
                         >
@@ -1103,31 +1141,34 @@ export default async function SettingsPage() {
               <strong>Convidar membro</strong>
             </div>
             {canManageTeam ? (
-              <BackofficeActionForm
-                action={createWorkspaceInvite}
-                className="invite-form"
-                resetOnSuccess
-              >
-                <label>
-                  <span>Email</span>
-                  <input
-                    name="email"
-                    type="email"
-                    placeholder="pessoa@empresa.com"
-                  />
-                </label>
-                <label>
-                  <span>Nivel de acesso</span>
-                  <select name="role" defaultValue="member">
-                    <option value="member">Analista</option>
-                    <option value="admin">Administrador</option>
-                  </select>
-                </label>
-                <button className="button primary" type="submit">
-                  <UserPlus aria-hidden="true" size={16} strokeWidth={2} />
-                  Enviar convite
-                </button>
-              </BackofficeActionForm>
+              <div data-presentation-sensitive-action="true">
+                <BackofficeActionForm
+                  action={createWorkspaceInvite}
+                  className="invite-form"
+                  resetOnSuccess
+                >
+                  <label>
+                    <span>Email</span>
+                    <input
+                      name="email"
+                      type="email"
+                      placeholder="pessoa@empresa.com"
+                      data-presentation-sensitive-field="true"
+                    />
+                  </label>
+                  <label>
+                    <span>Nivel de acesso</span>
+                    <select name="role" defaultValue="member">
+                      <option value="member">Analista</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                  </label>
+                  <button className="button primary" type="submit">
+                    <UserPlus aria-hidden="true" size={16} strokeWidth={2} />
+                    Enviar convite
+                  </button>
+                </BackofficeActionForm>
+              </div>
             ) : (
               <p className="muted">Apenas gestores da equipe podem convidar.</p>
             )}
@@ -1137,7 +1178,11 @@ export default async function SettingsPage() {
                 invites.map((invite) => (
                   <div key={invite.id}>
                     <span>
-                      <strong>{invite.email}</strong>
+                      <strong>
+                        <PresentationMask placeholder="usuario@exemplo.com">
+                          {invite.email}
+                        </PresentationMask>
+                      </strong>
                       <small>
                         {inviteStatusLabel(invite.status)} |{" "}
                         {workspaceRoleLabel(invite.role)}
@@ -1147,7 +1192,10 @@ export default async function SettingsPage() {
                       </small>
                     </span>
                     {canManageTeam && invite.status !== "accepted" ? (
-                      <div className="invite-actions">
+                      <div
+                        className="invite-actions"
+                        data-presentation-sensitive-action="true"
+                      >
                         <BackofficeActionForm action={resendWorkspaceInvite}>
                           <input
                             name="inviteId"

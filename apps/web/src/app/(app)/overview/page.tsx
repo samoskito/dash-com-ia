@@ -7,6 +7,7 @@ import type {
 } from "@wpptrack/shared";
 import Link from "next/link";
 import type { CSSProperties } from "react";
+import { PresentationMask } from "../../../components/presentation-mask";
 import { serverApiFetch } from "../../../lib/server-api";
 import { OverviewFilters } from "./overview-filters";
 
@@ -545,9 +546,13 @@ export default async function OverviewPage({
           <div>
             <span className="eyebrow">Funil integrado</span>
             <h2>
-              {reportState === "error"
-                ? "Nao foi possivel carregar relatorios"
-                : campaign.name}
+              {reportState === "error" ? (
+                "Nao foi possivel carregar relatorios"
+              ) : (
+                <PresentationMask placeholder="Campanha oculta">
+                  {campaign.name}
+                </PresentationMask>
+              )}
             </h2>
           </div>
           <p>
@@ -764,7 +769,11 @@ function DailyConversationComparison({
           className="daily-comparison-summary"
           aria-label="Resumo do comparativo"
         >
-          <span>{scopeLabel}</span>
+          <span>
+            <PresentationMask placeholder="Conta de anuncios oculta">
+              {scopeLabel}
+            </PresentationMask>
+          </span>
           <strong>{differenceLabel}</strong>
         </div>
       </div>

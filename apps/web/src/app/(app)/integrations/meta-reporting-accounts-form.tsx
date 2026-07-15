@@ -3,14 +3,17 @@
 import type { MetaAssetsDto } from "@wpptrack/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchableSelect } from "../../../components/searchable-select";
+import { PresentationMask } from "../../../components/presentation-mask";
 import { SubmitButton } from "../../../components/submit-button";
 
-type SaveMetaReportingAccountAction = (formData: FormData) => void | Promise<void>;
+type SaveMetaReportingAccountAction = (
+  formData: FormData,
+) => void | Promise<void>;
 type SetMetaReportingAccountStatusAction = (
-  formData: FormData
+  formData: FormData,
 ) => void | Promise<void>;
 type LoadMetaBusinessReportingAssetsAction = (
-  businessId: string
+  businessId: string,
 ) => Promise<Pick<MetaAssetsDto, "adAccounts">>;
 
 type MetaReportingAccountsFormProps = {
@@ -26,13 +29,15 @@ function firstId<T extends { id: string }>(items: T[]): string {
 
 export function metaReportingAccountsForBusiness(
   assets: MetaAssetsDto,
-  businessId: string
+  businessId: string,
 ) {
   if (!businessId) {
     return [];
   }
 
-  return assets.adAccounts.filter((account) => account.businessId === businessId);
+  return assets.adAccounts.filter(
+    (account) => account.businessId === businessId,
+  );
 }
 
 function initialBusinessId(assets: MetaAssetsDto): string {
@@ -58,7 +63,7 @@ function syncStatusLabel(status: string) {
     pending: "Pendente",
     syncing: "Sincronizando",
     synced: "Sincronizada",
-    error: "Erro"
+    error: "Erro",
   };
 
   return labels[status] ?? "Status desconhecido";
@@ -68,12 +73,12 @@ export function MetaReportingAccountsForm({
   action,
   assets,
   loadBusinessAssetsAction,
-  statusAction
+  statusAction,
 }: MetaReportingAccountsFormProps) {
   const [businessId, setBusinessId] = useState(() => initialBusinessId(assets));
   const businessIdRef = useRef(businessId);
   const [availableAdAccounts, setAvailableAdAccounts] = useState(
-    () => assets.adAccounts
+    () => assets.adAccounts,
   );
   const [isLoadingBusinessAssets, setIsLoadingBusinessAssets] = useState(false);
   const loadSequence = useRef(0);
@@ -81,26 +86,26 @@ export function MetaReportingAccountsForm({
     () =>
       metaReportingAccountsForBusiness(
         { ...assets, adAccounts: availableAdAccounts },
-        businessId
+        businessId,
       ),
-    [assets, availableAdAccounts, businessId]
+    [assets, availableAdAccounts, businessId],
   );
   const [adAccountId, setAdAccountId] = useState(() =>
-    initialAdAccountId(assets, initialBusinessId(assets))
+    initialAdAccountId(assets, initialBusinessId(assets)),
   );
   const selectedBusiness = useMemo(
     () => assets.businesses.find((business) => business.id === businessId),
-    [assets.businesses, businessId]
+    [assets.businesses, businessId],
   );
   const selectedAdAccount = useMemo(
     () => availableAccounts.find((account) => account.id === adAccountId),
-    [availableAccounts, adAccountId]
+    [availableAccounts, adAccountId],
   );
 
   useEffect(() => {
     const currentBusinessId = businessIdRef.current;
     const nextBusinessId = assets.businesses.some(
-      (business) => business.id === currentBusinessId
+      (business) => business.id === currentBusinessId,
     )
       ? currentBusinessId
       : initialBusinessId(assets);
@@ -152,9 +157,21 @@ export function MetaReportingAccountsForm({
   return (
     <>
       <form className="filter-bar" action={action}>
-        <input type="hidden" name="businessName" value={selectedBusiness?.name ?? ""} />
-        <input type="hidden" name="adAccountName" value={selectedAdAccount?.name ?? ""} />
-        <input type="hidden" name="currency" value={selectedAdAccount?.currency ?? ""} />
+        <input
+          type="hidden"
+          name="businessName"
+          value={selectedBusiness?.name ?? ""}
+        />
+        <input
+          type="hidden"
+          name="adAccountName"
+          value={selectedAdAccount?.name ?? ""}
+        />
+        <input
+          type="hidden"
+          name="currency"
+          value={selectedAdAccount?.currency ?? ""}
+        />
         <input
           type="hidden"
           name="timezoneName"
@@ -166,12 +183,14 @@ export function MetaReportingAccountsForm({
           options={assets.businesses.map((business) => ({
             value: business.id,
             label: business.name,
-            description: business.id
+            description: business.id,
           }))}
           onValueChange={handleBusinessChange}
           ariaLabel="Business Manager para relatorios"
           placeholder="Buscar BM"
+          presentationPlaceholder="BM oculto"
           disabled={isLoadingBusinessAssets}
+          sensitive
         />
         <SearchableSelect
           name="adAccountId"
@@ -179,12 +198,14 @@ export function MetaReportingAccountsForm({
           options={availableAccounts.map((account) => ({
             value: account.id,
             label: account.name,
-            description: account.id
+            description: account.id,
           }))}
           onValueChange={setAdAccountId}
           ariaLabel="Conta de anuncio para relatorios"
           placeholder="Buscar conta"
+          presentationPlaceholder="Conta oculta"
           disabled={isLoadingBusinessAssets}
+          sensitive
         />
         <SubmitButton
           disabled={isLoadingBusinessAssets || !businessId || !adAccountId}
@@ -211,25 +232,47 @@ export function MetaReportingAccountsForm({
               (assets.reportingAccounts ?? []).map((account) => (
                 <tr key={account.id}>
                   <td>
-                    <strong>{account.businessName}</strong>
-                    <span>{account.businessId}</span>
+                    <strong>
+                      <PresentationMask placeholder="Business Manager oculto">
+                        {account.businessName}
+                      </PresentationMask>
+                    </strong>
+                    <span>
+                      <PresentationMask placeholder="ID oculto">
+                        {account.businessId}
+                      </PresentationMask>
+                    </span>
                   </td>
                   <td>
-                    <strong>{account.adAccountName}</strong>
-                    <span>{account.adAccountId}</span>
+                    <strong>
+                      <PresentationMask placeholder="Conta de anuncios oculta">
+                        {account.adAccountName}
+                      </PresentationMask>
+                    </strong>
+                    <span>
+                      <PresentationMask placeholder="ID oculto">
+                        {account.adAccountId}
+                      </PresentationMask>
+                    </span>
                   </td>
                   <td>
                     <strong>{account.currency ?? "sem moeda"}</strong>
                     <span>{account.timezoneName ?? "sem timezone"}</span>
                   </td>
                   <td>
-                    <span className={`event-chip${account.syncStatus === "error" ? " warn" : ""}`}>
+                    <span
+                      className={`event-chip${account.syncStatus === "error" ? " warn" : ""}`}
+                    >
                       {syncStatusLabel(account.syncStatus)}
                     </span>
-                    {account.syncError ? <span>{account.syncError}</span> : null}
+                    {account.syncError ? (
+                      <span>{account.syncError}</span>
+                    ) : null}
                   </td>
                   <td>
-                    <span className={`event-chip${account.active ? "" : " warn"}`}>
+                    <span
+                      className={`event-chip${account.active ? "" : " warn"}`}
+                    >
                       {account.active ? "Ativa" : "Inativa"}
                     </span>
                   </td>
@@ -245,7 +288,9 @@ export function MetaReportingAccountsForm({
                         value={account.active ? "false" : "true"}
                       />
                       <SubmitButton
-                        pendingLabel={account.active ? "Desativando..." : "Ativando..."}
+                        pendingLabel={
+                          account.active ? "Desativando..." : "Ativando..."
+                        }
                       >
                         {account.active ? "Desativar" : "Ativar"}
                       </SubmitButton>
@@ -257,12 +302,18 @@ export function MetaReportingAccountsForm({
               <tr>
                 <td>
                   <strong>Nenhuma conta configurada</strong>
-                  <span>Adicione contas de anuncio para relatorios multi-conta.</span>
+                  <span>
+                    Adicione contas de anuncio para relatorios multi-conta.
+                  </span>
                 </td>
                 <td>sem conta</td>
                 <td>sem moeda</td>
-                <td><span className="event-chip warn">pendente</span></td>
-                <td><span className="event-chip warn">inativa</span></td>
+                <td>
+                  <span className="event-chip warn">pendente</span>
+                </td>
+                <td>
+                  <span className="event-chip warn">inativa</span>
+                </td>
                 <td>-</td>
               </tr>
             )}

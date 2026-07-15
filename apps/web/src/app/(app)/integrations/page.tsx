@@ -15,6 +15,7 @@ import type {
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { SubmitButton } from "../../../components/submit-button";
+import { PresentationMask } from "../../../components/presentation-mask";
 import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
@@ -1108,13 +1109,19 @@ export default async function IntegrationsPage({
                 <div className="metric-card">
                   <span className="micro-label">Pixel CAPI</span>
                   <strong>
-                    {metaAssets.conversionDestination?.pixelName ?? "Sem Pixel"}
+                    <PresentationMask placeholder="Pixel oculto">
+                      {metaAssets.conversionDestination?.pixelName ??
+                        "Sem Pixel"}
+                    </PresentationMask>
                   </strong>
                 </div>
                 <div className="metric-card">
                   <span className="micro-label">Pagina Facebook principal</span>
                   <strong>
-                    {metaAssets.conversionDestination?.pageName ?? "Sem Pagina"}
+                    <PresentationMask placeholder="Pagina oculta">
+                      {metaAssets.conversionDestination?.pageName ??
+                        "Sem Pagina"}
+                    </PresentationMask>
                   </strong>
                 </div>
                 <div className="metric-card">

@@ -3,6 +3,7 @@
 import { ImageOff, Maximize2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePresentationMode } from "../../../components/presentation-mode-toggle";
 
 type HoverPosition = {
   left: number;
@@ -26,6 +27,7 @@ export function ReportAdPreview({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [previewFailed, setPreviewFailed] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const presentationMode = usePresentationMode();
   const [hoverPosition, setHoverPosition] = useState<HoverPosition | null>(
     null,
   );
@@ -43,6 +45,13 @@ export function ReportAdPreview({
     setPreviewFailed(false);
     setThumbnailFailed(false);
   }, [previewUrl, thumbnailUrl]);
+
+  useEffect(() => {
+    if (presentationMode) {
+      setHoverPosition(null);
+      dialogRef.current?.close();
+    }
+  }, [presentationMode]);
 
   function showHoverPreview() {
     if (!imageAvailable || !buttonRef.current) {
@@ -89,13 +98,15 @@ export function ReportAdPreview({
     setThumbnailFailed(true);
   }
 
-  if (!imageAvailable) {
+  if (presentationMode || !imageAvailable) {
     return (
       <span
-        aria-label="Miniatura indisponivel"
+        aria-label={
+          presentationMode ? "Criativo oculto" : "Miniatura indisponivel"
+        }
         className="report-ad-thumbnail unavailable"
         role="img"
-        title="Miniatura indisponivel"
+        title={presentationMode ? "Criativo oculto" : "Miniatura indisponivel"}
       >
         <ImageOff aria-hidden="true" size={17} strokeWidth={1.7} />
       </span>
@@ -107,6 +118,7 @@ export function ReportAdPreview({
       <button
         aria-label={`Ampliar criativo do anuncio ${adName}`}
         className="report-ad-thumbnail"
+        data-presentation-sensitive-media="true"
         onBlur={hideHoverPreview}
         onClick={openPreview}
         onFocus={showHoverPreview}

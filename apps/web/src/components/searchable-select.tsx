@@ -17,6 +17,8 @@ type SearchableSelectProps = {
   placeholder: string;
   emptyMessage?: string;
   disabled?: boolean;
+  sensitive?: boolean;
+  presentationPlaceholder?: string;
 };
 
 function normalizeSearchText(value: string) {
@@ -57,6 +59,8 @@ export function SearchableSelect({
   placeholder,
   emptyMessage = "Nenhum ativo encontrado",
   disabled = false,
+  sensitive = false,
+  presentationPlaceholder = "Dado oculto",
 }: SearchableSelectProps) {
   const listboxId = useId();
   const selectedOption = options.find((option) => option.value === value);
@@ -113,6 +117,7 @@ export function SearchableSelect({
   return (
     <div
       className="searchable-select"
+      data-presentation-sensitive={sensitive ? "true" : undefined}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
           setIsOpen(false);
@@ -171,7 +176,16 @@ export function SearchableSelect({
         autoComplete="off"
         placeholder={placeholder}
         disabled={disabled}
+        data-presentation-sensitive-field={sensitive ? "true" : undefined}
       />
+      {sensitive ? (
+        <span
+          aria-hidden="true"
+          className="searchable-select-presentation-placeholder"
+        >
+          {presentationPlaceholder}
+        </span>
+      ) : null}
       <div
         className="searchable-select-menu"
         id={listboxId}

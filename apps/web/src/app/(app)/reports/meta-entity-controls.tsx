@@ -8,6 +8,7 @@ import {
   type BackofficeFormAction,
 } from "../../../components/backoffice-action-form";
 import { SubmitButton } from "../../../components/submit-button";
+import { PresentationMask } from "../../../components/presentation-mask";
 
 type MetaLevel = "campaign" | "adset" | "ad";
 type ReportBudget = NonNullable<CampaignReportRowDto["budget"]>;
@@ -177,7 +178,19 @@ export function MetaEntityControls({
               <X aria-hidden="true" size={18} />
             </button>
           </div>
-          <p className="meta-action-target">{name}</p>
+          <p className="meta-action-target">
+            <PresentationMask
+              placeholder={
+                level === "campaign"
+                  ? "Campanha oculta"
+                  : level === "adset"
+                    ? "Conjunto oculto"
+                    : "Anuncio oculto"
+              }
+            >
+              {name}
+            </PresentationMask>
+          </p>
           <BackofficeActionForm
             action={action}
             className="meta-action-form"
@@ -236,7 +249,19 @@ export function MetaEntityControls({
               <X aria-hidden="true" size={18} />
             </button>
           </div>
-          <p className="meta-action-target">{name}</p>
+          <p className="meta-action-target">
+            <PresentationMask
+              placeholder={
+                level === "campaign"
+                  ? "Campanha oculta"
+                  : level === "adset"
+                    ? "Conjunto oculto"
+                    : "Anuncio oculto"
+              }
+            >
+              {name}
+            </PresentationMask>
+          </p>
           <BackofficeActionForm
             action={action}
             className="meta-action-form"
