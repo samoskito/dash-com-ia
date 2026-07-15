@@ -62,7 +62,10 @@ export async function createMetaManualCredentialAction(
     revalidatePath("/integrations");
     return {
       ok: true,
-      message: "Token validado e protegido. Agora escolha a estrutura Meta.",
+      message:
+        discovery.businesses.length > 0
+          ? "Token validado e protegido. Agora escolha a estrutura Meta."
+          : "Token validado e protegido. A Meta nao listou as BMs; informe o ID da estrutura.",
       discovery,
     };
   } catch (error) {

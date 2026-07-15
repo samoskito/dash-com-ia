@@ -1,7 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { MetaManualConnectionPanel } from "../src/app/(app)/integrations/meta-manual-connection-panel";
+import {
+  MetaManualConnectionPanel,
+  parseMetaAdAccountIds,
+} from "../src/app/(app)/integrations/meta-manual-connection-panel";
 
 const actions = {
   disconnectOAuthAction: vi.fn(),
@@ -21,6 +24,14 @@ const capabilities = {
 };
 
 describe("Meta manual connection panel", () => {
+  it("normalizes direct ad account IDs without accepting arbitrary text", () => {
+    expect(
+      parseMetaAdAccountIds(
+        "1234567890, act_9876543210\nACT_9876543210 conta-invalida",
+      ),
+    ).toEqual(["act_1234567890", "act_9876543210"]);
+  });
+
   it("locks manual setup when the workspace already uses OAuth", () => {
     const html = renderToStaticMarkup(
       createElement(MetaManualConnectionPanel, {

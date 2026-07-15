@@ -8,6 +8,8 @@ const now = new Date("2026-07-14T20:00:00.000Z");
 function createHarness(options?: {
   legacyWorkspace?: boolean;
   scopes?: string[];
+  enumeratesBusinesses?: boolean;
+  businessListingFails?: boolean;
 }) {
   const credentials: Array<Record<string, any>> = [];
   const connections: Array<Record<string, any>> = [];
@@ -23,13 +25,21 @@ function createHarness(options?: {
       name: "Usuario do sistema",
       scopes: options?.scopes ?? ["business_management", "ads_management"],
     })),
-    listBusinesses: vi.fn(async () => [
-      {
-        id: "business_1",
-        name: "BM Principal",
-        verificationStatus: "verified",
-      },
-    ]),
+    listBusinesses: vi.fn(async () => {
+      if (options?.businessListingFails) {
+        throw new Error("Business listing unavailable for system user");
+      }
+
+      return options?.enumeratesBusinesses === false
+        ? []
+        : [
+            {
+              id: "business_1",
+              name: "BM Principal",
+              verificationStatus: "verified",
+            },
+          ];
+    }),
     getBusiness: vi.fn(async ({ businessId }: { businessId: string }) => ({
       id: businessId,
       name: businessId === "business_1" ? "BM Principal" : `BM ${businessId}`,
@@ -427,6 +437,51 @@ describe("MetaManualConnectionsService", () => {
       tokenLast4: "oken",
       status: "pending",
     });
+  });
+
+  it("keeps a valid system-user token when Meta does not enumerate businesses", async () => {
+    const { audits, credentials, service } = createHarness({
+      enumeratesBusinesses: false,
+    });
+
+    const result = await service.createCredential("workspace_1", {
+      label: "Token BM por ID",
+      accessToken: "EAAB-permanent-system-user-token",
+    });
+
+    expect(result.businesses).toEqual([]);
+    expect(result.credential.status).toBe("pending");
+    expect(credentials).toHaveLength(1);
+    expect(audits).toContainEqual(
+      expect.objectContaining({
+        action: "meta.manual.credential_validated",
+        afterSummary: expect.objectContaining({ accessibleBusinesses: 0 }),
+      }),
+    );
+  });
+
+  it("discovers an explicitly informed BM when automatic listing is unavailable", async () => {
+    const { adapter, service } = createHarness({
+      businessListingFails: true,
+    });
+    const credential = await service.createCredential("workspace_1", {
+      label: "Token BM por ID",
+      accessToken: "EAAB-permanent-system-user-token",
+    });
+
+    const result = await service.discoverAssets(
+      "workspace_1",
+      credential.credential.id,
+      "business_direct",
+    );
+
+    expect(result.selectedBusinessId).toBe("business_direct");
+    expect(result.businesses).toContainEqual(
+      expect.objectContaining({ id: "business_direct" }),
+    );
+    expect(adapter.getBusiness).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: "business_direct" }),
+    );
   });
 
   it("refuses manual writes when the workspace already has legacy OAuth", async () => {

@@ -701,6 +701,8 @@ Purpose: support the common one-token, one-BM, one-destination structure.
 - [x] Add owner/admin-only endpoint to submit one permanent system-user token.
 - [x] Encrypt immediately and discard plaintext request state.
 - [x] Validate token identity, scopes and accessible businesses.
+- [x] Accept a valid system-user token when Meta cannot enumerate its BMs.
+- [x] Validate a directly informed BM and ad-account IDs before activation.
 - [x] Select one advertiser BM.
 - [x] Discover and select allowed ad accounts.
 - [x] Discover/validate one Pixel/Dataset and one Facebook Page.
@@ -721,6 +723,7 @@ Purpose: support the common one-token, one-BM, one-destination structure.
   - Pixel/Dataset and Page;
   - review;
   - validate/activate.
+- [x] Fall back to known BM, account, Pixel and Page IDs when discovery is unavailable.
 - [x] Explain that the token is stored encrypted and cannot be displayed later.
 - [x] Do not expose backend/internal terminology when a user-facing label is clearer.
 

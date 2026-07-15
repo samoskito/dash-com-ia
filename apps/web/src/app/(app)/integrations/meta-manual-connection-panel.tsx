@@ -31,6 +31,20 @@ import type { MetaManualActionResult } from "./meta-manual-actions";
 type SetupMode = "quick" | "advanced";
 type DestinationMode = "discovered" | "direct" | "existing";
 
+export function parseMetaAdAccountIds(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(/[\s,;]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => (/^\d+$/.test(item) ? `act_${item}` : item))
+        .map((item) => item.replace(/^act_/i, "act_"))
+        .filter((item) => /^act_\d+$/i.test(item)),
+    ),
+  ];
+}
+
 type MetaManualConnectionPanelProps = {
   workspaceId: string;
   capabilities: MetaConnectionCapabilitiesDto;
@@ -258,7 +272,9 @@ export function MetaManualConnectionPanel({
     useState<MetaManualAssetDiscoveryDto | null>(null);
   const [credentialId, setCredentialId] = useState("");
   const [businessId, setBusinessId] = useState("");
+  const [businessLookupId, setBusinessLookupId] = useState("");
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [directAccountIds, setDirectAccountIds] = useState("");
   const [destinationMode, setDestinationMode] =
     useState<DestinationMode>("discovered");
   const [pixelId, setPixelId] = useState("");
@@ -291,6 +307,20 @@ export function MetaManualConnectionPanel({
   const selectedPage = discovery?.pages.find((page) => page.id === pageId);
   const selectedExistingDestination = configuration?.destinations.find(
     (destination) => destination.id === existingDestinationId,
+  );
+  const discoveredAccountIds = new Set(
+    discovery?.adAccounts.map((account) => account.id) ?? [],
+  );
+  const selectedDirectAccountIds = selectedAccountIds.filter(
+    (accountId) => !discoveredAccountIds.has(accountId),
+  );
+  const showBusinessLookup = Boolean(
+    credentialId &&
+    ((discovery?.businesses.length ?? 0) === 0 || setupMode === "advanced"),
+  );
+  const showAccountLookup = Boolean(
+    businessId &&
+    ((discovery?.adAccounts.length ?? 0) === 0 || setupMode === "advanced"),
   );
   const destinationReady =
     destinationMode === "existing"
@@ -328,12 +358,9 @@ export function MetaManualConnectionPanel({
     );
 
     if (result.ok && result.discovery) {
-      setDiscovery(result.discovery);
-      setCredentialId(result.discovery.credential.id);
-      setBusinessId(result.discovery.selectedBusinessId ?? "");
-      setSelectedAccountIds([]);
-      setPixelId("");
-      setPageId("");
+      applyDiscovery(result.discovery);
+      setBusinessLookupId("");
+      setDirectAccountIds("");
       credentialFormRef.current?.reset();
       await refreshConfigurationFromServerState(result);
     }
@@ -345,7 +372,9 @@ export function MetaManualConnectionPanel({
   async function handleCredentialSelection(nextCredentialId: string) {
     setCredentialId(nextCredentialId);
     setBusinessId("");
+    setBusinessLookupId("");
     setSelectedAccountIds([]);
+    setDirectAccountIds("");
     setDiscovery(null);
 
     if (!nextCredentialId) {
@@ -366,6 +395,7 @@ export function MetaManualConnectionPanel({
   async function handleBusinessSelection(nextBusinessId: string) {
     setBusinessId(nextBusinessId);
     setSelectedAccountIds([]);
+    setDirectAccountIds("");
     setPixelId("");
     setPageId("");
 
@@ -382,6 +412,54 @@ export function MetaManualConnectionPanel({
 
     showResult(result);
     setPendingAction(null);
+  }
+
+  async function handleBusinessLookup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextBusinessId = businessLookupId.trim();
+
+    if (!credentialId || !nextBusinessId) {
+      setNotice({
+        tone: "error",
+        message: "Informe o ID da BM que pertence a este token.",
+      });
+      return;
+    }
+
+    setPendingAction("assets");
+    setNotice(null);
+    const result = await discoverAssetsAction(credentialId, nextBusinessId);
+
+    if (result.ok && result.discovery) {
+      applyDiscovery(result.discovery, nextBusinessId);
+      setBusinessLookupId("");
+    }
+
+    showResult(result);
+    setPendingAction(null);
+  }
+
+  function handleDirectAccounts(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accountIds = parseMetaAdAccountIds(directAccountIds);
+
+    if (accountIds.length === 0) {
+      setNotice({
+        tone: "error",
+        message: "Informe ao menos uma conta no formato act_123 ou 123.",
+      });
+      return;
+    }
+
+    setSelectedAccountIds((current) => [
+      ...new Set([...current, ...accountIds]),
+    ]);
+    setDirectAccountIds("");
+    setNotice({
+      tone: "success",
+      message:
+        "IDs adicionados. O acesso a cada conta sera validado antes da ativacao.",
+    });
   }
 
   async function handleConnectionSubmit(event: FormEvent<HTMLFormElement>) {
@@ -525,8 +603,14 @@ export function MetaManualConnectionPanel({
     setCredentialId(nextDiscovery.credential.id);
     setBusinessId(nextBusinessId);
     setSelectedAccountIds([]);
+    setDirectAccountIds("");
     setPixelId(nextDiscovery.pixels[0]?.id ?? "");
     setPageId(nextDiscovery.pages[0]?.id ?? "");
+    setDestinationMode(
+      nextDiscovery.pixels.length > 0 && nextDiscovery.pages.length > 0
+        ? "discovered"
+        : "direct",
+    );
   }
 
   function showResult(result: MetaManualActionResult) {
@@ -566,7 +650,9 @@ export function MetaManualConnectionPanel({
     setDiscovery(null);
     setCredentialId("");
     setBusinessId("");
+    setBusinessLookupId("");
     setSelectedAccountIds([]);
+    setDirectAccountIds("");
     setDestinationMode("discovered");
     setPixelId("");
     setPageId("");
@@ -744,6 +830,45 @@ export function MetaManualConnectionPanel({
                 placeholder="Escolher BM"
                 disabled={!credentialId || pendingAction !== null}
               />
+              {showBusinessLookup ? (
+                <div className="meta-direct-asset-entry">
+                  <div>
+                    <span className="micro-label">BM nao enumerada</span>
+                    <p className="muted">
+                      Informe o ID da BM vinculada ao usuario do sistema.
+                    </p>
+                  </div>
+                  <form
+                    className="meta-inline-id-form"
+                    onSubmit={handleBusinessLookup}
+                  >
+                    <label>
+                      <span>ID da BM</span>
+                      <input
+                        value={businessLookupId}
+                        onChange={(event) =>
+                          setBusinessLookupId(event.currentTarget.value)
+                        }
+                        placeholder="Ex.: 123456789012345"
+                        inputMode="numeric"
+                        disabled={pendingAction !== null}
+                      />
+                    </label>
+                    <button
+                      className="button secondary"
+                      type="submit"
+                      disabled={
+                        !businessLookupId.trim() || pendingAction !== null
+                      }
+                    >
+                      <RefreshCw size={15} aria-hidden="true" />
+                      {pendingAction === "assets"
+                        ? "Validando..."
+                        : "Validar BM"}
+                    </button>
+                  </form>
+                </div>
+              ) : null}
               <div className="meta-account-picker">
                 {(discovery?.adAccounts ?? []).length > 0 ? (
                   discovery?.adAccounts.map((account) => {
@@ -776,10 +901,68 @@ export function MetaManualConnectionPanel({
                   <p className="muted">
                     {pendingAction === "assets"
                       ? "Consultando ativos..."
-                      : "Escolha um token e uma BM para carregar as contas."}
+                      : businessId
+                        ? "A Meta nao listou contas para esta BM. Informe os IDs abaixo."
+                        : "Escolha um token e uma BM para carregar as contas."}
                   </p>
                 )}
               </div>
+              {selectedDirectAccountIds.length > 0 ? (
+                <div
+                  className="meta-direct-account-list"
+                  aria-label="Contas informadas por ID"
+                >
+                  {selectedDirectAccountIds.map((accountId) => (
+                    <div key={accountId}>
+                      <span>
+                        <strong>Conta informada</strong>
+                        <small>{accountId}</small>
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={`Remover ${accountId}`}
+                        title="Remover conta"
+                        onClick={() =>
+                          setSelectedAccountIds((current) =>
+                            current.filter((id) => id !== accountId),
+                          )
+                        }
+                      >
+                        <X size={15} aria-hidden="true" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {showAccountLookup ? (
+                <form
+                  className="meta-direct-account-form"
+                  onSubmit={handleDirectAccounts}
+                >
+                  <label>
+                    <span>IDs das contas de anuncio</span>
+                    <textarea
+                      value={directAccountIds}
+                      onChange={(event) =>
+                        setDirectAccountIds(event.currentTarget.value)
+                      }
+                      placeholder="act_1234567890, act_9876543210"
+                      rows={2}
+                      disabled={pendingAction !== null}
+                    />
+                  </label>
+                  <button
+                    className="button secondary"
+                    type="submit"
+                    disabled={
+                      !directAccountIds.trim() || pendingAction !== null
+                    }
+                  >
+                    <Plus size={15} aria-hidden="true" />
+                    Adicionar IDs
+                  </button>
+                </form>
+              ) : null}
             </section>
 
             <section className="meta-setup-section meta-setup-destination">

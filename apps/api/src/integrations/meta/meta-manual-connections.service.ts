@@ -197,15 +197,9 @@ export class MetaManualConnectionsService {
     try {
       const [profile, businesses] = await Promise.all([
         this.adapter.getTokenProfile({ accessToken }),
-        this.adapter.listBusinesses({ accessToken }),
+        this.adapter.listBusinesses({ accessToken }).catch(() => []),
       ]);
       this.assertRequiredScopes(profile.scopes);
-
-      if (businesses.length === 0) {
-        throw new BadRequestException(
-          "Este token nao retornou nenhum Business Manager acessivel",
-        );
-      }
 
       const now = new Date();
       const encrypted = this.encryption.encrypt(accessToken);
@@ -299,7 +293,9 @@ export class MetaManualConnectionsService {
     const accessToken = this.decryptCredential(credential);
 
     try {
-      const businesses = await this.adapter.listBusinesses({ accessToken });
+      const businesses = await this.adapter
+        .listBusinesses({ accessToken })
+        .catch(() => []);
       const selectedBusinessId =
         businessId?.trim() || businesses[0]?.id || null;
 

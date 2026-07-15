@@ -96,7 +96,12 @@ describe("Meta manual server actions", () => {
       }),
     );
     expect(JSON.stringify(result)).not.toContain(accessToken);
-    expect(result).toMatchObject({ ok: true, discovery });
+    expect(result).toMatchObject({
+      ok: true,
+      discovery,
+      message:
+        "Token validado e protegido. A Meta nao listou as BMs; informe o ID da estrutura.",
+    });
     expect(revalidatePath).toHaveBeenCalledWith("/integrations");
   });
 

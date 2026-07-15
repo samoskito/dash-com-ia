@@ -66,6 +66,22 @@ anuncio. A plataforma valida identidade, permissoes e acesso aos ativos antes de
 salvar a estrutura. O token e criptografado imediatamente e nao pode ser exibido
 novamente.
 
+### Quando a Meta nao lista a BM
+
+Um token pode enviar eventos CAPI para um Dataset conhecido e, ainda assim, nao
+enumerar BMs em `/me/businesses`. Isso nao torna o token invalido. Depois de
+validar a identidade do token, a plataforma libera o fallback por IDs:
+
+1. informe o ID da BM e escolha `Validar BM`;
+2. se as contas nao forem listadas, informe os IDs `act_...`;
+3. se Pixel/Dataset ou Pagina nao forem listados, informe seus IDs;
+4. ative somente depois que a plataforma validar cada ativo diretamente.
+
+O envio CAPI existente nao comprova permissao para leitura de campanhas. Se o
+token nao conseguir consultar a conta de anuncios, atribua a conta ao usuario do
+sistema e gere o token com `ads_read` ou `ads_management`, alem de
+`business_management`.
+
 ## Configuracao rapida
 
 1. Entre no workspace novo e abra `Integracoes`.
@@ -73,7 +89,8 @@ novamente.
 permanente`.
 3. Escolha `Rapida`.
 4. Informe um nome para a credencial e cole o token uma unica vez.
-5. Selecione BM, contas, Pixel/Dataset e Pagina descobertos pela plataforma.
+5. Selecione BM, contas, Pixel/Dataset e Pagina descobertos pela plataforma ou
+   informe os IDs quando a Meta nao enumerar os ativos.
 6. Revise e ative.
 7. Execute `Testar conexao`. O teste consulta os ativos, mas nao envia evento de
    conversao.

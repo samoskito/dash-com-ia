@@ -6607,6 +6607,8 @@ button.meta-manual-entry[aria-expanded="true"] {
 }
 
 .meta-token-form,
+.meta-inline-id-form,
+.meta-direct-account-form,
 .meta-direct-destination-grid,
 .meta-discovered-destination-grid,
 .meta-rotate-form {
@@ -6616,6 +6618,8 @@ button.meta-manual-entry[aria-expanded="true"] {
 }
 
 .meta-token-form label,
+.meta-inline-id-form label,
+.meta-direct-account-form label,
 .meta-direct-destination-grid label {
   display: grid;
   min-width: 0;
@@ -6626,6 +6630,8 @@ button.meta-manual-entry[aria-expanded="true"] {
 }
 
 .meta-token-form input,
+.meta-inline-id-form input,
+.meta-direct-account-form textarea,
 .meta-direct-destination-grid input,
 .meta-rotate-form input,
 .meta-account-overrides select {
@@ -6642,6 +6648,8 @@ button.meta-manual-entry[aria-expanded="true"] {
 }
 
 .meta-token-form input:focus,
+.meta-inline-id-form input:focus,
+.meta-direct-account-form textarea:focus,
 .meta-direct-destination-grid input:focus,
 .meta-rotate-form input:focus,
 .meta-account-overrides select:focus {
@@ -6650,6 +6658,8 @@ button.meta-manual-entry[aria-expanded="true"] {
 }
 
 .meta-token-form .button,
+.meta-inline-id-form .button,
+.meta-direct-account-form .button,
 .meta-setup-review .button,
 .meta-rotate-form .button {
   display: inline-flex;
@@ -6657,6 +6667,86 @@ button.meta-manual-entry[aria-expanded="true"] {
   align-items: center;
   justify-content: center;
   gap: 7px;
+}
+
+.meta-direct-asset-entry {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  padding: 12px 0 2px;
+  border-top: 1px dashed var(--border);
+}
+
+.meta-direct-asset-entry > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.meta-direct-asset-entry p {
+  margin: 0;
+}
+
+.meta-inline-id-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.meta-direct-account-form textarea {
+  min-height: 66px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.meta-direct-account-list {
+  display: grid;
+  gap: 6px;
+}
+
+.meta-direct-account-list > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid rgba(66, 240, 168, 0.28);
+  border-radius: 8px;
+  background: rgba(66, 240, 168, 0.045);
+}
+
+.meta-direct-account-list span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.meta-direct-account-list strong {
+  font-size: 12px;
+}
+
+.meta-direct-account-list small {
+  overflow-wrap: anywhere;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.meta-direct-account-list button {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.meta-direct-account-list button:hover {
+  border-color: rgba(255, 106, 106, 0.42);
+  color: #ff8f8f;
 }
 
 .meta-account-picker {
@@ -6975,6 +7065,7 @@ button.meta-manual-entry[aria-expanded="true"] {
   }
 
   .meta-discovered-destination-grid,
+  .meta-inline-id-form,
   .meta-connection-facts {
     grid-template-columns: minmax(0, 1fr);
   }
