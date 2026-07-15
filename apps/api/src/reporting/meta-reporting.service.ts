@@ -508,7 +508,7 @@ export class MetaReportingService {
       adSets,
       ads,
       campaignInsights,
-      campaignDailyInsights,
+      campaignDailyInsightsBatch,
       adSetInsights,
       adInsights,
     ] = await Promise.all([
@@ -550,6 +550,17 @@ export class MetaReportingService {
         readMode: input.insightReadMode,
       }),
     ]);
+    const campaignDailyInsights =
+      input.insightReadMode === "manual"
+        ? await this.resolveManualCampaignDailyInsights({
+            accessToken: input.accessToken,
+            adAccountId,
+            since: input.since,
+            until: input.until,
+            aggregateInsights: campaignInsights,
+            dailyInsights: campaignDailyInsightsBatch,
+          })
+        : campaignDailyInsightsBatch;
     const insightByCampaign = new Map(
       campaignInsights.map((item) => [item.campaignId, item]),
     );
@@ -742,6 +753,115 @@ export class MetaReportingService {
       adSetsSynced: adSets.length,
       adsSynced: ads.length,
     };
+  }
+
+  private async resolveManualCampaignDailyInsights(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+    aggregateInsights: MetaCampaignInsight[];
+    dailyInsights: MetaCampaignDailyInsight[];
+  }): Promise<MetaCampaignDailyInsight[]> {
+    if (
+      this.campaignDailySpendMatchesAggregate(
+        input.aggregateInsights,
+        input.dailyInsights,
+        input.since,
+        input.until,
+      )
+    ) {
+      return input.dailyInsights;
+    }
+
+    this.logger.warn(
+      `Meta daily insights diverged for ${input.adAccountId} from ${input.since} to ${input.until}; retrying one day at a time`,
+    );
+    const recoveredInsights = await this.listCampaignDailyInsightsByDate(input);
+
+    if (
+      !this.campaignDailySpendMatchesAggregate(
+        input.aggregateInsights,
+        recoveredInsights,
+        input.since,
+        input.until,
+      )
+    ) {
+      throw new Error(
+        "Meta retornou totais diarios inconsistentes com o investimento agregado",
+      );
+    }
+
+    return recoveredInsights;
+  }
+
+  private campaignDailySpendMatchesAggregate(
+    aggregateInsights: MetaCampaignInsight[],
+    dailyInsights: MetaCampaignDailyInsight[],
+    since: string,
+    until: string,
+  ): boolean {
+    const aggregateSpend = new Map<string, number>();
+    const dailySpend = new Map<string, number>();
+
+    for (const insight of aggregateInsights) {
+      aggregateSpend.set(insight.campaignId, insight.spendCents);
+    }
+
+    for (const insight of dailyInsights) {
+      dailySpend.set(
+        insight.campaignId,
+        (dailySpend.get(insight.campaignId) ?? 0) + insight.spendCents,
+      );
+    }
+
+    const campaignIds = new Set([
+      ...aggregateSpend.keys(),
+      ...dailySpend.keys(),
+    ]);
+    const roundingToleranceCents = Math.max(
+      1,
+      this.reportDateRange(since, until).length,
+    );
+
+    return [...campaignIds].every(
+      (campaignId) =>
+        Math.abs(
+          (aggregateSpend.get(campaignId) ?? 0) -
+            (dailySpend.get(campaignId) ?? 0),
+        ) <= roundingToleranceCents,
+    );
+  }
+
+  private async listCampaignDailyInsightsByDate(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+  }): Promise<MetaCampaignDailyInsight[]> {
+    const dates = this.reportDateRange(input.since, input.until);
+    const results: MetaCampaignDailyInsight[] = [];
+    const concurrency = 3;
+
+    for (let index = 0; index < dates.length; index += concurrency) {
+      const batch = await Promise.all(
+        dates.slice(index, index + concurrency).map(async (date) => {
+          const insights = await this.metaAdapter.listCampaignInsights({
+            accessToken: input.accessToken,
+            adAccountId: input.adAccountId,
+            since: date,
+            until: date,
+            readMode: "manual",
+          });
+
+          return insights.map((insight) => ({ ...insight, date }));
+        }),
+      );
+
+      results.push(...batch.flat());
+    }
+
+    return results;
   }
 
   private async replaceCampaignDailyInsights(input: {

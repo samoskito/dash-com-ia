@@ -551,15 +551,23 @@ function createHarness() {
         callToActionType: "WHATSAPP_MESSAGE" as string | null,
       },
     ]),
-    listCampaignInsights: vi.fn(async () => [
-      {
-        campaignId: "cmp_1",
-        spendCents: 120000,
-        impressions: 10000,
-        clicks: 420,
-        metaConversationsStarted: 176,
-      },
-    ]),
+    listCampaignInsights: vi.fn(
+      async (_input: {
+        accessToken?: string;
+        adAccountId?: string;
+        since?: string;
+        until?: string;
+        readMode?: "legacy" | "manual";
+      }) => [
+        {
+          campaignId: "cmp_1",
+          spendCents: 120000,
+          impressions: 10000,
+          clicks: 420,
+          metaConversationsStarted: 176,
+        },
+      ],
+    ),
     listCampaignDailyInsights: vi.fn(async () => [
       {
         campaignId: "cmp_1",
@@ -1874,6 +1882,131 @@ describe("meta reporting service", () => {
         validationError: null,
       },
     });
+  });
+
+  it("recovers missing manual daily insights one date at a time", async () => {
+    const { db, metaAdapter, prisma, service } = createHarness();
+    prisma.metaReportingAccount.findFirst.mockResolvedValue({
+      id: "reporting_1",
+      workspaceId: "workspace_1",
+      businessId: "business_1",
+      businessName: "BM 1",
+      adAccountId: "act_123",
+      adAccountName: "Conta 1",
+      businessConnectionId: "connection_1",
+      active: true,
+    });
+    metaAdapter.listCampaignDailyInsights.mockResolvedValue([]);
+    metaAdapter.listCampaignInsights.mockImplementation(async (input) => {
+      if (input.since === "2026-07-01" && input.until === "2026-07-01") {
+        return [
+          {
+            campaignId: "cmp_1",
+            spendCents: 70000,
+            impressions: 6000,
+            clicks: 250,
+            metaConversationsStarted: 100,
+          },
+        ];
+      }
+
+      if (input.since === "2026-07-02" && input.until === "2026-07-02") {
+        return [
+          {
+            campaignId: "cmp_1",
+            spendCents: 50000,
+            impressions: 4000,
+            clicks: 170,
+            metaConversationsStarted: 76,
+          },
+        ];
+      }
+
+      return [
+        {
+          campaignId: "cmp_1",
+          spendCents: 120000,
+          impressions: 10000,
+          clicks: 420,
+          metaConversationsStarted: 176,
+        },
+      ];
+    });
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      businessConnectionId: "connection_1",
+      reportingAccountId: "reporting_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    expect(metaAdapter.listCampaignInsights).toHaveBeenCalledTimes(3);
+    expect(db.dailyInsights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          campaignId: "cmp_1",
+          localDate: "2026-07-01",
+          spendCents: 70000,
+          metaConversationsStarted: 100,
+        }),
+        expect.objectContaining({
+          campaignId: "cmp_1",
+          localDate: "2026-07-02",
+          spendCents: 50000,
+          metaConversationsStarted: 76,
+        }),
+      ]),
+    );
+  });
+
+  it("rejects a manual sync when daily recovery still disagrees", async () => {
+    const { db, metaAdapter, prisma, service } = createHarness();
+    prisma.metaReportingAccount.findFirst.mockResolvedValue({
+      id: "reporting_1",
+      workspaceId: "workspace_1",
+      businessId: "business_1",
+      businessName: "BM 1",
+      adAccountId: "act_123",
+      adAccountName: "Conta 1",
+      businessConnectionId: "connection_1",
+      active: true,
+    });
+    metaAdapter.listCampaignDailyInsights.mockResolvedValue([]);
+    metaAdapter.listCampaignInsights.mockImplementation(async (input) =>
+      input.since === input.until
+        ? []
+        : [
+            {
+              campaignId: "cmp_1",
+              spendCents: 120000,
+              impressions: 10000,
+              clicks: 420,
+              metaConversationsStarted: 176,
+            },
+          ],
+    );
+
+    await expect(
+      service.syncWorkspaceMetaStructure({
+        workspaceId: "workspace_1",
+        businessConnectionId: "connection_1",
+        reportingAccountId: "reporting_1",
+        since: "2026-07-01",
+        until: "2026-07-02",
+      }),
+    ).rejects.toThrow("Todas as contas Meta falharam na sincronizacao");
+
+    expect(db.dailyInsights).toHaveLength(0);
+    expect(prisma.metaReportingAccount.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "reporting_1" },
+        data: expect.objectContaining({
+          syncStatus: "error",
+          syncError: expect.stringContaining("totais diarios inconsistentes"),
+        }),
+      }),
+    );
   });
 
   it("does not record a successful connection sync timestamp when a manual sync fails", async () => {
@@ -3419,6 +3552,7 @@ describe("meta reporting service", () => {
         metaConversationsStarted: 0,
       }),
     );
+    expect(metaAdapter.listCampaignInsights).toHaveBeenCalledTimes(1);
   });
 
   it("does not expose a partially stored daily period as complete", async () => {
