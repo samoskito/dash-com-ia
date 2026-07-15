@@ -13,21 +13,24 @@ describe("meta report auto sync service", () => {
     vi.stubEnv("WPPTRACK_META_AUTO_SYNC_BATCH_LIMIT", "50");
     const prisma = {
       workspace: {
-        findMany: vi.fn(async () => [{ id: "workspace_1" }, { id: "workspace_2" }])
-      }
+        findMany: vi.fn(async () => [
+          { id: "workspace_1" },
+          { id: "workspace_2" },
+        ]),
+      },
     };
     const queueService = {
-      enqueueSync: vi.fn(async (payload: unknown) => ({
+      enqueueWorkspaceSync: vi.fn(async (payload: unknown) => ({
         payload,
-        status: "queued"
-      }))
+        status: "queued",
+      })),
     };
     const service = new MetaReportAutoSyncService(
       prisma as never,
       queueService as never,
       {
-        now: () => new Date("2026-07-09T15:30:00.000Z")
-      }
+        now: () => new Date("2026-07-09T15:30:00.000Z"),
+      },
     );
 
     await expect(service.syncDueWorkspaces()).resolves.toEqual({
@@ -36,37 +39,42 @@ describe("meta report auto sync service", () => {
       enqueued: 2,
       failed: 0,
       since: "2026-06-26",
-      until: "2026-07-09"
+      until: "2026-07-09",
     });
 
     expect(prisma.workspace.findMany).toHaveBeenCalledWith({
       where: {
         operationalStatus: "active",
-        metaIntegration: {
-          is: {
-            status: "connected"
-          }
-        },
-        metaReportingAccounts: {
-          some: {
-            active: true
-          }
-        }
+        OR: [
+          {
+            metaIntegration: { is: { status: "connected" } },
+            metaReportingAccounts: { some: { active: true } },
+          },
+          {
+            metaBusinessConnections: {
+              some: {
+                status: "active",
+                credential: { is: { status: "active" } },
+                reportingAccounts: { some: { active: true } },
+              },
+            },
+          },
+        ],
       },
       select: {
-        id: true
+        id: true,
       },
-      take: 50
+      take: 50,
     });
-    expect(queueService.enqueueSync).toHaveBeenCalledWith({
+    expect(queueService.enqueueWorkspaceSync).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       since: "2026-06-26",
-      until: "2026-07-09"
+      until: "2026-07-09",
     });
-    expect(queueService.enqueueSync).toHaveBeenCalledWith({
+    expect(queueService.enqueueWorkspaceSync).toHaveBeenCalledWith({
       workspaceId: "workspace_2",
       since: "2026-06-26",
-      until: "2026-07-09"
+      until: "2026-07-09",
     });
   });
 
@@ -74,18 +82,18 @@ describe("meta report auto sync service", () => {
     vi.stubEnv("WPPTRACK_META_AUTO_SYNC_ENABLED", "false");
     const prisma = {
       workspace: {
-        findMany: vi.fn()
-      }
+        findMany: vi.fn(),
+      },
     };
     const queueService = {
-      enqueueSync: vi.fn()
+      enqueueWorkspaceSync: vi.fn(),
     };
     const service = new MetaReportAutoSyncService(
       prisma as never,
       queueService as never,
       {
-        now: () => new Date("2026-07-09T15:30:00.000Z")
-      }
+        now: () => new Date("2026-07-09T15:30:00.000Z"),
+      },
     );
 
     await expect(service.syncDueWorkspaces()).resolves.toEqual({
@@ -94,32 +102,35 @@ describe("meta report auto sync service", () => {
       enqueued: 0,
       failed: 0,
       since: null,
-      until: null
+      until: null,
     });
 
     expect(prisma.workspace.findMany).not.toHaveBeenCalled();
-    expect(queueService.enqueueSync).not.toHaveBeenCalled();
+    expect(queueService.enqueueWorkspaceSync).not.toHaveBeenCalled();
   });
 
   it("continues enqueueing other workspaces when one workspace fails", async () => {
     vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const prisma = {
       workspace: {
-        findMany: vi.fn(async () => [{ id: "workspace_1" }, { id: "workspace_2" }])
-      }
+        findMany: vi.fn(async () => [
+          { id: "workspace_1" },
+          { id: "workspace_2" },
+        ]),
+      },
     };
     const queueService = {
-      enqueueSync: vi
+      enqueueWorkspaceSync: vi
         .fn()
         .mockRejectedValueOnce(new Error("Redis indisponivel"))
-        .mockResolvedValueOnce({ status: "queued" })
+        .mockResolvedValueOnce({ status: "queued" }),
     };
     const service = new MetaReportAutoSyncService(
       prisma as never,
       queueService as never,
       {
-        now: () => new Date("2026-07-09T15:30:00.000Z")
-      }
+        now: () => new Date("2026-07-09T15:30:00.000Z"),
+      },
     );
 
     await expect(service.syncDueWorkspaces()).resolves.toMatchObject({
@@ -128,7 +139,7 @@ describe("meta report auto sync service", () => {
       enqueued: 1,
       failed: 1,
       since: "2026-07-03",
-      until: "2026-07-09"
+      until: "2026-07-09",
     });
   });
 });

@@ -271,6 +271,16 @@ describe("integrations route", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
+            enabledModes: ["oauth"],
+            oauthEnabled: true,
+            manualEnabled: false,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
             whatsappInstanceId: "wpp_1",
             provider: "uazapi",
             billingStatus: "active",
@@ -1197,5 +1207,135 @@ describe("integrations route", () => {
     expect(html).toContain("Trocar conta Meta");
     expect(html).toContain("A API validara a acao ao continuar.");
     expect(html).not.toContain(">sem permissao<");
+  });
+
+  it("keeps OAuth first and exposes manual setup only as the alternative", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        const response = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "Content-Type": "application/json" },
+          });
+
+        if (url.includes("/integrations/health")) {
+          return response({
+            checkedAt: "2026-07-14T12:00:00.000Z",
+            providers: [],
+          });
+        }
+        if (url.includes("/integrations/whatsapp/instances")) {
+          return response([]);
+        }
+        if (url.includes("/integrations/meta/connection")) {
+          return response({
+            workspaceId: "workspace_manual",
+            status: "not_connected",
+            tokenType: null,
+            scopes: [],
+            expiresAt: null,
+            connectedAt: null,
+            selectedBusinessId: null,
+            selectedAdAccountId: null,
+            selectedPixelId: null,
+            capiTokenConfigured: false,
+          });
+        }
+        if (url.includes("/integrations/meta/assets")) {
+          return response({
+            workspaceId: "workspace_manual",
+            status: "not_connected",
+            businesses: [],
+            adAccounts: [],
+            pixels: [],
+            pages: [],
+            reportingAccounts: [],
+            selection: {
+              businessId: null,
+              adAccountId: null,
+              pixelId: null,
+            },
+            conversionDestination: null,
+            lastSyncedAt: null,
+            syncError: null,
+          });
+        }
+        if (url.includes("/integrations/meta/capabilities")) {
+          return response({
+            enabledModes: ["oauth", "manual"],
+            oauthEnabled: true,
+            manualEnabled: true,
+          });
+        }
+        if (url.includes("/integrations/meta/manual")) {
+          return response({
+            workspaceId: "workspace_manual",
+            credentials: [],
+            businessConnections: [],
+            destinations: [],
+            reportingAccounts: [],
+          });
+        }
+        if (url.includes("/billing/whatsapp-instance/quote")) {
+          return response({
+            workspaceId: "workspace_manual",
+            activeInstances: 0,
+            pricePerInstanceCents: 9900,
+            nextInstanceAmountCents: 9900,
+            currency: "BRL",
+          });
+        }
+        if (url.includes("/billing/subscription")) {
+          return response({
+            workspaceId: "workspace_manual",
+            status: "active",
+            planName: "Por instancia",
+            activeInstances: 0,
+            pricePerWhatsappInstanceCents: 9900,
+            monthlyAmountCents: 0,
+            currentPeriodEnd: null,
+            asaasSubscriptionId: null,
+          });
+        }
+        if (url.includes("/integrations/pipeline")) {
+          return response({
+            workspaceId: "workspace_manual",
+            rangeLabel: "Ultimos 7 dias",
+            stages: [],
+          });
+        }
+        if (url.includes("/workspaces/current")) {
+          return response({
+            id: "workspace_manual",
+            name: "Cliente Manual",
+            slug: "cliente-manual",
+            role: "owner",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true,
+            },
+          });
+        }
+
+        return response({ message: "not found" }, 404);
+      });
+
+    const element = await IntegrationsPage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+    const oauthPosition = html.indexOf("Login social Facebook");
+    const manualPosition = html.indexOf("Usar token permanente");
+
+    expect(oauthPosition).toBeGreaterThanOrEqual(0);
+    expect(manualPosition).toBeGreaterThan(oauthPosition);
+    expect(html).toContain("Use o OAuth oficial");
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes("/integrations/meta/manual"),
+      ),
+    ).toBe(true);
   });
 });

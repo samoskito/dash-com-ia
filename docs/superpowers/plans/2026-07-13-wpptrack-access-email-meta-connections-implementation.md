@@ -638,31 +638,31 @@ Purpose: introduce the new connection model without moving existing production e
 
 ### Schema
 
-- [ ] Add MetaCredential.
-- [ ] Add MetaBusinessConnection.
-- [ ] Add MetaConversionDestination.
-- [ ] Add/normalize MetaReportingAccount linked to business connection.
-- [ ] Add default destination on business connection.
-- [ ] Add optional destination override on reporting account.
-- [ ] Add status, validation, creator, rotation and timestamps.
-- [ ] Add unique constraints scoped by workspace.
-- [ ] Add indexes for workspace, business connection, ad account and destination resolution.
-- [ ] Keep legacy MetaIntegration and capiAccessTokenEncrypted fields intact.
+- [x] Add MetaCredential.
+- [x] Add MetaBusinessConnection.
+- [x] Add MetaConversionDestination.
+- [x] Add/normalize MetaReportingAccount linked to business connection.
+- [x] Add default destination on business connection.
+- [x] Add optional destination override on reporting account.
+- [x] Add status, validation, creator, rotation and timestamps.
+- [x] Add unique constraints scoped by workspace.
+- [x] Add indexes for workspace, business connection, ad account and destination resolution.
+- [x] Keep legacy MetaIntegration and capiAccessTokenEncrypted fields intact.
 
 ### Encryption
 
-- [ ] Reuse or evolve MetaTokenEncryptionService with key versioning and authenticated encryption.
-- [ ] Add token fingerprint that cannot recover the token.
-- [ ] Refuse plaintext readback.
-- [ ] Redact validation errors and Graph request metadata.
+- [x] Reuse or evolve MetaTokenEncryptionService with key versioning and authenticated encryption.
+- [x] Add token fingerprint that cannot recover the token.
+- [x] Refuse plaintext readback.
+- [x] Redact validation errors and Graph request metadata.
 
 ### Compatibility adapter
 
-- [ ] Add a MetaConnectionResolver that can resolve legacy or normalized configuration.
-- [ ] Legacy remains first for existing OAuth workspaces.
-- [ ] New manual connections use normalized tables.
-- [ ] Build a no-write compatibility projection for Barbieri metadata.
-- [ ] Do not copy, decrypt/re-encrypt, rotate or replace the Barbieri token in this wave.
+- [x] Add a MetaConnectionResolver that can resolve legacy or normalized configuration.
+- [x] Legacy remains first for existing OAuth workspaces.
+- [x] New manual connections use normalized tables.
+- [x] Build a no-write compatibility projection for Barbieri metadata.
+- [x] Do not copy, decrypt/re-encrypt, rotate or replace the Barbieri token in this wave.
 
 ### Likely files
 
@@ -678,11 +678,11 @@ Purpose: introduce the new connection model without moving existing production e
 
 ### Tests
 
-- [ ] Workspace-scoped uniqueness and isolation.
-- [ ] Token cannot be read after save.
-- [ ] New manual connection resolves normalized path.
-- [ ] Existing OAuth fixture resolves legacy path exactly as before.
-- [ ] Barbieri-compatible fixture produces identical reporting/CAPI inputs without writes.
+- [x] Workspace-scoped uniqueness and isolation.
+- [x] Token cannot be read after save.
+- [x] New manual connection resolves normalized path.
+- [x] Existing OAuth fixture resolves legacy path exactly as before.
+- [x] Barbieri-compatible fixture produces identical reporting/CAPI inputs without writes.
 
 ### Acceptance
 
@@ -698,41 +698,41 @@ Purpose: support the common one-token, one-BM, one-destination structure.
 
 ### API
 
-- [ ] Add owner/admin-only endpoint to submit one permanent system-user token.
-- [ ] Encrypt immediately and discard plaintext request state.
-- [ ] Validate token identity, scopes and accessible businesses.
-- [ ] Select one advertiser BM.
-- [ ] Discover and select allowed ad accounts.
-- [ ] Discover/validate one Pixel/Dataset and one Facebook Page.
-- [ ] Validate that the token can access required assets.
-- [ ] Persist one MetaCredential, MetaBusinessConnection, destination and account mappings atomically.
-- [ ] Use the same credential for Marketing API and CAPI.
-- [ ] Add a non-destructive connection test.
+- [x] Add owner/admin-only endpoint to submit one permanent system-user token.
+- [x] Encrypt immediately and discard plaintext request state.
+- [x] Validate token identity, scopes and accessible businesses.
+- [x] Select one advertiser BM.
+- [x] Discover and select allowed ad accounts.
+- [x] Discover/validate one Pixel/Dataset and one Facebook Page.
+- [x] Validate that the token can access required assets.
+- [x] Persist one MetaCredential, MetaBusinessConnection, destination and account mappings atomically.
+- [x] Use the same credential for Marketing API and CAPI.
+- [x] Add a non-destructive connection test.
 
 ### Web
 
-- [ ] Keep OAuth card first and marked recommended.
-- [ ] Add permanent-token alternative.
-- [ ] After token selection, offer Quick and Advanced.
-- [ ] Implement Quick guided steps:
+- [x] Keep OAuth card first and marked recommended.
+- [x] Add permanent-token alternative.
+- [x] After token selection, offer Quick and Advanced.
+- [x] Implement Quick guided steps:
   - token;
   - BM;
   - accounts;
   - Pixel/Dataset and Page;
   - review;
   - validate/activate.
-- [ ] Explain that the token is stored encrypted and cannot be displayed later.
-- [ ] Do not expose backend/internal terminology when a user-facing label is clearer.
+- [x] Explain that the token is stored encrypted and cannot be displayed later.
+- [x] Do not expose backend/internal terminology when a user-facing label is clearer.
 
 ### Tests
 
-- [ ] Invalid/revoked token.
-- [ ] Missing required permissions.
-- [ ] Token cannot access selected BM/account/destination.
-- [ ] Pixel without Page is rejected.
-- [ ] Secret redaction in API, HTML and logs.
-- [ ] Analyst cannot create connection.
-- [ ] OAuth remains first and unchanged.
+- [x] Invalid/revoked token.
+- [x] Missing required permissions.
+- [x] Token cannot access selected BM/account/destination.
+- [x] Pixel without Page is rejected.
+- [x] Secret redaction in API, HTML and logs.
+- [x] Analyst cannot create connection.
+- [x] OAuth remains first and unchanged.
 
 ### Likely files
 
@@ -756,42 +756,43 @@ Purpose: support rotating advertiser BMs and matrix-owned shared conversion asse
 
 ### API
 
-- [ ] Allow several MetaCredentials per workspace.
-- [ ] Associate each advertiser BM connection with its exact credential.
-- [ ] Allow one reusable destination to be referenced by several business connections.
-- [ ] Support owner/matrix BM metadata for shared destinations.
-- [ ] Support dedicated destination per BM.
-- [ ] Support account-level destination override.
-- [ ] Validate the active connection credential's access to shared assets before association.
-- [ ] Add rotate-token operation:
+- [x] Allow several MetaCredentials per workspace.
+- [x] Associate each advertiser BM connection with its exact credential.
+- [x] Allow one reusable destination to be referenced by several business connections.
+- [x] Support owner/matrix BM metadata for shared destinations.
+- [x] Support dedicated destination per BM.
+- [x] Support account-level destination override.
+- [x] Validate the active connection credential's access to shared assets before association.
+- [x] Add rotate-token operation:
   - accept replacement once;
   - validate before activation;
   - atomically swap encrypted credential;
   - preserve prior encrypted version only for bounded rollback if security policy permits;
   - audit rotation without secret.
-- [ ] Add pause/disconnect rules that protect active jobs and CAPI routing.
-- [ ] Add per-connection health and last successful validation/sync.
+- [x] Add pause rules that protect active jobs and CAPI routing.
+- [x] Keep destructive disconnect unavailable in this rollout; pause/reactivate preserves mappings and audit history.
+- [x] Add per-connection health and last successful validation/sync.
 
 ### Web
 
-- [ ] Advanced connection list by BM.
-- [ ] Add token/BM connection.
-- [ ] Manage default destination.
-- [ ] Reuse an existing validated shared destination.
-- [ ] Override destination per account.
-- [ ] Show health and affected accounts.
-- [ ] Require explicit confirmation for rotate, pause and disconnect.
-- [ ] Keep the quick setup concise; advanced controls appear only after choosing Advanced.
+- [x] Advanced connection list by BM.
+- [x] Add token/BM connection.
+- [x] Manage default destination.
+- [x] Reuse an existing validated shared destination.
+- [x] Override destination per account.
+- [x] Show health and affected accounts.
+- [x] Require explicit confirmation for rotate and pause.
+- [x] Keep the quick setup concise; advanced controls appear only after choosing Advanced.
 
 ### Tests
 
-- [ ] Two BMs with two tokens and one shared destination.
-- [ ] Two BMs with dedicated destinations.
-- [ ] Account override supersedes BM default.
-- [ ] Credential from BM A cannot operate inaccessible BM B assets.
-- [ ] Token failure isolates only its business connection.
-- [ ] Ambiguous or missing mapping blocks.
-- [ ] Cross-workspace destination/credential IDs are rejected generically.
+- [x] Two BMs with two tokens and one shared destination.
+- [x] Two BMs with dedicated destinations.
+- [x] Account override supersedes BM default.
+- [x] Credential from BM A cannot operate inaccessible BM B assets.
+- [x] Token failure isolates only its business connection.
+- [x] Ambiguous or missing mapping blocks.
+- [x] Cross-workspace destination/credential IDs are rejected generically.
 
 ### Acceptance
 
@@ -806,29 +807,29 @@ Purpose: make the normalized model operational without guessing and without dist
 
 ### Reporting
 
-- [ ] Every reporting sync job carries workspaceId, businessConnectionId and reportingAccountId.
-- [ ] Resolve the exact credential from the business connection.
-- [ ] Validate all referenced IDs again in the worker.
-- [ ] Scope snapshots and retries by connection.
-- [ ] Pause only affected accounts when a token fails.
+- [x] Every reporting sync job carries workspaceId, businessConnectionId and reportingAccountId.
+- [x] Resolve the exact credential from the business connection.
+- [x] Validate all referenced IDs again in the worker.
+- [x] Scope snapshots and retries by connection.
+- [x] Mark only affected accounts when a token fails.
 
 ### CAPI
 
-- [ ] Resolve event attribution to reporting account/business connection.
-- [ ] Resolve account override or connection default destination.
-- [ ] Use the same connection credential for the CAPI call.
-- [ ] Block missing or ambiguous attribution with an actionable audit status.
-- [ ] Persist selected connection/destination IDs with the event delivery audit.
-- [ ] Preserve current event_id and cutover semantics.
-- [ ] Never replay historical shadow/not_eligible events.
+- [x] Resolve event attribution to reporting account/business connection.
+- [x] Resolve account override or connection default destination.
+- [x] Use the same connection credential for the CAPI call.
+- [x] Block missing or ambiguous attribution with an actionable audit status.
+- [x] Persist selected connection/destination IDs with the event delivery audit.
+- [x] Preserve current event_id and cutover semantics.
+- [x] Never replay historical shadow/not_eligible events.
 
 ### Shadow comparison
 
-- [ ] For existing OAuth workspaces, compute normalized routing in shadow without changing the actual request.
-- [ ] Compare selected account, credential identity fingerprint, Pixel/Dataset and Page.
-- [ ] Record only redacted parity results.
-- [ ] Require a sustained parity window before any migration proposal.
-- [ ] Keep Barbieri actual execution on legacy-compatible path.
+- [x] For existing OAuth workspaces, compute normalized routing in shadow without changing the actual request.
+- [x] Compare selected account, credential identity fingerprint, Pixel/Dataset and Page.
+- [x] Record only redacted parity results.
+- [x] Require a sustained parity window before any migration proposal.
+- [x] Keep Barbieri actual execution on legacy-compatible path.
 
 ### Likely files
 

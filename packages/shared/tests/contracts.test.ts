@@ -59,6 +59,8 @@ import {
   leadDetailSchema,
   leadListQuerySchema,
   metaConnectionSchema,
+  metaManualBusinessConnectionInputSchema,
+  metaManualCredentialInputSchema,
   metaOAuthCallbackQuerySchema,
   metaOAuthCallbackResultSchema,
   integrationStartActionSchema,
@@ -330,6 +332,52 @@ describe("shared contracts", () => {
 
     expect(destination.pageId).toBe("page_1");
     expect(account.active).toBe(true);
+  });
+
+  it("validates manual Meta credentials and destination choices", () => {
+    const credential = metaManualCredentialInputSchema.parse({
+      label: " Token BM Principal ",
+      accessToken: "EAAB-permanent-system-user-token",
+    });
+    const directDestination = metaManualBusinessConnectionInputSchema.parse({
+      credentialId: "credential_1",
+      businessManagerId: "business_1",
+      businessManagerName: "BM Principal",
+      adAccountIds: ["act_1"],
+      destination: {
+        label: "Destino principal",
+        pixelId: "pixel_1",
+        pageId: "page_1",
+      },
+    });
+    const sharedDestination = metaManualBusinessConnectionInputSchema.parse({
+      credentialId: "credential_2",
+      businessManagerId: "business_2",
+      businessManagerName: "BM Anunciante",
+      adAccountIds: ["act_2"],
+      destination: { existingDestinationId: "destination_matrix" },
+    });
+
+    expect(credential.label).toBe("Token BM Principal");
+    expect(directDestination.destination.pixelId).toBe("pixel_1");
+    expect(sharedDestination.destination.existingDestinationId).toBe(
+      "destination_matrix",
+    );
+    expect(() =>
+      metaManualBusinessConnectionInputSchema.parse({
+        credentialId: "credential_1",
+        businessManagerId: "business_1",
+        businessManagerName: "BM Principal",
+        adAccountIds: ["act_1"],
+        destination: { pixelId: "pixel_without_page" },
+      }),
+    ).toThrow();
+    expect(() =>
+      metaManualCredentialInputSchema.parse({
+        label: "Token curto",
+        accessToken: "too-short",
+      }),
+    ).toThrow();
   });
 
   it("validates WhatsApp classification filters in reports", () => {

@@ -5,7 +5,7 @@ import {
   META_REPORT_SYNC_QUEUE,
   type ConversionEventJobPayload,
   type DiagnosticJobPayload,
-  type MetaReportSyncJobPayload
+  type MetaReportSyncJobPayload,
 } from "../src/common/queue/queue.constants";
 
 describe("diagnostic queue contract", () => {
@@ -21,7 +21,7 @@ describe("diagnostic queue contract", () => {
       message: "Lead attribution captured",
       occurredAt: "2026-07-01T12:00:00.000Z",
       conversionEventLogId: "conversion_1",
-      retryReason: "Cliente relatou conversao ausente"
+      retryReason: "Cliente relatou conversao ausente",
     };
 
     expect(payload.source).toBe("meta");
@@ -31,7 +31,7 @@ describe("diagnostic queue contract", () => {
   it("uses the conversion events queue contract", () => {
     const payload: ConversionEventJobPayload = {
       conversionEventLogId: "conversion_1",
-      workspaceId: "workspace_1"
+      workspaceId: "workspace_1",
     };
 
     expect(CONVERSION_EVENTS_QUEUE).toBe("conversion-events");
@@ -42,8 +42,10 @@ describe("diagnostic queue contract", () => {
   it("uses the Meta report sync queue contract", () => {
     const payload: MetaReportSyncJobPayload = {
       workspaceId: "workspace_1",
+      businessConnectionId: null,
+      reportingAccountId: null,
       since: "2026-07-01",
-      until: "2026-07-02"
+      until: "2026-07-02",
     };
 
     expect(META_REPORT_SYNC_QUEUE).toBe("meta-report-sync");

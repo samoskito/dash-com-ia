@@ -254,7 +254,7 @@ async function createApp(
     })),
   };
   const queueService = {
-    enqueueSync: vi.fn(async () => ({
+    enqueueWorkspaceSync: vi.fn(async () => ({
       workspaceId: "workspace_1",
       since: "2026-07-01",
       until: "2026-07-02",
@@ -746,7 +746,7 @@ describe("reporting controller", () => {
       .set("Cookie", "wpptrack_session=refresh-token")
       .expect(400);
 
-    expect(queueService.enqueueSync).not.toHaveBeenCalled();
+    expect(queueService.enqueueWorkspaceSync).not.toHaveBeenCalled();
 
     await app.close();
   });
@@ -797,7 +797,7 @@ describe("reporting controller", () => {
         );
       });
 
-    expect(queueService.enqueueSync).toHaveBeenCalledWith({
+    expect(queueService.enqueueWorkspaceSync).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       since: "2026-07-01",
       until: "2026-07-02",
@@ -815,7 +815,7 @@ describe("reporting controller", () => {
       .set("Cookie", "wpptrack_session=refresh-token")
       .expect(403);
 
-    expect(queueService.enqueueSync).not.toHaveBeenCalled();
+    expect(queueService.enqueueWorkspaceSync).not.toHaveBeenCalled();
 
     await app.close();
   });

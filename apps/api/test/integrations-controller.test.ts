@@ -13,21 +13,84 @@ const health = {
       provider: "meta",
       status: "disconnected",
       checkedAt: "2026-07-02T03:00:00.000Z",
-      message: "Missing META_APP_ID or META_APP_SECRET"
+      message: "Missing META_APP_ID or META_APP_SECRET",
     },
     {
       provider: "uazapi",
       status: "disconnected",
       checkedAt: "2026-07-02T03:00:00.000Z",
-      message: "Missing UAZAPI_BASE_URL or UAZAPI_TOKEN"
+      message: "Missing UAZAPI_BASE_URL or UAZAPI_TOKEN",
     },
     {
       provider: "asaas",
       status: "disconnected",
       checkedAt: "2026-07-02T03:00:00.000Z",
-      message: "Missing ASAAS_BASE_URL or ASAAS_API_KEY"
-    }
-  ]
+      message: "Missing ASAAS_BASE_URL or ASAAS_API_KEY",
+    },
+  ],
+};
+
+const manualCredential = {
+  id: "credential_1",
+  workspaceId: "workspace_1",
+  source: "manual",
+  label: "Token BM Cliente",
+  fingerprint: "1234567890abcdef",
+  tokenLast4: "cret",
+  tokenType: "system_user",
+  scopes: ["ads_read", "ads_management", "business_management"],
+  expiresAt: null,
+  status: "active",
+  lastValidatedAt: "2026-07-14T12:00:00.000Z",
+  validationError: null,
+  rotatedAt: null,
+  createdAt: "2026-07-14T12:00:00.000Z",
+  updatedAt: "2026-07-14T12:00:00.000Z",
+};
+
+const manualConfiguration = {
+  workspaceId: "workspace_1",
+  credentials: [manualCredential],
+  businessConnections: [],
+  destinations: [],
+  reportingAccounts: [],
+};
+
+const manualDiscovery = {
+  credential: manualCredential,
+  businesses: [
+    {
+      id: "business_1",
+      name: "BM Cliente",
+      verificationStatus: "verified",
+    },
+  ],
+  selectedBusinessId: "business_1",
+  adAccounts: [
+    {
+      id: "act_123",
+      businessId: "business_1",
+      name: "Conta Cliente",
+      accountStatus: "1",
+      currency: "BRL",
+      timezoneName: "America/Sao_Paulo",
+    },
+  ],
+  pixels: [
+    {
+      id: "pixel_1",
+      businessId: "business_1",
+      name: "Pixel Cliente",
+      code: null,
+    },
+  ],
+  pages: [
+    {
+      id: "page_1",
+      businessId: "business_1",
+      name: "Pagina Cliente",
+    },
+  ],
 };
 
 function workspacePermissions(role: "owner" | "admin" | "member") {
@@ -43,7 +106,7 @@ function workspacePermissions(role: "owner" | "admin" | "member") {
     canManageWorkspaceSettings: isOwner || isAdmin,
     canTransferOwnership: isOwner,
     canViewReports: true,
-    canExportReports: true
+    canExportReports: true,
   };
 }
 
@@ -54,7 +117,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       provider: "meta",
       action: "configure_env",
       label: "Configurar app Meta",
-      missingEnv: ["META_APP_ID", "META_APP_SECRET"]
+      missingEnv: ["META_APP_ID", "META_APP_SECRET"],
     })),
     handleMetaCallback: vi.fn(async () => ({
       provider: "meta",
@@ -73,8 +136,8 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         selectedBusinessId: null,
         selectedAdAccountId: null,
         selectedPixelId: null,
-        capiTokenConfigured: false
-      }
+        capiTokenConfigured: false,
+      },
     })),
     getMetaConnection: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -85,7 +148,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       connectedAt: "2026-07-02T03:00:00.000Z",
       selectedBusinessId: null,
       selectedAdAccountId: null,
-      selectedPixelId: null
+      selectedPixelId: null,
     })),
     getMetaAssets: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -94,8 +157,8 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         {
           id: "business_1",
           name: "BM Principal",
-          verificationStatus: "verified"
-        }
+          verificationStatus: "verified",
+        },
       ],
       adAccounts: [
         {
@@ -104,23 +167,23 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           name: "Conta WhatsApp",
           accountStatus: "1",
           currency: "BRL",
-          timezoneName: "America/Sao_Paulo"
-        }
+          timezoneName: "America/Sao_Paulo",
+        },
       ],
       pixels: [
         {
           id: "pixel_1",
           businessId: "business_1",
           name: "Pixel Loja",
-          code: "1234567890"
-        }
+          code: "1234567890",
+        },
       ],
       pages: [
         {
           id: "page_1",
           businessId: "business_1",
-          name: "Pagina Principal"
-        }
+          name: "Pagina Principal",
+        },
       ],
       conversionDestination: {
         workspaceId: "workspace_1",
@@ -130,7 +193,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         pageName: "Pagina Principal",
         status: "configured",
         lastValidatedAt: "2026-07-09T12:00:00.000Z",
-        validationError: null
+        validationError: null,
       },
       reportingAccounts: [
         {
@@ -145,16 +208,16 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           active: true,
           syncStatus: "pending",
           lastSyncedAt: null,
-          syncError: null
-        }
+          syncError: null,
+        },
       ],
       selection: {
         businessId: "business_1",
         adAccountId: "act_123",
-        pixelId: "pixel_1"
+        pixelId: "pixel_1",
       },
       lastSyncedAt: "2026-07-02T12:00:00.000Z",
-      syncError: null
+      syncError: null,
     })),
     refreshMetaAssets: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -163,8 +226,8 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         {
           id: "business_1",
           name: "BM Principal",
-          verificationStatus: "verified"
-        }
+          verificationStatus: "verified",
+        },
       ],
       adAccounts: [
         {
@@ -173,31 +236,31 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           name: "Conta WhatsApp",
           accountStatus: "1",
           currency: "BRL",
-          timezoneName: "America/Sao_Paulo"
-        }
+          timezoneName: "America/Sao_Paulo",
+        },
       ],
       pixels: [
         {
           id: "pixel_1",
           businessId: "business_1",
           name: "Pixel Loja",
-          code: null
-        }
+          code: null,
+        },
       ],
       pages: [
         {
           id: "page_1",
           businessId: "business_1",
-          name: "Pagina Principal"
-        }
+          name: "Pagina Principal",
+        },
       ],
       selection: {
         businessId: "business_1",
         adAccountId: "act_123",
-        pixelId: "pixel_1"
+        pixelId: "pixel_1",
       },
       lastSyncedAt: "2026-07-09T12:00:00.000Z",
-      syncError: null
+      syncError: null,
     })),
     saveMetaAssetSelection: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -208,12 +271,12 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       connectedAt: "2026-07-02T03:00:00.000Z",
       selectedBusinessId: "business_1",
       selectedAdAccountId: "act_123",
-      selectedPixelId: "pixel_1"
+      selectedPixelId: "pixel_1",
     })),
     saveMetaCapiToken: vi.fn(async () => ({
       workspaceId: "workspace_1",
       configured: true,
-      updatedAt: "2026-07-02T04:00:00.000Z"
+      updatedAt: "2026-07-02T04:00:00.000Z",
     })),
     getMetaConversionDestination: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -223,7 +286,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       pageName: null,
       status: "needs_configuration",
       lastValidatedAt: null,
-      validationError: null
+      validationError: null,
     })),
     saveMetaConversionDestination: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -233,7 +296,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       pageName: "Pagina Principal",
       status: "configured",
       lastValidatedAt: "2026-07-09T12:00:00.000Z",
-      validationError: null
+      validationError: null,
     })),
     getMetaReportingAccounts: vi.fn(async () => [
       {
@@ -248,8 +311,8 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         active: true,
         syncStatus: "pending",
         lastSyncedAt: null,
-        syncError: null
-      }
+        syncError: null,
+      },
     ]),
     saveMetaReportingAccount: vi.fn(async () => ({
       id: "reporting_1",
@@ -263,7 +326,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       active: true,
       syncStatus: "pending",
       lastSyncedAt: null,
-      syncError: null
+      syncError: null,
     })),
     setMetaReportingAccountActive: vi.fn(async () => [
       {
@@ -278,20 +341,43 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         active: false,
         syncStatus: "pending",
         lastSyncedAt: null,
-        syncError: null
-      }
+        syncError: null,
+      },
     ]),
+    getMetaConnectionCapabilities: vi.fn(() => ({
+      enabledModes: ["oauth", "manual"],
+      oauthEnabled: true,
+      manualEnabled: true,
+    })),
+    getMetaManualConfiguration: vi.fn(async () => manualConfiguration),
+    createMetaManualCredential: vi.fn(async () => manualDiscovery),
+    discoverMetaManualAssets: vi.fn(async () => manualDiscovery),
+    createMetaManualBusinessConnection: vi.fn(async () => manualConfiguration),
+    rotateMetaManualCredential: vi.fn(async () => manualConfiguration),
+    setMetaManualBusinessConnectionStatus: vi.fn(
+      async () => manualConfiguration,
+    ),
+    testMetaManualBusinessConnection: vi.fn(async () => ({
+      connectionId: "connection_1",
+      credentialId: "credential_1",
+      destinationId: "destination_1",
+      reportingAccountCount: 1,
+      status: "active",
+      validatedAt: "2026-07-14T12:00:00.000Z",
+      message: "Conexao validada",
+    })),
+    setMetaManualReportingDestination: vi.fn(async () => manualConfiguration),
     getUazapiStartAction: vi.fn(() => ({
       provider: "uazapi",
       action: "configure_env",
       label: "Configurar Uazapi",
-      missingEnv: ["UAZAPI_BASE_URL", "UAZAPI_TOKEN"]
+      missingEnv: ["UAZAPI_BASE_URL", "UAZAPI_TOKEN"],
     })),
     getAsaasStatusAction: vi.fn(() => ({
       provider: "asaas",
       action: "configure_env",
       label: "Configurar Asaas",
-      missingEnv: ["ASAAS_API_KEY"]
+      missingEnv: ["ASAAS_API_KEY"],
     })),
     getPipelineOverview: vi.fn(async () => ({
       workspaceId: "workspace_1",
@@ -320,17 +406,17 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         email: "owner@wpptrack.com",
         name: "Owner",
         authProvider: "email",
-        emailVerifiedAt: null
+        emailVerifiedAt: null,
       },
       workspaces: [
         {
           id: "workspace_1",
           name: "Workspace",
           slug: "workspace",
-          role
-        }
-      ]
-    }))
+          role,
+        },
+      ],
+    })),
   };
   const workspacesService = {
     getCurrentWorkspace: vi.fn(() => ({
@@ -338,8 +424,8 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       name: "Workspace",
       slug: "workspace",
       role,
-      permissions: workspacePermissions(role)
-    }))
+      permissions: workspacePermissions(role),
+    })),
   };
 
   const moduleRef = await Test.createTestingModule({
@@ -347,8 +433,8 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
     providers: [
       { provide: IntegrationsService, useValue: service },
       { provide: AuthService, useValue: authService },
-      { provide: WorkspacesService, useValue: workspacesService }
-    ]
+      { provide: WorkspacesService, useValue: workspacesService },
+    ],
   }).compile();
 
   const app = moduleRef.createNestApplication();
@@ -365,11 +451,9 @@ describe("integrations controller", () => {
       .get("/integrations/health")
       .expect(200)
       .expect(({ body }) => {
-        expect(body.providers.map((item: { provider: string }) => item.provider)).toEqual([
-          "meta",
-          "uazapi",
-          "asaas"
-        ]);
+        expect(
+          body.providers.map((item: { provider: string }) => item.provider),
+        ).toEqual(["meta", "uazapi", "asaas"]);
       });
 
     expect(service.getHealthSummary).toHaveBeenCalledOnce();
@@ -391,7 +475,7 @@ describe("integrations controller", () => {
 
     expect(service.getMetaStartAction).toHaveBeenCalledWith(
       "workspace_1",
-      "user_1"
+      "user_1",
     );
 
     await app.close();
@@ -439,7 +523,7 @@ describe("integrations controller", () => {
 
     expect(service.handleMetaCallback).toHaveBeenCalledWith({
       code: "meta-code",
-      state: "state-token"
+      state: "state-token",
     });
 
     await app.close();
@@ -465,7 +549,7 @@ describe("integrations controller", () => {
 
     expect(service.handleMetaCallback).toHaveBeenCalledWith({
       code: "meta-code",
-      state: "state-token"
+      state: "state-token",
     });
 
     process.env.WEB_ORIGIN = previousWebOrigin;
@@ -481,7 +565,7 @@ describe("integrations controller", () => {
       expiresInSeconds: 5183944,
       scopes: ["ads_read"],
       missingEnv: [],
-      message: "Meta OAuth conectado"
+      message: "Meta OAuth conectado",
     } as never);
 
     await request(app.getHttpServer())
@@ -491,7 +575,7 @@ describe("integrations controller", () => {
       .expect(({ text }) => {
         expect(text).toContain("Falha ao conectar com Meta.");
         expect(text).toContain(
-          "Conexao Meta nao foi salva para este workspace."
+          "Conexao Meta nao foi salva para este workspace.",
         );
         expect(text).not.toContain("Conexao Meta concluida.");
       });
@@ -504,7 +588,7 @@ describe("integrations controller", () => {
 
     await request(app.getHttpServer())
       .get(
-        "/integrations/meta/callback?error=invalid_scope&error_description=Invalid%20Scopes"
+        "/integrations/meta/callback?error=invalid_scope&error_description=Invalid%20Scopes",
       )
       .set("Accept", "text/html")
       .expect(400)
@@ -575,7 +659,7 @@ describe("integrations controller", () => {
 
     expect(service.getMetaAssets).toHaveBeenCalledWith(
       "workspace_1",
-      "business_2"
+      "business_2",
     );
 
     await app.close();
@@ -598,7 +682,7 @@ describe("integrations controller", () => {
     expect(service.refreshMetaAssets).toHaveBeenCalledWith(
       "workspace_1",
       "business_1",
-      "user_1"
+      "user_1",
     );
 
     await app.close();
@@ -616,10 +700,10 @@ describe("integrations controller", () => {
       selection: {
         businessId: null,
         adAccountId: null,
-        pixelId: null
+        pixelId: null,
       },
       lastSyncedAt: null,
-      syncError: null
+      syncError: null,
     } as never);
 
     await request(app.getHttpServer())
@@ -629,7 +713,7 @@ describe("integrations controller", () => {
       .expect(409)
       .expect(({ body }) => {
         expect(body.message).toContain(
-          "Conecte uma conta Meta neste workspace"
+          "Conecte uma conta Meta neste workspace",
         );
       });
 
@@ -659,7 +743,7 @@ describe("integrations controller", () => {
       .send({
         businessId: "business_1",
         adAccountId: "act_123",
-        pixelId: "pixel_1"
+        pixelId: "pixel_1",
       })
       .expect(200)
       .expect(({ body }) => {
@@ -673,9 +757,9 @@ describe("integrations controller", () => {
       {
         businessId: "business_1",
         adAccountId: "act_123",
-        pixelId: "pixel_1"
+        pixelId: "pixel_1",
       },
-      "user_1"
+      "user_1",
     );
 
     await app.close();
@@ -690,7 +774,7 @@ describe("integrations controller", () => {
       .send({
         businessId: "business_1",
         adAccountId: "act_123",
-        pixelId: "pixel_1"
+        pixelId: "pixel_1",
       })
       .expect(403);
 
@@ -706,14 +790,14 @@ describe("integrations controller", () => {
       .put("/integrations/meta/capi-token")
       .set("Cookie", "wpptrack_session=refresh-token")
       .send({
-        accessToken: "EAAB-capi-token-secret"
+        accessToken: "EAAB-capi-token-secret",
       })
       .expect(200)
       .expect(({ body }) => {
         expect(body).toEqual({
           workspaceId: "workspace_1",
           configured: true,
-          updatedAt: "2026-07-02T04:00:00.000Z"
+          updatedAt: "2026-07-02T04:00:00.000Z",
         });
         expect(JSON.stringify(body)).not.toContain("EAAB-capi-token-secret");
       });
@@ -722,9 +806,9 @@ describe("integrations controller", () => {
       "workspace_1",
       {
         accessToken: "EAAB-capi-token-secret",
-        clear: false
+        clear: false,
       },
-      "user_1"
+      "user_1",
     );
 
     await app.close();
@@ -737,7 +821,7 @@ describe("integrations controller", () => {
       .put("/integrations/meta/capi-token")
       .set("Cookie", "wpptrack_session=refresh-token")
       .send({
-        accessToken: "EAAB-capi-token-secret"
+        accessToken: "EAAB-capi-token-secret",
       })
       .expect(403);
 
@@ -759,7 +843,7 @@ describe("integrations controller", () => {
       });
 
     expect(service.getMetaConversionDestination).toHaveBeenCalledWith(
-      "workspace_1"
+      "workspace_1",
     );
 
     await app.close();
@@ -775,7 +859,7 @@ describe("integrations controller", () => {
         pixelId: "pixel_1",
         pixelName: "Pixel Principal",
         pageId: "page_1",
-        pageName: "Pagina Principal"
+        pageName: "Pagina Principal",
       })
       .expect(200)
       .expect(({ body }) => {
@@ -790,9 +874,9 @@ describe("integrations controller", () => {
         pixelId: "pixel_1",
         pixelName: "Pixel Principal",
         pageId: "page_1",
-        pageName: "Pagina Principal"
+        pageName: "Pagina Principal",
       },
-      "user_1"
+      "user_1",
     );
 
     await app.close();
@@ -808,7 +892,7 @@ describe("integrations controller", () => {
         pixelId: "pixel_1",
         pixelName: "Pixel Principal",
         pageId: "page_1",
-        pageName: "Pagina Principal"
+        pageName: "Pagina Principal",
       })
       .expect(403);
 
@@ -830,7 +914,7 @@ describe("integrations controller", () => {
       });
 
     expect(service.getMetaReportingAccounts).toHaveBeenCalledWith(
-      "workspace_1"
+      "workspace_1",
     );
 
     await app.close();
@@ -848,7 +932,7 @@ describe("integrations controller", () => {
         adAccountId: "act_123",
         adAccountName: "Conta WhatsApp",
         currency: "BRL",
-        timezoneName: "America/Sao_Paulo"
+        timezoneName: "America/Sao_Paulo",
       })
       .expect(201)
       .expect(({ body }) => {
@@ -864,9 +948,9 @@ describe("integrations controller", () => {
         adAccountId: "act_123",
         adAccountName: "Conta WhatsApp",
         currency: "BRL",
-        timezoneName: "America/Sao_Paulo"
+        timezoneName: "America/Sao_Paulo",
       },
-      "user_1"
+      "user_1",
     );
 
     await app.close();
@@ -889,7 +973,7 @@ describe("integrations controller", () => {
       "workspace_1",
       "reporting_1",
       false,
-      "user_1"
+      "user_1",
     );
 
     await app.close();
@@ -905,7 +989,7 @@ describe("integrations controller", () => {
         businessId: "business_1",
         businessName: "BM Principal",
         adAccountId: "act_123",
-        adAccountName: "Conta WhatsApp"
+        adAccountName: "Conta WhatsApp",
       })
       .expect(403);
 
@@ -917,6 +1001,74 @@ describe("integrations controller", () => {
 
     expect(service.saveMetaReportingAccount).not.toHaveBeenCalled();
     expect(service.setMetaReportingAccountActive).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("creates a manual Meta credential without echoing its access token", async () => {
+    const { app, service } = await createApp("owner");
+    const accessToken = "EAAB-manual-token-super-secret";
+
+    await request(app.getHttpServer())
+      .post("/integrations/meta/manual/credentials")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({ label: "Token BM Cliente", accessToken })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.credential.id).toBe("credential_1");
+        expect(body.businesses[0].id).toBe("business_1");
+        expect(JSON.stringify(body)).not.toContain(accessToken);
+      });
+
+    expect(service.createMetaManualCredential).toHaveBeenCalledWith(
+      "workspace_1",
+      { label: "Token BM Cliente", accessToken },
+      "user_1",
+    );
+
+    await app.close();
+  });
+
+  it("lets an admin test an exact manual Meta connection", async () => {
+    const { app, service } = await createApp("admin");
+
+    await request(app.getHttpServer())
+      .post("/integrations/meta/manual/connections/connection_1/test")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.connectionId).toBe("connection_1");
+        expect(body.status).toBe("active");
+      });
+
+    expect(service.testMetaManualBusinessConnection).toHaveBeenCalledWith(
+      "workspace_1",
+      "connection_1",
+      "user_1",
+    );
+
+    await app.close();
+  });
+
+  it("rejects every manual Meta write for workspace members", async () => {
+    const { app, service } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .post("/integrations/meta/manual/credentials")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({
+        label: "Token BM Cliente",
+        accessToken: "EAAB-manual-token-super-secret",
+      })
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .post("/integrations/meta/manual/connections/connection_1/test")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(403);
+
+    expect(service.createMetaManualCredential).not.toHaveBeenCalled();
+    expect(service.testMetaManualBusinessConnection).not.toHaveBeenCalled();
 
     await app.close();
   });

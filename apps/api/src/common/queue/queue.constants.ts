@@ -20,6 +20,8 @@ export interface ConversionEventJobPayload {
 
 export interface MetaReportSyncJobPayload {
   workspaceId: string;
+  businessConnectionId: string | null;
+  reportingAccountId: string | null;
   since: string;
   until: string;
 }

@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
   type MetaAssetSyncStatus,
   type MetaConversionDestinationStatus,
-  type Prisma
+  type Prisma,
 } from "@prisma/client";
 import type {
   MetaConversionDestinationDto,
@@ -10,7 +10,7 @@ import type {
   MetaConversionDestinationStatusDto,
   MetaReportingAccountDto,
   MetaReportingAccountInputDto,
-  MetaAssetSyncStatusDto
+  MetaAssetSyncStatusDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../../common/prisma/prisma.service";
 
@@ -19,11 +19,14 @@ const CONFIGURED_DESTINATION_STATUS: MetaConversionDestinationStatus =
 const PENDING_SYNC_STATUS: MetaAssetSyncStatus = "pending";
 
 type MetaConversionDestinationRecord = {
+  id: string;
   workspaceId: string;
+  label: string | null;
   pixelId: string;
   pixelName: string;
   pageId: string;
   pageName: string;
+  ownerBusinessManagerId: string | null;
   status: string;
   lastValidatedAt: Date | null;
   validationError: string | null;
@@ -38,6 +41,8 @@ type MetaReportingAccountRecord = {
   adAccountName: string;
   currency: string | null;
   timezoneName: string | null;
+  businessConnectionId: string | null;
+  conversionDestinationId: string | null;
   active: boolean;
   syncStatus: string;
   lastSyncedAt: Date | null;
@@ -51,12 +56,12 @@ export class MetaAssetsService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async getConversionDestination(
-    workspaceId: string
+    workspaceId: string,
   ): Promise<MetaConversionDestinationDto> {
-    const destination =
-      (await this.prisma.metaConversionDestination.findUnique({
-        where: { workspaceId }
-      })) as MetaConversionDestinationRecord | null;
+    const destination = (await this.prisma.metaConversionDestination.findFirst({
+      where: { workspaceId },
+      orderBy: { updatedAt: "desc" },
+    })) as MetaConversionDestinationRecord | null;
 
     return destination
       ? this.toConversionDestinationDto(destination)
@@ -66,7 +71,7 @@ export class MetaAssetsService {
   async saveConversionDestination(
     workspaceId: string,
     input: MetaConversionDestinationInputDto,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaConversionDestinationDto> {
     const now = new Date();
     const data = {
@@ -76,17 +81,22 @@ export class MetaAssetsService {
       pageName: input.pageName,
       status: CONFIGURED_DESTINATION_STATUS,
       lastValidatedAt: now,
-      validationError: null
+      validationError: null,
     };
-    const destination =
-      (await this.prisma.metaConversionDestination.upsert({
-        where: { workspaceId },
-        create: {
+    const destination = (await this.prisma.metaConversionDestination.upsert({
+      where: {
+        workspaceId_pixelId_pageId: {
           workspaceId,
-          ...data
+          pixelId: input.pixelId,
+          pageId: input.pageId,
         },
-        update: data
-      })) as MetaConversionDestinationRecord;
+      },
+      create: {
+        workspaceId,
+        ...data,
+      },
+      update: data,
+    })) as MetaConversionDestinationRecord;
 
     await this.recordMetaAudit({
       workspaceId,
@@ -97,19 +107,19 @@ export class MetaAssetsService {
         pixelName: input.pixelName,
         pageId: input.pageId,
         pageName: input.pageName,
-        status: "configured"
-      } as Prisma.InputJsonValue
+        status: "configured",
+      } as Prisma.InputJsonValue,
     });
 
     return this.toConversionDestinationDto(destination);
   }
 
   async listReportingAccounts(
-    workspaceId: string
+    workspaceId: string,
   ): Promise<MetaReportingAccountDto[]> {
     const accounts = (await this.prisma.metaReportingAccount.findMany({
       where: { workspaceId },
-      orderBy: [{ active: "desc" }, { adAccountName: "asc" }]
+      orderBy: [{ active: "desc" }, { adAccountName: "asc" }],
     })) as MetaReportingAccountRecord[];
 
     return accounts.map((account) => this.toReportingAccountDto(account));
@@ -118,7 +128,7 @@ export class MetaAssetsService {
   async saveReportingAccount(
     workspaceId: string,
     input: MetaReportingAccountInputDto,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaReportingAccountDto> {
     const data = {
       businessId: input.businessId,
@@ -129,20 +139,20 @@ export class MetaAssetsService {
       timezoneName: input.timezoneName ?? null,
       active: true,
       syncStatus: PENDING_SYNC_STATUS,
-      syncError: null
+      syncError: null,
     };
     const account = (await this.prisma.metaReportingAccount.upsert({
       where: {
         workspaceId_adAccountId: {
           workspaceId,
-          adAccountId: input.adAccountId
-        }
+          adAccountId: input.adAccountId,
+        },
       },
       create: {
         workspaceId,
-        ...data
+        ...data,
       },
-      update: data
+      update: data,
     })) as MetaReportingAccountRecord;
 
     await this.recordMetaAudit({
@@ -155,8 +165,8 @@ export class MetaAssetsService {
         adAccountId: input.adAccountId,
         adAccountName: input.adAccountName,
         active: true,
-        syncStatus: "pending"
-      } as Prisma.InputJsonValue
+        syncStatus: "pending",
+      } as Prisma.InputJsonValue,
     });
 
     return this.toReportingAccountDto(account);
@@ -166,11 +176,11 @@ export class MetaAssetsService {
     workspaceId: string,
     id: string,
     active: boolean,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaReportingAccountDto[]> {
     await this.prisma.metaReportingAccount.updateMany({
       where: { id, workspaceId },
-      data: { active }
+      data: { active },
     });
     await this.recordMetaAudit({
       workspaceId,
@@ -178,8 +188,8 @@ export class MetaAssetsService {
       action: "meta.reporting_account.status_updated",
       afterSummary: {
         id,
-        active
-      } as Prisma.InputJsonValue
+        active,
+      } as Prisma.InputJsonValue,
     });
 
     return this.listReportingAccounts(workspaceId);
@@ -204,8 +214,8 @@ export class MetaAssetsService {
           sourceIp: null,
           resultStatus: "success",
           beforeSummary: undefined,
-          afterSummary: input.afterSummary
-        }
+          afterSummary: input.afterSummary,
+        },
       });
     } catch {
       return;
@@ -213,7 +223,7 @@ export class MetaAssetsService {
   }
 
   private emptyConversionDestination(
-    workspaceId: string
+    workspaceId: string,
   ): MetaConversionDestinationDto {
     return {
       workspaceId,
@@ -221,29 +231,33 @@ export class MetaAssetsService {
       pixelName: null,
       pageId: null,
       pageName: null,
+      ownerBusinessManagerId: null,
       status: "needs_configuration",
       lastValidatedAt: null,
-      validationError: null
+      validationError: null,
     };
   }
 
   private toConversionDestinationDto(
-    record: MetaConversionDestinationRecord
+    record: MetaConversionDestinationRecord,
   ): MetaConversionDestinationDto {
     return {
+      id: record.id,
       workspaceId: record.workspaceId,
+      label: record.label,
       pixelId: record.pixelId,
       pixelName: record.pixelName,
       pageId: record.pageId,
       pageName: record.pageName,
+      ownerBusinessManagerId: record.ownerBusinessManagerId,
       status: this.toConversionDestinationStatus(record.status),
       lastValidatedAt: record.lastValidatedAt?.toISOString() ?? null,
-      validationError: record.validationError
+      validationError: record.validationError,
     };
   }
 
   private toReportingAccountDto(
-    record: MetaReportingAccountRecord
+    record: MetaReportingAccountRecord,
   ): MetaReportingAccountDto {
     return {
       id: record.id,
@@ -254,17 +268,19 @@ export class MetaAssetsService {
       adAccountName: record.adAccountName,
       currency: record.currency,
       timezoneName: record.timezoneName,
+      businessConnectionId: record.businessConnectionId,
+      conversionDestinationId: record.conversionDestinationId,
       active: record.active,
       syncStatus: this.toSyncStatus(record.syncStatus),
       lastSyncedAt: record.lastSyncedAt?.toISOString() ?? null,
       lastSyncSince: record.lastSyncSince ?? null,
       lastSyncUntil: record.lastSyncUntil ?? null,
-      syncError: record.syncError
+      syncError: record.syncError,
     };
   }
 
   private toConversionDestinationStatus(
-    status: string
+    status: string,
   ): MetaConversionDestinationStatusDto {
     if (
       status === "needs_configuration" ||

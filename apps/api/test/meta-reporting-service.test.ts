@@ -97,9 +97,19 @@ function createHarness() {
         businessName: "BM 1",
         adAccountId: "act_123",
         adAccountName: "Conta 1",
+        businessConnectionId: null,
         active: true,
       },
-    ],
+    ] as Array<{
+      id: string;
+      workspaceId: string;
+      businessId: string;
+      businessName: string;
+      adAccountId: string;
+      adAccountName: string;
+      businessConnectionId?: string | null;
+      active: boolean;
+    }>,
     campaigns: [] as Array<Record<string, unknown>>,
     dailyInsights: [] as Array<Record<string, unknown>>,
     adSets: [] as Array<Record<string, unknown>>,
@@ -250,6 +260,9 @@ function createHarness() {
           return { ...account, ...data };
         },
       ),
+    },
+    metaBusinessConnection: {
+      updateMany: vi.fn(async () => ({ count: 1 })),
     },
     metaCampaign: {
       upsert: vi.fn(
@@ -498,6 +511,7 @@ function createHarness() {
   };
   const encryption = {
     decrypt: vi.fn(() => "EAAB-secret-token"),
+    fingerprint: vi.fn((accessToken: string) => `fingerprint:${accessToken}`),
   };
   const metaAdapter = {
     listCampaigns: vi.fn(async (_input?: { adAccountId?: string }) => [
@@ -588,6 +602,27 @@ function createHarness() {
     updateEntityStatus: vi.fn(async () => undefined),
     updateEntityBudget: vi.fn(async () => undefined),
   };
+  const connectionResolver = {
+    resolveReportingRoute: vi.fn(async () => ({
+      source: "manual" as const,
+      workspaceId: "workspace_1",
+      accessToken: "EAAB-manual-exact-token",
+      reportingAccountId: "reporting_1",
+      adAccountId: "act_123",
+      businessConnectionId: "connection_1",
+      credentialId: "credential_1",
+    })),
+    getLegacyCompatibilityProjection: vi.fn(async () => ({
+      source: "legacy_oauth" as const,
+      workspaceId: "workspace_1",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      pixelId: "pixel_1",
+      destinationPixelId: "pixel_1",
+      destinationPageId: "page_1",
+      credentialFingerprint: "fingerprint:EAAB-secret-token",
+    })),
+  };
   const service = new MetaReportingService(
     prisma as never,
     encryption as never,
@@ -618,9 +653,17 @@ function createHarness() {
         ],
       })),
     } as never,
+    connectionResolver as never,
   );
 
-  return { db, encryption, metaAdapter, prisma, service };
+  return {
+    db,
+    encryption,
+    metaAdapter,
+    prisma,
+    service,
+    connectionResolver,
+  };
 }
 
 describe("meta reporting service", () => {
@@ -1689,6 +1732,14 @@ describe("meta reporting service", () => {
     expect(db.integrationLogs[0].requestSummary).toMatchObject({
       since: "2026-07-01",
       until: "2026-07-02",
+      legacyShadowParity: {
+        comparisonStatus: "matched",
+        credentialFingerprintMatch: true,
+        adAccountMatch: true,
+        pixelMatch: null,
+        pageMatch: null,
+        parity: true,
+      },
     });
     expect(db.integrationLogs[0].responseSummary).toMatchObject({
       accountsSynced: 1,
@@ -1712,6 +1763,9 @@ describe("meta reporting service", () => {
     );
     expect(JSON.stringify(db.diagnosticEvents)).not.toContain(
       "EAAB-secret-token",
+    );
+    expect(JSON.stringify(db.integrationLogs)).not.toContain(
+      "fingerprint:EAAB-secret-token",
     );
   });
 
@@ -1768,6 +1822,79 @@ describe("meta reporting service", () => {
         data: expect.objectContaining({ syncStatus: "error" }),
       }),
     );
+  });
+
+  it("syncs a manual job with the exact reporting account and connection token", async () => {
+    const { connectionResolver, encryption, metaAdapter, prisma, service } =
+      createHarness();
+    const account = {
+      id: "reporting_1",
+      workspaceId: "workspace_1",
+      businessId: "business_1",
+      businessName: "BM 1",
+      adAccountId: "act_123",
+      adAccountName: "Conta 1",
+      businessConnectionId: "connection_1",
+      active: true,
+    };
+    prisma.metaReportingAccount.findFirst.mockResolvedValue(account);
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      businessConnectionId: "connection_1",
+      reportingAccountId: "reporting_1",
+      since: "2026-07-01",
+      until: "2026-07-09",
+    });
+
+    expect(connectionResolver.resolveReportingRoute).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      businessConnectionId: "connection_1",
+      reportingAccountId: "reporting_1",
+    });
+    expect(encryption.decrypt).not.toHaveBeenCalled();
+    expect(metaAdapter.listCampaigns).toHaveBeenCalledWith({
+      accessToken: "EAAB-manual-exact-token",
+      adAccountId: "act_123",
+    });
+    expect(prisma.metaBusinessConnection.updateMany).toHaveBeenCalledWith({
+      where: { id: "connection_1", workspaceId: "workspace_1" },
+      data: {
+        lastSyncedAt: expect.any(Date),
+        validationError: null,
+      },
+    });
+  });
+
+  it("does not record a successful connection sync timestamp when a manual sync fails", async () => {
+    const { connectionResolver, metaAdapter, prisma, service } =
+      createHarness();
+    prisma.metaReportingAccount.findFirst.mockResolvedValue({
+      id: "reporting_1",
+      workspaceId: "workspace_1",
+      businessId: "business_1",
+      businessName: "BM 1",
+      adAccountId: "act_123",
+      adAccountName: "Conta 1",
+      businessConnectionId: "connection_1",
+      active: true,
+    });
+    metaAdapter.listCampaigns.mockRejectedValueOnce(
+      new Error("Meta account unavailable"),
+    );
+
+    await expect(
+      service.syncWorkspaceMetaStructure({
+        workspaceId: "workspace_1",
+        businessConnectionId: "connection_1",
+        reportingAccountId: "reporting_1",
+        since: "2026-07-01",
+        until: "2026-07-09",
+      }),
+    ).rejects.toThrow("Todas as contas Meta falharam na sincronizacao");
+
+    expect(connectionResolver.resolveReportingRoute).toHaveBeenCalled();
+    expect(prisma.metaBusinessConnection.updateMany).not.toHaveBeenCalled();
   });
 
   it("throws and records error diagnostics when every Meta reporting account sync fails", async () => {

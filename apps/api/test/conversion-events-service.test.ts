@@ -3,9 +3,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
 import { MetaCapiAdapter } from "../src/conversion-events/meta-capi.adapter";
 
-function createHarness(metaCapiAdapter?: {
-  sendEvent(input: Record<string, unknown>): Promise<Record<string, unknown>>;
-}) {
+function createHarness(
+  metaCapiAdapter?: {
+    sendEvent(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  },
+  connectionResolver?: {
+    hasNormalizedConnections(workspaceId: string): Promise<boolean>;
+    resolveCapiRoute(
+      input: Record<string, unknown>,
+    ): Promise<Record<string, unknown>>;
+    getLegacyCompatibilityProjection?(
+      workspaceId: string,
+      purpose: "reporting" | "capi",
+    ): Promise<Record<string, unknown>>;
+  },
+) {
   const db = {
     integrationLogs: [] as Array<Record<string, unknown>>,
     diagnosticEvents: [] as Array<Record<string, unknown>>,
@@ -13,7 +25,7 @@ function createHarness(metaCapiAdapter?: {
     destinations: [] as Array<Record<string, unknown>>,
     cutovers: [] as Array<Record<string, unknown>>,
     countQueries: [] as Array<Record<string, unknown>>,
-    funnelDefaults: [] as Array<Record<string, unknown>>
+    funnelDefaults: [] as Array<Record<string, unknown>>,
   };
   const prisma = {
     externalCapiCutover: {
@@ -37,17 +49,22 @@ function createHarness(metaCapiAdapter?: {
         ) ?? null,
     },
     funnelStageConfiguration: {
-      findMany: async ({ where }: { where: { workspaceId: string; eventName: { in: string[] } } }) =>
+      findMany: async ({
+        where,
+      }: {
+        where: { workspaceId: string; eventName: { in: string[] } };
+      }) =>
         db.funnelDefaults.filter(
           (defaults) =>
             defaults.workspaceId === where.workspaceId &&
-            where.eventName.in.includes(String(defaults.eventName))
-        )
+            where.eventName.in.includes(String(defaults.eventName)),
+        ),
     },
     metaConversionDestination: {
-      findUnique: async ({ where }: { where: { workspaceId: string } }) =>
-        db.destinations.find((destination) => destination.workspaceId === where.workspaceId) ??
-        null
+      findFirst: async ({ where }: { where: { workspaceId: string } }) =>
+        db.destinations.find(
+          (destination) => destination.workspaceId === where.workspaceId,
+        ) ?? null,
     },
     metaIntegration: {
       findUnique: async ({ where }: { where: { workspaceId: string } }) =>
@@ -59,13 +76,14 @@ function createHarness(metaCapiAdapter?: {
               tokenTag: "oauth-tag",
               capiAccessTokenEncrypted: null,
               capiTokenIv: null,
-              capiTokenTag: null
+              capiTokenTag: null,
+              selectedAdAccountId: "act_legacy",
             }
-          : null
+          : null,
     },
     conversionEventLog: {
       findUnique: async ({
-        where
+        where,
       }: {
         where: { id?: string; dedupeKey?: string; workspaceId?: string };
       }) =>
@@ -75,45 +93,50 @@ function createHarness(metaCapiAdapter?: {
               log.workspaceId === where.workspaceId) &&
             ((where.id !== undefined && log.id === where.id) ||
               (where.dedupeKey !== undefined &&
-                log.dedupeKey === where.dedupeKey))
+                log.dedupeKey === where.dedupeKey)),
         ) ?? null,
-      findMany: async ({ where }: { where: { id: { in: string[] }; status?: string } }) =>
+      findMany: async ({
+        where,
+      }: {
+        where: { id: { in: string[] }; status?: string };
+      }) =>
         db.logs.filter(
           (log) =>
             where.id.in.includes(String(log.id)) &&
-            (where.status === undefined || log.status === where.status)
+            (where.status === undefined || log.status === where.status),
         ),
       count: async ({
-        where
+        where,
       }: {
         where: {
           workspaceId?: string;
           eventName?: string;
           customerIdentityKey?: string;
         };
-      }) =>
-        {
-          db.countQueries.push(where);
-          return db.logs.filter(
-            (log) =>
-              (where.workspaceId === undefined || log.workspaceId === where.workspaceId) &&
-              (where.eventName === undefined || log.eventName === where.eventName) &&
-              (where.customerIdentityKey === undefined ||
-                log.customerIdentityKey === where.customerIdentityKey)
-          ).length;
-        },
+      }) => {
+        db.countQueries.push(where);
+        return db.logs.filter(
+          (log) =>
+            (where.workspaceId === undefined ||
+              log.workspaceId === where.workspaceId) &&
+            (where.eventName === undefined ||
+              log.eventName === where.eventName) &&
+            (where.customerIdentityKey === undefined ||
+              log.customerIdentityKey === where.customerIdentityKey),
+        ).length;
+      },
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const log = {
           id: `conversion_${db.logs.length + 1}`,
           createdAt: new Date("2026-07-02T03:00:00.000Z"),
-          ...data
+          ...data,
         };
         db.logs.push(log);
         return log;
       },
       update: async ({
         data,
-        where
+        where,
       }: {
         data: Record<string, unknown>;
         where: { id: string };
@@ -121,7 +144,7 @@ function createHarness(metaCapiAdapter?: {
         const index = db.logs.findIndex((log) => log.id === where.id);
         db.logs[index] = {
           ...db.logs[index],
-          ...data
+          ...data,
         };
         return db.logs[index];
       },
@@ -151,22 +174,22 @@ function createHarness(metaCapiAdapter?: {
         const log = {
           id: `integration_${db.integrationLogs.length + 1}`,
           startedAt: data.startedAt ?? new Date("2026-07-02T03:00:00.000Z"),
-          ...data
+          ...data,
         };
         db.integrationLogs.push(log);
         return log;
-      }
+      },
     },
     diagnosticEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const event = {
           id: `diagnostic_${db.diagnosticEvents.length + 1}`,
-          ...data
+          ...data,
         };
         db.diagnosticEvents.push(event);
         return event;
-      }
-    }
+      },
+    },
   };
 
   return {
@@ -179,14 +202,16 @@ function createHarness(metaCapiAdapter?: {
           requestPayload: null,
           responseSummary: null,
           errorMessage: "Meta CAPI token, pixel id or page id not configured",
-          errorCode: "MissingMetaDestination" as const
-        })
+          errorCode: "MissingMetaDestination" as const,
+        }),
       }) as never,
       {
         decrypt: ({ encryptedAccessToken }: { encryptedAccessToken: string }) =>
-          encryptedAccessToken
-      } as never
-    )
+          encryptedAccessToken,
+        fingerprint: (accessToken: string) => `fingerprint:${accessToken}`,
+      } as never,
+      connectionResolver as never,
+    ),
   };
 }
 
@@ -216,7 +241,7 @@ describe("conversion events service", () => {
           pixelId: "pixel_1",
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
+          updatedAt: "2026-07-02T03:00:00.000Z",
         },
         {
           id: "rule_2",
@@ -230,9 +255,9 @@ describe("conversion events service", () => {
           defaultValueCents: 19900,
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
 
     expect(result.created).toHaveLength(2);
@@ -243,14 +268,14 @@ describe("conversion events service", () => {
       eventName: "QualifiedLead",
       status: "ready_to_send",
       pixelId: "pixel_1",
-      adId: "ad_1"
+      adId: "ad_1",
     });
     expect(db.logs[1]).toMatchObject({
       sourceTrigger: "whatsapp_label",
       eventName: "Purchase",
       status: "ready_to_send",
       pixelId: null,
-      adId: "ad_1"
+      adId: "ad_1",
     });
   });
 
@@ -261,7 +286,7 @@ describe("conversion events service", () => {
       eventName: "Purchase",
       defaultValueCents: 250_000,
       defaultCurrency: "BRL",
-      defaultContentName: "Plano premium"
+      defaultContentName: "Plano premium",
     });
 
     await service.recordRuleMatches({
@@ -282,9 +307,9 @@ describe("conversion events service", () => {
           pixelId: null,
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
 
     expect(db.logs[0]).toMatchObject({
@@ -293,7 +318,7 @@ describe("conversion events service", () => {
       valueSource: "configured_average",
       currency: "BRL",
       contentName: "Plano premium",
-      status: "ready_to_send"
+      status: "ready_to_send",
     });
   });
 
@@ -307,7 +332,7 @@ describe("conversion events service", () => {
       campaignId: "cmp_1",
       adSetId: "adset_1",
       adId: "ad_1",
-      ctwaClid: "clid_1"
+      ctwaClid: "clid_1",
     });
 
     expect(db.logs[0]).toMatchObject({
@@ -315,7 +340,7 @@ describe("conversion events service", () => {
       eventOccurredAt: expect.any(Date),
       customerIdentityKey: "phone_hash_1",
       businessSource: "paid",
-      purchaseKind: null
+      purchaseKind: null,
     });
   });
 
@@ -329,26 +354,27 @@ describe("conversion events service", () => {
       sourceTrigger: "external_mysql:kinbox_mysql",
       eventName: "QualifiedLead",
       eventId: "event_historical_1",
-      dedupeKey: "external:connector_1:kinbox_mysql:qualified_lead:lead:phone_hash_1",
+      dedupeKey:
+        "external:connector_1:kinbox_mysql:qualified_lead:lead:phone_hash_1",
       leadId: "lead_1",
       phoneHash: "phone_hash_1",
       businessSource: "paid",
       adId: "ad_1",
       ctwaClid: "clid_1",
       eventOccurredAt: new Date("2026-07-11T03:00:00.000Z"),
-      deliveryStatus: "imported"
+      deliveryStatus: "imported",
     });
 
     expect(result).toMatchObject({
       status: "created",
-      deliveryStatus: "imported"
+      deliveryStatus: "imported",
     });
     expect(db.logs[0]).toMatchObject({
       status: "imported",
       eventName: "QualifiedLead",
       eventOccurredAt: new Date("2026-07-11T03:00:00.000Z"),
       errorCode: null,
-      errorMessage: null
+      errorMessage: null,
     });
   });
 
@@ -372,14 +398,14 @@ describe("conversion events service", () => {
       sourcePayload: {
         schema: "external_event_row_v1",
         adId: null,
-        ctwaClid: null
+        ctwaClid: null,
       },
-      deliveryStatus: "not_eligible"
+      deliveryStatus: "not_eligible",
     });
 
     expect(result).toMatchObject({
       status: "created",
-      deliveryStatus: "not_eligible"
+      deliveryStatus: "not_eligible",
     });
     expect(db.logs[0]).toMatchObject({
       status: "not_eligible",
@@ -387,8 +413,8 @@ describe("conversion events service", () => {
       sourcePayload: {
         schema: "external_event_row_v1",
         adId: null,
-        ctwaClid: null
-      }
+        ctwaClid: null,
+      },
     });
   });
 
@@ -430,13 +456,13 @@ describe("conversion events service", () => {
       leadId: "lead_workspace_2",
       phoneHash: "phone_hash_workspace_2",
       adId: "ad_2",
-      ctwaClid: "ctwa_2"
+      ctwaClid: "ctwa_2",
     });
 
     await expect(
       service.sendReadyEvent("conversion_1", {
-        workspaceId: "workspace_1"
-      })
+        workspaceId: "workspace_1",
+      }),
     ).rejects.toThrow("Evento de conversao nao encontrado");
 
     expect(adapter.sendEvent).not.toHaveBeenCalled();
@@ -556,7 +582,7 @@ describe("conversion events service", () => {
       defaultValueCents: 19900,
       active: true,
       createdAt: "2026-07-02T03:00:00.000Z",
-      updatedAt: "2026-07-02T03:00:00.000Z"
+      updatedAt: "2026-07-02T03:00:00.000Z",
     };
 
     await service.recordRuleMatches({
@@ -566,7 +592,7 @@ describe("conversion events service", () => {
       adId: "ad_1",
       ctwaClid: "clid_1",
       eventOccurredAt: firstOccurredAt,
-      rules: [purchaseRule]
+      rules: [purchaseRule],
     });
     await service.recordRuleMatches({
       workspaceId: "workspace_1",
@@ -575,7 +601,7 @@ describe("conversion events service", () => {
       adId: "ad_1",
       ctwaClid: "clid_1",
       eventOccurredAt: secondOccurredAt,
-      rules: [{ ...purchaseRule, id: "rule_purchase_2" }]
+      rules: [{ ...purchaseRule, id: "rule_purchase_2" }],
     });
 
     expect(db.logs[0]).toMatchObject({
@@ -583,14 +609,14 @@ describe("conversion events service", () => {
       eventOccurredAt: firstOccurredAt,
       customerIdentityKey: "phone_hash_1",
       businessSource: "paid",
-      purchaseKind: "first_purchase"
+      purchaseKind: "first_purchase",
     });
     expect(db.logs[1]).toMatchObject({
       eventName: "Purchase",
       eventOccurredAt: secondOccurredAt,
       customerIdentityKey: "phone_hash_1",
       businessSource: "paid",
-      purchaseKind: "repurchase"
+      purchaseKind: "repurchase",
     });
   });
 
@@ -615,9 +641,9 @@ describe("conversion events service", () => {
           defaultValueCents: 19900,
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
 
     expect(db.logs[0]).toMatchObject({
@@ -625,7 +651,7 @@ describe("conversion events service", () => {
       phoneHash: null,
       customerIdentityKey: null,
       businessSource: "paid",
-      purchaseKind: null
+      purchaseKind: null,
     });
     expect(db.countQueries).toEqual([]);
   });
@@ -651,9 +677,9 @@ describe("conversion events service", () => {
           pixelId: "pixel_1",
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
 
     expect(result.created).toEqual(["conversion_1"]);
@@ -662,13 +688,13 @@ describe("conversion events service", () => {
       status: "pending_value",
       errorCode: "EventValueMissing",
       errorMessage: "Conversion event value is required",
-      valueCents: null
+      valueCents: null,
     });
   });
 
   it("records legacy unsupported event names as skipped without enqueueing them", async () => {
     const adapter = {
-      sendEvent: vi.fn()
+      sendEvent: vi.fn(),
     };
     const { db, service } = createHarness(adapter);
 
@@ -690,9 +716,9 @@ describe("conversion events service", () => {
           pixelId: "pixel_1",
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
 
     await expect(service.listReadyLogIds(result.created)).resolves.toEqual([]);
@@ -705,7 +731,7 @@ describe("conversion events service", () => {
       eventName: "Contact",
       status: "skipped",
       errorCode: "UnsupportedConversionEventName",
-      errorMessage: "Unsupported conversion event name"
+      errorMessage: "Unsupported conversion event name",
     });
   });
 
@@ -718,7 +744,7 @@ describe("conversion events service", () => {
       campaignId: "cmp_1",
       adSetId: "adset_1",
       adId: "ad_1",
-      ctwaClid: "clid_1"
+      ctwaClid: "clid_1",
     };
 
     const first = await service.recordAutomaticLeadSubmitted(input);
@@ -740,7 +766,7 @@ describe("conversion events service", () => {
       adSetId: "adset_1",
       adId: "ad_1",
       ctwaClid: "clid_1",
-      dedupeKey: "workspace_1:lead_1:auto_lead:LeadSubmitted:ad_1"
+      dedupeKey: "workspace_1:lead_1:auto_lead:LeadSubmitted:ad_1",
     });
   });
 
@@ -756,17 +782,17 @@ describe("conversion events service", () => {
             data: [
               {
                 event_name: "Purchase",
-                event_id: "workspace_1:lead_1:rule_1:Purchase:ad_1"
-              }
-            ]
+                event_id: "workspace_1:lead_1:rule_1:Purchase:ad_1",
+              },
+            ],
           },
           responseSummary: {
-            events_received: 1
+            events_received: 1,
           },
           errorMessage: null,
-          errorCode: null
+          errorCode: null,
         };
-      }
+      },
     };
     const { db, service } = createHarness(adapter);
     await service.recordRuleMatches({
@@ -779,7 +805,7 @@ describe("conversion events service", () => {
       currency: "BRL",
       contentName: "Plano mensal",
       customData: {
-        order_id: "order_1"
+        order_id: "order_1",
       },
       rules: [
         {
@@ -793,9 +819,9 @@ describe("conversion events service", () => {
           pixelId: "pixel_1",
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
 
     const result = await service.sendReadyEvent("conversion_1");
@@ -803,22 +829,22 @@ describe("conversion events service", () => {
     expect(result).toEqual({
       conversionEventLogId: "conversion_1",
       workspaceId: "workspace_1",
-      status: "sent"
+      status: "sent",
     });
     expect(db.logs[0]).toMatchObject({
       status: "sent",
       providerResponseSummary: {
-        events_received: 1
+        events_received: 1,
       },
       providerRequestPayload: {
         data: [
           {
             event_name: "Purchase",
-            event_id: "workspace_1:lead_1:rule_1:Purchase:ad_1"
-          }
-        ]
+            event_id: "workspace_1:lead_1:rule_1:Purchase:ad_1",
+          },
+        ],
       },
-      errorMessage: null
+      errorMessage: null,
     });
     expect(db.logs[0].sentAt).toBeInstanceOf(Date);
     expect(adapter.calls[0]).toMatchObject({
@@ -832,9 +858,9 @@ describe("conversion events service", () => {
       currency: "BRL",
       contentName: "Plano mensal",
       customData: {
-        order_id: "order_1"
+        order_id: "order_1",
       },
-      testEventCode: null
+      testEventCode: null,
     });
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({
@@ -845,10 +871,206 @@ describe("conversion events service", () => {
         providerRequestId: "conversion_1",
         leadId: "lead_1",
         adId: "ad_1",
-        jobId: "conversion_1"
-      })
+        jobId: "conversion_1",
+      }),
     );
-    expect(JSON.stringify(db.integrationLogs)).not.toContain("workspace-oauth-token");
+    expect(JSON.stringify(db.integrationLogs)).not.toContain(
+      "workspace-oauth-token",
+    );
+  });
+
+  it("routes a manual event through the exact account connection and destination", async () => {
+    const adapter = {
+      sendEvent: vi.fn(async () => ({
+        status: "sent" as const,
+        requestPayload: { data: [{ event_name: "QualifiedLead" }] },
+        responseSummary: { events_received: 1 },
+        errorMessage: null,
+        errorCode: null,
+      })),
+    };
+    const connectionResolver = {
+      hasNormalizedConnections: vi.fn(async () => true),
+      resolveCapiRoute: vi.fn(async () => ({
+        source: "manual" as const,
+        workspaceId: "workspace_manual",
+        accessToken: "manual-token-exact",
+        reportingAccountId: "reporting_1",
+        adAccountId: "act_1",
+        businessConnectionId: "connection_1",
+        credentialId: "credential_1",
+        conversionDestinationId: "destination_1",
+        pixelId: "pixel_manual",
+        pageId: "page_manual",
+      })),
+    };
+    const { db, service } = createHarness(adapter, connectionResolver);
+
+    await service.recordAutomaticLeadSubmitted({
+      workspaceId: "workspace_manual",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "campaign_1",
+      adId: "ad_1",
+      ctwaClid: "ctwa_1",
+    });
+
+    await expect(service.sendReadyEvent("conversion_1")).resolves.toMatchObject(
+      {
+        status: "sent",
+        workspaceId: "workspace_manual",
+      },
+    );
+    expect(connectionResolver.resolveCapiRoute).toHaveBeenCalledWith({
+      workspaceId: "workspace_manual",
+      metaAccountId: undefined,
+      campaignId: "campaign_1",
+      adId: "ad_1",
+    });
+    expect(adapter.sendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessToken: "manual-token-exact",
+        pixelId: "pixel_manual",
+        pageId: "page_manual",
+      }),
+    );
+    expect(db.logs[0]).toMatchObject({
+      status: "sent",
+      metaAccountId: "act_1",
+      metaBusinessConnectionId: "connection_1",
+      metaConversionDestinationId: "destination_1",
+    });
+    expect(db.integrationLogs[0]?.requestSummary).toMatchObject({
+      routeSource: "manual",
+      reportingAccountId: "reporting_1",
+      adAccountId: "act_1",
+      businessConnectionId: "connection_1",
+      conversionDestinationId: "destination_1",
+    });
+    expect(JSON.stringify(db.integrationLogs)).not.toContain(
+      "manual-token-exact",
+    );
+
+    db.logs[0]!.status = "ready_to_send";
+    connectionResolver.resolveCapiRoute.mockClear();
+    await service.sendReadyEvent("conversion_1");
+    expect(connectionResolver.resolveCapiRoute).toHaveBeenCalledWith({
+      workspaceId: "workspace_manual",
+      metaAccountId: "act_1",
+      campaignId: "campaign_1",
+      adId: "ad_1",
+      businessConnectionId: "connection_1",
+      conversionDestinationId: "destination_1",
+    });
+  });
+
+  it("blocks an ambiguous manual route without calling Meta or guessing a token", async () => {
+    const adapter = { sendEvent: vi.fn() };
+    const connectionResolver = {
+      hasNormalizedConnections: vi.fn(async () => true),
+      resolveCapiRoute: vi.fn(async () => {
+        throw new Error(
+          "Nao foi possivel determinar com seguranca qual conexao Meta deve enviar este evento",
+        );
+      }),
+    };
+    const { db, service } = createHarness(adapter, connectionResolver);
+
+    await service.recordAutomaticLeadSubmitted({
+      workspaceId: "workspace_manual",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      adId: "ad_without_snapshot",
+      ctwaClid: "ctwa_1",
+    });
+
+    await expect(service.sendReadyEvent("conversion_1")).resolves.toMatchObject(
+      {
+        status: "not_configured",
+        workspaceId: "workspace_manual",
+      },
+    );
+    expect(adapter.sendEvent).not.toHaveBeenCalled();
+    expect(db.logs[0]).toMatchObject({
+      status: "not_configured",
+      errorCode: "MissingMetaDestination",
+      errorMessage:
+        "Nao foi possivel determinar com seguranca qual conexao Meta deve enviar este evento",
+    });
+    expect(db.diagnosticEvents[0]?.summaryPayload).toMatchObject({
+      routeSource: "manual",
+      businessConnectionId: null,
+      conversionDestinationId: null,
+    });
+  });
+
+  it("keeps an OAuth workspace on the original legacy delivery methods", async () => {
+    const adapter = {
+      sendEvent: vi.fn(async () => ({
+        status: "sent" as const,
+        requestPayload: null,
+        responseSummary: { events_received: 1 },
+        errorMessage: null,
+        errorCode: null,
+      })),
+    };
+    const connectionResolver = {
+      hasNormalizedConnections: vi.fn(async () => false),
+      resolveCapiRoute: vi.fn(),
+      getLegacyCompatibilityProjection: vi.fn(async () => ({
+        source: "legacy_oauth" as const,
+        workspaceId: "workspace_barbieri",
+        businessId: "business_barbieri",
+        adAccountId: "act_legacy",
+        pixelId: "pixel_barbieri",
+        destinationPixelId: "pixel_barbieri",
+        destinationPageId: "page_barbieri",
+        credentialFingerprint: "fingerprint:workspace-oauth-token",
+      })),
+    };
+    const { db, service } = createHarness(adapter, connectionResolver);
+    db.destinations.push({
+      workspaceId: "workspace_barbieri",
+      pixelId: "pixel_barbieri",
+      pageId: "page_barbieri",
+    });
+
+    await service.recordAutomaticLeadSubmitted({
+      workspaceId: "workspace_barbieri",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "ctwa_1",
+    });
+    await service.sendReadyEvent("conversion_1");
+
+    expect(connectionResolver.resolveCapiRoute).not.toHaveBeenCalled();
+    expect(
+      connectionResolver.getLegacyCompatibilityProjection,
+    ).toHaveBeenCalledWith("workspace_barbieri", "capi");
+    expect(adapter.sendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessToken: "workspace-oauth-token",
+        pixelId: "pixel_barbieri",
+        pageId: "page_barbieri",
+      }),
+    );
+    expect(db.logs[0]).not.toHaveProperty("metaBusinessConnectionId");
+    expect(db.logs[0]).not.toHaveProperty("metaConversionDestinationId");
+    expect(db.integrationLogs[0]?.requestSummary).toMatchObject({
+      routeSource: "legacy_oauth",
+      legacyShadowParity: {
+        comparisonStatus: "matched",
+        credentialFingerprintMatch: true,
+        adAccountMatch: true,
+        pixelMatch: true,
+        pageMatch: true,
+        parity: true,
+      },
+    });
+    expect(JSON.stringify(db.integrationLogs)).not.toContain(
+      "fingerprint:workspace-oauth-token",
+    );
   });
 
   it("creates and sends a manual test conversion with Meta test event code", async () => {
@@ -861,18 +1083,18 @@ describe("conversion events service", () => {
         return {
           status: "sent" as const,
           responseSummary: {
-            events_received: 1
+            events_received: 1,
           },
           errorMessage: null,
-          errorCode: null
+          errorCode: null,
         };
-      }
+      },
     };
     const { db, service } = createHarness(adapter);
     db.destinations.push({
       workspaceId: "workspace_1",
       pixelId: "workspace_pixel_1",
-      pageId: "page_1"
+      pageId: "page_1",
     });
 
     const result = await service.sendManualTestEvent({
@@ -882,13 +1104,13 @@ describe("conversion events service", () => {
       phoneHash: "phone_hash_1",
       adId: "ad_1",
       ctwaClid: "clid_1",
-      testEventCode: "TEST12345"
+      testEventCode: "TEST12345",
     });
 
     expect(result).toEqual({
       conversionEventLogId: "conversion_1",
       workspaceId: "workspace_1",
-      status: "sent"
+      status: "sent",
     });
     const manualTestKeyPattern =
       /^workspace_1:lead_1:manual_test:QualifiedLead:ad_1:1234567890:[0-9a-f-]{36}$/;
@@ -906,14 +1128,14 @@ describe("conversion events service", () => {
       attributionStatus: "manual_test",
       customData: Prisma.JsonNull,
       errorCode: null,
-      errorMessage: null
+      errorMessage: null,
     });
     expect(adapter.calls[0]).toMatchObject({
       pixelId: "workspace_pixel_1",
       pageId: "page_1",
       eventName: "QualifiedLead",
       dedupeKey: db.logs[0]?.dedupeKey,
-      testEventCode: "TEST12345"
+      testEventCode: "TEST12345",
     });
     expect(db.logs[0]?.eventId).toBe(db.logs[0]?.dedupeKey);
   });
@@ -928,18 +1150,18 @@ describe("conversion events service", () => {
         return {
           status: "sent" as const,
           responseSummary: {
-            events_received: 1
+            events_received: 1,
           },
           errorMessage: null,
-          errorCode: null
+          errorCode: null,
         };
-      }
+      },
     };
     const { db, service } = createHarness(adapter);
     db.destinations.push({
       workspaceId: "workspace_1",
       pixelId: "workspace_pixel_1",
-      pageId: "page_1"
+      pageId: "page_1",
     });
 
     const input = {
@@ -949,7 +1171,7 @@ describe("conversion events service", () => {
       phoneHash: "phone_hash_1",
       adId: "ad_1",
       ctwaClid: "clid_1",
-      testEventCode: "TEST12345"
+      testEventCode: "TEST12345",
     };
 
     const first = await service.sendManualTestEvent(input);
@@ -958,12 +1180,12 @@ describe("conversion events service", () => {
     expect(first).toMatchObject({
       conversionEventLogId: "conversion_1",
       workspaceId: "workspace_1",
-      status: "sent"
+      status: "sent",
     });
     expect(second).toMatchObject({
       conversionEventLogId: "conversion_2",
       workspaceId: "workspace_1",
-      status: "sent"
+      status: "sent",
     });
     expect(db.logs).toHaveLength(2);
     expect(db.logs[0]?.dedupeKey).not.toBe(db.logs[1]?.dedupeKey);
@@ -976,7 +1198,7 @@ describe("conversion events service", () => {
   it("records a manual test conversion without sending when initial status is blocked", async () => {
     vi.spyOn(Date, "now").mockReturnValue(1234567890);
     const adapter = {
-      sendEvent: vi.fn()
+      sendEvent: vi.fn(),
     };
     const { db, service } = createHarness(adapter);
 
@@ -986,13 +1208,13 @@ describe("conversion events service", () => {
       phoneHash: "phone_hash_1",
       adId: "ad_1",
       ctwaClid: "clid_1",
-      testEventCode: "TEST12345"
+      testEventCode: "TEST12345",
     });
 
     expect(result).toEqual({
       conversionEventLogId: "conversion_1",
       workspaceId: "workspace_1",
-      status: "not_configured"
+      status: "not_configured",
     });
     expect(adapter.sendEvent).not.toHaveBeenCalled();
     expect(db.logs[0]).toMatchObject({
@@ -1001,7 +1223,7 @@ describe("conversion events service", () => {
       status: "pending_value",
       attributionStatus: "manual_test",
       errorCode: "EventValueMissing",
-      errorMessage: "Conversion event value is required"
+      errorMessage: "Conversion event value is required",
     });
   });
 
@@ -1014,18 +1236,18 @@ describe("conversion events service", () => {
         return {
           status: "sent" as const,
           responseSummary: {
-            events_received: 1
+            events_received: 1,
           },
           errorMessage: null,
-          errorCode: null
+          errorCode: null,
         };
-      }
+      },
     };
     const { db, service } = createHarness(adapter);
     db.destinations.push({
       workspaceId: "workspace_1",
       pixelId: "workspace_pixel_1",
-      pageId: "page_1"
+      pageId: "page_1",
     });
     await service.recordRuleMatches({
       workspaceId: "workspace_1",
@@ -1045,9 +1267,9 @@ describe("conversion events service", () => {
           pixelId: "legacy_rule_pixel_1",
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
 
     await service.sendReadyEvent("conversion_1");
@@ -1055,14 +1277,14 @@ describe("conversion events service", () => {
     expect(adapter.calls[0]).toMatchObject({
       accessToken: "workspace-oauth-token",
       pixelId: "workspace_pixel_1",
-      pageId: "page_1"
+      pageId: "page_1",
     });
     expect(db.integrationLogs[0].requestSummary).toMatchObject({
       conversionEventLogId: "conversion_1",
       eventName: "QualifiedLead",
       pixelId: "workspace_pixel_1",
       pageId: "page_1",
-      adId: "ad_1"
+      adId: "ad_1",
     });
   });
 
@@ -1070,18 +1292,18 @@ describe("conversion events service", () => {
     const fetchMock = vi.fn(async () => {
       return new Response(
         JSON.stringify({
-          events_received: 1
+          events_received: 1,
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
+        { status: 200, headers: { "Content-Type": "application/json" } },
       );
     });
     const { db, service } = createHarness(
-      new MetaCapiAdapter({}, fetchMock as never)
+      new MetaCapiAdapter({}, fetchMock as never),
     );
     db.destinations.push({
       workspaceId: "workspace_1",
       pixelId: "workspace_pixel_1",
-      pageId: "page_1"
+      pageId: "page_1",
     });
     await service.recordRuleMatches({
       workspaceId: "workspace_1",
@@ -1102,9 +1324,9 @@ describe("conversion events service", () => {
           pixelId: "pixel_1",
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
 
     const result = await service.sendReadyEvent("conversion_1");
@@ -1113,13 +1335,13 @@ describe("conversion events service", () => {
     expect(result).toEqual({
       conversionEventLogId: "conversion_1",
       workspaceId: null,
-      status: "skipped"
+      status: "skipped",
     });
     expect(db.logs[0]).toMatchObject({
       status: "pending_meta_context",
       pixelId: "pixel_1",
       errorMessage: "Meta CAPI ctwa_clid not available",
-      errorCode: "MissingCtwaClid"
+      errorCode: "MissingCtwaClid",
     });
     expect(db.integrationLogs).toEqual([]);
     expect(db.diagnosticEvents).toEqual([]);
@@ -1144,9 +1366,9 @@ describe("conversion events service", () => {
           pixelId: "pixel_1",
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     };
 
     const first = await service.recordRuleMatches(input);
@@ -1178,9 +1400,9 @@ describe("conversion events service", () => {
           pixelId: "pixel_1",
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
     await service.recordRuleMatches({
       workspaceId: "workspace_1",
@@ -1200,13 +1422,13 @@ describe("conversion events service", () => {
           pixelId: "pixel_1",
           active: true,
           createdAt: "2026-07-02T03:00:00.000Z",
-          updatedAt: "2026-07-02T03:00:00.000Z"
-        }
-      ]
+          updatedAt: "2026-07-02T03:00:00.000Z",
+        },
+      ],
     });
 
     await expect(
-      service.listReadyLogIds(["conversion_1", "conversion_2", "missing"])
+      service.listReadyLogIds(["conversion_1", "conversion_2", "missing"]),
     ).resolves.toEqual(["conversion_1"]);
   });
 });

@@ -12,15 +12,20 @@ import {
   Post,
   Put,
   Query,
-  Res
+  Res,
 } from "@nestjs/common";
 import {
   metaAssetSelectionInputSchema,
   metaCapiTokenInputSchema,
   metaConversionDestinationInputSchema,
+  metaManualAccountDestinationInputSchema,
+  metaManualBusinessConnectionInputSchema,
+  metaManualBusinessConnectionStatusInputSchema,
+  metaManualCredentialInputSchema,
+  metaManualCredentialRotationInputSchema,
   metaOAuthCallbackQuerySchema,
   metaReportingAccountInputSchema,
-  metaReportingAccountStatusInputSchema
+  metaReportingAccountStatusInputSchema,
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
@@ -40,7 +45,7 @@ export class IntegrationsController {
     @Inject(AuthService)
     private readonly authService: AuthService,
     @Inject(WorkspacesService)
-    private readonly workspacesService: WorkspacesService
+    private readonly workspacesService: WorkspacesService,
   ) {}
 
   @Get("health")
@@ -65,17 +70,14 @@ export class IntegrationsController {
   @Get("meta/start")
   async startMeta(
     @AuthToken() refreshToken: string,
-    @Query("workspaceId") expectedWorkspaceId?: string
+    @Query("workspaceId") expectedWorkspaceId?: string,
   ) {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
 
-    if (
-      expectedWorkspaceId &&
-      expectedWorkspaceId.trim() !== workspace.id
-    ) {
+    if (expectedWorkspaceId && expectedWorkspaceId.trim() !== workspace.id) {
       throw new ConflictException(
-        "O workspace da sessao mudou. Recarregue a pagina antes de conectar a Meta"
+        "O workspace da sessao mudou. Recarregue a pagina antes de conectar a Meta",
       );
     }
 
@@ -85,7 +87,7 @@ export class IntegrationsController {
 
     return this.integrationsService.getMetaStartAction(
       workspace.id,
-      authenticated.user.id
+      authenticated.user.id,
     );
   }
 
@@ -93,7 +95,7 @@ export class IntegrationsController {
   async handleMetaCallback(
     @Query() query: Record<string, unknown>,
     @Headers("accept") accept: string | undefined,
-    @Res({ passthrough: true }) response: HtmlResponse
+    @Res({ passthrough: true }) response: HtmlResponse,
   ) {
     const wantsHtml = this.wantsHtml(accept);
     const providerError = typeof query.error === "string" ? query.error : null;
@@ -124,7 +126,9 @@ export class IntegrationsController {
     }
 
     try {
-      const result = await this.integrationsService.handleMetaCallback(parsed.data);
+      const result = await this.integrationsService.handleMetaCallback(
+        parsed.data,
+      );
       const connectionPersisted =
         result.status === "connected" &&
         result.connection?.status === "connected";
@@ -146,7 +150,7 @@ export class IntegrationsController {
           result.message ??
             (result.status === "connected"
               ? "Conexao Meta realizada com sucesso."
-              : "Falha ao conectar com Meta.")
+              : "Falha ao conectar com Meta."),
         );
       }
 
@@ -156,7 +160,9 @@ export class IntegrationsController {
         return this.renderMetaOAuthPopupResult(
           response,
           false,
-          error instanceof Error ? error.message : "Falha ao conectar com Meta."
+          error instanceof Error
+            ? error.message
+            : "Falha ao conectar com Meta.",
         );
       }
 
@@ -171,14 +177,183 @@ export class IntegrationsController {
     return this.integrationsService.getMetaConnection(workspaceId);
   }
 
+  @Get("meta/capabilities")
+  async getMetaCapabilities(@AuthToken() refreshToken: string) {
+    await this.getCurrentWorkspaceId(refreshToken);
+    return this.integrationsService.getMetaConnectionCapabilities();
+  }
+
+  @Get("meta/manual")
+  async getMetaManualConfiguration(@AuthToken() refreshToken: string) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    return this.integrationsService.getMetaManualConfiguration(workspaceId);
+  }
+
+  @Post("meta/manual/credentials")
+  async createMetaManualCredential(
+    @AuthToken() refreshToken: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaManualCredentialInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.createMetaManualCredential(
+      workspace.id,
+      input,
+      authenticated.user.id,
+    );
+  }
+
+  @Get("meta/manual/credentials/:id/assets")
+  async discoverMetaManualAssets(
+    @AuthToken() refreshToken: string,
+    @Param("id") credentialId: string,
+    @Query("businessId") businessId?: string,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.discoverMetaManualAssets(
+      workspace.id,
+      credentialId,
+      businessId?.trim() || null,
+    );
+  }
+
+  @Post("meta/manual/connections")
+  async createMetaManualBusinessConnection(
+    @AuthToken() refreshToken: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaManualBusinessConnectionInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.createMetaManualBusinessConnection(
+      workspace.id,
+      input,
+      authenticated.user.id,
+    );
+  }
+
+  @Put("meta/manual/credentials/:id/rotate")
+  async rotateMetaManualCredential(
+    @AuthToken() refreshToken: string,
+    @Param("id") credentialId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaManualCredentialRotationInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.rotateMetaManualCredential(
+      workspace.id,
+      credentialId,
+      input,
+      authenticated.user.id,
+    );
+  }
+
+  @Put("meta/manual/connections/:id/status")
+  async setMetaManualBusinessConnectionStatus(
+    @AuthToken() refreshToken: string,
+    @Param("id") connectionId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaManualBusinessConnectionStatusInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.setMetaManualBusinessConnectionStatus(
+      workspace.id,
+      connectionId,
+      input,
+      authenticated.user.id,
+    );
+  }
+
+  @Post("meta/manual/connections/:id/test")
+  async testMetaManualBusinessConnection(
+    @AuthToken() refreshToken: string,
+    @Param("id") connectionId: string,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.testMetaManualBusinessConnection(
+      workspace.id,
+      connectionId,
+      authenticated.user.id,
+    );
+  }
+
+  @Put("meta/manual/reporting-accounts/:id/destination")
+  async setMetaManualReportingDestination(
+    @AuthToken() refreshToken: string,
+    @Param("id") reportingAccountId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaManualAccountDestinationInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.setMetaManualReportingDestination(
+      workspace.id,
+      reportingAccountId,
+      input,
+      authenticated.user.id,
+    );
+  }
+
   @Get("meta/assets")
   async getMetaAssets(
     @AuthToken() refreshToken: string,
-    @Query("businessId") businessId?: string
+    @Query("businessId") businessId?: string,
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
     const requestedBusinessId =
-      typeof businessId === "string" && businessId.trim() ? businessId.trim() : null;
+      typeof businessId === "string" && businessId.trim()
+        ? businessId.trim()
+        : null;
 
     return requestedBusinessId
       ? this.integrationsService.getMetaAssets(workspaceId, requestedBusinessId)
@@ -188,7 +363,7 @@ export class IntegrationsController {
   @Post("meta/assets/refresh")
   async refreshMetaAssets(
     @AuthToken() refreshToken: string,
-    @Body() body: Record<string, unknown>
+    @Body() body: Record<string, unknown>,
   ) {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
@@ -204,24 +379,24 @@ export class IntegrationsController {
     const assets = await this.integrationsService.refreshMetaAssets(
       workspace.id,
       businessId,
-      authenticated.user.id
+      authenticated.user.id,
     );
 
     if (assets.status === "not_connected") {
       throw new ConflictException(
-        "Conecte uma conta Meta neste workspace antes de atualizar os ativos"
+        "Conecte uma conta Meta neste workspace antes de atualizar os ativos",
       );
     }
 
     if (assets.status === "needs_reconnect") {
       throw new ConflictException(
-        "Reconecte a conta Meta deste workspace antes de atualizar os ativos"
+        "Reconecte a conta Meta deste workspace antes de atualizar os ativos",
       );
     }
 
     if (assets.status === "error") {
       throw new BadGatewayException(
-        assets.syncError ?? "A Meta nao permitiu atualizar os ativos"
+        assets.syncError ?? "A Meta nao permitiu atualizar os ativos",
       );
     }
 
@@ -231,7 +406,7 @@ export class IntegrationsController {
   @Put("meta/assets/selection")
   async saveMetaAssetSelection(
     @AuthToken() refreshToken: string,
-    @Body() body: Record<string, unknown>
+    @Body() body: Record<string, unknown>,
   ) {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
@@ -244,14 +419,14 @@ export class IntegrationsController {
     return this.integrationsService.saveMetaAssetSelection(
       workspace.id,
       input,
-      authenticated.user.id
+      authenticated.user.id,
     );
   }
 
   @Put("meta/capi-token")
   async saveMetaCapiToken(
     @AuthToken() refreshToken: string,
-    @Body() body: Record<string, unknown>
+    @Body() body: Record<string, unknown>,
   ) {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
@@ -264,7 +439,7 @@ export class IntegrationsController {
     return this.integrationsService.saveMetaCapiToken(
       workspace.id,
       input,
-      authenticated.user.id
+      authenticated.user.id,
     );
   }
 
@@ -278,12 +453,12 @@ export class IntegrationsController {
   @Put("meta/conversion-destination")
   async saveMetaConversionDestination(
     @AuthToken() refreshToken: string,
-    @Body() body: Record<string, unknown>
+    @Body() body: Record<string, unknown>,
   ) {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
     const input = this.parseBody(
-      metaConversionDestinationInputSchema.safeParse(body)
+      metaConversionDestinationInputSchema.safeParse(body),
     );
 
     if (!workspace.permissions.canManageIntegrations) {
@@ -293,7 +468,7 @@ export class IntegrationsController {
     return this.integrationsService.saveMetaConversionDestination(
       workspace.id,
       input,
-      authenticated.user.id
+      authenticated.user.id,
     );
   }
 
@@ -307,11 +482,13 @@ export class IntegrationsController {
   @Post("meta/reporting-accounts")
   async saveMetaReportingAccount(
     @AuthToken() refreshToken: string,
-    @Body() body: Record<string, unknown>
+    @Body() body: Record<string, unknown>,
   ) {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
-    const input = this.parseBody(metaReportingAccountInputSchema.safeParse(body));
+    const input = this.parseBody(
+      metaReportingAccountInputSchema.safeParse(body),
+    );
 
     if (!workspace.permissions.canManageIntegrations) {
       throw new ForbiddenException("Sem permissao para gerenciar integracoes");
@@ -320,7 +497,7 @@ export class IntegrationsController {
     return this.integrationsService.saveMetaReportingAccount(
       workspace.id,
       input,
-      authenticated.user.id
+      authenticated.user.id,
     );
   }
 
@@ -328,12 +505,12 @@ export class IntegrationsController {
   async setMetaReportingAccountActive(
     @AuthToken() refreshToken: string,
     @Param("id") id: string,
-    @Body() body: Record<string, unknown>
+    @Body() body: Record<string, unknown>,
   ) {
     const authenticated = await this.authService.getSession(refreshToken);
     const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
     const input = this.parseBody(
-      metaReportingAccountStatusInputSchema.safeParse(body)
+      metaReportingAccountStatusInputSchema.safeParse(body),
     );
 
     if (!workspace.permissions.canManageIntegrations) {
@@ -344,7 +521,7 @@ export class IntegrationsController {
       workspace.id,
       id,
       input.active,
-      authenticated.user.id
+      authenticated.user.id,
     );
   }
 
@@ -358,7 +535,9 @@ export class IntegrationsController {
     return this.integrationsService.getAsaasStatusAction();
   }
 
-  private parseBody<T>(result: { success: true; data: T } | { success: false }): T {
+  private parseBody<T>(
+    result: { success: true; data: T } | { success: false },
+  ): T {
     if (!result.success) {
       throw new BadRequestException("Payload invalido");
     }
@@ -384,16 +563,16 @@ export class IntegrationsController {
   private renderMetaOAuthPopupResult(
     response: HtmlResponse,
     ok: boolean,
-    message: string
+    message: string,
   ): string {
     const targetOrigin = this.webOrigin();
     const payload = this.safeScriptJson({
       type: "meta_oauth",
       status: ok ? "success" : "error",
-      message
+      message,
     });
     const redirectUrl = this.safeScriptJson(
-      `${targetOrigin}/integrations?meta=${ok ? "connected" : "error"}`
+      `${targetOrigin}/integrations?meta=${ok ? "connected" : "error"}`,
     );
 
     response.status(ok ? 200 : 400).type("text/html; charset=utf-8");
@@ -432,7 +611,8 @@ export class IntegrationsController {
 
   private webOrigin(): string {
     try {
-      return new URL(this.envOrDefault("WEB_ORIGIN", "http://localhost:3000")).origin;
+      return new URL(this.envOrDefault("WEB_ORIGIN", "http://localhost:3000"))
+        .origin;
     } catch {
       return "http://localhost:3000";
     }

@@ -49,6 +49,25 @@ type MetaGraphMutationResponse = {
   };
 };
 
+type MetaGraphObjectResponse = Record<string, unknown> & {
+  error?: {
+    message?: unknown;
+    type?: unknown;
+    code?: unknown;
+  };
+};
+
+type MetaPermissionGraphNode = {
+  permission?: unknown;
+  status?: unknown;
+};
+
+export type MetaTokenProfile = {
+  id: string;
+  name: string;
+  scopes: string[];
+};
+
 type MetaBusinessGraphNode = {
   id?: unknown;
   name?: unknown;
@@ -428,6 +447,140 @@ export class MetaAdapter implements IntegrationAdapter {
       .filter((item): item is MetaBusinessAssetDto =>
         Boolean(item.id && item.name),
       );
+  }
+
+  async getTokenProfile(input: {
+    accessToken: string;
+  }): Promise<MetaTokenProfile> {
+    const [profile, permissions] = await Promise.all([
+      this.getGraphObject<MetaGraphObjectResponse>(
+        "/me",
+        "id,name",
+        input.accessToken,
+      ),
+      this.getGraphList<MetaPermissionGraphNode>(
+        "/me/permissions",
+        "permission,status",
+        input.accessToken,
+      ).catch(() => []),
+    ]);
+    const id = this.asString(profile.id);
+    const name = this.asString(profile.name) ?? "Usuario do sistema Meta";
+
+    if (!id) {
+      throw new Error("A Meta nao confirmou a identidade deste token");
+    }
+
+    return {
+      id,
+      name,
+      scopes: permissions
+        .filter(
+          (permission) =>
+            this.asString(permission.status)?.toLowerCase() === "granted",
+        )
+        .map((permission) => this.asString(permission.permission))
+        .filter((permission): permission is string => Boolean(permission)),
+    };
+  }
+
+  async getBusiness(input: {
+    accessToken: string;
+    businessId: string;
+  }): Promise<MetaBusinessAssetDto> {
+    const item = await this.getGraphObject<MetaBusinessGraphNode>(
+      `/${input.businessId}`,
+      "id,name,verification_status",
+      input.accessToken,
+    );
+    const id = this.asString(item.id);
+    const name = this.asString(item.name);
+
+    if (!id || !name) {
+      throw new Error("A Meta nao confirmou o Business Manager informado");
+    }
+
+    return {
+      id,
+      name,
+      verificationStatus: this.asString(item.verification_status),
+    };
+  }
+
+  async getAdAccount(input: {
+    accessToken: string;
+    adAccountId: string;
+    businessId?: string | null;
+  }): Promise<MetaAdAccountAssetDto> {
+    const item = await this.getGraphObject<MetaAdAccountGraphNode>(
+      `/${input.adAccountId}`,
+      "id,name,account_status,currency,timezone_name",
+      input.accessToken,
+    );
+    const id = this.asString(item.id);
+    const name = this.asString(item.name);
+
+    if (!id || !name) {
+      throw new Error("A Meta nao confirmou a conta de anuncios informada");
+    }
+
+    return {
+      id,
+      businessId: input.businessId ?? null,
+      name,
+      accountStatus: this.asString(item.account_status),
+      currency: this.asString(item.currency),
+      timezoneName: this.asString(item.timezone_name),
+    };
+  }
+
+  async getPixel(input: {
+    accessToken: string;
+    pixelId: string;
+    businessId?: string | null;
+  }): Promise<MetaPixelAssetDto> {
+    const item = await this.getGraphObject<MetaPixelGraphNode>(
+      `/${input.pixelId}`,
+      "id,name",
+      input.accessToken,
+    );
+    const id = this.asString(item.id);
+    const name = this.asString(item.name);
+
+    if (!id || !name) {
+      throw new Error("A Meta nao confirmou o Pixel/Dataset informado");
+    }
+
+    return {
+      id,
+      businessId: input.businessId ?? null,
+      name,
+      code: null,
+    };
+  }
+
+  async getPage(input: {
+    accessToken: string;
+    pageId: string;
+    businessId?: string | null;
+  }): Promise<MetaPageAssetDto> {
+    const item = await this.getGraphObject<MetaPageGraphNode>(
+      `/${input.pageId}`,
+      "id,name",
+      input.accessToken,
+    );
+    const id = this.asString(item.id);
+    const name = this.asString(item.name);
+
+    if (!id || !name) {
+      throw new Error("A Meta nao confirmou a Pagina informada");
+    }
+
+    return {
+      id,
+      businessId: input.businessId ?? null,
+      name,
+    };
   }
 
   async listOwnedAdAccounts(input: {
@@ -962,6 +1115,29 @@ export class MetaAdapter implements IntegrationAdapter {
     const initialUrl = `https://graph.facebook.com/${this.getGraphApiVersion()}${path}?${params.toString()}`;
 
     return this.getGraphPages<T>(initialUrl, path);
+  }
+
+  private async getGraphObject<T>(
+    path: string,
+    fields: string,
+    accessToken: string,
+  ): Promise<T> {
+    const params = new URLSearchParams({ fields, access_token: accessToken });
+    const response = await this.fetchImpl(
+      `https://graph.facebook.com/${this.getGraphApiVersion()}${path}?${params.toString()}`,
+    );
+    const payload = (await response
+      .json()
+      .catch(() => ({}))) as MetaGraphObjectResponse;
+
+    if (!response.ok) {
+      throw new Error(
+        this.asString(payload.error?.message) ??
+          `Meta Graph HTTP ${response.status}`,
+      );
+    }
+
+    return payload as T;
   }
 
   private async getCreativePreviewUrls(

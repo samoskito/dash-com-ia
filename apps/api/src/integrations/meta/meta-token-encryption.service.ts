@@ -1,4 +1,9 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import type { IntegrationEnv } from "../integration.types";
 import { INTEGRATION_ENV } from "../integration.types";
@@ -11,8 +16,10 @@ export type EncryptedMetaToken = {
 
 @Injectable()
 export class MetaTokenEncryptionService {
+  readonly currentKeyVersion = 1;
+
   constructor(
-    @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env
+    @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env,
   ) {}
 
   getMissingEnv(): string[] {
@@ -26,13 +33,13 @@ export class MetaTokenEncryptionService {
     const cipher = createCipheriv("aes-256-gcm", this.getKey(), iv);
     const encrypted = Buffer.concat([
       cipher.update(accessToken, "utf8"),
-      cipher.final()
+      cipher.final(),
     ]);
 
     return {
       encryptedAccessToken: encrypted.toString("base64"),
       tokenIv: iv.toString("base64"),
-      tokenTag: cipher.getAuthTag().toString("base64")
+      tokenTag: cipher.getAuthTag().toString("base64"),
     };
   }
 
@@ -40,14 +47,22 @@ export class MetaTokenEncryptionService {
     const decipher = createDecipheriv(
       "aes-256-gcm",
       this.getKey(),
-      Buffer.from(input.tokenIv, "base64")
+      Buffer.from(input.tokenIv, "base64"),
     );
     decipher.setAuthTag(Buffer.from(input.tokenTag, "base64"));
 
     return Buffer.concat([
       decipher.update(Buffer.from(input.encryptedAccessToken, "base64")),
-      decipher.final()
+      decipher.final(),
     ]).toString("utf8");
+  }
+
+  fingerprint(accessToken: string): string {
+    return createHash("sha256").update(accessToken).digest("hex");
+  }
+
+  tokenLast4(accessToken: string): string {
+    return accessToken.slice(-4);
   }
 
   private getKey(): Buffer {

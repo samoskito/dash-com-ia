@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import type { Job } from "bullmq";
 import {
   META_REPORT_SYNC_QUEUE,
-  type MetaReportSyncJobPayload
+  type MetaReportSyncJobPayload,
 } from "../common/queue/queue.constants";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { createBullJobId } from "../common/queue/job-id";
@@ -16,7 +16,7 @@ export class MetaReportSyncProcessor extends WorkerHost {
     @Inject(MetaReportingService)
     private readonly metaReportingService: MetaReportingService,
     @Inject(PrismaService)
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
   ) {
     super();
   }
@@ -24,17 +24,19 @@ export class MetaReportSyncProcessor extends WorkerHost {
   async process(job: Job<MetaReportSyncJobPayload>) {
     try {
       const result = await this.metaReportingService.syncWorkspaceMetaStructure(
-        job.data
+        job.data,
       );
 
       await this.recordAttempt(job, "completed", {
         workspaceId: result.workspaceId,
+        businessConnectionId: job.data.businessConnectionId,
+        reportingAccountId: job.data.reportingAccountId,
         accountsSynced: result.accountsSynced,
         accountsFailed: result.accountsFailed,
         campaignsSynced: result.campaignsSynced,
         adSetsSynced: result.adSetsSynced,
         adsSynced: result.adsSynced,
-        resultStatus: "completed"
+        resultStatus: "completed",
       });
 
       return result;
@@ -44,10 +46,12 @@ export class MetaReportSyncProcessor extends WorkerHost {
         "failed",
         {
           workspaceId: job.data.workspaceId,
+          businessConnectionId: job.data.businessConnectionId,
+          reportingAccountId: job.data.reportingAccountId,
           since: job.data.since,
-          until: job.data.until
+          until: job.data.until,
         },
-        error
+        error,
       );
 
       throw error;
@@ -58,7 +62,7 @@ export class MetaReportSyncProcessor extends WorkerHost {
     job: Job<MetaReportSyncJobPayload>,
     status: string,
     summaryPayload: Record<string, unknown>,
-    error?: unknown
+    error?: unknown,
   ) {
     const now = new Date();
 
@@ -68,7 +72,7 @@ export class MetaReportSyncProcessor extends WorkerHost {
           workspaceId: job.data.workspaceId,
           queueName: META_REPORT_SYNC_QUEUE,
           jobId: String(
-            job.id ?? createBullJobId("meta-report-sync", job.data.workspaceId)
+            job.id ?? createBullJobId("meta-report-sync", job.data.workspaceId),
           ),
           jobName: job.name || "sync-meta-reporting",
           attemptNumber: (job.attemptsMade ?? 0) + 1,
@@ -83,8 +87,8 @@ export class MetaReportSyncProcessor extends WorkerHost {
           relatedEntityId: job.data.workspaceId,
           errorCode: null,
           errorMessage: error instanceof Error ? error.message : null,
-          summaryPayload: this.toJsonSummary(summaryPayload)
-        }
+          summaryPayload: this.toJsonSummary(summaryPayload),
+        },
       });
     } catch {
       // Observability failure must not abort a completed Meta sync.
@@ -92,7 +96,7 @@ export class MetaReportSyncProcessor extends WorkerHost {
   }
 
   private toJsonSummary(
-    summaryPayload: Record<string, unknown>
+    summaryPayload: Record<string, unknown>,
   ): Prisma.InputJsonValue {
     return JSON.parse(JSON.stringify(summaryPayload)) as Prisma.InputJsonValue;
   }

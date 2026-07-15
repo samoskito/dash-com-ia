@@ -363,7 +363,7 @@ export class ReportingController {
       throw new ForbiddenException("Sem permissao para sincronizar relatorios");
     }
 
-    return this.metaReportSyncQueueService.enqueueSync({
+    return this.metaReportSyncQueueService.enqueueWorkspaceSync({
       workspaceId: workspace.id,
       since: period.since as string,
       until: period.until as string,

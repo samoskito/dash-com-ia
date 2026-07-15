@@ -4,7 +4,7 @@ import {
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
-  Optional
+  Optional,
 } from "@nestjs/common";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { MetaReportSyncQueueService } from "./meta-report-sync-queue.service";
@@ -23,7 +23,7 @@ type MetaReportAutoSyncResult = {
 };
 
 export const META_REPORT_AUTO_SYNC_CLOCK = Symbol(
-  "META_REPORT_AUTO_SYNC_CLOCK"
+  "META_REPORT_AUTO_SYNC_CLOCK",
 );
 
 @Injectable()
@@ -43,8 +43,8 @@ export class MetaReportAutoSyncService
     @Optional()
     @Inject(META_REPORT_AUTO_SYNC_CLOCK)
     private readonly clock: MetaReportAutoSyncClock = {
-      now: () => new Date()
-    }
+      now: () => new Date(),
+    },
   ) {}
 
   onApplicationBootstrap() {
@@ -58,12 +58,12 @@ export class MetaReportAutoSyncService
       void this.syncDueWorkspaces()
         .then((result) => {
           this.logger.log(
-            `Meta auto sync checked ${result.workspacesFound} workspaces; enqueued=${result.enqueued}; failed=${result.failed}; period=${result.since ?? "-"}..${result.until ?? "-"}`
+            `Meta auto sync checked ${result.workspacesFound} workspaces; enqueued=${result.enqueued}; failed=${result.failed}; period=${result.since ?? "-"}..${result.until ?? "-"}`,
           );
         })
         .catch((error) => {
           this.logger.warn(
-            `Meta auto sync failed before enqueueing workspaces: ${this.errorMessage(error)}`
+            `Meta auto sync failed before enqueueing workspaces: ${this.errorMessage(error)}`,
           );
         });
     };
@@ -94,7 +94,7 @@ export class MetaReportAutoSyncService
         enqueued: 0,
         failed: 0,
         since: null,
-        until: null
+        until: null,
       };
     }
 
@@ -107,7 +107,7 @@ export class MetaReportAutoSyncService
         enqueued: 0,
         failed: 0,
         since: period.since,
-        until: period.until
+        until: period.until,
       };
     }
 
@@ -117,37 +117,42 @@ export class MetaReportAutoSyncService
       const workspaces = await this.prisma.workspace.findMany({
         where: {
           operationalStatus: "active",
-          metaIntegration: {
-            is: {
-              status: "connected"
-            }
-          },
-          metaReportingAccounts: {
-            some: {
-              active: true
-            }
-          }
+          OR: [
+            {
+              metaIntegration: { is: { status: "connected" } },
+              metaReportingAccounts: { some: { active: true } },
+            },
+            {
+              metaBusinessConnections: {
+                some: {
+                  status: "active",
+                  credential: { is: { status: "active" } },
+                  reportingAccounts: { some: { active: true } },
+                },
+              },
+            },
+          ],
         },
         select: {
-          id: true
+          id: true,
         },
-        take: config.batchLimit
+        take: config.batchLimit,
       });
       let enqueued = 0;
       let failed = 0;
 
       for (const workspace of workspaces) {
         try {
-          await this.queueService.enqueueSync({
+          await this.queueService.enqueueWorkspaceSync({
             workspaceId: workspace.id,
             since: period.since,
-            until: period.until
+            until: period.until,
           });
           enqueued += 1;
         } catch (error) {
           failed += 1;
           this.logger.warn(
-            `Could not enqueue automatic Meta sync for workspace ${workspace.id}: ${this.errorMessage(error)}`
+            `Could not enqueue automatic Meta sync for workspace ${workspace.id}: ${this.errorMessage(error)}`,
           );
         }
       }
@@ -158,7 +163,7 @@ export class MetaReportAutoSyncService
         enqueued,
         failed,
         since: period.since,
-        until: period.until
+        until: period.until,
       };
     } finally {
       this.running = false;
@@ -184,21 +189,23 @@ export class MetaReportAutoSyncService
     return {
       enabled: this.booleanEnv("WPPTRACK_META_AUTO_SYNC_ENABLED", true),
       intervalMs:
-        this.positiveIntegerEnv("WPPTRACK_META_AUTO_SYNC_INTERVAL_MINUTES", 180) *
-        60_000,
+        this.positiveIntegerEnv(
+          "WPPTRACK_META_AUTO_SYNC_INTERVAL_MINUTES",
+          180,
+        ) * 60_000,
       initialDelayMs:
         this.positiveIntegerEnv(
           "WPPTRACK_META_AUTO_SYNC_INITIAL_DELAY_SECONDS",
-          60
+          60,
         ) * 1_000,
       lookbackDays: this.positiveIntegerEnv(
         "WPPTRACK_META_AUTO_SYNC_LOOKBACK_DAYS",
-        7
+        7,
       ),
       batchLimit: this.positiveIntegerEnv(
         "WPPTRACK_META_AUTO_SYNC_BATCH_LIMIT",
-        100
-      )
+        100,
+      ),
     };
   }
 
@@ -225,17 +232,16 @@ export class MetaReportAutoSyncService
 
     return {
       since: this.dateOnly(since),
-      until: untilDate
+      until: untilDate,
     };
   }
 
   private dateOnlyInReportTimezone(date: Date): string {
     const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone:
-        process.env.WPPTRACK_REPORT_TIMEZONE ?? "America/Sao_Paulo",
+      timeZone: process.env.WPPTRACK_REPORT_TIMEZONE ?? "America/Sao_Paulo",
       year: "numeric",
       month: "2-digit",
-      day: "2-digit"
+      day: "2-digit",
     }).formatToParts(date);
     const values = new Map(parts.map((part) => [part.type, part.value]));
 

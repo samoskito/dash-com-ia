@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
@@ -48,6 +49,7 @@ import {
   type MetaCampaignInsight,
 } from "../integrations/meta/meta.adapter";
 import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
+import { MetaConnectionResolverService } from "../integrations/meta/meta-connection-resolver.service";
 import {
   WhatsappCampaignClassifierService,
   type WhatsappClassification,
@@ -61,6 +63,8 @@ import {
 
 export type MetaStructureSyncInput = {
   workspaceId: string;
+  businessConnectionId?: string | null;
+  reportingAccountId?: string | null;
   since: string;
   until: string;
 };
@@ -127,6 +131,16 @@ type MetaIntegrationRecord = {
   encryptedAccessToken: string;
   tokenIv: string;
   tokenTag: string;
+  selectedAdAccountId: string | null;
+};
+
+type LegacyRouteShadowParity = {
+  comparisonStatus: "matched" | "mismatch" | "unavailable";
+  credentialFingerprintMatch: boolean | null;
+  adAccountMatch: boolean | null;
+  pixelMatch: null;
+  pageMatch: null;
+  parity: boolean;
 };
 
 type MetaReportingAccountRecord = {
@@ -313,22 +327,74 @@ export class MetaReportingService {
     private readonly whatsappClassifier: WhatsappCampaignClassifierService,
     private readonly metricsEngine: ReportingMetricsEngine,
     private readonly funnelConfiguration: FunnelConfigurationService,
+    @Optional()
+    private readonly connectionResolver?: MetaConnectionResolverService,
   ) {}
 
   async syncWorkspaceMetaStructure(
     input: MetaStructureSyncInput,
   ): Promise<MetaStructureSyncResult> {
     const startedAt = new Date();
-    const connection = await this.getConnection(input.workspaceId);
-    const accessToken = this.encryption.decrypt({
-      encryptedAccessToken: connection.encryptedAccessToken,
-      tokenIv: connection.tokenIv,
-      tokenTag: connection.tokenTag,
-    });
+    const normalizedJob = Boolean(
+      input.businessConnectionId || input.reportingAccountId,
+    );
 
-    const accounts = (await this.prisma.metaReportingAccount.findMany({
-      where: { workspaceId: input.workspaceId, active: true },
-    })) as MetaReportingAccountRecord[];
+    if (
+      normalizedJob &&
+      (!input.businessConnectionId || !input.reportingAccountId)
+    ) {
+      throw new BadRequestException(
+        "A sincronizacao manual exige conta e conexao Meta",
+      );
+    }
+
+    let accessToken: string;
+    let accounts: MetaReportingAccountRecord[];
+    let legacyShadowParity: LegacyRouteShadowParity | null = null;
+
+    if (normalizedJob) {
+      if (!this.connectionResolver) {
+        throw new NotFoundException("Roteamento Meta indisponivel");
+      }
+
+      const route = await this.connectionResolver.resolveReportingRoute({
+        workspaceId: input.workspaceId,
+        businessConnectionId: input.businessConnectionId,
+        reportingAccountId: input.reportingAccountId,
+      });
+      const account = (await this.prisma.metaReportingAccount.findFirst({
+        where: {
+          id: route.reportingAccountId,
+          workspaceId: input.workspaceId,
+          businessConnectionId: route.businessConnectionId,
+          active: true,
+        },
+      })) as MetaReportingAccountRecord | null;
+
+      if (!account) {
+        throw new NotFoundException("Conta Meta ativa nao encontrada");
+      }
+
+      accessToken = route.accessToken;
+      accounts = [account];
+    } else {
+      // Existing OAuth workspaces stay on the original token and account path.
+      const connection = await this.getConnection(input.workspaceId);
+      accessToken = this.encryption.decrypt({
+        encryptedAccessToken: connection.encryptedAccessToken,
+        tokenIv: connection.tokenIv,
+        tokenTag: connection.tokenTag,
+      });
+      accounts = (await this.prisma.metaReportingAccount.findMany({
+        where: { workspaceId: input.workspaceId, active: true },
+      })) as MetaReportingAccountRecord[];
+      legacyShadowParity = await this.compareLegacyReportingProjection({
+        workspaceId: input.workspaceId,
+        accessToken,
+        selectedAdAccountId: connection.selectedAdAccountId,
+        accounts,
+      });
+    }
 
     if (accounts.length === 0) {
       throw new NotFoundException("Nenhuma conta Meta ativa para relatorios");
@@ -372,6 +438,19 @@ export class MetaReportingService {
           },
         });
 
+        if (input.businessConnectionId) {
+          await this.prisma.metaBusinessConnection.updateMany({
+            where: {
+              id: input.businessConnectionId,
+              workspaceId: input.workspaceId,
+            },
+            data: {
+              lastSyncedAt: new Date(),
+              validationError: null,
+            },
+          });
+        }
+
         result.accountsSynced += 1;
         result.campaignsSynced += accountResult.campaignsSynced;
         result.adSetsSynced += accountResult.adSetsSynced;
@@ -395,6 +474,7 @@ export class MetaReportingService {
         startedAt,
         result,
         error,
+        legacyShadowParity,
       });
       throw error;
     }
@@ -403,6 +483,7 @@ export class MetaReportingService {
       input,
       startedAt,
       result,
+      legacyShadowParity,
     });
 
     return result;
@@ -788,6 +869,7 @@ export class MetaReportingService {
     startedAt: Date;
     result?: MetaStructureSyncResult;
     error?: unknown;
+    legacyShadowParity?: LegacyRouteShadowParity | null;
   }): Promise<void> {
     const finishedAt = new Date();
     const errorMessage =
@@ -817,6 +899,15 @@ export class MetaReportingService {
           requestSummary: {
             since: input.input.since,
             until: input.input.until,
+            ...(input.input.businessConnectionId
+              ? {
+                  businessConnectionId: input.input.businessConnectionId,
+                  reportingAccountId: input.input.reportingAccountId,
+                }
+              : {}),
+            ...(input.legacyShadowParity
+              ? { legacyShadowParity: input.legacyShadowParity }
+              : {}),
           } as Prisma.InputJsonValue,
           responseSummary: input.result
             ? ({
@@ -852,6 +943,15 @@ export class MetaReportingService {
             since: input.input.since,
             until: input.input.until,
             status,
+            ...(input.input.businessConnectionId
+              ? {
+                  businessConnectionId: input.input.businessConnectionId,
+                  reportingAccountId: input.input.reportingAccountId,
+                }
+              : {}),
+            ...(input.legacyShadowParity
+              ? { legacyShadowParity: input.legacyShadowParity }
+              : {}),
             ...(input.result
               ? {
                   accountsSynced: input.result.accountsSynced,
@@ -868,6 +968,53 @@ export class MetaReportingService {
       });
     } catch {
       return;
+    }
+  }
+
+  private async compareLegacyReportingProjection(input: {
+    workspaceId: string;
+    accessToken: string;
+    selectedAdAccountId: string | null;
+    accounts: MetaReportingAccountRecord[];
+  }): Promise<LegacyRouteShadowParity | null> {
+    if (!this.connectionResolver) {
+      return null;
+    }
+
+    try {
+      const projection =
+        await this.connectionResolver.getLegacyCompatibilityProjection(
+          input.workspaceId,
+          "reporting",
+        );
+      const credentialFingerprintMatch =
+        this.encryption.fingerprint(input.accessToken) ===
+        projection.credentialFingerprint;
+      const adAccountMatch =
+        input.selectedAdAccountId === projection.adAccountId &&
+        (projection.adAccountId === null ||
+          input.accounts.some(
+            (account) => account.adAccountId === projection.adAccountId,
+          ));
+      const parity = credentialFingerprintMatch && adAccountMatch;
+
+      return {
+        comparisonStatus: parity ? "matched" : "mismatch",
+        credentialFingerprintMatch,
+        adAccountMatch,
+        pixelMatch: null,
+        pageMatch: null,
+        parity,
+      };
+    } catch {
+      return {
+        comparisonStatus: "unavailable",
+        credentialFingerprintMatch: null,
+        adAccountMatch: null,
+        pixelMatch: null,
+        pageMatch: null,
+        parity: false,
+      };
     }
   }
 
@@ -1242,9 +1389,7 @@ export class MetaReportingService {
     const reconstructedRequest = storedRequest
       ? null
       : this.reconstructMetaCapiRequest(event);
-    const response = this.conversionAuditObject(
-      event.providerResponseSummary,
-    );
+    const response = this.conversionAuditObject(event.providerResponseSummary);
     const missingFields = this.conversionAuditMissingFields(event);
     const reasonCode =
       event.errorCode ??
@@ -3153,9 +3298,7 @@ export class MetaReportingService {
         ? (context.adSets.get(event.adSetId)?.name ?? null)
         : null,
       adId: event.adId,
-      adName: event.adId
-        ? (context.ads.get(event.adId)?.name ?? null)
-        : null,
+      adName: event.adId ? (context.ads.get(event.adId)?.name ?? null) : null,
       pixelId: event.pixelId,
       pageId: event.pageId,
       occurredAt: event.eventOccurredAt.toISOString(),
@@ -3254,9 +3397,9 @@ export class MetaReportingService {
       return null;
     }
 
-    const customData = this.conversionAuditObject(event.customData) as
-      | ConversionEventCustomDataDto
-      | null;
+    const customData = this.conversionAuditObject(
+      event.customData,
+    ) as ConversionEventCustomDataDto | null;
 
     return buildMetaCapiPayload({
       eventName: event.eventName,
@@ -3273,7 +3416,9 @@ export class MetaReportingService {
     }) as unknown as Record<string, unknown>;
   }
 
-  private conversionAuditObject(value: unknown): Record<string, unknown> | null {
+  private conversionAuditObject(
+    value: unknown,
+  ): Record<string, unknown> | null {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return null;
     }
@@ -3281,10 +3426,7 @@ export class MetaReportingService {
     return this.conversionAuditSanitizeValue(value) as Record<string, unknown>;
   }
 
-  private conversionAuditSanitizeValue(
-    value: unknown,
-    key = "",
-  ): unknown {
+  private conversionAuditSanitizeValue(value: unknown, key = ""): unknown {
     if (
       key &&
       /(access[_-]?token|authorization|password|secret|encrypted|tokenIv|tokenTag)/i.test(
@@ -3354,9 +3496,12 @@ export class MetaReportingService {
     missingFields: string[],
   ): string | null {
     if (
-      !["not_eligible", "pending_meta_context", "pending_value", "not_configured"].includes(
-        event.status,
-      )
+      ![
+        "not_eligible",
+        "pending_meta_context",
+        "pending_value",
+        "not_configured",
+      ].includes(event.status)
     ) {
       return null;
     }

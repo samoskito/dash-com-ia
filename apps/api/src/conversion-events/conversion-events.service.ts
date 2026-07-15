@@ -1,4 +1,9 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  NotFoundException,
+  Optional,
+} from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type {
@@ -6,17 +11,21 @@ import type {
   ConversionEventCustomDataDto,
   ConversionEventNameDto,
   ConversionEventTestInputDto,
-  ConversionRuleDto
+  ConversionRuleDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
 import {
+  MetaConnectionResolverService,
+  type ResolvedMetaCapiRoute,
+} from "../integrations/meta/meta-connection-resolver.service";
+import {
   MetaCapiAdapter,
-  type MetaCapiSendEventErrorCode
+  type MetaCapiSendEventErrorCode,
 } from "./meta-capi.adapter";
 import {
   isConversionEventRequiringValue,
-  isSupportedConversionEventName
+  isSupportedConversionEventName,
 } from "./conversion-event-registry";
 
 export type RecordRuleMatchesInput = {
@@ -48,6 +57,9 @@ type ConversionEventLogRecord = {
   pixelId: string | null;
   pageId: string | null;
   eventId: string | null;
+  metaAccountId: string | null;
+  metaBusinessConnectionId?: string | null;
+  metaConversionDestinationId?: string | null;
   eventName: ConversionEventNameDto;
   status: string;
   phoneHash: string | null;
@@ -138,6 +150,7 @@ type MetaIntegrationCapiTokenRecord = {
   capiAccessTokenEncrypted: string | null;
   capiTokenIv: string | null;
   capiTokenTag: string | null;
+  selectedAdAccountId: string | null;
 };
 
 type MetaConversionDestinationRecord = {
@@ -153,8 +166,25 @@ type FunnelEventDefaults = {
 };
 
 type ResolvedConversionDestination = {
+  source: "legacy_oauth" | "manual";
+  accessToken: string | null;
   pixelId: string | null;
   pageId: string | null;
+  reportingAccountId: string | null;
+  adAccountId: string | null;
+  businessConnectionId: string | null;
+  conversionDestinationId: string | null;
+  routeError: string | null;
+  legacyShadowParity: LegacyRouteShadowParity | null;
+};
+
+type LegacyRouteShadowParity = {
+  comparisonStatus: "matched" | "mismatch" | "unavailable";
+  credentialFingerprintMatch: boolean | null;
+  adAccountMatch: boolean | null;
+  pixelMatch: boolean | null;
+  pageMatch: boolean | null;
+  parity: boolean;
 };
 
 export type SendReadyEventResult = {
@@ -175,35 +205,40 @@ export class ConversionEventsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MetaCapiAdapter) private readonly metaCapiAdapter: MetaCapiAdapter,
-    private readonly metaTokenEncryption: MetaTokenEncryptionService
+    private readonly metaTokenEncryption: MetaTokenEncryptionService,
+    @Optional()
+    private readonly connectionResolver?: MetaConnectionResolverService,
   ) {}
 
   async recordRuleMatches(
-    input: RecordRuleMatchesInput
+    input: RecordRuleMatchesInput,
   ): Promise<RecordRuleMatchesResult> {
     const created: string[] = [];
     const duplicates: string[] = [];
-    const configuredDefaults = (await this.prisma.funnelStageConfiguration.findMany({
-      where: {
-        workspaceId: input.workspaceId,
-        eventName: { in: Array.from(new Set(input.rules.map((rule) => rule.eventName))) }
-      },
-      select: {
-        eventName: true,
-        defaultValueCents: true,
-        defaultCurrency: true,
-        defaultContentName: true
-      }
-    })) as FunnelEventDefaults[];
+    const configuredDefaults =
+      (await this.prisma.funnelStageConfiguration.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          eventName: {
+            in: Array.from(new Set(input.rules.map((rule) => rule.eventName))),
+          },
+        },
+        select: {
+          eventName: true,
+          defaultValueCents: true,
+          defaultCurrency: true,
+          defaultContentName: true,
+        },
+      })) as FunnelEventDefaults[];
     const defaultsByEvent = new Map(
-      configuredDefaults.map((defaults) => [defaults.eventName, defaults])
+      configuredDefaults.map((defaults) => [defaults.eventName, defaults]),
     );
 
     for (const rule of input.rules) {
       const eventDefaults = defaultsByEvent.get(rule.eventName);
       const dedupeKey = this.buildDedupeKey(input, rule);
       const existing = (await this.prisma.conversionEventLog.findUnique({
-        where: { dedupeKey }
+        where: { dedupeKey },
       })) as ConversionEventLogRecord | null;
 
       if (existing) {
@@ -220,7 +255,7 @@ export class ConversionEventsService {
         eventName: rule.eventName,
         adId: input.adId,
         ctwaClid: input.ctwaClid,
-        valueCents
+        valueCents,
       });
       const customData =
         input.customData !== undefined
@@ -228,12 +263,16 @@ export class ConversionEventsService {
           : rule.defaultItems
             ? ({ contents: rule.defaultItems } as Prisma.InputJsonValue)
             : Prisma.JsonNull;
-      const eventOccurredAt = this.resolveEventOccurredAt(input.eventOccurredAt);
-      const customerIdentityKey = this.resolveCustomerIdentityKey(input.phoneHash);
+      const eventOccurredAt = this.resolveEventOccurredAt(
+        input.eventOccurredAt,
+      );
+      const customerIdentityKey = this.resolveCustomerIdentityKey(
+        input.phoneHash,
+      );
       const purchaseKind = await this.resolvePurchaseKind({
         workspaceId: input.workspaceId,
         eventName: rule.eventName,
-        customerIdentityKey
+        customerIdentityKey,
       });
       const log = await this.prisma.conversionEventLog.create({
         data: {
@@ -274,8 +313,8 @@ export class ConversionEventsService {
             null,
           customData,
           errorCode: initialStatus.errorCode,
-          errorMessage: initialStatus.errorMessage
-        }
+          errorMessage: initialStatus.errorMessage,
+        },
       });
 
       created.push(log.id);
@@ -285,7 +324,7 @@ export class ConversionEventsService {
   }
 
   async recordAutomaticLeadSubmitted(
-    input: RecordAutomaticLeadSubmittedInput
+    input: RecordAutomaticLeadSubmittedInput,
   ): Promise<RecordRuleMatchesResult> {
     const subject = input.leadId ?? input.phoneHash ?? "unknown";
     const dedupeKey = [
@@ -293,10 +332,10 @@ export class ConversionEventsService {
       subject,
       "auto_lead",
       "LeadSubmitted",
-      input.adId ?? "missing_ad"
+      input.adId ?? "missing_ad",
     ].join(":");
     const existing = (await this.prisma.conversionEventLog.findUnique({
-      where: { dedupeKey }
+      where: { dedupeKey },
     })) as ConversionEventLogRecord | null;
 
     if (existing) {
@@ -307,10 +346,12 @@ export class ConversionEventsService {
       eventName: "LeadSubmitted",
       adId: input.adId,
       ctwaClid: input.ctwaClid,
-      valueCents: null
+      valueCents: null,
     });
     const eventOccurredAt = this.resolveEventOccurredAt(input.eventOccurredAt);
-    const customerIdentityKey = this.resolveCustomerIdentityKey(input.phoneHash);
+    const customerIdentityKey = this.resolveCustomerIdentityKey(
+      input.phoneHash,
+    );
     const log = await this.prisma.conversionEventLog.create({
       data: {
         workspaceId: input.workspaceId,
@@ -336,18 +377,18 @@ export class ConversionEventsService {
         contentName: null,
         customData: Prisma.JsonNull,
         errorCode: initialStatus.errorCode,
-        errorMessage: initialStatus.errorMessage
-      }
+        errorMessage: initialStatus.errorMessage,
+      },
     });
 
     return { created: [log.id], duplicates: [] };
   }
 
   async recordExternalConversion(
-    input: RecordExternalConversionInput
+    input: RecordExternalConversionInput,
   ): Promise<RecordExternalConversionResult> {
     const existing = (await this.prisma.conversionEventLog.findUnique({
-      where: { dedupeKey: input.dedupeKey }
+      where: { dedupeKey: input.dedupeKey },
     })) as ConversionEventLogRecord | null;
 
     if (existing) {
@@ -358,7 +399,7 @@ export class ConversionEventsService {
     const purchaseKind = await this.resolvePurchaseKind({
       workspaceId: input.workspaceId,
       eventName: input.eventName,
-      customerIdentityKey: input.phoneHash
+      customerIdentityKey: input.phoneHash,
     });
 
     try {
@@ -383,7 +424,9 @@ export class ConversionEventsService {
           adSetId: input.adSetId ?? null,
           adId: input.adId ?? null,
           ctwaClid: input.ctwaClid ?? null,
-          attributionStatus: input.adId ? "attributed" : "organic_or_unattributed",
+          attributionStatus: input.adId
+            ? "attributed"
+            : "organic_or_unattributed",
           dedupeKey: input.dedupeKey,
           valueCents: input.valueCents ?? null,
           currency: input.currency ?? null,
@@ -393,14 +436,14 @@ export class ConversionEventsService {
             : Prisma.JsonNull,
           customData: Prisma.JsonNull,
           errorCode: initialStatus.errorCode,
-          errorMessage: initialStatus.errorMessage
-        }
+          errorMessage: initialStatus.errorMessage,
+        },
       });
 
       return {
         conversionEventLogId: log.id,
         status: "created",
-        deliveryStatus: log.status
+        deliveryStatus: log.status,
       };
     } catch (error) {
       if (!this.isUniqueConstraintError(error)) {
@@ -408,7 +451,7 @@ export class ConversionEventsService {
       }
 
       const duplicate = (await this.prisma.conversionEventLog.findUnique({
-        where: { dedupeKey: input.dedupeKey }
+        where: { dedupeKey: input.dedupeKey },
       })) as ConversionEventLogRecord | null;
 
       if (!duplicate) {
@@ -418,7 +461,7 @@ export class ConversionEventsService {
       return {
         conversionEventLogId: duplicate.id,
         status: "duplicate",
-        deliveryStatus: duplicate.status
+        deliveryStatus: duplicate.status,
       };
     }
   }
@@ -484,16 +527,16 @@ export class ConversionEventsService {
     const logs = (await this.prisma.conversionEventLog.findMany({
       where: {
         id: { in: logIds },
-        status: "ready_to_send"
+        status: "ready_to_send",
       },
-      select: { id: true }
+      select: { id: true },
     })) as Array<{ id: string }>;
 
     return logs.map((log) => log.id);
   }
 
   async sendManualTestEvent(
-    input: SendManualTestEventInput
+    input: SendManualTestEventInput,
   ): Promise<SendReadyEventResult> {
     const subject = input.leadId ?? input.phoneHash ?? "unknown";
     const dedupeKey = [
@@ -503,16 +546,18 @@ export class ConversionEventsService {
       input.eventName,
       input.adId ?? "missing_ad",
       Date.now(),
-      randomUUID()
+      randomUUID(),
     ].join(":");
     const initialStatus = this.resolveInitialStatus({
       eventName: input.eventName,
       adId: input.adId,
       ctwaClid: input.ctwaClid,
-      valueCents: input.valueCents ?? null
+      valueCents: input.valueCents ?? null,
     });
     const eventOccurredAt = this.resolveEventOccurredAt();
-    const customerIdentityKey = this.resolveCustomerIdentityKey(input.phoneHash);
+    const customerIdentityKey = this.resolveCustomerIdentityKey(
+      input.phoneHash,
+    );
     const log = await this.prisma.conversionEventLog.create({
       data: {
         workspaceId: input.workspaceId,
@@ -538,35 +583,35 @@ export class ConversionEventsService {
         contentName: input.contentName ?? null,
         customData: Prisma.JsonNull,
         errorCode: initialStatus.errorCode,
-        errorMessage: initialStatus.errorMessage
-      }
+        errorMessage: initialStatus.errorMessage,
+      },
     });
 
     if (initialStatus.status !== "ready_to_send") {
       return {
         conversionEventLogId: log.id,
         workspaceId: input.workspaceId,
-        status: "not_configured"
+        status: "not_configured",
       };
     }
 
     return this.sendReadyEvent(log.id, {
       workspaceId: input.workspaceId,
-      testEventCode: input.testEventCode
+      testEventCode: input.testEventCode,
     });
   }
 
   async sendReadyEvent(
     logId: string,
-    options: SendReadyEventOptions = {}
+    options: SendReadyEventOptions = {},
   ): Promise<SendReadyEventResult> {
     const log = (await this.prisma.conversionEventLog.findUnique({
       where: {
         id: logId,
         ...(options.workspaceId === undefined
           ? {}
-          : { workspaceId: options.workspaceId })
-      }
+          : { workspaceId: options.workspaceId }),
+      },
     })) as ConversionEventLogRecord | null;
 
     if (!log && options.workspaceId !== undefined) {
@@ -578,7 +623,7 @@ export class ConversionEventsService {
       return {
         conversionEventLogId: logId,
         workspaceId: null,
-        status: "skipped"
+        status: "skipped",
       };
     }
 
@@ -600,33 +645,38 @@ export class ConversionEventsService {
     }
 
     const startedAt = new Date();
-    const accessToken = await this.getWorkspaceCapiAccessToken(log.workspaceId);
-    const destination = await this.getWorkspaceConversionDestination(log.workspaceId);
-    const resolvedDestination = {
-      pixelId: destination?.pixelId ?? log.pixelId,
-      pageId: destination?.pageId ?? null
-    };
-    const result = await this.metaCapiAdapter.sendEvent({
-      accessToken,
-      pixelId: resolvedDestination.pixelId,
-      pageId: resolvedDestination.pageId,
-      eventName: log.eventName,
-      dedupeKey: eventId,
-      phoneHash: log.phoneHash,
-      adId: log.adId,
-      ctwaClid: log.ctwaClid,
-      valueCents: log.valueCents,
-      currency: log.currency,
-      contentName: log.contentName,
-      customData: log.customData as ConversionEventCustomDataDto | null,
-      eventTime: log.eventOccurredAt,
-      testEventCode: options.testEventCode ?? null
-    });
+    const resolvedDestination = await this.resolveDeliveryRoute(log);
+    const result = resolvedDestination.routeError
+      ? {
+          status: "not_configured" as const,
+          requestPayload: null,
+          responseSummary: {
+            routeResolution: "blocked",
+          },
+          errorMessage: resolvedDestination.routeError,
+          errorCode: "MissingMetaDestination" as const,
+        }
+      : await this.metaCapiAdapter.sendEvent({
+          accessToken: resolvedDestination.accessToken,
+          pixelId: resolvedDestination.pixelId,
+          pageId: resolvedDestination.pageId,
+          eventName: log.eventName,
+          dedupeKey: eventId,
+          phoneHash: log.phoneHash,
+          adId: log.adId,
+          ctwaClid: log.ctwaClid,
+          valueCents: log.valueCents,
+          currency: log.currency,
+          contentName: log.contentName,
+          customData: log.customData as ConversionEventCustomDataDto | null,
+          eventTime: log.eventOccurredAt,
+          testEventCode: options.testEventCode ?? null,
+        });
     const integrationLogId = await this.recordMetaCapiIntegrationLog(
       log,
       startedAt,
       result,
-      resolvedDestination
+      resolvedDestination,
     );
 
     await this.prisma.conversionEventLog.update({
@@ -636,20 +686,30 @@ export class ConversionEventsService {
         sentAt: result.status === "sent" ? new Date() : null,
         pixelId: resolvedDestination.pixelId,
         pageId: resolvedDestination.pageId,
+        ...(resolvedDestination.source === "manual"
+          ? {
+              metaAccountId: resolvedDestination.adAccountId,
+              metaBusinessConnectionId:
+                resolvedDestination.businessConnectionId,
+              metaConversionDestinationId:
+                resolvedDestination.conversionDestinationId,
+            }
+          : {}),
         providerRequestPayload: result.requestPayload
           ? (result.requestPayload as Prisma.InputJsonValue)
           : Prisma.JsonNull,
-        providerResponseSummary:
-          result.responseSummary ? result.responseSummary as Prisma.InputJsonValue : Prisma.JsonNull,
+        providerResponseSummary: result.responseSummary
+          ? (result.responseSummary as Prisma.InputJsonValue)
+          : Prisma.JsonNull,
         errorCode: result.errorCode,
-        errorMessage: result.errorMessage
-      }
+        errorMessage: result.errorMessage,
+      },
     });
     await this.recordMetaCapiDiagnosticEvent(
       log,
       result,
       integrationLogId,
-      resolvedDestination
+      resolvedDestination,
     );
 
     return {
@@ -659,9 +719,9 @@ export class ConversionEventsService {
       ...(result.errorCode === "MetaCapiNetworkError"
         ? {
             errorCode: result.errorCode,
-            errorMessage: result.errorMessage
+            errorMessage: result.errorMessage,
           }
-        : {})
+        : {}),
     };
   }
 
@@ -695,11 +755,102 @@ export class ConversionEventsService {
     return Boolean(cutover);
   }
 
-  private async getWorkspaceCapiAccessToken(
-    workspaceId: string | null
-  ): Promise<string | null> {
+  private async resolveDeliveryRoute(
+    log: ConversionEventLogRecord,
+  ): Promise<ResolvedConversionDestination> {
+    if (
+      log.workspaceId &&
+      this.connectionResolver &&
+      (await this.connectionResolver.hasNormalizedConnections(log.workspaceId))
+    ) {
+      try {
+        const route = await this.connectionResolver.resolveCapiRoute({
+          workspaceId: log.workspaceId,
+          metaAccountId: log.metaAccountId,
+          campaignId: log.campaignId,
+          adId: log.adId,
+          ...(log.metaBusinessConnectionId
+            ? { businessConnectionId: log.metaBusinessConnectionId }
+            : {}),
+          ...(log.metaConversionDestinationId
+            ? {
+                conversionDestinationId: log.metaConversionDestinationId,
+              }
+            : {}),
+        });
+
+        return this.normalizedDeliveryRoute(route);
+      } catch (error) {
+        return {
+          source: "manual",
+          accessToken: null,
+          pixelId: null,
+          pageId: null,
+          reportingAccountId: null,
+          adAccountId: null,
+          businessConnectionId: null,
+          conversionDestinationId: null,
+          routeError:
+            error instanceof Error
+              ? error.message
+              : "Nao foi possivel resolver a rota Meta deste evento",
+          legacyShadowParity: null,
+        };
+      }
+    }
+
+    // This is the existing OAuth execution path. It remains the source of truth
+    // for Barbieri and every other legacy workspace.
+    const legacyContext = await this.getWorkspaceCapiContext(log.workspaceId);
+    const destination = await this.getWorkspaceConversionDestination(
+      log.workspaceId,
+    );
+    const pixelId = destination?.pixelId ?? log.pixelId;
+    const pageId = destination?.pageId ?? null;
+    const legacyShadowParity = await this.compareLegacyCapiProjection({
+      workspaceId: log.workspaceId,
+      accessToken: legacyContext.accessToken,
+      adAccountId: legacyContext.adAccountId,
+      pixelId,
+      pageId,
+    });
+
+    return {
+      source: "legacy_oauth",
+      accessToken: legacyContext.accessToken,
+      pixelId,
+      pageId,
+      reportingAccountId: null,
+      adAccountId: legacyContext.adAccountId,
+      businessConnectionId: null,
+      conversionDestinationId: null,
+      routeError: null,
+      legacyShadowParity,
+    };
+  }
+
+  private normalizedDeliveryRoute(
+    route: ResolvedMetaCapiRoute,
+  ): ResolvedConversionDestination {
+    return {
+      source: route.source,
+      accessToken: route.accessToken,
+      pixelId: route.pixelId,
+      pageId: route.pageId,
+      reportingAccountId: route.reportingAccountId,
+      adAccountId: route.adAccountId,
+      businessConnectionId: route.businessConnectionId,
+      conversionDestinationId: route.conversionDestinationId,
+      routeError: null,
+      legacyShadowParity: null,
+    };
+  }
+
+  private async getWorkspaceCapiContext(
+    workspaceId: string | null,
+  ): Promise<{ accessToken: string | null; adAccountId: string | null }> {
     if (!workspaceId) {
-      return null;
+      return { accessToken: null, adAccountId: null };
     }
 
     const connection = (await this.prisma.metaIntegration.findUnique({
@@ -710,12 +861,13 @@ export class ConversionEventsService {
         tokenTag: true,
         capiAccessTokenEncrypted: true,
         capiTokenIv: true,
-        capiTokenTag: true
-      }
+        capiTokenTag: true,
+        selectedAdAccountId: true,
+      },
     })) as MetaIntegrationCapiTokenRecord | null;
 
     if (!connection) {
-      return null;
+      return { accessToken: null, adAccountId: null };
     }
 
     const encryptedAccessToken =
@@ -724,33 +876,91 @@ export class ConversionEventsService {
     const tokenTag = connection.capiTokenTag ?? connection.tokenTag;
 
     if (!encryptedAccessToken || !tokenIv || !tokenTag) {
+      return {
+        accessToken: null,
+        adAccountId: connection.selectedAdAccountId,
+      };
+    }
+
+    try {
+      return {
+        accessToken: this.metaTokenEncryption.decrypt({
+          encryptedAccessToken,
+          tokenIv,
+          tokenTag,
+        }),
+        adAccountId: connection.selectedAdAccountId,
+      };
+    } catch {
+      return {
+        accessToken: null,
+        adAccountId: connection.selectedAdAccountId,
+      };
+    }
+  }
+
+  private async compareLegacyCapiProjection(input: {
+    workspaceId: string | null;
+    accessToken: string | null;
+    adAccountId: string | null;
+    pixelId: string | null;
+    pageId: string | null;
+  }): Promise<LegacyRouteShadowParity | null> {
+    if (!input.workspaceId || !this.connectionResolver) {
       return null;
     }
 
     try {
-      return this.metaTokenEncryption.decrypt({
-        encryptedAccessToken,
-        tokenIv,
-        tokenTag
-      });
+      const projection =
+        await this.connectionResolver.getLegacyCompatibilityProjection(
+          input.workspaceId,
+          "capi",
+        );
+      const credentialFingerprintMatch = Boolean(
+        input.accessToken &&
+        this.metaTokenEncryption.fingerprint(input.accessToken) ===
+          projection.credentialFingerprint,
+      );
+      const adAccountMatch = input.adAccountId === projection.adAccountId;
+      const pixelMatch = input.pixelId === projection.destinationPixelId;
+      const pageMatch = input.pageId === projection.destinationPageId;
+      const parity =
+        credentialFingerprintMatch && adAccountMatch && pixelMatch && pageMatch;
+
+      return {
+        comparisonStatus: parity ? "matched" : "mismatch",
+        credentialFingerprintMatch,
+        adAccountMatch,
+        pixelMatch,
+        pageMatch,
+        parity,
+      };
     } catch {
-      return null;
+      return {
+        comparisonStatus: "unavailable",
+        credentialFingerprintMatch: null,
+        adAccountMatch: null,
+        pixelMatch: null,
+        pageMatch: null,
+        parity: false,
+      };
     }
   }
 
   private async getWorkspaceConversionDestination(
-    workspaceId: string | null
+    workspaceId: string | null,
   ): Promise<MetaConversionDestinationRecord | null> {
     if (!workspaceId) {
       return null;
     }
 
-    return (await this.prisma.metaConversionDestination.findUnique({
+    return (await this.prisma.metaConversionDestination.findFirst({
       where: { workspaceId },
+      orderBy: { updatedAt: "desc" },
       select: {
         pixelId: true,
-        pageId: true
-      }
+        pageId: true,
+      },
     })) as MetaConversionDestinationRecord | null;
   }
 
@@ -764,7 +974,7 @@ export class ConversionEventsService {
       errorMessage: string | null;
       errorCode: MetaCapiSendEventErrorCode;
     },
-    destination: ResolvedConversionDestination
+    destination: ResolvedConversionDestination,
   ): Promise<string | null> {
     const finishedAt = new Date();
     const status =
@@ -797,6 +1007,14 @@ export class ConversionEventsService {
             eventName: log.eventName,
             pixelId: destination.pixelId,
             pageId: destination.pageId,
+            routeSource: destination.source,
+            reportingAccountId: destination.reportingAccountId,
+            adAccountId: destination.adAccountId,
+            businessConnectionId: destination.businessConnectionId,
+            conversionDestinationId: destination.conversionDestinationId,
+            ...(destination.legacyShadowParity
+              ? { legacyShadowParity: destination.legacyShadowParity }
+              : {}),
             eventId: log.eventId,
             dedupeKey: log.dedupeKey,
             phoneHash: log.phoneHash,
@@ -806,13 +1024,13 @@ export class ConversionEventsService {
             currency: log.currency,
             contentName: log.contentName,
             payload: result.requestPayload,
-            errorCode: result.errorCode
+            errorCode: result.errorCode,
           } as Prisma.InputJsonValue,
           responseSummary:
             result.responseSummary === null
               ? Prisma.JsonNull
-              : (result.responseSummary as Prisma.InputJsonValue)
-        }
+              : (result.responseSummary as Prisma.InputJsonValue),
+        },
       });
       return integrationLog.id;
     } catch {
@@ -828,7 +1046,7 @@ export class ConversionEventsService {
       errorCode: MetaCapiSendEventErrorCode;
     },
     integrationLogId: string | null,
-    destination: ResolvedConversionDestination
+    destination: ResolvedConversionDestination,
   ): Promise<void> {
     if (result.status === "sent" || result.status === "skipped") {
       return;
@@ -868,12 +1086,20 @@ export class ConversionEventsService {
             eventName: log.eventName,
             pixelId: destination.pixelId,
             pageId: destination.pageId,
+            routeSource: destination.source,
+            reportingAccountId: destination.reportingAccountId,
+            adAccountId: destination.adAccountId,
+            businessConnectionId: destination.businessConnectionId,
+            conversionDestinationId: destination.conversionDestinationId,
+            ...(destination.legacyShadowParity
+              ? { legacyShadowParity: destination.legacyShadowParity }
+              : {}),
             eventId: log.eventId,
             status: result.status,
             errorCode: result.errorCode,
-            errorMessage: result.errorMessage
-          } as Prisma.InputJsonValue
-        }
+            errorMessage: result.errorMessage,
+          } as Prisma.InputJsonValue,
+        },
       });
     } catch {
       return;
@@ -882,7 +1108,7 @@ export class ConversionEventsService {
 
   private buildDedupeKey(
     input: RecordRuleMatchesInput,
-    rule: ConversionRuleDto
+    rule: ConversionRuleDto,
   ): string {
     const subject = input.leadId ?? input.phoneHash ?? "unknown";
     return [
@@ -890,7 +1116,7 @@ export class ConversionEventsService {
       subject,
       rule.id,
       rule.eventName,
-      input.adId ?? "missing_ad"
+      input.adId ?? "missing_ad",
     ].join(":");
   }
 
@@ -917,9 +1143,9 @@ export class ConversionEventsService {
   private isUniqueConstraintError(error: unknown): boolean {
     return Boolean(
       error &&
-        typeof error === "object" &&
-        "code" in error &&
-        (error as { code?: unknown }).code === "P2002"
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "P2002",
     );
   }
 
@@ -938,9 +1164,9 @@ export class ConversionEventsService {
         eventName: "Purchase",
         customerIdentityKey: input.customerIdentityKey,
         sourceTrigger: {
-          not: "manual_test"
-        }
-      }
+          not: "manual_test",
+        },
+      },
     });
 
     return previousPurchases === 0 ? "first_purchase" : "repurchase";
@@ -956,7 +1182,7 @@ export class ConversionEventsService {
       return {
         status: "skipped",
         errorCode: "UnsupportedConversionEventName",
-        errorMessage: "Unsupported conversion event name"
+        errorMessage: "Unsupported conversion event name",
       };
     }
 
@@ -964,7 +1190,7 @@ export class ConversionEventsService {
       return {
         status: "pending_meta_context",
         errorCode: "MissingAdId",
-        errorMessage: "Meta CAPI ad id not available"
+        errorMessage: "Meta CAPI ad id not available",
       };
     }
 
@@ -972,7 +1198,7 @@ export class ConversionEventsService {
       return {
         status: "pending_meta_context",
         errorCode: "MissingCtwaClid",
-        errorMessage: "Meta CAPI ctwa_clid not available"
+        errorMessage: "Meta CAPI ctwa_clid not available",
       };
     }
 
@@ -983,19 +1209,19 @@ export class ConversionEventsService {
       return {
         status: "pending_value",
         errorCode: "EventValueMissing",
-        errorMessage: "Conversion event value is required"
+        errorMessage: "Conversion event value is required",
       };
     }
 
     return {
       status: "ready_to_send",
       errorCode: null,
-      errorMessage: null
+      errorMessage: null,
     };
   }
 
   private resolveExternalInitialStatus(
-    input: RecordExternalConversionInput
+    input: RecordExternalConversionInput,
   ): InitialStatus {
     if (
       input.deliveryStatus === "imported" ||
@@ -1004,7 +1230,7 @@ export class ConversionEventsService {
       return {
         status: input.deliveryStatus,
         errorCode: null,
-        errorMessage: null
+        errorMessage: null,
       };
     }
 
@@ -1012,7 +1238,7 @@ export class ConversionEventsService {
       eventName: input.eventName,
       adId: input.adId,
       ctwaClid: input.ctwaClid,
-      valueCents: input.valueCents
+      valueCents: input.valueCents,
     });
 
     if (input.deliveryStatus !== "not_eligible") {
@@ -1030,7 +1256,7 @@ export class ConversionEventsService {
         resolved.errorCode === "MissingAdId" ||
         resolved.errorCode === "MissingCtwaClid"
           ? resolved.errorMessage
-          : null
+          : null,
     };
   }
 }

@@ -106,6 +106,32 @@ enum MetaConversionDestinationStatus {
   error
 }
 
+enum MetaCredentialSource {
+  oauth
+  manual
+}
+
+enum MetaCredentialStatus {
+  pending
+  active
+  validation_required
+  expired
+  revoked
+  error
+  paused
+}
+
+enum MetaBusinessConnectionStatus {
+  pending
+  active
+  validation_required
+  token_expired
+  missing_permission
+  destination_invalid
+  error
+  paused
+}
+
 enum MetaWhatsappClassification {
   auto_whatsapp
   creative_whatsapp
@@ -135,12 +161,15 @@ model User {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  memberships     WorkspaceMember[]
-  sessions        AuthSession[]
-  actionTokens    AuthActionToken[]
-  lastWorkspace   Workspace?        @relation("UserLastWorkspace", fields: [lastWorkspaceId], references: [id], onDelete: SetNull)
-  metaOAuthStates MetaOAuthState[]
-  auditLogs       AuditLog[]
+  memberships                    WorkspaceMember[]
+  sessions                       AuthSession[]
+  actionTokens                   AuthActionToken[]
+  lastWorkspace                  Workspace?                  @relation("UserLastWorkspace", fields: [lastWorkspaceId], references: [id], onDelete: SetNull)
+  metaOAuthStates                MetaOAuthState[]
+  auditLogs                      AuditLog[]
+  createdMetaCredentials         MetaCredential[]            @relation("MetaCredentialCreator")
+  createdMetaBusinessConnections MetaBusinessConnection[]    @relation("MetaBusinessConnectionCreator")
+  createdMetaDestinations        MetaConversionDestination[] @relation("MetaConversionDestinationCreator")
 
   @@index([lastWorkspaceId])
 }
@@ -170,8 +199,10 @@ model Workspace {
   funnelStageConfigurations   FunnelStageConfiguration[]
   leads                       Lead[]
   metaIntegration             MetaIntegration?
+  metaCredentials             MetaCredential[]
+  metaBusinessConnections     MetaBusinessConnection[]
   metaAssetSnapshots          MetaAssetSnapshot[]
-  metaConversionDestination   MetaConversionDestination?
+  metaConversionDestinations  MetaConversionDestination[]
   metaReportingAccounts       MetaReportingAccount[]
   metaCampaigns               MetaCampaign[]
   metaCampaignDailyInsights   MetaCampaignDailyInsight[]
@@ -355,51 +386,57 @@ model IntegrationLog {
 }
 
 model ConversionEventLog {
-  id                      String    @id @default(cuid())
-  workspaceId             String?
-  leadId                  String?
-  phoneHash               String?
-  sourceTrigger           String
-  eventName               String
-  status                  String
-  pixelId                 String?
-  pageId                  String?
-  eventId                 String?
-  metaAccountId           String?
-  campaignId              String?
-  adSetId                 String?
-  adId                    String?
-  ctwaClid                String?
-  attributionStatus       String?
-  dedupeKey               String?   @unique
-  eventOccurredAt         DateTime  @default(now())
-  customerIdentityKey     String?
-  businessSource          String    @default("paid")
-  purchaseKind            String?
-  valueSource             String?
-  externalConnectorId     String?
-  sourceEventId           String?
-  sentAt                  DateTime?
-  sourcePayload           Json?
-  providerRequestPayload  Json?
-  providerResponseSummary Json?
-  customData              Json?
-  valueCents              Int?
-  currency                String?
-  contentName             String?
-  errorCode               String?
-  errorMessage            String?
-  jobId                   String?
-  createdAt               DateTime  @default(now())
+  id                          String    @id @default(cuid())
+  workspaceId                 String?
+  leadId                      String?
+  phoneHash                   String?
+  sourceTrigger               String
+  eventName                   String
+  status                      String
+  pixelId                     String?
+  pageId                      String?
+  eventId                     String?
+  metaAccountId               String?
+  campaignId                  String?
+  adSetId                     String?
+  adId                        String?
+  ctwaClid                    String?
+  attributionStatus           String?
+  dedupeKey                   String?   @unique
+  eventOccurredAt             DateTime  @default(now())
+  customerIdentityKey         String?
+  businessSource              String    @default("paid")
+  purchaseKind                String?
+  valueSource                 String?
+  externalConnectorId         String?
+  sourceEventId               String?
+  sentAt                      DateTime?
+  sourcePayload               Json?
+  providerRequestPayload      Json?
+  providerResponseSummary     Json?
+  customData                  Json?
+  valueCents                  Int?
+  currency                    String?
+  contentName                 String?
+  errorCode                   String?
+  errorMessage                String?
+  jobId                       String?
+  metaBusinessConnectionId    String?
+  metaConversionDestinationId String?
+  createdAt                   DateTime  @default(now())
 
-  workspace         Workspace?             @relation(fields: [workspaceId], references: [id])
-  externalConnector ExternalDataConnector? @relation(fields: [externalConnectorId], references: [id], onDelete: SetNull)
-  diagnosticEvents  DiagnosticEvent[]
+  workspace                 Workspace?                 @relation(fields: [workspaceId], references: [id])
+  externalConnector         ExternalDataConnector?     @relation(fields: [externalConnectorId], references: [id], onDelete: SetNull)
+  metaBusinessConnection    MetaBusinessConnection?    @relation(fields: [metaBusinessConnectionId], references: [id], onDelete: SetNull)
+  metaConversionDestination MetaConversionDestination? @relation(fields: [metaConversionDestinationId], references: [id], onDelete: SetNull)
+  diagnosticEvents          DiagnosticEvent[]
 
   @@index([workspaceId, status, createdAt])
   @@index([workspaceId, eventOccurredAt])
   @@index([workspaceId, eventName, eventOccurredAt])
   @@index([workspaceId, adId])
+  @@index([workspaceId, metaBusinessConnectionId])
+  @@index([workspaceId, metaConversionDestinationId])
   @@index([leadId])
   @@index([externalConnectorId, sourceEventId])
 }
@@ -795,6 +832,67 @@ model MetaIntegration {
   @@index([selectedPixelId])
 }
 
+model MetaCredential {
+  id                   String               @id @default(cuid())
+  workspaceId          String
+  source               MetaCredentialSource
+  label                String
+  encryptedAccessToken String
+  tokenIv              String
+  tokenTag             String
+  encryptionKeyVersion Int                  @default(1)
+  fingerprint          String
+  tokenLast4           String
+  tokenType            String?
+  scopes               String[]
+  expiresAt            DateTime?
+  status               MetaCredentialStatus @default(pending)
+  lastValidatedAt      DateTime?
+  validationError      String?
+  createdByUserId      String?
+  rotatedAt            DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  workspace           Workspace                @relation(fields: [workspaceId], references: [id])
+  createdBy           User?                    @relation("MetaCredentialCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  businessConnections MetaBusinessConnection[]
+
+  @@unique([workspaceId, fingerprint])
+  @@index([workspaceId, source, status])
+  @@index([workspaceId, createdAt])
+  @@index([createdByUserId])
+}
+
+model MetaBusinessConnection {
+  id                             String                       @id @default(cuid())
+  workspaceId                    String
+  credentialId                   String
+  businessManagerId              String
+  businessManagerName            String
+  status                         MetaBusinessConnectionStatus @default(pending)
+  defaultConversionDestinationId String?
+  lastValidatedAt                DateTime?
+  validationError                String?
+  lastSyncedAt                   DateTime?
+  createdByUserId                String?
+  createdAt                      DateTime                     @default(now())
+  updatedAt                      DateTime                     @updatedAt
+
+  workspace                    Workspace                  @relation(fields: [workspaceId], references: [id])
+  credential                   MetaCredential             @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  defaultConversionDestination MetaConversionDestination? @relation("MetaBusinessDefaultDestination", fields: [defaultConversionDestinationId], references: [id], onDelete: SetNull)
+  createdBy                    User?                      @relation("MetaBusinessConnectionCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  reportingAccounts            MetaReportingAccount[]
+  conversionEventLogs          ConversionEventLog[]
+
+  @@unique([workspaceId, businessManagerId])
+  @@index([workspaceId, status])
+  @@index([credentialId])
+  @@index([defaultConversionDestinationId])
+  @@index([createdByUserId])
+}
+
 model MetaAssetSnapshot {
   id          String    @id @default(cuid())
   workspaceId String
@@ -817,47 +915,65 @@ model MetaAssetSnapshot {
 }
 
 model MetaConversionDestination {
-  id              String                          @id @default(cuid())
-  workspaceId     String                          @unique
-  pixelId         String
-  pixelName       String
-  pageId          String
-  pageName        String
-  status          MetaConversionDestinationStatus @default(configured)
-  lastValidatedAt DateTime?
-  validationError String?
-  createdAt       DateTime                        @default(now())
-  updatedAt       DateTime                        @updatedAt
+  id                     String                          @id @default(cuid())
+  workspaceId            String
+  label                  String?
+  pixelId                String
+  pixelName              String
+  pageId                 String
+  pageName               String
+  ownerBusinessManagerId String?
+  status                 MetaConversionDestinationStatus @default(configured)
+  lastValidatedAt        DateTime?
+  validationError        String?
+  createdByUserId        String?
+  createdAt              DateTime                        @default(now())
+  updatedAt              DateTime                        @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace                     Workspace                @relation(fields: [workspaceId], references: [id])
+  createdBy                     User?                    @relation("MetaConversionDestinationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  defaultForBusinessConnections MetaBusinessConnection[] @relation("MetaBusinessDefaultDestination")
+  reportingAccountOverrides     MetaReportingAccount[]   @relation("MetaReportingDestinationOverride")
+  conversionEventLogs           ConversionEventLog[]
 
+  @@unique([workspaceId, pixelId, pageId])
+  @@index([workspaceId, status])
   @@index([pixelId])
   @@index([pageId])
+  @@index([ownerBusinessManagerId])
+  @@index([createdByUserId])
 }
 
 model MetaReportingAccount {
-  id            String              @id @default(cuid())
-  workspaceId   String
-  businessId    String
-  businessName  String
-  adAccountId   String
-  adAccountName String
-  currency      String?
-  timezoneName  String?
-  active        Boolean             @default(true)
-  syncStatus    MetaAssetSyncStatus @default(pending)
-  lastSyncedAt  DateTime?
-  lastSyncSince String?
-  lastSyncUntil String?
-  syncError     String?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  id                      String              @id @default(cuid())
+  workspaceId             String
+  businessId              String
+  businessName            String
+  adAccountId             String
+  adAccountName           String
+  currency                String?
+  timezoneName            String?
+  businessConnectionId    String?
+  conversionDestinationId String?
+  active                  Boolean             @default(true)
+  syncStatus              MetaAssetSyncStatus @default(pending)
+  lastSyncedAt            DateTime?
+  lastSyncSince           String?
+  lastSyncUntil           String?
+  syncError               String?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace             Workspace                  @relation(fields: [workspaceId], references: [id])
+  businessConnection    MetaBusinessConnection?    @relation(fields: [businessConnectionId], references: [id], onDelete: SetNull)
+  conversionDestination MetaConversionDestination? @relation("MetaReportingDestinationOverride", fields: [conversionDestinationId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, adAccountId])
   @@index([workspaceId, active])
   @@index([workspaceId, active, businessId, adAccountId])
+  @@index([workspaceId, businessConnectionId, active])
+  @@index([businessConnectionId])
+  @@index([conversionDestinationId])
   @@index([businessId])
 }
 

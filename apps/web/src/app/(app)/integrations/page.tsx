@@ -2,7 +2,9 @@ import type {
   IntegrationHealthSummaryDto,
   IntegrationPipelineOverviewDto,
   MetaAssetsDto,
+  MetaConnectionCapabilitiesDto,
   MetaConnectionDto,
+  MetaManualConfigurationDto,
   CurrentWorkspaceDto,
   WhatsappInstanceCheckoutDto,
   WhatsappInstanceConnectionDto,
@@ -17,6 +19,16 @@ import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { MetaConversionDestinationForm } from "./meta-conversion-destination-form";
+import {
+  createMetaManualConnectionAction,
+  createMetaManualCredentialAction,
+  discoverMetaManualAssetsAction,
+  rotateMetaManualCredentialAction,
+  setMetaManualAccountDestinationAction,
+  setMetaManualConnectionStatusAction,
+  testMetaManualConnectionAction,
+} from "./meta-manual-actions";
+import { MetaManualConnectionPanel } from "./meta-manual-connection-panel";
 import {
   metaAssetsRefreshSucceeded,
   resolveMetaStatus,
@@ -230,6 +242,43 @@ async function getMetaAssets(): Promise<ResourceResult<MetaAssetsDto | null>> {
       data: null,
       state: "error",
     };
+  }
+}
+
+async function getMetaCapabilities(): Promise<
+  ResourceResult<MetaConnectionCapabilitiesDto>
+> {
+  try {
+    return {
+      data: await serverApiFetch<MetaConnectionCapabilitiesDto>(
+        "/integrations/meta/capabilities",
+      ),
+      state: "real",
+    };
+  } catch {
+    return {
+      data: {
+        enabledModes: ["oauth"],
+        oauthEnabled: true,
+        manualEnabled: false,
+      },
+      state: "error",
+    };
+  }
+}
+
+async function getMetaManualConfiguration(): Promise<
+  ResourceResult<MetaManualConfigurationDto | null>
+> {
+  try {
+    return {
+      data: await serverApiFetch<MetaManualConfigurationDto>(
+        "/integrations/meta/manual",
+      ),
+      state: "real",
+    };
+  } catch {
+    return { data: null, state: "error" };
   }
 }
 
@@ -754,6 +803,7 @@ export default async function IntegrationsPage({
     billingSubscriptionResult,
     pipelineResult,
     workspaceResult,
+    metaCapabilitiesResult,
   ] = await Promise.all([
     getHealth(),
     getWhatsappInstances(),
@@ -763,6 +813,7 @@ export default async function IntegrationsPage({
     getBillingSubscription(),
     getIntegrationPipeline(),
     getCurrentWorkspaceResource(),
+    getMetaCapabilities(),
   ]);
   const usesExternalWhatsapp =
     pipelineResult.data?.whatsappSource?.mode === "external";
@@ -773,6 +824,12 @@ export default async function IntegrationsPage({
     : await getWhatsappInstanceStatuses(whatsappInstances);
   const metaConnection = metaConnectionResult.data;
   const metaAssets = metaAssetsResult.data;
+  const metaCapabilities = metaCapabilitiesResult.data;
+  const legacyMetaConnected = metaConnection?.status === "connected";
+  const metaManualResult =
+    metaCapabilities.manualEnabled && !legacyMetaConnected
+      ? await getMetaManualConfiguration()
+      : ({ data: null, state: "empty" } as const);
   const whatsappQuote = whatsappQuoteResult.data;
   const billingSubscription = billingSubscriptionResult.data;
   const pipeline = pipelineResult.data;
@@ -793,6 +850,10 @@ export default async function IntegrationsPage({
     metaAssetsResult.state,
     pipelineResult.state,
     workspaceResult.state,
+    metaCapabilitiesResult.state,
+    ...(metaCapabilities.manualEnabled && !legacyMetaConnected
+      ? [metaManualResult.state]
+      : []),
     ...(usesExternalWhatsapp
       ? []
       : [
@@ -808,6 +869,14 @@ export default async function IntegrationsPage({
   const activeReportingAccounts = (metaAssets?.reportingAccounts ?? []).filter(
     (account) => account.active,
   ).length;
+  const manualActiveConnections =
+    metaManualResult.data?.businessConnections.filter(
+      (connection) => connection.status === "active",
+    ).length ?? 0;
+  const manualActiveReportingAccounts =
+    metaManualResult.data?.reportingAccounts.filter((account) => account.active)
+      .length ?? 0;
+  const manualConfigured = manualActiveConnections > 0;
   const metaRefreshBusinessId =
     metaAssets?.selection.businessId &&
     metaAssets.businesses.some(
@@ -835,9 +904,11 @@ export default async function IntegrationsPage({
   const metaStatusLabel =
     metaAssetsResult.state === "error" && metaConnectionResult.state === "error"
       ? "API indisponivel"
-      : metaStatus
-        ? statusLabel(metaStatus)
-        : "Meta nao conectado";
+      : manualConfigured
+        ? "Conectado por token"
+        : metaStatus
+          ? statusLabel(metaStatus)
+          : "Meta nao conectado";
   const whatsappInstancesEmptyTitle =
     whatsappInstancesResult.state === "error"
       ? "Nao foi possivel carregar instancias"
@@ -862,7 +933,9 @@ export default async function IntegrationsPage({
             >
               {hasIntegrationError ? "API indisponivel" : "API conectada"}
             </span>
-            <span className="status-chip">{integrations.length} provedores</span>
+            <span className="status-chip">
+              {integrations.length} provedores
+            </span>
           </div>
         ) : null}
       </header>
@@ -876,45 +949,45 @@ export default async function IntegrationsPage({
 
       {isPlatformOperator ? (
         <div className="integration-grid">
-        {integrations.length > 0 ? (
-          integrations.map((item) => (
-            <article className="integration-card" key={item.title}>
-              <span
-                className={`status-chip${item.tone ? ` ${item.tone}` : ""}`}
-              >
-                {item.status}
+          {integrations.length > 0 ? (
+            integrations.map((item) => (
+              <article className="integration-card" key={item.title}>
+                <span
+                  className={`status-chip${item.tone ? ` ${item.tone}` : ""}`}
+                >
+                  {item.status}
+                </span>
+                <div>
+                  <span className="micro-label">{item.title}</span>
+                  <strong>{item.detail}</strong>
+                </div>
+                <p className="muted">{item.description}</p>
+                <button className="button" type="button">
+                  Ver diagnostico
+                </button>
+              </article>
+            ))
+          ) : (
+            <article className="integration-card">
+              <span className="status-chip warn">
+                {healthResult.state === "error"
+                  ? "API indisponivel"
+                  : "Sem provedores"}
               </span>
               <div>
-                <span className="micro-label">{item.title}</span>
-                <strong>{item.detail}</strong>
+                <span className="micro-label">Integracoes</span>
+                <strong>
+                  {healthResult.state === "error"
+                    ? "Nao foi possivel carregar integracoes"
+                    : "Nenhuma integracao retornada"}
+                </strong>
               </div>
-              <p className="muted">{item.description}</p>
-              <button className="button" type="button">
-                Ver diagnostico
-              </button>
+              <p className="muted">
+                A lista sera preenchida somente com provedores retornados pelo
+                backend.
+              </p>
             </article>
-          ))
-        ) : (
-          <article className="integration-card">
-            <span className="status-chip warn">
-              {healthResult.state === "error"
-                ? "API indisponivel"
-                : "Sem provedores"}
-            </span>
-            <div>
-              <span className="micro-label">Integracoes</span>
-              <strong>
-                {healthResult.state === "error"
-                  ? "Nao foi possivel carregar integracoes"
-                  : "Nenhuma integracao retornada"}
-              </strong>
-            </div>
-            <p className="muted">
-              A lista sera preenchida somente com provedores retornados pelo
-              backend.
-            </p>
-          </article>
-        )}
+          )}
         </div>
       ) : null}
 
@@ -971,6 +1044,19 @@ export default async function IntegrationsPage({
             </span>
           )}
         </div>
+        <MetaManualConnectionPanel
+          capabilities={metaCapabilities}
+          initialConfiguration={metaManualResult.data}
+          legacyConnected={legacyMetaConnected}
+          canManage={canManageIntegrations}
+          createCredentialAction={createMetaManualCredentialAction}
+          discoverAssetsAction={discoverMetaManualAssetsAction}
+          createConnectionAction={createMetaManualConnectionAction}
+          rotateCredentialAction={rotateMetaManualCredentialAction}
+          setConnectionStatusAction={setMetaManualConnectionStatusAction}
+          testConnectionAction={testMetaManualConnectionAction}
+          setAccountDestinationAction={setMetaManualAccountDestinationAction}
+        />
         <div className="metric-grid compact">
           <div className="metric-card">
             <span className="micro-label">Status</span>
@@ -979,21 +1065,32 @@ export default async function IntegrationsPage({
           <div className="metric-card">
             <span className="micro-label">Destino CAPI</span>
             <strong>
-              {metaAssets?.conversionDestination
-                ? statusLabel(metaAssets.conversionDestination.status)
-                : "Nao configurado"}
+              {manualConfigured
+                ? `${metaManualResult.data?.destinations.length ?? 0} configurado(s)`
+                : metaAssets?.conversionDestination
+                  ? statusLabel(metaAssets.conversionDestination.status)
+                  : "Nao configurado"}
             </strong>
           </div>
           <div className="metric-card">
             <span className="micro-label">Contas em relatorios</span>
-            <strong>{activeReportingAccounts}</strong>
+            <strong>
+              {manualConfigured
+                ? manualActiveReportingAccounts
+                : activeReportingAccounts}
+            </strong>
           </div>
         </div>
-        <p className="muted">
-          {metaAssetsDetail(metaAssets, metaAssetsResult.state)}
-        </p>
-        <p className="muted">{metaLastSyncedAt(metaAssets)}</p>
-        {metaAssets ? (
+        {!manualConfigured ? (
+          <>
+            <p className="muted">
+              {metaAssetsDetail(metaAssets, metaAssetsResult.state)}
+            </p>
+            <p className="muted">{metaLastSyncedAt(metaAssets)}</p>
+          </>
+        ) : null}
+        {metaAssets &&
+        (legacyMetaConnected || !metaCapabilities.manualEnabled) ? (
           <>
             <div className="meta-config-section">
               <div>
@@ -1071,9 +1168,9 @@ export default async function IntegrationsPage({
             <span className="eyebrow">Fonte do WhatsApp</span>
             <h2>Dados recebidos por integracao externa do MySQL</h2>
             <p className="muted">
-              As conversas deste workspace chegam por uma integracao externa
-              com o MySQL. Nao ha instancia ou cobranca adicional para
-              configurar aqui.
+              As conversas deste workspace chegam por uma integracao externa com
+              o MySQL. Nao ha instancia ou cobranca adicional para configurar
+              aqui.
             </p>
           </div>
           <div className="metric-grid compact">
@@ -1099,201 +1196,203 @@ export default async function IntegrationsPage({
         </div>
       ) : null}
 
-      {!usesExternalWhatsapp && <div className="surface-panel">
-        <span className="eyebrow">WhatsApp Business</span>
-        <h2>Instancias conectadas</h2>
-        <div className="metric-grid compact">
-          <div className="metric-card">
-            <span className="micro-label">Instancias ativas</span>
-            <strong>
-              {whatsappQuote?.activeInstances ?? whatsappInstances.length}
-            </strong>
+      {!usesExternalWhatsapp && (
+        <div className="surface-panel">
+          <span className="eyebrow">WhatsApp Business</span>
+          <h2>Instancias conectadas</h2>
+          <div className="metric-grid compact">
+            <div className="metric-card">
+              <span className="micro-label">Instancias ativas</span>
+              <strong>
+                {whatsappQuote?.activeInstances ?? whatsappInstances.length}
+              </strong>
+            </div>
+            <div className="metric-card">
+              <span className="micro-label">Nova instancia</span>
+              <strong>{money(whatsappQuote?.nextInstanceAmountCents)}</strong>
+            </div>
+            <div className="metric-card">
+              <span className="micro-label">Cobranca</span>
+              <strong>Antecipada via Asaas</strong>
+            </div>
           </div>
-          <div className="metric-card">
-            <span className="micro-label">Nova instancia</span>
-            <strong>{money(whatsappQuote?.nextInstanceAmountCents)}</strong>
+          <div className="metric-grid compact">
+            <div className="metric-card">
+              <span className="micro-label">Assinatura</span>
+              <strong>
+                {billingSubscription
+                  ? statusLabel(billingSubscription.status)
+                  : billingSubscriptionResult.state === "error"
+                    ? "API indisponivel"
+                    : "sem assinatura"}
+              </strong>
+            </div>
+            <div className="metric-card">
+              <span className="micro-label">Plano</span>
+              <strong>
+                {billingSubscription?.planName ?? "Por instancia"}
+              </strong>
+            </div>
+            <div className="metric-card">
+              <span className="micro-label">Mensal estimado</span>
+              <strong>{money(billingSubscription?.monthlyAmountCents)}</strong>
+            </div>
+            <div className="metric-card">
+              <span className="micro-label">Asaas</span>
+              <strong>
+                {billingSubscription?.asaasSubscriptionId ?? "Nao vinculada"}
+              </strong>
+            </div>
           </div>
-          <div className="metric-card">
-            <span className="micro-label">Cobranca</span>
-            <strong>Antecipada via Asaas</strong>
-          </div>
-        </div>
-        <div className="metric-grid compact">
-          <div className="metric-card">
-            <span className="micro-label">Assinatura</span>
-            <strong>
-              {billingSubscription
-                ? statusLabel(billingSubscription.status)
-                : billingSubscriptionResult.state === "error"
-                  ? "API indisponivel"
-                  : "sem assinatura"}
-            </strong>
-          </div>
-          <div className="metric-card">
-            <span className="micro-label">Plano</span>
-            <strong>
-              {billingSubscription?.planName ?? "Por instancia"}
-            </strong>
-          </div>
-          <div className="metric-card">
-            <span className="micro-label">Mensal estimado</span>
-            <strong>{money(billingSubscription?.monthlyAmountCents)}</strong>
-          </div>
-          <div className="metric-card">
-            <span className="micro-label">Asaas</span>
-            <strong>
-              {billingSubscription?.asaasSubscriptionId ?? "Nao vinculada"}
-            </strong>
-          </div>
-        </div>
-        {canManageBilling ? (
-          <>
-            <form className="inline-form" action={createWhatsappCheckout}>
-              <input
-                minLength={2}
-                name="instanceName"
-                placeholder="Nome da instancia"
-                required
-                aria-label="Nome da instancia WhatsApp"
-              />
-              <SubmitButton
-                pendingLabel="Gerando cobranca..."
-                statusText="Gerando cobranca da instancia no backend."
-              >
-                Adicionar instancia
-              </SubmitButton>
-            </form>
-            <span className="action-note">
-              Preencha o nome para gerar a cobranca. A conexao do WhatsApp so
-              libera depois do pagamento confirmado.
-            </span>
+          {canManageBilling ? (
+            <>
+              <form className="inline-form" action={createWhatsappCheckout}>
+                <input
+                  minLength={2}
+                  name="instanceName"
+                  placeholder="Nome da instancia"
+                  required
+                  aria-label="Nome da instancia WhatsApp"
+                />
+                <SubmitButton
+                  pendingLabel="Gerando cobranca..."
+                  statusText="Gerando cobranca da instancia no backend."
+                >
+                  Adicionar instancia
+                </SubmitButton>
+              </form>
+              <span className="action-note">
+                Preencha o nome para gerar a cobranca. A conexao do WhatsApp so
+                libera depois do pagamento confirmado.
+              </span>
+              <p className="muted">
+                Ao continuar, o backend vai gerar uma cobranca de{" "}
+                {money(whatsappQuote?.nextInstanceAmountCents)} no Asaas antes
+                da conexao.
+              </p>
+            </>
+          ) : (
             <p className="muted">
-              Ao continuar, o backend vai gerar uma cobranca de{" "}
-              {money(whatsappQuote?.nextInstanceAmountCents)} no Asaas antes
-              da conexao.
+              {workspacePermissionsUnavailable
+                ? "Nao foi possivel confirmar as permissoes agora."
+                : "Sem permissao para adicionar instancias"}
             </p>
-          </>
-        ) : (
-          <p className="muted">
-            {workspacePermissionsUnavailable
-              ? "Nao foi possivel confirmar as permissoes agora."
-              : "Sem permissao para adicionar instancias"}
-          </p>
-        )}
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Instancia</th>
-                <th>Provider</th>
-                <th>Billing</th>
-                <th>Conexao</th>
-                <th>ID Uazapi</th>
-                <th>Acao</th>
-              </tr>
-            </thead>
-            <tbody>
-              {whatsappInstances.length > 0 ? (
-                whatsappInstances.map((instance) => (
-                  <tr key={instance.id}>
-                    <td>
-                      <strong>{instance.name}</strong>
-                      <span>{instance.id}</span>
-                    </td>
-                    <td>{instance.provider}</td>
-                    <td>{statusLabel(instance.billingStatus)}</td>
-                    <td>
-                      {whatsappInstanceStatuses[instance.id] ? (
-                        <>
-                          <strong>
-                            {statusLabel(
-                              whatsappInstanceStatuses[instance.id]
-                                .connectionStatus,
-                            )}
-                          </strong>
-                          {whatsappInstanceStatuses[instance.id].message ? (
-                            <span>
-                              {whatsappInstanceStatuses[instance.id].message}
-                            </span>
-                          ) : null}
-                          {whatsappInstanceStatuses[instance.id].qrCode ? (
-                            <code>
-                              {whatsappInstanceStatuses[instance.id].qrCode}
-                            </code>
-                          ) : null}
-                        </>
-                      ) : (
-                        <span>-</span>
-                      )}
-                    </td>
-                    <td>
-                      {instance.providerInstanceId ??
-                        "ID Uazapi ainda nao emitido"}
-                    </td>
-                    <td>
-                      {instance.billingStatus === "active" &&
-                      canManageIntegrations ? (
-                        <form action={connectWhatsappInstance}>
-                          <input
-                            type="hidden"
-                            name="instanceId"
-                            value={instance.id}
-                          />
-                          <SubmitButton
-                            pendingLabel="Conectando..."
-                            statusText="Solicitando conexao do WhatsApp."
+          )}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Instancia</th>
+                  <th>Provider</th>
+                  <th>Billing</th>
+                  <th>Conexao</th>
+                  <th>ID Uazapi</th>
+                  <th>Acao</th>
+                </tr>
+              </thead>
+              <tbody>
+                {whatsappInstances.length > 0 ? (
+                  whatsappInstances.map((instance) => (
+                    <tr key={instance.id}>
+                      <td>
+                        <strong>{instance.name}</strong>
+                        <span>{instance.id}</span>
+                      </td>
+                      <td>{instance.provider}</td>
+                      <td>{statusLabel(instance.billingStatus)}</td>
+                      <td>
+                        {whatsappInstanceStatuses[instance.id] ? (
+                          <>
+                            <strong>
+                              {statusLabel(
+                                whatsappInstanceStatuses[instance.id]
+                                  .connectionStatus,
+                              )}
+                            </strong>
+                            {whatsappInstanceStatuses[instance.id].message ? (
+                              <span>
+                                {whatsappInstanceStatuses[instance.id].message}
+                              </span>
+                            ) : null}
+                            {whatsappInstanceStatuses[instance.id].qrCode ? (
+                              <code>
+                                {whatsappInstanceStatuses[instance.id].qrCode}
+                              </code>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span>-</span>
+                        )}
+                      </td>
+                      <td>
+                        {instance.providerInstanceId ??
+                          "ID Uazapi ainda nao emitido"}
+                      </td>
+                      <td>
+                        {instance.billingStatus === "active" &&
+                        canManageIntegrations ? (
+                          <form action={connectWhatsappInstance}>
+                            <input
+                              type="hidden"
+                              name="instanceId"
+                              value={instance.id}
+                            />
+                            <SubmitButton
+                              pendingLabel="Conectando..."
+                              statusText="Solicitando conexao do WhatsApp."
+                            >
+                              Conectar WhatsApp
+                            </SubmitButton>
+                          </form>
+                        ) : instance.billingStatus === "active" ? (
+                          <span className="event-chip warn">
+                            {workspacePermissionsUnavailable
+                              ? "permissoes indisponiveis"
+                              : "sem permissao"}
+                          </span>
+                        ) : instance.checkoutUrl ? (
+                          <a
+                            className="button primary"
+                            href={instance.checkoutUrl}
+                            rel="noreferrer"
+                            target="_blank"
                           >
-                            Conectar WhatsApp
-                          </SubmitButton>
-                        </form>
-                      ) : instance.billingStatus === "active" ? (
-                        <span className="event-chip warn">
-                          {workspacePermissionsUnavailable
-                            ? "permissoes indisponiveis"
-                            : "sem permissao"}
-                        </span>
-                      ) : instance.checkoutUrl ? (
-                        <a
-                          className="button primary"
-                          href={instance.checkoutUrl}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          Pagar agora
-                        </a>
-                      ) : (
-                        <span className="event-chip warn">
-                          Pagamento pendente
-                        </span>
-                      )}
+                            Pagar agora
+                          </a>
+                        ) : (
+                          <span className="event-chip warn">
+                            Pagamento pendente
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td>
+                      <strong>{whatsappInstancesEmptyTitle}</strong>
+                      <span>
+                        Adicione e pague uma instancia para conectar o WhatsApp
+                      </span>
+                    </td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>
+                      <span className="event-chip warn">
+                        {whatsappInstancesResult.state === "error"
+                          ? "indisponivel"
+                          : "sem instancias"}
+                      </span>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td>
-                    <strong>{whatsappInstancesEmptyTitle}</strong>
-                    <span>
-                      Adicione e pague uma instancia para conectar o WhatsApp
-                    </span>
-                  </td>
-                  <td>-</td>
-                  <td>-</td>
-                  <td>-</td>
-                  <td>-</td>
-                  <td>
-                    <span className="event-chip warn">
-                      {whatsappInstancesResult.state === "error"
-                        ? "indisponivel"
-                        : "sem instancias"}
-                    </span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>}
+      )}
 
       <div className="surface-panel">
         <span className="eyebrow">Pipeline de sinal</span>

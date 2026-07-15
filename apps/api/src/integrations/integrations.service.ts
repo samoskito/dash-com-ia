@@ -15,7 +15,16 @@ import type {
   IntegrationStartActionDto,
   WhatsappDataSourceDto,
   MetaOAuthCallbackQueryDto,
-  MetaOAuthCallbackResultDto
+  MetaOAuthCallbackResultDto,
+  MetaConnectionCapabilitiesDto,
+  MetaManualAccountDestinationInputDto,
+  MetaManualAssetDiscoveryDto,
+  MetaManualBusinessConnectionInputDto,
+  MetaManualBusinessConnectionStatusInputDto,
+  MetaManualConnectionTestResultDto,
+  MetaManualConfigurationDto,
+  MetaManualCredentialInputDto,
+  MetaManualCredentialRotationInputDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { WorkspaceAccessPolicyService } from "../workspaces/workspace-access-policy.service";
@@ -25,6 +34,7 @@ import { INTEGRATION_ENV } from "./integration.types";
 import { MetaAdapter } from "./meta/meta.adapter";
 import { MetaAssetsService } from "./meta/meta-assets.service";
 import { MetaConnectionsService } from "./meta/meta-connections.service";
+import { MetaManualConnectionsService } from "./meta/meta-manual-connections.service";
 import { UazapiAdapter } from "./uazapi/uazapi.adapter";
 
 const metaOAuthStateTtlMs = 1000 * 60 * 10;
@@ -46,7 +56,10 @@ export class IntegrationsService {
     private readonly metaAssetsService?: MetaAssetsService,
     @Optional()
     @Inject(WorkspaceAccessPolicyService)
-    private readonly accessPolicy: WorkspaceAccessPolicyService = new WorkspaceAccessPolicyService()
+    private readonly accessPolicy: WorkspaceAccessPolicyService = new WorkspaceAccessPolicyService(),
+    @Optional()
+    @Inject(MetaManualConnectionsService)
+    private readonly metaManualConnectionsService?: MetaManualConnectionsService,
   ) {}
 
   async getHealthSummary(): Promise<IntegrationHealthSummaryDto> {
@@ -55,31 +68,31 @@ export class IntegrationsService {
       providers: await Promise.all([
         this.metaAdapter.getHealth(),
         this.uazapiAdapter.getHealth(),
-        this.asaasAdapter.getHealth()
-      ])
+        this.asaasAdapter.getHealth(),
+      ]),
     };
   }
 
   async getMetaStartAction(
     workspaceId?: string,
-    actorUserId?: string
+    actorUserId?: string,
   ): Promise<IntegrationStartActionDto> {
     if (!this.isMetaOAuthEnabled()) {
       return {
         provider: "meta",
         action: "configure_env",
         label: "OAuth Meta desabilitado",
-        missingEnv: ["META_CONNECTION_MODES=oauth"]
+        missingEnv: ["META_CONNECTION_MODES=oauth"],
       };
     }
 
     const requiredEnv = [
       "META_APP_ID",
       "META_APP_SECRET",
-      "META_OAUTH_REDIRECT_URL"
+      "META_OAUTH_REDIRECT_URL",
     ];
     const missingEnv = this.missingEnv(
-      workspaceId ? [...requiredEnv, "META_TOKEN_ENCRYPTION_KEY"] : requiredEnv
+      workspaceId ? [...requiredEnv, "META_TOKEN_ENCRYPTION_KEY"] : requiredEnv,
     );
 
     if (missingEnv.length > 0) {
@@ -87,7 +100,7 @@ export class IntegrationsService {
         provider: "meta",
         action: "configure_env",
         label: "Configurar app Meta",
-        missingEnv
+        missingEnv,
       };
     }
 
@@ -100,12 +113,12 @@ export class IntegrationsService {
       action: "oauth_redirect",
       label: "Conectar Meta via OAuth",
       href: this.metaAdapter.getOAuthAuthorizationUrl(state),
-      missingEnv: []
+      missingEnv: [],
     };
   }
 
   async handleMetaCallback(
-    input: MetaOAuthCallbackQueryDto
+    input: MetaOAuthCallbackQueryDto,
   ): Promise<MetaOAuthCallbackResultDto> {
     if (!this.isMetaOAuthEnabled()) {
       return {
@@ -115,7 +128,7 @@ export class IntegrationsService {
         expiresInSeconds: null,
         scopes: [],
         missingEnv: [],
-        message: "OAuth Meta desabilitado neste ambiente"
+        message: "OAuth Meta desabilitado neste ambiente",
       };
     }
 
@@ -127,7 +140,7 @@ export class IntegrationsService {
         expiresInSeconds: null,
         scopes: [],
         missingEnv: [],
-        message: "State OAuth Meta ausente"
+        message: "State OAuth Meta ausente",
       };
     }
 
@@ -141,29 +154,26 @@ export class IntegrationsService {
         expiresInSeconds: null,
         scopes: [],
         missingEnv: [],
-        message: "State OAuth Meta invalido ou expirado"
+        message: "State OAuth Meta invalido ou expirado",
       };
     }
 
     const exchange = await this.metaAdapter.exchangeCodeForToken({
-      code: input.code
+      code: input.code,
     });
 
-    if (
-      exchange.publicResult.status !== "connected" ||
-      !exchange.accessToken
-    ) {
+    if (exchange.publicResult.status !== "connected" || !exchange.accessToken) {
       return exchange.publicResult;
     }
 
     const connection =
       await this.requireMetaConnectionsService().saveOAuthConnection({
-      workspaceId,
-      accessToken: exchange.accessToken,
-      tokenType: exchange.publicResult.tokenType,
-      expiresInSeconds: exchange.publicResult.expiresInSeconds,
-      scopes: exchange.publicResult.scopes
-    });
+        workspaceId,
+        accessToken: exchange.accessToken,
+        tokenType: exchange.publicResult.tokenType,
+        expiresInSeconds: exchange.publicResult.expiresInSeconds,
+        scopes: exchange.publicResult.scopes,
+      });
 
     if (
       connection.status !== "connected" ||
@@ -172,13 +182,13 @@ export class IntegrationsService {
       return {
         ...exchange.publicResult,
         status: "exchange_failed",
-        message: "Conexao Meta nao foi salva no workspace solicitado"
+        message: "Conexao Meta nao foi salva no workspace solicitado",
       };
     }
 
     return {
       ...exchange.publicResult,
-      connection
+      connection,
     };
   }
 
@@ -194,7 +204,7 @@ export class IntegrationsService {
         selectedBusinessId: null,
         selectedAdAccountId: null,
         selectedPixelId: null,
-        capiTokenConfigured: false
+        capiTokenConfigured: false,
       };
     }
 
@@ -203,7 +213,7 @@ export class IntegrationsService {
 
   async getMetaAssets(
     workspaceId: string,
-    businessId?: string | null
+    businessId?: string | null,
   ): Promise<MetaAssetsDto> {
     if (!this.metaConnectionsService) {
       return this.emptyMetaAssets(workspaceId);
@@ -213,7 +223,7 @@ export class IntegrationsService {
       ? this.metaConnectionsService.listAssets(
           workspaceId,
           this.metaAdapter,
-          businessId
+          businessId,
         )
       : this.metaConnectionsService.listAssets(workspaceId, this.metaAdapter);
 
@@ -223,7 +233,7 @@ export class IntegrationsService {
   async refreshMetaAssets(
     workspaceId: string,
     businessId?: string | null,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaAssetsDto> {
     if (!this.metaConnectionsService) {
       return this.emptyMetaAssets(workspaceId);
@@ -235,27 +245,27 @@ export class IntegrationsService {
         workspaceId,
         this.metaAdapter,
         businessId,
-        actorUserId
-      )
+        actorUserId,
+      ),
     );
   }
 
   private async withMetaOperationalData(
     workspaceId: string,
-    assets: Promise<MetaAssetsDto>
+    assets: Promise<MetaAssetsDto>,
   ): Promise<MetaAssetsDto> {
     const [baseAssets, conversionDestination, reportingAccounts] =
       await Promise.all([
         assets,
         this.getMetaConversionDestination(workspaceId),
-        this.getMetaReportingAccounts(workspaceId)
+        this.getMetaReportingAccounts(workspaceId),
       ]);
 
     return {
       ...baseAssets,
       pages: baseAssets.pages ?? [],
       conversionDestination,
-      reportingAccounts
+      reportingAccounts,
     };
   }
 
@@ -272,17 +282,17 @@ export class IntegrationsService {
       selection: {
         businessId: null,
         adAccountId: null,
-        pixelId: null
+        pixelId: null,
       },
       lastSyncedAt: null,
-      syncError: null
+      syncError: null,
     };
   }
 
   async saveMetaAssetSelection(
     workspaceId: string,
     input: MetaAssetSelectionInputDto,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaConnectionDto> {
     if (!this.metaConnectionsService) {
       return this.getMetaConnection(workspaceId);
@@ -291,32 +301,32 @@ export class IntegrationsService {
     return this.metaConnectionsService.saveAssetSelection(
       workspaceId,
       input,
-      actorUserId
+      actorUserId,
     );
   }
 
   async saveMetaCapiToken(
     workspaceId: string,
     input: MetaCapiTokenInputDto,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaCapiTokenStatusDto> {
     if (!this.metaConnectionsService) {
       return {
         workspaceId,
         configured: false,
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       };
     }
 
     return this.metaConnectionsService.saveCapiToken(
       workspaceId,
       input,
-      actorUserId
+      actorUserId,
     );
   }
 
   async getMetaConversionDestination(
-    workspaceId: string
+    workspaceId: string,
   ): Promise<MetaConversionDestinationDto> {
     if (!this.metaAssetsService) {
       return this.emptyConversionDestination(workspaceId);
@@ -328,7 +338,7 @@ export class IntegrationsService {
   async saveMetaConversionDestination(
     workspaceId: string,
     input: MetaConversionDestinationInputDto,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaConversionDestinationDto> {
     if (!this.metaAssetsService) {
       return this.emptyConversionDestination(workspaceId);
@@ -337,12 +347,12 @@ export class IntegrationsService {
     return this.metaAssetsService.saveConversionDestination(
       workspaceId,
       input,
-      actorUserId
+      actorUserId,
     );
   }
 
   async getMetaReportingAccounts(
-    workspaceId: string
+    workspaceId: string,
   ): Promise<MetaReportingAccountDto[]> {
     if (!this.metaAssetsService) {
       return [];
@@ -354,7 +364,7 @@ export class IntegrationsService {
   async saveMetaReportingAccount(
     workspaceId: string,
     input: MetaReportingAccountInputDto,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaReportingAccountDto> {
     if (!this.metaAssetsService) {
       throw new Error("Meta assets service is not available");
@@ -363,7 +373,7 @@ export class IntegrationsService {
     return this.metaAssetsService.saveReportingAccount(
       workspaceId,
       input,
-      actorUserId
+      actorUserId,
     );
   }
 
@@ -371,7 +381,7 @@ export class IntegrationsService {
     workspaceId: string,
     id: string,
     active: boolean,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaReportingAccountDto[]> {
     if (!this.metaAssetsService) {
       return [];
@@ -381,7 +391,7 @@ export class IntegrationsService {
       workspaceId,
       id,
       active,
-      actorUserId
+      actorUserId,
     );
   }
 
@@ -390,7 +400,7 @@ export class IntegrationsService {
       ...this.missingEnv(["UAZAPI_BASE_URL"]),
       ...(!this.env.UAZAPI_ADMIN_TOKEN && !this.env.UAZAPI_TOKEN
         ? ["UAZAPI_ADMIN_TOKEN"]
-        : [])
+        : []),
     ];
 
     return {
@@ -400,7 +410,7 @@ export class IntegrationsService {
         missingEnv.length > 0
           ? "Configurar Uazapi"
           : "Uazapi pronta para provisionar instancia",
-      missingEnv
+      missingEnv,
     };
   }
 
@@ -414,7 +424,7 @@ export class IntegrationsService {
         missingEnv.length > 0
           ? "Configurar Asaas"
           : "Asaas pronto para cobrancas e webhooks",
-      missingEnv
+      missingEnv,
     };
   }
 
@@ -454,7 +464,7 @@ export class IntegrationsService {
 
   async getPipelineOverview(
     workspaceId: string,
-    now = new Date()
+    now = new Date(),
   ): Promise<IntegrationPipelineOverviewDto> {
     if (!this.prisma) {
       return this.emptyPipelineOverview(workspaceId);
@@ -487,21 +497,21 @@ export class IntegrationsService {
         where: {
           workspaceId,
           source: "uazapi",
-          receivedAt: { gte: since }
-        }
+          receivedAt: { gte: since },
+        },
       }),
       this.prisma.lead.count({
         where: {
           workspaceId,
-          createdAt: { gte: since }
-        }
+          createdAt: { gte: since },
+        },
       }),
       this.prisma.conversionEventLog.count({
         where: {
           workspaceId,
           status: "ready_to_send",
-          createdAt: { gte: since }
-        }
+          createdAt: { gte: since },
+        },
       }),
       this.prisma.conversionEventLog.count({
         where: {
@@ -522,33 +532,33 @@ export class IntegrationsService {
           key: "ctwa",
           label: "CTWA",
           value: ctwaLeads,
-          detail: "Leads com origem de campanha Meta"
+          detail: "Leads com origem de campanha Meta",
         },
         {
           key: "webhook",
           label: "Webhook",
           value: webhooksReceived,
-          detail: "Webhooks Uazapi recebidos"
+          detail: "Webhooks Uazapi recebidos",
         },
         {
           key: "lead",
           label: "Lead",
           value: leadsTracked,
-          detail: "Leads rastreados pelo WhatsApp"
+          detail: "Leads rastreados pelo WhatsApp",
         },
         {
           key: "conversion_ready",
           label: "CAPI pronta",
           value: conversionsReady,
-          detail: "Eventos aguardando envio para Meta"
+          detail: "Eventos aguardando envio para Meta",
         },
         {
           key: "meta_sent",
           label: "Meta ACK",
           value: metaSent,
-          detail: "Eventos enviados para Meta"
-        }
-      ]
+          detail: "Eventos enviados para Meta",
+        },
+      ],
     };
   }
 
@@ -556,7 +566,9 @@ export class IntegrationsService {
     return keys.filter((key) => !this.env[key]);
   }
 
-  private emptyPipelineOverview(workspaceId: string): IntegrationPipelineOverviewDto {
+  private emptyPipelineOverview(
+    workspaceId: string,
+  ): IntegrationPipelineOverviewDto {
     return {
       workspaceId,
       rangeLabel: "Ultimos 7 dias",
@@ -566,33 +578,33 @@ export class IntegrationsService {
           key: "ctwa",
           label: "CTWA",
           value: 0,
-          detail: "Leads com origem de campanha Meta"
+          detail: "Leads com origem de campanha Meta",
         },
         {
           key: "webhook",
           label: "Webhook",
           value: 0,
-          detail: "Webhooks Uazapi recebidos"
+          detail: "Webhooks Uazapi recebidos",
         },
         {
           key: "lead",
           label: "Lead",
           value: 0,
-          detail: "Leads rastreados pelo WhatsApp"
+          detail: "Leads rastreados pelo WhatsApp",
         },
         {
           key: "conversion_ready",
           label: "CAPI pronta",
           value: 0,
-          detail: "Eventos aguardando envio para Meta"
+          detail: "Eventos aguardando envio para Meta",
         },
         {
           key: "meta_sent",
           label: "Meta ACK",
           value: 0,
-          detail: "Eventos enviados para Meta"
-        }
-      ]
+          detail: "Eventos enviados para Meta",
+        },
+      ],
     };
   }
 
@@ -607,7 +619,7 @@ export class IntegrationsService {
   }
 
   private emptyConversionDestination(
-    workspaceId: string
+    workspaceId: string,
   ): MetaConversionDestinationDto {
     return {
       workspaceId,
@@ -617,13 +629,13 @@ export class IntegrationsService {
       pageName: null,
       status: "needs_configuration",
       lastValidatedAt: null,
-      validationError: null
+      validationError: null,
     };
   }
 
   private async createMetaOAuthState(
     workspaceId: string,
-    actorUserId?: string
+    actorUserId?: string,
   ): Promise<string> {
     if (!actorUserId) {
       throw new Error("Usuario ausente ao iniciar OAuth Meta");
@@ -636,8 +648,8 @@ export class IntegrationsService {
         stateHash: this.hashMetaOAuthState(state),
         workspaceId,
         userId: actorUserId,
-        expiresAt: new Date(Date.now() + metaOAuthStateTtlMs)
-      }
+        expiresAt: new Date(Date.now() + metaOAuthStateTtlMs),
+      },
     });
 
     return state;
@@ -653,8 +665,8 @@ export class IntegrationsService {
         workspaceId: true,
         userId: true,
         expiresAt: true,
-        consumedAt: true
-    }
+        consumedAt: true,
+      },
     });
 
     if (
@@ -669,17 +681,17 @@ export class IntegrationsService {
       where: {
         workspaceId_userId: {
           workspaceId: savedState.workspaceId,
-          userId: savedState.userId
-        }
+          userId: savedState.userId,
+        },
       },
-      select: { id: true, role: true, canManageMembers: true }
+      select: { id: true, role: true, canManageMembers: true },
     });
 
     if (
       !membership ||
       !this.accessPolicy.getPermissions(
         membership.role,
-        membership.canManageMembers
+        membership.canManageMembers,
       ).canManageIntegrations
     ) {
       return null;
@@ -689,9 +701,9 @@ export class IntegrationsService {
       where: {
         id: savedState.id,
         consumedAt: null,
-        expiresAt: { gt: now }
+        expiresAt: { gt: now },
       },
-      data: { consumedAt: now }
+      data: { consumedAt: now },
     });
 
     return consumed.count === 1 ? savedState.workspaceId : null;
@@ -699,6 +711,108 @@ export class IntegrationsService {
 
   private hashMetaOAuthState(state: string): string {
     return createHash("sha256").update(state).digest("hex");
+  }
+
+  getMetaConnectionCapabilities(): MetaConnectionCapabilitiesDto {
+    return this.requireMetaManualConnectionsService().getCapabilities();
+  }
+
+  async getMetaManualConfiguration(
+    workspaceId: string,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().listConfiguration(
+      workspaceId,
+    );
+  }
+
+  async createMetaManualCredential(
+    workspaceId: string,
+    input: MetaManualCredentialInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualAssetDiscoveryDto> {
+    return this.requireMetaManualConnectionsService().createCredential(
+      workspaceId,
+      input,
+      actorUserId,
+    );
+  }
+
+  async discoverMetaManualAssets(
+    workspaceId: string,
+    credentialId: string,
+    businessId?: string | null,
+  ): Promise<MetaManualAssetDiscoveryDto> {
+    return this.requireMetaManualConnectionsService().discoverAssets(
+      workspaceId,
+      credentialId,
+      businessId,
+    );
+  }
+
+  async createMetaManualBusinessConnection(
+    workspaceId: string,
+    input: MetaManualBusinessConnectionInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().createBusinessConnection(
+      workspaceId,
+      input,
+      actorUserId,
+    );
+  }
+
+  async rotateMetaManualCredential(
+    workspaceId: string,
+    credentialId: string,
+    input: MetaManualCredentialRotationInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().rotateCredential(
+      workspaceId,
+      credentialId,
+      input,
+      actorUserId,
+    );
+  }
+
+  async setMetaManualBusinessConnectionStatus(
+    workspaceId: string,
+    connectionId: string,
+    input: MetaManualBusinessConnectionStatusInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().setBusinessConnectionStatus(
+      workspaceId,
+      connectionId,
+      input,
+      actorUserId,
+    );
+  }
+
+  async testMetaManualBusinessConnection(
+    workspaceId: string,
+    connectionId: string,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConnectionTestResultDto> {
+    return this.requireMetaManualConnectionsService().testBusinessConnection(
+      workspaceId,
+      connectionId,
+      actorUserId,
+    );
+  }
+
+  async setMetaManualReportingDestination(
+    workspaceId: string,
+    reportingAccountId: string,
+    input: MetaManualAccountDestinationInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().setReportingAccountDestination(
+      workspaceId,
+      reportingAccountId,
+      input,
+      actorUserId,
+    );
   }
 
   private isMetaOAuthEnabled(): boolean {
@@ -716,6 +830,14 @@ export class IntegrationsService {
     }
 
     return this.metaConnectionsService;
+  }
+
+  private requireMetaManualConnectionsService(): MetaManualConnectionsService {
+    if (!this.metaManualConnectionsService) {
+      throw new Error("MetaManualConnectionsService indisponivel");
+    }
+
+    return this.metaManualConnectionsService;
   }
 
   private requirePrisma(): PrismaService {

@@ -69,6 +69,11 @@ META_TOKEN_ENCRYPTION_KEY=troque-por-chave-forte-de-32-bytes-ou-mais
 META_WEBHOOK_VERIFY_TOKEN=troque-por-token-forte-do-webhook-meta
 ```
 
+A conexao por token permanente e habilitada de forma controlada com
+`META_CONNECTION_MODES=oauth,manual`. O OAuth continua sendo a opcao principal.
+Consulte [Conexao manual com a Meta](../setup/meta-manual-connections.md) antes
+de liberar o modo manual em producao.
+
 O `POST /webhooks/meta` valida automaticamente `X-Hub-Signature-256` com
 `META_APP_SECRET` e associa o evento a um unico workspace pelo Page ID. Nao
 envie nem confie em `x-workspace-id` como origem do tenant.
