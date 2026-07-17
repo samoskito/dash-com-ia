@@ -146,6 +146,7 @@ The first seeded release is `umbler/v1` in `observation_only`.
 - status: `observation`, `production` or `paused`;
 - creator;
 - last delivery and last successful parse timestamps;
+- non-destructive removal timestamp;
 - creation and update timestamps.
 
 The plaintext secret is returned only when the connection is created or
@@ -190,6 +191,7 @@ frontend.
 `InboundWebhookDelivery` records:
 
 - workspace, connection and provider;
+- deterministic ingress key;
 - external delivery ID;
 - provider event type;
 - parser version;
@@ -201,8 +203,11 @@ frontend.
 - parse/routing error code;
 - processed timestamp.
 
-Connection + external delivery ID is unique. A retry increments attempt
-metadata without duplicating processing.
+The ingress key uses the provider delivery ID when a valid envelope exposes it.
+If the envelope is malformed, it falls back to a SHA-256 hash of the raw request
+body so the invalid delivery is still observable and repeatable. Connection +
+ingress key is unique. A retry increments attempt metadata without duplicating
+processing.
 
 ### 6.6 Canonical observed event
 
@@ -310,12 +315,13 @@ is `eligible_route_unresolved`. There is no fallback BM or Pixel.
 The public request path performs only:
 
 1. connection and token validation;
-2. basic body validation and size enforcement;
-3. encrypted durable persistence or retry update;
-4. queue publication;
-5. HTTP 202 response.
+2. content type and size enforcement;
+3. bounded provider-envelope identity extraction, with raw-body hash fallback;
+4. encrypted durable persistence or retry update;
+5. queue publication;
+6. HTTP 202 response.
 
-Parsing, channel discovery and route resolution run in BullMQ.
+Full provider parsing, channel discovery and route resolution run in BullMQ.
 
 If persistence fails, the endpoint returns a non-2xx response so Umbler retries.
 If queue publication fails after persistence, the delivery remains pending and
