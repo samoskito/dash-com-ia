@@ -1,7 +1,7 @@
 # WppTrack Access, Email and Meta Connections Implementation Plan
 
 Date: 2026-07-13
-Status: Waves 0-11 implemented; outbound SMTP accepted in production; manual Meta management and Insights backfill validated locally, deploy pending
+Status: Waves 0-11 and OAuth multi-destination routing implemented; outbound SMTP accepted in production; OAuth advanced routing deploy pending
 Design: docs/plans/2026-07-13-wpptrack-access-email-meta-connections-design.md
 
 ## 1. Goal
@@ -865,6 +865,23 @@ New manual connections can report and send CAPI through exact mappings. Existing
 - Manual reporting requests use conversion-time attribution and accept the messaging-conversation action variants returned for WhatsApp campaigns with sales objectives. The legacy OAuth reporting path keeps its prior exact request and action key for Barbieri.
 - `Conversas Meta` comes from Marketing API Insights. `Conversas reais iniciadas` remains the WppTrack event ledger and requires the client's webhook or external event source; one metric is never substituted for the other.
 - Focused validation passed: 62 shared tests, 114 API tests and 35 web tests. Shared/web typechecks passed; API TypeScript passed directly, while Prisma regeneration hit the known Windows DLL lock.
+
+### OAuth multi-destination checkpoint - 2026-07-17
+
+- [x] Allow one OAuth workspace to map multiple BMs, reporting accounts and dedicated Pixel/Page destinations without requesting permanent tokens from the customer.
+- [x] Reuse the existing encrypted OAuth/CAPI credential while resolving the destination by the exact BM/account mapping.
+- [x] Keep new OAuth mappings in shadow mode until an integration manager explicitly enables advanced routing.
+- [x] Freeze the current OAuth destination as the primary fallback before any advanced mapping can become active.
+- [x] Block activation while an active reporting account has no exact BM mapping or destination.
+- [x] Provide an explicit rollback that immediately restores the primary OAuth destination.
+- [x] Disable advanced routing and require BM revalidation whenever the OAuth Meta account is replaced or renewed.
+- [x] Preserve the legacy OAuth reporting and CAPI path for every existing workspace that has not opted in.
+- [x] Scope all advanced OAuth reads and writes by the authenticated workspace and integration-management permission.
+- [x] Keep token material encrypted and absent from API responses, form state and audit payloads.
+
+The database migration only adds opt-in state and records the current primary destination. It defaults `advancedRoutingEnabled` to false, so applying it does not migrate Barbieri or change any existing request route.
+
+Local validation passed after the extension: shared, API and web typechecks; 62 shared tests; 718 API tests; 156 web tests; Prisma generation; and production builds for shared, API and web.
 
 ## 15. Wave 12 - Final Security Audit and Controlled Rollout
 

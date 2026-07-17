@@ -6,24 +6,73 @@ function createHarness() {
   const db = {
     records: [] as Array<Record<string, unknown>>,
     manualCredentials: [] as Array<Record<string, unknown>>,
+    businessConnections: [] as Array<Record<string, unknown>>,
     snapshots: [] as Array<Record<string, unknown>>,
     reportingAccounts: [] as Array<Record<string, unknown>>,
     conversionDestinations: [] as Array<Record<string, unknown>>,
     oauthStates: [] as Array<Record<string, unknown>>,
-    auditLogs: [] as Array<Record<string, unknown>>
+    auditLogs: [] as Array<Record<string, unknown>>,
   };
   const prisma = {
     metaCredential: {
       findFirst: async ({
-        where
+        where,
       }: {
         where: { workspaceId: string; source: string };
       }) =>
         db.manualCredentials.find(
           (record) =>
             record.workspaceId === where.workspaceId &&
-            record.source === where.source
-        ) ?? null
+            record.source === where.source,
+        ) ?? null,
+      findMany: async ({
+        where,
+      }: {
+        where: { workspaceId: string; source: string };
+      }) =>
+        db.manualCredentials.filter(
+          (record) =>
+            record.workspaceId === where.workspaceId &&
+            record.source === where.source,
+        ),
+      update: async ({
+        data,
+        where,
+      }: {
+        data: Record<string, unknown>;
+        where: { id: string };
+      }) => {
+        const credential = db.manualCredentials.find(
+          (record) => record.id === where.id,
+        );
+
+        if (!credential) {
+          throw new Error("Credential not found");
+        }
+
+        Object.assign(credential, data);
+        return credential;
+      },
+      deleteMany: async ({
+        where,
+      }: {
+        where: {
+          workspaceId: string;
+          source: string;
+          id?: { in: string[] };
+        };
+      }) => {
+        const before = db.manualCredentials.length;
+        db.manualCredentials = db.manualCredentials.filter(
+          (record) =>
+            !(
+              record.workspaceId === where.workspaceId &&
+              record.source === where.source &&
+              (!where.id || where.id.in.includes(String(record.id)))
+            ),
+        );
+        return { count: before - db.manualCredentials.length };
+      },
     },
     metaIntegration: {
       findUnique: async ({ where }: { where: { workspaceId: string } }) =>
@@ -32,14 +81,14 @@ function createHarness() {
       upsert: async ({
         create,
         update,
-        where
+        where,
       }: {
         create: Record<string, unknown>;
         update: Record<string, unknown>;
         where: { workspaceId: string };
       }) => {
         const index = db.records.findIndex(
-          (record) => record.workspaceId === where.workspaceId
+          (record) => record.workspaceId === where.workspaceId,
         );
         const now = new Date("2026-07-02T03:00:00.000Z");
 
@@ -51,7 +100,7 @@ function createHarness() {
             selectedBusinessId: null,
             selectedAdAccountId: null,
             selectedPixelId: null,
-            ...create
+            ...create,
           };
           db.records.push(record);
           return record;
@@ -60,20 +109,20 @@ function createHarness() {
         db.records[index] = {
           ...db.records[index],
           ...update,
-          updatedAt: now
+          updatedAt: now,
         };
 
         return db.records[index];
       },
       update: async ({
         data,
-        where
+        where,
       }: {
         data: Record<string, unknown>;
         where: { workspaceId: string };
       }) => {
         const index = db.records.findIndex(
-          (record) => record.workspaceId === where.workspaceId
+          (record) => record.workspaceId === where.workspaceId,
         );
 
         if (index === -1) {
@@ -83,7 +132,7 @@ function createHarness() {
         db.records[index] = {
           ...db.records[index],
           ...data,
-          updatedAt: new Date("2026-07-02T04:00:00.000Z")
+          updatedAt: new Date("2026-07-02T04:00:00.000Z"),
         };
 
         return db.records[index];
@@ -91,18 +140,18 @@ function createHarness() {
       deleteMany: async ({ where }: { where: { workspaceId: string } }) => {
         const before = db.records.length;
         db.records = db.records.filter(
-          (record) => record.workspaceId !== where.workspaceId
+          (record) => record.workspaceId !== where.workspaceId,
         );
         return { count: before - db.records.length };
-      }
+      },
     },
     metaAssetSnapshot: {
       count: async ({ where }: { where: { workspaceId: string } }) =>
         db.snapshots.filter(
-          (record) => record.workspaceId === where.workspaceId
+          (record) => record.workspaceId === where.workspaceId,
         ).length,
       findUnique: async ({
-        where
+        where,
       }: {
         where: {
           workspaceId_snapshotKey: { workspaceId: string; snapshotKey: string };
@@ -111,12 +160,12 @@ function createHarness() {
         db.snapshots.find(
           (record) =>
             record.workspaceId === where.workspaceId_snapshotKey.workspaceId &&
-            record.snapshotKey === where.workspaceId_snapshotKey.snapshotKey
+            record.snapshotKey === where.workspaceId_snapshotKey.snapshotKey,
         ) ?? null,
       upsert: async ({
         create,
         update,
-        where
+        where,
       }: {
         create: Record<string, unknown>;
         update: Record<string, unknown>;
@@ -127,7 +176,7 @@ function createHarness() {
         const index = db.snapshots.findIndex(
           (record) =>
             record.workspaceId === where.workspaceId_snapshotKey.workspaceId &&
-            record.snapshotKey === where.workspaceId_snapshotKey.snapshotKey
+            record.snapshotKey === where.workspaceId_snapshotKey.snapshotKey,
         );
         const now = new Date("2026-07-09T12:00:00.000Z");
 
@@ -136,7 +185,7 @@ function createHarness() {
             id: `snapshot_${db.snapshots.length + 1}`,
             createdAt: now,
             updatedAt: now,
-            ...create
+            ...create,
           };
           db.snapshots.push(record);
           return record;
@@ -145,57 +194,128 @@ function createHarness() {
         db.snapshots[index] = {
           ...db.snapshots[index],
           ...update,
-          updatedAt: now
+          updatedAt: now,
         };
 
         return db.snapshots[index];
-      }
+      },
     },
     metaReportingAccount: {
       count: async ({ where }: { where: { workspaceId: string } }) =>
         db.reportingAccounts.filter(
-          (record) => record.workspaceId === where.workspaceId
-        ).length
+          (record) => record.workspaceId === where.workspaceId,
+        ).length,
+      updateMany: async ({
+        data,
+        where,
+      }: {
+        data: Record<string, unknown>;
+        where: {
+          workspaceId: string;
+          businessConnectionId: { in: string[] };
+        };
+      }) => {
+        const matching = db.reportingAccounts.filter(
+          (record) =>
+            record.workspaceId === where.workspaceId &&
+            where.businessConnectionId.in.includes(
+              String(record.businessConnectionId),
+            ),
+        );
+        matching.forEach((record) => Object.assign(record, data));
+        return { count: matching.length };
+      },
+    },
+    metaBusinessConnection: {
+      findMany: async ({
+        where,
+      }: {
+        where: {
+          workspaceId: string;
+          credentialId: { in: string[] };
+        };
+      }) =>
+        db.businessConnections.filter(
+          (record) =>
+            record.workspaceId === where.workspaceId &&
+            where.credentialId.in.includes(String(record.credentialId)),
+        ),
+      updateMany: async ({
+        data,
+        where,
+      }: {
+        data: Record<string, unknown>;
+        where: {
+          workspaceId: string;
+          credentialId: string;
+        };
+      }) => {
+        const matching = db.businessConnections.filter(
+          (record) =>
+            record.workspaceId === where.workspaceId &&
+            record.credentialId === where.credentialId,
+        );
+        matching.forEach((record) => Object.assign(record, data));
+        return { count: matching.length };
+      },
+      deleteMany: async ({
+        where,
+      }: {
+        where: {
+          workspaceId: string;
+          id: { in: string[] };
+        };
+      }) => {
+        const before = db.businessConnections.length;
+        db.businessConnections = db.businessConnections.filter(
+          (record) =>
+            !(
+              record.workspaceId === where.workspaceId &&
+              where.id.in.includes(String(record.id))
+            ),
+        );
+        return { count: before - db.businessConnections.length };
+      },
     },
     metaConversionDestination: {
       count: async ({ where }: { where: { workspaceId: string } }) =>
         db.conversionDestinations.filter(
-          (record) => record.workspaceId === where.workspaceId
-        ).length
+          (record) => record.workspaceId === where.workspaceId,
+        ).length,
     },
     metaOAuthState: {
       deleteMany: async ({ where }: { where: { workspaceId: string } }) => {
         const before = db.oauthStates.length;
         db.oauthStates = db.oauthStates.filter(
-          (record) => record.workspaceId !== where.workspaceId
+          (record) => record.workspaceId !== where.workspaceId,
         );
         return { count: before - db.oauthStates.length };
-      }
+      },
     },
     auditLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const log = {
           id: `audit_${db.auditLogs.length + 1}`,
           createdAt: new Date("2026-07-02T04:00:00.000Z"),
-          ...data
+          ...data,
         };
         db.auditLogs.push(log);
         return log;
-      }
-    }
+      },
+    },
   };
   Object.assign(prisma, {
     $transaction: async (callback: (transaction: typeof prisma) => unknown) =>
-      callback(prisma)
+      callback(prisma),
   });
   const encryption = new MetaTokenEncryptionService({
-    META_TOKEN_ENCRYPTION_KEY: "test-encryption-key"
+    META_TOKEN_ENCRYPTION_KEY: "test-encryption-key",
   });
 
   return {
     db,
     encryption,
-    service: new MetaConnectionsService(prisma as never, encryption)
+    service: new MetaConnectionsService(prisma as never, encryption),
   };
 }
 
@@ -209,7 +329,7 @@ describe("meta connections service", () => {
       tokenType: "bearer",
       expiresInSeconds: 3600,
       scopes: ["ads_read", "business_management"],
-      actorUserId: "user_1"
+      actorUserId: "user_1",
     });
 
     expect(connection).toMatchObject({
@@ -219,7 +339,7 @@ describe("meta connections service", () => {
       scopes: ["ads_read", "business_management"],
       selectedBusinessId: null,
       selectedAdAccountId: null,
-      selectedPixelId: null
+      selectedPixelId: null,
     });
     expect(JSON.stringify(connection)).not.toContain("EAAB-secret-token");
     expect(db.records[0]?.encryptedAccessToken).not.toBe("EAAB-secret-token");
@@ -227,8 +347,8 @@ describe("meta connections service", () => {
       encryption.decrypt({
         encryptedAccessToken: String(db.records[0]?.encryptedAccessToken),
         tokenIv: String(db.records[0]?.tokenIv),
-        tokenTag: String(db.records[0]?.tokenTag)
-      })
+        tokenTag: String(db.records[0]?.tokenTag),
+      }),
     ).toBe("EAAB-secret-token");
     expect(db.auditLogs).toContainEqual(
       expect.objectContaining({
@@ -238,10 +358,67 @@ describe("meta connections service", () => {
         action: "meta.oauth.connected",
         targetType: "MetaIntegration",
         targetId: "workspace_1",
-        resultStatus: "connected"
-      })
+        resultStatus: "connected",
+      }),
     );
     expect(JSON.stringify(db.auditLogs)).not.toContain("EAAB-secret-token");
+  });
+
+  it("refreshes an existing normalized OAuth credential when login is renewed", async () => {
+    const { db, encryption, service } = createHarness();
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_1",
+      accessToken: "EAAB-old-oauth-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read", "business_management"],
+    });
+    db.records[0]!.advancedRoutingEnabled = true;
+    const oldEncrypted = encryption.encrypt("EAAB-old-oauth-token");
+    db.manualCredentials.push({
+      id: "credential_oauth",
+      workspaceId: "workspace_1",
+      source: "oauth",
+      fingerprint: encryption.fingerprint("EAAB-old-oauth-token"),
+      rotatedAt: null,
+      ...oldEncrypted,
+    });
+    db.businessConnections.push({
+      id: "connection_oauth",
+      workspaceId: "workspace_1",
+      credentialId: "credential_oauth",
+      status: "active",
+      validationError: null,
+    });
+
+    await service.saveOAuthConnection({
+      workspaceId: "workspace_1",
+      accessToken: "EAAB-renewed-oauth-token",
+      tokenType: "bearer",
+      expiresInSeconds: 3600,
+      scopes: ["ads_read", "business_management"],
+    });
+
+    expect(
+      encryption.decrypt({
+        encryptedAccessToken: String(
+          db.manualCredentials[0]?.encryptedAccessToken,
+        ),
+        tokenIv: String(db.manualCredentials[0]?.tokenIv),
+        tokenTag: String(db.manualCredentials[0]?.tokenTag),
+      }),
+    ).toBe("EAAB-renewed-oauth-token");
+    expect(db.manualCredentials[0]).toMatchObject({
+      source: "oauth",
+      status: "active",
+      scopes: ["ads_read", "business_management"],
+      validationError: null,
+    });
+    expect(db.records[0]?.advancedRoutingEnabled).toBe(false);
+    expect(db.businessConnections[0]).toMatchObject({
+      status: "validation_required",
+      validationError: "Valide esta BM novamente apos atualizar o login social",
+    });
   });
 
   it("disconnects OAuth only from the confirmed workspace and preserves operational history", async () => {
@@ -252,31 +429,57 @@ describe("meta connections service", () => {
       accessToken: "EAAB-client-secret-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read", "business_management"]
+      scopes: ["ads_read", "business_management"],
     });
     await service.saveOAuthConnection({
       workspaceId: "workspace_barbieri",
       accessToken: "EAAB-barbieri-secret-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read", "business_management"]
+      scopes: ["ads_read", "business_management"],
     });
     db.snapshots.push({
       id: "snapshot_client",
       workspaceId: "workspace_client",
-      snapshotKey: "root"
+      snapshotKey: "root",
     });
     db.reportingAccounts.push({
       id: "reporting_client",
-      workspaceId: "workspace_client"
+      workspaceId: "workspace_client",
+      businessConnectionId: "connection_client",
+      active: true,
     });
     db.conversionDestinations.push({
       id: "destination_client",
-      workspaceId: "workspace_client"
+      workspaceId: "workspace_client",
     });
     db.oauthStates.push(
       { id: "state_client", workspaceId: "workspace_client" },
-      { id: "state_barbieri", workspaceId: "workspace_barbieri" }
+      { id: "state_barbieri", workspaceId: "workspace_barbieri" },
+    );
+    db.manualCredentials.push(
+      {
+        id: "credential_client",
+        workspaceId: "workspace_client",
+        source: "oauth",
+      },
+      {
+        id: "credential_barbieri",
+        workspaceId: "workspace_barbieri",
+        source: "oauth",
+      },
+    );
+    db.businessConnections.push(
+      {
+        id: "connection_client",
+        workspaceId: "workspace_client",
+        credentialId: "credential_client",
+      },
+      {
+        id: "connection_barbieri",
+        workspaceId: "workspace_barbieri",
+        credentialId: "credential_barbieri",
+      },
     );
 
     const result = await service.disconnectOAuthConnection({
@@ -284,8 +487,8 @@ describe("meta connections service", () => {
       actorUserId: "user_owner",
       request: {
         expectedWorkspaceId: "workspace_client",
-        confirmation: "DESCONECTAR META"
-      }
+        confirmation: "DESCONECTAR META",
+      },
     });
 
     expect(result).toMatchObject({
@@ -294,17 +497,28 @@ describe("meta connections service", () => {
       preserved: {
         assetSnapshots: 1,
         reportingAccounts: 1,
-        conversionDestinations: 1
-      }
+        conversionDestinations: 1,
+      },
     });
     expect(db.records.map((record) => record.workspaceId)).toEqual([
-      "workspace_barbieri"
+      "workspace_barbieri",
     ]);
     expect(db.snapshots).toHaveLength(1);
     expect(db.reportingAccounts).toHaveLength(1);
+    expect(db.reportingAccounts[0]).toMatchObject({
+      active: false,
+      businessConnectionId: null,
+      conversionDestinationId: null,
+    });
     expect(db.conversionDestinations).toHaveLength(1);
+    expect(db.manualCredentials.map((record) => record.workspaceId)).toEqual([
+      "workspace_barbieri",
+    ]);
+    expect(db.businessConnections.map((record) => record.workspaceId)).toEqual([
+      "workspace_barbieri",
+    ]);
     expect(db.oauthStates).toEqual([
-      { id: "state_barbieri", workspaceId: "workspace_barbieri" }
+      { id: "state_barbieri", workspaceId: "workspace_barbieri" },
     ]);
     expect(db.auditLogs).toContainEqual(
       expect.objectContaining({
@@ -312,11 +526,11 @@ describe("meta connections service", () => {
         actorUserId: "user_owner",
         action: "meta.oauth.disconnected_for_manual",
         reason: "switch_to_manual",
-        resultStatus: "disconnected"
-      })
+        resultStatus: "disconnected",
+      }),
     );
     expect(JSON.stringify(db.auditLogs)).not.toContain(
-      "EAAB-client-secret-token"
+      "EAAB-client-secret-token",
     );
   });
 
@@ -328,7 +542,7 @@ describe("meta connections service", () => {
       accessToken: "EAAB-client-secret-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read"]
+      scopes: ["ads_read"],
     });
 
     await expect(
@@ -337,9 +551,9 @@ describe("meta connections service", () => {
         actorUserId: "user_owner",
         request: {
           expectedWorkspaceId: "workspace_other",
-          confirmation: "DESCONECTAR META"
-        }
-      })
+          confirmation: "DESCONECTAR META",
+        },
+      }),
     ).rejects.toThrow("workspace da sessao mudou");
     expect(db.records).toHaveLength(1);
   });
@@ -349,7 +563,7 @@ describe("meta connections service", () => {
     db.manualCredentials.push({
       id: "credential_manual",
       workspaceId: "workspace_client",
-      source: "manual"
+      source: "manual",
     });
 
     await expect(
@@ -358,8 +572,8 @@ describe("meta connections service", () => {
         accessToken: "EAAB-client-secret-token",
         tokenType: "bearer",
         expiresInSeconds: 3600,
-        scopes: ["ads_read"]
-      })
+        scopes: ["ads_read"],
+      }),
     ).rejects.toThrow("ja iniciou uma conexao por token permanente");
     expect(db.records).toHaveLength(0);
   });
@@ -372,20 +586,20 @@ describe("meta connections service", () => {
       accessToken: "EAAB-shared-facebook-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read", "business_management"]
+      scopes: ["ads_read", "business_management"],
     });
     await service.saveOAuthConnection({
       workspaceId: "workspace_barbieri",
       accessToken: "EAAB-shared-facebook-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read", "business_management"]
+      scopes: ["ads_read", "business_management"],
     });
 
     expect(db.records).toHaveLength(2);
     expect(db.records.map((record) => record.workspaceId)).toEqual([
       "workspace_general",
-      "workspace_barbieri"
+      "workspace_barbieri",
     ]);
 
     for (const record of db.records) {
@@ -393,8 +607,8 @@ describe("meta connections service", () => {
         encryption.decrypt({
           encryptedAccessToken: String(record.encryptedAccessToken),
           tokenIv: String(record.tokenIv),
-          tokenTag: String(record.tokenTag)
-        })
+          tokenTag: String(record.tokenTag),
+        }),
       ).toBe("EAAB-shared-facebook-token");
     }
   });
@@ -412,7 +626,7 @@ describe("meta connections service", () => {
       selectedBusinessId: null,
       selectedAdAccountId: null,
       selectedPixelId: null,
-      capiTokenConfigured: false
+      capiTokenConfigured: false,
     });
   });
 
@@ -423,13 +637,13 @@ describe("meta connections service", () => {
         {
           id: "business_1",
           name: "BM Principal",
-          verificationStatus: "verified"
+          verificationStatus: "verified",
         },
         {
           id: "business_2",
           name: "BM Secundario",
-          verificationStatus: null
-        }
+          verificationStatus: null,
+        },
       ]),
       listOwnedAdAccounts: vi.fn(
         async ({ businessId }: { businessId: string }) =>
@@ -440,15 +654,15 @@ describe("meta connections service", () => {
                   name: "Conta WhatsApp",
                   accountStatus: "1",
                   currency: "BRL",
-                  timezoneName: "America/Sao_Paulo"
+                  timezoneName: "America/Sao_Paulo",
                 },
                 {
                   id: "act_456",
                   name: "Conta Remarketing",
                   accountStatus: "1",
                   currency: "BRL",
-                  timezoneName: "America/Sao_Paulo"
-                }
+                  timezoneName: "America/Sao_Paulo",
+                },
               ]
             : [
                 {
@@ -456,9 +670,9 @@ describe("meta connections service", () => {
                   name: "Conta Outro BM",
                   accountStatus: "1",
                   currency: "USD",
-                  timezoneName: "America/New_York"
-                }
-              ]
+                  timezoneName: "America/New_York",
+                },
+              ],
       ),
       listBusinessPixels: vi.fn(
         async ({ businessId }: { businessId: string }) =>
@@ -467,21 +681,21 @@ describe("meta connections service", () => {
                 {
                   id: "pixel_1",
                   name: "Pixel Loja",
-                  code: "1234567890"
+                  code: "1234567890",
                 },
                 {
                   id: "pixel_2",
                   name: "Pixel Remarketing",
-                  code: "0987654321"
-                }
+                  code: "0987654321",
+                },
               ]
             : [
                 {
                   id: "pixel_3",
                   name: "Pixel Outro BM",
-                  code: "9999999999"
-                }
-              ]
+                  code: "9999999999",
+                },
+              ],
       ),
       listBusinessPages: vi.fn(
         async ({ businessId }: { businessId: string }) =>
@@ -490,11 +704,11 @@ describe("meta connections service", () => {
                 {
                   id: "page_1",
                   businessId: "business_1",
-                  name: "Pagina Principal"
-                }
+                  name: "Pagina Principal",
+                },
               ]
-            : []
-      )
+            : [],
+      ),
     };
 
     await service.saveOAuthConnection({
@@ -502,12 +716,12 @@ describe("meta connections service", () => {
       accessToken: "EAAB-secret-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read"]
+      scopes: ["ads_read"],
     });
 
     const assets = await service.refreshAssets(
       "workspace_1",
-      metaAdapter as never
+      metaAdapter as never,
     );
 
     expect(assets).toMatchObject({
@@ -516,37 +730,37 @@ describe("meta connections service", () => {
       businesses: [{ name: "BM Principal" }, { name: "BM Secundario" }],
       adAccounts: [
         { businessId: "business_1", name: "Conta WhatsApp" },
-        { businessId: "business_1", name: "Conta Remarketing" }
+        { businessId: "business_1", name: "Conta Remarketing" },
       ],
       pixels: [
         { businessId: "business_1", name: "Pixel Loja", code: null },
-        { businessId: "business_1", name: "Pixel Remarketing", code: null }
+        { businessId: "business_1", name: "Pixel Remarketing", code: null },
       ],
       pages: [{ businessId: "business_1", name: "Pagina Principal" }],
       selection: {
         businessId: null,
         adAccountId: null,
-        pixelId: null
+        pixelId: null,
       },
-      syncError: null
+      syncError: null,
     });
     expect(metaAdapter.listBusinesses).toHaveBeenCalledWith({
-      accessToken: "EAAB-secret-token"
+      accessToken: "EAAB-secret-token",
     });
     expect(metaAdapter.listOwnedAdAccounts).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
-      businessId: "business_1"
+      businessId: "business_1",
     });
     expect(metaAdapter.listBusinessPixels).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
-      businessId: "business_1"
+      businessId: "business_1",
     });
     expect(metaAdapter.listBusinessPages).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
-      businessId: "business_1"
+      businessId: "business_1",
     });
     expect(metaAdapter.listOwnedAdAccounts).not.toHaveBeenCalledWith(
-      expect.objectContaining({ businessId: "business_2" })
+      expect.objectContaining({ businessId: "business_2" }),
     );
     expect(JSON.stringify(assets)).not.toContain("EAAB-secret-token");
   });
@@ -558,13 +772,13 @@ describe("meta connections service", () => {
         {
           id: "business_1",
           name: "BM Principal",
-          verificationStatus: "verified"
+          verificationStatus: "verified",
         },
         {
           id: "business_2",
           name: "BM Secundario",
-          verificationStatus: null
-        }
+          verificationStatus: null,
+        },
       ]),
       listOwnedAdAccounts: vi.fn(
         async ({ businessId }: { businessId: string }) =>
@@ -575,8 +789,8 @@ describe("meta connections service", () => {
                   name: "Conta WhatsApp",
                   accountStatus: "1",
                   currency: "BRL",
-                  timezoneName: "America/Sao_Paulo"
-                }
+                  timezoneName: "America/Sao_Paulo",
+                },
               ]
             : [
                 {
@@ -584,9 +798,9 @@ describe("meta connections service", () => {
                   name: "Conta Outro BM",
                   accountStatus: "1",
                   currency: "USD",
-                  timezoneName: "America/New_York"
-                }
-              ]
+                  timezoneName: "America/New_York",
+                },
+              ],
       ),
       listBusinessPixels: vi.fn(
         async ({ businessId }: { businessId: string }) =>
@@ -595,16 +809,16 @@ describe("meta connections service", () => {
                 {
                   id: "pixel_1",
                   name: "Pixel Loja",
-                  code: "1234567890"
-                }
+                  code: "1234567890",
+                },
               ]
             : [
                 {
                   id: "pixel_3",
                   name: "Pixel Outro BM",
-                  code: "9999999999"
-                }
-              ]
+                  code: "9999999999",
+                },
+              ],
       ),
       listBusinessPages: vi.fn(
         async ({ businessId }: { businessId: string }) =>
@@ -613,17 +827,17 @@ describe("meta connections service", () => {
                 {
                   id: "page_1",
                   businessId: "business_1",
-                  name: "Pagina Principal"
-                }
+                  name: "Pagina Principal",
+                },
               ]
             : [
                 {
                   id: "page_2",
                   businessId: "business_2",
-                  name: "Pagina Outro BM"
-                }
-              ]
-      )
+                  name: "Pagina Outro BM",
+                },
+              ],
+      ),
     };
 
     await service.saveOAuthConnection({
@@ -631,17 +845,17 @@ describe("meta connections service", () => {
       accessToken: "EAAB-secret-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read"]
+      scopes: ["ads_read"],
     });
     await service.saveAssetSelection("workspace_1", {
       businessId: "business_1",
       adAccountId: null,
-      pixelId: null
+      pixelId: null,
     });
 
     const assets = await service.refreshAssets(
       "workspace_1",
-      metaAdapter as never
+      metaAdapter as never,
     );
 
     expect(assets).toMatchObject({
@@ -654,30 +868,30 @@ describe("meta connections service", () => {
       selection: {
         businessId: "business_1",
         adAccountId: null,
-        pixelId: null
+        pixelId: null,
       },
-      syncError: null
+      syncError: null,
     });
     expect(metaAdapter.listOwnedAdAccounts).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
-      businessId: "business_1"
+      businessId: "business_1",
     });
     expect(metaAdapter.listBusinessPixels).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
-      businessId: "business_1"
+      businessId: "business_1",
     });
     expect(metaAdapter.listBusinessPages).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
-      businessId: "business_1"
+      businessId: "business_1",
     });
     expect(metaAdapter.listOwnedAdAccounts).not.toHaveBeenCalledWith(
-      expect.objectContaining({ businessId: "business_2" })
+      expect.objectContaining({ businessId: "business_2" }),
     );
     expect(metaAdapter.listBusinessPixels).not.toHaveBeenCalledWith(
-      expect.objectContaining({ businessId: "business_2" })
+      expect.objectContaining({ businessId: "business_2" }),
     );
     expect(metaAdapter.listBusinessPages).not.toHaveBeenCalledWith(
-      expect.objectContaining({ businessId: "business_2" })
+      expect.objectContaining({ businessId: "business_2" }),
     );
     expect(JSON.stringify(assets)).not.toContain("EAAB-secret-token");
   });
@@ -688,7 +902,7 @@ describe("meta connections service", () => {
       listBusinesses: vi.fn(),
       listOwnedAdAccounts: vi.fn(),
       listBusinessPixels: vi.fn(),
-      listBusinessPages: vi.fn()
+      listBusinessPages: vi.fn(),
     };
 
     await service.saveOAuthConnection({
@@ -696,12 +910,12 @@ describe("meta connections service", () => {
       accessToken: "EAAB-secret-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read"]
+      scopes: ["ads_read"],
     });
     await service.saveAssetSelection("workspace_1", {
       businessId: "business_1",
       adAccountId: null,
-      pixelId: null
+      pixelId: null,
     });
     db.snapshots.push(
       {
@@ -713,14 +927,14 @@ describe("meta connections service", () => {
           {
             id: "business_1",
             name: "BM Principal",
-            verificationStatus: "verified"
-          }
+            verificationStatus: "verified",
+          },
         ],
         adAccounts: [],
         pixels: [],
         pages: [],
         syncError: null,
-        syncedAt: new Date("2026-07-09T11:00:00.000Z")
+        syncedAt: new Date("2026-07-09T11:00:00.000Z"),
       },
       {
         workspaceId: "workspace_1",
@@ -735,32 +949,32 @@ describe("meta connections service", () => {
             name: "Conta WhatsApp",
             accountStatus: "1",
             currency: "BRL",
-            timezoneName: "America/Sao_Paulo"
-          }
+            timezoneName: "America/Sao_Paulo",
+          },
         ],
         pixels: [
           {
             id: "pixel_1",
             businessId: "business_1",
             name: "Pixel Loja",
-            code: null
-          }
+            code: null,
+          },
         ],
         pages: [
           {
             id: "page_1",
             businessId: "business_1",
-            name: "Pagina Principal"
-          }
+            name: "Pagina Principal",
+          },
         ],
         syncError: null,
-        syncedAt: new Date("2026-07-09T11:01:00.000Z")
-      }
+        syncedAt: new Date("2026-07-09T11:01:00.000Z"),
+      },
     );
 
     const assets = await service.listAssets(
       "workspace_1",
-      metaAdapter as never
+      metaAdapter as never,
     );
 
     expect(assets).toMatchObject({
@@ -771,7 +985,7 @@ describe("meta connections service", () => {
       pixels: [{ name: "Pixel Loja" }],
       pages: [{ name: "Pagina Principal" }],
       lastSyncedAt: "2026-07-09T11:01:00.000Z",
-      syncError: null
+      syncError: null,
     });
     expect(metaAdapter.listBusinesses).not.toHaveBeenCalled();
     expect(metaAdapter.listOwnedAdAccounts).not.toHaveBeenCalled();
@@ -786,8 +1000,8 @@ describe("meta connections service", () => {
         {
           id: "business_1",
           name: "BM Principal",
-          verificationStatus: "verified"
-        }
+          verificationStatus: "verified",
+        },
       ]),
       listOwnedAdAccounts: vi.fn(async () => [
         {
@@ -795,23 +1009,23 @@ describe("meta connections service", () => {
           name: "Conta WhatsApp",
           accountStatus: "1",
           currency: "BRL",
-          timezoneName: "America/Sao_Paulo"
-        }
+          timezoneName: "America/Sao_Paulo",
+        },
       ]),
       listBusinessPixels: vi.fn(async () => [
         {
           id: "pixel_1",
           name: "Pixel Loja",
-          code: "1234567890"
-        }
+          code: "1234567890",
+        },
       ]),
       listBusinessPages: vi.fn(async () => [
         {
           id: "page_1",
           businessId: "business_1",
-          name: "Pagina Principal"
-        }
-      ])
+          name: "Pagina Principal",
+        },
+      ]),
     };
 
     await service.saveOAuthConnection({
@@ -819,14 +1033,14 @@ describe("meta connections service", () => {
       accessToken: "EAAB-secret-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read"]
+      scopes: ["ads_read"],
     });
 
     const assets = await service.refreshAssets(
       "workspace_1",
       metaAdapter as never,
       "business_1",
-      "user_1"
+      "user_1",
     );
 
     expect(assets).toMatchObject({
@@ -834,29 +1048,29 @@ describe("meta connections service", () => {
       adAccounts: [{ businessId: "business_1", name: "Conta WhatsApp" }],
       pixels: [{ businessId: "business_1", name: "Pixel Loja", code: null }],
       pages: [{ businessId: "business_1", name: "Pagina Principal" }],
-      syncError: null
+      syncError: null,
     });
     expect(db.snapshots).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           workspaceId: "workspace_1",
           snapshotKey: "root",
-          businessId: null
+          businessId: null,
         }),
         expect.objectContaining({
           workspaceId: "workspace_1",
           snapshotKey: "business_1",
-          businessId: "business_1"
-        })
-      ])
+          businessId: "business_1",
+        }),
+      ]),
     );
     expect(db.auditLogs).toContainEqual(
       expect.objectContaining({
         workspaceId: "workspace_1",
         actorUserId: "user_1",
         action: "meta.assets.snapshot_refreshed",
-        resultStatus: "success"
-      })
+        resultStatus: "success",
+      }),
     );
   });
 
@@ -867,13 +1081,13 @@ describe("meta connections service", () => {
         {
           id: "business_1",
           name: "BM Principal",
-          verificationStatus: "verified"
+          verificationStatus: "verified",
         },
         {
           id: "business_2",
           name: "BM Secundario",
-          verificationStatus: null
-        }
+          verificationStatus: null,
+        },
       ]),
       listOwnedAdAccounts: vi.fn(
         async ({ businessId }: { businessId: string }) =>
@@ -884,10 +1098,10 @@ describe("meta connections service", () => {
                   name: "Conta Outro BM",
                   accountStatus: "1",
                   currency: "USD",
-                  timezoneName: "America/New_York"
-                }
+                  timezoneName: "America/New_York",
+                },
               ]
-            : []
+            : [],
       ),
       listBusinessPixels: vi.fn(
         async ({ businessId }: { businessId: string }) =>
@@ -896,10 +1110,10 @@ describe("meta connections service", () => {
                 {
                   id: "pixel_3",
                   name: "Pixel Outro BM",
-                  code: "9999999999"
-                }
+                  code: "9999999999",
+                },
               ]
-            : []
+            : [],
       ),
       listBusinessPages: vi.fn(
         async ({ businessId }: { businessId: string }) =>
@@ -908,11 +1122,11 @@ describe("meta connections service", () => {
                 {
                   id: "page_3",
                   businessId: "business_2",
-                  name: "Pagina Outro BM"
-                }
+                  name: "Pagina Outro BM",
+                },
               ]
-            : []
-      )
+            : [],
+      ),
     };
 
     await service.saveOAuthConnection({
@@ -920,18 +1134,18 @@ describe("meta connections service", () => {
       accessToken: "EAAB-secret-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read"]
+      scopes: ["ads_read"],
     });
     await service.saveAssetSelection("workspace_1", {
       businessId: "business_1",
       adAccountId: "act_123",
-      pixelId: "pixel_1"
+      pixelId: "pixel_1",
     });
 
     const assets = await service.refreshAssets(
       "workspace_1",
       metaAdapter as never,
-      "business_2"
+      "business_2",
     );
 
     expect(assets).toMatchObject({
@@ -940,32 +1154,32 @@ describe("meta connections service", () => {
       businesses: [{ name: "BM Principal" }, { name: "BM Secundario" }],
       adAccounts: [{ businessId: "business_2", name: "Conta Outro BM" }],
       pixels: [
-        { businessId: "business_2", name: "Pixel Outro BM", code: null }
+        { businessId: "business_2", name: "Pixel Outro BM", code: null },
       ],
       pages: [{ businessId: "business_2", name: "Pagina Outro BM" }],
       selection: {
         businessId: "business_2",
         adAccountId: null,
-        pixelId: null
+        pixelId: null,
       },
-      syncError: null
+      syncError: null,
     });
     expect(metaAdapter.listOwnedAdAccounts).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
-      businessId: "business_2"
+      businessId: "business_2",
     });
     expect(metaAdapter.listBusinessPixels).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
-      businessId: "business_2"
+      businessId: "business_2",
     });
     expect(metaAdapter.listBusinessPages).toHaveBeenCalledWith({
       accessToken: "EAAB-secret-token",
-      businessId: "business_2"
+      businessId: "business_2",
     });
     expect(db.records[0]).toMatchObject({
       selectedBusinessId: "business_2",
       selectedAdAccountId: null,
-      selectedPixelId: null
+      selectedPixelId: null,
     });
   });
 
@@ -976,8 +1190,8 @@ describe("meta connections service", () => {
         {
           id: "business_1",
           name: "BM Principal",
-          verificationStatus: "verified"
-        }
+          verificationStatus: "verified",
+        },
       ]),
       listOwnedAdAccounts: vi.fn(async () => [
         {
@@ -985,8 +1199,8 @@ describe("meta connections service", () => {
           name: "Conta WhatsApp",
           accountStatus: "1",
           currency: "BRL",
-          timezoneName: "America/Sao_Paulo"
-        }
+          timezoneName: "America/Sao_Paulo",
+        },
       ]),
       listBusinessPixels: vi.fn(async () => {
         throw new Error("Permissions error");
@@ -995,9 +1209,9 @@ describe("meta connections service", () => {
         {
           id: "page_1",
           businessId: "business_1",
-          name: "Pagina Principal"
-        }
-      ])
+          name: "Pagina Principal",
+        },
+      ]),
     };
 
     await service.saveOAuthConnection({
@@ -1005,12 +1219,12 @@ describe("meta connections service", () => {
       accessToken: "EAAB-secret-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read"]
+      scopes: ["ads_read"],
     });
 
     const assets = await service.refreshAssets(
       "workspace_1",
-      metaAdapter as never
+      metaAdapter as never,
     );
 
     expect(assets).toMatchObject({
@@ -1018,7 +1232,7 @@ describe("meta connections service", () => {
       adAccounts: [{ businessId: "business_1", id: "act_123" }],
       pixels: [],
       pages: [{ businessId: "business_1", id: "page_1" }],
-      syncError: "A Meta nao permitiu carregar Pixels para o BM selecionado."
+      syncError: "A Meta nao permitiu carregar Pixels para o BM selecionado.",
     });
   });
 
@@ -1030,7 +1244,7 @@ describe("meta connections service", () => {
       accessToken: "EAAB-secret-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read"]
+      scopes: ["ads_read"],
     });
 
     await expect(
@@ -1039,15 +1253,15 @@ describe("meta connections service", () => {
         {
           businessId: "business_1",
           adAccountId: "act_123",
-          pixelId: "pixel_1"
+          pixelId: "pixel_1",
         },
-        "user_1"
-      )
+        "user_1",
+      ),
     ).resolves.toMatchObject({
       workspaceId: "workspace_1",
       selectedBusinessId: "business_1",
       selectedAdAccountId: "act_123",
-      selectedPixelId: "pixel_1"
+      selectedPixelId: "pixel_1",
     });
     expect(db.auditLogs).toContainEqual(
       expect.objectContaining({
@@ -1057,13 +1271,13 @@ describe("meta connections service", () => {
         action: "meta.assets.selection_updated",
         targetType: "MetaIntegration",
         targetId: "workspace_1",
-        resultStatus: "success"
-      })
+        resultStatus: "success",
+      }),
     );
     expect(db.auditLogs.at(-1)?.afterSummary).toMatchObject({
       businessId: "business_1",
       adAccountId: "act_123",
-      pixelId: "pixel_1"
+      pixelId: "pixel_1",
     });
   });
 
@@ -1075,57 +1289,57 @@ describe("meta connections service", () => {
       accessToken: "EAAB-oauth-token",
       tokenType: "bearer",
       expiresInSeconds: 3600,
-      scopes: ["ads_read"]
+      scopes: ["ads_read"],
     });
 
     await expect(
       service.saveCapiToken(
         "workspace_1",
         { accessToken: "EAAB-capi-token-secret", clear: false },
-        "user_1"
-      )
+        "user_1",
+      ),
     ).resolves.toEqual({
       workspaceId: "workspace_1",
       configured: true,
-      updatedAt: "2026-07-02T04:00:00.000Z"
+      updatedAt: "2026-07-02T04:00:00.000Z",
     });
 
     expect(db.records[0]?.capiAccessTokenEncrypted).not.toBe(
-      "EAAB-capi-token-secret"
+      "EAAB-capi-token-secret",
     );
     expect(
       encryption.decrypt({
         encryptedAccessToken: String(db.records[0]?.capiAccessTokenEncrypted),
         tokenIv: String(db.records[0]?.capiTokenIv),
-        tokenTag: String(db.records[0]?.capiTokenTag)
-      })
+        tokenTag: String(db.records[0]?.capiTokenTag),
+      }),
     ).toBe("EAAB-capi-token-secret");
     expect(JSON.stringify(db.auditLogs)).not.toContain(
-      "EAAB-capi-token-secret"
+      "EAAB-capi-token-secret",
     );
     expect(db.auditLogs.at(-1)).toMatchObject({
       workspaceId: "workspace_1",
       actorUserId: "user_1",
       action: "meta.capi_token.updated",
-      resultStatus: "configured"
+      resultStatus: "configured",
     });
 
     await expect(
-      service.saveCapiToken("workspace_1", { clear: true }, "user_1")
+      service.saveCapiToken("workspace_1", { clear: true }, "user_1"),
     ).resolves.toEqual({
       workspaceId: "workspace_1",
       configured: false,
-      updatedAt: "2026-07-02T04:00:00.000Z"
+      updatedAt: "2026-07-02T04:00:00.000Z",
     });
 
     expect(db.records[0]).toMatchObject({
       capiAccessTokenEncrypted: null,
       capiTokenIv: null,
-      capiTokenTag: null
+      capiTokenTag: null,
     });
     expect(db.auditLogs.at(-1)).toMatchObject({
       action: "meta.capi_token.updated",
-      resultStatus: "cleared"
+      resultStatus: "cleared",
     });
   });
 });

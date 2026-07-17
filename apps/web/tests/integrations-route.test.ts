@@ -290,6 +290,21 @@ describe("integrations route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            connectionMode: "oauth",
+            advancedRoutingEnabled: false,
+            unmappedActiveAccountCount: 1,
+            credentials: [],
+            businessConnections: [],
+            destinations: [],
+            reportingAccounts: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await IntegrationsPage({
@@ -307,6 +322,10 @@ describe("integrations route", () => {
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/meta/assets",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/integrations/meta/oauth/advanced",
       expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(

@@ -25,6 +25,7 @@ import {
   metaManualBusinessConnectionStatusInputSchema,
   metaManualCredentialInputSchema,
   metaManualCredentialRotationInputSchema,
+  metaOAuthAdvancedRoutingInputSchema,
   metaOAuthCallbackQuerySchema,
   metaOAuthDisconnectInputSchema,
   metaReportingAccountInputSchema,
@@ -212,6 +213,184 @@ export class IntegrationsController {
   async getMetaCapabilities(@AuthToken() refreshToken: string) {
     await this.getCurrentWorkspaceId(refreshToken);
     return this.integrationsService.getMetaConnectionCapabilities();
+  }
+
+  @Get("meta/oauth/advanced")
+  async getMetaOAuthAdvancedConfiguration(@AuthToken() refreshToken: string) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    return this.integrationsService.getMetaOAuthAdvancedConfiguration(
+      workspaceId,
+    );
+  }
+
+  @Post("meta/oauth/advanced/credential")
+  async prepareMetaOAuthAdvancedCredential(@AuthToken() refreshToken: string) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.prepareMetaOAuthAdvancedCredential(
+      workspace.id,
+      authenticated.user.id,
+    );
+  }
+
+  @Get("meta/oauth/advanced/credentials/:id/assets")
+  async discoverMetaOAuthAdvancedAssets(
+    @AuthToken() refreshToken: string,
+    @Param("id") credentialId: string,
+    @Query("businessId") businessId?: string,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.discoverMetaOAuthAdvancedAssets(
+      workspace.id,
+      credentialId,
+      businessId?.trim() || null,
+    );
+  }
+
+  @Post("meta/oauth/advanced/connections")
+  async createMetaOAuthAdvancedBusinessConnection(
+    @AuthToken() refreshToken: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaManualBusinessConnectionInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.createMetaOAuthAdvancedBusinessConnection(
+      workspace.id,
+      input,
+      authenticated.user.id,
+    );
+  }
+
+  @Put("meta/oauth/advanced/connections/:id/status")
+  async setMetaOAuthAdvancedBusinessConnectionStatus(
+    @AuthToken() refreshToken: string,
+    @Param("id") connectionId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaManualBusinessConnectionStatusInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.setMetaOAuthAdvancedBusinessConnectionStatus(
+      workspace.id,
+      connectionId,
+      input,
+      authenticated.user.id,
+    );
+  }
+
+  @Post("meta/oauth/advanced/connections/:id/test")
+  async testMetaOAuthAdvancedBusinessConnection(
+    @AuthToken() refreshToken: string,
+    @Param("id") connectionId: string,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.testMetaOAuthAdvancedBusinessConnection(
+      workspace.id,
+      connectionId,
+      authenticated.user.id,
+    );
+  }
+
+  @Delete("meta/oauth/advanced/connections/:id")
+  async removeMetaOAuthAdvancedBusinessConnection(
+    @AuthToken() refreshToken: string,
+    @Param("id") connectionId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaManualBusinessConnectionRemovalInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.removeMetaOAuthAdvancedBusinessConnection(
+      workspace.id,
+      connectionId,
+      input,
+      authenticated.user.id,
+    );
+  }
+
+  @Put("meta/oauth/advanced/reporting-accounts/:id/destination")
+  async setMetaOAuthAdvancedReportingDestination(
+    @AuthToken() refreshToken: string,
+    @Param("id") reportingAccountId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaManualAccountDestinationInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.setMetaOAuthAdvancedReportingDestination(
+      workspace.id,
+      reportingAccountId,
+      input,
+      authenticated.user.id,
+    );
+  }
+
+  @Put("meta/oauth/advanced/routing")
+  async setMetaOAuthAdvancedRouting(
+    @AuthToken() refreshToken: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(
+      metaOAuthAdvancedRoutingInputSchema.safeParse(body),
+    );
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.setMetaOAuthAdvancedRouting(
+      workspace.id,
+      input,
+      authenticated.user.id,
+    );
   }
 
   @Get("meta/manual")

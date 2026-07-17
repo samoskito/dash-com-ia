@@ -50,6 +50,9 @@ const manualCredential = {
 
 const manualConfiguration = {
   workspaceId: "workspace_1",
+  connectionMode: "manual",
+  advancedRoutingEnabled: true,
+  unmappedActiveAccountCount: 0,
   credentials: [manualCredential],
   businessConnections: [],
   destinations: [],
@@ -91,6 +94,25 @@ const manualDiscovery = {
       name: "Pagina Cliente",
     },
   ],
+};
+
+const oauthConfiguration = {
+  ...manualConfiguration,
+  connectionMode: "oauth",
+  advancedRoutingEnabled: false,
+  credentials: [
+    {
+      ...manualCredential,
+      source: "oauth",
+      label: "Login social Meta",
+      tokenType: "bearer",
+    },
+  ],
+};
+
+const oauthDiscovery = {
+  ...manualDiscovery,
+  credential: oauthConfiguration.credentials[0],
 };
 
 function workspacePermissions(role: "owner" | "admin" | "member") {
@@ -358,6 +380,34 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         reportingAccounts: 1,
         conversionDestinations: 1,
       },
+    })),
+    getMetaOAuthAdvancedConfiguration: vi.fn(async () => oauthConfiguration),
+    prepareMetaOAuthAdvancedCredential: vi.fn(async () => oauthDiscovery),
+    discoverMetaOAuthAdvancedAssets: vi.fn(async () => oauthDiscovery),
+    createMetaOAuthAdvancedBusinessConnection: vi.fn(
+      async () => oauthConfiguration,
+    ),
+    setMetaOAuthAdvancedBusinessConnectionStatus: vi.fn(
+      async () => oauthConfiguration,
+    ),
+    testMetaOAuthAdvancedBusinessConnection: vi.fn(async () => ({
+      connectionId: "connection_1",
+      credentialId: "credential_1",
+      destinationId: "destination_1",
+      reportingAccountCount: 1,
+      status: "active",
+      validatedAt: "2026-07-17T12:00:00.000Z",
+      message: "Conexao validada",
+    })),
+    removeMetaOAuthAdvancedBusinessConnection: vi.fn(
+      async () => oauthConfiguration,
+    ),
+    setMetaOAuthAdvancedReportingDestination: vi.fn(
+      async () => oauthConfiguration,
+    ),
+    setMetaOAuthAdvancedRouting: vi.fn(async (_workspaceId, input) => ({
+      ...oauthConfiguration,
+      advancedRoutingEnabled: input.enabled,
     })),
     getMetaManualConfiguration: vi.fn(async () => manualConfiguration),
     createMetaManualCredential: vi.fn(async () => manualDiscovery),
@@ -1036,6 +1086,53 @@ describe("integrations controller", () => {
       { label: "Token BM Cliente", accessToken },
       "user_1",
     );
+
+    await app.close();
+  });
+
+  it("reads and activates OAuth BM routing only inside the current workspace", async () => {
+    const { app, service } = await createApp("owner");
+
+    await request(app.getHttpServer())
+      .get("/integrations/meta/oauth/advanced")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.connectionMode).toBe("oauth");
+        expect(body.advancedRoutingEnabled).toBe(false);
+      });
+    await request(app.getHttpServer())
+      .put("/integrations/meta/oauth/advanced/routing")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({ enabled: true })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaceId).toBe("workspace_1");
+        expect(body.advancedRoutingEnabled).toBe(true);
+      });
+
+    expect(service.getMetaOAuthAdvancedConfiguration).toHaveBeenCalledWith(
+      "workspace_1",
+    );
+    expect(service.setMetaOAuthAdvancedRouting).toHaveBeenCalledWith(
+      "workspace_1",
+      { enabled: true },
+      "user_1",
+    );
+
+    await app.close();
+  });
+
+  it("rejects OAuth BM routing changes from members", async () => {
+    const { app, service } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .put("/integrations/meta/oauth/advanced/routing")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .send({ enabled: true })
+      .expect(403);
+    expect(service.setMetaOAuthAdvancedRouting).not.toHaveBeenCalled();
 
     await app.close();
   });

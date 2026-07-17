@@ -20,6 +20,7 @@ import type {
   MetaManualCredentialDto,
   MetaManualCredentialInputDto,
   MetaManualCredentialRotationInputDto,
+  MetaOAuthAdvancedRoutingInputDto,
   MetaPageAssetDto,
   MetaPixelAssetDto,
 } from "@wpptrack/shared";
@@ -57,6 +58,8 @@ type CredentialRecord = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+type NormalizedConnectionSource = "oauth" | "manual";
 
 type BusinessConnectionRecord = {
   id: string;
@@ -145,10 +148,119 @@ export class MetaManualConnectionsService {
     workspaceId: string,
   ): Promise<MetaManualConfigurationDto> {
     this.requireManualEnabled();
-    const [credentials, businessConnections, destinations, reportingAccounts] =
+    return this.listConfigurationForSource(workspaceId, "manual");
+  }
+
+  async listOAuthConfiguration(
+    workspaceId: string,
+  ): Promise<MetaManualConfigurationDto> {
+    this.requireOAuthEnabled();
+    await this.assertOAuthPathPresent(workspaceId);
+    return this.listConfigurationForSource(workspaceId, "oauth");
+  }
+
+  async prepareOAuthCredential(
+    workspaceId: string,
+    actorUserId?: string | null,
+  ): Promise<MetaManualAssetDiscoveryDto> {
+    this.requireOAuthEnabled();
+    const integration = await this.prisma.metaIntegration.findUnique({
+      where: { workspaceId },
+    });
+
+    if (!integration || integration.status !== "connected") {
+      throw new ConflictException(
+        "Conecte a conta Meta pelo login social antes de configurar destinos por BM",
+      );
+    }
+
+    const accessToken = this.decryptStoredToken(integration);
+
+    try {
+      const [profile, businesses] = await Promise.all([
+        this.adapter.getTokenProfile({ accessToken }),
+        this.adapter.listBusinesses({ accessToken }),
+      ]);
+      this.assertRequiredScopes(profile.scopes);
+      const now = new Date();
+      const fingerprint = this.encryption.fingerprint(accessToken);
+      const existing = (await this.prisma.metaCredential.findFirst({
+        where: { workspaceId, source: "oauth" },
+        orderBy: { createdAt: "asc" },
+      })) as CredentialRecord | null;
+      const encrypted = this.encryption.encrypt(accessToken);
+      const data = {
+        label: "Login social Meta",
+        encryptedAccessToken: encrypted.encryptedAccessToken,
+        tokenIv: encrypted.tokenIv,
+        tokenTag: encrypted.tokenTag,
+        encryptionKeyVersion: this.encryption.currentKeyVersion,
+        fingerprint,
+        tokenLast4: this.encryption.tokenLast4(accessToken),
+        tokenType: integration.tokenType ?? "oauth",
+        scopes: profile.scopes,
+        expiresAt: integration.expiresAt,
+        status: "active" as const,
+        lastValidatedAt: now,
+        validationError: null,
+      };
+      const credential = existing
+        ? ((await this.prisma.metaCredential.update({
+            where: { id: existing.id },
+            data: {
+              ...data,
+              rotatedAt:
+                existing.fingerprint === fingerprint ? existing.rotatedAt : now,
+            },
+          })) as CredentialRecord)
+        : ((await this.prisma.metaCredential.create({
+            data: {
+              workspaceId,
+              source: "oauth",
+              ...data,
+              createdByUserId: actorUserId ?? null,
+            },
+          })) as CredentialRecord);
+
+      await this.recordAudit({
+        workspaceId,
+        actorUserId: actorUserId ?? null,
+        action: "meta.oauth.advanced_credential_prepared",
+        targetType: "MetaCredential",
+        targetId: credential.id,
+        resultStatus: "success",
+        afterSummary: {
+          fingerprint: credential.fingerprint.slice(0, 12),
+          identityId: profile.id,
+          accessibleBusinesses: businesses.length,
+          scopes: profile.scopes,
+        },
+      });
+
+      return {
+        credential: this.toCredentialDto(credential),
+        businesses,
+        selectedBusinessId: null,
+        adAccounts: [],
+        pixels: [],
+        pages: [],
+      };
+    } catch (error) {
+      throw this.publicBadRequest(
+        error,
+        "Nao foi possivel preparar o login social para o roteamento por BM",
+      );
+    }
+  }
+
+  private async listConfigurationForSource(
+    workspaceId: string,
+    source: NormalizedConnectionSource,
+  ): Promise<MetaManualConfigurationDto> {
+    const [credentials, allBusinessConnections, destinations, allAccounts] =
       await Promise.all([
         this.prisma.metaCredential.findMany({
-          where: { workspaceId, source: "manual" },
+          where: { workspaceId, source },
           orderBy: { createdAt: "asc" },
         }),
         this.prisma.metaBusinessConnection.findMany({
@@ -164,13 +276,47 @@ export class MetaManualConnectionsService {
           orderBy: { createdAt: "asc" },
         }),
         this.prisma.metaReportingAccount.findMany({
-          where: { workspaceId, businessConnectionId: { not: null } },
+          where: { workspaceId },
           orderBy: [{ businessName: "asc" }, { adAccountName: "asc" }],
         }),
       ]);
+    const credentialIds = new Set(credentials.map((record) => record.id));
+    const businessConnections = allBusinessConnections.filter((record) =>
+      credentialIds.has(record.credentialId),
+    );
+    const businessConnectionIds = new Set(
+      businessConnections.map((record) => record.id),
+    );
+    const reportingAccounts = allAccounts.filter(
+      (record) =>
+        record.businessConnectionId &&
+        businessConnectionIds.has(record.businessConnectionId),
+    );
+    const integration =
+      source === "oauth"
+        ? await this.prisma.metaIntegration.findUnique({
+            where: { workspaceId },
+            select: { advancedRoutingEnabled: true },
+          })
+        : null;
+    const unmappedActiveAccountCount =
+      source === "oauth"
+        ? allAccounts.filter(
+            (record) =>
+              record.active &&
+              (!record.businessConnectionId ||
+                !businessConnectionIds.has(record.businessConnectionId)),
+          ).length
+        : 0;
 
     return {
       workspaceId,
+      connectionMode: source,
+      advancedRoutingEnabled:
+        source === "manual"
+          ? true
+          : Boolean(integration?.advancedRoutingEnabled),
+      unmappedActiveAccountCount,
       credentials: (credentials as CredentialRecord[]).map((record) =>
         this.toCredentialDto(record),
       ),
@@ -285,11 +431,13 @@ export class MetaManualConnectionsService {
     workspaceId: string,
     credentialId: string,
     businessId?: string | null,
+    source: NormalizedConnectionSource = "manual",
   ): Promise<MetaManualAssetDiscoveryDto> {
-    this.requireManualEnabled();
-    const credential = await this.getManualCredential(
+    this.requireSourceEnabled(source);
+    const credential = await this.getCredential(
       workspaceId,
       credentialId,
+      source,
     );
     const accessToken = this.decryptCredential(credential);
 
@@ -353,16 +501,33 @@ export class MetaManualConnectionsService {
     }
   }
 
+  async discoverOAuthAssets(
+    workspaceId: string,
+    credentialId: string,
+    businessId?: string | null,
+  ): Promise<MetaManualAssetDiscoveryDto> {
+    await this.assertOAuthPathPresent(workspaceId);
+    return this.discoverAssets(workspaceId, credentialId, businessId, "oauth");
+  }
+
   async createBusinessConnection(
     workspaceId: string,
     input: MetaManualBusinessConnectionInputDto,
     actorUserId?: string | null,
+    source: NormalizedConnectionSource = "manual",
   ): Promise<MetaManualConfigurationDto> {
-    this.requireManualEnabled();
-    await this.assertLegacyPathAbsent(workspaceId);
-    const credential = await this.getManualCredential(
+    this.requireSourceEnabled(source);
+
+    if (source === "manual") {
+      await this.assertLegacyPathAbsent(workspaceId);
+    } else {
+      await this.assertOAuthPathPresent(workspaceId);
+    }
+
+    const credential = await this.getCredential(
       workspaceId,
       input.credentialId,
+      source,
     );
     const accessToken = this.decryptCredential(credential);
 
@@ -555,7 +720,7 @@ export class MetaManualConnectionsService {
       await this.recordAudit({
         workspaceId,
         actorUserId: actorUserId ?? null,
-        action: "meta.manual.business_connection_activated",
+        action: `meta.${source}.business_connection_activated`,
         targetType: "MetaBusinessConnection",
         targetId: saved.connectionId,
         resultStatus: "success",
@@ -567,13 +732,26 @@ export class MetaManualConnectionsService {
         },
       });
 
-      return this.listConfiguration(workspaceId);
+      return this.listConfigurationForSource(workspaceId, source);
     } catch (error) {
       throw this.publicBadRequest(
         error,
         "Nao foi possivel ativar esta estrutura Meta",
       );
     }
+  }
+
+  async createOAuthBusinessConnection(
+    workspaceId: string,
+    input: MetaManualBusinessConnectionInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.createBusinessConnection(
+      workspaceId,
+      input,
+      actorUserId,
+      "oauth",
+    );
   }
 
   async rotateCredential(
@@ -681,14 +859,15 @@ export class MetaManualConnectionsService {
     connectionId: string,
     input: MetaManualBusinessConnectionStatusInputDto,
     actorUserId?: string | null,
+    source: NormalizedConnectionSource = "manual",
   ): Promise<MetaManualConfigurationDto> {
-    this.requireManualEnabled();
+    this.requireSourceEnabled(source);
     const connection = await this.prisma.metaBusinessConnection.findFirst({
       where: { id: connectionId, workspaceId },
       include: { credential: true },
     });
 
-    if (!connection) {
+    if (!connection || connection.credential.source !== source) {
       throw new NotFoundException("Conexao Meta nao encontrada");
     }
 
@@ -708,14 +887,29 @@ export class MetaManualConnectionsService {
     await this.recordAudit({
       workspaceId,
       actorUserId: actorUserId ?? null,
-      action: "meta.manual.business_connection_status_updated",
+      action: `meta.${source}.business_connection_status_updated`,
       targetType: "MetaBusinessConnection",
       targetId: connectionId,
       resultStatus: "success",
       afterSummary: { status: input.status },
     });
 
-    return this.listConfiguration(workspaceId);
+    return this.listConfigurationForSource(workspaceId, source);
+  }
+
+  async setOAuthBusinessConnectionStatus(
+    workspaceId: string,
+    connectionId: string,
+    input: MetaManualBusinessConnectionStatusInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.setBusinessConnectionStatus(
+      workspaceId,
+      connectionId,
+      input,
+      actorUserId,
+      "oauth",
+    );
   }
 
   async removeBusinessConnection(
@@ -723,8 +917,9 @@ export class MetaManualConnectionsService {
     connectionId: string,
     input: MetaManualBusinessConnectionRemovalInputDto,
     actorUserId?: string | null,
+    source: NormalizedConnectionSource = "manual",
   ): Promise<MetaManualConfigurationDto> {
-    this.requireManualEnabled();
+    this.requireSourceEnabled(source);
     const connection = await this.prisma.metaBusinessConnection.findFirst({
       where: { id: connectionId, workspaceId },
       select: {
@@ -733,10 +928,11 @@ export class MetaManualConnectionsService {
         businessManagerId: true,
         businessManagerName: true,
         defaultConversionDestinationId: true,
+        credential: { select: { source: true } },
       },
     });
 
-    if (!connection) {
+    if (!connection || connection.credential.source !== source) {
       throw new NotFoundException("Conexao Meta nao encontrada");
     }
 
@@ -770,7 +966,7 @@ export class MetaManualConnectionsService {
         });
       let credentialRemoved = false;
 
-      if (remainingCredentialConnections === 0) {
+      if (source === "manual" && remainingCredentialConnections === 0) {
         const deletedCredential = await transaction.metaCredential.deleteMany({
           where: {
             id: connection.credentialId,
@@ -779,6 +975,13 @@ export class MetaManualConnectionsService {
           },
         });
         credentialRemoved = deletedCredential.count === 1;
+      }
+
+      if (source === "oauth" && remainingCredentialConnections === 0) {
+        await transaction.metaIntegration.updateMany({
+          where: { workspaceId },
+          data: { advancedRoutingEnabled: false },
+        });
       }
 
       return {
@@ -790,7 +993,7 @@ export class MetaManualConnectionsService {
     await this.recordAudit({
       workspaceId,
       actorUserId: actorUserId ?? null,
-      action: "meta.manual.business_connection_removed",
+      action: `meta.${source}.business_connection_removed`,
       targetType: "MetaBusinessConnection",
       targetId: connection.id,
       resultStatus: "success",
@@ -804,15 +1007,31 @@ export class MetaManualConnectionsService {
       afterSummary: result,
     });
 
-    return this.listConfiguration(workspaceId);
+    return this.listConfigurationForSource(workspaceId, source);
+  }
+
+  async removeOAuthBusinessConnection(
+    workspaceId: string,
+    connectionId: string,
+    input: MetaManualBusinessConnectionRemovalInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.removeBusinessConnection(
+      workspaceId,
+      connectionId,
+      input,
+      actorUserId,
+      "oauth",
+    );
   }
 
   async testBusinessConnection(
     workspaceId: string,
     connectionId: string,
     actorUserId?: string | null,
+    source: NormalizedConnectionSource = "manual",
   ): Promise<MetaManualConnectionTestResultDto> {
-    this.requireManualEnabled();
+    this.requireSourceEnabled(source);
     const connection = await this.prisma.metaBusinessConnection.findFirst({
       where: { id: connectionId, workspaceId },
       include: {
@@ -825,7 +1044,10 @@ export class MetaManualConnectionsService {
       },
     });
 
-    if (!connection?.defaultConversionDestination) {
+    if (
+      !connection?.defaultConversionDestination ||
+      connection.credential.source !== source
+    ) {
       throw new NotFoundException("Conexao Meta nao encontrada");
     }
 
@@ -866,7 +1088,7 @@ export class MetaManualConnectionsService {
           where: {
             id: connection.credentialId,
             workspaceId,
-            source: "manual",
+            source,
           },
           data: {
             status: "active",
@@ -878,7 +1100,7 @@ export class MetaManualConnectionsService {
       await this.recordAudit({
         workspaceId,
         actorUserId: actorUserId ?? null,
-        action: "meta.manual.business_connection_tested",
+        action: `meta.${source}.business_connection_tested`,
         targetType: "MetaBusinessConnection",
         targetId: connection.id,
         resultStatus: "success",
@@ -912,7 +1134,7 @@ export class MetaManualConnectionsService {
       await this.recordAudit({
         workspaceId,
         actorUserId: actorUserId ?? null,
-        action: "meta.manual.business_connection_tested",
+        action: `meta.${source}.business_connection_tested`,
         targetType: "MetaBusinessConnection",
         targetId: connection.id,
         resultStatus: "failed",
@@ -929,13 +1151,27 @@ export class MetaManualConnectionsService {
     }
   }
 
+  async testOAuthBusinessConnection(
+    workspaceId: string,
+    connectionId: string,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConnectionTestResultDto> {
+    return this.testBusinessConnection(
+      workspaceId,
+      connectionId,
+      actorUserId,
+      "oauth",
+    );
+  }
+
   async setReportingAccountDestination(
     workspaceId: string,
     reportingAccountId: string,
     input: MetaManualAccountDestinationInputDto,
     actorUserId?: string | null,
+    source: NormalizedConnectionSource = "manual",
   ): Promise<MetaManualConfigurationDto> {
-    this.requireManualEnabled();
+    this.requireSourceEnabled(source);
     const account = await this.prisma.metaReportingAccount.findFirst({
       where: { id: reportingAccountId, workspaceId },
       include: {
@@ -943,7 +1179,10 @@ export class MetaManualConnectionsService {
       },
     });
 
-    if (!account?.businessConnection) {
+    if (
+      !account?.businessConnection ||
+      account.businessConnection.credential.source !== source
+    ) {
       throw new NotFoundException("Conta Meta normalizada nao encontrada");
     }
 
@@ -979,7 +1218,7 @@ export class MetaManualConnectionsService {
     await this.recordAudit({
       workspaceId,
       actorUserId: actorUserId ?? null,
-      action: "meta.manual.reporting_destination_updated",
+      action: `meta.${source}.reporting_destination_updated`,
       targetType: "MetaReportingAccount",
       targetId: reportingAccountId,
       resultStatus: "success",
@@ -988,7 +1227,129 @@ export class MetaManualConnectionsService {
       },
     });
 
-    return this.listConfiguration(workspaceId);
+    return this.listConfigurationForSource(workspaceId, source);
+  }
+
+  async setOAuthReportingAccountDestination(
+    workspaceId: string,
+    reportingAccountId: string,
+    input: MetaManualAccountDestinationInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.setReportingAccountDestination(
+      workspaceId,
+      reportingAccountId,
+      input,
+      actorUserId,
+      "oauth",
+    );
+  }
+
+  async setOAuthAdvancedRouting(
+    workspaceId: string,
+    input: MetaOAuthAdvancedRoutingInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    this.requireOAuthEnabled();
+    await this.assertOAuthPathPresent(workspaceId);
+    const configuration = await this.listConfigurationForSource(
+      workspaceId,
+      "oauth",
+    );
+
+    if (input.enabled) {
+      const activeConnections = configuration.businessConnections.filter(
+        (connection) => connection.status === "active",
+      );
+      const connectionsById = new Map(
+        configuration.businessConnections.map((connection) => [
+          connection.id,
+          connection,
+        ]),
+      );
+      const destinationsById = new Map(
+        configuration.destinations.flatMap((destination) =>
+          destination.id ? [[destination.id, destination] as const] : [],
+        ),
+      );
+      const invalidConnection = activeConnections.find((connection) => {
+        const destination = connection.defaultConversionDestinationId
+          ? destinationsById.get(connection.defaultConversionDestinationId)
+          : null;
+
+        return (
+          connection.activeReportingAccountCount === 0 ||
+          !destination ||
+          destination.status !== "configured"
+        );
+      });
+      const invalidAccount = configuration.reportingAccounts
+        .filter((account) => account.active)
+        .find((account) => {
+          const connection = account.businessConnectionId
+            ? connectionsById.get(account.businessConnectionId)
+            : null;
+          const destinationId =
+            account.conversionDestinationId ??
+            connection?.defaultConversionDestinationId;
+          const destination = destinationId
+            ? destinationsById.get(destinationId)
+            : null;
+
+          return (
+            !connection ||
+            connection.status !== "active" ||
+            !destination ||
+            destination.status !== "configured"
+          );
+        });
+
+      if (configuration.unmappedActiveAccountCount > 0) {
+        throw new ConflictException(
+          `${configuration.unmappedActiveAccountCount} conta(s) ativa(s) ainda nao possuem uma BM e um destino. Vincule ou desative essas contas antes de ativar`,
+        );
+      }
+
+      if (invalidAccount) {
+        throw new ConflictException(
+          "Todas as contas ativas precisam pertencer a uma BM ativa e ter um destino validado",
+        );
+      }
+
+      if (activeConnections.length === 0) {
+        throw new ConflictException(
+          "Configure ao menos uma BM com contas e destino antes de ativar o roteamento avancado",
+        );
+      }
+
+      if (invalidConnection) {
+        throw new ConflictException(
+          "Todas as BMs ativas precisam ter contas e um destino validado",
+        );
+      }
+    }
+
+    await this.prisma.metaIntegration.updateMany({
+      where: { workspaceId, status: "connected" },
+      data: { advancedRoutingEnabled: input.enabled },
+    });
+    await this.recordAudit({
+      workspaceId,
+      actorUserId: actorUserId ?? null,
+      action: "meta.oauth.advanced_routing_updated",
+      targetType: "MetaIntegration",
+      targetId: workspaceId,
+      resultStatus: "success",
+      afterSummary: {
+        advancedRoutingEnabled: input.enabled,
+        businessConnectionCount: configuration.businessConnections.length,
+        mappedAccountCount: configuration.reportingAccounts.filter(
+          (account) => account.active,
+        ).length,
+      },
+    });
+
+    return this.listConfigurationForSource(workspaceId, "oauth");
   }
 
   private async validateDestinationInput(input: {
@@ -1062,8 +1423,16 @@ export class MetaManualConnectionsService {
     workspaceId: string,
     credentialId: string,
   ): Promise<CredentialRecord> {
+    return this.getCredential(workspaceId, credentialId, "manual");
+  }
+
+  private async getCredential(
+    workspaceId: string,
+    credentialId: string,
+    source: NormalizedConnectionSource,
+  ): Promise<CredentialRecord> {
     const credential = (await this.prisma.metaCredential.findFirst({
-      where: { id: credentialId, workspaceId, source: "manual" },
+      where: { id: credentialId, workspaceId, source },
     })) as CredentialRecord | null;
 
     if (!credential) {
@@ -1110,6 +1479,37 @@ export class MetaManualConnectionsService {
     }
   }
 
+  private async assertOAuthPathPresent(workspaceId: string): Promise<void> {
+    const integration = await this.prisma.metaIntegration.findUnique({
+      where: { workspaceId },
+      select: { status: true },
+    });
+
+    if (integration?.status !== "connected") {
+      throw new ConflictException(
+        "Conecte a conta Meta pelo login social antes de configurar destinos por BM",
+      );
+    }
+  }
+
+  private decryptStoredToken(input: {
+    encryptedAccessToken: string;
+    tokenIv: string;
+    tokenTag: string;
+  }): string {
+    try {
+      return this.encryption.decrypt({
+        encryptedAccessToken: input.encryptedAccessToken,
+        tokenIv: input.tokenIv,
+        tokenTag: input.tokenTag,
+      });
+    } catch {
+      throw new ConflictException(
+        "Nao foi possivel abrir a credencial do login social",
+      );
+    }
+  }
+
   private assertRequiredScopes(scopes: string[]): void {
     if (scopes.length === 0) {
       return;
@@ -1129,6 +1529,21 @@ export class MetaManualConnectionsService {
     if (!this.getCapabilities().manualEnabled) {
       throw new NotFoundException("Conexao manual Meta nao habilitada");
     }
+  }
+
+  private requireOAuthEnabled(): void {
+    if (!this.getCapabilities().oauthEnabled) {
+      throw new NotFoundException("Login social Meta nao habilitado");
+    }
+  }
+
+  private requireSourceEnabled(source: NormalizedConnectionSource): void {
+    if (source === "manual") {
+      this.requireManualEnabled();
+      return;
+    }
+
+    this.requireOAuthEnabled();
   }
 
   private toCredentialDto(record: CredentialRecord): MetaManualCredentialDto {

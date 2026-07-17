@@ -8,6 +8,7 @@ import {
 
 const actions = {
   disconnectOAuthAction: vi.fn(),
+  prepareOAuthCredentialAction: vi.fn(),
   createCredentialAction: vi.fn(),
   discoverAssetsAction: vi.fn(),
   createConnectionAction: vi.fn(),
@@ -17,6 +18,7 @@ const actions = {
   removeConnectionAction: vi.fn(),
   syncHistoryAction: vi.fn(),
   setAccountDestinationAction: vi.fn(),
+  setOAuthRoutingAction: vi.fn(),
 };
 
 const capabilities = {
@@ -53,6 +55,101 @@ describe("Meta manual connection panel", () => {
     expect(html).not.toContain('name="accessToken"');
   });
 
+  it("keeps OAuth BM mappings in shadow mode until explicit activation", () => {
+    const html = renderToStaticMarkup(
+      createElement(MetaManualConnectionPanel, {
+        workspaceId: "workspace_1",
+        capabilities,
+        initialConfiguration: {
+          workspaceId: "workspace_1",
+          connectionMode: "oauth",
+          advancedRoutingEnabled: false,
+          unmappedActiveAccountCount: 0,
+          credentials: [
+            {
+              id: "credential_oauth",
+              workspaceId: "workspace_1",
+              source: "oauth",
+              label: "Login social Meta",
+              fingerprint: "1234567890abcdef",
+              tokenLast4: "cret",
+              tokenType: "bearer",
+              scopes: ["ads_read", "business_management"],
+              expiresAt: null,
+              status: "active",
+              lastValidatedAt: "2026-07-17T12:00:00.000Z",
+              validationError: null,
+              rotatedAt: null,
+              createdAt: "2026-07-17T12:00:00.000Z",
+              updatedAt: "2026-07-17T12:00:00.000Z",
+            },
+          ],
+          businessConnections: [
+            {
+              id: "connection_oauth",
+              workspaceId: "workspace_1",
+              credentialId: "credential_oauth",
+              businessManagerId: "business_1",
+              businessManagerName: "BM Cliente",
+              status: "active",
+              defaultConversionDestinationId: "destination_1",
+              reportingAccountCount: 1,
+              activeReportingAccountCount: 1,
+              lastValidatedAt: "2026-07-17T12:00:00.000Z",
+              validationError: null,
+              lastSyncedAt: null,
+              createdAt: "2026-07-17T12:00:00.000Z",
+              updatedAt: "2026-07-17T12:00:00.000Z",
+            },
+          ],
+          destinations: [
+            {
+              id: "destination_1",
+              workspaceId: "workspace_1",
+              label: "Destino BM Cliente",
+              ownerBusinessManagerId: "business_1",
+              pixelId: "pixel_1",
+              pixelName: "Pixel Cliente",
+              pageId: "page_1",
+              pageName: "Pagina Cliente",
+              status: "configured",
+              lastValidatedAt: "2026-07-17T12:00:00.000Z",
+              validationError: null,
+            },
+          ],
+          reportingAccounts: [
+            {
+              id: "reporting_1",
+              workspaceId: "workspace_1",
+              businessId: "business_1",
+              businessName: "BM Cliente",
+              adAccountId: "act_123",
+              adAccountName: "Conta Cliente",
+              currency: "BRL",
+              timezoneName: "America/Sao_Paulo",
+              businessConnectionId: "connection_oauth",
+              conversionDestinationId: null,
+              active: true,
+              syncStatus: "synced",
+              lastSyncedAt: null,
+              lastSyncSince: null,
+              lastSyncUntil: null,
+              syncError: null,
+            },
+          ],
+        },
+        legacyConnected: true,
+        canManage: true,
+        ...actions,
+      }),
+    );
+
+    expect(html).toContain("Vincular Pixel e Pagina por BM");
+    expect(html).toContain("Estruturas salvas sem alterar a rota atual");
+    expect(html).toContain("Ativar roteamento por BM");
+    expect(html).not.toContain("Roteamento por BM ativo");
+  });
+
   it("shows the permanent-token entry without exposing setup to analysts", () => {
     const html = renderToStaticMarkup(
       createElement(MetaManualConnectionPanel, {
@@ -60,6 +157,9 @@ describe("Meta manual connection panel", () => {
         capabilities,
         initialConfiguration: {
           workspaceId: "workspace_1",
+          connectionMode: "manual",
+          advancedRoutingEnabled: false,
+          unmappedActiveAccountCount: 0,
           credentials: [],
           businessConnections: [],
           destinations: [],
@@ -83,6 +183,9 @@ describe("Meta manual connection panel", () => {
         capabilities,
         initialConfiguration: {
           workspaceId: "workspace_1",
+          connectionMode: "manual",
+          advancedRoutingEnabled: false,
+          unmappedActiveAccountCount: 0,
           credentials: [
             {
               id: "credential_1",

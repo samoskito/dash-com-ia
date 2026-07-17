@@ -5,7 +5,7 @@ export function PresentationMask({
   className,
   placeholder,
 }: {
-  children: ReactNode;
+  children?: ReactNode;
   className?: string;
   placeholder: string;
 }) {

@@ -59,6 +59,7 @@ type MetaManualConnectionPanelProps = {
     workspaceId: string,
     confirmation: string,
   ) => Promise<MetaManualActionResult>;
+  prepareOAuthCredentialAction: () => Promise<MetaManualActionResult>;
   createCredentialAction: (
     formData: FormData,
   ) => Promise<MetaManualActionResult>;
@@ -89,6 +90,7 @@ type MetaManualConnectionPanelProps = {
     reportingAccountId: string,
     conversionDestinationId: string | null,
   ) => Promise<MetaManualActionResult>;
+  setOAuthRoutingAction: (enabled: boolean) => Promise<MetaManualActionResult>;
 };
 
 type LegacyOAuthMigrationCardProps = {
@@ -266,6 +268,7 @@ export function MetaManualConnectionPanel({
   legacyConnected,
   canManage,
   disconnectOAuthAction,
+  prepareOAuthCredentialAction,
   createCredentialAction,
   discoverAssetsAction,
   createConnectionAction,
@@ -275,6 +278,7 @@ export function MetaManualConnectionPanel({
   removeConnectionAction,
   syncHistoryAction,
   setAccountDestinationAction,
+  setOAuthRoutingAction,
 }: MetaManualConnectionPanelProps) {
   const [configuration, setConfiguration] = useState(initialConfiguration);
   const [setupOpen, setSetupOpen] = useState(false);
@@ -356,19 +360,10 @@ export function MetaManualConnectionPanel({
   const removingConnection = configuration?.businessConnections.find(
     (connection) => connection.id === removingConnectionId,
   );
+  const oauthMode = legacyConnected;
 
-  if (!capabilities.manualEnabled) {
+  if (!capabilities.manualEnabled && !oauthMode) {
     return null;
-  }
-
-  if (legacyConnected) {
-    return (
-      <LegacyOAuthMigrationCard
-        workspaceId={workspaceId}
-        canManage={canManage}
-        disconnectOAuthAction={disconnectOAuthAction}
-      />
-    );
   }
 
   async function handleCredentialSubmit(event: FormEvent<HTMLFormElement>) {
@@ -384,6 +379,21 @@ export function MetaManualConnectionPanel({
       setBusinessLookupId("");
       setDirectAccountIds("");
       credentialFormRef.current?.reset();
+      await refreshConfigurationFromServerState(result);
+    }
+
+    showResult(result);
+    setPendingAction(null);
+  }
+
+  async function handleOAuthCredentialPreparation() {
+    setPendingAction("credential");
+    setNotice(null);
+    const result = await prepareOAuthCredentialAction();
+
+    if (result.ok && result.discovery) {
+      applyDiscovery(result.discovery);
+      setSetupMode("advanced");
       await refreshConfigurationFromServerState(result);
     }
 
@@ -552,6 +562,27 @@ export function MetaManualConnectionPanel({
     setPendingAction("history");
     setNotice(null);
     const result = await syncHistoryAction();
+    showResult(result);
+    setPendingAction(null);
+  }
+
+  async function handleOAuthRouting(enabled: boolean) {
+    const confirmation = enabled
+      ? "Ativar o roteamento por BM? Relatorios e novos eventos passarao a usar os vinculos revisados."
+      : "Voltar ao destino principal? Os vinculos ficarao salvos para uma nova ativacao.";
+
+    if (!window.confirm(confirmation)) {
+      return;
+    }
+
+    setPendingAction("routing");
+    setNotice(null);
+    const result = await setOAuthRoutingAction(enabled);
+
+    if (result.ok && result.configuration) {
+      setConfiguration(result.configuration);
+    }
+
     showResult(result);
     setPendingAction(null);
   }
@@ -759,6 +790,10 @@ export function MetaManualConnectionPanel({
       const credential = result.discovery.credential;
       setConfiguration((current) => ({
         workspaceId: credential.workspaceId,
+        connectionMode:
+          current?.connectionMode ?? (legacyConnected ? "oauth" : "manual"),
+        advancedRoutingEnabled: current?.advancedRoutingEnabled ?? false,
+        unmappedActiveAccountCount: current?.unmappedActiveAccountCount ?? 0,
         credentials: [
           ...(current?.credentials.filter(
             (item) => item.id !== credential.id,
@@ -807,21 +842,25 @@ export function MetaManualConnectionPanel({
         <div className="meta-advanced-list-heading">
           <div>
             <span className="eyebrow">Estruturas configuradas</span>
-            <h3>Tokens, BMs e destinos</h3>
+            <h3>
+              {oauthMode ? "BMs e destinos OAuth" : "Tokens, BMs e destinos"}
+            </h3>
           </div>
           {showNewConnection && canManage ? (
             <div className="meta-advanced-list-actions">
-              <button
-                className="button secondary"
-                type="button"
-                disabled={pendingAction !== null}
-                onClick={() => void handleHistorySync()}
-              >
-                <History size={16} />
-                {pendingAction === "history"
-                  ? "Enfileirando..."
-                  : "Importar 90 dias"}
-              </button>
+              {!oauthMode || configuration?.advancedRoutingEnabled ? (
+                <button
+                  className="button secondary"
+                  type="button"
+                  disabled={pendingAction !== null}
+                  onClick={() => void handleHistorySync()}
+                >
+                  <History size={16} />
+                  {pendingAction === "history"
+                    ? "Enfileirando..."
+                    : "Importar 90 dias"}
+                </button>
+              ) : null}
               <button
                 className="button secondary"
                 type="button"
@@ -915,18 +954,20 @@ export function MetaManualConnectionPanel({
                         <Pause size={16} />
                       )}
                     </button>
-                    <button
-                      className="icon-button"
-                      type="button"
-                      title="Trocar token"
-                      aria-label={`Trocar token de ${connection.businessManagerName}`}
-                      disabled={!credential || pendingAction !== null}
-                      onClick={() =>
-                        setRotatingCredentialId(credential?.id ?? null)
-                      }
-                    >
-                      <KeyRound size={16} />
-                    </button>
+                    {!oauthMode ? (
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title="Trocar token"
+                        aria-label={`Trocar token de ${connection.businessManagerName}`}
+                        disabled={!credential || pendingAction !== null}
+                        onClick={() =>
+                          setRotatingCredentialId(credential?.id ?? null)
+                        }
+                      >
+                        <KeyRound size={16} />
+                      </button>
+                    ) : null}
                     <button
                       className="icon-button danger"
                       type="button"
@@ -978,7 +1019,7 @@ export function MetaManualConnectionPanel({
                 </span>
               </div>
 
-              {rotatingCredentialId === credential?.id ? (
+              {!oauthMode && rotatingCredentialId === credential?.id ? (
                 <form
                   ref={rotateFormRef}
                   className="meta-rotate-form"
@@ -1100,205 +1141,457 @@ export function MetaManualConnectionPanel({
     );
   }
 
+  function renderOAuthRoutingControl() {
+    if (!oauthMode || (configuration?.businessConnections.length ?? 0) === 0) {
+      return null;
+    }
+
+    const enabled = Boolean(configuration?.advancedRoutingEnabled);
+    const unmapped = configuration?.unmappedActiveAccountCount ?? 0;
+    const connectionsById = new Map(
+      configuration?.businessConnections.map((connection) => [
+        connection.id,
+        connection,
+      ]) ?? [],
+    );
+    const destinationsById = new Map(
+      configuration?.destinations.flatMap((destination) =>
+        destination.id ? [[destination.id, destination] as const] : [],
+      ) ?? [],
+    );
+    const activeConnections =
+      configuration?.businessConnections.filter(
+        (connection) => connection.status === "active",
+      ) ?? [];
+    const structuresReady =
+      activeConnections.length > 0 &&
+      activeConnections.every((connection) => {
+        const destination = connection.defaultConversionDestinationId
+          ? destinationsById.get(connection.defaultConversionDestinationId)
+          : null;
+
+        return (
+          connection.activeReportingAccountCount > 0 &&
+          destination?.status === "configured"
+        );
+      }) &&
+      (configuration?.reportingAccounts ?? [])
+        .filter((account) => account.active)
+        .every((account) => {
+          const connection = account.businessConnectionId
+            ? connectionsById.get(account.businessConnectionId)
+            : null;
+          const destinationId =
+            account.conversionDestinationId ??
+            connection?.defaultConversionDestinationId;
+
+          return (
+            connection?.status === "active" &&
+            Boolean(
+              destinationId &&
+              destinationsById.get(destinationId)?.status === "configured",
+            )
+          );
+        });
+    const canActivate = unmapped === 0 && structuresReady;
+
+    return (
+      <div className={`meta-manual-notice ${enabled ? "success" : "warn"}`}>
+        {enabled ? <CircleCheck size={16} /> : <ShieldCheck size={16} />}
+        <span>
+          <strong>
+            {enabled
+              ? "Roteamento por BM ativo"
+              : "Estruturas salvas sem alterar a rota atual"}
+          </strong>
+          <small>
+            {enabled
+              ? "Cada conta usa o destino da sua BM ou a excecao configurada."
+              : unmapped > 0
+                ? `${unmapped} conta(s) ativa(s) ainda precisam ser vinculadas ou desativadas.`
+                : !structuresReady
+                  ? "Revalide as BMs e confirme contas e destinos antes da ativacao."
+                  : "A revisao esta completa. O destino principal continua valendo ate a ativacao."}
+          </small>
+        </span>
+        {canManage ? (
+          <button
+            className={`button ${enabled ? "secondary" : ""}`}
+            type="button"
+            disabled={pendingAction !== null || (!enabled && !canActivate)}
+            onClick={() => void handleOAuthRouting(!enabled)}
+          >
+            <Link2 size={16} />
+            {pendingAction === "routing"
+              ? "Aplicando..."
+              : enabled
+                ? "Usar destino principal"
+                : "Ativar roteamento por BM"}
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
-    <div className="meta-manual-panel">
-      <button
-        className="meta-manual-entry"
-        type="button"
-        onClick={() => setSetupOpen((current) => !current)}
-        aria-expanded={setupOpen}
-        disabled={!canManage}
-      >
-        <span className="meta-manual-entry-icon" aria-hidden="true">
-          <KeyRound size={18} />
-        </span>
-        <span className="meta-manual-entry-copy">
-          <span className="micro-label">Outra forma de conectar</span>
-          <strong>Usar token permanente</strong>
-          <span className="muted">
-            Para estruturas operadas por token de usuario do sistema.
+    <>
+      <div className="meta-manual-panel">
+        <button
+          className="meta-manual-entry"
+          type="button"
+          onClick={() => setSetupOpen((current) => !current)}
+          aria-expanded={setupOpen}
+          disabled={!canManage}
+        >
+          <span className="meta-manual-entry-icon" aria-hidden="true">
+            {oauthMode ? <Building2 size={18} /> : <KeyRound size={18} />}
           </span>
-        </span>
-        <span className="meta-manual-entry-action">
-          {configuration?.businessConnections.length ?? 0} BMs
-          <ChevronDown size={16} />
-        </span>
-      </button>
+          <span className="meta-manual-entry-copy">
+            <span className="micro-label">
+              {oauthMode
+                ? "Configuracao avancada OAuth"
+                : "Outra forma de conectar"}
+            </span>
+            <strong>
+              {oauthMode
+                ? "Vincular Pixel e Pagina por BM"
+                : "Usar token permanente"}
+            </strong>
+            <span className="muted">
+              {oauthMode
+                ? "Associe cada BM e suas contas ao destino de conversao correto."
+                : "Para estruturas operadas por token de usuario do sistema."}
+            </span>
+          </span>
+          <span className="meta-manual-entry-action">
+            {configuration?.businessConnections.length ?? 0} BMs
+            <ChevronDown size={16} />
+          </span>
+        </button>
 
-      {setupOpen ? (
-        <div className="meta-manual-workspace">
-          <div className="meta-manual-toolbar">
-            <div>
-              <span className="eyebrow">Conexao por token</span>
-              <h3>
-                {editingConnectionId
-                  ? "Editar estrutura Meta"
-                  : "Configurar estrutura Meta"}
-              </h3>
-            </div>
-            <div
-              className="segmented-control"
-              aria-label="Tipo de configuracao"
-            >
-              <button
-                type="button"
-                className={setupMode === "quick" ? "active" : ""}
-                aria-pressed={setupMode === "quick"}
-                onClick={() => setSetupMode("quick")}
-              >
-                Rapida
-              </button>
-              <button
-                type="button"
-                className={setupMode === "advanced" ? "active" : ""}
-                aria-pressed={setupMode === "advanced"}
-                onClick={() => setSetupMode("advanced")}
-              >
-                Avancada
-              </button>
-            </div>
-          </div>
-
-          <ol className="meta-setup-steps" aria-label="Etapas da conexao">
-            <SetupStep
-              active={!credentialId}
-              done={Boolean(credentialId)}
-              label="Token"
-            />
-            <SetupStep
-              active={Boolean(credentialId && !businessId)}
-              done={Boolean(businessId)}
-              label="BM"
-            />
-            <SetupStep
-              active={Boolean(businessId && selectedAccountIds.length === 0)}
-              done={selectedAccountIds.length > 0}
-              label="Contas"
-            />
-            <SetupStep
-              active={selectedAccountIds.length > 0 && !destinationReady}
-              done={destinationReady}
-              label="Destino"
-            />
-            <SetupStep active={readyToActivate} done={false} label="Revisao" />
-          </ol>
-
-          <div className="meta-setup-grid">
-            <section className="meta-setup-section">
-              <div className="meta-setup-heading">
-                <KeyRound size={17} />
-                <div>
-                  <span className="micro-label">1. Credencial</span>
-                  <strong>Token permanente</strong>
-                </div>
+        {setupOpen ? (
+          <div className="meta-manual-workspace">
+            <div className="meta-manual-toolbar">
+              <div>
+                <span className="eyebrow">
+                  {oauthMode
+                    ? "Login social com multiplos destinos"
+                    : "Conexao por token"}
+                </span>
+                <h3>
+                  {editingConnectionId
+                    ? "Editar estrutura Meta"
+                    : oauthMode
+                      ? "Configurar destinos por BM"
+                      : "Configurar estrutura Meta"}
+                </h3>
               </div>
-              {(configuration?.credentials.length ?? 0) > 0 ? (
-                <SearchableSelect
-                  name="credentialId"
-                  value={credentialId}
-                  options={(configuration?.credentials ?? []).map((item) => ({
-                    value: item.id,
-                    label: item.label,
-                    description: `final ${item.tokenLast4} | ${statusLabel(item.status)}`,
-                  }))}
-                  onValueChange={handleCredentialSelection}
-                  ariaLabel="Credencial Meta"
-                  placeholder="Escolher token salvo"
-                  presentationPlaceholder="Credencial oculta"
-                  disabled={pendingAction !== null}
-                  sensitive
-                />
-              ) : null}
-              <form
-                ref={credentialFormRef}
-                className="meta-token-form"
-                onSubmit={handleCredentialSubmit}
+              <div
+                className="segmented-control"
+                aria-label="Tipo de configuracao"
               >
-                <label>
-                  <span>Nome da credencial</span>
-                  <input
-                    name="label"
-                    type="text"
-                    minLength={2}
-                    maxLength={80}
-                    placeholder="Ex.: Token BM principal"
-                    required
-                    data-presentation-sensitive-field="true"
-                  />
-                </label>
-                <label>
-                  <span>Token do usuario do sistema</span>
-                  <input
-                    name="accessToken"
-                    type="password"
-                    minLength={20}
-                    autoComplete="off"
-                    placeholder="Cole o token permanente"
-                    required
-                    data-presentation-sensitive-field="true"
-                  />
-                </label>
                 <button
-                  className="button secondary"
-                  type="submit"
-                  disabled={pendingAction !== null}
+                  type="button"
+                  className={setupMode === "quick" ? "active" : ""}
+                  aria-pressed={setupMode === "quick"}
+                  onClick={() => setSetupMode("quick")}
                 >
-                  <ShieldCheck size={16} />
-                  {pendingAction === "credential"
-                    ? "Validando..."
-                    : "Validar e proteger"}
+                  Rapida
                 </button>
-              </form>
-              <p className="action-note">
-                Depois de salvo, o token nao pode ser visualizado. Uma troca
-                exige informar o novo token e validar novamente toda a conexao.
-              </p>
-            </section>
-
-            <section className="meta-setup-section">
-              <div className="meta-setup-heading">
-                <Building2 size={17} />
-                <div>
-                  <span className="micro-label">2. Estrutura anunciante</span>
-                  <strong>BM e contas de anuncio</strong>
-                </div>
+                <button
+                  type="button"
+                  className={setupMode === "advanced" ? "active" : ""}
+                  aria-pressed={setupMode === "advanced"}
+                  onClick={() => setSetupMode("advanced")}
+                >
+                  Avancada
+                </button>
               </div>
-              <SearchableSelect
-                name="businessManagerId"
-                value={businessId}
-                options={(discovery?.businesses ?? []).map((business) => ({
-                  value: business.id,
-                  label: business.name,
-                  description: business.id,
-                }))}
-                onValueChange={handleBusinessSelection}
-                ariaLabel="Business Manager"
-                placeholder="Escolher BM"
-                presentationPlaceholder="BM oculto"
-                disabled={!credentialId || pendingAction !== null}
-                sensitive
+            </div>
+
+            <ol className="meta-setup-steps" aria-label="Etapas da conexao">
+              <SetupStep
+                active={!credentialId}
+                done={Boolean(credentialId)}
+                label={oauthMode ? "OAuth" : "Token"}
               />
-              {showBusinessLookup ? (
-                <div className="meta-direct-asset-entry">
+              <SetupStep
+                active={Boolean(credentialId && !businessId)}
+                done={Boolean(businessId)}
+                label="BM"
+              />
+              <SetupStep
+                active={Boolean(businessId && selectedAccountIds.length === 0)}
+                done={selectedAccountIds.length > 0}
+                label="Contas"
+              />
+              <SetupStep
+                active={selectedAccountIds.length > 0 && !destinationReady}
+                done={destinationReady}
+                label="Destino"
+              />
+              <SetupStep
+                active={readyToActivate}
+                done={false}
+                label="Revisao"
+              />
+            </ol>
+
+            <div className="meta-setup-grid">
+              <section className="meta-setup-section">
+                <div className="meta-setup-heading">
+                  <KeyRound size={17} />
                   <div>
-                    <span className="micro-label">BM nao enumerada</span>
-                    <p className="muted">
-                      Informe o ID da BM vinculada ao usuario do sistema.
-                    </p>
+                    <span className="micro-label">1. Credencial</span>
+                    <strong>
+                      {oauthMode
+                        ? "Login social conectado"
+                        : "Token permanente"}
+                    </strong>
                   </div>
+                </div>
+                {(configuration?.credentials.length ?? 0) > 0 ? (
+                  <SearchableSelect
+                    name="credentialId"
+                    value={credentialId}
+                    options={(configuration?.credentials ?? []).map((item) => ({
+                      value: item.id,
+                      label: item.label,
+                      description: `final ${item.tokenLast4} | ${statusLabel(item.status)}`,
+                    }))}
+                    onValueChange={handleCredentialSelection}
+                    ariaLabel="Credencial Meta"
+                    placeholder={
+                      oauthMode
+                        ? "Escolher autorizacao OAuth"
+                        : "Escolher token salvo"
+                    }
+                    presentationPlaceholder="Credencial oculta"
+                    disabled={pendingAction !== null}
+                    sensitive
+                  />
+                ) : null}
+                {oauthMode ? (
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={pendingAction !== null}
+                    onClick={() => void handleOAuthCredentialPreparation()}
+                  >
+                    <ShieldCheck size={16} />
+                    {pendingAction === "credential"
+                      ? "Validando..."
+                      : (configuration?.credentials.length ?? 0) > 0
+                        ? "Atualizar autorizacao"
+                        : "Usar autorizacao OAuth"}
+                  </button>
+                ) : (
                   <form
-                    className="meta-inline-id-form"
-                    onSubmit={handleBusinessLookup}
+                    ref={credentialFormRef}
+                    className="meta-token-form"
+                    onSubmit={handleCredentialSubmit}
                   >
                     <label>
-                      <span>ID da BM</span>
+                      <span>Nome da credencial</span>
                       <input
-                        value={businessLookupId}
-                        onChange={(event) =>
-                          setBusinessLookupId(event.currentTarget.value)
+                        name="label"
+                        type="text"
+                        minLength={2}
+                        maxLength={80}
+                        placeholder="Ex.: Token BM principal"
+                        required
+                        data-presentation-sensitive-field="true"
+                      />
+                    </label>
+                    <label>
+                      <span>Token do usuario do sistema</span>
+                      <input
+                        name="accessToken"
+                        type="password"
+                        minLength={20}
+                        autoComplete="off"
+                        placeholder="Cole o token permanente"
+                        required
+                        data-presentation-sensitive-field="true"
+                      />
+                    </label>
+                    <button
+                      className="button secondary"
+                      type="submit"
+                      disabled={pendingAction !== null}
+                    >
+                      <ShieldCheck size={16} />
+                      {pendingAction === "credential"
+                        ? "Validando..."
+                        : "Validar e proteger"}
+                    </button>
+                  </form>
+                )}
+                <p className="action-note">
+                  {oauthMode
+                    ? "A autorizacao atual e reutilizada sem exibir o token. Salvar BMs nao altera a rota ate a ativacao final."
+                    : "Depois de salvo, o token nao pode ser visualizado. Uma troca exige informar o novo token e validar novamente toda a conexao."}
+                </p>
+              </section>
+
+              <section className="meta-setup-section">
+                <div className="meta-setup-heading">
+                  <Building2 size={17} />
+                  <div>
+                    <span className="micro-label">2. Estrutura anunciante</span>
+                    <strong>BM e contas de anuncio</strong>
+                  </div>
+                </div>
+                <SearchableSelect
+                  name="businessManagerId"
+                  value={businessId}
+                  options={(discovery?.businesses ?? []).map((business) => ({
+                    value: business.id,
+                    label: business.name,
+                    description: business.id,
+                  }))}
+                  onValueChange={handleBusinessSelection}
+                  ariaLabel="Business Manager"
+                  placeholder="Escolher BM"
+                  presentationPlaceholder="BM oculto"
+                  disabled={!credentialId || pendingAction !== null}
+                  sensitive
+                />
+                {showBusinessLookup ? (
+                  <div className="meta-direct-asset-entry">
+                    <div>
+                      <span className="micro-label">BM nao enumerada</span>
+                      <p className="muted">
+                        {oauthMode
+                          ? "Informe o ID da BM acessivel pela autorizacao Meta."
+                          : "Informe o ID da BM vinculada ao usuario do sistema."}
+                      </p>
+                    </div>
+                    <form
+                      className="meta-inline-id-form"
+                      onSubmit={handleBusinessLookup}
+                    >
+                      <label>
+                        <span>ID da BM</span>
+                        <input
+                          value={businessLookupId}
+                          onChange={(event) =>
+                            setBusinessLookupId(event.currentTarget.value)
+                          }
+                          placeholder="Ex.: 123456789012345"
+                          inputMode="numeric"
+                          disabled={pendingAction !== null}
+                          data-presentation-sensitive-field="true"
+                        />
+                      </label>
+                      <button
+                        className="button secondary"
+                        type="submit"
+                        disabled={
+                          !businessLookupId.trim() || pendingAction !== null
                         }
-                        placeholder="Ex.: 123456789012345"
-                        inputMode="numeric"
+                      >
+                        <RefreshCw size={15} aria-hidden="true" />
+                        {pendingAction === "assets"
+                          ? "Validando..."
+                          : "Validar BM"}
+                      </button>
+                    </form>
+                  </div>
+                ) : null}
+                <div className="meta-account-picker">
+                  {(discovery?.adAccounts ?? []).length > 0 ? (
+                    discovery?.adAccounts.map((account) => {
+                      const checked = selectedAccountIds.includes(account.id);
+                      return (
+                        <label
+                          key={account.id}
+                          className={checked ? "selected" : ""}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setSelectedAccountIds((current) =>
+                                current.includes(account.id)
+                                  ? current.filter((id) => id !== account.id)
+                                  : [...current, account.id],
+                              )
+                            }
+                          />
+                          <span>
+                            <strong>
+                              <PresentationMask placeholder="Conta de anuncios oculta">
+                                {account.name}
+                              </PresentationMask>
+                            </strong>
+                            <small>
+                              <PresentationMask placeholder="ID oculto">
+                                {account.id}
+                              </PresentationMask>
+                            </small>
+                          </span>
+                          {checked ? <Check size={16} /> : null}
+                        </label>
+                      );
+                    })
+                  ) : (
+                    <p className="muted">
+                      {pendingAction === "assets"
+                        ? "Consultando ativos..."
+                        : businessId
+                          ? "A Meta nao listou contas para esta BM. Informe os IDs abaixo."
+                          : oauthMode
+                            ? "Escolha a autorizacao e uma BM para carregar as contas."
+                            : "Escolha um token e uma BM para carregar as contas."}
+                    </p>
+                  )}
+                </div>
+                {selectedDirectAccountIds.length > 0 ? (
+                  <div
+                    className="meta-direct-account-list"
+                    aria-label="Contas informadas por ID"
+                  >
+                    {selectedDirectAccountIds.map((accountId) => (
+                      <div key={accountId}>
+                        <span>
+                          <strong>Conta informada</strong>
+                          <small>
+                            <PresentationMask placeholder="ID oculto">
+                              {accountId}
+                            </PresentationMask>
+                          </small>
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={`Remover ${accountId}`}
+                          title="Remover conta"
+                          onClick={() =>
+                            setSelectedAccountIds((current) =>
+                              current.filter((id) => id !== accountId),
+                            )
+                          }
+                        >
+                          <X size={15} aria-hidden="true" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {showAccountLookup ? (
+                  <form
+                    className="meta-direct-account-form"
+                    onSubmit={handleDirectAccounts}
+                  >
+                    <label>
+                      <span>IDs das contas de anuncio</span>
+                      <textarea
+                        value={directAccountIds}
+                        onChange={(event) =>
+                          setDirectAccountIds(event.currentTarget.value)
+                        }
+                        placeholder="act_1234567890, act_9876543210"
+                        rows={2}
                         disabled={pendingAction !== null}
                         data-presentation-sensitive-field="true"
                       />
@@ -1307,436 +1600,341 @@ export function MetaManualConnectionPanel({
                       className="button secondary"
                       type="submit"
                       disabled={
-                        !businessLookupId.trim() || pendingAction !== null
+                        !directAccountIds.trim() || pendingAction !== null
                       }
                     >
-                      <RefreshCw size={15} aria-hidden="true" />
-                      {pendingAction === "assets"
-                        ? "Validando..."
-                        : "Validar BM"}
+                      <Plus size={15} aria-hidden="true" />
+                      Adicionar IDs
                     </button>
                   </form>
-                </div>
-              ) : null}
-              <div className="meta-account-picker">
-                {(discovery?.adAccounts ?? []).length > 0 ? (
-                  discovery?.adAccounts.map((account) => {
-                    const checked = selectedAccountIds.includes(account.id);
-                    return (
-                      <label
-                        key={account.id}
-                        className={checked ? "selected" : ""}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() =>
-                            setSelectedAccountIds((current) =>
-                              current.includes(account.id)
-                                ? current.filter((id) => id !== account.id)
-                                : [...current, account.id],
-                            )
-                          }
-                        />
-                        <span>
-                          <strong>
-                            <PresentationMask placeholder="Conta de anuncios oculta">
-                              {account.name}
-                            </PresentationMask>
-                          </strong>
-                          <small>
-                            <PresentationMask placeholder="ID oculto">
-                              {account.id}
-                            </PresentationMask>
-                          </small>
-                        </span>
-                        {checked ? <Check size={16} /> : null}
-                      </label>
-                    );
-                  })
-                ) : (
-                  <p className="muted">
-                    {pendingAction === "assets"
-                      ? "Consultando ativos..."
-                      : businessId
-                        ? "A Meta nao listou contas para esta BM. Informe os IDs abaixo."
-                        : "Escolha um token e uma BM para carregar as contas."}
-                  </p>
-                )}
-              </div>
-              {selectedDirectAccountIds.length > 0 ? (
-                <div
-                  className="meta-direct-account-list"
-                  aria-label="Contas informadas por ID"
-                >
-                  {selectedDirectAccountIds.map((accountId) => (
-                    <div key={accountId}>
-                      <span>
-                        <strong>Conta informada</strong>
-                        <small>
-                          <PresentationMask placeholder="ID oculto">
-                            {accountId}
-                          </PresentationMask>
-                        </small>
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={`Remover ${accountId}`}
-                        title="Remover conta"
-                        onClick={() =>
-                          setSelectedAccountIds((current) =>
-                            current.filter((id) => id !== accountId),
-                          )
-                        }
-                      >
-                        <X size={15} aria-hidden="true" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {showAccountLookup ? (
-                <form
-                  className="meta-direct-account-form"
-                  onSubmit={handleDirectAccounts}
-                >
-                  <label>
-                    <span>IDs das contas de anuncio</span>
-                    <textarea
-                      value={directAccountIds}
-                      onChange={(event) =>
-                        setDirectAccountIds(event.currentTarget.value)
-                      }
-                      placeholder="act_1234567890, act_9876543210"
-                      rows={2}
-                      disabled={pendingAction !== null}
-                      data-presentation-sensitive-field="true"
-                    />
-                  </label>
-                  <button
-                    className="button secondary"
-                    type="submit"
-                    disabled={
-                      !directAccountIds.trim() || pendingAction !== null
-                    }
-                  >
-                    <Plus size={15} aria-hidden="true" />
-                    Adicionar IDs
-                  </button>
-                </form>
-              ) : null}
-            </section>
+                ) : null}
+              </section>
 
-            <section className="meta-setup-section meta-setup-destination">
-              <div className="meta-setup-heading">
-                <Database size={17} />
-                <div>
-                  <span className="micro-label">3. Destino CAPI</span>
-                  <strong>Pixel/Dataset e Pagina</strong>
+              <section className="meta-setup-section meta-setup-destination">
+                <div className="meta-setup-heading">
+                  <Database size={17} />
+                  <div>
+                    <span className="micro-label">3. Destino CAPI</span>
+                    <strong>Pixel/Dataset e Pagina</strong>
+                  </div>
                 </div>
-              </div>
-              {setupMode === "advanced" ? (
-                <div
-                  className="segmented-control compact"
-                  aria-label="Origem do destino"
-                >
-                  <button
-                    type="button"
-                    className={destinationMode === "discovered" ? "active" : ""}
-                    onClick={() => setDestinationMode("discovered")}
+                {setupMode === "advanced" ? (
+                  <div
+                    className="segmented-control compact"
+                    aria-label="Origem do destino"
                   >
-                    Ativos encontrados
-                  </button>
-                  <button
-                    type="button"
-                    className={destinationMode === "direct" ? "active" : ""}
-                    onClick={() => setDestinationMode("direct")}
-                  >
-                    Informar IDs
-                  </button>
-                  {(configuration?.destinations.length ?? 0) > 0 ? (
                     <button
                       type="button"
-                      className={destinationMode === "existing" ? "active" : ""}
-                      onClick={() => setDestinationMode("existing")}
+                      className={
+                        destinationMode === "discovered" ? "active" : ""
+                      }
+                      onClick={() => setDestinationMode("discovered")}
                     >
-                      Reutilizar destino
+                      Ativos encontrados
                     </button>
-                  ) : null}
-                </div>
-              ) : null}
+                    <button
+                      type="button"
+                      className={destinationMode === "direct" ? "active" : ""}
+                      onClick={() => setDestinationMode("direct")}
+                    >
+                      Informar IDs
+                    </button>
+                    {(configuration?.destinations.length ?? 0) > 0 ? (
+                      <button
+                        type="button"
+                        className={
+                          destinationMode === "existing" ? "active" : ""
+                        }
+                        onClick={() => setDestinationMode("existing")}
+                      >
+                        Reutilizar destino
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
 
-              {destinationMode === "existing" ? (
-                <SearchableSelect
-                  name="existingDestinationId"
-                  value={existingDestinationId}
-                  options={(configuration?.destinations ?? [])
-                    .map((item) => ({
-                      value: item.id ?? "",
-                      label: item.label ?? item.pixelName ?? "Destino Meta",
-                      description: `${item.pixelId} / ${item.pageId}`,
-                    }))
-                    .filter((item) => Boolean(item.value))}
-                  onValueChange={setExistingDestinationId}
-                  ariaLabel="Destino compartilhado"
-                  placeholder="Escolher destino validado"
-                  presentationPlaceholder="Destino oculto"
-                  sensitive
-                />
-              ) : destinationMode === "direct" ? (
-                <div className="meta-direct-destination-grid">
-                  <label>
-                    <span>ID do Pixel/Dataset</span>
-                    <input
-                      value={directPixelId}
-                      onChange={(event) =>
-                        setDirectPixelId(event.currentTarget.value)
-                      }
-                      placeholder="Ex.: 1234567890"
-                      data-presentation-sensitive-field="true"
-                    />
-                  </label>
-                  <label>
-                    <span>ID da Pagina Facebook</span>
-                    <input
-                      value={directPageId}
-                      onChange={(event) =>
-                        setDirectPageId(event.currentTarget.value)
-                      }
-                      placeholder="Ex.: 9876543210"
-                      data-presentation-sensitive-field="true"
-                    />
-                  </label>
-                  <label>
-                    <span>BM proprietaria dos ativos</span>
-                    <input
-                      value={ownerBusinessManagerId}
-                      onChange={(event) =>
-                        setOwnerBusinessManagerId(event.currentTarget.value)
-                      }
-                      placeholder="Opcional para ativos compartilhados"
-                      data-presentation-sensitive-field="true"
-                    />
-                  </label>
-                </div>
-              ) : (
-                <div className="meta-discovered-destination-grid">
+                {destinationMode === "existing" ? (
                   <SearchableSelect
-                    name="pixelId"
-                    value={pixelId}
-                    options={(discovery?.pixels ?? []).map((pixel) => ({
-                      value: pixel.id,
-                      label: pixel.name,
-                      description: pixel.id,
-                    }))}
-                    onValueChange={setPixelId}
-                    ariaLabel="Pixel ou Dataset"
-                    placeholder="Escolher Pixel/Dataset"
-                    presentationPlaceholder="Pixel oculto"
-                    disabled={!businessId}
+                    name="existingDestinationId"
+                    value={existingDestinationId}
+                    options={(configuration?.destinations ?? [])
+                      .map((item) => ({
+                        value: item.id ?? "",
+                        label: item.label ?? item.pixelName ?? "Destino Meta",
+                        description: `${item.pixelId} / ${item.pageId}`,
+                      }))
+                      .filter((item) => Boolean(item.value))}
+                    onValueChange={setExistingDestinationId}
+                    ariaLabel="Destino compartilhado"
+                    placeholder="Escolher destino validado"
+                    presentationPlaceholder="Destino oculto"
                     sensitive
                   />
-                  <SearchableSelect
-                    name="pageId"
-                    value={pageId}
-                    options={(discovery?.pages ?? []).map((page) => ({
-                      value: page.id,
-                      label: page.name,
-                      description: page.id,
-                    }))}
-                    onValueChange={setPageId}
-                    ariaLabel="Pagina Facebook"
-                    placeholder="Escolher Pagina"
-                    presentationPlaceholder="Pagina oculta"
-                    disabled={!businessId}
-                    sensitive
-                  />
-                </div>
-              )}
-            </section>
+                ) : destinationMode === "direct" ? (
+                  <div className="meta-direct-destination-grid">
+                    <label>
+                      <span>ID do Pixel/Dataset</span>
+                      <input
+                        value={directPixelId}
+                        onChange={(event) =>
+                          setDirectPixelId(event.currentTarget.value)
+                        }
+                        placeholder="Ex.: 1234567890"
+                        data-presentation-sensitive-field="true"
+                      />
+                    </label>
+                    <label>
+                      <span>ID da Pagina Facebook</span>
+                      <input
+                        value={directPageId}
+                        onChange={(event) =>
+                          setDirectPageId(event.currentTarget.value)
+                        }
+                        placeholder="Ex.: 9876543210"
+                        data-presentation-sensitive-field="true"
+                      />
+                    </label>
+                    <label>
+                      <span>BM proprietaria dos ativos</span>
+                      <input
+                        value={ownerBusinessManagerId}
+                        onChange={(event) =>
+                          setOwnerBusinessManagerId(event.currentTarget.value)
+                        }
+                        placeholder="Opcional para ativos compartilhados"
+                        data-presentation-sensitive-field="true"
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="meta-discovered-destination-grid">
+                    <SearchableSelect
+                      name="pixelId"
+                      value={pixelId}
+                      options={(discovery?.pixels ?? []).map((pixel) => ({
+                        value: pixel.id,
+                        label: pixel.name,
+                        description: pixel.id,
+                      }))}
+                      onValueChange={setPixelId}
+                      ariaLabel="Pixel ou Dataset"
+                      placeholder="Escolher Pixel/Dataset"
+                      presentationPlaceholder="Pixel oculto"
+                      disabled={!businessId}
+                      sensitive
+                    />
+                    <SearchableSelect
+                      name="pageId"
+                      value={pageId}
+                      options={(discovery?.pages ?? []).map((page) => ({
+                        value: page.id,
+                        label: page.name,
+                        description: page.id,
+                      }))}
+                      onValueChange={setPageId}
+                      ariaLabel="Pagina Facebook"
+                      placeholder="Escolher Pagina"
+                      presentationPlaceholder="Pagina oculta"
+                      disabled={!businessId}
+                      sensitive
+                    />
+                  </div>
+                )}
+              </section>
 
-            <section className="meta-setup-section meta-setup-review">
-              <div className="meta-setup-heading">
-                <CircleCheck size={17} />
-                <div>
-                  <span className="micro-label">4. Revisao</span>
-                  <strong>Ativar conexao</strong>
+              <section className="meta-setup-section meta-setup-review">
+                <div className="meta-setup-heading">
+                  <CircleCheck size={17} />
+                  <div>
+                    <span className="micro-label">4. Revisao</span>
+                    <strong>Ativar conexao</strong>
+                  </div>
                 </div>
+                <dl className="meta-review-list">
+                  <div>
+                    <dt>Token</dt>
+                    <dd>
+                      <PresentationMask placeholder="Credencial oculta">
+                        {selectedCredential?.label ??
+                          discovery?.credential.label ??
+                          "Pendente"}
+                      </PresentationMask>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>BM</dt>
+                    <dd>
+                      <PresentationMask placeholder="Business Manager oculto">
+                        {selectedBusiness?.name ?? "Pendente"}
+                      </PresentationMask>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Contas</dt>
+                    <dd>{selectedAccountIds.length || "Pendente"}</dd>
+                  </div>
+                  <div>
+                    <dt>Destino</dt>
+                    <dd>
+                      <PresentationMask placeholder="Destino oculto">
+                        {destinationMode === "existing"
+                          ? (selectedExistingDestination?.label ?? "Pendente")
+                          : destinationMode === "direct"
+                            ? directPixelId && directPageId
+                              ? `${directPixelId} / ${directPageId}`
+                              : "Pendente"
+                            : selectedPixel && selectedPage
+                              ? `${selectedPixel.name} / ${selectedPage.name}`
+                              : "Pendente"}
+                      </PresentationMask>
+                    </dd>
+                  </div>
+                </dl>
+                <form onSubmit={handleConnectionSubmit}>
+                  <button
+                    className="button"
+                    type="submit"
+                    disabled={!readyToActivate || pendingAction !== null}
+                  >
+                    <Link2 size={16} />
+                    {pendingAction === "activate"
+                      ? editingConnectionId
+                        ? "Salvando alteracoes..."
+                        : "Validando estrutura..."
+                      : editingConnectionId
+                        ? "Salvar alteracoes"
+                        : "Validar e ativar"}
+                  </button>
+                </form>
+              </section>
+            </div>
+
+            {notice ? (
+              <div
+                className={`meta-manual-notice ${notice.tone}`}
+                role="status"
+                aria-live="polite"
+              >
+                {notice.tone === "success" ? <CircleCheck size={16} /> : null}
+                <span>{notice.message}</span>
               </div>
-              <dl className="meta-review-list">
-                <div>
-                  <dt>Token</dt>
-                  <dd>
-                    <PresentationMask placeholder="Credencial oculta">
-                      {selectedCredential?.label ??
-                        discovery?.credential.label ??
-                        "Pendente"}
-                    </PresentationMask>
-                  </dd>
-                </div>
-                <div>
-                  <dt>BM</dt>
-                  <dd>
-                    <PresentationMask placeholder="Business Manager oculto">
-                      {selectedBusiness?.name ?? "Pendente"}
-                    </PresentationMask>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Contas</dt>
-                  <dd>{selectedAccountIds.length || "Pendente"}</dd>
-                </div>
-                <div>
-                  <dt>Destino</dt>
-                  <dd>
-                    <PresentationMask placeholder="Destino oculto">
-                      {destinationMode === "existing"
-                        ? (selectedExistingDestination?.label ?? "Pendente")
-                        : destinationMode === "direct"
-                          ? directPixelId && directPageId
-                            ? `${directPixelId} / ${directPageId}`
-                            : "Pendente"
-                          : selectedPixel && selectedPage
-                            ? `${selectedPixel.name} / ${selectedPage.name}`
-                            : "Pendente"}
-                    </PresentationMask>
-                  </dd>
-                </div>
-              </dl>
-              <form onSubmit={handleConnectionSubmit}>
-                <button
-                  className="button"
-                  type="submit"
-                  disabled={!readyToActivate || pendingAction !== null}
-                >
-                  <Link2 size={16} />
-                  {pendingAction === "activate"
-                    ? editingConnectionId
-                      ? "Salvando alteracoes..."
-                      : "Validando estrutura..."
-                    : editingConnectionId
-                      ? "Salvar alteracoes"
-                      : "Validar e ativar"}
-                </button>
-              </form>
-            </section>
+            ) : null}
+
+            {setupMode === "advanced"
+              ? renderConfiguredConnections(false)
+              : null}
           </div>
-
-          {notice ? (
-            <div
-              className={`meta-manual-notice ${notice.tone}`}
-              role="status"
-              aria-live="polite"
-            >
-              {notice.tone === "success" ? <CircleCheck size={16} /> : null}
-              <span>{notice.message}</span>
-            </div>
-          ) : null}
-
-          {setupMode === "advanced" ? renderConfiguredConnections(false) : null}
-        </div>
-      ) : null}
-      {!setupOpen && notice ? (
-        <div
-          className={`meta-manual-notice ${notice.tone}`}
-          role="status"
-          aria-live="polite"
-        >
-          {notice.tone === "success" ? <CircleCheck size={16} /> : null}
-          <span>{notice.message}</span>
-        </div>
-      ) : null}
-      {!setupOpen ? renderConfiguredConnections(true) : null}
-
-      <dialog
-        className="meta-action-dialog meta-remove-connection-dialog"
-        ref={removeDialogRef}
-        onCancel={(event) => {
-          if (pendingAction?.startsWith("remove:")) {
-            event.preventDefault();
-            return;
-          }
-
-          closeRemovalDialog();
-        }}
-      >
-        <div className="meta-action-dialog-header">
-          <div>
-            <span className="micro-label">Remover estrutura Meta</span>
-            <h3>
-              <PresentationMask placeholder="Business Manager oculto">
-                {removingConnection?.businessManagerName ?? "Conexao"}
-              </PresentationMask>
-            </h3>
-          </div>
-          <button
-            className="meta-dialog-close"
-            type="button"
-            aria-label="Fechar confirmacao"
-            title="Fechar"
-            onClick={closeRemovalDialog}
-            disabled={pendingAction?.startsWith("remove:")}
+        ) : null}
+        {!setupOpen && notice ? (
+          <div
+            className={`meta-manual-notice ${notice.tone}`}
+            role="status"
+            aria-live="polite"
           >
-            <X size={17} aria-hidden="true" />
-          </button>
-        </div>
-        <form className="meta-action-form" onSubmit={handleRemoveConnection}>
-          <div className="meta-disconnect-warning">
-            <TriangleAlert size={20} aria-hidden="true" />
-            <div>
-              <strong>Esta BM deixara de sincronizar</strong>
-              <p>
-                As contas serao desativadas. Relatorios, eventos e auditorias
-                historicos permanecem preservados.
-              </p>
-            </div>
+            {notice.tone === "success" ? <CircleCheck size={16} /> : null}
+            <span>{notice.message}</span>
           </div>
-          <label className="field-label" htmlFor="meta-remove-confirmation">
-            Digite o ID{" "}
-            <strong>
-              <PresentationMask placeholder="oculto">
-                {removingConnection?.businessManagerId}
-              </PresentationMask>
-            </strong>
-          </label>
-          <input
-            id="meta-remove-confirmation"
-            autoComplete="off"
-            value={removalConfirmation}
-            onChange={(event) =>
-              setRemovalConfirmation(event.currentTarget.value)
+        ) : null}
+        {!setupOpen ? renderConfiguredConnections(true) : null}
+        {renderOAuthRoutingControl()}
+
+        <dialog
+          className="meta-action-dialog meta-remove-connection-dialog"
+          ref={removeDialogRef}
+          onCancel={(event) => {
+            if (pendingAction?.startsWith("remove:")) {
+              event.preventDefault();
+              return;
             }
-            disabled={pendingAction?.startsWith("remove:")}
-            data-presentation-sensitive-field="true"
-          />
-          <div className="meta-action-dialog-footer">
+
+            closeRemovalDialog();
+          }}
+        >
+          <div className="meta-action-dialog-header">
+            <div>
+              <span className="micro-label">Remover estrutura Meta</span>
+              <h3>
+                <PresentationMask placeholder="Business Manager oculto">
+                  {removingConnection?.businessManagerName ?? "Conexao"}
+                </PresentationMask>
+              </h3>
+            </div>
             <button
-              className="button"
+              className="meta-dialog-close"
               type="button"
+              aria-label="Fechar confirmacao"
+              title="Fechar"
               onClick={closeRemovalDialog}
               disabled={pendingAction?.startsWith("remove:")}
             >
-              Cancelar
-            </button>
-            <button
-              className="button danger"
-              type="submit"
-              disabled={
-                !removingConnection ||
-                removalConfirmation.trim() !==
-                  removingConnection.businessManagerId ||
-                pendingAction !== null
-              }
-            >
-              <Trash2 size={16} aria-hidden="true" />
-              {pendingAction?.startsWith("remove:")
-                ? "Removendo..."
-                : "Remover estrutura"}
+              <X size={17} aria-hidden="true" />
             </button>
           </div>
-        </form>
-      </dialog>
-    </div>
+          <form className="meta-action-form" onSubmit={handleRemoveConnection}>
+            <div className="meta-disconnect-warning">
+              <TriangleAlert size={20} aria-hidden="true" />
+              <div>
+                <strong>Esta BM deixara de sincronizar</strong>
+                <p>
+                  As contas serao desativadas. Relatorios, eventos e auditorias
+                  historicos permanecem preservados.
+                </p>
+              </div>
+            </div>
+            <label className="field-label" htmlFor="meta-remove-confirmation">
+              Digite o ID{" "}
+              <strong>
+                <PresentationMask placeholder="oculto">
+                  {removingConnection?.businessManagerId}
+                </PresentationMask>
+              </strong>
+            </label>
+            <input
+              id="meta-remove-confirmation"
+              autoComplete="off"
+              value={removalConfirmation}
+              onChange={(event) =>
+                setRemovalConfirmation(event.currentTarget.value)
+              }
+              disabled={pendingAction?.startsWith("remove:")}
+              data-presentation-sensitive-field="true"
+            />
+            <div className="meta-action-dialog-footer">
+              <button
+                className="button"
+                type="button"
+                onClick={closeRemovalDialog}
+                disabled={pendingAction?.startsWith("remove:")}
+              >
+                Cancelar
+              </button>
+              <button
+                className="button danger"
+                type="submit"
+                disabled={
+                  !removingConnection ||
+                  removalConfirmation.trim() !==
+                    removingConnection.businessManagerId ||
+                  pendingAction !== null
+                }
+              >
+                <Trash2 size={16} aria-hidden="true" />
+                {pendingAction?.startsWith("remove:")
+                  ? "Removendo..."
+                  : "Remover estrutura"}
+              </button>
+            </div>
+          </form>
+        </dialog>
+      </div>
+      {oauthMode && capabilities.manualEnabled ? (
+        <LegacyOAuthMigrationCard
+          workspaceId={workspaceId}
+          canManage={canManage}
+          disconnectOAuthAction={disconnectOAuthAction}
+        />
+      ) : null}
+    </>
   );
 }
 

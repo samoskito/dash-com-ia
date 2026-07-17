@@ -805,31 +805,36 @@ model Lead {
 }
 
 model MetaIntegration {
-  id                       String    @id @default(cuid())
-  workspaceId              String    @unique
-  status                   String    @default("connected")
-  encryptedAccessToken     String
-  tokenIv                  String
-  tokenTag                 String
-  tokenType                String?
-  scopes                   String[]
-  expiresAt                DateTime?
-  lastConnectedAt          DateTime?
-  selectedBusinessId       String?
-  selectedAdAccountId      String?
-  selectedPixelId          String?
-  capiAccessTokenEncrypted String?
-  capiTokenIv              String?
-  capiTokenTag             String?
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
+  id                             String    @id @default(cuid())
+  workspaceId                    String    @unique
+  status                         String    @default("connected")
+  encryptedAccessToken           String
+  tokenIv                        String
+  tokenTag                       String
+  tokenType                      String?
+  scopes                         String[]
+  expiresAt                      DateTime?
+  lastConnectedAt                DateTime?
+  selectedBusinessId             String?
+  selectedAdAccountId            String?
+  selectedPixelId                String?
+  capiAccessTokenEncrypted       String?
+  capiTokenIv                    String?
+  capiTokenTag                   String?
+  primaryConversionDestinationId String?
+  advancedRoutingEnabled         Boolean   @default(false)
+  createdAt                      DateTime  @default(now())
+  updatedAt                      DateTime  @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace                    Workspace                  @relation(fields: [workspaceId], references: [id])
+  primaryConversionDestination MetaConversionDestination? @relation("MetaIntegrationPrimaryDestination", fields: [primaryConversionDestinationId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([selectedBusinessId])
   @@index([selectedAdAccountId])
   @@index([selectedPixelId])
+  @@index([primaryConversionDestinationId])
+  @@index([advancedRoutingEnabled])
 }
 
 model MetaCredential {
@@ -934,6 +939,7 @@ model MetaConversionDestination {
   createdBy                     User?                    @relation("MetaConversionDestinationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   defaultForBusinessConnections MetaBusinessConnection[] @relation("MetaBusinessDefaultDestination")
   reportingAccountOverrides     MetaReportingAccount[]   @relation("MetaReportingDestinationOverride")
+  primaryForIntegrations        MetaIntegration[]        @relation("MetaIntegrationPrimaryDestination")
   conversionEventLogs           ConversionEventLog[]
 
   @@unique([workspaceId, pixelId, pageId])

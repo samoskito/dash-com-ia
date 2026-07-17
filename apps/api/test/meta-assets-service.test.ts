@@ -3,8 +3,12 @@ import { MetaAssetsService } from "../src/integrations/meta/meta-assets.service"
 
 function createHarness() {
   const prisma = {
+    metaIntegration: {
+      findUnique: vi.fn(async (): Promise<unknown> => null),
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
     metaConversionDestination: {
-      findFirst: vi.fn(async () => null),
+      findFirst: vi.fn(async (): Promise<unknown> => null),
       upsert: vi.fn(async ({ create, update }) => ({
         id: "destination_1",
         createdAt: new Date("2026-07-09T12:00:00.000Z"),
@@ -33,6 +37,12 @@ function createHarness() {
       })),
     },
   };
+  Object.assign(prisma, {
+    $transaction: vi.fn(
+      async (callback: (transaction: typeof prisma) => unknown) =>
+        callback(prisma),
+    ),
+  });
 
   return {
     prisma,
@@ -111,6 +121,10 @@ describe("meta assets service", () => {
         }),
       }),
     );
+    expect(prisma.metaIntegration.updateMany).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace_1" },
+      data: { primaryConversionDestinationId: "destination_1" },
+    });
     expect(prisma.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         workspaceId: "workspace_1",
@@ -121,6 +135,39 @@ describe("meta assets service", () => {
         targetId: "workspace_1",
         resultStatus: "success",
       }),
+    });
+  });
+
+  it("keeps the explicit OAuth primary destination even when a newer BM destination exists", async () => {
+    const { prisma, service } = createHarness();
+    prisma.metaIntegration.findUnique.mockResolvedValueOnce({
+      primaryConversionDestinationId: "destination_primary",
+    });
+    prisma.metaConversionDestination.findFirst.mockResolvedValueOnce({
+      id: "destination_primary",
+      workspaceId: "workspace_1",
+      pixelId: "pixel_primary",
+      pixelName: "Pixel principal",
+      pageId: "page_primary",
+      pageName: "Pagina principal",
+      ownerBusinessManagerId: null,
+      status: "configured",
+      lastValidatedAt: new Date("2026-07-09T12:00:00.000Z"),
+      validationError: null,
+    });
+
+    await expect(
+      service.getConversionDestination("workspace_1"),
+    ).resolves.toMatchObject({
+      pixelId: "pixel_primary",
+      pageId: "page_primary",
+      status: "configured",
+    });
+    expect(prisma.metaConversionDestination.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "destination_primary",
+        workspaceId: "workspace_1",
+      },
     });
   });
 

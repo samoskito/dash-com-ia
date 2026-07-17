@@ -33,6 +33,7 @@ import type {
   MetaManualConfigurationDto,
   MetaManualCredentialInputDto,
   MetaManualCredentialRotationInputDto,
+  MetaOAuthAdvancedRoutingInputDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { WorkspaceAccessPolicyService } from "../workspaces/workspace-access-policy.service";
@@ -748,6 +749,114 @@ export class IntegrationsService {
   ): Promise<MetaManualConfigurationDto> {
     return this.requireMetaManualConnectionsService().listConfiguration(
       workspaceId,
+    );
+  }
+
+  async getMetaOAuthAdvancedConfiguration(
+    workspaceId: string,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().listOAuthConfiguration(
+      workspaceId,
+    );
+  }
+
+  async prepareMetaOAuthAdvancedCredential(
+    workspaceId: string,
+    actorUserId?: string | null,
+  ): Promise<MetaManualAssetDiscoveryDto> {
+    return this.requireMetaManualConnectionsService().prepareOAuthCredential(
+      workspaceId,
+      actorUserId,
+    );
+  }
+
+  async discoverMetaOAuthAdvancedAssets(
+    workspaceId: string,
+    credentialId: string,
+    businessId?: string | null,
+  ): Promise<MetaManualAssetDiscoveryDto> {
+    return this.requireMetaManualConnectionsService().discoverOAuthAssets(
+      workspaceId,
+      credentialId,
+      businessId,
+    );
+  }
+
+  async createMetaOAuthAdvancedBusinessConnection(
+    workspaceId: string,
+    input: MetaManualBusinessConnectionInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().createOAuthBusinessConnection(
+      workspaceId,
+      input,
+      actorUserId,
+    );
+  }
+
+  async setMetaOAuthAdvancedBusinessConnectionStatus(
+    workspaceId: string,
+    connectionId: string,
+    input: MetaManualBusinessConnectionStatusInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().setOAuthBusinessConnectionStatus(
+      workspaceId,
+      connectionId,
+      input,
+      actorUserId,
+    );
+  }
+
+  async testMetaOAuthAdvancedBusinessConnection(
+    workspaceId: string,
+    connectionId: string,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConnectionTestResultDto> {
+    return this.requireMetaManualConnectionsService().testOAuthBusinessConnection(
+      workspaceId,
+      connectionId,
+      actorUserId,
+    );
+  }
+
+  async removeMetaOAuthAdvancedBusinessConnection(
+    workspaceId: string,
+    connectionId: string,
+    input: MetaManualBusinessConnectionRemovalInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().removeOAuthBusinessConnection(
+      workspaceId,
+      connectionId,
+      input,
+      actorUserId,
+    );
+  }
+
+  async setMetaOAuthAdvancedReportingDestination(
+    workspaceId: string,
+    reportingAccountId: string,
+    input: MetaManualAccountDestinationInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().setOAuthReportingAccountDestination(
+      workspaceId,
+      reportingAccountId,
+      input,
+      actorUserId,
+    );
+  }
+
+  async setMetaOAuthAdvancedRouting(
+    workspaceId: string,
+    input: MetaOAuthAdvancedRoutingInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaManualConfigurationDto> {
+    return this.requireMetaManualConnectionsService().setOAuthAdvancedRouting(
+      workspaceId,
+      input,
+      actorUserId,
     );
   }
 

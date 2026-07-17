@@ -23,13 +23,21 @@ import { MetaConversionDestinationForm } from "./meta-conversion-destination-for
 import {
   createMetaManualConnectionAction,
   createMetaManualCredentialAction,
+  createMetaOAuthAdvancedConnectionAction,
   disconnectMetaOAuthAction,
   discoverMetaManualAssetsAction,
+  discoverMetaOAuthAdvancedAssetsAction,
+  prepareMetaOAuthAdvancedCredentialAction,
   removeMetaManualConnectionAction,
+  removeMetaOAuthAdvancedConnectionAction,
   rotateMetaManualCredentialAction,
   setMetaManualAccountDestinationAction,
   setMetaManualConnectionStatusAction,
+  setMetaOAuthAdvancedAccountDestinationAction,
+  setMetaOAuthAdvancedConnectionStatusAction,
+  setMetaOAuthAdvancedRoutingAction,
   testMetaManualConnectionAction,
+  testMetaOAuthAdvancedConnectionAction,
   syncMetaManualHistoryAction,
 } from "./meta-manual-actions";
 import { MetaManualConnectionPanel } from "./meta-manual-connection-panel";
@@ -278,6 +286,21 @@ async function getMetaManualConfiguration(): Promise<
     return {
       data: await serverApiFetch<MetaManualConfigurationDto>(
         "/integrations/meta/manual",
+      ),
+      state: "real",
+    };
+  } catch {
+    return { data: null, state: "error" };
+  }
+}
+
+async function getMetaOAuthAdvancedConfiguration(): Promise<
+  ResourceResult<MetaManualConfigurationDto | null>
+> {
+  try {
+    return {
+      data: await serverApiFetch<MetaManualConfigurationDto>(
+        "/integrations/meta/oauth/advanced",
       ),
       state: "real",
     };
@@ -831,9 +854,11 @@ export default async function IntegrationsPage({
   const metaCapabilities = metaCapabilitiesResult.data;
   const legacyMetaConnected = metaConnection?.status === "connected";
   const metaManualResult =
-    metaCapabilities.manualEnabled && !legacyMetaConnected
-      ? await getMetaManualConfiguration()
-      : ({ data: null, state: "empty" } as const);
+    legacyMetaConnected && metaCapabilities.oauthEnabled
+      ? await getMetaOAuthAdvancedConfiguration()
+      : metaCapabilities.manualEnabled
+        ? await getMetaManualConfiguration()
+        : ({ data: null, state: "empty" } as const);
   const whatsappQuote = whatsappQuoteResult.data;
   const billingSubscription = billingSubscriptionResult.data;
   const pipeline = pipelineResult.data;
@@ -855,7 +880,8 @@ export default async function IntegrationsPage({
     pipelineResult.state,
     workspaceResult.state,
     metaCapabilitiesResult.state,
-    ...(metaCapabilities.manualEnabled && !legacyMetaConnected
+    ...((legacyMetaConnected && metaCapabilities.oauthEnabled) ||
+    metaCapabilities.manualEnabled
       ? [metaManualResult.state]
       : []),
     ...(usesExternalWhatsapp
@@ -881,6 +907,9 @@ export default async function IntegrationsPage({
     metaManualResult.data?.reportingAccounts.filter((account) => account.active)
       .length ?? 0;
   const manualConfigured = manualActiveConnections > 0;
+  const oauthAdvancedEnabled = Boolean(
+    legacyMetaConnected && metaManualResult.data?.advancedRoutingEnabled,
+  );
   const metaRefreshBusinessId =
     metaAssets?.selection.businessId &&
     metaAssets.businesses.some(
@@ -908,11 +937,13 @@ export default async function IntegrationsPage({
   const metaStatusLabel =
     metaAssetsResult.state === "error" && metaConnectionResult.state === "error"
       ? "API indisponivel"
-      : manualConfigured
+      : manualConfigured && metaManualResult.data?.connectionMode === "manual"
         ? "Conectado por token"
-        : metaStatus
-          ? statusLabel(metaStatus)
-          : "Meta nao conectado";
+        : oauthAdvancedEnabled
+          ? "OAuth com destinos por BM"
+          : metaStatus
+            ? statusLabel(metaStatus)
+            : "Meta nao conectado";
   const whatsappInstancesEmptyTitle =
     whatsappInstancesResult.state === "error"
       ? "Nao foi possivel carregar instancias"
@@ -1055,15 +1086,43 @@ export default async function IntegrationsPage({
           legacyConnected={legacyMetaConnected}
           canManage={canManageIntegrations}
           disconnectOAuthAction={disconnectMetaOAuthAction}
+          prepareOAuthCredentialAction={
+            prepareMetaOAuthAdvancedCredentialAction
+          }
           createCredentialAction={createMetaManualCredentialAction}
-          discoverAssetsAction={discoverMetaManualAssetsAction}
-          createConnectionAction={createMetaManualConnectionAction}
+          discoverAssetsAction={
+            legacyMetaConnected
+              ? discoverMetaOAuthAdvancedAssetsAction
+              : discoverMetaManualAssetsAction
+          }
+          createConnectionAction={
+            legacyMetaConnected
+              ? createMetaOAuthAdvancedConnectionAction
+              : createMetaManualConnectionAction
+          }
           rotateCredentialAction={rotateMetaManualCredentialAction}
-          setConnectionStatusAction={setMetaManualConnectionStatusAction}
-          testConnectionAction={testMetaManualConnectionAction}
-          removeConnectionAction={removeMetaManualConnectionAction}
+          setConnectionStatusAction={
+            legacyMetaConnected
+              ? setMetaOAuthAdvancedConnectionStatusAction
+              : setMetaManualConnectionStatusAction
+          }
+          testConnectionAction={
+            legacyMetaConnected
+              ? testMetaOAuthAdvancedConnectionAction
+              : testMetaManualConnectionAction
+          }
+          removeConnectionAction={
+            legacyMetaConnected
+              ? removeMetaOAuthAdvancedConnectionAction
+              : removeMetaManualConnectionAction
+          }
           syncHistoryAction={syncMetaManualHistoryAction}
-          setAccountDestinationAction={setMetaManualAccountDestinationAction}
+          setAccountDestinationAction={
+            legacyMetaConnected
+              ? setMetaOAuthAdvancedAccountDestinationAction
+              : setMetaManualAccountDestinationAction
+          }
+          setOAuthRoutingAction={setMetaOAuthAdvancedRoutingAction}
         />
         <div className="metric-grid compact">
           <div className="metric-card">
@@ -1073,11 +1132,14 @@ export default async function IntegrationsPage({
           <div className="metric-card">
             <span className="micro-label">Destino CAPI</span>
             <strong>
-              {manualConfigured
+              {manualConfigured &&
+              metaManualResult.data?.connectionMode === "manual"
                 ? `${metaManualResult.data?.destinations.length ?? 0} configurado(s)`
-                : metaAssets?.conversionDestination
-                  ? statusLabel(metaAssets.conversionDestination.status)
-                  : "Nao configurado"}
+                : oauthAdvancedEnabled
+                  ? `${metaManualResult.data?.destinations.length ?? 0} por BM`
+                  : metaAssets?.conversionDestination
+                    ? statusLabel(metaAssets.conversionDestination.status)
+                    : "Nao configurado"}
             </strong>
           </div>
           <div className="metric-card">
@@ -1102,8 +1164,16 @@ export default async function IntegrationsPage({
           <>
             <div className="meta-config-section">
               <div>
-                <span className="eyebrow">Destino de conversao</span>
-                <h2>Pixel e Pagina Facebook principal</h2>
+                <span className="eyebrow">
+                  {oauthAdvancedEnabled
+                    ? "Rota de retorno"
+                    : "Destino de conversao"}
+                </span>
+                <h2>
+                  {oauthAdvancedEnabled
+                    ? "Pixel e Pagina do destino principal"
+                    : "Pixel e Pagina Facebook principal"}
+                </h2>
               </div>
               <div className="metric-grid compact">
                 <div className="metric-card">
@@ -1133,46 +1203,54 @@ export default async function IntegrationsPage({
                   </strong>
                 </div>
               </div>
-              {canManageIntegrations ? (
+              {canManageIntegrations && !oauthAdvancedEnabled ? (
                 <MetaConversionDestinationForm
                   assets={metaAssets}
                   action={saveMetaConversionDestination}
                   loadBusinessAssetsAction={loadMetaBusinessDestinationAssets}
                 />
-              ) : (
+              ) : !oauthAdvancedEnabled ? (
                 <p className="muted">
                   {workspacePermissionsUnavailable
                     ? "Nao foi possivel confirmar as permissoes agora."
                     : "Sem permissao para alterar destino Meta"}
                 </p>
-              )}
-            </div>
-
-            <div className="meta-config-section">
-              <div>
-                <span className="eyebrow">Contas para relatorios</span>
-                <h2>Contas Meta sincronizadas nos relatorios</h2>
-              </div>
-              {canManageIntegrations ? (
-                <MetaReportingAccountsForm
-                  assets={metaAssets}
-                  action={saveMetaReportingAccount}
-                  loadBusinessAssetsAction={loadMetaBusinessReportingAssets}
-                  statusAction={setMetaReportingAccountStatus}
-                />
               ) : (
                 <p className="muted">
-                  {workspacePermissionsUnavailable
-                    ? "Nao foi possivel confirmar as permissoes agora."
-                    : "Sem permissao para alterar contas de relatorio"}
+                  O roteamento por BM esta ativo. Este destino volta a ser usado
+                  somente ao escolher Usar destino principal.
                 </p>
               )}
             </div>
+
+            {!oauthAdvancedEnabled ? (
+              <div className="meta-config-section">
+                <div>
+                  <span className="eyebrow">Contas para relatorios</span>
+                  <h2>Contas Meta sincronizadas nos relatorios</h2>
+                </div>
+                {canManageIntegrations ? (
+                  <MetaReportingAccountsForm
+                    assets={metaAssets}
+                    action={saveMetaReportingAccount}
+                    loadBusinessAssetsAction={loadMetaBusinessReportingAssets}
+                    statusAction={setMetaReportingAccountStatus}
+                  />
+                ) : (
+                  <p className="muted">
+                    {workspacePermissionsUnavailable
+                      ? "Nao foi possivel confirmar as permissoes agora."
+                      : "Sem permissao para alterar contas de relatorio"}
+                  </p>
+                )}
+              </div>
+            ) : null}
           </>
         ) : null}
         <p className="muted">
-          A conexao Meta fica protegida no backend. Esta tela mostra apenas o
-          destino unico de conversao e as contas ativas usadas nos relatorios.
+          {oauthAdvancedEnabled
+            ? "A conexao Meta fica protegida no backend. Cada conta ativa usa o Pixel e a Pagina vinculados a sua BM."
+            : "A conexao Meta fica protegida no backend. Esta tela mostra apenas o destino principal e as contas ativas usadas nos relatorios."}
         </p>
       </div>
 

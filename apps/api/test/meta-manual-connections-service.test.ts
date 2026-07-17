@@ -19,6 +19,19 @@ function createHarness(options?: {
   const encryption = new MetaTokenEncryptionService({
     META_TOKEN_ENCRYPTION_KEY: "manual-service-test-key",
   });
+  const oauthEncrypted = encryption.encrypt("EAAB-oauth-login-token");
+  const oauthIntegration = options?.legacyWorkspace
+    ? {
+        id: "legacy_1",
+        workspaceId: "workspace_barbieri",
+        status: "connected",
+        tokenType: "bearer",
+        scopes: ["business_management", "ads_management"],
+        expiresAt: null,
+        advancedRoutingEnabled: false,
+        ...oauthEncrypted,
+      }
+    : null;
   const adapter = {
     getTokenProfile: vi.fn(async () => ({
       id: "system_user_1",
@@ -94,9 +107,19 @@ function createHarness(options?: {
   };
   const prisma: Record<string, any> = {
     metaIntegration: {
-      findUnique: vi.fn(async () =>
-        options?.legacyWorkspace ? { id: "legacy_1" } : null,
-      ),
+      findUnique: vi.fn(async () => oauthIntegration),
+      updateMany: vi.fn(async ({ where, data }: any) => {
+        if (
+          !oauthIntegration ||
+          oauthIntegration.workspaceId !== where.workspaceId ||
+          (where.status && oauthIntegration.status !== where.status)
+        ) {
+          return { count: 0 };
+        }
+
+        Object.assign(oauthIntegration, data);
+        return { count: 1 };
+      }),
     },
     metaCredential: {
       findUnique: vi.fn(
@@ -111,7 +134,7 @@ function createHarness(options?: {
         async ({ where }: any) =>
           credentials.find(
             (item) =>
-              item.id === where.id &&
+              (where.id === undefined || item.id === where.id) &&
               item.workspaceId === where.workspaceId &&
               item.source === where.source,
           ) ?? null,
@@ -142,6 +165,17 @@ function createHarness(options?: {
           createdAt: now,
           updatedAt: now,
           ...create,
+        };
+        credentials.push(record);
+        return record;
+      }),
+      create: vi.fn(async ({ data }: any) => {
+        const record = {
+          id: `credential_${credentials.length + 1}`,
+          rotatedAt: null,
+          createdAt: now,
+          updatedAt: now,
+          ...data,
         };
         credentials.push(record);
         return record;
@@ -540,6 +574,161 @@ describe("MetaManualConnectionsService", () => {
     ).rejects.toBeInstanceOf(ConflictException);
     expect(adapter.getTokenProfile).not.toHaveBeenCalled();
     expect(credentials).toHaveLength(0);
+  });
+
+  it("prepares the current OAuth login for BM mappings without enabling routing", async () => {
+    const { audits, credentials, encryption, service } = createHarness({
+      legacyWorkspace: true,
+    });
+
+    const discovery = await service.prepareOAuthCredential(
+      "workspace_barbieri",
+      "user_owner",
+    );
+    const configuration =
+      await service.listOAuthConfiguration("workspace_barbieri");
+
+    expect(discovery).toMatchObject({
+      credential: {
+        source: "oauth",
+        label: "Login social Meta",
+        status: "active",
+      },
+      businesses: [{ id: "business_1", name: "BM Principal" }],
+    });
+    expect(configuration).toMatchObject({
+      connectionMode: "oauth",
+      advancedRoutingEnabled: false,
+      unmappedActiveAccountCount: 0,
+    });
+    expect(JSON.stringify(discovery)).not.toContain("EAAB-oauth-login-token");
+    expect(
+      encryption.decrypt({
+        encryptedAccessToken: String(credentials[0]?.encryptedAccessToken),
+        tokenIv: String(credentials[0]?.tokenIv),
+        tokenTag: String(credentials[0]?.tokenTag),
+      }),
+    ).toBe("EAAB-oauth-login-token");
+    expect(audits).toContainEqual(
+      expect.objectContaining({
+        action: "meta.oauth.advanced_credential_prepared",
+        actorUserId: "user_owner",
+      }),
+    );
+  });
+
+  it("activates and rolls back OAuth routing only after every active account is mapped", async () => {
+    const { audits, service } = createHarness({ legacyWorkspace: true });
+    const discovery =
+      await service.prepareOAuthCredential("workspace_barbieri");
+
+    const shadowConfiguration = await service.createOAuthBusinessConnection(
+      "workspace_barbieri",
+      {
+        credentialId: discovery.credential.id,
+        businessManagerId: "business_1",
+        businessManagerName: "BM Principal",
+        adAccountIds: ["act_1"],
+        destination: {
+          label: "Destino BM Principal",
+          pixelId: "pixel_1",
+          pageId: "page_1",
+        },
+      },
+      "user_owner",
+    );
+
+    expect(shadowConfiguration).toMatchObject({
+      connectionMode: "oauth",
+      advancedRoutingEnabled: false,
+      businessConnections: [
+        {
+          businessManagerId: "business_1",
+          activeReportingAccountCount: 1,
+        },
+      ],
+    });
+
+    const activeConfiguration = await service.setOAuthAdvancedRouting(
+      "workspace_barbieri",
+      { enabled: true },
+      "user_owner",
+    );
+    expect(activeConfiguration.advancedRoutingEnabled).toBe(true);
+
+    const rolledBackConfiguration = await service.setOAuthAdvancedRouting(
+      "workspace_barbieri",
+      { enabled: false },
+      "user_owner",
+    );
+    expect(rolledBackConfiguration.advancedRoutingEnabled).toBe(false);
+    expect(audits).toContainEqual(
+      expect.objectContaining({
+        action: "meta.oauth.advanced_routing_updated",
+        afterSummary: expect.objectContaining({
+          advancedRoutingEnabled: true,
+        }),
+      }),
+    );
+  });
+
+  it("blocks OAuth cutover while an active legacy account has no BM mapping", async () => {
+    const { accounts, service } = createHarness({ legacyWorkspace: true });
+    const discovery =
+      await service.prepareOAuthCredential("workspace_barbieri");
+    await service.createOAuthBusinessConnection("workspace_barbieri", {
+      credentialId: discovery.credential.id,
+      businessManagerId: "business_1",
+      businessManagerName: "BM Principal",
+      adAccountIds: ["act_1"],
+      destination: { pixelId: "pixel_1", pageId: "page_1" },
+    });
+    accounts.push({
+      id: "account_unmapped",
+      workspaceId: "workspace_barbieri",
+      businessId: "business_legacy",
+      businessName: "BM sem vinculo",
+      adAccountId: "act_unmapped",
+      adAccountName: "Conta sem vinculo",
+      currency: "BRL",
+      timezoneName: "America/Sao_Paulo",
+      businessConnectionId: null,
+      conversionDestinationId: null,
+      active: true,
+      syncStatus: "success",
+      lastSyncedAt: null,
+      lastSyncSince: null,
+      lastSyncUntil: null,
+      syncError: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      service.setOAuthAdvancedRouting("workspace_barbieri", { enabled: true }),
+    ).rejects.toThrow("ainda nao possuem uma BM e um destino");
+  });
+
+  it("blocks OAuth cutover while a mapped BM still requires validation", async () => {
+    const { connections, service } = createHarness({ legacyWorkspace: true });
+    const discovery =
+      await service.prepareOAuthCredential("workspace_barbieri");
+    await service.createOAuthBusinessConnection("workspace_barbieri", {
+      credentialId: discovery.credential.id,
+      businessManagerId: "business_1",
+      businessManagerName: "BM Principal",
+      adAccountIds: ["act_1"],
+      destination: { pixelId: "pixel_1", pageId: "page_1" },
+    });
+    connections[0].status = "validation_required";
+    connections[0].validationError =
+      "Revalide esta BM depois de renovar o login social Meta";
+
+    await expect(
+      service.setOAuthAdvancedRouting("workspace_barbieri", { enabled: true }),
+    ).rejects.toThrow(
+      "Todas as contas ativas precisam pertencer a uma BM ativa",
+    );
   });
 
   it("rejects tokens missing required scopes without persisting them", async () => {

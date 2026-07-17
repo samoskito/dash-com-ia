@@ -313,6 +313,243 @@ export async function setMetaManualAccountDestinationAction(
   }
 }
 
+export async function prepareMetaOAuthAdvancedCredentialAction(): Promise<MetaManualActionResult> {
+  try {
+    const discovery = await serverApiFetch<MetaManualAssetDiscoveryDto>(
+      "/integrations/meta/oauth/advanced/credential",
+      { method: "POST", body: "{}" },
+    );
+
+    revalidatePath("/integrations");
+    return {
+      ok: true,
+      message:
+        "Login social validado. Agora vincule cada BM as suas contas, Pixel e Pagina.",
+      discovery,
+    };
+  } catch (error) {
+    return failure(
+      error,
+      "Nao foi possivel preparar o login social para destinos por BM.",
+    );
+  }
+}
+
+export async function discoverMetaOAuthAdvancedAssetsAction(
+  credentialId: string,
+  businessId?: string | null,
+): Promise<MetaManualActionResult> {
+  try {
+    const query = businessId
+      ? `?businessId=${encodeURIComponent(businessId)}`
+      : "";
+    const discovery = await serverApiFetch<MetaManualAssetDiscoveryDto>(
+      `/integrations/meta/oauth/advanced/credentials/${encodeURIComponent(credentialId)}/assets${query}`,
+    );
+
+    return {
+      ok: true,
+      message: "Ativos do login social carregados.",
+      discovery,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel consultar os ativos desta conta.");
+  }
+}
+
+export async function createMetaOAuthAdvancedConnectionAction(
+  formData: FormData,
+): Promise<MetaManualActionResult> {
+  try {
+    const configuration = await serverApiFetch<MetaManualConfigurationDto>(
+      "/integrations/meta/oauth/advanced/connections",
+      {
+        method: "POST",
+        body: JSON.stringify(metaBusinessConnectionPayload(formData)),
+      },
+    );
+
+    revalidatePath("/integrations");
+    return {
+      ok: true,
+      message: configuration.advancedRoutingEnabled
+        ? "Estrutura atualizada e pronta para esta BM."
+        : "Estrutura salva para revisao. A rota atual continua sem alteracoes.",
+      configuration,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel salvar esta estrutura OAuth.");
+  }
+}
+
+export async function setMetaOAuthAdvancedConnectionStatusAction(
+  connectionId: string,
+  status: "active" | "paused",
+): Promise<MetaManualActionResult> {
+  try {
+    const configuration = await serverApiFetch<MetaManualConfigurationDto>(
+      `/integrations/meta/oauth/advanced/connections/${encodeURIComponent(connectionId)}/status`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ status }),
+      },
+    );
+
+    revalidatePath("/integrations");
+    return {
+      ok: true,
+      message:
+        status === "paused"
+          ? "BM pausada. As outras estruturas continuam ativas."
+          : "BM reativada.",
+      configuration,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel alterar esta estrutura OAuth.");
+  }
+}
+
+export async function testMetaOAuthAdvancedConnectionAction(
+  connectionId: string,
+): Promise<MetaManualActionResult> {
+  try {
+    const testResult = await serverApiFetch<MetaManualConnectionTestResultDto>(
+      `/integrations/meta/oauth/advanced/connections/${encodeURIComponent(connectionId)}/test`,
+      { method: "POST", body: "{}" },
+    );
+
+    revalidatePath("/integrations");
+    return {
+      ok: true,
+      message: testResult.message,
+      testResult,
+    };
+  } catch (error) {
+    return failure(error, "A estrutura nao passou na validacao da Meta.");
+  }
+}
+
+export async function removeMetaOAuthAdvancedConnectionAction(
+  connectionId: string,
+  businessManagerId: string,
+): Promise<MetaManualActionResult> {
+  try {
+    const configuration = await serverApiFetch<MetaManualConfigurationDto>(
+      `/integrations/meta/oauth/advanced/connections/${encodeURIComponent(connectionId)}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ businessManagerId }),
+      },
+    );
+
+    revalidatePath("/integrations");
+    revalidatePath("/reports");
+    return {
+      ok: true,
+      message:
+        "Vinculo removido. O destino principal e o historico foram preservados.",
+      configuration,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel remover este vinculo OAuth.");
+  }
+}
+
+export async function setMetaOAuthAdvancedAccountDestinationAction(
+  reportingAccountId: string,
+  conversionDestinationId: string | null,
+): Promise<MetaManualActionResult> {
+  try {
+    const configuration = await serverApiFetch<MetaManualConfigurationDto>(
+      `/integrations/meta/oauth/advanced/reporting-accounts/${encodeURIComponent(reportingAccountId)}/destination`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ conversionDestinationId }),
+      },
+    );
+
+    revalidatePath("/integrations");
+    return {
+      ok: true,
+      message: conversionDestinationId
+        ? "Destino especifico aplicado a esta conta."
+        : "A conta voltou a usar o destino padrao da BM.",
+      configuration,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel alterar o destino desta conta.");
+  }
+}
+
+export async function setMetaOAuthAdvancedRoutingAction(
+  enabled: boolean,
+): Promise<MetaManualActionResult> {
+  try {
+    const configuration = await serverApiFetch<MetaManualConfigurationDto>(
+      "/integrations/meta/oauth/advanced/routing",
+      {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      },
+    );
+    let syncQueued = true;
+
+    if (enabled) {
+      const period = initialManualMetaSyncPeriod();
+
+      try {
+        await serverApiFetch(
+          `/reports/meta/sync?since=${period.since}&until=${period.until}`,
+          { method: "POST" },
+        );
+      } catch {
+        syncQueued = false;
+      }
+    }
+
+    revalidatePath("/integrations");
+    revalidatePath("/reports");
+    return {
+      ok: true,
+      message: enabled
+        ? syncQueued
+          ? "Roteamento por BM ativado. A importacao inicial foi enfileirada."
+          : "Roteamento por BM ativado. Sincronize os relatorios manualmente."
+        : "Roteamento avancado desativado. O destino principal voltou a valer.",
+      configuration,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel alterar o roteamento OAuth.");
+  }
+}
+
+function metaBusinessConnectionPayload(formData: FormData) {
+  const destinationMode = requiredFormText(formData, "destinationMode");
+  const destination =
+    destinationMode === "existing"
+      ? {
+          existingDestinationId: requiredFormText(
+            formData,
+            "existingDestinationId",
+          ),
+        }
+      : {
+          label: optionalFormText(formData, "destinationLabel") ?? undefined,
+          ownerBusinessManagerId:
+            optionalFormText(formData, "ownerBusinessManagerId") ?? null,
+          pixelId: requiredFormText(formData, "pixelId"),
+          pageId: requiredFormText(formData, "pageId"),
+        };
+
+  return {
+    credentialId: requiredFormText(formData, "credentialId"),
+    businessManagerId: requiredFormText(formData, "businessManagerId"),
+    businessManagerName: requiredFormText(formData, "businessManagerName"),
+    adAccountIds: formData.getAll("adAccountIds").map(String).filter(Boolean),
+    destination,
+  };
+}
+
 function requiredFormText(formData: FormData, key: string): string {
   const value = optionalFormText(formData, key);
 

@@ -58,10 +58,25 @@ export class MetaAssetsService {
   async getConversionDestination(
     workspaceId: string,
   ): Promise<MetaConversionDestinationDto> {
-    const destination = (await this.prisma.metaConversionDestination.findFirst({
+    const integration = await this.prisma.metaIntegration.findUnique({
       where: { workspaceId },
-      orderBy: { updatedAt: "desc" },
-    })) as MetaConversionDestinationRecord | null;
+      select: { primaryConversionDestinationId: true },
+    });
+    const destination = (
+      integration
+        ? integration.primaryConversionDestinationId
+          ? await this.prisma.metaConversionDestination.findFirst({
+              where: {
+                id: integration.primaryConversionDestinationId,
+                workspaceId,
+              },
+            })
+          : null
+        : await this.prisma.metaConversionDestination.findFirst({
+            where: { workspaceId },
+            orderBy: { updatedAt: "desc" },
+          })
+    ) as MetaConversionDestinationRecord | null;
 
     return destination
       ? this.toConversionDestinationDto(destination)
@@ -83,19 +98,28 @@ export class MetaAssetsService {
       lastValidatedAt: now,
       validationError: null,
     };
-    const destination = (await this.prisma.metaConversionDestination.upsert({
-      where: {
-        workspaceId_pixelId_pageId: {
-          workspaceId,
-          pixelId: input.pixelId,
-          pageId: input.pageId,
+    const destination = (await this.prisma.$transaction(async (transaction) => {
+      const saved = await transaction.metaConversionDestination.upsert({
+        where: {
+          workspaceId_pixelId_pageId: {
+            workspaceId,
+            pixelId: input.pixelId,
+            pageId: input.pageId,
+          },
         },
-      },
-      create: {
-        workspaceId,
-        ...data,
-      },
-      update: data,
+        create: {
+          workspaceId,
+          ...data,
+        },
+        update: data,
+      });
+
+      await transaction.metaIntegration.updateMany({
+        where: { workspaceId },
+        data: { primaryConversionDestinationId: saved.id },
+      });
+
+      return saved;
     })) as MetaConversionDestinationRecord;
 
     await this.recordMetaAudit({

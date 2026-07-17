@@ -381,8 +381,15 @@ export const metaManualAccountDestinationInputSchema = z.object({
   conversionDestinationId: z.string().trim().min(1).nullable(),
 });
 
+export const metaOAuthAdvancedRoutingInputSchema = z.object({
+  enabled: z.boolean(),
+});
+
 export const metaManualConfigurationSchema = z.object({
   workspaceId: z.string().min(1),
+  connectionMode: z.enum(["manual", "oauth"]),
+  advancedRoutingEnabled: z.boolean(),
+  unmappedActiveAccountCount: z.number().int().nonnegative(),
   credentials: z.array(metaManualCredentialSchema),
   businessConnections: z.array(metaManualBusinessConnectionSchema),
   destinations: z.array(metaConversionDestinationSchema),
@@ -495,6 +502,9 @@ export type MetaManualConnectionTestResultDto = z.infer<
 >;
 export type MetaManualAccountDestinationInputDto = z.infer<
   typeof metaManualAccountDestinationInputSchema
+>;
+export type MetaOAuthAdvancedRoutingInputDto = z.infer<
+  typeof metaOAuthAdvancedRoutingInputSchema
 >;
 export type MetaManualConfigurationDto = z.infer<
   typeof metaManualConfigurationSchema

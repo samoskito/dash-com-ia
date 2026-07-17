@@ -6975,6 +6975,28 @@ button.meta-manual-entry[aria-expanded="true"] {
   background: rgba(255, 107, 95, 0.055);
 }
 
+.meta-manual-notice.warn {
+  border-color: var(--amber);
+  background: rgba(255, 215, 84, 0.055);
+}
+
+.meta-manual-notice > span {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.meta-manual-notice > span small {
+  color: var(--ink-muted);
+  line-height: 1.4;
+}
+
+.meta-manual-notice > .button {
+  width: auto;
+  flex: 0 0 auto;
+}
+
 .meta-advanced-list {
   display: grid;
   min-width: 0;
@@ -7213,8 +7235,14 @@ button.meta-manual-entry[aria-expanded="true"] {
   }
 
   .meta-rotate-form .button,
-  .meta-account-overrides .button {
+  .meta-account-overrides .button,
+  .meta-manual-notice > .button {
     width: 100%;
+  }
+
+  .meta-manual-notice {
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
 }
 

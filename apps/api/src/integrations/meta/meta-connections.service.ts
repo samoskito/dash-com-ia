@@ -2,7 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Inject,
-  Injectable
+  Injectable,
 } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
@@ -17,7 +17,7 @@ import type {
   MetaOAuthDisconnectInputDto,
   MetaOAuthDisconnectResultDto,
   MetaPageAssetDto,
-  MetaPixelAssetDto
+  MetaPixelAssetDto,
 } from "@wpptrack/shared";
 import { META_OAUTH_DISCONNECT_CONFIRMATION } from "@wpptrack/shared";
 import { PrismaService } from "../../common/prisma/prisma.service";
@@ -49,6 +49,8 @@ type MetaIntegrationRecord = {
   capiAccessTokenEncrypted: string | null;
   capiTokenIv: string | null;
   capiTokenTag: string | null;
+  primaryConversionDestinationId: string | null;
+  advancedRoutingEnabled: boolean;
   updatedAt: Date;
 };
 
@@ -112,12 +114,12 @@ const ROOT_SNAPSHOT_KEY = "root";
 export class MetaConnectionsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    private readonly encryption: MetaTokenEncryptionService
+    private readonly encryption: MetaTokenEncryptionService,
   ) {}
 
   async getConnection(workspaceId: string): Promise<MetaConnectionDto> {
     const connection = (await this.prisma.metaIntegration.findUnique({
-      where: { workspaceId }
+      where: { workspaceId },
     })) as MetaIntegrationRecord | null;
 
     if (!connection) {
@@ -131,7 +133,7 @@ export class MetaConnectionsService {
         selectedBusinessId: null,
         selectedAdAccountId: null,
         selectedPixelId: null,
-        capiTokenConfigured: false
+        capiTokenConfigured: false,
       };
     }
 
@@ -139,16 +141,16 @@ export class MetaConnectionsService {
   }
 
   async saveOAuthConnection(
-    input: SaveMetaConnectionInput
+    input: SaveMetaConnectionInput,
   ): Promise<MetaConnectionDto> {
     const manualCredential = await this.prisma.metaCredential.findFirst({
       where: { workspaceId: input.workspaceId, source: "manual" },
-      select: { id: true }
+      select: { id: true },
     });
 
     if (manualCredential) {
       throw new ConflictException(
-        "Este workspace ja iniciou uma conexao por token permanente. Remova a configuracao manual antes de conectar via OAuth"
+        "Este workspace ja iniciou uma conexao por token permanente. Remova a configuracao manual antes de conectar via OAuth",
       );
     }
 
@@ -165,16 +167,67 @@ export class MetaConnectionsService {
       tokenType: input.tokenType,
       scopes: input.scopes,
       expiresAt,
-      lastConnectedAt: connectedAt
+      lastConnectedAt: connectedAt,
     };
-    const connection = (await this.prisma.metaIntegration.upsert({
-      where: { workspaceId: input.workspaceId },
-      create: {
-        workspaceId: input.workspaceId,
-        ...data
-      },
-      update: data
-    })) as MetaIntegrationRecord;
+    const saved = await this.prisma.$transaction(async (transaction) => {
+      const normalizedOAuthCredential =
+        await transaction.metaCredential.findFirst({
+          where: { workspaceId: input.workspaceId, source: "oauth" },
+          orderBy: { createdAt: "asc" },
+          select: { id: true },
+        });
+      const savedConnection = await transaction.metaIntegration.upsert({
+        where: { workspaceId: input.workspaceId },
+        create: {
+          workspaceId: input.workspaceId,
+          ...data,
+        },
+        update: {
+          ...data,
+          ...(normalizedOAuthCredential
+            ? { advancedRoutingEnabled: false }
+            : {}),
+        },
+      });
+
+      if (normalizedOAuthCredential) {
+        await transaction.metaCredential.update({
+          where: { id: normalizedOAuthCredential.id },
+          data: {
+            encryptedAccessToken: encrypted.encryptedAccessToken,
+            tokenIv: encrypted.tokenIv,
+            tokenTag: encrypted.tokenTag,
+            encryptionKeyVersion: this.encryption.currentKeyVersion,
+            fingerprint: this.encryption.fingerprint(input.accessToken),
+            tokenLast4: this.encryption.tokenLast4(input.accessToken),
+            tokenType: input.tokenType ?? "oauth",
+            scopes: input.scopes,
+            expiresAt,
+            status: "active",
+            lastValidatedAt: connectedAt,
+            validationError: null,
+            rotatedAt: connectedAt,
+          },
+        });
+        await transaction.metaBusinessConnection.updateMany({
+          where: {
+            workspaceId: input.workspaceId,
+            credentialId: normalizedOAuthCredential.id,
+          },
+          data: {
+            status: "validation_required",
+            validationError:
+              "Valide esta BM novamente apos atualizar o login social",
+          },
+        });
+      }
+
+      return {
+        connection: savedConnection,
+        advancedRoutingRequiresReview: Boolean(normalizedOAuthCredential),
+      };
+    });
+    const connection = saved.connection as MetaIntegrationRecord;
     await this.recordMetaAudit({
       workspaceId: input.workspaceId,
       actorUserId: input.actorUserId ?? null,
@@ -184,8 +237,9 @@ export class MetaConnectionsService {
         status: "connected",
         tokenType: input.tokenType,
         scopes: input.scopes,
-        expiresAt: expiresAt?.toISOString() ?? null
-      } as Prisma.InputJsonValue
+        expiresAt: expiresAt?.toISOString() ?? null,
+        advancedRoutingRequiresReview: saved.advancedRoutingRequiresReview,
+      } as Prisma.InputJsonValue,
     });
 
     return this.toDto(connection);
@@ -198,7 +252,7 @@ export class MetaConnectionsService {
   }): Promise<MetaOAuthDisconnectResultDto> {
     if (input.request.expectedWorkspaceId !== input.workspaceId) {
       throw new ConflictException(
-        "O workspace da sessao mudou. Recarregue a pagina antes de desconectar a Meta"
+        "O workspace da sessao mudou. Recarregue a pagina antes de desconectar a Meta",
       );
     }
 
@@ -219,40 +273,91 @@ export class MetaConnectionsService {
           selectedBusinessId: true,
           selectedAdAccountId: true,
           selectedPixelId: true,
-          capiAccessTokenEncrypted: true
-        }
+          capiAccessTokenEncrypted: true,
+        },
       });
 
       if (!connection) {
         throw new ConflictException(
-          "A conexao OAuth deste workspace ja foi desconectada"
+          "A conexao OAuth deste workspace ja foi desconectada",
         );
       }
 
       const [assetSnapshots, reportingAccounts, conversionDestinations] =
         await Promise.all([
           transaction.metaAssetSnapshot.count({
-            where: { workspaceId: input.workspaceId }
+            where: { workspaceId: input.workspaceId },
           }),
           transaction.metaReportingAccount.count({
-            where: { workspaceId: input.workspaceId }
+            where: { workspaceId: input.workspaceId },
           }),
           transaction.metaConversionDestination.count({
-            where: { workspaceId: input.workspaceId }
-          })
+            where: { workspaceId: input.workspaceId },
+          }),
         ]);
+      const oauthCredentials = await transaction.metaCredential.findMany({
+        where: { workspaceId: input.workspaceId, source: "oauth" },
+        select: { id: true },
+      });
+      const oauthCredentialIds = oauthCredentials.map(
+        (credential) => credential.id,
+      );
+
+      if (oauthCredentialIds.length > 0) {
+        const oauthConnections =
+          await transaction.metaBusinessConnection.findMany({
+            where: {
+              workspaceId: input.workspaceId,
+              credentialId: { in: oauthCredentialIds },
+            },
+            select: { id: true },
+          });
+        const oauthConnectionIds = oauthConnections.map(
+          (metaConnection) => metaConnection.id,
+        );
+
+        if (oauthConnectionIds.length > 0) {
+          await transaction.metaReportingAccount.updateMany({
+            where: {
+              workspaceId: input.workspaceId,
+              businessConnectionId: { in: oauthConnectionIds },
+            },
+            data: {
+              active: false,
+              businessConnectionId: null,
+              conversionDestinationId: null,
+              syncStatus: "pending",
+              syncError: null,
+            },
+          });
+          await transaction.metaBusinessConnection.deleteMany({
+            where: {
+              workspaceId: input.workspaceId,
+              id: { in: oauthConnectionIds },
+            },
+          });
+        }
+
+        await transaction.metaCredential.deleteMany({
+          where: {
+            workspaceId: input.workspaceId,
+            source: "oauth",
+            id: { in: oauthCredentialIds },
+          },
+        });
+      }
       const deleted = await transaction.metaIntegration.deleteMany({
-        where: { workspaceId: input.workspaceId }
+        where: { workspaceId: input.workspaceId },
       });
 
       if (deleted.count !== 1) {
         throw new ConflictException(
-          "A conexao Meta mudou durante a desconexao. Recarregue a pagina"
+          "A conexao Meta mudou durante a desconexao. Recarregue a pagina",
         );
       }
 
       await transaction.metaOAuthState.deleteMany({
-        where: { workspaceId: input.workspaceId }
+        where: { workspaceId: input.workspaceId },
       });
       await transaction.auditLog.create({
         data: {
@@ -273,7 +378,7 @@ export class MetaConnectionsService {
             selectedBusinessId: connection.selectedBusinessId,
             selectedAdAccountId: connection.selectedAdAccountId,
             selectedPixelId: connection.selectedPixelId,
-            capiTokenConfigured: Boolean(connection.capiAccessTokenEncrypted)
+            capiTokenConfigured: Boolean(connection.capiAccessTokenEncrypted),
           },
           afterSummary: {
             status: "not_connected",
@@ -281,10 +386,10 @@ export class MetaConnectionsService {
             preserved: {
               assetSnapshots,
               reportingAccounts,
-              conversionDestinations
-            }
-          }
-        }
+              conversionDestinations,
+            },
+          },
+        },
       });
 
       return {
@@ -294,8 +399,8 @@ export class MetaConnectionsService {
         preserved: {
           assetSnapshots,
           reportingAccounts,
-          conversionDestinations
-        }
+          conversionDestinations,
+        },
       };
     });
   }
@@ -309,11 +414,11 @@ export class MetaConnectionsService {
       | "listBusinessPixels"
       | "listBusinessPages"
     >,
-    requestedBusinessId?: string | null
+    requestedBusinessId?: string | null,
   ): Promise<MetaAssetsDto> {
     const startedAt = Date.now();
     const connection = (await this.prisma.metaIntegration.findUnique({
-      where: { workspaceId }
+      where: { workspaceId },
     })) as MetaIntegrationRecord | null;
 
     if (!connection) {
@@ -323,7 +428,7 @@ export class MetaConnectionsService {
     try {
       const rootSnapshot = await this.findAssetSnapshot(
         workspaceId,
-        ROOT_SNAPSHOT_KEY
+        ROOT_SNAPSHOT_KEY,
       );
       const selectedBusinessId =
         requestedBusinessId?.trim() || connection.selectedBusinessId;
@@ -334,13 +439,13 @@ export class MetaConnectionsService {
         workspaceId,
         connection,
         rootSnapshot,
-        businessSnapshot
+        businessSnapshot,
       );
 
       this.logSlowAssetList(
         assets,
         Date.now() - startedAt,
-        requestedBusinessId
+        requestedBusinessId,
       );
 
       return assets;
@@ -350,13 +455,13 @@ export class MetaConnectionsService {
         "error",
         error instanceof Error
           ? error.message
-          : "Erro ao sincronizar ativos Meta"
+          : "Erro ao sincronizar ativos Meta",
       );
 
       this.logSlowAssetList(
         result,
         Date.now() - startedAt,
-        requestedBusinessId
+        requestedBusinessId,
       );
 
       return result;
@@ -373,10 +478,10 @@ export class MetaConnectionsService {
       | "listBusinessPages"
     >,
     requestedBusinessId?: string | null,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaAssetsDto> {
     const connection = (await this.prisma.metaIntegration.findUnique({
-      where: { workspaceId }
+      where: { workspaceId },
     })) as MetaIntegrationRecord | null;
 
     if (!connection) {
@@ -388,13 +493,13 @@ export class MetaConnectionsService {
       const accessToken = this.encryption.decrypt({
         encryptedAccessToken: connection.encryptedAccessToken,
         tokenIv: connection.tokenIv,
-        tokenTag: connection.tokenTag
+        tokenTag: connection.tokenTag,
       });
       const businesses = await metaAdapter.listBusinesses({ accessToken });
       const preferredBusinessId =
         requestedBusinessId?.trim() || connection.selectedBusinessId;
       const selectedBusinessId = businesses.some(
-        (business) => business.id === preferredBusinessId
+        (business) => business.id === preferredBusinessId,
       )
         ? preferredBusinessId
         : (businesses[0]?.id ?? null);
@@ -410,37 +515,37 @@ export class MetaConnectionsService {
             metaAdapter
               .listOwnedAdAccounts({
                 accessToken,
-                businessId: selectedBusinessId
+                businessId: selectedBusinessId,
               })
               .then((items) =>
                 items.map((adAccount) => ({
                   ...adAccount,
-                  businessId: adAccount.businessId ?? selectedBusinessId
-                }))
+                  businessId: adAccount.businessId ?? selectedBusinessId,
+                })),
               ),
             metaAdapter
               .listBusinessPixels({
                 accessToken,
-                businessId: selectedBusinessId
+                businessId: selectedBusinessId,
               })
               .then((items) =>
                 items.map((pixel) => ({
                   ...pixel,
                   businessId: pixel.businessId ?? selectedBusinessId,
-                  code: null
-                }))
+                  code: null,
+                })),
               ),
             metaAdapter
               .listBusinessPages({
                 accessToken,
-                businessId: selectedBusinessId
+                businessId: selectedBusinessId,
               })
               .then((items) =>
                 items.map((page) => ({
                   ...page,
-                  businessId: page.businessId ?? selectedBusinessId
-                }))
-              )
+                  businessId: page.businessId ?? selectedBusinessId,
+                })),
+              ),
           ]);
         const failedAssets: string[] = [];
 
@@ -477,7 +582,7 @@ export class MetaConnectionsService {
         pixels: [],
         pages: [],
         syncError: null,
-        syncedAt
+        syncedAt,
       });
       const businessSnapshot =
         selectedBusinessId && selectedBusinessExists
@@ -491,13 +596,13 @@ export class MetaConnectionsService {
               pixels,
               pages,
               syncError: businessSyncError,
-              syncedAt
+              syncedAt,
             })
           : null;
       const shouldPersistRequestedBusiness = Boolean(
         requestedBusinessId?.trim() &&
         selectedBusinessId &&
-        selectedBusinessId !== connection.selectedBusinessId
+        selectedBusinessId !== connection.selectedBusinessId,
       );
       const activeConnection = shouldPersistRequestedBusiness
         ? ((await this.prisma.metaIntegration.update({
@@ -505,15 +610,15 @@ export class MetaConnectionsService {
             data: {
               selectedBusinessId,
               selectedAdAccountId: null,
-              selectedPixelId: null
-            }
+              selectedPixelId: null,
+            },
           })) as MetaIntegrationRecord)
         : connection;
       const result = this.assetsFromSnapshots(
         workspaceId,
         activeConnection,
         rootSnapshot,
-        businessSnapshot
+        businessSnapshot,
       );
 
       await this.recordMetaAudit({
@@ -526,8 +631,8 @@ export class MetaConnectionsService {
           businesses: result.businesses.length,
           adAccounts: result.adAccounts.length,
           pixels: result.pixels.length,
-          pages: (result.pages ?? []).length
-        } as Prisma.InputJsonValue
+          pages: (result.pages ?? []).length,
+        } as Prisma.InputJsonValue,
       });
 
       return result;
@@ -547,7 +652,7 @@ export class MetaConnectionsService {
         pixels: [],
         pages: [],
         syncError: message,
-        syncedAt: new Date()
+        syncedAt: new Date(),
       });
 
       return this.emptyAssets(workspaceId, "error", message);
@@ -557,15 +662,15 @@ export class MetaConnectionsService {
   async saveAssetSelection(
     workspaceId: string,
     input: MetaAssetSelectionInputDto,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaConnectionDto> {
     const connection = (await this.prisma.metaIntegration.update({
       where: { workspaceId },
       data: {
         selectedBusinessId: input.businessId,
         selectedAdAccountId: input.adAccountId,
-        selectedPixelId: input.pixelId
-      }
+        selectedPixelId: input.pixelId,
+      },
     })) as MetaIntegrationRecord;
     await this.recordMetaAudit({
       workspaceId,
@@ -575,8 +680,8 @@ export class MetaConnectionsService {
       afterSummary: {
         businessId: input.businessId,
         adAccountId: input.adAccountId,
-        pixelId: input.pixelId
-      } as Prisma.InputJsonValue
+        pixelId: input.pixelId,
+      } as Prisma.InputJsonValue,
     });
 
     return this.toDto(connection);
@@ -585,7 +690,7 @@ export class MetaConnectionsService {
   async saveCapiToken(
     workspaceId: string,
     input: MetaCapiTokenInputDto,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<MetaCapiTokenStatusDto> {
     const encrypted = input.clear
       ? null
@@ -596,13 +701,13 @@ export class MetaConnectionsService {
         ? {
             capiAccessTokenEncrypted: null,
             capiTokenIv: null,
-            capiTokenTag: null
+            capiTokenTag: null,
           }
         : {
             capiAccessTokenEncrypted: encrypted?.encryptedAccessToken,
             capiTokenIv: encrypted?.tokenIv,
-            capiTokenTag: encrypted?.tokenTag
-          }
+            capiTokenTag: encrypted?.tokenTag,
+          },
     })) as MetaIntegrationRecord;
     const configured = Boolean(connection.capiAccessTokenEncrypted);
 
@@ -614,14 +719,16 @@ export class MetaConnectionsService {
       afterSummary: {
         configured,
         tokenLast4:
-          !input.clear && input.accessToken ? input.accessToken.slice(-4) : null
-      } as Prisma.InputJsonValue
+          !input.clear && input.accessToken
+            ? input.accessToken.slice(-4)
+            : null,
+      } as Prisma.InputJsonValue,
     });
 
     return {
       workspaceId: connection.workspaceId,
       configured,
-      updatedAt: connection.updatedAt.toISOString()
+      updatedAt: connection.updatedAt.toISOString(),
     };
   }
 
@@ -645,8 +752,8 @@ export class MetaConnectionsService {
           sourceIp: null,
           resultStatus: input.resultStatus,
           beforeSummary: undefined,
-          afterSummary: input.afterSummary
-        }
+          afterSummary: input.afterSummary,
+        },
       });
     } catch {
       return;
@@ -656,7 +763,7 @@ export class MetaConnectionsService {
   private emptyAssets(
     workspaceId: string,
     status: MetaConnectionStatusDto,
-    syncError: string | null
+    syncError: string | null,
   ): MetaAssetsDto {
     return {
       workspaceId,
@@ -668,10 +775,10 @@ export class MetaConnectionsService {
       selection: {
         businessId: null,
         adAccountId: null,
-        pixelId: null
+        pixelId: null,
       },
       lastSyncedAt: null,
-      syncError
+      syncError,
     };
   }
 
@@ -686,7 +793,7 @@ export class MetaConnectionsService {
       selectedBusinessId: record.selectedBusinessId,
       selectedAdAccountId: record.selectedAdAccountId,
       selectedPixelId: record.selectedPixelId,
-      capiTokenConfigured: Boolean(record.capiAccessTokenEncrypted)
+      capiTokenConfigured: Boolean(record.capiAccessTokenEncrypted),
     };
   }
 
@@ -712,15 +819,15 @@ export class MetaConnectionsService {
 
   private async findAssetSnapshot(
     workspaceId: string,
-    snapshotKey: string
+    snapshotKey: string,
   ): Promise<MetaAssetSnapshotRecord | null> {
     return this.metaAssetSnapshots.findUnique({
       where: {
         workspaceId_snapshotKey: {
           workspaceId,
-          snapshotKey
-        }
-      }
+          snapshotKey,
+        },
+      },
     });
   }
 
@@ -744,22 +851,22 @@ export class MetaConnectionsService {
       pixels: input.pixels as Prisma.InputJsonValue,
       pages: input.pages as Prisma.InputJsonValue,
       syncError: input.syncError,
-      syncedAt: input.syncedAt
+      syncedAt: input.syncedAt,
     };
 
     return this.metaAssetSnapshots.upsert({
       where: {
         workspaceId_snapshotKey: {
           workspaceId: input.workspaceId,
-          snapshotKey: input.snapshotKey
-        }
+          snapshotKey: input.snapshotKey,
+        },
       },
       create: {
         workspaceId: input.workspaceId,
         snapshotKey: input.snapshotKey,
-        ...data
+        ...data,
       },
-      update: data
+      update: data,
     });
   }
 
@@ -767,7 +874,7 @@ export class MetaConnectionsService {
     workspaceId: string,
     connection: MetaIntegrationRecord,
     rootSnapshot: MetaAssetSnapshotRecord | null,
-    businessSnapshot: MetaAssetSnapshotRecord | null
+    businessSnapshot: MetaAssetSnapshotRecord | null,
   ): MetaAssetsDto {
     const mostSpecificSnapshot = businessSnapshot ?? rootSnapshot;
 
@@ -775,20 +882,20 @@ export class MetaConnectionsService {
       workspaceId,
       status: this.toStatus(connection.status),
       businesses: this.snapshotArray<MetaBusinessAssetDto>(
-        rootSnapshot?.businesses
+        rootSnapshot?.businesses,
       ),
       adAccounts: this.snapshotArray<MetaAdAccountAssetDto>(
-        businessSnapshot?.adAccounts
+        businessSnapshot?.adAccounts,
       ),
       pixels: this.snapshotArray<MetaPixelAssetDto>(businessSnapshot?.pixels),
       pages: this.snapshotArray<MetaPageAssetDto>(businessSnapshot?.pages),
       selection: {
         businessId: connection.selectedBusinessId,
         adAccountId: connection.selectedAdAccountId,
-        pixelId: connection.selectedPixelId
+        pixelId: connection.selectedPixelId,
       },
       lastSyncedAt: mostSpecificSnapshot?.syncedAt?.toISOString() ?? null,
-      syncError: businessSnapshot?.syncError ?? rootSnapshot?.syncError ?? null
+      syncError: businessSnapshot?.syncError ?? rootSnapshot?.syncError ?? null,
     };
   }
 
@@ -799,7 +906,7 @@ export class MetaConnectionsService {
   private logSlowAssetList(
     result: MetaAssetsDto,
     durationMs: number,
-    requestedBusinessId?: string | null
+    requestedBusinessId?: string | null,
   ): void {
     const thresholdMs = Number(process.env.META_ASSETS_SLOW_LOG_MS ?? 1500);
 
@@ -814,7 +921,7 @@ export class MetaConnectionsService {
       businesses: result.businesses.length,
       adAccounts: result.adAccounts.length,
       pixels: result.pixels.length,
-      pages: (result.pages ?? []).length
+      pages: (result.pages ?? []).length,
     });
   }
 }

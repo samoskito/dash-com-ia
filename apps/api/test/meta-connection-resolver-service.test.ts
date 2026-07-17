@@ -11,45 +11,104 @@ function createHarness() {
     META_TOKEN_ENCRYPTION_KEY: "resolver-test-key",
   });
   const legacyEncrypted = encryptedToken(encryption, "legacy-token");
+  const oauthAdvancedEncrypted = encryptedToken(
+    encryption,
+    "oauth-advanced-token",
+  );
+  const oauthAdvancedCapiEncrypted = encryptedToken(
+    encryption,
+    "oauth-advanced-capi-token",
+  );
   const manualEncrypted = encryptedToken(encryption, "manual-token");
   const prisma = {
     metaIntegration: {
       findUnique: vi.fn(
-        async ({ where }: { where: { workspaceId: string } }) =>
-          where.workspaceId === "workspace_legacy"
-            ? {
-                ...legacyEncrypted,
-                capiAccessTokenEncrypted: null,
-                capiTokenIv: null,
-                capiTokenTag: null,
-                selectedBusinessId: "business_legacy",
-                selectedAdAccountId: "act_legacy",
-                selectedPixelId: "pixel_legacy",
-                status: "connected",
-              }
-            : null,
+        async ({ where }: { where: { workspaceId: string } }) => {
+          if (where.workspaceId === "workspace_legacy") {
+            return {
+              ...legacyEncrypted,
+              capiAccessTokenEncrypted: null,
+              capiTokenIv: null,
+              capiTokenTag: null,
+              selectedBusinessId: "business_legacy",
+              selectedAdAccountId: "act_legacy",
+              selectedPixelId: "pixel_legacy",
+              primaryConversionDestinationId: "destination_legacy",
+              advancedRoutingEnabled: false,
+              status: "connected",
+            };
+          }
+
+          if (where.workspaceId === "workspace_oauth_advanced") {
+            return {
+              ...oauthAdvancedEncrypted,
+              capiAccessTokenEncrypted:
+                oauthAdvancedCapiEncrypted.encryptedAccessToken,
+              capiTokenIv: oauthAdvancedCapiEncrypted.tokenIv,
+              capiTokenTag: oauthAdvancedCapiEncrypted.tokenTag,
+              selectedBusinessId: "business_oauth",
+              selectedAdAccountId: "act_oauth",
+              selectedPixelId: "pixel_primary",
+              primaryConversionDestinationId: "destination_primary",
+              advancedRoutingEnabled: true,
+              status: "connected",
+            };
+          }
+
+          return null;
+        },
       ),
     },
     metaBusinessConnection: {
       count: vi.fn(async ({ where }: { where: { workspaceId: string } }) =>
-        where.workspaceId === "workspace_manual" ? 1 : 0,
+        [
+          "workspace_manual",
+          "workspace_legacy",
+          "workspace_oauth_advanced",
+        ].includes(where.workspaceId)
+          ? 1
+          : 0,
       ),
       findFirst: vi.fn(
-        async ({ where }: { where: { id: string; workspaceId: string } }) =>
-          where.workspaceId === "workspace_manual" &&
-          where.id === "connection_manual"
-            ? {
-                id: "connection_manual",
-                workspaceId: "workspace_manual",
-                credentialId: "credential_manual",
+        async ({ where }: { where: { id: string; workspaceId: string } }) => {
+          if (
+            where.workspaceId === "workspace_manual" &&
+            where.id === "connection_manual"
+          ) {
+            return {
+              id: "connection_manual",
+              workspaceId: "workspace_manual",
+              credentialId: "credential_manual",
+              status: "active",
+              defaultConversionDestinationId: "destination_default",
+              credential: {
+                ...manualEncrypted,
+                source: "manual",
                 status: "active",
-                defaultConversionDestinationId: "destination_default",
-                credential: {
-                  ...manualEncrypted,
-                  status: "active",
-                },
-              }
-            : null,
+              },
+            };
+          }
+
+          if (
+            where.workspaceId === "workspace_oauth_advanced" &&
+            where.id === "connection_oauth"
+          ) {
+            return {
+              id: "connection_oauth",
+              workspaceId: "workspace_oauth_advanced",
+              credentialId: "credential_oauth",
+              status: "active",
+              defaultConversionDestinationId: "destination_oauth",
+              credential: {
+                ...oauthAdvancedEncrypted,
+                source: "oauth",
+                status: "active",
+              },
+            };
+          }
+
+          return null;
+        },
       ),
     },
     metaReportingAccount: {
@@ -82,7 +141,21 @@ function createHarness() {
               id: "reporting_legacy",
               workspaceId: "workspace_legacy",
               adAccountId: "act_legacy",
-              businessConnectionId: null,
+              businessConnectionId: "connection_oauth_shadow",
+            };
+          }
+
+          if (
+            where.workspaceId === "workspace_oauth_advanced" &&
+            (where.adAccountId === "act_oauth" ||
+              where.id === "reporting_oauth")
+          ) {
+            return {
+              id: "reporting_oauth",
+              workspaceId: "workspace_oauth_advanced",
+              adAccountId: "act_oauth",
+              businessConnectionId: "connection_oauth",
+              conversionDestinationId: null,
             };
           }
 
@@ -100,7 +173,17 @@ function createHarness() {
                 conversionDestinationId: "destination_override",
               },
             ]
-          : [],
+          : where.workspaceId === "workspace_oauth_advanced"
+            ? [
+                {
+                  id: "reporting_oauth",
+                  workspaceId: "workspace_oauth_advanced",
+                  adAccountId: "act_oauth",
+                  businessConnectionId: "connection_oauth",
+                  conversionDestinationId: null,
+                },
+              ]
+            : [],
       ),
       count: vi.fn(async ({ where }: { where: { workspaceId: string } }) =>
         where.workspaceId === "workspace_legacy" ? 1 : 0,
@@ -126,6 +209,18 @@ function createHarness() {
               id: "destination_legacy",
               pixelId: "pixel_legacy",
               pageId: "page_legacy",
+            };
+          }
+
+          if (
+            where.workspaceId === "workspace_oauth_advanced" &&
+            where.id === "destination_oauth"
+          ) {
+            return {
+              id: "destination_oauth",
+              pixelId: "pixel_oauth",
+              pageId: "page_oauth",
+              status: "configured",
             };
           }
 
@@ -241,6 +336,40 @@ describe("MetaConnectionResolverService", () => {
       accessToken: "legacy-token",
       pixelId: "pixel_legacy",
       pageId: "page_legacy",
+    });
+  });
+
+  it("uses the selected BM destination only after OAuth advanced routing is enabled", async () => {
+    const { service } = createHarness();
+
+    await expect(
+      service.resolveReportingRoute({
+        workspaceId: "workspace_oauth_advanced",
+        reportingAccountId: "reporting_oauth",
+        businessConnectionId: "connection_oauth",
+      }),
+    ).resolves.toMatchObject({
+      source: "legacy_oauth",
+      accessToken: "oauth-advanced-token",
+      reportingAccountId: "reporting_oauth",
+      businessConnectionId: "connection_oauth",
+    });
+    await expect(
+      service.resolveCapiRoute({
+        workspaceId: "workspace_oauth_advanced",
+        metaAccountId: "act_oauth",
+      }),
+    ).resolves.toEqual({
+      source: "legacy_oauth",
+      workspaceId: "workspace_oauth_advanced",
+      accessToken: "oauth-advanced-capi-token",
+      reportingAccountId: "reporting_oauth",
+      adAccountId: "act_oauth",
+      businessConnectionId: "connection_oauth",
+      credentialId: "credential_oauth",
+      conversionDestinationId: "destination_oauth",
+      pixelId: "pixel_oauth",
+      pageId: "page_oauth",
     });
   });
 
