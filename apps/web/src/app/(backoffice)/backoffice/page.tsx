@@ -10,7 +10,7 @@ import type {
   DiagnosticSummaryDto,
   DiagnosticWebhookLogDto,
   SplitReceiverDto,
-  WorkspaceBillingDto
+  WorkspaceBillingDto,
 } from "@wpptrack/shared";
 import { Activity, ArrowRight, CreditCard, MessageCircle } from "lucide-react";
 import { revalidatePath } from "next/cache";
@@ -103,7 +103,7 @@ type ResourceResult<T> = {
 };
 
 async function getDiagnosticEvents(
-  filters: DiagnosticFilters
+  filters: DiagnosticFilters,
 ): Promise<ResourceResult<DiagnosticEventDto[]>> {
   try {
     const params = new URLSearchParams({ limit: "25" });
@@ -115,23 +115,23 @@ async function getDiagnosticEvents(
     }
 
     const events = await serverApiFetch<DiagnosticEventDto[]>(
-      `/backoffice/diagnostics/events?${params.toString()}`
+      `/backoffice/diagnostics/events?${params.toString()}`,
     );
 
     return {
       data: events,
-      state: events.length > 0 ? "real" : "empty"
+      state: events.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
 
 async function getDiagnosticSummary(
-  filters: DiagnosticSummaryFilters
+  filters: DiagnosticSummaryFilters,
 ): Promise<ResourceResult<DiagnosticSummaryDto | null>> {
   try {
     const params = new URLSearchParams();
@@ -143,23 +143,23 @@ async function getDiagnosticSummary(
     }
 
     const summary = await serverApiFetch<DiagnosticSummaryDto>(
-      `/backoffice/diagnostics/summary?${params.toString()}`
+      `/backoffice/diagnostics/summary?${params.toString()}`,
     );
 
     return {
       data: summary,
-      state: "real"
+      state: "real",
     };
   } catch {
     return {
       data: null,
-      state: "empty"
+      state: "empty",
     };
   }
 }
 
 async function getWebhookLogs(
-  filters: WebhookLogFilters
+  filters: WebhookLogFilters,
 ): Promise<ResourceResult<DiagnosticWebhookLogDto[]>> {
   try {
     const params = new URLSearchParams({ limit: "10" });
@@ -171,23 +171,23 @@ async function getWebhookLogs(
     }
 
     const webhooks = await serverApiFetch<DiagnosticWebhookLogDto[]>(
-      `/backoffice/diagnostics/webhooks?${params.toString()}`
+      `/backoffice/diagnostics/webhooks?${params.toString()}`,
     );
 
     return {
       data: webhooks,
-      state: webhooks.length > 0 ? "real" : "empty"
+      state: webhooks.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
 
 async function getJobAttempts(
-  filters: JobAttemptFilters
+  filters: JobAttemptFilters,
 ): Promise<ResourceResult<DiagnosticJobAttemptDto[]>> {
   try {
     const params = new URLSearchParams({ limit: "10" });
@@ -199,23 +199,23 @@ async function getJobAttempts(
     }
 
     const jobs = await serverApiFetch<DiagnosticJobAttemptDto[]>(
-      `/backoffice/diagnostics/jobs?${params.toString()}`
+      `/backoffice/diagnostics/jobs?${params.toString()}`,
     );
 
     return {
       data: jobs,
-      state: jobs.length > 0 ? "real" : "empty"
+      state: jobs.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
 
 async function getIntegrationLogs(
-  filters: IntegrationLogFilters
+  filters: IntegrationLogFilters,
 ): Promise<ResourceResult<DiagnosticIntegrationLogDto[]>> {
   try {
     const params = new URLSearchParams({ limit: "10" });
@@ -227,23 +227,23 @@ async function getIntegrationLogs(
     }
 
     const logs = await serverApiFetch<DiagnosticIntegrationLogDto[]>(
-      `/backoffice/diagnostics/integrations?${params.toString()}`
+      `/backoffice/diagnostics/integrations?${params.toString()}`,
     );
 
     return {
       data: logs,
-      state: logs.length > 0 ? "real" : "empty"
+      state: logs.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
 
 async function getConversionEventLogs(
-  filters: ConversionEventLogFilters
+  filters: ConversionEventLogFilters,
 ): Promise<ResourceResult<DiagnosticConversionEventLogDto[]>> {
   try {
     const params = new URLSearchParams({ limit: "10" });
@@ -255,23 +255,23 @@ async function getConversionEventLogs(
     }
 
     const logs = await serverApiFetch<DiagnosticConversionEventLogDto[]>(
-      `/backoffice/diagnostics/conversions?${params.toString()}`
+      `/backoffice/diagnostics/conversions?${params.toString()}`,
     );
 
     return {
       data: logs,
-      state: logs.length > 0 ? "real" : "empty"
+      state: logs.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
 
 async function getAuditLogs(
-  filters: AuditLogFilters
+  filters: AuditLogFilters,
 ): Promise<ResourceResult<DiagnosticAuditLogDto[]>> {
   try {
     const params = new URLSearchParams({ limit: "10" });
@@ -287,55 +287,63 @@ async function getAuditLogs(
     }
 
     const logs = await serverApiFetch<DiagnosticAuditLogDto[]>(
-      `/backoffice/diagnostics/audit?${params.toString()}`
+      `/backoffice/diagnostics/audit?${params.toString()}`,
     );
 
     return {
       data: logs,
-      state: logs.length > 0 ? "real" : "empty"
+      state: logs.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
 
-async function getSplitReceivers(): Promise<ResourceResult<SplitReceiverDto[]>> {
+async function getSplitReceivers(): Promise<
+  ResourceResult<SplitReceiverDto[]>
+> {
   try {
-    const receivers = await serverApiFetch<SplitReceiverDto[]>("/backoffice/split/receivers");
+    const receivers = await serverApiFetch<SplitReceiverDto[]>(
+      "/backoffice/split/receivers",
+    );
 
     return {
       data: receivers,
-      state: receivers.length > 0 ? "real" : "empty"
+      state: receivers.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
 
-async function getWorkspaceBilling(): Promise<ResourceResult<WorkspaceBillingDto[]>> {
+async function getWorkspaceBilling(): Promise<
+  ResourceResult<WorkspaceBillingDto[]>
+> {
   try {
-    const workspaces = await serverApiFetch<WorkspaceBillingDto[]>("/backoffice/workspaces/billing");
+    const workspaces = await serverApiFetch<WorkspaceBillingDto[]>(
+      "/backoffice/workspaces/billing",
+    );
 
     return {
       data: workspaces,
-      state: workspaces.length > 0 ? "real" : "empty"
+      state: workspaces.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
 
 async function getPaymentCharges(
-  filters: PaymentChargeFilters
+  filters: PaymentChargeFilters,
 ): Promise<ResourceResult<BackofficePaymentChargeDto[]>> {
   try {
     const params = new URLSearchParams();
@@ -350,17 +358,17 @@ async function getPaymentCharges(
 
     const suffix = params.toString() ? `?${params.toString()}` : "";
     const charges = await serverApiFetch<BackofficePaymentChargeDto[]>(
-      `/backoffice/billing/charges${suffix}`
+      `/backoffice/billing/charges${suffix}`,
     );
 
     return {
       data: charges,
-      state: charges.length > 0 ? "real" : "empty"
+      state: charges.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
@@ -370,35 +378,37 @@ async function getSubscriptionPlans(): Promise<
 > {
   try {
     const plans = await serverApiFetch<BackofficeSubscriptionPlanDto[]>(
-      "/backoffice/billing/plans"
+      "/backoffice/billing/plans",
     );
 
     return {
       data: plans,
-      state: plans.length > 0 ? "real" : "empty"
+      state: plans.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
 
-async function getBackofficeWhatsappInstances(): Promise<ResourceResult<BackofficeWhatsappInstanceDto[]>> {
+async function getBackofficeWhatsappInstances(): Promise<
+  ResourceResult<BackofficeWhatsappInstanceDto[]>
+> {
   try {
     const instances = await serverApiFetch<BackofficeWhatsappInstanceDto[]>(
-      "/backoffice/workspaces/whatsapp-instances"
+      "/backoffice/workspaces/whatsapp-instances",
     );
 
     return {
       data: instances,
-      state: instances.length > 0 ? "real" : "empty"
+      state: instances.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
-      state: "error"
+      state: "error",
     };
   }
 }
@@ -416,8 +426,8 @@ async function retryDiagnosticEvent(formData: FormData) {
     await serverApiFetch(`/backoffice/diagnostics/events/${eventId}/retry`, {
       method: "POST",
       body: JSON.stringify({
-        reason: "Retry solicitado pelo backoffice WppTrack"
-      })
+        reason: "Retry solicitado pelo backoffice WppTrack",
+      }),
     });
     revalidatePath("/backoffice");
     revalidatePath(`/backoffice/diagnostics/${eventId}`);
@@ -430,7 +440,7 @@ async function retryConversionEventLog(formData: FormData) {
   "use server";
 
   const conversionEventLogId = String(
-    formData.get("conversionEventLogId") ?? ""
+    formData.get("conversionEventLogId") ?? "",
   );
 
   if (!conversionEventLogId) {
@@ -443,9 +453,10 @@ async function retryConversionEventLog(formData: FormData) {
       {
         method: "POST",
         body: JSON.stringify({
-          reason: "Retry de evento Pixel/CAPI solicitado pelo backoffice WppTrack"
-        })
-      }
+          reason:
+            "Retry de evento Pixel/CAPI solicitado pelo backoffice WppTrack",
+        }),
+      },
     );
     revalidatePath("/backoffice");
   } catch {
@@ -467,8 +478,8 @@ async function updateWorkspaceBilling(formData: FormData) {
     await serverApiFetch(`/backoffice/workspaces/${workspaceId}/billing`, {
       method: "PATCH",
       body: JSON.stringify({
-        asaasCustomerId: rawCustomerId || null
-      })
+        asaasCustomerId: rawCustomerId || null,
+      }),
     });
   } catch {
     return;
@@ -494,9 +505,9 @@ async function updateWorkspaceOperationalStatus(formData: FormData) {
       {
         method: "PATCH",
         body: JSON.stringify({
-          operationalStatus
-        })
-      }
+          operationalStatus,
+        }),
+      },
     );
     revalidatePath("/backoffice");
   } catch {
@@ -522,8 +533,8 @@ async function createSubscriptionPlan(formData: FormData) {
         name,
         slug,
         pricePerWhatsappInstanceCents: Math.round(price * 100),
-        active: String(formData.get("active") ?? "true") === "true"
-      })
+        active: String(formData.get("active") ?? "true") === "true",
+      }),
     });
     revalidatePath("/backoffice");
   } catch {
@@ -550,8 +561,8 @@ async function updateSubscriptionPlan(formData: FormData) {
         name,
         slug,
         pricePerWhatsappInstanceCents: Math.round(price * 100),
-        active: String(formData.get("active") ?? "true") === "true"
-      })
+        active: String(formData.get("active") ?? "true") === "true",
+      }),
     });
     revalidatePath("/backoffice");
   } catch {
@@ -578,8 +589,8 @@ async function createSplitReceiver(formData: FormData) {
         walletId,
         email: email || null,
         percentageBps: percentageInputToBps(formData.get("percentage")),
-        active: String(formData.get("active") ?? "true") === "true"
-      })
+        active: String(formData.get("active") ?? "true") === "true",
+      }),
     });
     revalidatePath("/backoffice");
   } catch {
@@ -607,8 +618,8 @@ async function updateSplitReceiver(formData: FormData) {
         walletId,
         email: email || null,
         percentageBps: percentageInputToBps(formData.get("percentage")),
-        active: String(formData.get("active") ?? "true") === "true"
-      })
+        active: String(formData.get("active") ?? "true") === "true",
+      }),
     });
     revalidatePath("/backoffice");
   } catch {
@@ -623,8 +634,10 @@ function percentFromBps(value: number): string {
 function moneyFromCents(value: number): string {
   return new Intl.NumberFormat("pt-BR", {
     currency: "BRL",
-    style: "currency"
-  }).format(value / 100).replace(/\u00a0/g, " ");
+    style: "currency",
+  })
+    .format(value / 100)
+    .replace(/\u00a0/g, " ");
 }
 
 function percentageInputToBps(value: FormDataEntryValue | null): number {
@@ -638,7 +651,7 @@ function percentageInputToBps(value: FormDataEntryValue | null): number {
 }
 
 function asStringParam(
-  value: string | string[] | undefined
+  value: string | string[] | undefined,
 ): string | undefined {
   const resolved = Array.isArray(value) ? value[0] : value;
 
@@ -647,7 +660,7 @@ function asStringParam(
 
 function normalizeDateFilter(
   value: string | undefined,
-  boundary: "start" | "end"
+  boundary: "start" | "end",
 ): string | undefined {
   if (!value) {
     return undefined;
@@ -663,7 +676,7 @@ function normalizeDateFilter(
 }
 
 function normalizeOperationsArea(
-  value: string | undefined
+  value: string | undefined,
 ): OperationsArea | undefined {
   return value === "overview" ||
     value === "whatsapp" ||
@@ -673,9 +686,7 @@ function normalizeOperationsArea(
     : undefined;
 }
 
-function normalizeFinanceSection(
-  value: string | undefined
-): FinanceSection {
+function normalizeFinanceSection(value: string | undefined): FinanceSection {
   return value === "charges" ||
     value === "plans" ||
     value === "customers" ||
@@ -696,14 +707,14 @@ function normalizeHealthSection(value: string | undefined): HealthSection {
 }
 
 export default async function BackofficePage({
-  searchParams
+  searchParams,
 }: {
   searchParams?: Promise<BackofficeSearchParams>;
 }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const requestedView = asStringParam(resolvedSearchParams.view);
   const hasLegacyFilters = Object.keys(resolvedSearchParams).some(
-    (key) => !["area", "section", "view"].includes(key)
+    (key) => !["area", "section", "view"].includes(key),
   );
 
   if (requestedView !== "operations" && !hasLegacyFilters) {
@@ -711,20 +722,20 @@ export default async function BackofficePage({
   }
 
   const requestedArea = normalizeOperationsArea(
-    asStringParam(resolvedSearchParams.area)
+    asStringParam(resolvedSearchParams.area),
   );
   const hasChargeFilters = Boolean(
     asStringParam(resolvedSearchParams.chargeStatus) ||
-      asStringParam(resolvedSearchParams.chargeWorkspaceId)
+    asStringParam(resolvedSearchParams.chargeWorkspaceId),
   );
   const activeArea: OperationsArea =
     requestedArea ??
     (hasChargeFilters ? "finance" : hasLegacyFilters ? "health" : "overview");
   const activeFinanceSection = normalizeFinanceSection(
-    asStringParam(resolvedSearchParams.section)
+    asStringParam(resolvedSearchParams.section),
   );
   const activeHealthSection = normalizeHealthSection(
-    asStringParam(resolvedSearchParams.section)
+    asStringParam(resolvedSearchParams.section),
   );
 
   const diagnosticFilters: DiagnosticFilters = {
@@ -736,19 +747,22 @@ export default async function BackofficePage({
     q: asStringParam(resolvedSearchParams.q),
     since: normalizeDateFilter(
       asStringParam(resolvedSearchParams.since),
-      "start"
+      "start",
     ),
-    until: normalizeDateFilter(asStringParam(resolvedSearchParams.until), "end"),
+    until: normalizeDateFilter(
+      asStringParam(resolvedSearchParams.until),
+      "end",
+    ),
     leadId: asStringParam(resolvedSearchParams.leadId),
     phoneHash: asStringParam(resolvedSearchParams.phoneHash),
     campaignId: asStringParam(resolvedSearchParams.campaignId),
     adSetId: asStringParam(resolvedSearchParams.adSetId),
     adId: asStringParam(resolvedSearchParams.adId),
-    errorCode: asStringParam(resolvedSearchParams.errorCode)
+    errorCode: asStringParam(resolvedSearchParams.errorCode),
   };
   const paymentChargeFilters: PaymentChargeFilters = {
     status: asStringParam(resolvedSearchParams.chargeStatus),
-    workspaceId: asStringParam(resolvedSearchParams.chargeWorkspaceId)
+    workspaceId: asStringParam(resolvedSearchParams.chargeWorkspaceId),
   };
   const webhookLogFilters: WebhookLogFilters = {
     workspaceId: diagnosticFilters.workspaceId,
@@ -763,7 +777,7 @@ export default async function BackofficePage({
     campaignId: diagnosticFilters.campaignId,
     adSetId: diagnosticFilters.adSetId,
     adId: diagnosticFilters.adId,
-    errorCode: diagnosticFilters.errorCode
+    errorCode: diagnosticFilters.errorCode,
   };
   const jobAttemptFilters: JobAttemptFilters = {
     workspaceId: diagnosticFilters.workspaceId,
@@ -773,7 +787,7 @@ export default async function BackofficePage({
     jobName: asStringParam(resolvedSearchParams.jobName),
     q: diagnosticFilters.q,
     since: diagnosticFilters.since,
-    until: diagnosticFilters.until
+    until: diagnosticFilters.until,
   };
   const integrationLogFilters: IntegrationLogFilters = {
     workspaceId: diagnosticFilters.workspaceId,
@@ -788,7 +802,7 @@ export default async function BackofficePage({
     adSetId: diagnosticFilters.adSetId,
     adId: diagnosticFilters.adId,
     jobId: asStringParam(resolvedSearchParams.jobId),
-    providerErrorCode: diagnosticFilters.errorCode
+    providerErrorCode: diagnosticFilters.errorCode,
   };
   const conversionEventLogFilters: ConversionEventLogFilters = {
     workspaceId: diagnosticFilters.workspaceId,
@@ -804,12 +818,12 @@ export default async function BackofficePage({
     campaignId: diagnosticFilters.campaignId,
     adSetId: diagnosticFilters.adSetId,
     adId: diagnosticFilters.adId,
-    errorCode: diagnosticFilters.errorCode
+    errorCode: diagnosticFilters.errorCode,
   };
   const diagnosticSummaryFilters: DiagnosticSummaryFilters = {
     workspaceId: diagnosticFilters.workspaceId,
     since: diagnosticFilters.since,
-    until: diagnosticFilters.until
+    until: diagnosticFilters.until,
   };
   const auditLogFilters: AuditLogFilters = {
     workspaceId: diagnosticFilters.workspaceId,
@@ -819,7 +833,7 @@ export default async function BackofficePage({
     targetType: asStringParam(resolvedSearchParams.targetType),
     q: diagnosticFilters.q,
     since: diagnosticFilters.since,
-    until: diagnosticFilters.until
+    until: diagnosticFilters.until,
   };
   const [
     diagnosticEventsResult,
@@ -833,7 +847,7 @@ export default async function BackofficePage({
     conversionEventLogsResult,
     auditLogsResult,
     subscriptionPlansResult,
-    diagnosticSummaryResult
+    diagnosticSummaryResult,
   ] = await Promise.all([
     getDiagnosticEvents(diagnosticFilters),
     getWorkspaceBilling(),
@@ -846,7 +860,7 @@ export default async function BackofficePage({
     getConversionEventLogs(conversionEventLogFilters),
     getAuditLogs(auditLogFilters),
     getSubscriptionPlans(),
-    getDiagnosticSummary(diagnosticSummaryFilters)
+    getDiagnosticSummary(diagnosticSummaryFilters),
   ]);
   const diagnosticEvents = diagnosticEventsResult.data;
   const webhookLogs = webhookLogsResult.data;
@@ -899,28 +913,29 @@ export default async function BackofficePage({
             ? integrationLogFilters
             : activeHealthSection === "jobs"
               ? jobAttemptFilters
-              : auditLogFilters
+              : auditLogFilters,
   ).filter(Boolean).length;
-  const activePaymentChargeFilterCount = Object.values(paymentChargeFilters).filter(
-    Boolean
-  ).length;
+  const activePaymentChargeFilterCount =
+    Object.values(paymentChargeFilters).filter(Boolean).length;
   const hasBackofficeError = [
     diagnosticEventsResult.state,
     workspaceBillingResult.state,
     splitReceiversResult.state,
-     paymentChargesResult.state,
-     whatsappInstancesResult.state,
-     subscriptionPlansResult.state,
-     webhookLogsResult.state,
+    paymentChargesResult.state,
+    whatsappInstancesResult.state,
+    subscriptionPlansResult.state,
+    webhookLogsResult.state,
     jobAttemptsResult.state,
     integrationLogsResult.state,
     conversionEventLogsResult.state,
-    auditLogsResult.state
+    auditLogsResult.state,
   ].includes("error");
   const configuredCustomers = workspaceBilling.filter(
-    (workspace) => workspace.asaasCustomerId
+    (workspace) => workspace.asaasCustomerId,
   ).length;
-  const activeReceivers = splitReceivers.filter((receiver) => receiver.active).length;
+  const activeReceivers = splitReceivers.filter(
+    (receiver) => receiver.active,
+  ).length;
   const diagnosticFailureTotal = diagnosticSummary
     ? diagnosticSummary.totals.failedWebhooks +
       diagnosticSummary.totals.failedJobs +
@@ -941,47 +956,51 @@ export default async function BackofficePage({
   const diagnosticPanelDescription = diagnosticSummary
     ? `${diagnosticStatusLabel}; ${diagnosticFailureTotal} falhas no periodo.`
     : "Eventos, webhooks, jobs, chamadas externas, conversoes e auditorias reais retornados pela Central de Diagnostico.";
-  const panels = [
-    [
-      "Billing",
-      workspaceBillingResult.state === "error" || paymentChargesResult.state === "error"
-        ? "API indisponivel"
-        : `${paymentCharges.length} cobrancas`,
-      "Cobrancas Asaas e locais retornadas pela API operacional."
-    ],
-    [
-      "Split",
-      splitReceiversResult.state === "error"
-        ? "API indisponivel"
-        : `${activeReceivers}/${splitReceivers.length}`,
-      "Recebedores ativos entre os recebedores carregados."
-    ],
-    [
-      "Instancias",
-      whatsappInstancesResult.state === "error"
-        ? "API indisponivel"
-        : String(whatsappInstances.length),
-      "Instancias WhatsApp reais cadastradas nos workspaces."
-    ],
-    [
-      "Workspaces",
-      workspaceBillingResult.state === "error"
-        ? "API indisponivel"
-        : String(workspaceBilling.length),
-      "Workspaces retornados pela API de billing operacional."
-    ],
-    [
-      "Diagnosticos",
-      diagnosticEventsResult.state === "error" ||
-      webhookLogsResult.state === "error" ||
-      jobAttemptsResult.state === "error" ||
-      integrationLogsResult.state === "error" ||
-      conversionEventLogsResult.state === "error" ||
-      auditLogsResult.state === "error"
-        ? "API indisponivel"
-        : diagnosticPanelValue,
-      diagnosticPanelDescription
-    ]
+  const pendingCharges = paymentCharges.filter(
+    (charge) => charge.status === "pending",
+  ).length;
+  const operationsOverviewMetrics = [
+    {
+      detail: "Clientes operacionais",
+      label: "Workspaces",
+      value:
+        workspaceBillingResult.state === "error"
+          ? "--"
+          : String(workspaceBilling.length),
+    },
+    {
+      detail: "Conexoes cadastradas",
+      label: "Instancias WhatsApp",
+      value:
+        whatsappInstancesResult.state === "error"
+          ? "--"
+          : String(whatsappInstances.length),
+    },
+    {
+      detail: `${paymentCharges.length} cobranca(s) carregada(s)`,
+      label: "Cobrancas pendentes",
+      value:
+        paymentChargesResult.state === "error" ? "--" : String(pendingCharges),
+    },
+    {
+      detail: `${splitReceivers.length} recebedor(es)`,
+      label: "Recebedores ativos",
+      value:
+        splitReceiversResult.state === "error" ? "--" : String(activeReceivers),
+    },
+    {
+      detail: diagnosticPanelDescription,
+      label: "Falhas operacionais",
+      value:
+        diagnosticEventsResult.state === "error" ||
+        webhookLogsResult.state === "error" ||
+        jobAttemptsResult.state === "error" ||
+        integrationLogsResult.state === "error" ||
+        conversionEventLogsResult.state === "error" ||
+        auditLogsResult.state === "error"
+          ? "--"
+          : String(diagnosticFailureTotal),
+    },
   ];
   const workspaceEmptyTitle =
     workspaceBillingResult.state === "error"
@@ -1084,14 +1103,17 @@ export default async function BackofficePage({
 
       {activeArea === "overview" ? (
         <>
-          <section className="operations-overview" aria-label="Resumo operacional">
-            <div className="backoffice-grid">
-              {panels.map(([label, value, description]) => (
-                <article className="config-card" key={label}>
-                  <span className="micro-label">{label}</span>
-                  <strong>{value}</strong>
-                  <p className="muted">{description}</p>
-                </article>
+          <section
+            className="operations-overview"
+            aria-label="Resumo operacional"
+          >
+            <div className="operations-metric-strip">
+              {operationsOverviewMetrics.map((metric) => (
+                <div key={metric.label}>
+                  <span>{metric.label}</span>
+                  <strong>{metric.value}</strong>
+                  <small>{metric.detail}</small>
+                </div>
               ))}
             </div>
           </section>
@@ -1170,63 +1192,68 @@ export default async function BackofficePage({
       ) : null}
 
       {activeArea === "whatsapp" ? (
-      <div className="surface-panel operations-panel" id="instances">
-        <div className="operations-panel-header">
-          <div>
-            <span className="eyebrow">Instancias WhatsApp</span>
-            <h2>Conexoes por workspace</h2>
-            <p>Instancias reais cadastradas e seus estados operacionais.</p>
+        <div className="surface-panel operations-panel" id="instances">
+          <div className="operations-panel-header">
+            <div>
+              <span className="eyebrow">Instancias WhatsApp</span>
+              <h2>Conexoes por workspace</h2>
+              <p>Instancias reais cadastradas e seus estados operacionais.</p>
+            </div>
+            <span className="status-chip">
+              {whatsappInstances.length} registro(s)
+            </span>
           </div>
-          <span className="status-chip">
-            {whatsappInstances.length} registro(s)
-          </span>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Workspace</th>
-                <th>Instancia</th>
-                <th>Provider</th>
-                <th>Status</th>
-                <th>ID provider</th>
-                <th>Atualizada</th>
-              </tr>
-            </thead>
-            <tbody>
-              {whatsappInstances.length > 0 ? (
-                whatsappInstances.map((instance) => (
-                  <tr key={instance.id}>
-                    <td>
-                      <strong>{instance.workspaceName}</strong>
-                      <span>{instance.workspaceId}</span>
-                    </td>
-                    <td>
-                      <strong>{instance.name}</strong>
-                      <span>{instance.id}</span>
-                    </td>
-                    <td>{instance.provider}</td>
-                    <td>
-                      <span className={`event-chip${instance.billingStatus === "active" ? "" : " warn"}`}>
-                        {instance.billingStatus}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Workspace</th>
+                  <th>Instancia</th>
+                  <th>Provider</th>
+                  <th>Status</th>
+                  <th>ID provider</th>
+                  <th>Atualizada</th>
+                </tr>
+              </thead>
+              <tbody>
+                {whatsappInstances.length > 0 ? (
+                  whatsappInstances.map((instance) => (
+                    <tr key={instance.id}>
+                      <td>
+                        <strong>{instance.workspaceName}</strong>
+                        <span>{instance.workspaceId}</span>
+                      </td>
+                      <td>
+                        <strong>{instance.name}</strong>
+                        <span>{instance.id}</span>
+                      </td>
+                      <td>{instance.provider}</td>
+                      <td>
+                        <span
+                          className={`event-chip${instance.billingStatus === "active" ? "" : " warn"}`}
+                        >
+                          {instance.billingStatus}
+                        </span>
+                      </td>
+                      <td>{instance.providerInstanceId ?? "nao conectado"}</td>
+                      <td>{formatDateTime(instance.updatedAt)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6}>
+                      <strong>{whatsappInstanceEmptyTitle}</strong>
+                      <span>
+                        Instancias criadas no checkout aparecem aqui para
+                        suporte interno.
                       </span>
                     </td>
-                    <td>{instance.providerInstanceId ?? "nao conectado"}</td>
-                    <td>{formatDateTime(instance.updatedAt)}</td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6}>
-                    <strong>{whatsappInstanceEmptyTitle}</strong>
-                    <span>Instancias criadas no checkout aparecem aqui para suporte interno.</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
       ) : null}
 
       {activeArea === "finance" ? (
@@ -1234,442 +1261,520 @@ export default async function BackofficePage({
       ) : null}
 
       {activeArea === "finance" && activeFinanceSection === "charges" ? (
-      <div className="surface-panel operations-panel" id="billing">
-        <div className="operations-panel-header">
-          <div>
-            <span className="eyebrow">Cobrancas Asaas</span>
-            <h2>Cobrancas de instancias WhatsApp</h2>
-            <p>Consulte somente as cobrancas criadas pela plataforma.</p>
+        <div className="surface-panel operations-panel" id="billing">
+          <div className="operations-panel-header">
+            <div>
+              <span className="eyebrow">Cobrancas Asaas</span>
+              <h2>Cobrancas de instancias WhatsApp</h2>
+              <p>Consulte somente as cobrancas criadas pela plataforma.</p>
+            </div>
           </div>
-        </div>
-        <form
-          className="operations-filter-panel compact"
-          aria-label="Filtros de cobrancas"
-          action="/backoffice"
-        >
-          <input type="hidden" name="view" value="operations" />
-          <input type="hidden" name="area" value="finance" />
-          <input type="hidden" name="section" value="charges" />
-          <div className="operations-filter-grid">
-            <label className="operations-filter-field">
-              <span>Status</span>
-              <select
-                name="chargeStatus"
-                defaultValue={paymentChargeFilters.status ?? ""}
+          <form
+            className="operations-filter-panel compact"
+            aria-label="Filtros de cobrancas"
+            action="/backoffice"
+          >
+            <input type="hidden" name="view" value="operations" />
+            <input type="hidden" name="area" value="finance" />
+            <input type="hidden" name="section" value="charges" />
+            <div className="operations-filter-grid">
+              <label className="operations-filter-field">
+                <span>Status</span>
+                <select
+                  name="chargeStatus"
+                  defaultValue={paymentChargeFilters.status ?? ""}
+                >
+                  <option value="">Todos</option>
+                  <option value="pending">pending</option>
+                  <option value="paid">paid</option>
+                  <option value="failed">failed</option>
+                  <option value="canceled">canceled</option>
+                  <option value="expired">expired</option>
+                </select>
+              </label>
+              <label className="operations-filter-field">
+                <span>Workspace</span>
+                <input
+                  name="chargeWorkspaceId"
+                  placeholder="ID do workspace"
+                  defaultValue={paymentChargeFilters.workspaceId}
+                />
+              </label>
+            </div>
+            <div className="operations-filter-actions">
+              <button className="button" type="submit">
+                Filtrar cobrancas
+              </button>
+              <a
+                className="button ghost"
+                href="/backoffice?view=operations&area=finance&section=charges"
               >
-                <option value="">Todos</option>
-                <option value="pending">pending</option>
-                <option value="paid">paid</option>
-                <option value="failed">failed</option>
-                <option value="canceled">canceled</option>
-                <option value="expired">expired</option>
-              </select>
-            </label>
-            <label className="operations-filter-field">
-              <span>Workspace</span>
-              <input
-                name="chargeWorkspaceId"
-                placeholder="ID do workspace"
-                defaultValue={paymentChargeFilters.workspaceId}
-              />
-            </label>
-          </div>
-          <div className="operations-filter-actions">
-            <button className="button" type="submit">
-              Filtrar cobrancas
-            </button>
-            <a
-              className="button ghost"
-              href="/backoffice?view=operations&area=finance&section=charges"
-            >
-              Limpar
-            </a>
-          </div>
-        </form>
-        <p className="muted">
-          {activePaymentChargeFilterCount > 0
-            ? `${activePaymentChargeFilterCount} filtros de cobranca ativos`
-            : "Mostrando as ultimas cobrancas criadas pela plataforma."}
-        </p>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Workspace</th>
-                <th>Cobranca</th>
-                <th>Instancia</th>
-                <th>Valor</th>
-                <th>Estado</th>
-                <th>Pagamento</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paymentCharges.length > 0 ? (
-                paymentCharges.map((charge) => (
-                  <tr key={charge.id}>
-                    <td>
-                      <strong>{charge.workspaceName}</strong>
-                      <span>{charge.workspaceId}</span>
-                    </td>
-                    <td>
-                      <strong>{charge.externalChargeId ?? charge.id}</strong>
-                      <span>{charge.description}</span>
-                    </td>
-                    <td>{charge.whatsappInstanceName ?? "sem instancia"}</td>
-                    <td>{moneyFromCents(charge.amountCents)}</td>
-                    <td>
-                      <span className={`event-chip${charge.status === "paid" ? "" : " warn"}`}>
-                        {charge.status}
+                Limpar
+              </a>
+            </div>
+          </form>
+          <p className="muted">
+            {activePaymentChargeFilterCount > 0
+              ? `${activePaymentChargeFilterCount} filtros de cobranca ativos`
+              : "Mostrando as ultimas cobrancas criadas pela plataforma."}
+          </p>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Workspace</th>
+                  <th>Cobranca</th>
+                  <th>Instancia</th>
+                  <th>Valor</th>
+                  <th>Estado</th>
+                  <th>Pagamento</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paymentCharges.length > 0 ? (
+                  paymentCharges.map((charge) => (
+                    <tr key={charge.id}>
+                      <td>
+                        <strong>{charge.workspaceName}</strong>
+                        <span>{charge.workspaceId}</span>
+                      </td>
+                      <td>
+                        <strong>{charge.externalChargeId ?? charge.id}</strong>
+                        <span>{charge.description}</span>
+                      </td>
+                      <td>{charge.whatsappInstanceName ?? "sem instancia"}</td>
+                      <td>{moneyFromCents(charge.amountCents)}</td>
+                      <td>
+                        <span
+                          className={`event-chip${charge.status === "paid" ? "" : " warn"}`}
+                        >
+                          {charge.status}
+                        </span>
+                      </td>
+                      <td>
+                        {charge.checkoutUrl ? (
+                          <a className="button ghost" href={charge.checkoutUrl}>
+                            Abrir cobranca
+                          </a>
+                        ) : (
+                          <span className="muted">sem link</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6}>
+                      <strong>{paymentChargeEmptyTitle}</strong>
+                      <span>
+                        As cobrancas criadas no checkout de instancia aparecem
+                        aqui.
                       </span>
                     </td>
-                    <td>
-                      {charge.checkoutUrl ? (
-                        <a className="button ghost" href={charge.checkoutUrl}>
-                          Abrir cobranca
-                        </a>
-                      ) : (
-                        <span className="muted">sem link</span>
-                      )}
-                    </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6}>
-                    <strong>{paymentChargeEmptyTitle}</strong>
-                    <span>As cobrancas criadas no checkout de instancia aparecem aqui.</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
       ) : null}
 
       {activeArea === "finance" && activeFinanceSection === "plans" ? (
-      <div className="surface-panel operations-panel">
-        <div className="operations-panel-header">
-          <div>
-            <span className="eyebrow">Planos de assinatura</span>
-            <h2>Preco por instancia WhatsApp</h2>
-            <p>Cadastre e mantenha os planos cobrados pela plataforma.</p>
+        <div className="surface-panel operations-panel">
+          <div className="operations-panel-header">
+            <div>
+              <span className="eyebrow">Planos de assinatura</span>
+              <h2>Preco por instancia WhatsApp</h2>
+              <p>Cadastre e mantenha os planos cobrados pela plataforma.</p>
+            </div>
           </div>
-        </div>
-        <form className="inline-form" action={createSubscriptionPlan}>
-          <input
-            aria-label="Novo plano"
-            name="name"
-            placeholder="Novo plano"
-          />
-          <input
-            aria-label="Slug do plano"
-            name="slug"
-            placeholder="slug-do-plano"
-          />
-          <input
-            aria-label="Preco por instancia"
-            inputMode="decimal"
-            name="price"
-            placeholder="Valor por instancia"
-          />
-          <select name="active" aria-label="Estado do plano">
-            <option value="true">ativo</option>
-            <option value="false">pausado</option>
-          </select>
-          <button className="button primary" type="submit">Adicionar plano</button>
-        </form>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Plano</th>
-                <th>Slug</th>
-                <th>Valor por instancia</th>
-                <th>Estado</th>
-                <th>Acao</th>
-              </tr>
-            </thead>
-            <tbody>
-              {subscriptionPlans.length > 0 ? (
-                subscriptionPlans.map((plan) => (
-                  <tr key={plan.id}>
-                    <td>
-                      <strong>{plan.name}</strong>
-                      <span>{plan.id}</span>
-                    </td>
-                    <td>{plan.slug}</td>
-                    <td>{moneyFromCents(plan.pricePerWhatsappInstanceCents)}</td>
-                    <td>
-                      <span className={`event-chip${plan.active ? "" : " warn"}`}>
-                        {plan.active ? "ativo" : "pausado"}
-                      </span>
-                    </td>
-                    <td>
-                      <form className="inline-form" action={updateSubscriptionPlan}>
-                        <input type="hidden" name="planId" value={plan.id} />
-                        <input
-                          aria-label={`Nome do plano ${plan.name}`}
-                          className="input-field compact-input"
-                          defaultValue={plan.name}
-                          name="name"
-                        />
-                        <input
-                          aria-label={`Slug do plano ${plan.name}`}
-                          className="input-field compact-input"
-                          defaultValue={plan.slug}
-                          name="slug"
-                        />
-                        <input
-                          aria-label={`Valor do plano ${plan.name}`}
-                          className="input-field compact-input"
-                          defaultValue={(
-                            plan.pricePerWhatsappInstanceCents / 100
-                          ).toFixed(2)}
-                          inputMode="decimal"
-                          name="price"
-                        />
-                        <input
-                          type="hidden"
-                          name="active"
-                          value={plan.active ? "false" : "true"}
-                        />
-                        <button className="button" type="submit">
-                          {plan.active ? "Pausar" : "Ativar"}
-                        </button>
-                      </form>
+          <form className="inline-form" action={createSubscriptionPlan}>
+            <input
+              aria-label="Novo plano"
+              name="name"
+              placeholder="Novo plano"
+            />
+            <input
+              aria-label="Slug do plano"
+              name="slug"
+              placeholder="slug-do-plano"
+            />
+            <input
+              aria-label="Preco por instancia"
+              inputMode="decimal"
+              name="price"
+              placeholder="Valor por instancia"
+            />
+            <select name="active" aria-label="Estado do plano">
+              <option value="true">ativo</option>
+              <option value="false">pausado</option>
+            </select>
+            <button className="button primary" type="submit">
+              Adicionar plano
+            </button>
+          </form>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Plano</th>
+                  <th>Slug</th>
+                  <th>Valor por instancia</th>
+                  <th>Estado</th>
+                  <th>Acao</th>
+                </tr>
+              </thead>
+              <tbody>
+                {subscriptionPlans.length > 0 ? (
+                  subscriptionPlans.map((plan) => (
+                    <tr key={plan.id}>
+                      <td>
+                        <strong>{plan.name}</strong>
+                        <span>{plan.id}</span>
+                      </td>
+                      <td>{plan.slug}</td>
+                      <td>
+                        {moneyFromCents(plan.pricePerWhatsappInstanceCents)}
+                      </td>
+                      <td>
+                        <span
+                          className={`event-chip${plan.active ? "" : " warn"}`}
+                        >
+                          {plan.active ? "ativo" : "pausado"}
+                        </span>
+                      </td>
+                      <td>
+                        <form
+                          className="inline-form"
+                          action={updateSubscriptionPlan}
+                        >
+                          <input type="hidden" name="planId" value={plan.id} />
+                          <input
+                            aria-label={`Nome do plano ${plan.name}`}
+                            className="input-field compact-input"
+                            defaultValue={plan.name}
+                            name="name"
+                          />
+                          <input
+                            aria-label={`Slug do plano ${plan.name}`}
+                            className="input-field compact-input"
+                            defaultValue={plan.slug}
+                            name="slug"
+                          />
+                          <input
+                            aria-label={`Valor do plano ${plan.name}`}
+                            className="input-field compact-input"
+                            defaultValue={(
+                              plan.pricePerWhatsappInstanceCents / 100
+                            ).toFixed(2)}
+                            inputMode="decimal"
+                            name="price"
+                          />
+                          <input
+                            type="hidden"
+                            name="active"
+                            value={plan.active ? "false" : "true"}
+                          />
+                          <button className="button" type="submit">
+                            {plan.active ? "Pausar" : "Ativar"}
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5}>
+                      <strong>{subscriptionPlanEmptyTitle}</strong>
+                      <span>Planos criados pela plataforma aparecem aqui.</span>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5}>
-                    <strong>{subscriptionPlanEmptyTitle}</strong>
-                    <span>Planos criados pela plataforma aparecem aqui.</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
       ) : null}
 
       {activeArea === "finance" && activeFinanceSection === "customers" ? (
-      <div className="surface-panel operations-panel">
-        <div className="operations-panel-header">
-          <div>
-            <span className="eyebrow">Workspaces</span>
-            <h2>Customers Asaas por workspace</h2>
-            <p>Gerencie o customer e o estado operacional de cada cliente.</p>
+        <div className="surface-panel operations-panel">
+          <div className="operations-panel-header">
+            <div>
+              <span className="eyebrow">Workspaces</span>
+              <h2>Customers Asaas por workspace</h2>
+              <p>Gerencie o customer e o estado operacional de cada cliente.</p>
+            </div>
+            <span className="status-chip">
+              {configuredCustomers}/{workspaceBilling.length} configurado(s)
+            </span>
           </div>
-          <span className="status-chip">
-            {configuredCustomers}/{workspaceBilling.length} configurado(s)
-          </span>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Workspace</th>
-                <th>Slug</th>
-                <th>Customer Asaas</th>
-                <th>Operacao</th>
-                <th>Assinatura</th>
-                <th>Instancias</th>
-                <th>Acao</th>
-              </tr>
-            </thead>
-            <tbody>
-              {workspaceBilling.length > 0 ? (
-                workspaceBilling.map((workspace) => (
-                  <tr key={workspace.id}>
-                    <td>
-                      <strong>{workspace.name}</strong>
-                      <span>{workspace.id}</span>
-                    </td>
-                    <td>{workspace.slug}</td>
-                    <td>
-                      <form className="inline-form" action={updateWorkspaceBilling}>
-                        <input type="hidden" name="workspaceId" value={workspace.id} />
-                        <input
-                          aria-label={`Customer Asaas de ${workspace.name}`}
-                          className="input-field compact-input"
-                          defaultValue={workspace.asaasCustomerId ?? ""}
-                          name="asaasCustomerId"
-                          placeholder="Configurar customer"
-                        />
-                        <button className="button" type="submit">Salvar</button>
-                      </form>
-                    </td>
-                    <td>
-                      <form
-                        className="inline-form"
-                        action={updateWorkspaceOperationalStatus}
-                      >
-                        <input type="hidden" name="workspaceId" value={workspace.id} />
-                        <input
-                          type="hidden"
-                          name="operationalStatus"
-                          value={
-                            workspace.operationalStatus === "blocked"
-                              ? "active"
-                              : "blocked"
-                          }
-                        />
-                        <span
-                          className={`event-chip${
-                            workspace.operationalStatus === "active"
-                              ? ""
-                              : " warn"
-                          }`}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Workspace</th>
+                  <th>Slug</th>
+                  <th>Customer Asaas</th>
+                  <th>Operacao</th>
+                  <th>Assinatura</th>
+                  <th>Instancias</th>
+                  <th>Acao</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workspaceBilling.length > 0 ? (
+                  workspaceBilling.map((workspace) => (
+                    <tr key={workspace.id}>
+                      <td>
+                        <strong>{workspace.name}</strong>
+                        <span>{workspace.id}</span>
+                      </td>
+                      <td>{workspace.slug}</td>
+                      <td>
+                        <form
+                          className="inline-form"
+                          action={updateWorkspaceBilling}
                         >
-                          {workspace.operationalStatus === "active"
-                            ? "ativo"
-                            : "bloqueado"}
+                          <input
+                            type="hidden"
+                            name="workspaceId"
+                            value={workspace.id}
+                          />
+                          <input
+                            aria-label={`Customer Asaas de ${workspace.name}`}
+                            className="input-field compact-input"
+                            defaultValue={workspace.asaasCustomerId ?? ""}
+                            name="asaasCustomerId"
+                            placeholder="Configurar customer"
+                          />
+                          <button className="button" type="submit">
+                            Salvar
+                          </button>
+                        </form>
+                      </td>
+                      <td>
+                        <form
+                          className="inline-form"
+                          action={updateWorkspaceOperationalStatus}
+                        >
+                          <input
+                            type="hidden"
+                            name="workspaceId"
+                            value={workspace.id}
+                          />
+                          <input
+                            type="hidden"
+                            name="operationalStatus"
+                            value={
+                              workspace.operationalStatus === "blocked"
+                                ? "active"
+                                : "blocked"
+                            }
+                          />
+                          <span
+                            className={`event-chip${
+                              workspace.operationalStatus === "active"
+                                ? ""
+                                : " warn"
+                            }`}
+                          >
+                            {workspace.operationalStatus === "active"
+                              ? "ativo"
+                              : "bloqueado"}
+                          </span>
+                          <button className="button ghost" type="submit">
+                            {workspace.operationalStatus === "blocked"
+                              ? "Desbloquear"
+                              : "Bloquear"}
+                          </button>
+                        </form>
+                      </td>
+                      <td>
+                        <span
+                          className={`event-chip${workspace.subscriptionStatus === "active" ? "" : " warn"}`}
+                        >
+                          {workspace.subscriptionStatus}
                         </span>
-                        <button className="button ghost" type="submit">
-                          {workspace.operationalStatus === "blocked"
-                            ? "Desbloquear"
-                            : "Bloquear"}
-                        </button>
-                      </form>
+                      </td>
+                      <td>
+                        {workspace.activeInstances} instancia
+                        {workspace.activeInstances === 1 ? "" : "s"}
+                      </td>
+                      <td>
+                        <span
+                          className={`event-chip${workspace.asaasCustomerId ? "" : " warn"}`}
+                        >
+                          {workspace.asaasCustomerId
+                            ? "configurado"
+                            : "pendente"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td>
+                      <strong>{workspaceEmptyTitle}</strong>
+                      <span>Confira permissao de backoffice</span>
+                    </td>
+                    <td>-</td>
+                    <td>
+                      <span className="muted">Configurar customer</span>
                     </td>
                     <td>
-                      <span className={`event-chip${workspace.subscriptionStatus === "active" ? "" : " warn"}`}>
-                        {workspace.subscriptionStatus}
-                      </span>
+                      <span className="event-chip warn">sem status</span>
                     </td>
                     <td>
-                      {workspace.activeInstances} instancia{workspace.activeInstances === 1 ? "" : "s"}
+                      <span className="event-chip warn">sem assinatura</span>
                     </td>
+                    <td>0 instancias</td>
                     <td>
-                      <span className={`event-chip${workspace.asaasCustomerId ? "" : " warn"}`}>
-                        {workspace.asaasCustomerId ? "configurado" : "pendente"}
+                      <span className="event-chip warn">
+                        {workspaceBillingResult.state === "error"
+                          ? "indisponivel"
+                          : "Customer Asaas ausente"}
                       </span>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td><strong>{workspaceEmptyTitle}</strong><span>Confira permissao de backoffice</span></td>
-                  <td>-</td>
-                  <td><span className="muted">Configurar customer</span></td>
-                  <td><span className="event-chip warn">sem status</span></td>
-                  <td><span className="event-chip warn">sem assinatura</span></td>
-                  <td>0 instancias</td>
-                  <td>
-                    <span className="event-chip warn">
-                      {workspaceBillingResult.state === "error"
-                        ? "indisponivel"
-                        : "Customer Asaas ausente"}
-                    </span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
       ) : null}
 
       {activeArea === "finance" && activeFinanceSection === "receivers" ? (
-      <div className="surface-panel operations-panel">
-        <div className="operations-panel-header">
-          <div>
-            <span className="eyebrow">Split Asaas</span>
-            <h2>Recebedores da plataforma</h2>
-            <p>Cadastre as wallets que participam do split da plataforma.</p>
+        <div className="surface-panel operations-panel">
+          <div className="operations-panel-header">
+            <div>
+              <span className="eyebrow">Split Asaas</span>
+              <h2>Recebedores da plataforma</h2>
+              <p>Cadastre as wallets que participam do split da plataforma.</p>
+            </div>
+            <span className="status-chip">
+              {activeReceivers}/{splitReceivers.length} ativo(s)
+            </span>
           </div>
-          <span className="status-chip">
-            {activeReceivers}/{splitReceivers.length} ativo(s)
-          </span>
-        </div>
-        <form className="inline-form" action={createSplitReceiver}>
-          <input name="name" placeholder="Novo recebedor" aria-label="Novo recebedor" />
-          <input name="walletId" placeholder="Wallet Asaas" aria-label="Wallet Asaas" />
-          <input name="email" type="email" placeholder="Email opcional" aria-label="Email opcional" />
-          <input
-            name="percentage"
-            inputMode="decimal"
-            placeholder="Percentual"
-            aria-label="Percentual do split"
-          />
-          <select name="active" defaultValue="true" aria-label="Estado do recebedor">
-            <option value="true">ativo</option>
-            <option value="false">pausado</option>
-          </select>
-          <button className="button primary" type="submit">Adicionar recebedor</button>
-        </form>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Recebedor</th>
-                <th>Wallet</th>
-                <th>Email</th>
-                <th>Percentual</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {splitReceivers.length > 0 ? (
-                splitReceivers.map((receiver) => (
-                  <tr key={receiver.id}>
-                    <td colSpan={5}>
-                      <form className="inline-form" action={updateSplitReceiver}>
-                        <input type="hidden" name="receiverId" value={receiver.id} />
-                        <input
-                          aria-label={`Nome de ${receiver.name}`}
-                          defaultValue={receiver.name}
-                          name="name"
-                        />
-                        <input
-                          aria-label={`Wallet de ${receiver.name}`}
-                          defaultValue={receiver.walletId}
-                          name="walletId"
-                        />
-                        <input
-                          aria-label={`Email de ${receiver.name}`}
-                          defaultValue={receiver.email ?? ""}
-                          name="email"
-                          type="email"
-                        />
-                        <input
-                          aria-label={`Percentual de ${receiver.name}`}
-                          defaultValue={percentFromBps(receiver.percentageBps).replace("%", "")}
-                          inputMode="decimal"
-                          name="percentage"
-                        />
-                        <select
-                          aria-label={`Estado de ${receiver.name}`}
-                          defaultValue={String(receiver.active)}
-                          name="active"
+          <form className="inline-form" action={createSplitReceiver}>
+            <input
+              name="name"
+              placeholder="Novo recebedor"
+              aria-label="Novo recebedor"
+            />
+            <input
+              name="walletId"
+              placeholder="Wallet Asaas"
+              aria-label="Wallet Asaas"
+            />
+            <input
+              name="email"
+              type="email"
+              placeholder="Email opcional"
+              aria-label="Email opcional"
+            />
+            <input
+              name="percentage"
+              inputMode="decimal"
+              placeholder="Percentual"
+              aria-label="Percentual do split"
+            />
+            <select
+              name="active"
+              defaultValue="true"
+              aria-label="Estado do recebedor"
+            >
+              <option value="true">ativo</option>
+              <option value="false">pausado</option>
+            </select>
+            <button className="button primary" type="submit">
+              Adicionar recebedor
+            </button>
+          </form>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Recebedor</th>
+                  <th>Wallet</th>
+                  <th>Email</th>
+                  <th>Percentual</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {splitReceivers.length > 0 ? (
+                  splitReceivers.map((receiver) => (
+                    <tr key={receiver.id}>
+                      <td colSpan={5}>
+                        <form
+                          className="inline-form"
+                          action={updateSplitReceiver}
                         >
-                          <option value="true">ativo</option>
-                          <option value="false">pausado</option>
-                        </select>
-                        <button className="button" type="submit">Salvar recebedor</button>
-                        <span>{percentFromBps(receiver.percentageBps)}</span>
-                        <span className={`event-chip${receiver.active ? "" : " warn"}`}>
-                          {receiver.active ? "ativo" : "pausado"}
-                        </span>
-                      </form>
+                          <input
+                            type="hidden"
+                            name="receiverId"
+                            value={receiver.id}
+                          />
+                          <input
+                            aria-label={`Nome de ${receiver.name}`}
+                            defaultValue={receiver.name}
+                            name="name"
+                          />
+                          <input
+                            aria-label={`Wallet de ${receiver.name}`}
+                            defaultValue={receiver.walletId}
+                            name="walletId"
+                          />
+                          <input
+                            aria-label={`Email de ${receiver.name}`}
+                            defaultValue={receiver.email ?? ""}
+                            name="email"
+                            type="email"
+                          />
+                          <input
+                            aria-label={`Percentual de ${receiver.name}`}
+                            defaultValue={percentFromBps(
+                              receiver.percentageBps,
+                            ).replace("%", "")}
+                            inputMode="decimal"
+                            name="percentage"
+                          />
+                          <select
+                            aria-label={`Estado de ${receiver.name}`}
+                            defaultValue={String(receiver.active)}
+                            name="active"
+                          >
+                            <option value="true">ativo</option>
+                            <option value="false">pausado</option>
+                          </select>
+                          <button className="button" type="submit">
+                            Salvar recebedor
+                          </button>
+                          <span>{percentFromBps(receiver.percentageBps)}</span>
+                          <span
+                            className={`event-chip${receiver.active ? "" : " warn"}`}
+                          >
+                            {receiver.active ? "ativo" : "pausado"}
+                          </span>
+                        </form>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5}>
+                      <strong>{splitEmptyTitle}</strong>
+                      <span>
+                        Cadastre recebedores reais antes de validar split de
+                        pagamentos.
+                      </span>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5}>
-                    <strong>{splitEmptyTitle}</strong>
-                    <span>Cadastre recebedores reais antes de validar split de pagamentos.</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
       ) : null}
 
       {activeArea === "health" ? (
@@ -1677,408 +1782,463 @@ export default async function BackofficePage({
       ) : null}
 
       {activeArea === "health" ? (
-      <div className="surface-panel operations-panel" id="diagnostics">
-        <div className="operations-panel-header">
-          <div>
-            <span className="eyebrow">Saude por camada</span>
-            <h2>
-              {activeHealthSection === "incidents"
-                ? "Incidentes operacionais"
-                : activeHealthSection === "webhooks"
-                  ? "Webhooks processados"
-                  : activeHealthSection === "conversions"
-                    ? "Eventos Pixel e CAPI"
-                    : activeHealthSection === "integrations"
-                      ? "Chamadas externas"
-                      : activeHealthSection === "jobs"
-                        ? "Jobs operacionais"
-                        : "Auditoria operacional"}
-            </h2>
-            <p>
-              {activeHealthSection === "incidents"
-                ? "Falhas e alertas consolidados pelas camadas da plataforma."
-                : activeHealthSection === "webhooks"
-                  ? "Entregas recebidas dos provedores e seu processamento."
-                  : activeHealthSection === "conversions"
-                    ? "Conversoes geradas, enviadas e disponiveis para reprocessamento."
-                    : activeHealthSection === "integrations"
-                      ? "Comunicacoes da plataforma com servicos externos."
-                      : activeHealthSection === "jobs"
-                        ? "Execucoes em fila, tentativas e proximos retries."
-                        : "Acoes administrativas e acessos registrados pela plataforma."}
-            </p>
+        <div className="surface-panel operations-panel" id="diagnostics">
+          <div className="operations-panel-header">
+            <div>
+              <span className="eyebrow">Saude por camada</span>
+              <h2>
+                {activeHealthSection === "incidents"
+                  ? "Incidentes operacionais"
+                  : activeHealthSection === "webhooks"
+                    ? "Webhooks processados"
+                    : activeHealthSection === "conversions"
+                      ? "Eventos Pixel e CAPI"
+                      : activeHealthSection === "integrations"
+                        ? "Chamadas externas"
+                        : activeHealthSection === "jobs"
+                          ? "Jobs operacionais"
+                          : "Auditoria operacional"}
+              </h2>
+              <p>
+                {activeHealthSection === "incidents"
+                  ? "Falhas e alertas consolidados pelas camadas da plataforma."
+                  : activeHealthSection === "webhooks"
+                    ? "Entregas recebidas dos provedores e seu processamento."
+                    : activeHealthSection === "conversions"
+                      ? "Conversoes geradas, enviadas e disponiveis para reprocessamento."
+                      : activeHealthSection === "integrations"
+                        ? "Comunicacoes da plataforma com servicos externos."
+                        : activeHealthSection === "jobs"
+                          ? "Execucoes em fila, tentativas e proximos retries."
+                          : "Acoes administrativas e acessos registrados pela plataforma."}
+              </p>
+            </div>
           </div>
-        </div>
-        <BackofficeHealthFilters
-          activeCount={activeHealthFilterCount}
-          section={activeHealthSection}
-          values={healthFilterValues}
-        />
-        {activeHealthSection === "incidents" && diagnosticSummary ? (
-          <>
-            <div className="operations-summary-banner">
-              <span
-                className={`status-chip${
-                  diagnosticSummary.status === "healthy" ? "" : " warn"
-                }`}
-              >
-                {diagnosticStatusLabel}
-              </span>
-              <strong>{diagnosticPanelValue}</strong>
-              <span>{diagnosticFailureTotal} falhas no periodo</span>
+          <BackofficeHealthFilters
+            activeCount={activeHealthFilterCount}
+            section={activeHealthSection}
+            values={healthFilterValues}
+          />
+          {activeHealthSection === "incidents" && diagnosticSummary ? (
+            <>
+              <div className="operations-summary-banner">
+                <span
+                  className={`status-chip${
+                    diagnosticSummary.status === "healthy" ? "" : " warn"
+                  }`}
+                >
+                  {diagnosticStatusLabel}
+                </span>
+                <strong>{diagnosticPanelValue}</strong>
+                <span>{diagnosticFailureTotal} falhas no periodo</span>
+              </div>
+              <div className="operations-health-metrics">
+                <div>
+                  <span>Contas Meta ativas</span>
+                  <strong>
+                    {diagnosticSummary.totals.metaReportingAccountsActive}
+                  </strong>
+                  <small>Disponiveis para sincronizacao</small>
+                </div>
+                <div>
+                  <span>Contas Meta com erro</span>
+                  <strong>
+                    {diagnosticSummary.totals.metaReportingAccountsError}
+                  </strong>
+                  <small>Exigem revisao da conexao</small>
+                </div>
+                <div>
+                  <span>Campanhas para revisar</span>
+                  <strong>
+                    {diagnosticSummary.totals.metaWhatsappNeedsReview}
+                  </strong>
+                  <small>Classificadas como needs_review</small>
+                </div>
+                <div>
+                  <span>Destino CAPI</span>
+                  <strong>
+                    {diagnosticSummary.totals
+                      .metaConversionDestinationConfigured
+                      ? "Configurado"
+                      : "Nao configurado"}
+                  </strong>
+                  <small>Destino Meta do workspace</small>
+                </div>
+              </div>
+            </>
+          ) : null}
+          {activeHealthSection === "audit" ? (
+            <div className="table-wrap operations-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Auditoria operacional</th>
+                    <th>Ator</th>
+                    <th>Alvo</th>
+                    <th>Origem</th>
+                    <th>Data</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.length > 0 ? (
+                    auditLogs.map((audit) => (
+                      <tr key={audit.id}>
+                        <td>
+                          <strong>{audit.action}</strong>
+                          <span>{audit.reason ?? audit.id}</span>
+                        </td>
+                        <td>
+                          <strong>{audit.actorType}</strong>
+                          <span>{audit.actorUserId ?? "sem usuario"}</span>
+                        </td>
+                        <td>
+                          {audit.targetType}
+                          {audit.targetId ? ` / ${audit.targetId}` : ""}
+                        </td>
+                        <td>
+                          {audit.sourceIp ?? audit.workspaceId ?? "plataforma"}
+                        </td>
+                        <td>{formatDateTime(audit.createdAt)}</td>
+                        <td>
+                          <span
+                            className={`event-chip${audit.resultStatus === "failed" ? " warn" : ""}`}
+                          >
+                            {audit.resultStatus}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6}>
+                        <strong>{auditLogEmptyTitle}</strong>
+                        <span>
+                          Logins, logouts, retries e acoes administrativas
+                          aparecem aqui.
+                        </span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
-            <div className="backoffice-grid">
-              <article className="config-card">
-                <span className="micro-label">Contas Meta ativas</span>
-                <strong>{diagnosticSummary.totals.metaReportingAccountsActive}</strong>
-                <p className="muted">Contas de anuncios Meta ativas para sync.</p>
-              </article>
-              <article className="config-card">
-                <span className="micro-label">Contas Meta com erro</span>
-                <strong>{diagnosticSummary.totals.metaReportingAccountsError}</strong>
-                <p className="muted">Contas com syncStatus error.</p>
-              </article>
-              <article className="config-card">
-                <span className="micro-label">Campanhas para revisar</span>
-                <strong>{diagnosticSummary.totals.metaWhatsappNeedsReview}</strong>
-                <p className="muted">Campanhas Meta classificadas como needs_review.</p>
-              </article>
-              <article className="config-card">
-                <span className="micro-label">Destino CAPI</span>
-                <strong>
-                  {diagnosticSummary.totals.metaConversionDestinationConfigured
-                    ? "Configurado"
-                    : "Nao configurado"}
-                </strong>
-                <p className="muted">Destino de conversao Meta do workspace.</p>
-              </article>
+          ) : null}
+          {activeHealthSection === "webhooks" ? (
+            <div className="table-wrap operations-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Webhooks recebidos</th>
+                    <th>Evento externo</th>
+                    <th>Lead</th>
+                    <th>Atribuicao</th>
+                    <th>Recebido</th>
+                    <th>Estado</th>
+                    <th>Acao</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {webhookLogs.length > 0 ? (
+                    webhookLogs.map((webhook) => (
+                      <tr key={webhook.id}>
+                        <td>
+                          <strong>{webhook.source}</strong>
+                          <span>{webhook.eventType}</span>
+                        </td>
+                        <td>{webhook.externalEventId ?? webhook.id}</td>
+                        <td>
+                          {webhook.leadId ?? webhook.phoneHash ?? "sem lead"}
+                        </td>
+                        <td>
+                          {webhook.campaignId ?? "sem campanha"}
+                          {webhook.adId ? ` / ${webhook.adId}` : ""}
+                        </td>
+                        <td>{formatDateTime(webhook.receivedAt)}</td>
+                        <td>
+                          <span
+                            className={`event-chip${webhook.errorCode ? " warn" : ""}`}
+                          >
+                            {webhook.errorCode ?? webhook.status}
+                          </span>
+                        </td>
+                        <td>
+                          <a
+                            className="button ghost"
+                            href={`/backoffice/webhooks/${webhook.id}/payload`}
+                          >
+                            Payload
+                          </a>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7}>
+                        <strong>{webhookLogEmptyTitle}</strong>
+                        <span>
+                          Webhooks Uazapi, Meta e Asaas recebidos aparecem aqui.
+                        </span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
-          </>
-        ) : null}
-        {activeHealthSection === "audit" ? (
-        <div className="table-wrap operations-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Auditoria operacional</th>
-                <th>Ator</th>
-                <th>Alvo</th>
-                <th>Origem</th>
-                <th>Data</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {auditLogs.length > 0 ? (
-                auditLogs.map((audit) => (
-                  <tr key={audit.id}>
-                    <td>
-                      <strong>{audit.action}</strong>
-                      <span>{audit.reason ?? audit.id}</span>
-                    </td>
-                    <td>
-                      <strong>{audit.actorType}</strong>
-                      <span>{audit.actorUserId ?? "sem usuario"}</span>
-                    </td>
-                    <td>
-                      {audit.targetType}
-                      {audit.targetId ? ` / ${audit.targetId}` : ""}
-                    </td>
-                    <td>{audit.sourceIp ?? audit.workspaceId ?? "plataforma"}</td>
-                    <td>{formatDateTime(audit.createdAt)}</td>
-                    <td>
-                      <span className={`event-chip${audit.resultStatus === "failed" ? " warn" : ""}`}>
-                        {audit.resultStatus}
-                      </span>
-                    </td>
+          ) : null}
+          {activeHealthSection === "conversions" ? (
+            <div className="table-wrap operations-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Eventos Pixel/CAPI</th>
+                    <th>Lead</th>
+                    <th>Pixel</th>
+                    <th>Atribuicao</th>
+                    <th>Enviado</th>
+                    <th>Estado</th>
+                    <th>Acao</th>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6}>
-                    <strong>{auditLogEmptyTitle}</strong>
-                    <span>Logins, logouts, retries e acoes administrativas aparecem aqui.</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        ) : null}
-        {activeHealthSection === "webhooks" ? (
-        <div className="table-wrap operations-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Webhooks recebidos</th>
-                <th>Evento externo</th>
-                <th>Lead</th>
-                <th>Atribuicao</th>
-                <th>Recebido</th>
-                <th>Estado</th>
-                <th>Acao</th>
-              </tr>
-            </thead>
-            <tbody>
-              {webhookLogs.length > 0 ? (
-                webhookLogs.map((webhook) => (
-                  <tr key={webhook.id}>
-                    <td>
-                      <strong>{webhook.source}</strong>
-                      <span>{webhook.eventType}</span>
-                    </td>
-                    <td>{webhook.externalEventId ?? webhook.id}</td>
-                    <td>{webhook.leadId ?? webhook.phoneHash ?? "sem lead"}</td>
-                    <td>
-                      {webhook.campaignId ?? "sem campanha"}
-                      {webhook.adId ? ` / ${webhook.adId}` : ""}
-                    </td>
-                    <td>{formatDateTime(webhook.receivedAt)}</td>
-                    <td>
-                      <span className={`event-chip${webhook.errorCode ? " warn" : ""}`}>
-                        {webhook.errorCode ?? webhook.status}
-                      </span>
-                    </td>
-                    <td>
-                      <a
-                        className="button ghost"
-                        href={`/backoffice/webhooks/${webhook.id}/payload`}
-                      >
-                        Payload
-                      </a>
-                    </td>
+                </thead>
+                <tbody>
+                  {conversionEventLogs.length > 0 ? (
+                    conversionEventLogs.map((event) => (
+                      <tr key={event.id}>
+                        <td>
+                          <strong>{event.eventName}</strong>
+                          <span>{event.sourceTrigger}</span>
+                        </td>
+                        <td>{event.leadId ?? event.phoneHash ?? "sem lead"}</td>
+                        <td>{event.pixelId ?? "sem pixel"}</td>
+                        <td>
+                          {event.campaignId ?? "sem campanha"}
+                          {event.adId ? ` / ${event.adId}` : ""}
+                        </td>
+                        <td>
+                          {event.sentAt
+                            ? formatDateTime(event.sentAt)
+                            : "nao enviado"}
+                        </td>
+                        <td>
+                          <span
+                            className={`event-chip${event.errorCode ? " warn" : ""}`}
+                          >
+                            {event.errorCode ?? event.status}
+                          </span>
+                        </td>
+                        <td>
+                          <form action={retryConversionEventLog}>
+                            <input
+                              type="hidden"
+                              name="conversionEventLogId"
+                              value={event.id}
+                            />
+                            <button className="button" type="submit">
+                              Reprocessar Pixel
+                            </button>
+                          </form>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7}>
+                        <strong>{conversionEventLogEmptyTitle}</strong>
+                        <span>
+                          Conversoes geradas por regras aparecem aqui.
+                        </span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {activeHealthSection === "integrations" ? (
+            <div className="table-wrap operations-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Chamadas externas</th>
+                    <th>Provider</th>
+                    <th>Atribuicao</th>
+                    <th>Duracao</th>
+                    <th>Request</th>
+                    <th>Estado</th>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={7}>
-                    <strong>{webhookLogEmptyTitle}</strong>
-                    <span>Webhooks Uazapi, Meta e Asaas recebidos aparecem aqui.</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        ) : null}
-        {activeHealthSection === "conversions" ? (
-        <div className="table-wrap operations-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Eventos Pixel/CAPI</th>
-                <th>Lead</th>
-                <th>Pixel</th>
-                <th>Atribuicao</th>
-                <th>Enviado</th>
-                <th>Estado</th>
-                <th>Acao</th>
-              </tr>
-            </thead>
-            <tbody>
-              {conversionEventLogs.length > 0 ? (
-                conversionEventLogs.map((event) => (
-                  <tr key={event.id}>
-                    <td>
-                      <strong>{event.eventName}</strong>
-                      <span>{event.sourceTrigger}</span>
-                    </td>
-                    <td>{event.leadId ?? event.phoneHash ?? "sem lead"}</td>
-                    <td>{event.pixelId ?? "sem pixel"}</td>
-                    <td>
-                      {event.campaignId ?? "sem campanha"}
-                      {event.adId ? ` / ${event.adId}` : ""}
-                    </td>
-                    <td>
-                      {event.sentAt
-                        ? formatDateTime(event.sentAt)
-                        : "nao enviado"}
-                    </td>
-                    <td>
-                      <span className={`event-chip${event.errorCode ? " warn" : ""}`}>
-                        {event.errorCode ?? event.status}
-                      </span>
-                    </td>
-                    <td>
-                      <form action={retryConversionEventLog}>
-                        <input
-                          type="hidden"
-                          name="conversionEventLogId"
-                          value={event.id}
-                        />
-                        <button className="button" type="submit">
-                          Reprocessar Pixel
-                        </button>
-                      </form>
-                    </td>
+                </thead>
+                <tbody>
+                  {integrationLogs.length > 0 ? (
+                    integrationLogs.map((log) => (
+                      <tr key={log.id}>
+                        <td>
+                          <strong>{log.operation}</strong>
+                          <span>{log.workspaceId ?? "plataforma"}</span>
+                        </td>
+                        <td>
+                          <strong>{log.source}</strong>
+                          <span>{log.httpStatus ?? "sem http"}</span>
+                        </td>
+                        <td>
+                          {log.campaignId ?? log.leadId ?? "sem atribuicao"}
+                          {log.adId ? ` / ${log.adId}` : ""}
+                        </td>
+                        <td>
+                          {log.durationMs !== null
+                            ? `${log.durationMs}ms`
+                            : "em aberto"}
+                        </td>
+                        <td>
+                          {log.providerRequestId ?? log.jobId ?? "sem id"}
+                        </td>
+                        <td>
+                          <span
+                            className={`event-chip${log.providerErrorCode ? " warn" : ""}`}
+                          >
+                            {log.providerErrorCode ?? log.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6}>
+                        <strong>{integrationLogEmptyTitle}</strong>
+                        <span>
+                          Chamadas Meta, Uazapi e Asaas aparecem aqui.
+                        </span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {activeHealthSection === "jobs" ? (
+            <div className="table-wrap operations-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Jobs operacionais</th>
+                    <th>Fila</th>
+                    <th>Entidade</th>
+                    <th>Tentativa</th>
+                    <th>Proxima acao</th>
+                    <th>Estado</th>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={7}>
-                    <strong>{conversionEventLogEmptyTitle}</strong>
-                    <span>Conversoes geradas por regras aparecem aqui.</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        ) : null}
-        {activeHealthSection === "integrations" ? (
-        <div className="table-wrap operations-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Chamadas externas</th>
-                <th>Provider</th>
-                <th>Atribuicao</th>
-                <th>Duracao</th>
-                <th>Request</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {integrationLogs.length > 0 ? (
-                integrationLogs.map((log) => (
-                  <tr key={log.id}>
-                    <td>
-                      <strong>{log.operation}</strong>
-                      <span>{log.workspaceId ?? "plataforma"}</span>
-                    </td>
-                    <td>
-                      <strong>{log.source}</strong>
-                      <span>{log.httpStatus ?? "sem http"}</span>
-                    </td>
-                    <td>
-                      {log.campaignId ?? log.leadId ?? "sem atribuicao"}
-                      {log.adId ? ` / ${log.adId}` : ""}
-                    </td>
-                    <td>{log.durationMs !== null ? `${log.durationMs}ms` : "em aberto"}</td>
-                    <td>{log.providerRequestId ?? log.jobId ?? "sem id"}</td>
-                    <td>
-                      <span className={`event-chip${log.providerErrorCode ? " warn" : ""}`}>
-                        {log.providerErrorCode ?? log.status}
-                      </span>
-                    </td>
+                </thead>
+                <tbody>
+                  {jobAttempts.length > 0 ? (
+                    jobAttempts.map((job) => (
+                      <tr key={job.id}>
+                        <td>
+                          <strong>{job.jobName}</strong>
+                          <span>{job.jobId}</span>
+                        </td>
+                        <td>
+                          <strong>{job.queueName}</strong>
+                          <span>{job.source}</span>
+                        </td>
+                        <td>
+                          {job.relatedEntityType ?? "sem entidade"}
+                          {job.relatedEntityId
+                            ? ` / ${job.relatedEntityId}`
+                            : ""}
+                        </td>
+                        <td>{job.attemptNumber}</td>
+                        <td>
+                          {job.nextRetryAt
+                            ? formatDateTime(job.nextRetryAt)
+                            : "sem retry agendado"}
+                        </td>
+                        <td>
+                          <span
+                            className={`event-chip${job.errorCode ? " warn" : ""}`}
+                          >
+                            {job.errorCode ?? job.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6}>
+                        <strong>{jobAttemptEmptyTitle}</strong>
+                        <span>
+                          Jobs de retry, conversao e sincronizacao aparecem
+                          aqui.
+                        </span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {activeHealthSection === "incidents" ? (
+            <div className="table-wrap operations-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Camada</th>
+                    <th>Workspaces afetados</th>
+                    <th>Ultima falha</th>
+                    <th>SLA</th>
+                    <th>Estado</th>
+                    <th>Acao</th>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6}>
-                    <strong>{integrationLogEmptyTitle}</strong>
-                    <span>Chamadas Meta, Uazapi e Asaas aparecem aqui.</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {diagnosticEvents.length > 0 ? (
+                    diagnosticEvents.map((event) => (
+                      <tr key={event.id}>
+                        <td>
+                          <strong>{event.title}</strong>
+                          <span>{event.message}</span>
+                        </td>
+                        <td>{event.workspaceId ?? "plataforma"}</td>
+                        <td>{formatDateTime(event.occurredAt)}</td>
+                        <td>{event.source}</td>
+                        <td>
+                          <span
+                            className={`event-chip${event.severity === "error" || event.severity === "critical" ? " warn" : ""}`}
+                          >
+                            {event.status}
+                          </span>
+                        </td>
+                        <td>
+                          <a
+                            className="button ghost"
+                            href={`/backoffice/diagnostics/${event.id}`}
+                          >
+                            Detalhes
+                          </a>
+                          <form action={retryDiagnosticEvent}>
+                            <input
+                              type="hidden"
+                              name="eventId"
+                              value={event.id}
+                            />
+                            <button className="button" type="submit">
+                              Reprocessar
+                            </button>
+                          </form>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6}>
+                        <strong>{diagnosticEmptyTitle}</strong>
+                        <span>{diagnosticEmptyDescription}</span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </div>
-        ) : null}
-        {activeHealthSection === "jobs" ? (
-        <div className="table-wrap operations-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Jobs operacionais</th>
-                <th>Fila</th>
-                <th>Entidade</th>
-                <th>Tentativa</th>
-                <th>Proxima acao</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobAttempts.length > 0 ? (
-                jobAttempts.map((job) => (
-                  <tr key={job.id}>
-                    <td>
-                      <strong>{job.jobName}</strong>
-                      <span>{job.jobId}</span>
-                    </td>
-                    <td>
-                      <strong>{job.queueName}</strong>
-                      <span>{job.source}</span>
-                    </td>
-                    <td>
-                      {job.relatedEntityType ?? "sem entidade"}
-                      {job.relatedEntityId ? ` / ${job.relatedEntityId}` : ""}
-                    </td>
-                    <td>{job.attemptNumber}</td>
-                    <td>
-                      {job.nextRetryAt
-                        ? formatDateTime(job.nextRetryAt)
-                        : "sem retry agendado"}
-                    </td>
-                    <td>
-                      <span className={`event-chip${job.errorCode ? " warn" : ""}`}>
-                        {job.errorCode ?? job.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6}>
-                    <strong>{jobAttemptEmptyTitle}</strong>
-                    <span>Jobs de retry, conversao e sincronizacao aparecem aqui.</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        ) : null}
-        {activeHealthSection === "incidents" ? (
-        <div className="table-wrap operations-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Camada</th>
-                <th>Workspaces afetados</th>
-                <th>Ultima falha</th>
-                <th>SLA</th>
-                <th>Estado</th>
-                <th>Acao</th>
-              </tr>
-            </thead>
-            <tbody>
-              {diagnosticEvents.length > 0 ? (
-                diagnosticEvents.map((event) => (
-                  <tr key={event.id}>
-                    <td><strong>{event.title}</strong><span>{event.message}</span></td>
-                    <td>{event.workspaceId ?? "plataforma"}</td>
-                    <td>{formatDateTime(event.occurredAt)}</td>
-                    <td>{event.source}</td>
-                    <td>
-                      <span className={`event-chip${event.severity === "error" || event.severity === "critical" ? " warn" : ""}`}>
-                        {event.status}
-                      </span>
-                    </td>
-                    <td>
-                      <a className="button ghost" href={`/backoffice/diagnostics/${event.id}`}>
-                        Detalhes
-                      </a>
-                      <form action={retryDiagnosticEvent}>
-                        <input type="hidden" name="eventId" value={event.id} />
-                        <button className="button" type="submit">Reprocessar</button>
-                      </form>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6}>
-                    <strong>{diagnosticEmptyTitle}</strong>
-                    <span>{diagnosticEmptyDescription}</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        ) : null}
-      </div>
       ) : null}
     </section>
   );

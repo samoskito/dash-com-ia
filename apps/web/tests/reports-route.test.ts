@@ -328,7 +328,8 @@ describe("reports route", () => {
     expect(html).toContain("Black Friday WhatsApp");
     expect(html).toContain("Total do filtro");
     expect(html).toContain("21 campanhas");
-    expect(html).toContain("Periodo: 06/07/2026 a 12/07/2026");
+    expect(html).toContain("Periodo de analise");
+    expect(html).toContain("06/07/2026 a 12/07/2026");
     expect(html).toContain("Meta: 06/07/2026 a 12/07/2026");
     expect(html).toContain("Proxima");
     expect(
@@ -374,10 +375,7 @@ describe("reports route", () => {
   });
 
   it("keeps the warning when any active Meta account lacks coverage", async () => {
-    const coveredAssets = metaAssetsWithSyncRange(
-      "2026-05-01",
-      "2026-07-12",
-    );
+    const coveredAssets = metaAssetsWithSyncRange("2026-05-01", "2026-07-12");
     mockReportsApi({
       assets: {
         ...coveredAssets,
@@ -492,7 +490,7 @@ describe("reports route", () => {
     mockReportsApi({ campaign: campaignWithMissingSteps });
     const html = await renderReports();
     const table = html.match(
-      /<table class="performance-table">([\s\S]*?)<\/table>/,
+      /<table class="performance-table"[^>]*>([\s\S]*?)<\/table>/,
     )?.[1];
     const header = table?.match(/<thead><tr>([\s\S]*?)<\/tr><\/thead>/)?.[1];
     const row = table?.match(/<tbody><tr[^>]*>([\s\S]*?)<\/tr>/)?.[1];
@@ -502,6 +500,36 @@ describe("reports route", () => {
     expect(headerCells.length).toBeGreaterThan(0);
     expect(rowCells).toHaveLength(headerCells.length);
     expect(row).toContain('class="performance-review-cell"');
+  });
+
+  it("groups the report controls and keeps organic metrics out of entity rows", async () => {
+    mockReportsApi();
+    const html = await renderReports();
+
+    expect(html).toContain('class="surface-panel report-command-panel"');
+    expect(html).toContain('class="surface-panel report-analysis-controls"');
+    expect(html).toContain('aria-label="Grupo de metricas"');
+    expect(html).toContain("Filtros avancados");
+    expect(html).toContain('name="compareSince"');
+    expect(html).toContain('name="compareUntil"');
+    expect(html).toContain('data-label="Conversas reais"');
+    expect(html).not.toContain("<th>Leads organicos</th>");
+    expect(html).not.toContain("<th>Receita organica</th>");
+  });
+
+  it("renders and preserves the selected metric group without changing the API query", async () => {
+    const fetchMock = mockReportsApi();
+    const html = await renderReports({ metrics: "revenue" });
+    const campaignCall = fetchMock.mock.calls
+      .map(([input]) => String(input))
+      .find((url) => url.includes("/reports/campaigns"));
+
+    expect(html).toContain('data-metric-group="revenue"');
+    expect(html).toContain('aria-current="page" class="active"');
+    expect(html).toContain("<th>Receita primeira compra</th>");
+    expect(html).toContain("<th>ROAS com recompra</th>");
+    expect(html).toContain("metrics=revenue");
+    expect(campaignCall).not.toContain("metrics=");
   });
 
   it("renders an excluded WhatsApp item with a persistent selected state", async () => {

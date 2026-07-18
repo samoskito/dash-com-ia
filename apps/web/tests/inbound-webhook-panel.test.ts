@@ -220,6 +220,10 @@ describe("inbound webhook panel", () => {
       expect(html).toContain(`<span>${label}</span><strong>${value}</strong>`);
     }
 
+    expect(html).toContain('class="inbound-connection"');
+    expect(html).not.toContain('<details class="inbound-connection" open="">');
+    expect(html).toContain("12 roteados");
+    expect(html).toContain("5 pendentes");
     expect(html).toContain("Comercial Sao Paulo");
     expect(html).toContain("+5511999990001");
     expect(html).toContain(expectedLastSeen);

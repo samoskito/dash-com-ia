@@ -216,7 +216,7 @@ export function EventAuditDetails({
 
   return (
     <>
-      <div className="audit-row-actions">
+      <div className={`audit-row-actions${retryAvailable ? " has-retry" : ""}`}>
         <button
           className="button ghost audit-inspect-button"
           onClick={openDetails}

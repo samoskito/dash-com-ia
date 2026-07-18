@@ -266,6 +266,11 @@ describe("Meta manual connection panel", () => {
     );
 
     expect(html).toContain("Tokens, BMs e destinos");
+    expect(html).toContain("Ver estruturas");
+    expect(html).toContain('class="meta-configured-structures"');
+    expect(html).not.toContain(
+      '<details class="meta-configured-structures" open="">',
+    );
     expect(html).toContain("BM Cliente");
     expect(html).toContain("Permissao de Insights ausente");
     expect(html).toContain("Importar 90 dias");

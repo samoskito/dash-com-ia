@@ -1,4 +1,13 @@
 import type { LeadListItemDto, LeadListPageDto } from "@wpptrack/shared";
+import {
+  ArrowUpRight,
+  CalendarDays,
+  Filter,
+  RotateCcw,
+  Search,
+  SlidersHorizontal,
+  UserRoundSearch,
+} from "lucide-react";
 import Link from "next/link";
 import { PresentationMask } from "../../../components/presentation-mask";
 import { formatDateTime } from "../../../lib/date-time";
@@ -145,7 +154,42 @@ function sourceLabel(source: string | null, adId: string | null): string {
     return "Integracao externa";
   }
 
+  if (source === "umbler_talk") {
+    return "Umbler Talk";
+  }
+
+  if (source === "uazapi") {
+    return "Uazapi";
+  }
+
   return source ?? adId ?? "Origem parcial";
+}
+
+function LeadIdentity({ lead }: { lead: LeadListItemDto }) {
+  return (
+    <>
+      <PresentationMask placeholder="Lead oculto">
+        <Link href={`/leads/${lead.id}`}>{lead.name ?? "Lead sem nome"}</Link>
+      </PresentationMask>
+      <PresentationMask placeholder="(00) 00000-0000">
+        <span>{lead.phoneDisplay ?? lead.phoneHash}</span>
+      </PresentationMask>
+    </>
+  );
+}
+
+function LeadLabels({ labels }: { labels: string[] }) {
+  if (labels.length === 0) {
+    return null;
+  }
+
+  return (
+    <span className="lead-label-list">
+      {labels.map((label) => (
+        <small key={label}>{label}</small>
+      ))}
+    </span>
+  );
 }
 
 export default async function LeadsPage({
@@ -174,6 +218,21 @@ export default async function LeadsPage({
   );
   const hasReportFilter = Boolean(campaignId || adSetId || adId || attribution);
   const hasPeriodFilter = Boolean(since || until);
+  const hasAdvancedFilters = Boolean(
+    attribution || label || since || until || campaignId || adSetId || adId,
+  );
+  const hasAnyFilter = Boolean(
+    search || status || eventName || hasAdvancedFilters,
+  );
+  const advancedFilterCount = [
+    attribution,
+    label,
+    since,
+    until,
+    campaignId,
+    adSetId,
+    adId,
+  ].filter(Boolean).length;
   const leadFilters: LeadFilters = {
     search,
     status,
@@ -191,6 +250,14 @@ export default async function LeadsPage({
   const result = await getLeads(leadFilters);
   const { leads } = result;
   const pendingCount = leads.filter((lead) => !lead.lastEventName).length;
+  const pageStart =
+    result.pagination.totalItems > 0
+      ? (result.pagination.page - 1) * result.pagination.pageSize + 1
+      : 0;
+  const pageEnd = Math.min(
+    result.pagination.page * result.pagination.pageSize,
+    result.pagination.totalItems,
+  );
   const emptyTitle =
     result.state === "error"
       ? "Nao foi possivel carregar leads"
@@ -207,8 +274,8 @@ export default async function LeadsPage({
           <span className="eyebrow">Leads</span>
           <h1>Leads rastreados pelo WhatsApp</h1>
           <p>
-            Busca por nome ou telefone, periodo, campanha, etiquetas e eventos
-            enviados.
+            Encontre conversas, confirme a atribuicao e acompanhe a etapa atual
+            de cada lead.
           </p>
         </div>
         <div className="header-actions">
@@ -218,24 +285,26 @@ export default async function LeadsPage({
           <span className="status-chip">
             {result.pagination.totalItems} conversas reais
           </span>
-          <span className="status-chip warn">{pendingCount} pendencias</span>
         </div>
       </header>
 
       <form
-        className="filter-bar lead-filter-bar"
+        className="surface-panel lead-filter-panel"
         aria-label="Filtros de leads"
         action="/leads"
       >
-        <input type="hidden" name="pageSize" value={pageSize} />
         <div className="lead-filter-primary">
-          <input
-            className="filter-control"
-            name="search"
-            placeholder="Buscar lead"
-            defaultValue={search}
-            data-presentation-sensitive-field="true"
-          />
+          <label className="lead-search-control">
+            <span className="sr-only">Buscar por nome ou telefone</span>
+            <Search aria-hidden="true" size={18} strokeWidth={2} />
+            <input
+              className="filter-control"
+              name="search"
+              placeholder="Nome ou telefone"
+              defaultValue={search}
+              data-presentation-sensitive-field="true"
+            />
+          </label>
           <select
             className="filter-control"
             name="status"
@@ -259,145 +328,300 @@ export default async function LeadsPage({
             <option value="QualifiedLead">Lead qualificado</option>
             <option value="Purchase">Compra atribuida</option>
           </select>
-          <select
-            className="filter-control"
-            name="attribution"
-            defaultValue={attribution ?? ""}
-          >
-            <option value="">Toda origem</option>
-            <option value="paid">Com atribuicao</option>
-            <option value="organic">Sem atribuicao</option>
-          </select>
-          <input
-            className="filter-control"
-            name="label"
-            placeholder="Etiqueta"
-            defaultValue={label}
-            data-presentation-sensitive-field="true"
-          />
-        </div>
-        <div className="lead-filter-period">
-          <label className="filter-field">
-            <span>Inicio</span>
-            <input type="date" name="since" defaultValue={since} />
-          </label>
-          <label className="filter-field">
-            <span>Fim</span>
-            <input type="date" name="until" defaultValue={until} />
-          </label>
-          <button className="button" type="submit">
-            Filtrar
+          <button className="button primary" type="submit">
+            <Filter aria-hidden="true" size={17} strokeWidth={2.2} />
+            Aplicar
           </button>
+          {hasAnyFilter ? (
+            <Link className="button ghost" href="/leads">
+              <RotateCcw aria-hidden="true" size={16} strokeWidth={2} />
+              Limpar
+            </Link>
+          ) : null}
         </div>
+
+        <details className="lead-advanced-filters" open={hasAdvancedFilters}>
+          <summary>
+            <span>
+              <SlidersHorizontal aria-hidden="true" size={17} strokeWidth={2} />
+              Filtros avancados
+            </span>
+            {advancedFilterCount > 0 ? (
+              <span className="lead-active-filter-count">
+                {advancedFilterCount} ativo(s)
+              </span>
+            ) : (
+              <span>Origem, etiqueta, periodo e exibicao</span>
+            )}
+          </summary>
+          <div className="lead-filter-advanced-grid">
+            <label className="filter-field">
+              <span>Origem</span>
+              <select
+                className="filter-control"
+                name="attribution"
+                defaultValue={attribution ?? ""}
+              >
+                <option value="">Toda origem</option>
+                <option value="paid">Com atribuicao</option>
+                <option value="organic">Sem atribuicao</option>
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Etiqueta</span>
+              <input
+                className="filter-control"
+                name="label"
+                placeholder="Ex.: VIP"
+                defaultValue={label}
+                data-presentation-sensitive-field="true"
+              />
+            </label>
+            <label className="filter-field">
+              <span>Inicio</span>
+              <span className="lead-date-control">
+                <CalendarDays aria-hidden="true" size={16} strokeWidth={2} />
+                <input type="date" name="since" defaultValue={since} />
+              </span>
+            </label>
+            <label className="filter-field">
+              <span>Fim</span>
+              <span className="lead-date-control">
+                <CalendarDays aria-hidden="true" size={16} strokeWidth={2} />
+                <input type="date" name="until" defaultValue={until} />
+              </span>
+            </label>
+            <label className="filter-field">
+              <span>Por pagina</span>
+              <select
+                className="filter-control"
+                name="pageSize"
+                defaultValue={String(pageSize)}
+              >
+                <option value="25">25 leads</option>
+                <option value="50">50 leads</option>
+                <option value="100">100 leads</option>
+              </select>
+            </label>
+          </div>
+        </details>
+
         <input type="hidden" name="campaignId" value={campaignId ?? ""} />
         <input type="hidden" name="adSetId" value={adSetId ?? ""} />
         <input type="hidden" name="adId" value={adId ?? ""} />
       </form>
+
       {hasReportFilter || hasPeriodFilter ? (
-        <p className="muted">
-          {attribution === "organic"
-            ? "Exibindo conversas sem atribuicao"
-            : attribution === "paid"
-              ? "Exibindo conversas com atribuicao"
-              : hasReportFilter
-                ? "Filtro do relatorio aplicado"
-                : "Periodo das conversas"}
-          {since || until
-            ? `: ${since ?? "inicio"} ate ${until ?? "hoje"}`
-            : "."}
-        </p>
+        <div className="lead-filter-context" role="status">
+          <Filter aria-hidden="true" size={16} strokeWidth={2} />
+          <strong>Recorte ativo</strong>
+          <span>
+            {attribution === "organic"
+              ? "Exibindo conversas sem atribuicao"
+              : attribution === "paid"
+                ? "Exibindo conversas com atribuicao"
+                : hasReportFilter
+                  ? "Filtro do relatorio aplicado"
+                  : "Periodo das conversas"}
+            {since || until
+              ? `: ${since ?? "inicio"} ate ${until ?? "hoje"}`
+              : "."}
+          </span>
+        </div>
       ) : null}
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Lead</th>
-              <th>Campanha / origem</th>
-              <th>Etapa atual</th>
-              <th>Ultimo toque</th>
-            </tr>
-          </thead>
-          <tbody>
-            {leads.length > 0 ? (
-              leads.map((lead) => (
-                <tr key={lead.id}>
-                  <td>
-                    <strong>
-                      <PresentationMask placeholder="Lead oculto">
-                        <Link href={`/leads/${lead.id}`}>
-                          {lead.name ?? "Lead sem nome"}
+      <section className="lead-results-section" aria-labelledby="lead-results">
+        <header className="lead-results-header">
+          <div>
+            <span className="eyebrow">Historico</span>
+            <h2 id="lead-results">Conversas recebidas</h2>
+            <p>
+              {result.pagination.totalItems > 0
+                ? `Mostrando ${pageStart}-${pageEnd} de ${result.pagination.totalItems} leads.`
+                : "Nenhuma conversa disponivel neste recorte."}
+            </p>
+          </div>
+          {leads.length > 0 ? (
+            <div className="lead-results-summary">
+              <span className="status-chip">
+                Pagina {result.pagination.page} de{" "}
+                {Math.max(result.pagination.totalPages, 1)}
+              </span>
+              <span className={`status-chip${pendingCount > 0 ? " warn" : ""}`}>
+                {pendingCount} sem etapa nesta pagina
+              </span>
+            </div>
+          ) : null}
+        </header>
+
+        {leads.length > 0 ? (
+          <>
+            <div className="table-wrap leads-table-wrap">
+              <table className="leads-table">
+                <thead>
+                  <tr>
+                    <th>Lead</th>
+                    <th>Campanha / origem</th>
+                    <th>Etapa atual</th>
+                    <th>Recebido</th>
+                    <th>Ultima atividade</th>
+                    <th>
+                      <span className="sr-only">Abrir lead</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leads.map((lead) => (
+                    <tr key={lead.id}>
+                      <td className="lead-identity-cell">
+                        <div className="lead-identity-content">
+                          <LeadIdentity lead={lead} />
+                        </div>
+                      </td>
+                      <td className="lead-source-cell">
+                        <strong>
+                          <PresentationMask placeholder="Campanha oculta">
+                            {lead.campaignName ?? "Campanha nao resolvida"}
+                          </PresentationMask>
+                        </strong>
+                        <span>{sourceLabel(lead.source, lead.adId)}</span>
+                        <LeadLabels labels={lead.labels} />
+                      </td>
+                      <td>
+                        <span className={`event-chip${lifecycleTone(lead)}`}>
+                          {lifecycleLabel(lead)}
+                        </span>
+                      </td>
+                      <td className="lead-date-cell">
+                        {lastTouchLabel(lead.firstMessageAt)}
+                      </td>
+                      <td className="lead-date-cell">
+                        {lastTouchLabel(lead.lastMessageAt)}
+                      </td>
+                      <td className="lead-action-cell">
+                        <Link
+                          className="icon-button lead-open-action"
+                          href={`/leads/${lead.id}`}
+                          aria-label={`Abrir ${lead.name ?? "lead sem nome"}`}
+                          title="Abrir lead"
+                        >
+                          <ArrowUpRight
+                            aria-hidden="true"
+                            size={17}
+                            strokeWidth={2.2}
+                          />
                         </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="lead-mobile-list">
+              {leads.map((lead) => (
+                <article className="lead-mobile-card" key={lead.id}>
+                  <header>
+                    <div className="lead-mobile-identity">
+                      <LeadIdentity lead={lead} />
+                    </div>
+                    <Link
+                      className="icon-button lead-open-action"
+                      href={`/leads/${lead.id}`}
+                      aria-label={`Abrir ${lead.name ?? "lead sem nome"}`}
+                    >
+                      <ArrowUpRight
+                        aria-hidden="true"
+                        size={17}
+                        strokeWidth={2.2}
+                      />
+                    </Link>
+                  </header>
+                  <div className="lead-mobile-source">
+                    <span className="micro-label">Campanha / origem</span>
+                    <strong>
+                      <PresentationMask placeholder="Campanha oculta">
+                        {lead.campaignName ?? "Campanha nao resolvida"}
                       </PresentationMask>
                     </strong>
-                    <span>
-                      <PresentationMask placeholder="(00) 00000-0000">
-                        {lead.phoneDisplay ?? lead.phoneHash}
-                      </PresentationMask>
-                    </span>
-                  </td>
-                  <td>
-                    <PresentationMask placeholder="Campanha oculta">
-                      {lead.campaignName ?? "Campanha nao resolvida"}
-                    </PresentationMask>
                     <span>{sourceLabel(lead.source, lead.adId)}</span>
-                    {lead.labels.length > 0 ? (
-                      <span>{lead.labels.join(", ")}</span>
-                    ) : null}
-                  </td>
-                  <td>
+                    <LeadLabels labels={lead.labels} />
+                  </div>
+                  <div className="lead-mobile-stage">
+                    <span className="micro-label">Etapa atual</span>
                     <span className={`event-chip${lifecycleTone(lead)}`}>
                       {lifecycleLabel(lead)}
                     </span>
-                  </td>
-                  <td>{lastTouchLabel(lead.lastMessageAt)}</td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={4}>
-                  <strong>{emptyTitle}</strong>
-                  <span>{emptyDescription}</span>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>Recebido</dt>
+                      <dd>{lastTouchLabel(lead.firstMessageAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Ultima atividade</dt>
+                      <dd>{lastTouchLabel(lead.lastMessageAt)}</dd>
+                    </div>
+                  </dl>
+                </article>
+              ))}
+            </div>
 
-      <nav className="report-pagination" aria-label="Paginacao de leads">
-        <span>
-          Pagina {result.pagination.page} de{" "}
-          {Math.max(result.pagination.totalPages, 1)} ·{" "}
-          {result.pagination.totalItems} leads
-        </span>
-        <div>
-          {result.pagination.page > 1 ? (
+            <nav className="report-pagination" aria-label="Paginacao de leads">
+              <span>
+                Pagina {result.pagination.page} de{" "}
+                {Math.max(result.pagination.totalPages, 1)} -{" "}
+                {result.pagination.totalItems} leads
+              </span>
+              <div>
+                {result.pagination.page > 1 ? (
+                  <Link
+                    className="button ghost"
+                    href={`/leads?${leadQuery(leadFilters, result.pagination.page - 1)}`}
+                  >
+                    Anterior
+                  </Link>
+                ) : (
+                  <span className="button ghost disabled" aria-disabled="true">
+                    Anterior
+                  </span>
+                )}
+                {result.pagination.page < result.pagination.totalPages ? (
+                  <Link
+                    className="button ghost"
+                    href={`/leads?${leadQuery(leadFilters, result.pagination.page + 1)}`}
+                  >
+                    Proxima
+                  </Link>
+                ) : (
+                  <span className="button ghost disabled" aria-disabled="true">
+                    Proxima
+                  </span>
+                )}
+              </div>
+            </nav>
+          </>
+        ) : (
+          <div className={`lead-empty-state ${result.state}`}>
+            <UserRoundSearch aria-hidden="true" size={28} strokeWidth={1.8} />
+            <div>
+              <strong>{emptyTitle}</strong>
+              <span>{emptyDescription}</span>
+            </div>
             <Link
               className="button ghost"
-              href={`/leads?${leadQuery(leadFilters, result.pagination.page - 1)}`}
+              href={
+                result.state === "error"
+                  ? `/leads?${leadQuery(leadFilters)}`
+                  : "/leads"
+              }
             >
-              Anterior
+              <RotateCcw aria-hidden="true" size={16} strokeWidth={2} />
+              {result.state === "error" ? "Tentar novamente" : "Limpar filtros"}
             </Link>
-          ) : (
-            <span className="button ghost disabled" aria-disabled="true">
-              Anterior
-            </span>
-          )}
-          {result.pagination.page < result.pagination.totalPages ? (
-            <Link
-              className="button ghost"
-              href={`/leads?${leadQuery(leadFilters, result.pagination.page + 1)}`}
-            >
-              Proxima
-            </Link>
-          ) : (
-            <span className="button ghost disabled" aria-disabled="true">
-              Proxima
-            </span>
-          )}
-        </div>
-      </nav>
+          </div>
+        )}
+      </section>
     </section>
   );
 }

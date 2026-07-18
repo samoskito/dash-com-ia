@@ -303,7 +303,6 @@ export function InboundWebhookPanel({
               <details
                 className="inbound-connection"
                 key={connection.id}
-                open={connections.length === 1}
               >
                 <summary>
                   <div className="inbound-connection-identity">
@@ -326,6 +325,14 @@ export function InboundWebhookPanel({
                     </div>
                   </div>
                   <div className="inbound-connection-health">
+                    <span className="inbound-connection-signal">
+                      {overview.counters.eligibleRouted} roteados
+                    </span>
+                    {overview.counters.eligibleUnresolved > 0 ? (
+                      <span className="inbound-connection-signal warn">
+                        {overview.counters.eligibleUnresolved} pendentes
+                      </span>
+                    ) : null}
                     <span>{channels.length} canal(is)</span>
                     <span>
                       Ultima entrega:{" "}

@@ -3,6 +3,21 @@ import type {
   ConversionAuditOverviewDto,
   ConversionAuditSourceDto,
 } from "@wpptrack/shared";
+import {
+  AlertTriangle,
+  Archive,
+  Ban,
+  CalendarRange,
+  CheckCircle2,
+  Clock3,
+  Filter,
+  History,
+  MoonStar,
+  ShieldAlert,
+  SlidersHorizontal,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { PresentationMask } from "../../../components/presentation-mask";
 import { formatDateTime } from "../../../lib/date-time";
@@ -24,6 +39,8 @@ type AuditFilters = {
 type AuditResult =
   | { state: "real" | "empty"; report: ConversionAuditOverviewDto }
   | { state: "error"; report: null };
+
+type AuditEvent = ConversionAuditOverviewDto["events"][number];
 
 const emptySummary = {
   total: 0,
@@ -142,6 +159,144 @@ function auditDate(value: string | null): string {
   });
 }
 
+function AuditLead({ event }: { event: AuditEvent }) {
+  return (
+    <div className="audit-context-block">
+      <span className="micro-label">Lead</span>
+      <strong>
+        {event.leadId ? (
+          <PresentationMask placeholder="Lead oculto">
+            <Link href={`/leads/${event.leadId}`}>
+              {event.leadName ?? "Lead sem nome"}
+            </Link>
+          </PresentationMask>
+        ) : (
+          "Lead nao vinculado"
+        )}
+      </strong>
+      <span>
+        <PresentationMask placeholder="(00) 00000-0000">
+          {event.phoneDisplay ?? "Telefone indisponivel"}
+        </PresentationMask>
+      </span>
+    </div>
+  );
+}
+
+function AuditCampaign({ event }: { event: AuditEvent }) {
+  return (
+    <div className="audit-context-block audit-campaign-context">
+      <span className="micro-label">Campanha</span>
+      <strong>
+        <PresentationMask placeholder="Campanha oculta">
+          {event.campaignName ?? "Campanha nao resolvida"}
+        </PresentationMask>
+      </strong>
+      <span>
+        <PresentationMask placeholder="Conjunto oculto">
+          {event.adSetName ?? "Conjunto nao resolvido"}
+        </PresentationMask>
+      </span>
+      <span>
+        <PresentationMask placeholder="Anuncio oculto">
+          {event.adName ?? "Anuncio nao resolvido"}
+        </PresentationMask>
+      </span>
+    </div>
+  );
+}
+
+function AuditDelivery({ event }: { event: AuditEvent }) {
+  return (
+    <div className="audit-delivery-copy">
+      <span className={stateChipClass(event.deliveryState)}>
+        {event.statusLabel}
+      </span>
+      <span>{event.statusDetail}</span>
+      {event.errorMessage ? (
+        <span
+          className={
+            event.deliveryState === "failed" ||
+            event.deliveryState === "blocked"
+              ? "audit-error-copy"
+              : "audit-reason-copy"
+          }
+        >
+          {event.errorMessage}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function AuditMobileEventCard({ event }: { event: AuditEvent }) {
+  return (
+    <article className={`audit-mobile-event-card ${event.deliveryState}`}>
+      <header>
+        <div>
+          <span className="micro-label">{event.sourceLabel}</span>
+          <h3>{event.eventLabel}</h3>
+          <code>{event.eventName}</code>
+        </div>
+        <span className={stateChipClass(event.deliveryState)}>
+          {event.statusLabel}
+        </span>
+      </header>
+
+      <div className="audit-mobile-event-body">
+        <AuditLead event={event} />
+        <div className="audit-context-block">
+          <span className="micro-label">Ocorrido</span>
+          <strong>{auditDate(event.occurredAt)}</strong>
+          <span>
+            {event.sentAt
+              ? `Enviado ${auditDate(event.sentAt)}`
+              : "Ainda nao enviado"}
+          </span>
+        </div>
+        <AuditCampaign event={event} />
+        <div className="audit-mobile-delivery-detail">
+          <span className="micro-label">Entrega</span>
+          <AuditDelivery event={event} />
+        </div>
+      </div>
+
+      <footer>
+        <EventAuditDetails
+          canRetry={event.canRetry}
+          eventId={event.id}
+          eventLabel={event.eventLabel}
+        />
+      </footer>
+    </article>
+  );
+}
+
+function AuditPrimaryMetric({
+  detail,
+  icon: Icon,
+  label,
+  tone,
+  value,
+}: {
+  detail: string;
+  icon: LucideIcon;
+  label: string;
+  tone: string;
+  value: number;
+}) {
+  return (
+    <article className={`audit-primary-metric ${tone}`}>
+      <div>
+        <Icon aria-hidden="true" size={17} strokeWidth={2.1} />
+        <span>{label}</span>
+      </div>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
 export default async function EventsPage({
   searchParams,
 }: {
@@ -180,10 +335,68 @@ export default async function EventsPage({
     totalPages: 0,
   };
   const hasAttention = summary.blocked + summary.failed > 0;
+  const activeFilterCount = [eventName, status, source].filter(Boolean).length;
+  const clearFiltersHref = `/events?since=${since}&until=${until}&pageSize=${pageSize}`;
+  const primaryMetrics = [
+    {
+      detail: "Recebidos pela Meta",
+      icon: CheckCircle2,
+      label: "Enviados",
+      tone: "sent",
+      value: summary.sent,
+    },
+    {
+      detail: "Aguardando processamento",
+      icon: Clock3,
+      label: "Na fila",
+      tone: "queued",
+      value: summary.queued,
+    },
+    {
+      detail: "Dependem de configuracao",
+      icon: ShieldAlert,
+      label: "Bloqueados",
+      tone: "blocked",
+      value: summary.blocked,
+    },
+    {
+      detail: "Envio nao concluido",
+      icon: AlertTriangle,
+      label: "Falhas",
+      tone: "failed",
+      value: summary.failed,
+    },
+  ];
+  const classifiedMetrics = [
+    {
+      icon: Ban,
+      label: "Nao elegiveis",
+      tone: "not_eligible",
+      value: summary.notEligible,
+    },
+    {
+      icon: MoonStar,
+      label: "Em sombra",
+      tone: "shadow",
+      value: summary.shadowObserved,
+    },
+    {
+      icon: Archive,
+      label: "Historicos",
+      tone: "historical",
+      value: summary.historical,
+    },
+    {
+      icon: Trash2,
+      label: "Descartados",
+      tone: "discarded",
+      value: summary.discarded,
+    },
+  ];
 
   return (
     <section className="page-stack page-wide audit-page">
-      <header className="page-header">
+      <header className="page-header audit-page-header">
         <div>
           <span className="eyebrow">Eventos Meta</span>
           <h1>Auditoria de conversoes</h1>
@@ -200,111 +413,208 @@ export default async function EventsPage({
           ) : (
             <span className="status-chip">Fluxo acompanhado</span>
           )}
-          <span className="status-chip neutral">
-            {summary.total} eventos no periodo
-          </span>
         </div>
       </header>
 
-      <section className="audit-summary" aria-label="Resumo das entregas Meta">
-        {[
-          ["Enviados", summary.sent, "sent"],
-          ["Aguardando", summary.queued, "queued"],
-          ["Bloqueados", summary.blocked, "blocked"],
-          ["Falhas", summary.failed, "failed"],
-          ["Nao elegiveis", summary.notEligible, "not_eligible"],
-          ["Em sombra", summary.shadowObserved, "shadow"],
-          ["Historicos", summary.historical, "historical"],
-          ["Descartados", summary.discarded, "discarded"],
-        ].map(([label, value, state]) => (
-          <div className={`audit-summary-item ${state}`} key={String(state)}>
-            <span>{label}</span>
-            <strong>{value}</strong>
+      <section
+        className="surface-panel audit-command-panel"
+        aria-labelledby="audit-command-title"
+      >
+        <header className="audit-command-heading">
+          <div className="audit-heading-copy">
+            <span className="audit-heading-icon" aria-hidden="true">
+              <CalendarRange size={18} strokeWidth={2.1} />
+            </span>
+            <div>
+              <span className="eyebrow">Recorte da auditoria</span>
+              <h2 id="audit-command-title">Periodo e filtros</h2>
+              <p>Defina o intervalo e refine somente quando precisar.</p>
+            </div>
           </div>
-        ))}
+          <span className="status-chip neutral">
+            {report?.rangeLabel ?? `${since} a ${until}`}
+          </span>
+        </header>
+
+        <form
+          action="/events"
+          aria-label="Filtros da auditoria Meta"
+          className="audit-filter-form"
+        >
+          <input type="hidden" name="pageSize" value={pageSize} />
+          <div className="audit-period-controls">
+            <label className="filter-field">
+              <span>Inicio</span>
+              <input type="date" name="since" defaultValue={since} />
+            </label>
+            <label className="filter-field">
+              <span>Fim</span>
+              <input type="date" name="until" defaultValue={until} />
+            </label>
+            <button className="button" type="submit">
+              <Filter aria-hidden="true" size={16} strokeWidth={2.1} />
+              Atualizar auditoria
+            </button>
+          </div>
+
+          <details
+            className="audit-advanced-filters"
+            open={activeFilterCount > 0}
+          >
+            <summary>
+              <span>
+                <SlidersHorizontal aria-hidden="true" size={15} />
+                Filtros de eventos
+              </span>
+              {activeFilterCount > 0 ? (
+                <span className="tag">{activeFilterCount} ativo(s)</span>
+              ) : (
+                <span className="muted">Opcional</span>
+              )}
+            </summary>
+            <div className="audit-filter-grid">
+              <label className="filter-field">
+                <span>Evento</span>
+                <select
+                  className="filter-control"
+                  name="eventName"
+                  defaultValue={eventName ?? ""}
+                >
+                  <option value="">Todos os eventos</option>
+                  <option value="LeadSubmitted">Conversa iniciada</option>
+                  <option value="QualifiedLead">Lead qualificado</option>
+                  <option value="Purchase">Compra</option>
+                </select>
+              </label>
+              <label className="filter-field">
+                <span>Estado da entrega</span>
+                <select
+                  className="filter-control"
+                  name="status"
+                  defaultValue={status ?? ""}
+                >
+                  <option value="">Todos os estados</option>
+                  <option value="sent">Enviados</option>
+                  <option value="queued">Aguardando envio</option>
+                  <option value="blocked">Bloqueados</option>
+                  <option value="failed">Falhas</option>
+                  <option value="not_eligible">Nao elegiveis</option>
+                  <option value="shadow">Observados em sombra</option>
+                  <option value="historical">Historicos</option>
+                  <option value="discarded">Descartados</option>
+                </select>
+              </label>
+              <label className="filter-field">
+                <span>Origem</span>
+                <select
+                  className="filter-control"
+                  name="source"
+                  defaultValue={source ?? ""}
+                >
+                  <option value="">Todas as origens</option>
+                  <option value="external_integration">
+                    Integracao externa
+                  </option>
+                  <option value="whatsapp_automation">
+                    Automacao do WhatsApp
+                  </option>
+                  <option value="system">Regra automatica</option>
+                  <option value="manual_test">Teste manual</option>
+                  <option value="other">Outra origem</option>
+                </select>
+              </label>
+            </div>
+            <footer className="audit-filter-footer">
+              <span>
+                {activeFilterCount > 0
+                  ? "A lista esta usando filtros personalizados."
+                  : "Todos os tipos, estados e origens estao incluidos."}
+              </span>
+              {activeFilterCount > 0 ? (
+                <Link className="button ghost" href={clearFiltersHref}>
+                  Limpar filtros
+                </Link>
+              ) : null}
+            </footer>
+          </details>
+        </form>
       </section>
 
-      <form
-        action="/events"
-        aria-label="Filtros da auditoria Meta"
-        className="filter-bar audit-filter-bar"
+      <section
+        className="surface-panel audit-health-panel"
+        aria-labelledby="audit-health-title"
       >
-        <input type="hidden" name="pageSize" value={pageSize} />
-        <label className="filter-field">
-          <span>Inicio</span>
-          <input type="date" name="since" defaultValue={since} />
-        </label>
-        <label className="filter-field">
-          <span>Fim</span>
-          <input type="date" name="until" defaultValue={until} />
-        </label>
-        <select
-          className="filter-control"
-          name="eventName"
-          defaultValue={eventName ?? ""}
-        >
-          <option value="">Todos os eventos</option>
-          <option value="LeadSubmitted">Conversa iniciada</option>
-          <option value="QualifiedLead">Lead qualificado</option>
-          <option value="Purchase">Compra</option>
-        </select>
-        <select
-          className="filter-control"
-          name="status"
-          defaultValue={status ?? ""}
-        >
-          <option value="">Todos os estados</option>
-          <option value="sent">Enviados</option>
-          <option value="queued">Aguardando envio</option>
-          <option value="blocked">Bloqueados</option>
-          <option value="failed">Falhas</option>
-          <option value="not_eligible">Nao elegiveis</option>
-          <option value="shadow">Observados em sombra</option>
-          <option value="historical">Historicos</option>
-          <option value="discarded">Descartados</option>
-        </select>
-        <select
-          className="filter-control"
-          name="source"
-          defaultValue={source ?? ""}
-        >
-          <option value="">Todas as origens</option>
-          <option value="external_integration">Integracao externa</option>
-          <option value="whatsapp_automation">Automacao do WhatsApp</option>
-          <option value="system">Regra automatica</option>
-          <option value="manual_test">Teste manual</option>
-          <option value="other">Outra origem</option>
-        </select>
-        <button className="button" type="submit">
-          Filtrar
-        </button>
-        {eventName || status || source ? (
-          <Link
-            className="button ghost"
-            href={`/events?since=${since}&until=${until}&pageSize=${pageSize}`}
-          >
-            Limpar
-          </Link>
-        ) : null}
-      </form>
+        <header className="audit-health-heading">
+          <div className="audit-heading-copy">
+            <span className="audit-heading-icon" aria-hidden="true">
+              <ShieldAlert size={18} strokeWidth={2.1} />
+            </span>
+            <div>
+              <span className="eyebrow">Saude da entrega</span>
+              <h2 id="audit-health-title">Fluxo para a Meta</h2>
+              <p>Estados operacionais primeiro; classificacoes em seguida.</p>
+            </div>
+          </div>
+          <span className="status-chip neutral">
+            {summary.total} eventos no periodo
+          </span>
+        </header>
+
+        <div className="audit-primary-metrics">
+          {primaryMetrics.map((metric) => (
+            <AuditPrimaryMetric key={metric.tone} {...metric} />
+          ))}
+        </div>
+
+        <div className="audit-classification-strip">
+          <span className="audit-classification-label">
+            Fora da fila de envio
+          </span>
+          <div>
+            {classifiedMetrics.map((metric) => {
+              const Icon = metric.icon;
+
+              return (
+                <span
+                  className={`audit-classification-item ${metric.tone}`}
+                  key={metric.tone}
+                >
+                  <Icon aria-hidden="true" size={14} strokeWidth={2.1} />
+                  <span>{metric.label}</span>
+                  <strong>{metric.value}</strong>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </section>
 
       <div className="audit-section-heading">
-        <div>
-          <span className="eyebrow">Historico de entrega</span>
-          <h2>Eventos do periodo</h2>
+        <div className="audit-heading-copy">
+          <span className="audit-heading-icon" aria-hidden="true">
+            <History size={18} strokeWidth={2.1} />
+          </span>
+          <div>
+            <span className="eyebrow">Historico de entrega</span>
+            <h2>Eventos do periodo</h2>
+          </div>
         </div>
-        <span className="muted">
-          {report?.rangeLabel ?? `${since} a ${until}`}
-        </span>
+        <div className="audit-history-context">
+          <span className="status-chip neutral">
+            {pagination.totalItems} registro(s)
+          </span>
+          <span className="muted">
+            {report?.rangeLabel ?? `${since} a ${until}`}
+          </span>
+        </div>
       </div>
 
-      <div className="table-wrap audit-table-scroll">
+      <div className="table-wrap audit-table-scroll audit-desktop-history">
         <table className="audit-table">
           <thead>
             <tr>
               <th>Evento / origem</th>
-              <th>Lead</th>
-              <th>Campanha</th>
+              <th>Lead e campanha</th>
               <th>Entrega</th>
               <th>Ocorrido / enviado</th>
               <th>Auditoria</th>
@@ -320,57 +630,13 @@ export default async function EventsPage({
                     <span>{event.sourceLabel}</span>
                   </td>
                   <td>
-                    <strong>
-                      {event.leadId ? (
-                        <PresentationMask placeholder="Lead oculto">
-                          <Link href={`/leads/${event.leadId}`}>
-                            {event.leadName ?? "Lead sem nome"}
-                          </Link>
-                        </PresentationMask>
-                      ) : (
-                        "Lead nao vinculado"
-                      )}
-                    </strong>
-                    <span>
-                      <PresentationMask placeholder="(00) 00000-0000">
-                        {event.phoneDisplay ?? "Telefone indisponivel"}
-                      </PresentationMask>
-                    </span>
+                    <div className="audit-context-stack">
+                      <AuditLead event={event} />
+                      <AuditCampaign event={event} />
+                    </div>
                   </td>
                   <td>
-                    <strong>
-                      <PresentationMask placeholder="Campanha oculta">
-                        {event.campaignName ?? "Campanha nao resolvida"}
-                      </PresentationMask>
-                    </strong>
-                    <span>
-                      <PresentationMask placeholder="Conjunto oculto">
-                        {event.adSetName ?? "Conjunto nao resolvido"}
-                      </PresentationMask>
-                    </span>
-                    <span>
-                      <PresentationMask placeholder="Anuncio oculto">
-                        {event.adName ?? "Anuncio nao resolvido"}
-                      </PresentationMask>
-                    </span>
-                  </td>
-                  <td>
-                    <span className={stateChipClass(event.deliveryState)}>
-                      {event.statusLabel}
-                    </span>
-                    <span>{event.statusDetail}</span>
-                    {event.errorMessage ? (
-                      <span
-                        className={
-                          event.deliveryState === "failed" ||
-                          event.deliveryState === "blocked"
-                            ? "audit-error-copy"
-                            : "audit-reason-copy"
-                        }
-                      >
-                        {event.errorMessage}
-                      </span>
-                    ) : null}
+                    <AuditDelivery event={event} />
                   </td>
                   <td>
                     <strong>{auditDate(event.occurredAt)}</strong>
@@ -391,7 +657,7 @@ export default async function EventsPage({
               ))
             ) : (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={5}>
                   <strong>
                     {result.state === "error"
                       ? "Nao foi possivel carregar a auditoria"
@@ -409,9 +675,30 @@ export default async function EventsPage({
         </table>
       </div>
 
+      <div className="audit-mobile-history" role="list">
+        {report?.events.length ? (
+          report.events.map((event) => (
+            <AuditMobileEventCard event={event} key={event.id} />
+          ))
+        ) : (
+          <div className="audit-mobile-empty">
+            <strong>
+              {result.state === "error"
+                ? "Nao foi possivel carregar a auditoria"
+                : "Nenhum evento encontrado"}
+            </strong>
+            <span>
+              {result.state === "error"
+                ? "A leitura falhou. Tente novamente depois que a API responder."
+                : "Ajuste o periodo ou aguarde a chegada de novos eventos."}
+            </span>
+          </div>
+        )}
+      </div>
+
       <nav className="report-pagination" aria-label="Paginacao de eventos Meta">
         <span>
-          Pagina {pagination.page} de {Math.max(pagination.totalPages, 1)} ·{" "}
+          Pagina {pagination.page} de {Math.max(pagination.totalPages, 1)} /{" "}
           {pagination.totalItems} eventos
         </span>
         <div>

@@ -285,45 +285,6 @@ function ratePercent(rate: number | null): number {
   return rate === null ? 0 : Math.round(rate * 100);
 }
 
-type TrackingHealthState =
-  "unavailable" | "waiting" | "healthy" | "attention" | "critical";
-
-function trackingHealthState(
-  reportState: OverviewFetchState,
-  totalReceived: number,
-  trackingRate: number | null,
-): TrackingHealthState {
-  if (reportState === "error") {
-    return "unavailable";
-  }
-
-  if (totalReceived === 0 || trackingRate === null) {
-    return "waiting";
-  }
-
-  if (trackingRate >= 0.8) {
-    return "healthy";
-  }
-
-  if (trackingRate >= 0.6) {
-    return "attention";
-  }
-
-  return "critical";
-}
-
-function trackingHealthLabel(state: TrackingHealthState): string {
-  const labels: Record<TrackingHealthState, string> = {
-    unavailable: "Dados indisponiveis",
-    waiting: "Aguardando conversas",
-    healthy: "Cobertura alta",
-    attention: "Cobertura moderada",
-    critical: "Cobertura baixa",
-  };
-
-  return labels[state];
-}
-
 function ratioLabel(value: number | null): string {
   return value === null ? "-" : `${value.toFixed(2)}x`;
 }
@@ -359,21 +320,17 @@ function funnelStep(
   };
 }
 
-function leadsByAttributionHref(
-  attribution: "paid" | "organic",
-  report: ReportOverviewDto,
-): string {
-  const params = new URLSearchParams({ attribution });
+function funnelStageCostLabel(stage: ReportFunnelStepDto): string {
+  const labels: Record<string, string> = {
+    meta_conversations: "Custo por conversa Meta",
+    real_conversations: "Custo por lead",
+    qualified_lead: "Custo por lead qualificado",
+    purchase: "Custo por compra",
+    first_purchase: "Custo por primeira compra",
+    repurchase: "Custo por recompra",
+  };
 
-  if (report.since) {
-    params.set("since", report.since);
-  }
-
-  if (report.until) {
-    params.set("until", report.until);
-  }
-
-  return `/leads?${params.toString()}`;
+  return labels[stage.key] ?? "Custo por etapa";
 }
 
 function reportsHref(filters: OverviewFiltersInput): string {
@@ -415,18 +372,6 @@ export default async function OverviewPage({
     dataAvailable && campaign.trackingRate !== null
       ? ratePercent(campaign.trackingRate)
       : null;
-  const trackingState = trackingHealthState(
-    reportState,
-    campaign.totalReceived,
-    campaign.trackingRate,
-  );
-  const hasTrackingSample =
-    trackingState !== "unavailable" && trackingState !== "waiting";
-  const trackingScoreStyle = hasTrackingSample
-    ? ({ "--tracking-rate": `${trackedRate}%` } as CSSProperties)
-    : undefined;
-  const hasRepurchases =
-    campaign.repurchases > 0 || campaign.repurchaseRevenueCents > 0;
   const funnelStages: ReportFunnelStepDto[] = [
     {
       key: "meta_conversations",
@@ -447,14 +392,6 @@ export default async function OverviewPage({
     selectedBusiness?.businessName ??
     "Todas as contas";
   const detailHref = reportsHref(filters);
-  const workspaceSummary =
-    reportState === "error"
-      ? "Os numeros permanecem ocultos ate a API responder, evitando exibir zero como dado confirmado."
-      : campaigns.length > 0
-        ? `Investimento de ${money(campaign.spendCents)} gerou ${campaign.realConversations} conversas reais, ${campaign.organicLeads} conversas organicas e ${money(campaign.totalRevenueCents)} em receita total.`
-        : campaign.totalReceived > 0
-          ? `${campaign.realConversations} ${campaign.realConversations === 1 ? "conversa" : "conversas"} com origem identificada e ${campaign.organicLeads} ${campaign.organicLeads === 1 ? "conversa organica" : "conversas organicas"} foram recebidas. Campanha e conjunto serao exibidos quando a estrutura Meta for resolvida.`
-          : "Nenhuma campanha sincronizada. Use Sincronizar Meta em Relatorios para carregar dados reais.";
   const funnelSummary = dataAvailable
     ? `${report.rangeLabel}: ${campaign.metaConversationsStarted} conversas registradas pela Meta chegaram a ${campaign.firstPurchases} ${campaign.firstPurchases === 1 ? "primeira compra" : "primeiras compras"}.`
     : "A jornada sera exibida quando a API concluir a inicializacao.";
@@ -496,7 +433,19 @@ export default async function OverviewPage({
         until={report.until ?? filters.until}
       />
 
-      <div className="metric-grid">
+      <div className="metric-grid overview-primary-metrics">
+        <Metric
+          label="Investimento"
+          value={dataAvailable ? money(campaign.spendCents) : "-"}
+          delta={
+            !dataAvailable
+              ? "Aguardando resposta da API"
+              : reportState === "empty"
+                ? "Nenhuma campanha sincronizada"
+                : report.rangeLabel
+          }
+          unavailable={!dataAvailable}
+        />
         <Metric
           label="Conversas Meta"
           value={
@@ -579,141 +528,6 @@ export default async function OverviewPage({
         reportState={reportState}
         scopeLabel={scopeLabel}
       />
-
-      <div className="overview-summary-grid">
-        <section
-          className="surface-panel overview-workspace-summary"
-          aria-labelledby="overview-workspace-summary-title"
-        >
-          <div className="overview-section-heading">
-            <div>
-              <span className="eyebrow">Resultado do periodo</span>
-              <h2 id="overview-workspace-summary-title">
-                {reportState === "error"
-                  ? "Nao foi possivel carregar relatorios"
-                  : "Resumo do workspace"}
-              </h2>
-              <p>{workspaceSummary}</p>
-            </div>
-          </div>
-          {dataAvailable ? (
-            <div
-              className="overview-finance-strip"
-              aria-label="Saude financeira"
-            >
-              <OverviewSummaryValue
-                label="Receita trafego"
-                value={money(campaign.trafficRevenueCents)}
-              />
-              <OverviewSummaryValue
-                label="Receita organica"
-                value={money(campaign.organicRevenueCents)}
-              />
-              <OverviewSummaryValue
-                label="Receita total"
-                value={money(campaign.totalRevenueCents)}
-              />
-              <OverviewSummaryValue
-                label="ROAS aquisicao"
-                value={ratioLabel(campaign.roasAcquisition)}
-              />
-              {hasRepurchases ? (
-                <OverviewSummaryValue
-                  label="ROAS com recompra"
-                  value={ratioLabel(campaign.roasWithRepurchase)}
-                />
-              ) : null}
-            </div>
-          ) : null}
-          <div className="overview-report-link">
-            <span>
-              {dataAvailable
-                ? `${campaigns.length} campanha${campaigns.length === 1 ? "" : "s"} no recorte`
-                : "Detalhamento preservado em Relatorios"}
-            </span>
-            <Link className="button ghost" href={detailHref}>
-              Ver relatorios
-            </Link>
-          </div>
-        </section>
-
-        <aside
-          className="surface-panel tracking-health"
-          aria-label="Qualidade do rastreamento"
-        >
-          <div className="tracking-health-header">
-            <div>
-              <span className="eyebrow">Qualidade do rastreamento</span>
-              <h2>Cobertura das conversas</h2>
-            </div>
-            <span className={`tracking-health-status ${trackingState}`}>
-              {trackingHealthLabel(trackingState)}
-            </span>
-          </div>
-
-          <div className="tracking-health-body">
-            <div
-              className={`tracking-score ${trackingState}`}
-              style={trackingScoreStyle}
-              aria-label={
-                hasTrackingSample
-                  ? `${trackedRate}% das conversas identificadas`
-                  : trackingHealthLabel(trackingState)
-              }
-            >
-              <div>
-                <strong>{hasTrackingSample ? `${trackedRate}%` : "-"}</strong>
-                <span>identificadas</span>
-              </div>
-            </div>
-
-            <div className="tracking-breakdown">
-              <TrackingBreakdownItem
-                label="Com origem identificada"
-                value={dataAvailable ? String(campaign.realConversations) : "-"}
-                tone="brand"
-                href={
-                  dataAvailable
-                    ? leadsByAttributionHref("paid", report)
-                    : undefined
-                }
-              />
-              <TrackingBreakdownItem
-                label="Conversas organicas"
-                value={dataAvailable ? String(campaign.organicLeads) : "-"}
-                tone="muted"
-                href={
-                  dataAvailable
-                    ? leadsByAttributionHref("organic", report)
-                    : undefined
-                }
-              />
-              <TrackingBreakdownItem
-                label="Total recebido"
-                value={dataAvailable ? String(campaign.totalReceived) : "-"}
-                tone="neutral"
-              />
-            </div>
-          </div>
-
-          <p className="tracking-health-note">
-            {trackingState === "unavailable"
-              ? "A API nao respondeu. Valores indisponiveis nao foram tratados como zero."
-              : trackingState === "waiting"
-                ? "A cobertura aparecera quando chegarem conversas do WhatsApp."
-                : "A cobertura compara conversas com origem identificada ao total recebido no WhatsApp."}
-          </p>
-
-          <div className="tracking-health-footer">
-            <span>Custo por conversa real</span>
-            <strong>
-              {dataAvailable
-                ? money(campaign.costPerRealConversationCents)
-                : "-"}
-            </strong>
-          </div>
-        </aside>
-      </div>
     </section>
   );
 }
@@ -1025,6 +839,10 @@ function ConversionFunnel({
                     ? "Sem base anterior"
                     : `${rate}% da etapa anterior`}
               </small>
+              <div className="conversion-funnel-stage-cost">
+                <span>{funnelStageCostLabel(stage)}</span>
+                <strong>{money(stage.costCents ?? null)}</strong>
+              </div>
             </div>
           );
         })}
@@ -1056,7 +874,7 @@ function ConversionFunnel({
               className="conversion-funnel-mobile-stage"
               key={`${stage.key}-${index}`}
             >
-              <div>
+              <div className="conversion-funnel-mobile-main">
                 <span
                   className="conversion-funnel-mobile-index"
                   style={{ backgroundColor: color }}
@@ -1073,6 +891,10 @@ function ConversionFunnel({
                     ? "Sem base anterior"
                     : `${rate}% da etapa anterior`}
               </small>
+              <div className="conversion-funnel-mobile-cost">
+                <span>{funnelStageCostLabel(stage)}</span>
+                <strong>{money(stage.costCents ?? null)}</strong>
+              </div>
               <span
                 className="conversion-funnel-mobile-band"
                 style={
@@ -1088,48 +910,5 @@ function ConversionFunnel({
         })}
       </div>
     </section>
-  );
-}
-
-function OverviewSummaryValue({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="overview-summary-value">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function TrackingBreakdownItem({
-  label,
-  value,
-  tone,
-  href,
-}: {
-  label: string;
-  value: string;
-  tone: "brand" | "muted" | "neutral";
-  href?: string;
-}) {
-  const content = (
-    <>
-      <span className={`tracking-legend-dot ${tone}`} aria-hidden="true" />
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </>
-  );
-
-  return href ? (
-    <Link className="tracking-breakdown-row" href={href}>
-      {content}
-    </Link>
-  ) : (
-    <div className="tracking-breakdown-row">{content}</div>
   );
 }

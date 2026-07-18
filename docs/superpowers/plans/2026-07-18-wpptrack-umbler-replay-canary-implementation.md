@@ -3,6 +3,29 @@
 Status: implemented and locally verified; deployment gate must remain disabled
 until Meta routing is completed.
 
+## Operational checkpoint - 2026-07-18
+
+- Umbler observation is active and receiving real deliveries.
+- Snapshot at validation: 86 CTWA events pending Meta routing, 0 routed and
+  0 materialized. Counts remain live while observation continues.
+- Raw payload retention is active; the nearest observed expiry at this
+  checkpoint is 2026-07-25.
+- Parser v1 is certified.
+- Channel readiness is deployed and correctly reports blocked channels with
+  no configured Meta route.
+- Keep the current webhook URL active. Do not rotate or remove the connection.
+- Keep `INBOUND_WEBHOOK_REPLAY_ENABLED=false` until the customer's Meta
+  structure is connected.
+
+Next production session:
+
+1. Connect the customer's Meta structure.
+2. Configure and validate the exact route for every Umbler channel.
+3. Confirm the replay preview reports retained eligible events.
+4. Enable the replay gate and redeploy the API.
+5. Execute one event, audit the lead and Meta response, then advance through
+   five, ten and the remaining eligible events.
+
 ## Wave 1 - Contracts and persistence
 
 - [x] Add fixed replay selection modes.

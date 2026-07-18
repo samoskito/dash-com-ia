@@ -64,6 +64,13 @@ describe("leads route", () => {
     expect(html).toContain("QualifiedLead");
     expect(html).toContain("Etapa atual");
     expect(html).toContain("Lead qualificado");
+    expect(html).toContain("Conversas recebidas");
+    expect(html).toContain("Filtros avancados");
+    expect(html).toContain('name="pageSize"');
+    expect(html).toContain("Recebido");
+    expect(html).toContain("Ultima atividade");
+    expect(html).toContain('class="lead-mobile-list"');
+    expect(html).toContain('aria-label="Abrir Mariana Alves"');
     expect(html).not.toContain("<th>Status</th>");
     expect(html).toContain("Venda fechada");
     expect(html).toContain('name="label"');
@@ -73,6 +80,40 @@ describe("leads route", () => {
     expect(html).toContain('name="until"');
     expect(html).toContain("+55 11 99999-1020");
     expect(html).toContain("02/07, 00:10");
+  });
+
+  it("preserves the selected page size in queries and filter controls", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          pagination: {
+            page: 2,
+            pageSize: 50,
+            totalItems: 65,
+            totalPages: 2,
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({
+        page: "2",
+        pageSize: "50",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/leads/page?page=2&pageSize=50",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(html).toContain('<option value="50" selected="">50 leads</option>');
   });
 
   it("loads the exact conversations without attribution", async () => {

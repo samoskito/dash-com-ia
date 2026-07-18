@@ -1,4 +1,5 @@
 import type { LeadDetailDto } from "@wpptrack/shared";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { formatDateTime } from "../../../../lib/date-time";
 import { serverApiFetch } from "../../../../lib/server-api";
@@ -50,15 +51,89 @@ function statusTone(status: string) {
 }
 
 function eventStatusLabel(status: string) {
-  if (status === "imported") {
-    return "Importado";
-  }
+  const labels: Record<string, string> = {
+    sent: "Enviado",
+    processed: "Processado",
+    pending: "Pendente",
+    queued: "Na fila",
+    failed: "Falhou",
+    error: "Falhou",
+    imported: "Importado",
+    shadow_observed: "Observado em sombra",
+    not_eligible: "Nao elegivel para CAPI",
+  };
 
-  if (status === "shadow_observed") {
-    return "Observado em sombra";
-  }
+  return labels[status] ?? status;
+}
 
-  return status === "not_eligible" ? "Nao elegivel para CAPI" : status;
+function eventNameLabel(eventName: string) {
+  const labels: Record<string, string> = {
+    LeadSubmitted: "Conversa iniciada",
+    QualifiedLead: "Lead qualificado",
+    Purchase: "Compra atribuida",
+  };
+
+  return labels[eventName] ?? eventName;
+}
+
+function triggerLabel(trigger: string) {
+  const labels: Record<string, string> = {
+    conversation_started: "Inicio de conversa",
+    keyword: "Palavra-chave",
+    whatsapp_label: "Etiqueta do WhatsApp",
+  };
+
+  return labels[trigger] ?? trigger;
+}
+
+function sourceLabel(source: string | null) {
+  const labels: Record<string, string> = {
+    external_mysql: "Integracao externa",
+    umbler_talk: "Umbler Talk",
+    uazapi: "Uazapi",
+  };
+
+  return source ? (labels[source] ?? source) : "-";
+}
+
+function leadStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    new: "Novo",
+    active: "Atendimento ativo",
+    qualified: "Lead qualificado",
+    converted: "Compra atribuida",
+    lost: "Perdido",
+  };
+
+  return labels[status] ?? status;
+}
+
+function webhookEventLabel(eventType: string) {
+  const labels: Record<string, string> = {
+    Message: "Mensagem",
+    message: "Mensagem",
+    NewConversation: "Nova conversa",
+    new_conversation: "Nova conversa",
+  };
+
+  return labels[eventType] ?? eventType;
+}
+
+function webhookSourceLabel(source: string) {
+  const labels: Record<string, string> = {
+    umbler_talk: "Umbler Talk",
+    uazapi: "Uazapi",
+  };
+
+  return labels[source] ?? source;
+}
+
+function eventTechnicalName(eventName: string, id: string) {
+  return `${eventName} / ${id}`;
+}
+
+function webhookTechnicalName(eventType: string, id: string) {
+  return `${eventType} / ${id}`;
 }
 
 function AttributionStep({
@@ -111,7 +186,7 @@ export default async function LeadDetailPage({
 
   if (!detail) {
     return (
-      <section className="page-stack">
+      <section className="page-stack page-standard">
         <header className="page-header">
           <div>
             <span className="eyebrow">Leads</span>
@@ -121,6 +196,7 @@ export default async function LeadDetailPage({
           <div className="header-actions">
             <span className="status-chip warn">API indisponivel</span>
             <Link className="button" href="/leads">
+              <ArrowLeft aria-hidden="true" size={17} strokeWidth={2.2} />
               Voltar
             </Link>
           </div>
@@ -132,7 +208,7 @@ export default async function LeadDetailPage({
   const { lead } = detail;
 
   return (
-    <section className="page-stack lead-detail-page">
+    <section className="page-stack page-wide lead-detail-page">
       <header className="page-header">
         <div>
           <span className="eyebrow">Lead</span>
@@ -148,8 +224,9 @@ export default async function LeadDetailPage({
           </p>
         </div>
         <div className="header-actions">
-          <span className="status-chip">{lead.status}</span>
+          <span className="status-chip">{leadStatusLabel(lead.status)}</span>
           <Link className="button" href="/leads">
+            <ArrowLeft aria-hidden="true" size={17} strokeWidth={2.2} />
             Voltar
           </Link>
         </div>
@@ -187,7 +264,11 @@ export default async function LeadDetailPage({
 
           <footer className="lead-latest-event">
             <span className="micro-label">Ultimo evento</span>
-            <strong>{lead.lastEventName ?? "Sem evento"}</strong>
+            <strong>
+              {lead.lastEventName
+                ? eventNameLabel(lead.lastEventName)
+                : "Sem evento"}
+            </strong>
           </footer>
         </section>
 
@@ -208,7 +289,7 @@ export default async function LeadDetailPage({
         <dl className="lead-facts">
           <div>
             <dt>Origem</dt>
-            <dd>{lead.source ?? "-"}</dd>
+            <dd>{sourceLabel(lead.source)}</dd>
           </div>
           <div>
             <dt>Primeira mensagem</dt>
@@ -236,108 +317,189 @@ export default async function LeadDetailPage({
           <span className="eyebrow">Conversoes</span>
           <h2>Eventos do Pixel/CAPI</h2>
         </header>
-        <div className="table-wrap lead-detail-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Evento</th>
-                <th>Status</th>
-                <th>Gatilho</th>
-                <th>Pixel</th>
-                <th>Ocorrido em</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.conversionEvents.length > 0 ? (
-                detail.conversionEvents.map((event) => (
-                  <tr key={event.id}>
-                    <td>
-                      <strong>{event.eventName}</strong>
-                      <span>{event.id}</span>
-                    </td>
-                    <td>
-                      <span className={`event-chip${statusTone(event.status)}`}>
-                        {eventStatusLabel(event.status)}
-                      </span>
-                      {event.errorMessage ? (
-                        <span>{event.errorMessage}</span>
-                      ) : null}
-                    </td>
-                    <td>{event.sourceTrigger}</td>
-                    <td>
-                      <PresentationMask placeholder="Pixel oculto">
-                        {event.pixelId ?? "-"}
-                      </PresentationMask>
-                    </td>
-                    <td>{dateTime(event.occurredAt)}</td>
+        {detail.conversionEvents.length > 0 ? (
+          <>
+            <div className="table-wrap lead-detail-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Evento</th>
+                    <th>Status</th>
+                    <th>Gatilho</th>
+                    <th>Pixel</th>
+                    <th>Ocorrido em</th>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5}>
-                    <strong>Nenhum evento de conversao</strong>
-                    <span>
-                      Eventos por palavra-chave ou etiqueta aparecerao aqui.
+                </thead>
+                <tbody>
+                  {detail.conversionEvents.map((event) => (
+                    <tr key={event.id}>
+                      <td>
+                        <strong>{eventNameLabel(event.eventName)}</strong>
+                        <span>
+                          {eventTechnicalName(event.eventName, event.id)}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={`event-chip${statusTone(event.status)}`}
+                        >
+                          {eventStatusLabel(event.status)}
+                        </span>
+                        {event.errorMessage ? (
+                          <span>{event.errorMessage}</span>
+                        ) : null}
+                      </td>
+                      <td>{triggerLabel(event.sourceTrigger)}</td>
+                      <td>
+                        <PresentationMask placeholder="Pixel oculto">
+                          {event.pixelId ?? "-"}
+                        </PresentationMask>
+                      </td>
+                      <td>{dateTime(event.occurredAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="lead-detail-mobile-list">
+              {detail.conversionEvents.map((event) => (
+                <article className="lead-detail-mobile-card" key={event.id}>
+                  <header>
+                    <div>
+                      <strong>{eventNameLabel(event.eventName)}</strong>
+                      <span>
+                        {eventTechnicalName(event.eventName, event.id)}
+                      </span>
+                    </div>
+                    <span className={`event-chip${statusTone(event.status)}`}>
+                      {eventStatusLabel(event.status)}
                     </span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                  </header>
+                  <dl>
+                    <div>
+                      <dt>Gatilho</dt>
+                      <dd>{triggerLabel(event.sourceTrigger)}</dd>
+                    </div>
+                    <div>
+                      <dt>Ocorrido em</dt>
+                      <dd>{dateTime(event.occurredAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Pixel</dt>
+                      <dd>
+                        <PresentationMask placeholder="Pixel oculto">
+                          {event.pixelId ?? "-"}
+                        </PresentationMask>
+                      </dd>
+                    </div>
+                  </dl>
+                  {event.errorMessage ? (
+                    <p className="lead-detail-event-error">
+                      {event.errorMessage}
+                    </p>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="lead-detail-empty-state">
+            <strong>Nenhum evento de conversao</strong>
+            <span>Eventos por palavra-chave ou etiqueta aparecerao aqui.</span>
+          </div>
+        )}
       </section>
 
       <section className="lead-detail-section">
         <header className="lead-detail-section-header">
           <span className="eyebrow">Webhooks</span>
-          <h2>Webhook Uazapi e diagnosticos vinculados</h2>
+          <h2>Webhooks e diagnosticos vinculados</h2>
         </header>
-        <div className="table-wrap lead-detail-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Webhook</th>
-                <th>Status</th>
-                <th>Recebido</th>
-                <th>Processado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.webhookEvents.length > 0 ? (
-                detail.webhookEvents.map((event) => (
-                  <tr key={event.id}>
-                    <td>
-                      <strong>Webhook {event.source}</strong>
-                      <span>
-                        {event.eventType} / {event.id}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`event-chip${statusTone(event.status)}`}>
-                        {event.status}
-                      </span>
-                      {event.errorMessage ? (
-                        <span>{event.errorMessage}</span>
-                      ) : null}
-                    </td>
-                    <td>{dateTime(event.receivedAt)}</td>
-                    <td>{dateTime(event.processedAt)}</td>
+        {detail.webhookEvents.length > 0 ? (
+          <>
+            <div className="table-wrap lead-detail-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Webhook</th>
+                    <th>Status</th>
+                    <th>Recebido</th>
+                    <th>Processado</th>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={4}>
-                    <strong>Nenhum webhook vinculado</strong>
-                    <span>
-                      Quando houver logs com este lead/telefone, eles aparecerao
-                      aqui.
+                </thead>
+                <tbody>
+                  {detail.webhookEvents.map((event) => (
+                    <tr key={event.id}>
+                      <td>
+                        <strong>
+                          Webhook {webhookSourceLabel(event.source)}
+                        </strong>
+                        <span>
+                          {webhookTechnicalName(event.eventType, event.id)}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={`event-chip${statusTone(event.status)}`}
+                        >
+                          {eventStatusLabel(event.status)}
+                        </span>
+                        {event.errorMessage ? (
+                          <span>{event.errorMessage}</span>
+                        ) : null}
+                      </td>
+                      <td>{dateTime(event.receivedAt)}</td>
+                      <td>{dateTime(event.processedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="lead-detail-mobile-list">
+              {detail.webhookEvents.map((event) => (
+                <article className="lead-detail-mobile-card" key={event.id}>
+                  <header>
+                    <div>
+                      <strong>
+                        Webhook {webhookSourceLabel(event.source)}
+                      </strong>
+                      <span>
+                        {webhookEventLabel(event.eventType)} / {event.id}
+                      </span>
+                    </div>
+                    <span className={`event-chip${statusTone(event.status)}`}>
+                      {eventStatusLabel(event.status)}
                     </span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                  </header>
+                  <dl>
+                    <div>
+                      <dt>Recebido</dt>
+                      <dd>{dateTime(event.receivedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Processado</dt>
+                      <dd>{dateTime(event.processedAt)}</dd>
+                    </div>
+                  </dl>
+                  {event.errorMessage ? (
+                    <p className="lead-detail-event-error">
+                      {event.errorMessage}
+                    </p>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="lead-detail-empty-state">
+            <strong>Nenhum webhook vinculado</strong>
+            <span>
+              Quando houver logs com este lead/telefone, eles aparecerao aqui.
+            </span>
+          </div>
+        )}
       </section>
     </section>
   );

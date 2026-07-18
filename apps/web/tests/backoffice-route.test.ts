@@ -44,8 +44,8 @@ describe("backoffice route", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify([]), {
         status: 200,
-        headers: { "Content-Type": "application/json" }
-      })
+        headers: { "Content-Type": "application/json" },
+      }),
     );
 
     const element = await BackofficePage({});
@@ -53,14 +53,16 @@ describe("backoffice route", () => {
 
     expect(html).toContain("Onde voce precisa atuar?");
     expect(html).toContain(
-      'href="/backoffice?view=operations&amp;area=whatsapp"'
+      'href="/backoffice?view=operations&amp;area=whatsapp"',
     );
     expect(html).toContain(
-      'href="/backoffice?view=operations&amp;area=finance&amp;section=charges"'
+      'href="/backoffice?view=operations&amp;area=finance&amp;section=charges"',
     );
     expect(html).toContain(
-      'href="/backoffice?view=operations&amp;area=health&amp;section=incidents"'
+      'href="/backoffice?view=operations&amp;area=health&amp;section=incidents"',
     );
+    expect(html).toContain("Cobrancas pendentes");
+    expect(html).toContain("Falhas operacionais");
     expect(html).not.toContain("Cobrancas de instancias WhatsApp");
     expect(html).not.toContain("Saude operacional por camada");
   });
@@ -69,15 +71,15 @@ describe("backoffice route", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify([]), {
         status: 200,
-        headers: { "Content-Type": "application/json" }
-      })
+        headers: { "Content-Type": "application/json" },
+      }),
     );
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
         area: "health",
-        section: "webhooks"
-      })
+        section: "webhooks",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -94,24 +96,24 @@ describe("backoffice route", () => {
   it("revalidates diagnostic pages after retrying from the list", () => {
     const source = readFileSync(
       "src/app/(backoffice)/backoffice/page.tsx",
-      "utf8"
+      "utf8",
     );
 
     expect(source).toContain('revalidatePath("/backoffice")');
     expect(source).toContain(
-      "revalidatePath(`/backoffice/diagnostics/${eventId}`)"
+      "revalidatePath(`/backoffice/diagnostics/${eventId}`)",
     );
   });
 
   it("revalidates backoffice after retrying a conversion event log", () => {
     const source = readFileSync(
       "src/app/(backoffice)/backoffice/page.tsx",
-      "utf8"
+      "utf8",
     );
 
     expect(source).toContain("async function retryConversionEventLog");
     expect(source).toContain(
-      "`/backoffice/diagnostics/conversions/${conversionEventLogId}/retry`"
+      "`/backoffice/diagnostics/conversions/${conversionEventLogId}/retry`",
     );
     expect(source).toContain('revalidatePath("/backoffice")');
   });
@@ -129,7 +131,7 @@ describe("backoffice route", () => {
             generatedAt: "2026-07-02T04:00:00.000Z",
             range: {
               since: "2026-07-01T00:00:00.000Z",
-              until: "2026-07-02T23:59:59.000Z"
+              until: "2026-07-02T23:59:59.000Z",
             },
             workspaceId: "workspace_1",
             status: "critical",
@@ -149,16 +151,16 @@ describe("backoffice route", () => {
               metaReportingAccountsActive: 3,
               metaReportingAccountsError: 1,
               metaWhatsappNeedsReview: 2,
-              metaConversionDestinationConfigured: true
-            }
+              metaConversionDestinationConfigured: true,
+            },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+          { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
       return new Response(JSON.stringify([]), {
         status: 200,
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
     });
 
@@ -168,18 +170,18 @@ describe("backoffice route", () => {
         section: "incidents",
         workspaceId: "workspace_1",
         since: "2026-07-01",
-        until: "2026-07-02"
-      })
+        until: "2026-07-02",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/diagnostics/summary?workspaceId=workspace_1&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Saude critica");
     expect(html).toContain(
-      "42 eventos / 12 webhooks / 3 jobs / 4 chamadas / 7 CAPI / 5 auditorias"
+      "42 eventos / 12 webhooks / 3 jobs / 4 chamadas / 7 CAPI / 5 auditorias",
     );
     expect(html).toContain("9 falhas no periodo");
     expect(html).toContain("Contas Meta ativas");
@@ -197,14 +199,14 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -217,24 +219,24 @@ describe("backoffice route", () => {
               percentageBps: 2500,
               active: true,
               createdAt: "2026-07-02T03:00:00.000Z",
-              updatedAt: "2026-07-02T03:00:00.000Z"
-            }
+              updatedAt: "2026-07-02T03:00:00.000Z",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
         area: "finance",
-        section: "receivers"
-      })
+        section: "receivers",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/split/receivers",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Socio Operacional");
     expect(html).toContain("wallet_asaas_1");
@@ -267,30 +269,30 @@ describe("backoffice route", () => {
               adSetId: null,
               adId: null,
               jobId: null,
-              errorCode: "MISSING_META_CONTEXT"
-            }
+              errorCode: "MISSING_META_CONTEXT",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
         area: "health",
-        section: "incidents"
-      })
+        section: "incidents",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -305,32 +307,32 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -351,24 +353,24 @@ describe("backoffice route", () => {
               adId: "ad_1",
               jobId: null,
               errorCode: null,
-              errorMessage: null
-            }
+              errorMessage: null,
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
         area: "health",
-        section: "webhooks"
-      })
+        section: "webhooks",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/diagnostics/webhooks?limit=10",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Webhooks recebidos");
     expect(html).toContain("message.received");
@@ -381,38 +383,38 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -434,11 +436,11 @@ describe("backoffice route", () => {
               relatedEntityId: "conversion_1",
               errorCode: "META_TIMEOUT",
               errorMessage: "Timeout Meta",
-              createdAt: "2026-07-02T03:00:00.000Z"
-            }
+              createdAt: "2026-07-02T03:00:00.000Z",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await BackofficePage({
@@ -452,14 +454,14 @@ describe("backoffice route", () => {
         jobName: "send-conversion-event",
         q: "timeout meta",
         since: "2026-07-01",
-        until: "2026-07-02"
-      })
+        until: "2026-07-02",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/diagnostics/jobs?limit=10&workspaceId=workspace_1&source=meta&status=failed&queueName=conversion-events&jobName=send-conversion-event&q=timeout+meta&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Jobs operacionais");
     expect(html).toContain("send-conversion-event");
@@ -472,44 +474,44 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -531,11 +533,11 @@ describe("backoffice route", () => {
               campaignId: "cmp_1",
               adSetId: null,
               adId: null,
-              jobId: "bull_job_1"
-            }
+              jobId: "bull_job_1",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await BackofficePage({
@@ -549,14 +551,14 @@ describe("backoffice route", () => {
         jobId: "bull_job_1",
         q: "rate limit",
         since: "2026-07-01",
-        until: "2026-07-02"
-      })
+        until: "2026-07-02",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/diagnostics/integrations?limit=10&workspaceId=workspace_1&source=meta&status=error&operation=meta.campaigns.sync&q=rate+limit&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&jobId=bull_job_1",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Chamadas externas");
     expect(html).toContain("meta.campaigns.sync");
@@ -569,50 +571,50 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -636,11 +638,11 @@ describe("backoffice route", () => {
               errorCode: "META_CONTEXT_MISSING",
               errorMessage: "Contexto Meta ausente",
               jobId: "bull_job_1",
-              createdAt: "2026-07-02T03:00:00.000Z"
-            }
+              createdAt: "2026-07-02T03:00:00.000Z",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await BackofficePage({
@@ -654,14 +656,14 @@ describe("backoffice route", () => {
         pixelId: "pixel_1",
         q: "context",
         since: "2026-07-01",
-        until: "2026-07-02"
-      })
+        until: "2026-07-02",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/diagnostics/conversions?limit=10&workspaceId=workspace_1&status=error&eventName=QualifiedLead&sourceTrigger=keyword&pixelId=pixel_1&q=context&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Eventos Pixel/CAPI");
     expect(html).toContain("QualifiedLead");
@@ -676,56 +678,56 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -744,12 +746,12 @@ describe("backoffice route", () => {
               createdAt: "2026-07-02T03:00:00.000Z",
               beforeSummary: null,
               afterSummary: {
-                userAgent: "Vitest"
-              }
-            }
+                userAgent: "Vitest",
+              },
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await BackofficePage({
@@ -763,14 +765,14 @@ describe("backoffice route", () => {
         targetType: "AuthIdentity",
         q: "login",
         since: "2026-07-01",
-        until: "2026-07-02"
-      })
+        until: "2026-07-02",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/diagnostics/audit?limit=10&resultStatus=failed&workspaceId=workspace_1&action=auth.login_failed&actorType=user&targetType=AuthIdentity&q=login&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Auditoria operacional");
     expect(html).toContain("auth.login_failed");
@@ -783,8 +785,8 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -796,7 +798,7 @@ describe("backoffice route", () => {
               asaasCustomerId: "cus_asaas_1",
               operationalStatus: "active",
               subscriptionStatus: "active",
-              activeInstances: 2
+              activeInstances: 2,
             },
             {
               id: "workspace_2",
@@ -805,30 +807,30 @@ describe("backoffice route", () => {
               asaasCustomerId: null,
               operationalStatus: "blocked",
               subscriptionStatus: "not_configured",
-              activeInstances: 0
-            }
+              activeInstances: 0,
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
         area: "finance",
-        section: "customers"
-      })
+        section: "customers",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/workspaces/billing",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Comunidade NOD");
     expect(html).toContain("cus_asaas_1");
@@ -848,20 +850,20 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -880,24 +882,24 @@ describe("backoffice route", () => {
               paidAt: "2026-07-02T12:00:00.000Z",
               createdAt: "2026-07-02T11:00:00.000Z",
               whatsappInstanceId: "wpp_1",
-              whatsappInstanceName: "Comercial"
-            }
+              whatsappInstanceName: "Comercial",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
         area: "finance",
-        section: "charges"
-      })
+        section: "charges",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/billing/charges",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Cobrancas Asaas");
     expect(html).toContain("Comunidade NOD");
@@ -912,62 +914,62 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -979,24 +981,24 @@ describe("backoffice route", () => {
               pricePerWhatsappInstanceCents: 12900,
               active: true,
               createdAt: "2026-07-02T03:00:00.000Z",
-              updatedAt: "2026-07-02T03:00:00.000Z"
-            }
+              updatedAt: "2026-07-02T03:00:00.000Z",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
         area: "finance",
-        section: "plans"
-      })
+        section: "plans",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/billing/plans",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Planos de assinatura");
     expect(html).toContain("Plano Growth");
@@ -1011,26 +1013,26 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -1044,23 +1046,23 @@ describe("backoffice route", () => {
               billingStatus: "active",
               providerInstanceId: "uazapi_1",
               createdAt: "2026-07-02T03:00:00.000Z",
-              updatedAt: "2026-07-02T03:10:00.000Z"
-            }
+              updatedAt: "2026-07-02T03:10:00.000Z",
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
-        area: "whatsapp"
-      })
+        area: "whatsapp",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/workspaces/whatsapp-instances",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Instancias WhatsApp");
     expect(html).toContain("Comunidade NOD");
@@ -1074,26 +1076,26 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
     const element = await BackofficePage({
@@ -1101,14 +1103,14 @@ describe("backoffice route", () => {
         area: "finance",
         section: "charges",
         chargeStatus: "failed",
-        chargeWorkspaceId: "workspace_2"
-      })
+        chargeWorkspaceId: "workspace_2",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/billing/charges?status=failed&workspaceId=workspace_2",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("failed");
     expect(html).toContain("workspace_2");
@@ -1119,20 +1121,20 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
     const element = await BackofficePage({
@@ -1144,18 +1146,18 @@ describe("backoffice route", () => {
         since: "2026-07-01",
         until: "2026-07-02",
         campaignId: "cmp_1",
-        adId: "ad_1"
-      })
+        adId: "ad_1",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/diagnostics/events?limit=25&source=meta&q=currency&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&campaignId=cmp_1&adId=ad_1",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/backoffice/diagnostics/webhooks?limit=10&source=meta&q=currency&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&campaignId=cmp_1&adId=ad_1",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("6 filtro(s) ativo(s)");
     expect(html).toContain("currency");
@@ -1166,27 +1168,27 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "unavailable" }), {
           status: 503,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
         area: "finance",
-        section: "receivers"
-      })
+        section: "receivers",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -1210,27 +1212,27 @@ describe("backoffice route", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify([]), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
         area: "finance",
-        section: "receivers"
-      })
+        section: "receivers",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 

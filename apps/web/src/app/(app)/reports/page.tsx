@@ -11,6 +11,7 @@ import type {
   ReportFunnelStepDto,
   ReportPaginationDto,
 } from "@wpptrack/shared";
+import { BarChart3, CalendarRange, Download, RefreshCcw } from "lucide-react";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -30,6 +31,7 @@ import {
 
 type ReportsSearchParams = Record<string, string | string[] | undefined>;
 type ReportView = "campaigns" | "adsets" | "ads";
+type ReportMetricGroup = "overview" | "traffic" | "funnel" | "revenue";
 type ReportFetchState = "real" | "empty" | "error";
 type CampaignReportsResult = {
   report: ReportOverviewDto;
@@ -123,6 +125,7 @@ type ReportFilters = {
   compareUntil?: string;
   nameContains?: string;
   nameScope?: string;
+  metrics?: ReportMetricGroup;
   page?: number;
   pageSize?: number;
   since?: string;
@@ -381,6 +384,7 @@ async function syncMetaReports(formData: FormData) {
     "status",
     "whatsappClassification",
     "view",
+    "metrics",
     "pageSize",
   ]) {
     const value = formText(formData, key);
@@ -590,6 +594,12 @@ function reportView(value?: string): ReportView {
   return value === "adsets" || value === "ads" ? value : "campaigns";
 }
 
+function reportMetricGroup(value?: string): ReportMetricGroup {
+  return value === "traffic" || value === "funnel" || value === "revenue"
+    ? value
+    : "overview";
+}
+
 function positiveIntegerParam(value: string | undefined, fallback: number) {
   const parsed = Number(value);
 
@@ -692,9 +702,21 @@ function reportExportHref(filters: ReportFilters): string {
   return query ? `/reports/export?${query}` : "/reports/export";
 }
 
+function applyReportUiParams(
+  params: URLSearchParams,
+  filters: ReportFilters,
+): URLSearchParams {
+  if (filters.metrics && filters.metrics !== "overview") {
+    params.set("metrics", filters.metrics);
+  }
+
+  return params;
+}
+
 function reportViewHref(view: ReportView, filters: ReportFilters): string {
-  const params = new URLSearchParams(
-    reportQuery({ ...filters, page: 1 }, true),
+  const params = applyReportUiParams(
+    new URLSearchParams(reportQuery({ ...filters, page: 1 }, true)),
+    filters,
   );
   params.set("view", view);
 
@@ -706,8 +728,29 @@ function reportPageHref(
   filters: ReportFilters,
   page: number,
 ): string {
-  const params = new URLSearchParams(reportQuery({ ...filters, page }, true));
+  const params = applyReportUiParams(
+    new URLSearchParams(reportQuery({ ...filters, page }, true)),
+    filters,
+  );
   params.set("view", view);
+
+  return `/reports?${params.toString()}`;
+}
+
+function reportMetricGroupHref(
+  metrics: ReportMetricGroup,
+  view: ReportView,
+  filters: ReportFilters,
+): string {
+  const params = new URLSearchParams(
+    reportQuery({ ...filters, page: 1 }, true),
+  );
+
+  params.set("view", view);
+
+  if (metrics !== "overview") {
+    params.set("metrics", metrics);
+  }
 
   return `/reports?${params.toString()}`;
 }
@@ -756,28 +799,43 @@ const adSummaryCopy: ReportEntityCopy = {
 
 function PerformanceMetricsCells({
   funnelSteps,
+  metricGroup,
   row,
   realConversationsHref,
 }: {
   funnelSteps: ReportFunnelStepDto[];
+  metricGroup: ReportMetricGroup;
   row: PerformanceRow;
   realConversationsHref: string;
 }) {
   const rowSteps = new Map(row.funnelSteps.map((step) => [step.key, step]));
+  const showOverview = metricGroup === "overview";
+  const showTraffic = metricGroup === "traffic";
+  const showFunnel = metricGroup === "funnel";
+  const showRevenue = metricGroup === "revenue";
+  const visibleFunnelSteps = showTraffic
+    ? funnelSteps.filter((step) => step.key === "real_conversations")
+    : showOverview || showFunnel
+      ? funnelSteps
+      : [];
 
   return (
     <>
-      <td>{money(row.spendCents)}</td>
-      <td>
-        {row.metaConversationsStarted}
-        <span>{money(row.costPerMetaConversationCents)}</span>
-      </td>
-      {funnelSteps.map((column) => {
+      {showOverview || showTraffic || showFunnel || showRevenue ? (
+        <td data-label="Investimento">{money(row.spendCents)}</td>
+      ) : null}
+      {showOverview || showTraffic ? (
+        <td data-label="Conversas Meta">
+          {row.metaConversationsStarted}
+          <span>{money(row.costPerMetaConversationCents)}</span>
+        </td>
+      ) : null}
+      {visibleFunnelSteps.map((column) => {
         const step = rowSteps.get(column.key);
         const value = step?.value ?? 0;
 
         return (
-          <td key={column.key}>
+          <td data-label={column.label} key={column.key}>
             {column.key === "real_conversations" ? (
               <Link className="report-metric-link" href={realConversationsHref}>
                 {value}
@@ -789,45 +847,87 @@ function PerformanceMetricsCells({
           </td>
         );
       })}
-      <td>
-        {row.totalReceived}
-        <span>{percent(row.trackingRate)}</span>
-      </td>
-      <td>{row.organicLeads}</td>
-      <td>{money(row.trafficRevenueCents)}</td>
-      <td>{money(row.organicRevenueCents)}</td>
-      <td>{money(row.totalRevenueCents)}</td>
-      <td>{roas(row.roasAcquisition)}</td>
-      <td>{roas(row.roasWithRepurchase)}</td>
+      {showTraffic ? (
+        <td data-label="Total recebido">
+          {row.totalReceived}
+          <span>{percent(row.trackingRate)}</span>
+        </td>
+      ) : null}
+      {showOverview || showRevenue ? (
+        <td data-label="Receita de trafego">
+          {money(row.trafficRevenueCents)}
+        </td>
+      ) : null}
+      {showRevenue ? (
+        <>
+          <td data-label="Receita da primeira compra">
+            {money(row.firstPurchaseRevenueCents)}
+          </td>
+          <td data-label="Receita de recompra">
+            {money(row.repurchaseRevenueCents)}
+          </td>
+          <td data-label="Receita total">{money(row.totalRevenueCents)}</td>
+        </>
+      ) : null}
+      {showOverview || showRevenue ? (
+        <td data-label="ROAS de aquisicao">{roas(row.roasAcquisition)}</td>
+      ) : null}
+      {showRevenue ? (
+        <td data-label="ROAS com recompra">{roas(row.roasWithRepurchase)}</td>
+      ) : null}
     </>
   );
 }
 
 function EmptyPerformanceCells({
   funnelSteps,
+  metricGroup,
 }: {
   funnelSteps: ReportFunnelStepDto[];
+  metricGroup: ReportMetricGroup;
 }) {
+  const showOverview = metricGroup === "overview";
+  const showTraffic = metricGroup === "traffic";
+  const showFunnel = metricGroup === "funnel";
+  const showRevenue = metricGroup === "revenue";
+  const visibleFunnelSteps = showTraffic
+    ? funnelSteps.filter((step) => step.key === "real_conversations")
+    : showOverview || showFunnel
+      ? funnelSteps
+      : [];
+
   return (
     <>
-      <td>{money(0)}</td>
-      <td>
-        0<span>-</span>
-      </td>
-      {funnelSteps.map((step) => (
-        <td key={step.key}>
+      <td data-label="Investimento">{money(0)}</td>
+      {showOverview || showTraffic ? (
+        <td data-label="Conversas Meta">
+          0<span>-</span>
+        </td>
+      ) : null}
+      {visibleFunnelSteps.map((step) => (
+        <td data-label={step.label} key={step.key}>
           0<span>-</span>
         </td>
       ))}
-      <td>
-        0<span>-</span>
-      </td>
-      <td>0</td>
-      <td>{money(0)}</td>
-      <td>{money(0)}</td>
-      <td>{money(0)}</td>
-      <td>-</td>
-      <td>-</td>
+      {showTraffic ? (
+        <td data-label="Total recebido">
+          0<span>-</span>
+        </td>
+      ) : null}
+      {showOverview || showRevenue ? (
+        <td data-label="Receita de trafego">{money(0)}</td>
+      ) : null}
+      {showRevenue ? (
+        <>
+          <td data-label="Receita da primeira compra">{money(0)}</td>
+          <td data-label="Receita de recompra">{money(0)}</td>
+          <td data-label="Receita total">{money(0)}</td>
+        </>
+      ) : null}
+      {showOverview || showRevenue ? (
+        <td data-label="ROAS de aquisicao">-</td>
+      ) : null}
+      {showRevenue ? <td data-label="ROAS com recompra">-</td> : null}
     </>
   );
 }
@@ -1216,58 +1316,116 @@ function reportEntitySummary(
   return `${countLabel(total, copy.singular, copy.plural)}: ${parts.join(", ")}`;
 }
 
-function SummaryMetricsCells({ totals }: { totals: ReportTotals }) {
+function SummaryMetricsCells({
+  metricGroup,
+  totals,
+}: {
+  metricGroup: ReportMetricGroup;
+  totals: ReportTotals;
+}) {
+  const showOverview = metricGroup === "overview";
+  const showTraffic = metricGroup === "traffic";
+  const showFunnel = metricGroup === "funnel";
+  const showRevenue = metricGroup === "revenue";
+  const visibleFunnelSteps = showTraffic
+    ? totals.funnelSteps.filter((step) => step.key === "real_conversations")
+    : showOverview || showFunnel
+      ? totals.funnelSteps
+      : [];
+
   return (
     <>
-      <td>{money(totals.spendCents)}</td>
-      <td>{totals.metaConversationsStarted}</td>
-      {totals.funnelSteps.map((step) => (
-        <td key={step.key}>{step.value}</td>
+      <td data-label="Investimento">{money(totals.spendCents)}</td>
+      {showOverview || showTraffic ? (
+        <td data-label="Conversas Meta">{totals.metaConversationsStarted}</td>
+      ) : null}
+      {visibleFunnelSteps.map((step) => (
+        <td data-label={step.label} key={step.key}>
+          {step.value}
+        </td>
       ))}
-      <td>
-        {totals.totalReceived}
-        <span>{percent(totals.trackingRate)}</span>
-      </td>
-      <td>{totals.organicLeads}</td>
-      <td>{money(totals.trafficRevenueCents)}</td>
-      <td>{money(totals.organicRevenueCents)}</td>
-      <td>{money(totals.totalRevenueCents)}</td>
-      <td>{roas(totals.roasAcquisition)}</td>
-      <td>{roas(totals.roasWithRepurchase)}</td>
+      {showTraffic ? (
+        <td data-label="Total recebido">
+          {totals.totalReceived}
+          <span>{percent(totals.trackingRate)}</span>
+        </td>
+      ) : null}
+      {showOverview || showRevenue ? (
+        <td data-label="Receita de trafego">
+          {money(totals.trafficRevenueCents)}
+        </td>
+      ) : null}
+      {showRevenue ? (
+        <>
+          <td data-label="Receita da primeira compra">
+            {money(totals.firstPurchaseRevenueCents)}
+          </td>
+          <td data-label="Receita de recompra">
+            {money(totals.repurchaseRevenueCents)}
+          </td>
+          <td data-label="Receita total">{money(totals.totalRevenueCents)}</td>
+        </>
+      ) : null}
+      {showOverview || showRevenue ? (
+        <td data-label="ROAS de aquisicao">{roas(totals.roasAcquisition)}</td>
+      ) : null}
+      {showRevenue ? (
+        <td data-label="ROAS com recompra">
+          {roas(totals.roasWithRepurchase)}
+        </td>
+      ) : null}
     </>
   );
 }
 
 function PerformanceMetricHeaders({
   funnelSteps,
+  metricGroup,
 }: {
   funnelSteps: ReportFunnelStepDto[];
+  metricGroup: ReportMetricGroup;
 }) {
+  const showOverview = metricGroup === "overview";
+  const showTraffic = metricGroup === "traffic";
+  const showFunnel = metricGroup === "funnel";
+  const showRevenue = metricGroup === "revenue";
+  const visibleFunnelSteps = showTraffic
+    ? funnelSteps.filter((step) => step.key === "real_conversations")
+    : showOverview || showFunnel
+      ? funnelSteps
+      : [];
+
   return (
     <>
       <th>Investimento</th>
-      <th>Conversas Meta</th>
-      {funnelSteps.map((step) => (
+      {showOverview || showTraffic ? <th>Conversas Meta</th> : null}
+      {visibleFunnelSteps.map((step) => (
         <th key={step.key}>{step.label}</th>
       ))}
-      <th>Total recebido</th>
-      <th>Leads organicos</th>
-      <th>Receita trafego</th>
-      <th>Receita organica</th>
-      <th>Receita total</th>
-      <th>ROAS aquisicao</th>
-      <th>ROAS com recompra</th>
+      {showTraffic ? <th>Total recebido</th> : null}
+      {showOverview || showRevenue ? <th>Receita trafego</th> : null}
+      {showRevenue ? (
+        <>
+          <th>Receita primeira compra</th>
+          <th>Receita recompra</th>
+          <th>Receita total</th>
+        </>
+      ) : null}
+      {showOverview || showRevenue ? <th>ROAS aquisicao</th> : null}
+      {showRevenue ? <th>ROAS com recompra</th> : null}
     </>
   );
 }
 
 function PerformanceSummaryFooter({
   copy,
+  metricGroup,
   pagination,
   rows,
   totals,
 }: {
   copy: ReportEntityCopy;
+  metricGroup: ReportMetricGroup;
   pagination?: ReportPaginationDto;
   rows: PerformanceRow[];
   totals?: ReportTotals;
@@ -1278,7 +1436,7 @@ function PerformanceSummaryFooter({
   return (
     <tfoot className="report-summary">
       <tr>
-        <td className="performance-name-cell summary-name">
+        <td className="performance-name-cell summary-name" data-label="Resumo">
           <strong>
             {hasFilteredTotals
               ? "Total do filtro"
@@ -1292,8 +1450,8 @@ function PerformanceSummaryFooter({
               : reportEntitySummary(rows, copy)}
           </span>
         </td>
-        <SummaryMetricsCells totals={summaryTotals} />
-        <td className="performance-review-cell">
+        <SummaryMetricsCells metricGroup={metricGroup} totals={summaryTotals} />
+        <td className="performance-review-cell" data-label="Revisao WhatsApp">
           <span className="tag">Total</span>
         </td>
       </tr>
@@ -1322,7 +1480,7 @@ function ReportPagination({
       aria-label={`Paginacao de ${copy.plural}`}
     >
       <span>
-        Pagina {pagination.page} de {Math.max(pagination.totalPages, 1)} ·{" "}
+        Pagina {pagination.page} de {Math.max(pagination.totalPages, 1)} -{" "}
         {pagination.totalItems} {copy.plural}
       </span>
       <div>
@@ -1403,6 +1561,250 @@ function ComparisonMetric({
   );
 }
 
+function ReportComparisonMetrics({
+  current,
+  metricGroup,
+  previous,
+}: {
+  current: ReportTotals;
+  metricGroup: ReportMetricGroup;
+  previous: ReportTotals;
+}) {
+  if (metricGroup === "traffic") {
+    return (
+      <>
+        <ComparisonMetric
+          label="Investimento"
+          current={current.spendCents}
+          previous={previous.spendCents}
+          format={money}
+        />
+        <ComparisonMetric
+          label="Conversas Meta"
+          current={current.metaConversationsStarted}
+          previous={previous.metaConversationsStarted}
+        />
+        <ComparisonMetric
+          label="Conversas reais"
+          current={current.realConversations}
+          previous={previous.realConversations}
+        />
+        <ComparisonMetric
+          label="Cobertura"
+          current={current.trackingRate}
+          previous={previous.trackingRate}
+          format={percent}
+        />
+      </>
+    );
+  }
+
+  if (metricGroup === "funnel") {
+    return (
+      <>
+        <ComparisonMetric
+          label="Conversas reais"
+          current={current.realConversations}
+          previous={previous.realConversations}
+        />
+        <ComparisonMetric
+          label="Lead qualificado"
+          current={current.qualifiedLead}
+          previous={previous.qualifiedLead}
+        />
+        <ComparisonMetric
+          label="Compras"
+          current={current.purchases}
+          previous={previous.purchases}
+        />
+        <ComparisonMetric
+          label="Primeira compra"
+          current={current.firstPurchases}
+          previous={previous.firstPurchases}
+        />
+        <ComparisonMetric
+          label="Recompra"
+          current={current.repurchases}
+          previous={previous.repurchases}
+        />
+      </>
+    );
+  }
+
+  if (metricGroup === "revenue") {
+    return (
+      <>
+        <ComparisonMetric
+          label="Investimento"
+          current={current.spendCents}
+          previous={previous.spendCents}
+          format={money}
+        />
+        <ComparisonMetric
+          label="Receita trafego"
+          current={current.trafficRevenueCents}
+          previous={previous.trafficRevenueCents}
+          format={money}
+        />
+        <ComparisonMetric
+          label="Receita primeira compra"
+          current={current.firstPurchaseRevenueCents}
+          previous={previous.firstPurchaseRevenueCents}
+          format={money}
+        />
+        <ComparisonMetric
+          label="Receita recompra"
+          current={current.repurchaseRevenueCents}
+          previous={previous.repurchaseRevenueCents}
+          format={money}
+        />
+        <ComparisonMetric
+          label="ROAS aquisicao"
+          current={current.roasAcquisition}
+          previous={previous.roasAcquisition}
+          format={roas}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <ComparisonMetric
+        label="Investimento"
+        current={current.spendCents}
+        previous={previous.spendCents}
+        format={money}
+      />
+      <ComparisonMetric
+        label="Conversas Meta"
+        current={current.metaConversationsStarted}
+        previous={previous.metaConversationsStarted}
+      />
+      <ComparisonMetric
+        label="Conversas reais"
+        current={current.realConversations}
+        previous={previous.realConversations}
+      />
+      <ComparisonMetric
+        label="Receita trafego"
+        current={current.trafficRevenueCents}
+        previous={previous.trafficRevenueCents}
+        format={money}
+      />
+      <ComparisonMetric
+        label="ROAS aquisicao"
+        current={current.roasAcquisition}
+        previous={previous.roasAcquisition}
+        format={roas}
+      />
+    </>
+  );
+}
+
+function reportSummaryMetrics(
+  metricGroup: ReportMetricGroup,
+  totals: ReportTotals,
+): Array<{ detail: string; label: string; value: string }> {
+  if (metricGroup === "traffic") {
+    return [
+      {
+        detail: "Periodo filtrado",
+        label: "Investimento",
+        value: money(totals.spendCents),
+      },
+      {
+        detail: "Registradas pela Meta",
+        label: "Conversas Meta",
+        value: String(totals.metaConversationsStarted),
+      },
+      {
+        detail: "Identificadas no WhatsApp",
+        label: "Conversas reais",
+        value: String(totals.realConversations),
+      },
+      {
+        detail: `${totals.totalReceived} recebidas`,
+        label: "Cobertura",
+        value: percent(totals.trackingRate),
+      },
+    ];
+  }
+
+  if (metricGroup === "funnel") {
+    return [
+      {
+        detail: "Base rastreada",
+        label: "Conversas reais",
+        value: String(totals.realConversations),
+      },
+      {
+        detail: "Avancaram no funil",
+        label: "Leads qualificados",
+        value: String(totals.qualifiedLead),
+      },
+      {
+        detail: "Conversoes registradas",
+        label: "Compras",
+        value: String(totals.purchases),
+      },
+      {
+        detail: `${totals.repurchases} recompra(s)`,
+        label: "Primeiras compras",
+        value: String(totals.firstPurchases),
+      },
+    ];
+  }
+
+  if (metricGroup === "revenue") {
+    return [
+      {
+        detail: "Midia no periodo",
+        label: "Investimento",
+        value: money(totals.spendCents),
+      },
+      {
+        detail: "Atribuida ao trafego",
+        label: "Receita",
+        value: money(totals.trafficRevenueCents),
+      },
+      {
+        detail: "Receita de aquisicao",
+        label: "Primeira compra",
+        value: money(totals.firstPurchaseRevenueCents),
+      },
+      {
+        detail: "Retorno de aquisicao",
+        label: "ROAS",
+        value: roas(totals.roasAcquisition),
+      },
+    ];
+  }
+
+  return [
+    {
+      detail: "Periodo filtrado",
+      label: "Investimento",
+      value: money(totals.spendCents),
+    },
+    {
+      detail: "Registradas pela Meta",
+      label: "Conversas Meta",
+      value: String(totals.metaConversationsStarted),
+    },
+    {
+      detail: "Identificadas no WhatsApp",
+      label: "Conversas reais",
+      value: String(totals.realConversations),
+    },
+    {
+      detail: "Retorno de aquisicao",
+      label: "ROAS",
+      value: roas(totals.roasAcquisition),
+    },
+  ];
+}
+
 export default async function ReportsPage({
   searchParams,
 }: {
@@ -1422,6 +1824,9 @@ export default async function ReportsPage({
   const nameContains = asStringParam(resolvedSearchParams.nameContains);
   const status = asStringParam(resolvedSearchParams.status);
   const activeView = reportView(asStringParam(resolvedSearchParams.view));
+  const activeMetricGroup = reportMetricGroup(
+    asStringParam(resolvedSearchParams.metrics),
+  );
   const page = positiveIntegerParam(
     asStringParam(resolvedSearchParams.page),
     1,
@@ -1462,6 +1867,7 @@ export default async function ReportsPage({
     pageSize,
     status,
     whatsappClassification,
+    metrics: activeMetricGroup,
   };
   const structureFilters: MetaStructureFilters = {
     nameContains: structureNameContains,
@@ -1568,6 +1974,7 @@ export default async function ReportsPage({
     adSetReports?.report.totals ??
     adReports?.report.totals ??
     reportTotals(activeRows);
+  const summaryMetrics = reportSummaryMetrics(activeMetricGroup, currentTotals);
   const metaSummary = metaStructureSummary(metaStructure, metaAssets);
   const metaSyncPeriod = metaSyncPeriodState(metaAssets);
   const requestedPeriodLabel =
@@ -1621,13 +2028,14 @@ export default async function ReportsPage({
   const emptyStructureHint = rawMetaStructureRows.length
     ? "Ajuste os filtros da estrutura tecnica para ver outros itens sincronizados."
     : syncStructureHint;
-  const clearStructureQuery = reportQuery(reportFilters, true);
-  const clearStructureHref = clearStructureQuery
-    ? `/reports?${clearStructureQuery}&view=${activeView}&diagnostic=open`
-    : "/reports";
-  const diagnosticHref = clearStructureQuery
-    ? `/reports?${clearStructureQuery}&view=${activeView}&diagnostic=open`
-    : `/reports?view=${activeView}&diagnostic=open`;
+  const clearStructureParams = applyReportUiParams(
+    new URLSearchParams(reportQuery(reportFilters, true)),
+    reportFilters,
+  );
+  clearStructureParams.set("view", activeView);
+  clearStructureParams.set("diagnostic", "open");
+  const clearStructureHref = `/reports?${clearStructureParams.toString()}`;
+  const diagnosticHref = clearStructureHref;
   const noReviewPermission = workspacePermissionsUnavailable
     ? "Permissoes indisponiveis"
     : "Sem permissao para revisar";
@@ -1641,6 +2049,12 @@ export default async function ReportsPage({
     adsets: adSetSummaryCopy,
     campaigns: campaignSummaryCopy,
   }[activeView];
+  const activeMetricLabel = {
+    funnel: "Funil",
+    overview: "Visao geral",
+    revenue: "Receita",
+    traffic: "Trafego",
+  }[activeMetricGroup];
   const metaPeriodWarning: ReportNotice | null =
     metaSyncPeriod.kind === "none" || metaPeriodProvidesReport
       ? null
@@ -1665,17 +2079,40 @@ export default async function ReportsPage({
 
   return (
     <section className="page-stack page-wide reports-page">
-      <header className="page-header">
-        <div>
-          <span className="eyebrow">Relatorios</span>
-          <h1>{reportTitle}</h1>
-          <p>
-            Metricas Meta Ads combinadas com leads reais e eventos de conversao.
-          </p>
+      <header className="page-header reports-page-header">
+        <span className="eyebrow">Relatorios</span>
+        <h1>{reportTitle}</h1>
+        <p>
+          Metricas Meta Ads combinadas com leads reais e eventos de conversao.
+        </p>
+      </header>
+
+      <section className="surface-panel report-command-panel">
+        <div className="report-command-heading">
+          <div>
+            <CalendarRange aria-hidden="true" size={18} />
+            <span>
+              <strong>Periodo de analise</strong>
+              <small>{requestedPeriodLabel}</small>
+            </span>
+          </div>
+          <div className="report-context-tags">
+            <span className="tag">{activeMetricLabel}</span>
+            {metaSyncPeriod.kind === "single" ? (
+              <span className="tag">
+                Meta: {periodLabel(metaSyncPeriod.since, metaSyncPeriod.until)}
+              </span>
+            ) : null}
+            {reportState === "error" ? (
+              <span className="tag">API indisponivel</span>
+            ) : null}
+          </div>
         </div>
-        <div className="header-actions">
-          <form className="inline-form report-period-form" action="/reports">
+
+        <div className="report-command-body">
+          <form className="report-period-form" action="/reports">
             <input type="hidden" name="view" value={activeView} />
+            <input type="hidden" name="metrics" value={activeMetricGroup} />
             <input type="hidden" name="pageSize" value={pageSize} />
             <input type="hidden" name="businessId" value={businessId ?? ""} />
             <input type="hidden" name="adAccountId" value={adAccountId ?? ""} />
@@ -1694,6 +2131,16 @@ export default async function ReportsPage({
               name="whatsappClassification"
               value={whatsappClassification ?? ""}
             />
+            <input
+              type="hidden"
+              name="compareSince"
+              value={compareSince ?? ""}
+            />
+            <input
+              type="hidden"
+              name="compareUntil"
+              value={compareUntil ?? ""}
+            />
             <label className="filter-field">
               <span>Inicio</span>
               <input type="date" name="since" defaultValue={since} />
@@ -1703,74 +2150,82 @@ export default async function ReportsPage({
               <input type="date" name="until" defaultValue={until} />
             </label>
             <button className="button" type="submit">
-              Filtrar periodo
+              Aplicar periodo
             </button>
           </form>
-          <Link className="button" href={reportExportHref(reportFilters)}>
-            Exportar CSV
-          </Link>
-          {canSyncMetaReports ? (
-            <form action={syncMetaReports}>
-              <input type="hidden" name="view" value={activeView} />
-              <input type="hidden" name="pageSize" value={pageSize} />
-              <input type="hidden" name="since" value={since ?? ""} />
-              <input type="hidden" name="until" value={until ?? ""} />
-              <input
-                type="hidden"
-                name="compareSince"
-                value={compareSince ?? ""}
-              />
-              <input
-                type="hidden"
-                name="compareUntil"
-                value={compareUntil ?? ""}
-              />
-              <input type="hidden" name="businessId" value={businessId ?? ""} />
-              <input
-                type="hidden"
-                name="adAccountId"
-                value={adAccountId ?? ""}
-              />
-              <input type="hidden" name="campaignId" value={campaignId ?? ""} />
-              <input type="hidden" name="adSetId" value={adSetId ?? ""} />
-              <input type="hidden" name="adId" value={adId ?? ""} />
-              <input type="hidden" name="nameScope" value={nameScope ?? ""} />
-              <input
-                type="hidden"
-                name="nameContains"
-                value={nameContains ?? ""}
-              />
-              <input type="hidden" name="status" value={status ?? ""} />
-              <input
-                type="hidden"
-                name="whatsappClassification"
-                value={whatsappClassification ?? ""}
-              />
-              <SubmitButton
-                pendingLabel="Sincronizando..."
-                statusText="Enfileirando leitura dos dados Meta."
-              >
-                Sincronizar Meta
-              </SubmitButton>
-            </form>
-          ) : (
-            <span className="tag">
-              {workspacePermissionsUnavailable
-                ? "Permissoes indisponiveis"
-                : "Sem permissao para sincronizar Meta"}
-            </span>
-          )}
-          <span className="tag">Periodo: {requestedPeriodLabel}</span>
-          {metaSyncPeriod.kind === "single" ? (
-            <span className="tag">
-              Meta: {periodLabel(metaSyncPeriod.since, metaSyncPeriod.until)}
-            </span>
-          ) : null}
-          {reportState === "error" ? (
-            <span className="tag">API indisponivel</span>
-          ) : null}
+
+          <div className="report-command-actions">
+            <Link
+              className="button ghost"
+              href={reportExportHref(reportFilters)}
+            >
+              <Download aria-hidden="true" size={16} />
+              Exportar CSV
+            </Link>
+            {canSyncMetaReports ? (
+              <form action={syncMetaReports}>
+                <input type="hidden" name="view" value={activeView} />
+                <input type="hidden" name="metrics" value={activeMetricGroup} />
+                <input type="hidden" name="pageSize" value={pageSize} />
+                <input type="hidden" name="since" value={since ?? ""} />
+                <input type="hidden" name="until" value={until ?? ""} />
+                <input
+                  type="hidden"
+                  name="compareSince"
+                  value={compareSince ?? ""}
+                />
+                <input
+                  type="hidden"
+                  name="compareUntil"
+                  value={compareUntil ?? ""}
+                />
+                <input
+                  type="hidden"
+                  name="businessId"
+                  value={businessId ?? ""}
+                />
+                <input
+                  type="hidden"
+                  name="adAccountId"
+                  value={adAccountId ?? ""}
+                />
+                <input
+                  type="hidden"
+                  name="campaignId"
+                  value={campaignId ?? ""}
+                />
+                <input type="hidden" name="adSetId" value={adSetId ?? ""} />
+                <input type="hidden" name="adId" value={adId ?? ""} />
+                <input type="hidden" name="nameScope" value={nameScope ?? ""} />
+                <input
+                  type="hidden"
+                  name="nameContains"
+                  value={nameContains ?? ""}
+                />
+                <input type="hidden" name="status" value={status ?? ""} />
+                <input
+                  type="hidden"
+                  name="whatsappClassification"
+                  value={whatsappClassification ?? ""}
+                />
+                <SubmitButton
+                  pendingLabel="Sincronizando..."
+                  statusText="Enfileirando leitura dos dados Meta."
+                >
+                  <RefreshCcw aria-hidden="true" size={16} />
+                  Sincronizar Meta
+                </SubmitButton>
+              </form>
+            ) : (
+              <span className="tag">
+                {workspacePermissionsUnavailable
+                  ? "Permissoes indisponiveis"
+                  : "Sem permissao para sincronizar Meta"}
+              </span>
+            )}
+          </div>
         </div>
-      </header>
+      </section>
 
       {pageNotice ? (
         <div className={`feedback-banner ${pageNotice.tone}`} role="status">
@@ -1818,132 +2273,140 @@ export default async function ReportsPage({
         </div>
       ) : null}
 
-      <nav className="report-view-tabs" aria-label="Nivel do relatorio">
-        {(
-          [
-            ["campaigns", "Campanhas"],
-            ["adsets", "Conjuntos"],
-            ["ads", "Anuncios"],
-          ] as const
-        ).map(([view, label]) => (
-          <Link
-            aria-current={activeView === view ? "page" : undefined}
-            className={activeView === view ? "active" : ""}
-            href={reportViewHref(view, reportFilters)}
-            key={view}
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
+      <section className="surface-panel report-analysis-controls">
+        <div className="report-analysis-heading">
+          <div>
+            <span className="eyebrow">Recorte da analise</span>
+            <h2>Estrutura e filtros</h2>
+          </div>
+          <span className="tag">
+            {pagination?.totalItems ?? activeRows.length} {activeCopy.plural}
+          </span>
+        </div>
 
-      <MetaReportFilters
-        assets={metaAssets}
-        businessId={businessId}
-        adAccountId={adAccountId}
-        campaignId={campaignId}
-        adSetId={adSetId}
-        adId={adId}
-        nameScope={nameScope}
-        nameContains={nameContains}
-        status={status}
-        whatsappClassification={whatsappClassification}
-        since={since}
-        until={until}
-        compareSince={compareSince}
-        compareUntil={compareUntil}
-        view={activeView}
-        pageSize={pageSize}
-      />
+        <nav className="report-view-tabs" aria-label="Nivel do relatorio">
+          {(
+            [
+              ["campaigns", "Campanhas"],
+              ["adsets", "Conjuntos"],
+              ["ads", "Anuncios"],
+            ] as const
+          ).map(([view, label]) => (
+            <Link
+              aria-current={activeView === view ? "page" : undefined}
+              className={activeView === view ? "active" : ""}
+              href={reportViewHref(view, reportFilters)}
+              key={view}
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+
+        <MetaReportFilters
+          assets={metaAssets}
+          businessId={businessId}
+          adAccountId={adAccountId}
+          campaignId={campaignId}
+          adSetId={adSetId}
+          adId={adId}
+          metrics={activeMetricGroup}
+          nameScope={nameScope}
+          nameContains={nameContains}
+          status={status}
+          whatsappClassification={whatsappClassification}
+          since={since}
+          until={until}
+          compareSince={compareSince}
+          compareUntil={compareUntil}
+          view={activeView}
+          pageSize={pageSize}
+        />
+      </section>
+
+      <section
+        className="report-results-overview"
+        aria-label="Resumo dos resultados filtrados"
+      >
+        <div className="report-results-heading">
+          <div className="report-results-title">
+            <BarChart3 aria-hidden="true" size={20} />
+            <div>
+              <span className="eyebrow">Resultados</span>
+              <h2>{activeMetricLabel}</h2>
+            </div>
+          </div>
+          <nav className="report-metric-tabs" aria-label="Grupo de metricas">
+            {(
+              [
+                ["overview", "Visao geral"],
+                ["traffic", "Trafego"],
+                ["funnel", "Funil"],
+                ["revenue", "Receita"],
+              ] as const
+            ).map(([metricGroup, label]) => (
+              <Link
+                aria-current={
+                  activeMetricGroup === metricGroup ? "page" : undefined
+                }
+                className={activeMetricGroup === metricGroup ? "active" : ""}
+                href={reportMetricGroupHref(
+                  metricGroup,
+                  activeView,
+                  reportFilters,
+                )}
+                key={metricGroup}
+              >
+                {label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+
+        <div className="report-summary-strip">
+          {summaryMetrics.map((metric) => (
+            <article key={metric.label}>
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+              <small>{metric.detail}</small>
+            </article>
+          ))}
+        </div>
+      </section>
 
       {comparisonReports && comparisonTotals ? (
-        <div className="surface-panel">
-          <span className="eyebrow">Comparacao entre periodos</span>
-          <h2>Periodo atual vs. {comparisonReports.report.rangeLabel}</h2>
-          <div className="metric-grid compact">
-            <ComparisonMetric
-              label="Investimento"
-              current={currentTotals.spendCents}
-              previous={comparisonTotals.spendCents}
-              format={money}
-            />
-            <ComparisonMetric
-              label="Conversas Meta"
-              current={currentTotals.metaConversationsStarted}
-              previous={comparisonTotals.metaConversationsStarted}
-            />
-            <ComparisonMetric
-              label="Conversas reais"
-              current={currentTotals.realConversations}
-              previous={comparisonTotals.realConversations}
-            />
-            <ComparisonMetric
-              label="Lead qualificado"
-              current={currentTotals.qualifiedLead}
-              previous={comparisonTotals.qualifiedLead}
-            />
-            <ComparisonMetric
-              label="Compras"
-              current={currentTotals.purchases}
-              previous={comparisonTotals.purchases}
-            />
-            <ComparisonMetric
-              label="Primeira compra"
-              current={currentTotals.firstPurchases}
-              previous={comparisonTotals.firstPurchases}
-            />
-            <ComparisonMetric
-              label="Recompra"
-              current={currentTotals.repurchases}
-              previous={comparisonTotals.repurchases}
-            />
-            <ComparisonMetric
-              label="Leads organicos"
-              current={currentTotals.organicLeads}
-              previous={comparisonTotals.organicLeads}
-            />
-            <ComparisonMetric
-              label="Receita trafego"
-              current={currentTotals.trafficRevenueCents}
-              previous={comparisonTotals.trafficRevenueCents}
-              format={money}
-            />
-            <ComparisonMetric
-              label="Receita organica"
-              current={currentTotals.organicRevenueCents}
-              previous={comparisonTotals.organicRevenueCents}
-              format={money}
-            />
-            <ComparisonMetric
-              label="Receita total"
-              current={currentTotals.totalRevenueCents}
-              previous={comparisonTotals.totalRevenueCents}
-              format={money}
-            />
-            <ComparisonMetric
-              label="ROAS aquisicao"
-              current={currentTotals.roasAcquisition}
-              previous={comparisonTotals.roasAcquisition}
-              format={roas}
-            />
-            <ComparisonMetric
-              label="ROAS com recompra"
-              current={currentTotals.roasWithRepurchase}
-              previous={comparisonTotals.roasWithRepurchase}
-              format={roas}
+        <details className="surface-panel report-comparison-panel">
+          <summary>
+            <span>
+              <span className="eyebrow">Comparacao entre periodos</span>
+              <strong>
+                Periodo atual vs. {comparisonReports.report.rangeLabel}
+              </strong>
+            </span>
+            <span className="tag">Abrir comparacao</span>
+          </summary>
+          <div className="metric-grid compact report-comparison-grid">
+            <ReportComparisonMetrics
+              current={currentTotals}
+              metricGroup={activeMetricGroup}
+              previous={comparisonTotals}
             />
           </div>
-        </div>
+        </details>
       ) : null}
 
       {activeView === "campaigns" ? (
         <div className="table-wrap report-table-scroll">
-          <table className="performance-table">
+          <table
+            className="performance-table"
+            data-metric-group={activeMetricGroup}
+          >
             <thead>
               <tr>
                 <th>Campanha</th>
                 <PerformanceMetricHeaders
                   funnelSteps={currentTotals.funnelSteps}
+                  metricGroup={activeMetricGroup}
                 />
                 <th className="performance-review-column">Revisao WhatsApp</th>
               </tr>
@@ -1957,7 +2420,7 @@ export default async function ReportsPage({
                     }
                     key={row.id}
                   >
-                    <td className="performance-name-cell">
+                    <td className="performance-name-cell" data-label="Campanha">
                       <strong>
                         <Link
                           href={reportViewHref("adsets", {
@@ -1986,6 +2449,7 @@ export default async function ReportsPage({
                     </td>
                     <PerformanceMetricsCells
                       funnelSteps={currentTotals.funnelSteps}
+                      metricGroup={activeMetricGroup}
                       row={row}
                       realConversationsHref={leadsHref({
                         campaignId: row.id,
@@ -1998,7 +2462,10 @@ export default async function ReportsPage({
                         whatsappClassification,
                       })}
                     />
-                    <td className="performance-review-cell">
+                    <td
+                      className="performance-review-cell"
+                      data-label="Revisao WhatsApp"
+                    >
                       {canSyncMetaReports ? (
                         <WhatsappReviewActions
                           action={saveWhatsappClassification}
@@ -2014,7 +2481,7 @@ export default async function ReportsPage({
                 ))
               ) : (
                 <tr>
-                  <td className="performance-name-cell">
+                  <td className="performance-name-cell" data-label="Campanha">
                     <strong>
                       {reportState === "error"
                         ? "Nao foi possivel carregar campanhas"
@@ -2028,13 +2495,20 @@ export default async function ReportsPage({
                   </td>
                   <EmptyPerformanceCells
                     funnelSteps={currentTotals.funnelSteps}
+                    metricGroup={activeMetricGroup}
                   />
-                  <td className="performance-review-cell">-</td>
+                  <td
+                    className="performance-review-cell"
+                    data-label="Revisao WhatsApp"
+                  >
+                    -
+                  </td>
                 </tr>
               )}
             </tbody>
             <PerformanceSummaryFooter
               copy={campaignSummaryCopy}
+              metricGroup={activeMetricGroup}
               pagination={pagination}
               rows={rows}
               totals={campaignReports?.report.totals}
@@ -2044,253 +2518,263 @@ export default async function ReportsPage({
       ) : null}
 
       {activeView === "adsets" ? (
-        <div className="surface-panel">
-          <span className="eyebrow">Conjuntos</span>
-          <h2>Performance por conjunto</h2>
-          <p className="muted">
-            Insights Meta por conjunto sincronizados com leads reais e eventos
-            de conversao.
-          </p>
-          <div className="table-wrap report-table-scroll">
-            <table className="performance-table">
-              <thead>
-                <tr>
-                  <th>Conjunto</th>
-                  <PerformanceMetricHeaders
-                    funnelSteps={currentTotals.funnelSteps}
-                  />
-                  <th className="performance-review-column">
-                    Revisao WhatsApp
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {adSetRows.length > 0 ? (
-                  adSetRows.map((row) => (
-                    <tr
-                      className={adSetId === row.id ? "is-selected" : undefined}
-                      key={row.id}
-                    >
-                      <td className="performance-name-cell">
-                        <strong>
-                          <Link
-                            href={reportViewHref("ads", {
-                              ...reportFilters,
-                              campaignId: row.campaignId,
-                              adSetId: row.id,
-                              adId: undefined,
-                              page: 1,
-                            })}
-                          >
-                            <PresentationMask placeholder="Conjunto oculto">
-                              {row.name}
-                            </PresentationMask>
-                          </Link>
-                        </strong>
-                        <span>
-                          <PresentationMask placeholder="Campanha oculta">
-                            {row.campaignName}
-                          </PresentationMask>
-                        </span>
-                        <MetaEntityControls
-                          action={updateMetaEntity}
-                          budget={row.budget}
-                          canManage={canSyncMetaReports}
-                          configuredStatus={row.configuredStatus}
-                          effectiveStatus={row.effectiveStatus}
-                          id={row.id}
-                          level="adset"
-                          name={row.name}
-                        />
-                      </td>
-                      <PerformanceMetricsCells
-                        funnelSteps={currentTotals.funnelSteps}
-                        row={row}
-                        realConversationsHref={leadsHref({
-                          campaignId: row.campaignId,
-                          adSetId: row.id,
-                          since,
-                          until,
-                          compareSince,
-                          compareUntil,
-                          businessId,
-                          adAccountId,
-                          whatsappClassification,
-                        })}
-                      />
-                      <td className="performance-review-cell">
-                        {canSyncMetaReports ? (
-                          <WhatsappReviewActions
-                            action={saveWhatsappClassification}
-                            classification={row.whatsappClassification}
-                            level="adset"
-                            id={row.id}
-                          />
-                        ) : (
-                          <span className="tag">{noReviewPermission}</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td className="performance-name-cell">
+        <div className="table-wrap report-table-scroll">
+          <table
+            className="performance-table"
+            data-metric-group={activeMetricGroup}
+          >
+            <thead>
+              <tr>
+                <th>Conjunto</th>
+                <PerformanceMetricHeaders
+                  funnelSteps={currentTotals.funnelSteps}
+                  metricGroup={activeMetricGroup}
+                />
+                <th className="performance-review-column">Revisao WhatsApp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {adSetRows.length > 0 ? (
+                adSetRows.map((row) => (
+                  <tr
+                    className={adSetId === row.id ? "is-selected" : undefined}
+                    key={row.id}
+                  >
+                    <td className="performance-name-cell" data-label="Conjunto">
                       <strong>
-                        {adSetReports?.state === "error"
-                          ? "Nao foi possivel carregar conjuntos"
-                          : "Nenhum conjunto sincronizado"}
+                        <Link
+                          href={reportViewHref("ads", {
+                            ...reportFilters,
+                            campaignId: row.campaignId,
+                            adSetId: row.id,
+                            adId: undefined,
+                            page: 1,
+                          })}
+                        >
+                          <PresentationMask placeholder="Conjunto oculto">
+                            {row.name}
+                          </PresentationMask>
+                        </Link>
                       </strong>
                       <span>
-                        {adSetReports?.state === "error"
-                          ? "Confira a API antes de analisar conjuntos."
-                          : syncAdSetHint}
+                        <PresentationMask placeholder="Campanha oculta">
+                          {row.campaignName}
+                        </PresentationMask>
                       </span>
+                      <MetaEntityControls
+                        action={updateMetaEntity}
+                        budget={row.budget}
+                        canManage={canSyncMetaReports}
+                        configuredStatus={row.configuredStatus}
+                        effectiveStatus={row.effectiveStatus}
+                        id={row.id}
+                        level="adset"
+                        name={row.name}
+                      />
                     </td>
-                    <EmptyPerformanceCells
+                    <PerformanceMetricsCells
                       funnelSteps={currentTotals.funnelSteps}
+                      metricGroup={activeMetricGroup}
+                      row={row}
+                      realConversationsHref={leadsHref({
+                        campaignId: row.campaignId,
+                        adSetId: row.id,
+                        since,
+                        until,
+                        compareSince,
+                        compareUntil,
+                        businessId,
+                        adAccountId,
+                        whatsappClassification,
+                      })}
                     />
-                    <td className="performance-review-cell">-</td>
+                    <td
+                      className="performance-review-cell"
+                      data-label="Revisao WhatsApp"
+                    >
+                      {canSyncMetaReports ? (
+                        <WhatsappReviewActions
+                          action={saveWhatsappClassification}
+                          classification={row.whatsappClassification}
+                          level="adset"
+                          id={row.id}
+                        />
+                      ) : (
+                        <span className="tag">{noReviewPermission}</span>
+                      )}
+                    </td>
                   </tr>
-                )}
-              </tbody>
-              <PerformanceSummaryFooter
-                copy={adSetSummaryCopy}
-                pagination={pagination}
-                rows={adSetRows}
-                totals={adSetReports?.report.totals}
-              />
-            </table>
-          </div>
+                ))
+              ) : (
+                <tr>
+                  <td className="performance-name-cell" data-label="Conjunto">
+                    <strong>
+                      {adSetReports?.state === "error"
+                        ? "Nao foi possivel carregar conjuntos"
+                        : "Nenhum conjunto sincronizado"}
+                    </strong>
+                    <span>
+                      {adSetReports?.state === "error"
+                        ? "Confira a API antes de analisar conjuntos."
+                        : syncAdSetHint}
+                    </span>
+                  </td>
+                  <EmptyPerformanceCells
+                    funnelSteps={currentTotals.funnelSteps}
+                    metricGroup={activeMetricGroup}
+                  />
+                  <td
+                    className="performance-review-cell"
+                    data-label="Revisao WhatsApp"
+                  >
+                    -
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <PerformanceSummaryFooter
+              copy={adSetSummaryCopy}
+              metricGroup={activeMetricGroup}
+              pagination={pagination}
+              rows={adSetRows}
+              totals={adSetReports?.report.totals}
+            />
+          </table>
         </div>
       ) : null}
 
       {activeView === "ads" ? (
-        <div className="surface-panel">
-          <span className="eyebrow">Anuncios</span>
-          <h2>Performance por anuncio</h2>
-          <p className="muted">
-            Insights Meta por anuncio sincronizados com leads reais e eventos de
-            conversao.
-          </p>
-          <div className="table-wrap report-table-scroll">
-            <table className="performance-table">
-              <thead>
-                <tr>
-                  <th>Anuncio</th>
-                  <PerformanceMetricHeaders
-                    funnelSteps={currentTotals.funnelSteps}
-                  />
-                  <th className="performance-review-column">
-                    Revisao WhatsApp
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {adRows.length > 0 ? (
-                  adRows.map((row) => (
-                    <tr
-                      className={adId === row.id ? "is-selected" : undefined}
-                      key={row.id}
-                    >
-                      <td className="performance-name-cell">
-                        <div className="report-ad-entity">
-                          <ReportAdPreview
-                            adName={row.name}
-                            previewUrl={row.previewUrl}
-                            thumbnailUrl={row.thumbnailUrl}
-                          />
-                          <div className="report-entity-copy">
-                            <strong>
-                              <Link
-                                href={reportViewHref("ads", {
-                                  ...reportFilters,
-                                  campaignId: row.campaignId,
-                                  adSetId: row.adSetId,
-                                  adId: row.id,
-                                  page: 1,
-                                })}
-                              >
-                                <PresentationMask placeholder="Anuncio oculto">
-                                  {row.name}
-                                </PresentationMask>
-                              </Link>
-                            </strong>
-                            <span>
-                              <PresentationMask placeholder="Campanha oculta / Conjunto oculto">
-                                {row.campaignName} / {row.adSetName}
-                              </PresentationMask>
-                            </span>
-                          </div>
-                        </div>
-                        <MetaEntityControls
-                          action={updateMetaEntity}
-                          canManage={canSyncMetaReports}
-                          configuredStatus={row.configuredStatus}
-                          effectiveStatus={row.effectiveStatus}
-                          id={row.id}
-                          level="ad"
-                          name={row.name}
+        <div className="table-wrap report-table-scroll">
+          <table
+            className="performance-table"
+            data-metric-group={activeMetricGroup}
+          >
+            <thead>
+              <tr>
+                <th>Anuncio</th>
+                <PerformanceMetricHeaders
+                  funnelSteps={currentTotals.funnelSteps}
+                  metricGroup={activeMetricGroup}
+                />
+                <th className="performance-review-column">Revisao WhatsApp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {adRows.length > 0 ? (
+                adRows.map((row) => (
+                  <tr
+                    className={adId === row.id ? "is-selected" : undefined}
+                    key={row.id}
+                  >
+                    <td className="performance-name-cell" data-label="Anuncio">
+                      <div className="report-ad-entity">
+                        <ReportAdPreview
+                          adName={row.name}
+                          previewUrl={row.previewUrl}
+                          thumbnailUrl={row.thumbnailUrl}
                         />
-                      </td>
-                      <PerformanceMetricsCells
-                        funnelSteps={currentTotals.funnelSteps}
-                        row={row}
-                        realConversationsHref={leadsHref({
-                          campaignId: row.campaignId,
-                          adSetId: row.adSetId,
-                          adId: row.id,
-                          since,
-                          until,
-                          compareSince,
-                          compareUntil,
-                          businessId,
-                          adAccountId,
-                          whatsappClassification,
-                        })}
+                        <div className="report-entity-copy">
+                          <strong>
+                            <Link
+                              href={reportViewHref("ads", {
+                                ...reportFilters,
+                                campaignId: row.campaignId,
+                                adSetId: row.adSetId,
+                                adId: row.id,
+                                page: 1,
+                              })}
+                            >
+                              <PresentationMask placeholder="Anuncio oculto">
+                                {row.name}
+                              </PresentationMask>
+                            </Link>
+                          </strong>
+                          <span>
+                            <PresentationMask placeholder="Campanha oculta / Conjunto oculto">
+                              {row.campaignName} / {row.adSetName}
+                            </PresentationMask>
+                          </span>
+                        </div>
+                      </div>
+                      <MetaEntityControls
+                        action={updateMetaEntity}
+                        canManage={canSyncMetaReports}
+                        configuredStatus={row.configuredStatus}
+                        effectiveStatus={row.effectiveStatus}
+                        id={row.id}
+                        level="ad"
+                        name={row.name}
                       />
-                      <td className="performance-review-cell">
-                        {canSyncMetaReports ? (
-                          <WhatsappReviewActions
-                            action={saveWhatsappClassification}
-                            classification={row.whatsappClassification}
-                            level="ad"
-                            id={row.id}
-                          />
-                        ) : (
-                          <span className="tag">{noReviewPermission}</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td className="performance-name-cell">
-                      <strong>
-                        {adReports?.state === "error"
-                          ? "Nao foi possivel carregar anuncios"
-                          : "Nenhum anuncio sincronizado"}
-                      </strong>
-                      <span>
-                        {adReports?.state === "error"
-                          ? "Confira a API antes de analisar anuncios."
-                          : syncAdHint}
-                      </span>
                     </td>
-                    <EmptyPerformanceCells
+                    <PerformanceMetricsCells
                       funnelSteps={currentTotals.funnelSteps}
+                      metricGroup={activeMetricGroup}
+                      row={row}
+                      realConversationsHref={leadsHref({
+                        campaignId: row.campaignId,
+                        adSetId: row.adSetId,
+                        adId: row.id,
+                        since,
+                        until,
+                        compareSince,
+                        compareUntil,
+                        businessId,
+                        adAccountId,
+                        whatsappClassification,
+                      })}
                     />
-                    <td className="performance-review-cell">-</td>
+                    <td
+                      className="performance-review-cell"
+                      data-label="Revisao WhatsApp"
+                    >
+                      {canSyncMetaReports ? (
+                        <WhatsappReviewActions
+                          action={saveWhatsappClassification}
+                          classification={row.whatsappClassification}
+                          level="ad"
+                          id={row.id}
+                        />
+                      ) : (
+                        <span className="tag">{noReviewPermission}</span>
+                      )}
+                    </td>
                   </tr>
-                )}
-              </tbody>
-              <PerformanceSummaryFooter
-                copy={adSummaryCopy}
-                pagination={pagination}
-                rows={adRows}
-                totals={adReports?.report.totals}
-              />
-            </table>
-          </div>
+                ))
+              ) : (
+                <tr>
+                  <td className="performance-name-cell" data-label="Anuncio">
+                    <strong>
+                      {adReports?.state === "error"
+                        ? "Nao foi possivel carregar anuncios"
+                        : "Nenhum anuncio sincronizado"}
+                    </strong>
+                    <span>
+                      {adReports?.state === "error"
+                        ? "Confira a API antes de analisar anuncios."
+                        : syncAdHint}
+                    </span>
+                  </td>
+                  <EmptyPerformanceCells
+                    funnelSteps={currentTotals.funnelSteps}
+                    metricGroup={activeMetricGroup}
+                  />
+                  <td
+                    className="performance-review-cell"
+                    data-label="Revisao WhatsApp"
+                  >
+                    -
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <PerformanceSummaryFooter
+              copy={adSummaryCopy}
+              metricGroup={activeMetricGroup}
+              pagination={pagination}
+              rows={adRows}
+              totals={adReports?.report.totals}
+            />
+          </table>
         </div>
       ) : null}
 
@@ -2375,6 +2859,10 @@ export default async function ReportsPage({
           >
             <input type="hidden" name="since" value={since ?? ""} />
             <input type="hidden" name="until" value={until ?? ""} />
+            <input type="hidden" name="view" value={activeView} />
+            <input type="hidden" name="metrics" value={activeMetricGroup} />
+            <input type="hidden" name="pageSize" value={pageSize} />
+            <input type="hidden" name="diagnostic" value="open" />
             <input
               type="hidden"
               name="compareSince"

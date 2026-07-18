@@ -1835,7 +1835,35 @@ export function MetaManualConnectionPanel({
             <span>{notice.message}</span>
           </div>
         ) : null}
-        {!setupOpen ? renderConfiguredConnections(true) : null}
+        {!setupOpen &&
+        (configuration?.businessConnections.length ?? 0) > 0 ? (
+          <details className="meta-configured-structures">
+            <summary>
+              <span className="meta-configured-structures-icon" aria-hidden="true">
+                <Database size={17} />
+              </span>
+              <span>
+                <span className="micro-label">Estruturas salvas</span>
+                <strong>Tokens, BMs e destinos</strong>
+                <small>
+                  {configuration?.businessConnections.length ?? 0} BMs,{" "}
+                  {configuration?.reportingAccounts.filter(
+                    (account) => account.active,
+                  ).length ?? 0}{" "}
+                  contas ativas e {configuration?.destinations.length ?? 0}{" "}
+                  destinos
+                </small>
+              </span>
+              <span className="meta-configured-structures-action">
+                Ver estruturas
+                <ChevronDown size={16} aria-hidden="true" />
+              </span>
+            </summary>
+            <div className="meta-configured-structures-body">
+              {renderConfiguredConnections(true)}
+            </div>
+          </details>
+        ) : null}
         {renderOAuthRoutingControl()}
 
         <dialog

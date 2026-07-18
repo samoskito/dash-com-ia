@@ -286,6 +286,24 @@ describe("settings route", () => {
     expect(html).toContain("Nivel de acesso");
     expect(html).toContain("Gerenciar equipe");
     expect(html).not.toContain("3 usuarios ativos");
+    expect(html).toContain("Central de configuracoes");
+    expect(html).toContain("Mapa das configuracoes");
+    expect(html).toContain('aria-label="Atalhos das configuracoes"');
+    expect(html).toContain('href="#configuracao-conta"');
+    expect(html).toContain('href="#configuracao-equipe"');
+    expect(html).toContain('href="#configuracao-conversoes"');
+    expect(html).toContain('id="configuracao-conta"');
+    expect(html).toContain('id="configuracao-equipe"');
+    expect(html).toContain('id="configuracao-conversoes"');
+    expect(html.match(/class="settings-domain-section/g)).toHaveLength(3);
+    expect(
+      html.match(
+        /class="surface-panel settings-automation-details [^"]+"/g,
+      ),
+    ).toHaveLength(2);
+    expect(html).not.toMatch(
+      /<details[^>]*class="[^"]*settings-automation-details[^"]*"[^>]*open/,
+    );
     expect(html).toContain("Jornada do funil");
     expect(html).toContain("Salvar jornada");
     expect(html.match(/name="stageProduct:/g)).toHaveLength(1);
@@ -565,6 +583,9 @@ describe("settings route", () => {
 
     expect(html).toContain("API indisponivel");
     expect(html).toContain("Nao foi possivel carregar regras");
+    expect(html).toMatch(
+      /<details[^>]*class="[^"]*conversion-rules-panel[^"]*"[^>]*open/,
+    );
     expect(html).not.toContain("Novo lead");
     expect(html).not.toContain("Compra confirmada");
     expect(html).not.toContain("Venda fechada");

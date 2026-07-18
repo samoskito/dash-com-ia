@@ -24,13 +24,15 @@ describe("backoffice clients route", () => {
               {
                 id: "user_cliente",
                 name: "Cliente Barbieri",
-                email: "cliente@barbieri.com.br"
-              }
+                email: "cliente@barbieri.com.br",
+              },
             ],
-            connectorCount: 1
-          }
+            connectorCount: 1,
+          },
         ];
-      } else if (url.endsWith("/backoffice/external-data/connectors?includeHealth=true")) {
+      } else if (
+        url.endsWith("/backoffice/external-data/connectors?includeHealth=true")
+      ) {
         body = [
           {
             connector: {
@@ -56,7 +58,7 @@ describe("backoffice clients route", () => {
               lastSyncErrorCode: null,
               cursors: [],
               createdAt: "2026-07-11T18:00:00.000Z",
-              updatedAt: "2026-07-11T18:02:00.000Z"
+              updatedAt: "2026-07-11T18:02:00.000Z",
             },
             totals: {
               imported: 116,
@@ -64,7 +66,7 @@ describe("backoffice clients route", () => {
               rejected: 0,
               quarantined: 0,
               failed: 0,
-              pending: 0
+              pending: 0,
             },
             reconciliation: {
               connectorId: "connector_1",
@@ -76,12 +78,12 @@ describe("backoffice clients route", () => {
                 connectionConfigured: true,
                 destinationConfigured: true,
                 pixelId: "pixel_1",
-                pageId: "page_1"
+                pageId: "page_1",
               },
               events: [
                 ["conversation_started", 4],
                 ["qualified_lead", 3],
-                ["purchase", 1]
+                ["purchase", 1],
               ].map(([eventType, operationalRows]) => ({
                 eventType,
                 sourceRows: operationalRows,
@@ -105,11 +107,11 @@ describe("backoffice clients route", () => {
                 readyForCutover: true,
                 cutoverAt: null,
                 firstOccurredAt: "2026-07-12T18:00:00.000Z",
-                lastOccurredAt: "2026-07-12T20:00:00.000Z"
+                lastOccurredAt: "2026-07-12T20:00:00.000Z",
               })),
-              blockers: []
-            }
-          }
+              blockers: [],
+            },
+          },
         ];
       } else if (url.endsWith("/backoffice/platform-users")) {
         body = [
@@ -118,8 +120,8 @@ describe("backoffice clients route", () => {
             name: "Owner",
             email: "owner@wpptrack.com",
             role: "platform_owner",
-            createdAt: "2026-07-11T18:00:00.000Z"
-          }
+            createdAt: "2026-07-11T18:00:00.000Z",
+          },
         ];
       } else if (url.endsWith("/auth/me")) {
         body = {
@@ -127,19 +129,19 @@ describe("backoffice clients route", () => {
             id: "platform_owner",
             name: "Owner",
             email: "owner@wpptrack.com",
-            platformRole: "platform_owner"
-          }
+            platformRole: "platform_owner",
+          },
         };
       }
 
       return new Response(JSON.stringify(body), {
         status: 200,
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
     });
 
     const element = await BackofficeClientsPage({
-      searchParams: Promise.resolve({})
+      searchParams: Promise.resolve({}),
     });
     const html = renderToStaticMarkup(element);
 
@@ -148,41 +150,65 @@ describe("backoffice clients route", () => {
     expect(html).toContain("Nome do responsavel");
     expect(html).toContain("Email do responsavel");
     expect(html).not.toContain("Senha inicial (para novo email)");
-    expect(html).toContain("O responsavel recebe um link seguro para criar a propria senha.");
+    expect(html).toContain(
+      "O responsavel recebe um link seguro para criar a propria senha.",
+    );
     expect(html).toContain("Responsavel da conta");
     expect(html).toContain("Cliente Barbieri");
-    expect(html).toContain("MySQL Barbieri");
-    expect(html).toContain("Sincronizacao concluida");
-    expect(html).toContain("Importados");
-    expect(html).toContain(">116<");
-    expect(html).toContain("Descartados");
-    expect(html).toContain("Falhas");
-    expect(html).toContain("Reimportar leads");
-    expect(html).toContain("Gate de corte CAPI");
-    expect(html).toContain("Pronto para corte");
-    expect(html).toContain("4 reais validos");
-    expect(html).toContain("0 repeticoes");
-    expect(html).toContain("0 descartados");
-    expect(html).toContain("Eventos reais reconciliados");
-    expect(html).toContain("Assumir envio");
-    expect(html).toContain("Digite ASSUMIR ENVIO");
-    expect(html).toContain("Mantenha o registro no ledger MySQL ativo");
     expect(html).toContain("Acessar");
     expect(html).toContain("Enviar e-mail de acesso");
-    expect(html).toContain("Salvar conector");
-    expect(html).not.toContain("credentialsEncrypted");
+    expect(html).toContain('href="/backoffice/clients?section=connectors"');
+    expect(html).not.toContain("MySQL Barbieri");
+
+    const connectorsElement = await BackofficeClientsPage({
+      searchParams: Promise.resolve({ section: "connectors" }),
+    });
+    const connectorsHtml = renderToStaticMarkup(connectorsElement);
+
+    expect(connectorsHtml).toContain("Conectores MySQL");
+    expect(connectorsHtml).toContain("MySQL Barbieri");
+    expect(connectorsHtml).toContain("Salvar conector");
+    expect(connectorsHtml).toContain("Sincronizacao concluida");
+    expect(connectorsHtml).toContain("Importados");
+    expect(connectorsHtml).toContain(">116<");
+    expect(connectorsHtml).toContain("Descartados");
+    expect(connectorsHtml).toContain("Falhas");
+    expect(connectorsHtml).toContain("Reimportar leads");
+    expect(connectorsHtml).toContain("Gate de corte CAPI");
+    expect(connectorsHtml).toContain("Pronto para corte");
+    expect(connectorsHtml).toContain("4 reais validos");
+    expect(connectorsHtml).toContain("0 repeticoes");
+    expect(connectorsHtml).toContain("0 descartados");
+    expect(connectorsHtml).toContain("Eventos reais reconciliados");
+    expect(connectorsHtml).toContain("Assumir envio");
+    expect(connectorsHtml).toContain("Digite ASSUMIR ENVIO");
+    expect(connectorsHtml).toContain(
+      "Mantenha o registro no ledger MySQL ativo",
+    );
+    expect(connectorsHtml).not.toContain("credentialsEncrypted");
+
+    const teamElement = await BackofficeClientsPage({
+      searchParams: Promise.resolve({ section: "team" }),
+    });
+    const teamHtml = renderToStaticMarkup(teamElement);
+
+    expect(teamHtml).toContain("Acesso global da plataforma");
+    expect(teamHtml).toContain("Criar acesso interno");
+    expect(teamHtml).toContain("owner@wpptrack.com");
+    expect(teamHtml).not.toContain("Ambientes dos clientes");
+    expect(teamHtml).not.toContain("MySQL Barbieri");
   });
 
   it("keeps password fields server-bound and never repopulates secrets", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify([]), {
         status: 200,
-        headers: { "Content-Type": "application/json" }
-      })
+        headers: { "Content-Type": "application/json" },
+      }),
     );
 
     const element = await BackofficeClientsPage({
-      searchParams: Promise.resolve({})
+      searchParams: Promise.resolve({ section: "connectors" }),
     });
     const html = renderToStaticMarkup(element);
 

@@ -13,6 +13,8 @@ Channel-level Umbler readiness is tracked in
 `docs/superpowers/plans/2026-07-18-wpptrack-umbler-channel-readiness-implementation.md`.
 It is implemented locally, requires no migration and keeps replay disabled
 while showing route, retained payload and CTWA blockers per discovered channel.
+The production handoff for Monday, including the live observation snapshot and
+canary order, is recorded in the replay-canary implementation plan above.
 
 ## 1. Goal
 

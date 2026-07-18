@@ -312,6 +312,18 @@ describe("integrations route", () => {
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
+    expect(html).toContain("Central de integracoes");
+    expect(html).toContain("Mapa das conexoes");
+    expect(html).toContain('aria-label="Atalhos das integracoes"');
+    expect(html).toContain('href="#integracao-meta"');
+    expect(html).toContain('href="#integracao-whatsapp"');
+    expect(html).toContain('href="#integracao-fluxo"');
+    expect(html).toContain('id="integracao-meta"');
+    expect(html).toContain('id="integracao-whatsapp"');
+    expect(html).toContain('id="integracao-fluxo"');
+    expect(
+      html.match(/class="integration-domain-section [^"]+"/g),
+    ).toHaveLength(3);
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/integrations/whatsapp/instances",
       expect.objectContaining({ credentials: "include" }),

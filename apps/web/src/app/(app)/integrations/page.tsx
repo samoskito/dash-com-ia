@@ -16,6 +16,14 @@ import type {
   WhatsappInstanceSummaryDto,
   WorkspaceSubscriptionSummaryDto,
 } from "@wpptrack/shared";
+import {
+  Activity,
+  Database,
+  Megaphone,
+  MessageCircle,
+  Route,
+  Webhook,
+} from "lucide-react";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { SubmitButton } from "../../../components/submit-button";
@@ -1043,17 +1051,43 @@ export default async function IntegrationsPage({
     whatsappInstancesResult.state === "error"
       ? "Nao foi possivel carregar instancias"
       : "Nenhuma instancia";
+  const metaDestinationCount = manualConfigured
+    ? (metaManualResult.data?.destinations.filter(
+        (destination) => destination.status === "configured",
+      ).length ?? 0)
+    : metaAssets?.conversionDestination
+      ? 1
+      : 0;
+  const inboundConnectionCount =
+    inboundWebhookData?.connections.filter(
+      ({ overview }) => overview.connection.status === "observation",
+    ).length ?? 0;
+  const whatsappSourceLabel = usesExternalWhatsapp
+    ? "MySQL externo"
+    : inboundConnectionCount > 0
+      ? `${inboundConnectionCount} webhook${inboundConnectionCount === 1 ? "" : "s"}`
+      : whatsappInstances.length > 0
+        ? `${whatsappInstances.length} instancia${whatsappInstances.length === 1 ? "" : "s"}`
+        : "Aguardando fonte";
+  const whatsappSourceDetail = usesExternalWhatsapp
+    ? "Leitura incremental configurada"
+    : inboundConnectionCount > 0
+      ? "Plataformas WhatsApp em observacao"
+      : whatsappInstances.length > 0
+        ? "Instancias WhatsApp cadastradas"
+        : "Nenhuma origem ativa";
+  const finalPipelineStage = pipeline?.stages.at(-1);
 
   return (
     <section className="page-stack page-standard integrations-page">
       <header className="page-header">
         <div>
           <span className="eyebrow">Integracoes</span>
-          <h1>WhatsApp, Meta e Pixel</h1>
+          <h1>Central de integracoes</h1>
           <p>
             {usesExternalWhatsapp
-              ? "Dados do WhatsApp via integracao externa e campanhas direto da Meta."
-              : "Uazapi primeiro, Meta OAuth desde o inicio e Cloud API preparada para futuro."}
+              ? "Acompanhe a origem das conversas, as contas Meta e o caminho dos eventos deste workspace."
+              : "Configure Meta, fontes WhatsApp e o destino das conversoes em um unico fluxo operacional."}
           </p>
         </div>
         {isPlatformOperator ? (
@@ -1077,60 +1111,179 @@ export default async function IntegrationsPage({
         </div>
       ) : null}
 
+      <section
+        className="integration-overview"
+        aria-labelledby="integration-overview-title"
+      >
+        <div className="integration-overview-heading">
+          <div>
+            <span className="eyebrow">Estado do workspace</span>
+            <h2 id="integration-overview-title">Mapa das conexoes</h2>
+          </div>
+          <span
+            className={`status-chip${hasIntegrationError ? " warn" : ""}`}
+          >
+            {hasIntegrationError ? "Requer atencao" : "Operacao disponivel"}
+          </span>
+        </div>
+        <div className="integration-overview-rail">
+          <article>
+            <span className="integration-overview-icon meta" aria-hidden="true">
+              <Megaphone size={18} />
+            </span>
+            <div>
+              <span className="micro-label">Meta Ads</span>
+              <strong>{metaStatusLabel}</strong>
+              <small>
+                {manualConfigured
+                  ? `${manualActiveReportingAccounts} contas em relatorios`
+                  : `${activeReportingAccounts} contas em relatorios`}
+              </small>
+            </div>
+          </article>
+          <article>
+            <span
+              className="integration-overview-icon whatsapp"
+              aria-hidden="true"
+            >
+              <MessageCircle size={18} />
+            </span>
+            <div>
+              <span className="micro-label">Fonte WhatsApp</span>
+              <strong>{whatsappSourceLabel}</strong>
+              <small>{whatsappSourceDetail}</small>
+            </div>
+          </article>
+          <article>
+            <span className="integration-overview-icon capi" aria-hidden="true">
+              <Database size={18} />
+            </span>
+            <div>
+              <span className="micro-label">Destino CAPI</span>
+              <strong>
+                {metaDestinationCount > 0
+                  ? `${metaDestinationCount} configurado${metaDestinationCount === 1 ? "" : "s"}`
+                  : "Nao configurado"}
+              </strong>
+              <small>Pixel e Pagina por rota Meta</small>
+            </div>
+          </article>
+          <article>
+            <span className="integration-overview-icon signal" aria-hidden="true">
+              <Activity size={18} />
+            </span>
+            <div>
+              <span className="micro-label">Ultima etapa</span>
+              <strong>
+                {finalPipelineStage
+                  ? `${finalPipelineStage.value} ${finalPipelineStage.label}`
+                  : "Aguardando sinal"}
+              </strong>
+              <small>
+                {pipeline?.rangeLabel ?? "Pipeline ainda sem eventos"}
+              </small>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <nav
+        className="integration-domain-nav"
+        aria-label="Atalhos das integracoes"
+      >
+        <a href="#integracao-meta">
+          <Megaphone size={16} aria-hidden="true" />
+          Meta Ads
+        </a>
+        <a href="#integracao-whatsapp">
+          <Webhook size={16} aria-hidden="true" />
+          Fontes WhatsApp
+        </a>
+        <a href="#integracao-fluxo">
+          <Route size={16} aria-hidden="true" />
+          Fluxo de dados
+        </a>
+      </nav>
+
       {isPlatformOperator ? (
-        <div className="integration-grid">
-          {integrations.length > 0 ? (
-            integrations.map((item) => (
-              <article className="integration-card" key={item.title}>
-                <span
-                  className={`status-chip${item.tone ? ` ${item.tone}` : ""}`}
-                >
-                  {item.status}
+        <details className="integration-technical-health">
+          <summary>
+            <span>
+              <Activity size={17} aria-hidden="true" />
+              Saude tecnica dos provedores
+            </span>
+            <small>{integrations.length} provedores monitorados</small>
+          </summary>
+          <div className="integration-grid">
+            {integrations.length > 0 ? (
+              integrations.map((item) => (
+                <article className="integration-card" key={item.title}>
+                  <span
+                    className={`status-chip${item.tone ? ` ${item.tone}` : ""}`}
+                  >
+                    {item.status}
+                  </span>
+                  <div>
+                    <span className="micro-label">{item.title}</span>
+                    <strong>{item.detail}</strong>
+                  </div>
+                  <p className="muted">{item.description}</p>
+                  <button className="button" type="button">
+                    Ver diagnostico
+                  </button>
+                </article>
+              ))
+            ) : (
+              <article className="integration-card">
+                <span className="status-chip warn">
+                  {healthResult.state === "error"
+                    ? "API indisponivel"
+                    : "Sem provedores"}
                 </span>
                 <div>
-                  <span className="micro-label">{item.title}</span>
-                  <strong>{item.detail}</strong>
+                  <span className="micro-label">Integracoes</span>
+                  <strong>
+                    {healthResult.state === "error"
+                      ? "Nao foi possivel carregar integracoes"
+                      : "Nenhuma integracao retornada"}
+                  </strong>
                 </div>
-                <p className="muted">{item.description}</p>
-                <button className="button" type="button">
-                  Ver diagnostico
-                </button>
+                <p className="muted">
+                  A lista sera preenchida somente com provedores retornados pelo
+                  backend.
+                </p>
               </article>
-            ))
-          ) : (
-            <article className="integration-card">
-              <span className="status-chip warn">
-                {healthResult.state === "error"
-                  ? "API indisponivel"
-                  : "Sem provedores"}
-              </span>
-              <div>
-                <span className="micro-label">Integracoes</span>
-                <strong>
-                  {healthResult.state === "error"
-                    ? "Nao foi possivel carregar integracoes"
-                    : "Nenhuma integracao retornada"}
-                </strong>
-              </div>
-              <p className="muted">
-                A lista sera preenchida somente com provedores retornados pelo
-                backend.
-              </p>
-            </article>
-          )}
-        </div>
+            )}
+          </div>
+        </details>
       ) : null}
 
-      <div className="surface-panel">
-        <span className="eyebrow">Meta OAuth</span>
-        <h2>{metaConnectionTitle(metaStatus)}</h2>
-        <div className="connection-callout">
+      <section
+        className="integration-domain-section integration-meta-domain"
+        id="integracao-meta"
+        aria-labelledby="integration-meta-title"
+      >
+        <header className="integration-domain-heading">
+          <span className="integration-domain-number">01</span>
+          <div>
+            <span className="eyebrow">Aquisicao e conversao</span>
+            <h2 id="integration-meta-title">Meta Ads</h2>
+            <p>
+              Autorize a estrutura anunciante, escolha as contas dos relatorios
+              e vincule cada rota ao Pixel e a Pagina corretos.
+            </p>
+          </div>
+          <span className="status-chip">{metaStatusLabel}</span>
+        </header>
+
+        <div className="integration-domain-content">
+          <div className="connection-callout integration-meta-oauth">
           <div>
             <span className="micro-label">Login social Facebook</span>
             <strong>
-              {metaStatus === "connected"
-                ? "Conta Meta conectada"
-                : "Conectar conta Meta"}
+              {metaStatus === "not_connected"
+                ? "Conectar conta Meta"
+                : metaConnectionTitle(metaStatus)}
             </strong>
             <p className="muted">
               Use o OAuth oficial para autorizar BM, contas de anuncio e Pixels.
@@ -1173,8 +1326,8 @@ export default async function IntegrationsPage({
                 : "sem permissao"}
             </span>
           )}
-        </div>
-        <MetaManualConnectionPanel
+          </div>
+          <MetaManualConnectionPanel
           workspaceId={metaConnection?.workspaceId ?? workspace?.id ?? ""}
           capabilities={metaCapabilities}
           initialConfiguration={metaManualResult.data}
@@ -1218,8 +1371,8 @@ export default async function IntegrationsPage({
               : setMetaManualAccountDestinationAction
           }
           setOAuthRoutingAction={setMetaOAuthAdvancedRoutingAction}
-        />
-        <div className="metric-grid compact">
+          />
+          <div className="metric-grid compact integration-meta-metrics">
           <div className="metric-card">
             <span className="micro-label">Status</span>
             <strong>{metaStatusLabel}</strong>
@@ -1342,32 +1495,54 @@ export default async function IntegrationsPage({
             ) : null}
           </>
         ) : null}
-        <p className="muted">
+          <p className="muted integration-domain-note">
           {oauthAdvancedEnabled
             ? "A conexao Meta fica protegida no backend. Cada conta ativa usa o Pixel e a Pagina vinculados a sua BM."
             : "A conexao Meta fica protegida no backend. Esta tela mostra apenas o destino principal e as contas ativas usadas nos relatorios."}
-        </p>
-      </div>
+          </p>
+        </div>
+      </section>
 
-      {inboundWebhookData &&
-      (inboundWebhookData.capabilities.enabled ||
-        inboundWebhookData.connections.length > 0) ? (
-        <InboundWebhookPanel
-          capabilities={inboundWebhookData.capabilities}
-          connections={inboundWebhookData.connections}
-          metaConfiguration={metaManualResult.data}
-          canManage={canManageIntegrations}
-          createAction={createInboundWebhookConnectionAction}
-          rotateSecretAction={rotateInboundWebhookSecretAction}
-          setConnectionStatusAction={setInboundWebhookConnectionStatusAction}
-          removeConnectionAction={removeInboundWebhookConnectionAction}
-          setChannelStatusAction={setInboundWebhookChannelStatusAction}
-          saveRoutesAction={saveInboundWebhookChannelRoutesAction}
-        />
-      ) : null}
+      <section
+        className="integration-domain-section integration-whatsapp-domain"
+        id="integracao-whatsapp"
+        aria-labelledby="integration-whatsapp-title"
+      >
+        <header className="integration-domain-heading">
+          <span className="integration-domain-number">02</span>
+          <div>
+            <span className="eyebrow">Origem das conversas</span>
+            <h2 id="integration-whatsapp-title">Fontes WhatsApp</h2>
+            <p>
+              Conecte a plataforma que recebe as mensagens e confira a origem
+              antes de liberar qualquer evento para o funil.
+            </p>
+          </div>
+          <span className="status-chip">{whatsappSourceLabel}</span>
+        </header>
 
-      {usesExternalWhatsapp ? (
-        <div className="surface-panel external-source-panel">
+        <div className="integration-domain-content integration-whatsapp-content">
+          {inboundWebhookData &&
+          (inboundWebhookData.capabilities.enabled ||
+            inboundWebhookData.connections.length > 0) ? (
+            <InboundWebhookPanel
+              capabilities={inboundWebhookData.capabilities}
+              connections={inboundWebhookData.connections}
+              metaConfiguration={metaManualResult.data}
+              canManage={canManageIntegrations}
+              createAction={createInboundWebhookConnectionAction}
+              rotateSecretAction={rotateInboundWebhookSecretAction}
+              setConnectionStatusAction={
+                setInboundWebhookConnectionStatusAction
+              }
+              removeConnectionAction={removeInboundWebhookConnectionAction}
+              setChannelStatusAction={setInboundWebhookChannelStatusAction}
+              saveRoutesAction={saveInboundWebhookChannelRoutesAction}
+            />
+          ) : null}
+
+          {usesExternalWhatsapp ? (
+            <div className="surface-panel external-source-panel">
           <div>
             <span className="eyebrow">Fonte do WhatsApp</span>
             <h2>Dados recebidos por integracao externa do MySQL</h2>
@@ -1397,11 +1572,11 @@ export default async function IntegrationsPage({
               </strong>
             </div>
           </div>
-        </div>
-      ) : null}
+            </div>
+          ) : null}
 
-      {!usesExternalWhatsapp && (
-        <div className="surface-panel">
+          {!usesExternalWhatsapp && (
+            <div className="surface-panel whatsapp-instance-panel">
           <span className="eyebrow">WhatsApp Business</span>
           <h2>Instancias conectadas</h2>
           <div className="metric-grid compact">
@@ -1595,18 +1770,42 @@ export default async function IntegrationsPage({
               </tbody>
             </table>
           </div>
+            </div>
+          )}
         </div>
-      )}
+      </section>
 
-      <div className="surface-panel">
-        <span className="eyebrow">Pipeline de sinal</span>
-        <h2>Do clique no anuncio ao evento enviado</h2>
-        <p className="muted">
+      <section
+        className="integration-domain-section integration-flow-domain"
+        id="integracao-fluxo"
+        aria-labelledby="integration-flow-title"
+      >
+        <header className="integration-domain-heading">
+          <span className="integration-domain-number">03</span>
+          <div>
+            <span className="eyebrow">Pipeline de sinal</span>
+            <h2 id="integration-flow-title">
+              Do clique no anuncio ao evento enviado
+            </h2>
+            <p>
+              {pipeline
+                ? `${pipeline.rangeLabel} com dados reais do workspace.`
+                : "Nao foi possivel carregar o pipeline operacional agora."}
+            </p>
+          </div>
+          <span className="status-chip">
+            {pipeline?.stages.length
+              ? `${pipeline.stages.length} etapas`
+              : "Sem eventos"}
+          </span>
+        </header>
+        <div className="integration-domain-content integration-flow-content">
+          <p className="muted integration-flow-note">
           {pipeline
             ? `${pipeline.rangeLabel} com dados reais do workspace.`
             : "Nao foi possivel carregar o pipeline operacional agora."}
-        </p>
-        <div className="funnel-row" aria-label="Pipeline das integracoes">
+          </p>
+          <div className="funnel-row" aria-label="Pipeline das integracoes">
           {pipeline?.stages.length ? (
             pipeline.stages.map((stage) => (
               <div className="funnel-step" key={stage.key}>
@@ -1635,8 +1834,9 @@ export default async function IntegrationsPage({
               </div>
             </div>
           )}
+          </div>
         </div>
-      </div>
+      </section>
     </section>
   );
 }

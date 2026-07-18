@@ -21,15 +21,15 @@ function auditResponse(events: unknown[]) {
       notEligible: 0,
       shadowObserved: 0,
       historical: 0,
-      discarded: 0
+      discarded: 0,
     },
     pagination: {
       page: 1,
       pageSize: 25,
       totalItems: events.length,
-      totalPages: events.length ? 1 : 0
+      totalPages: events.length ? 1 : 0,
     },
-    events
+    events,
   };
 }
 
@@ -66,12 +66,12 @@ describe("events route", () => {
               providerResponseSummary: "Meta confirmou o recebimento",
               errorCode: null,
               errorMessage: null,
-              valueSource: "configured_average"
-            }
-          ])
+              valueSource: "configured_average",
+            },
+          ]),
         ),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
     const element = await EventsPage({
@@ -80,16 +80,21 @@ describe("events route", () => {
         until: "2026-07-12",
         eventName: "Purchase",
         status: "sent",
-        source: "external_integration"
-      })
+        source: "external_integration",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/reports/conversions/audit?since=2026-07-06&until=2026-07-12&page=1&pageSize=25&eventName=Purchase&status=sent&source=external_integration",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Auditoria de conversoes");
+    expect(html).toContain("Periodo e filtros");
+    expect(html).toContain("Filtros de eventos");
+    expect(html).toContain("Saude da entrega");
+    expect(html).toContain("Fluxo para a Meta");
+    expect(html).toContain("audit-mobile-event-card");
     expect(html).toContain("Em sombra");
     expect(html).toContain("Mariana Alves");
     expect(html).toContain("+55 11 99999-1020");
@@ -137,19 +142,19 @@ describe("events route", () => {
               providerResponseSummary: null,
               errorCode: "MetaCapiRejected",
               errorMessage: "A Meta recusou o evento",
-              valueSource: null
-            }
-          ])
+              valueSource: null,
+            },
+          ]),
         ),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
     const element = await EventsPage({
       searchParams: Promise.resolve({
         since: "2026-07-06",
-        until: "2026-07-12"
-      })
+        until: "2026-07-12",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -191,19 +196,19 @@ describe("events route", () => {
               providerResponseSummary: null,
               errorCode: "MetaCapiNetworkError",
               errorMessage: "Falha de comunicacao com a Meta",
-              valueSource: null
-            }
-          ])
+              valueSource: null,
+            },
+          ]),
         ),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
     const element = await EventsPage({
       searchParams: Promise.resolve({
         since: "2026-07-06",
-        until: "2026-07-12"
-      })
+        until: "2026-07-12",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -217,15 +222,15 @@ describe("events route", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ message: "unavailable" }), {
         status: 503,
-        headers: { "Content-Type": "application/json" }
-      })
+        headers: { "Content-Type": "application/json" },
+      }),
     );
 
     const element = await EventsPage({
       searchParams: Promise.resolve({
         since: "2026-07-06",
-        until: "2026-07-12"
-      })
+        until: "2026-07-12",
+      }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -234,28 +239,36 @@ describe("events route", () => {
     expect(html).not.toContain("Mariana Alves");
   });
 
-  it("keeps the audit summary and pagination contained on mobile", () => {
+  it("replaces the desktop audit table with readable event cards on mobile", () => {
     const css = readFileSync(
-      new URL("../src/styles/globals.css", import.meta.url),
-      "utf8"
+      new URL("../src/styles/layout-system.css", import.meta.url),
+      "utf8",
     );
-    const auditStylesStart = css.indexOf(".audit-summary");
+    const auditStylesStart = css.indexOf(
+      "Wave 4: Meta Events becomes a layered delivery audit.",
+    );
     const auditMobileStart = css.indexOf(
-      "@media (max-width: 620px)",
-      auditStylesStart
+      "@media (max-width: 760px)",
+      auditStylesStart,
     );
     const nextMediaStart = css.indexOf("@media", auditMobileStart + 1);
     const auditMobileBlock = css.slice(
       auditMobileStart,
-      nextMediaStart === -1 ? undefined : nextMediaStart
+      nextMediaStart === -1 ? undefined : nextMediaStart,
     );
 
-    expect(css).toContain(".audit-summary");
-    expect(css).toContain("grid-template-columns: repeat(8, minmax(0, 1fr));");
+    expect(auditStylesStart).toBeGreaterThan(-1);
+    expect(css).toContain(".audit-primary-metrics");
+    expect(css).toContain(".audit-mobile-history {\n  display: none;");
     expect(auditMobileBlock).toContain(
-      "grid-template-columns: repeat(2, minmax(0, 1fr));"
+      ".audit-desktop-history {\n    display: none;",
     );
-    expect(auditMobileBlock).toContain(".report-pagination > div");
-    expect(auditMobileBlock).toContain("width: 100%;");
+    expect(auditMobileBlock).toContain(
+      ".audit-mobile-history {\n    display: grid;",
+    );
+    expect(auditMobileBlock).toContain(".audit-mobile-event-card");
+    expect(auditMobileBlock).toContain(
+      "grid-template-columns: repeat(2, minmax(0, 1fr));",
+    );
   });
 });

@@ -7,6 +7,7 @@ import type {
 import {
   AlertTriangle,
   Eye,
+  Inbox,
   RotateCcw,
   SlidersHorizontal,
 } from "lucide-react";
@@ -35,11 +36,7 @@ type DeliverySummaryResult = {
 };
 
 type QuickFilterKey =
-  | "all"
-  | "ctwa_pending"
-  | "ctwa_routed"
-  | "failed"
-  | "no_ctwa";
+  "all" | "ctwa_pending" | "ctwa_routed" | "failed" | "no_ctwa";
 
 const deliveryStatuses: Array<{
   label: string;
@@ -220,9 +217,7 @@ function payloadLabel(delivery: BackofficeInboundWebhookDeliveryDto): string {
     : "Payload removido";
 }
 
-function activeQuickFilter(
-  filters: DeliveryFilters,
-): QuickFilterKey | null {
+function activeQuickFilter(filters: DeliveryFilters): QuickFilterKey | null {
   if (filters.status === "failed") {
     return "failed";
   }
@@ -288,9 +283,9 @@ export default async function InboundWebhookDeliveriesPage({
   const quickFilter = activeQuickFilter(filters);
   const hasAdvancedFilters = Boolean(
     filters.workspaceId ||
-      filters.connectionId ||
-      filters.provider ||
-      quickFilter === null,
+    filters.connectionId ||
+    filters.provider ||
+    quickFilter === null,
   );
   const totals = summaryResult.data;
   const quickFilters: Array<{
@@ -403,10 +398,7 @@ export default async function InboundWebhookDeliveriesPage({
         ))}
       </nav>
 
-      <details
-        className="inbound-advanced-filters"
-        open={hasAdvancedFilters}
-      >
+      <details className="inbound-advanced-filters" open={hasAdvancedFilters}>
         <summary>
           <SlidersHorizontal aria-hidden="true" size={16} strokeWidth={2} />
           <span>Filtros avancados</span>
@@ -458,10 +450,7 @@ export default async function InboundWebhookDeliveriesPage({
             >
               <option value="">Todas</option>
               {eventClassifications.map((classification) => (
-                <option
-                  key={classification.value}
-                  value={classification.value}
-                >
+                <option key={classification.value} value={classification.value}>
                   {classification.label}
                 </option>
               ))}
@@ -470,10 +459,7 @@ export default async function InboundWebhookDeliveriesPage({
           <button className="button" type="submit">
             Aplicar
           </button>
-          <a
-            className="button ghost"
-            href="/backoffice/inbound-webhooks"
-          >
+          <a className="button ghost" href="/backoffice/inbound-webhooks">
             Limpar
           </a>
         </form>
@@ -494,21 +480,30 @@ export default async function InboundWebhookDeliveriesPage({
 
         {result.state === "error" ? (
           <div className="inbound-empty-state">
-            <strong>Nao foi possivel carregar as entregas</strong>
-            <p>
-              Confirme a sessao de platform owner e tente novamente. Nenhum
-              detalhe sensivel foi exibido.
-            </p>
+            <AlertTriangle aria-hidden="true" size={20} />
+            <div>
+              <strong>Nao foi possivel carregar as entregas</strong>
+              <p>
+                Confirme a sessao de platform owner e tente novamente. Nenhum
+                detalhe sensivel foi exibido.
+              </p>
+            </div>
           </div>
         ) : result.state === "empty" ? (
           <div className="inbound-empty-state">
-            <strong>Nenhuma entrega recebida</strong>
-            <p>O primeiro evento da plataforma aparecera aqui.</p>
+            <Inbox aria-hidden="true" size={20} />
+            <div>
+              <strong>Nenhuma entrega recebida</strong>
+              <p>O primeiro evento da plataforma aparecera aqui.</p>
+            </div>
           </div>
         ) : deliveries.length === 0 ? (
           <div className="inbound-empty-state">
-            <strong>Nenhuma entrega neste filtro</strong>
-            <p>Escolha outra categoria ou limpe os filtros avancados.</p>
+            <SlidersHorizontal aria-hidden="true" size={20} />
+            <div>
+              <strong>Nenhuma entrega neste filtro</strong>
+              <p>Escolha outra categoria ou limpe os filtros avancados.</p>
+            </div>
           </div>
         ) : (
           <div className="inbound-delivery-list" role="list">
@@ -537,7 +532,9 @@ export default async function InboundWebhookDeliveriesPage({
 
                   <div className="inbound-delivery-result">
                     <span className="micro-label">Resultado</span>
-                    <strong>{classificationLabel(delivery.classification)}</strong>
+                    <strong>
+                      {classificationLabel(delivery.classification)}
+                    </strong>
                     <span>
                       {classificationDescription(delivery.classification)}
                     </span>
@@ -561,8 +558,7 @@ export default async function InboundWebhookDeliveriesPage({
                       Ver payload
                     </a>
                     {delivery.classification === "eligible_route_resolved" ||
-                    delivery.classification ===
-                      "eligible_route_unresolved" ? (
+                    delivery.classification === "eligible_route_unresolved" ? (
                       <a
                         className="button ghost compact-button inbound-replay-link"
                         href={`/backoffice/inbound-webhooks/replay/${delivery.connectionId}`}

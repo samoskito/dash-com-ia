@@ -169,17 +169,16 @@ describe("overview route", () => {
     expect(html).toContain("Meta x conversas reais");
     expect(html).toContain("4 conversas a mais na Meta");
     expect(html).toContain("daily-comparison-chart");
-    expect(html).toContain("overview-summary-grid");
+    expect(html).toContain("overview-primary-metrics");
+    expect(html).not.toContain("overview-summary-grid");
 
-    const metricsPosition = html.indexOf('class="metric-grid"');
+    const metricsPosition = html.indexOf("overview-primary-metrics");
     const funnelPosition = html.indexOf("overview-funnel-panel");
     const dailyPosition = html.indexOf("daily-comparison");
-    const summaryPosition = html.indexOf("overview-summary-grid");
 
     expect(metricsPosition).toBeGreaterThan(-1);
     expect(funnelPosition).toBeGreaterThan(metricsPosition);
     expect(dailyPosition).toBeGreaterThan(funnelPosition);
-    expect(summaryPosition).toBeGreaterThan(dailyPosition);
   });
 
   it("renders aggregated campaign metrics returned by the backend", async () => {
@@ -244,31 +243,33 @@ describe("overview route", () => {
     expect(html).toContain("2026-07-01 a 2026-07-02");
     expect(html).not.toContain("Campanha Real");
     expect(html).not.toContain("Segunda Campanha");
-    expect(html).toContain("2 campanhas no recorte");
-    expect(html).toContain("Cobertura das conversas");
-    expect(html).toContain("Com origem identificada");
-    expect(html).toContain("Conversas organicas");
-    expect(html).toContain("attribution=organic");
-    expect(html).toContain("Total recebido");
-    expect(html).not.toContain("Sinal sem ruido");
+    expect(html).toContain("2 campanhas");
+    expect(html.match(/class=\"metric-card/g)).toHaveLength(5);
+    expect(html).toContain("Investimento");
+    expect(html).not.toContain("Cobertura das conversas");
+    expect(html).not.toContain("Conversas organicas");
+    expect(html).not.toContain("attribution=organic");
+    expect(html).not.toContain("Resumo do workspace");
     expect(html).toContain(">15<");
     expect(html).toContain(">8<");
-    expect(html).toContain("3 conversas organicas");
     expect(html).toContain("Receita trafego");
-    expect(html).toContain("Receita organica");
     expect(html).toContain("Funil de conversao");
     expect(html).toContain("Base do funil");
     expect(html).toContain("da etapa anterior");
     expect(html).toContain("conversion-funnel-chart");
+    expect(html).toContain("Custo por conversa Meta");
+    expect(html).toContain("Custo por lead");
+    expect(html).toContain("Custo por lead qualificado");
+    expect(html).toContain("Custo por compra");
+    expect(html).toContain("Custo por primeira compra");
     expect(html).toContain("1 primeira compra");
-    expect(html).not.toContain("ROAS com recompra");
     expect(html).not.toContain("0 recompra");
     expect(html).toContain(">1<");
     expect(html).not.toContain("LeadSubmitted");
     expect(html).not.toContain("Black Friday WhatsApp");
   });
 
-  it("shows repurchase ROAS only when the period contains repurchases", async () => {
+  it("shows repurchase cost when the period contains repurchases", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -305,9 +306,9 @@ describe("overview route", () => {
     const element = await OverviewPage({});
     const html = renderToStaticMarkup(createElement("div", null, element));
 
-    expect(html).toContain("ROAS com recompra");
-    expect(html).toContain("4.50x");
     expect(html).toContain("1 primeira compra, 1 recompra");
+    expect(html).toContain("Custo por recompra");
+    expect(html).not.toContain("ROAS com recompra");
   });
 
   it("renders an empty overview state without mock campaign data", async () => {
@@ -372,8 +373,10 @@ describe("overview route", () => {
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("0 campanhas");
-    expect(html).toContain("4 conversas com origem identificada");
-    expect(html).toContain("1 conversa organica");
+    expect(html).toContain("Conversas reais");
+    expect(html).toContain(">4<");
+    expect(html).not.toContain("Resumo do workspace");
+    expect(html).not.toContain("Conversas organicas");
     expect(html).not.toContain("Aguardando conversas");
   });
 
@@ -386,11 +389,10 @@ describe("overview route", () => {
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("API indisponivel");
-    expect(html).toContain("Nao foi possivel carregar relatorios");
     expect(html).toContain("Dados temporariamente indisponiveis");
-    expect(html).toContain(
-      "Valores indisponiveis nao foram tratados como zero",
-    );
+    expect(html).toContain("Aguardando resposta da API");
+    expect(html).not.toContain("Resumo do workspace");
+    expect(html).not.toContain("Qualidade do rastreamento");
     expect(html).not.toContain("0% conciliadas");
     expect(html).not.toContain("Black Friday WhatsApp");
   });

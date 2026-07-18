@@ -11,7 +11,15 @@ import type {
 } from "@wpptrack/shared";
 import { conversionEventDisplayLabels } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
-import { UserPlus } from "lucide-react";
+import {
+  Building2,
+  ChevronDown,
+  ShieldCheck,
+  UserPlus,
+  UsersRound,
+  Workflow,
+  Zap,
+} from "lucide-react";
 import {
   BackofficeActionForm,
   type BackofficeActionState,
@@ -812,6 +820,13 @@ export default async function SettingsPage() {
     workspace?.permissions.canGrantMemberManager &&
     (!isPlatformSupport || isPlatformOwnerSupport),
   );
+  const pendingInviteCount = invites.filter((invite) =>
+    ["pending", "sent", "failed"].includes(invite.status),
+  ).length;
+  const visibleFunnelStageCount = funnelStages.filter(
+    (stage) => stage.visible,
+  ).length;
+  const activeConversionRuleCount = rules.filter((rule) => rule.active).length;
   const currentAccessLabel = isPlatformSupport
     ? "Suporte da plataforma"
     : workspace
@@ -846,8 +861,8 @@ export default async function SettingsPage() {
       <header className="page-header">
         <div>
           <span className="eyebrow">Configuracoes</span>
-          <h1>Workspace e regras</h1>
-          <p>Conta, equipe, jornada e gatilhos de conversao do workspace.</p>
+          <h1>Central de configuracoes</h1>
+          <p>Identidade, equipe e automacoes organizadas por responsabilidade.</p>
         </div>
         <div className="header-actions">
           <span
@@ -862,16 +877,122 @@ export default async function SettingsPage() {
         </div>
       </header>
 
-      <section className="surface-panel settings-profile-panel">
-        <div className="section-heading-row">
+      <section
+        className="settings-overview"
+        aria-labelledby="settings-overview-title"
+      >
+        <div className="settings-overview-heading">
+          <div>
+            <span className="eyebrow">Estado do workspace</span>
+            <h2 id="settings-overview-title">Mapa das configuracoes</h2>
+          </div>
+          <span
+            className={`status-chip${workspaceSettings.state === "error" ? " warn" : ""}`}
+          >
+            {workspaceSettings.state === "error"
+              ? "Dados indisponiveis"
+              : "Acessos protegidos"}
+          </span>
+        </div>
+        <div className="settings-overview-grid">
+          <article>
+            <span className="settings-overview-icon account" aria-hidden="true">
+              <ShieldCheck size={19} />
+            </span>
+            <span>
+              <small>Acesso atual</small>
+              <strong>{currentAccessLabel}</strong>
+              <span>{currentAccessDescription}</span>
+            </span>
+          </article>
+          <article>
+            <span className="settings-overview-icon team" aria-hidden="true">
+              <UsersRound size={19} />
+            </span>
+            <span>
+              <small>Equipe</small>
+              <strong>
+                {members.length} membro{members.length === 1 ? "" : "s"}
+              </strong>
+              <span>
+                {canManageTeam ? "Gestao disponivel" : "Somente leitura"}
+              </span>
+            </span>
+          </article>
+          <article>
+            <span className="settings-overview-icon invite" aria-hidden="true">
+              <UserPlus size={19} />
+            </span>
+            <span>
+              <small>Convites</small>
+              <strong>
+                {pendingInviteCount} pendente
+                {pendingInviteCount === 1 ? "" : "s"}
+              </strong>
+              <span>Envio e reenvio por email</span>
+            </span>
+          </article>
+          <article>
+            <span
+              className="settings-overview-icon automation"
+              aria-hidden="true"
+            >
+              <Zap size={19} />
+            </span>
+            <span>
+              <small>Conversoes</small>
+              <strong>
+                {activeConversionRuleCount} gatilho
+                {activeConversionRuleCount === 1 ? "" : "s"} ativo
+                {activeConversionRuleCount === 1 ? "" : "s"}
+              </strong>
+              <span>{visibleFunnelStageCount} etapas visiveis</span>
+            </span>
+          </article>
+        </div>
+      </section>
+
+      <nav
+        className="settings-domain-nav"
+        aria-label="Atalhos das configuracoes"
+      >
+        <a href="#configuracao-conta">
+          <Building2 size={16} aria-hidden="true" />
+          Conta
+        </a>
+        <a href="#configuracao-equipe">
+          <UsersRound size={16} aria-hidden="true" />
+          Equipe
+        </a>
+        <a href="#configuracao-conversoes">
+          <Workflow size={16} aria-hidden="true" />
+          Conversoes
+        </a>
+      </nav>
+
+      <section
+        className="settings-domain-section settings-account-domain"
+        id="configuracao-conta"
+        aria-labelledby="settings-account-title"
+      >
+        <div className="settings-domain-heading">
+          <span className="settings-domain-number" aria-hidden="true">
+            01
+          </span>
           <div>
             <span className="eyebrow">Conta e workspace</span>
-            <h2>Identidade e acesso</h2>
+            <h2 id="settings-account-title">Identidade e acesso</h2>
+            <p>
+              Confira a identidade publica do workspace e o acesso da conta
+              atual.
+            </p>
           </div>
           <span className={`status-chip${isPlatformSupport ? " neutral" : ""}`}>
             {currentAccessLabel}
           </span>
         </div>
+
+        <div className="surface-panel settings-profile-panel">
         <div className="settings-profile-grid">
           <div className="workspace-profile-section">
             <div className="settings-section-heading">
@@ -970,20 +1091,33 @@ export default async function SettingsPage() {
             ) : null}
           </div>
         </div>
+        </div>
       </section>
 
-      <section className="surface-panel team-settings-panel">
-        <div className="section-heading-row">
+      <section
+        className="settings-domain-section settings-team-domain"
+        id="configuracao-equipe"
+        aria-labelledby="settings-team-title"
+      >
+        <div className="settings-domain-heading">
+          <span className="settings-domain-number" aria-hidden="true">
+            02
+          </span>
           <div>
             <span className="eyebrow">Equipe</span>
-            <h2>Membros e acessos</h2>
-            <p className="muted">
+            <h2 id="settings-team-title">Membros e acessos</h2>
+            <p>
               {workspaceSettings.state === "error"
                 ? "Nao foi possivel carregar a equipe."
                 : `${members.length} usuario${members.length === 1 ? "" : "s"} ativo${members.length === 1 ? "" : "s"}`}
             </p>
           </div>
+          <span className={`status-chip${canManageTeam ? "" : " neutral"}`}>
+            {canManageTeam ? "Gestao da equipe" : "Somente leitura"}
+          </span>
         </div>
+
+        <div className="surface-panel team-settings-panel">
         <div className="team-settings-layout">
           <div className="member-list" aria-label="Membros do workspace">
             {members.length > 0 ? (
@@ -1239,26 +1373,63 @@ export default async function SettingsPage() {
             </div>
           </aside>
         </div>
+        </div>
       </section>
 
-      <div className="surface-panel funnel-settings-panel">
-        <div className="section-heading-row">
+      <section
+        className="settings-domain-section settings-conversion-domain"
+        id="configuracao-conversoes"
+        aria-labelledby="settings-conversion-title"
+      >
+        <div className="settings-domain-heading">
+          <span className="settings-domain-number" aria-hidden="true">
+            03
+          </span>
           <div>
-            <span className="eyebrow">Jornada do funil</span>
-            <h2>Etapas exibidas nos indicadores</h2>
-            <p className="muted">
-              Defina a ordem e o nome que o cliente ve em Visao geral e
-              Relatorios.
+            <span className="eyebrow">Conversoes</span>
+            <h2 id="settings-conversion-title">Jornada e gatilhos</h2>
+            <p>
+              Controle a leitura do funil e os eventos reconhecidos nas
+              conversas.
             </p>
           </div>
+          <span className="status-chip">
+            {activeConversionRuleCount} gatilho
+            {activeConversionRuleCount === 1 ? "" : "s"} ativo
+            {activeConversionRuleCount === 1 ? "" : "s"}
+          </span>
+        </div>
+
+        <div className="settings-automation-list">
+      <details
+        className="surface-panel settings-automation-details funnel-settings-panel"
+        open={funnelConfiguration.state === "error"}
+      >
+        <summary>
+          <span className="settings-automation-icon" aria-hidden="true">
+            <Workflow size={19} />
+          </span>
+          <span className="settings-automation-copy">
+            <span className="eyebrow">Jornada do funil</span>
+            <strong>Etapas exibidas nos indicadores</strong>
+            <small>
+              Defina a ordem e o nome que o cliente ve em Visao geral e
+              Relatorios.
+            </small>
+          </span>
           <span
             className={`status-chip${funnelConfiguration.state === "error" ? " warn" : ""}`}
           >
             {funnelConfiguration.state === "error"
               ? "Configuracao indisponivel"
-              : `${funnelStages.filter((stage) => stage.visible).length} etapas visiveis`}
+              : `${visibleFunnelStageCount} etapas visiveis`}
           </span>
-        </div>
+          <span className="settings-automation-action">
+            Configurar
+            <ChevronDown size={16} aria-hidden="true" />
+          </span>
+        </summary>
+        <div className="settings-automation-body">
         {canManageConversionRules && funnelStages.length > 0 ? (
           <BackofficeActionForm
             action={saveFunnelConfiguration}
@@ -1359,15 +1530,38 @@ export default async function SettingsPage() {
               : "Sem permissao para editar a jornada."}
           </p>
         )}
-      </div>
+        </div>
+      </details>
 
-      <div className="surface-panel conversion-rules-panel">
-        <span className="eyebrow">Mapeamento de eventos</span>
-        <h2>Gatilhos do WhatsApp</h2>
-        <p className="muted">
-          Defina o que precisa acontecer na conversa e qual evento sera
-          registrado.
-        </p>
+      <details
+        className="surface-panel settings-automation-details conversion-rules-panel"
+        open={conversionRules.state === "error"}
+      >
+        <summary>
+          <span className="settings-automation-icon rules" aria-hidden="true">
+            <Zap size={19} />
+          </span>
+          <span className="settings-automation-copy">
+            <span className="eyebrow">Mapeamento de eventos</span>
+            <strong>Gatilhos do WhatsApp</strong>
+            <small>
+              Defina o que precisa acontecer na conversa e qual evento sera
+              registrado.
+            </small>
+          </span>
+          <span
+            className={`status-chip${conversionRules.state === "error" ? " warn" : ""}`}
+          >
+            {conversionRules.state === "error"
+              ? "Regras indisponiveis"
+              : `${activeConversionRuleCount}/${rules.length} ativos`}
+          </span>
+          <span className="settings-automation-action">
+            Configurar
+            <ChevronDown size={16} aria-hidden="true" />
+          </span>
+        </summary>
+        <div className="settings-automation-body">
         {canManageConversionRules ? (
           <ConversionRuleBuilder
             action={createConversionRule}
@@ -1519,7 +1713,10 @@ export default async function SettingsPage() {
             </tbody>
           </table>
         </div>
+        </div>
+      </details>
       </div>
+      </section>
     </section>
   );
 }

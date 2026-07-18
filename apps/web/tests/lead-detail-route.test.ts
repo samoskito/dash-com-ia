@@ -28,7 +28,7 @@ describe("lead detail route", () => {
             firstMessageAt: "2026-07-02T03:00:00.000Z",
             lastMessageAt: "2026-07-02T03:10:00.000Z",
             createdAt: "2026-07-02T03:00:00.000Z",
-            updatedAt: "2026-07-02T03:10:00.000Z"
+            updatedAt: "2026-07-02T03:10:00.000Z",
           },
           attribution: {
             campaignName: "Black Friday WhatsApp",
@@ -36,8 +36,8 @@ describe("lead detail route", () => {
             adName: "Criativo WhatsApp",
             creative: {
               thumbnailUrl: "https://cdn.example.test/creative.jpg",
-              destinationUrl: "https://www.instagram.com/p/creative/"
-            }
+              destinationUrl: "https://www.instagram.com/p/creative/",
+            },
           },
           conversionEvents: [
             {
@@ -53,8 +53,8 @@ describe("lead detail route", () => {
               errorMessage: null,
               occurredAt: "2026-07-02T03:11:00.000Z",
               sentAt: "2026-07-02T03:13:00.000Z",
-              createdAt: "2026-07-02T03:12:00.000Z"
-            }
+              createdAt: "2026-07-02T03:12:00.000Z",
+            },
           ],
           webhookEvents: [
             {
@@ -65,22 +65,22 @@ describe("lead detail route", () => {
               errorCode: null,
               errorMessage: null,
               receivedAt: "2026-07-02T03:01:00.000Z",
-              processedAt: "2026-07-02T03:01:01.000Z"
-            }
-          ]
+              processedAt: "2026-07-02T03:01:01.000Z",
+            },
+          ],
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
     const element = await LeadDetailPage({
-      params: Promise.resolve({ leadId: "lead_1" })
+      params: Promise.resolve({ leadId: "lead_1" }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/leads/lead_1",
-      expect.objectContaining({ credentials: "include" })
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Mariana Alves");
     expect(html).toContain("+55 11 99999-1020");
@@ -93,8 +93,13 @@ describe("lead detail route", () => {
     expect(html).toContain("Ver no Instagram");
     expect(html).toContain("https://www.instagram.com/p/creative/");
     expect(html).toContain("QualifiedLead");
+    expect(html).toContain("Lead qualificado");
+    expect(html).toContain("Palavra-chave");
+    expect(html).toContain("Enviado");
     expect(html).toContain("Ocorrido em");
+    expect(html).toContain("Webhooks e diagnosticos vinculados");
     expect(html).toContain("Webhook Uazapi");
+    expect(html).toContain('class="lead-detail-mobile-list"');
     expect(html).toContain("webhook_1");
   });
 
@@ -102,12 +107,12 @@ describe("lead detail route", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ message: "unavailable" }), {
         status: 503,
-        headers: { "Content-Type": "application/json" }
-      })
+        headers: { "Content-Type": "application/json" },
+      }),
     );
 
     const element = await LeadDetailPage({
-      params: Promise.resolve({ leadId: "lead_missing" })
+      params: Promise.resolve({ leadId: "lead_missing" }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
