@@ -546,6 +546,9 @@ describe("reports route", () => {
     expect(css).toMatch(
       /\.report-advanced-filters\[open\]\s*{[^}]*grid-column:\s*1\s*\/\s*-1/s,
     );
+    expect(css).toMatch(
+      /\.report-period-form input\[type="date"\]\s*{[^}]*rgba\(5,\s*8,\s*7,\s*0\.92\)[^}]*color-scheme:\s*dark/s,
+    );
   });
 
   it("renders and preserves the selected metric group without changing the API query", async () => {

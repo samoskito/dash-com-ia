@@ -1449,6 +1449,32 @@ body {
   gap: 4px;
 }
 
+.report-period-form input[type="date"] {
+  border: 1px solid var(--border);
+  outline: none;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.035),
+      rgba(255, 255, 255, 0.012)
+    ),
+    rgba(5, 8, 7, 0.92);
+  color: var(--ink);
+  color-scheme: dark;
+  font-family: var(--font-body);
+  font-weight: 750;
+}
+
+.report-period-form input[type="date"]:focus {
+  border-color: rgba(66, 240, 168, 0.72);
+  box-shadow: 0 0 0 3px rgba(18, 184, 132, 0.16);
+}
+
+.report-period-form input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.78;
+}
+
 .report-control-center .filter-control,
 .report-control-center .filter-field input,
 .report-control-center .button {
