@@ -53,6 +53,7 @@ import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser
   exports: [
     InboundWebhookConnectionsService,
     InboundWebhookPayloadEncryptionService,
+    InboundWebhookParserRegistry,
   ],
 })
 export class InboundWebhooksModule {}

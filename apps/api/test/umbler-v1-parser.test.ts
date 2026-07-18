@@ -19,7 +19,7 @@ function loadFixture(): UmblerV1Envelope {
 describe("Umbler v1 inbound webhook parser", () => {
   const parser = new UmblerV1Parser();
 
-  it("maps the historical Message/Chat body to one canonical CTWA event", () => {
+  it("maps the sanitized live Message/Chat body to one canonical CTWA event", () => {
     const body = loadFixture();
     const result = parser.parse(body);
     const event = result.events[0];
@@ -50,6 +50,7 @@ describe("Umbler v1 inbound webhook parser", () => {
       contact: {
         externalContactId: body.Payload.Content.Contact.Id,
         phoneNumber: body.Payload.Content.Contact.PhoneNumber,
+        name: body.Payload.Content.Contact.Name,
       },
       adId: body.Payload.Content.LastMessage.Ad?.SourceId,
       ctwaClid: body.Payload.Content.LastMessage.Ad?.CTWaCLId,
@@ -64,6 +65,9 @@ describe("Umbler v1 inbound webhook parser", () => {
         externalMessageId: body.Payload.Content.LastMessage.Id,
       }),
     );
+    expect(body.Payload.Content.FirstContactMessage).toMatchObject({
+      Id: body.Payload.Content.LastMessage.Id,
+    });
   });
 
   it("keeps sensitive CTWA, message, phones and URLs out of persisted summaries", () => {

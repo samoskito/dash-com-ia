@@ -34,12 +34,14 @@ export type EmailConfig =
 export type InboundWebhooksConfig =
   | {
       enabled: false;
+      replayEnabled: false;
       apiPublicUrl: null;
       encryptionKey: null;
       rawPayloadRetentionDays: typeof INBOUND_WEBHOOK_RAW_RETENTION_DAYS;
     }
   | {
       enabled: true;
+      replayEnabled: boolean;
       apiPublicUrl: string;
       encryptionKey: Buffer;
       rawPayloadRetentionDays: typeof INBOUND_WEBHOOK_RAW_RETENTION_DAYS;
@@ -358,6 +360,7 @@ export function parseInboundWebhooksConfig(
   if (!enabled) {
     return {
       enabled: false,
+      replayEnabled: false,
       apiPublicUrl: null,
       encryptionKey: null,
       rawPayloadRetentionDays: INBOUND_WEBHOOK_RAW_RETENTION_DAYS,
@@ -366,6 +369,11 @@ export function parseInboundWebhooksConfig(
 
   return {
     enabled: true,
+    replayEnabled: parseBoolean(
+      "INBOUND_WEBHOOK_REPLAY_ENABLED",
+      env.INBOUND_WEBHOOK_REPLAY_ENABLED,
+      false,
+    ),
     apiPublicUrl: parseApiPublicUrl(env),
     encryptionKey: parseInboundWebhookEncryptionKey(env),
     rawPayloadRetentionDays: INBOUND_WEBHOOK_RAW_RETENTION_DAYS,

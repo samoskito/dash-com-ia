@@ -1,6 +1,6 @@
 {
   "Type": "Message",
-  "EventDate": "2026-01-15T14:31:45.000Z",
+  "EventDate": "2026-07-18T14:40:44.2401986Z",
   "Payload": {
     "Type": "Chat",
     "Content": {
@@ -9,32 +9,52 @@
         "Id": "org_fixture_001"
       },
       "Contact": {
-        "LastActiveUTC": "2026-01-15T14:31:44.000Z",
+        "LastActiveUTC": "2026-07-18T14:40:40Z",
         "PhoneNumber": "+15550001111",
+        "Lid": null,
         "ProfilePictureUrl": null,
-        "IsOptIn": true,
         "IsBlocked": false,
         "ScheduledMessages": [],
         "GroupIdentifier": null,
+        "ContactType": "DirectMessage",
         "Tags": [],
+        "Preferences": [],
         "Name": "Synthetic Contact",
         "Id": "contact_fixture_001"
       },
       "Channel": {
-        "PhoneNumber": "+15550002222",
+        "_t": "ChatGupshupWhatsappChannelReferenceModel",
         "ChannelType": "WhatsappApi",
-        "Platform": null,
+        "PhoneNumber": "+15550002222",
         "Name": "Synthetic Support Channel",
         "Id": "channel_fixture_001"
       },
       "Sector": {
-        "Default": true,
-        "Order": 0,
+        "Default": false,
+        "Order": 5,
+        "GroupIds": [],
         "Name": "Synthetic General Sector",
         "Id": "sector_fixture_001"
       },
+      "SectorHistory": [
+        {
+          "SectorId": "sector_fixture_001",
+          "Default": false,
+          "Order": 5,
+          "GroupIds": [],
+          "EnteredAt": "2026-07-18T14:40:44.1107498Z",
+          "FirstMemberReplyMessage": null,
+          "FirstContactMessage": {
+            "EventAtUTC": "2026-07-18T14:40:40Z",
+            "Id": "message_fixture_001"
+          },
+          "Name": "Synthetic General Sector",
+          "Id": "sector_history_fixture_001"
+        }
+      ],
       "OrganizationMember": null,
       "OrganizationMembers": [],
+      "OrganizationMemberHistory": [],
       "Tags": [],
       "LastMessage": {
         "Prefix": null,
@@ -43,6 +63,7 @@
         "Footer": null,
         "File": null,
         "Thumbnail": null,
+        "QuotedStatusUpdate": null,
         "Contacts": [],
         "MessageType": "Text",
         "SentByOrganizationMember": null,
@@ -62,10 +83,15 @@
         "LatestEdit": null,
         "BotInstance": null,
         "ForwardedFrom": null,
+        "ForwardCount": 0,
+        "FrequentlyForwarded": false,
+        "IsForwardRestricted": false,
         "ScheduledMessage": null,
         "BulkSendSession": null,
+        "Elements": null,
+        "Mentions": [],
         "Ad": {
-          "ConversionSource": null,
+          "ConversionSource": "ad",
           "SourceUrl": "https://example.invalid/ads/source/fixture-001",
           "Description": "Synthetic advertisement description.\nSecond synthetic line.",
           "Title": "Synthetic Advertisement",
@@ -78,9 +104,17 @@
         },
         "FileId": null,
         "Reactions": [],
+        "DeductedAiCredits": null,
+        "IsFavorite": null,
+        "Carousel": [],
+        "Billable": null,
+        "LinkPreview": null,
+        "LinkPreviewAttemptedAtUTC": null,
+        "EventAtUTC": "2026-07-18T14:40:40Z",
         "Id": "message_fixture_001",
-        "CreatedAtUTC": "2026-01-15T14:31:44.000Z"
+        "CreatedAtUTC": "2026-07-18T14:40:44.1114837Z"
       },
+      "LastMessageReaction": null,
       "RedactReason": null,
       "UsingInactivityFlow": false,
       "UsingWaitingFlow": false,
@@ -89,11 +123,16 @@
       "Open": true,
       "Private": false,
       "Waiting": true,
-      "WaitingSinceUTC": "2026-01-15T14:31:44.000Z",
-      "Unread": ["message_fixture_001"],
+      "WaitingSinceUTC": "2026-07-18T14:40:40Z",
+      "TotalUnread": 1,
+      "TotalAIResponses": null,
       "ClosedAtUTC": null,
-      "EventAtUTC": "2026-01-15T14:31:44.000Z",
+      "EventAtUTC": "2026-07-18T14:40:40Z",
       "FirstMemberReplyMessage": null,
+      "FirstContactMessage": {
+        "EventAtUTC": "2026-07-18T14:40:40Z",
+        "Id": "message_fixture_001"
+      },
       "Bots": [
         {
           "Status": "Active",
@@ -104,8 +143,10 @@
       ],
       "LastOrganizationMember": null,
       "Message": null,
+      "Visibility": null,
+      "FavoriteMessages": [],
       "Id": "chat_fixture_001",
-      "CreatedAtUTC": "2026-01-15T14:31:40.000Z"
+      "CreatedAtUTC": "2026-07-18T14:40:44.1107478Z"
     }
   },
   "EventId": "delivery_fixture_001"

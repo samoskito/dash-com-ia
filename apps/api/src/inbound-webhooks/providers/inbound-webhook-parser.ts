@@ -48,6 +48,7 @@ export type ParsedInboundWebhookChannel = {
 export type ParsedInboundWebhookContact = {
   externalContactId: string;
   phoneNumber: string;
+  name: string | null;
 };
 
 export type ParsedInboundWebhookAd = {

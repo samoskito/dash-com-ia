@@ -106,6 +106,7 @@ function createHarness() {
           ...update,
         }),
       ),
+      updateMany: vi.fn(async () => ({ count: 1 })),
     },
     conversionEventLog: {
       findMany: vi.fn(async () => db.conversionLogs),
@@ -380,6 +381,45 @@ describe("leads service", () => {
         }),
       }),
     );
+  });
+
+  it("preserves the earliest first message when replaying retained events", async () => {
+    const { prisma, service } = createHarness();
+    const replayedAt = new Date("2026-07-01T04:00:00.000Z");
+
+    await service.upsertFromWhatsappWebhook({
+      workspaceId: "workspace_1",
+      name: "Rafael Costa",
+      phone: "+55 (31) 97710-4300",
+      source: "umbler",
+      adId: "ad_2",
+      occurredAt: replayedAt,
+      firstMessageAt: replayedAt,
+      preserveExistingSource: true,
+      preserveEarliestFirstMessageAt: true,
+    });
+
+    expect(prisma.lead.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          firstMessageAt: undefined,
+          lastMessageAt: replayedAt,
+        }),
+      }),
+    );
+    expect(prisma.lead.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "lead_2",
+        workspaceId: "workspace_1",
+        OR: [
+          { firstMessageAt: null },
+          { firstMessageAt: { gt: replayedAt } },
+        ],
+      },
+      data: {
+        firstMessageAt: replayedAt,
+      },
+    });
   });
 
   it("does not create a lead from an invalid short numeric identifier", async () => {

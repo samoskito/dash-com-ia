@@ -40,6 +40,21 @@ export const inboundWebhookEventClassifications = [
   "unsupported_event",
   "invalid_payload",
 ] as const;
+export const inboundWebhookReplayStatuses = [
+  "queued",
+  "processing",
+  "completed",
+  "completed_with_failures",
+  "failed",
+] as const;
+export const inboundWebhookReplayItemStatuses = [
+  "queued",
+  "processing",
+  "materialized",
+  "duplicate",
+  "skipped",
+  "failed",
+] as const;
 
 export const inboundWebhookProviderSchema = z.enum(inboundWebhookProviders);
 export const inboundWebhookParserReleaseStatusSchema = z.enum(
@@ -62,6 +77,12 @@ export const inboundWebhookDeliveryStatusSchema = z.enum(
 );
 export const inboundWebhookEventClassificationSchema = z.enum(
   inboundWebhookEventClassifications,
+);
+export const inboundWebhookReplayStatusSchema = z.enum(
+  inboundWebhookReplayStatuses,
+);
+export const inboundWebhookReplayItemStatusSchema = z.enum(
+  inboundWebhookReplayItemStatuses,
 );
 
 const idSchema = z.string().trim().min(1).max(255);
@@ -290,6 +311,46 @@ export const backofficeInboundWebhookPayloadSchema = z.object({
   events: inboundWebhookNormalizedObservationListSchema,
 });
 
+export const backofficeInboundWebhookReplayConfirmationInputSchema = z.object({
+  confirmation: inboundWebhookDisplayNameSchema,
+});
+
+export const backofficeInboundWebhookReplayBatchSchema = z.object({
+  id: idSchema,
+  workspaceId: idSchema,
+  connectionId: idSchema,
+  requestedByUserId: idSchema,
+  status: inboundWebhookReplayStatusSchema,
+  totalItems: z.number().int().nonnegative(),
+  materializedCount: z.number().int().nonnegative(),
+  duplicateCount: z.number().int().nonnegative(),
+  skippedCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  startedAt: dateTimeSchema.nullable(),
+  completedAt: dateTimeSchema.nullable(),
+  createdAt: dateTimeSchema,
+  updatedAt: dateTimeSchema,
+});
+
+export const backofficeInboundWebhookReplayPreviewSchema = z.object({
+  connection: inboundWebhookConnectionSchema,
+  parserRelease: inboundWebhookParserReleaseSchema,
+  replayEnabled: z.boolean(),
+  counts: z.object({
+    totalCtwa: z.number().int().nonnegative(),
+    routeResolved: z.number().int().nonnegative(),
+    routeUnresolved: z.number().int().nonnegative(),
+    payloadAvailable: z.number().int().nonnegative(),
+    payloadExpired: z.number().int().nonnegative(),
+    payloadUnavailable: z.number().int().nonnegative(),
+    alreadyMaterialized: z.number().int().nonnegative(),
+    eligible: z.number().int().nonnegative(),
+  }),
+  oldestOccurredAt: dateTimeSchema.nullable(),
+  newestOccurredAt: dateTimeSchema.nullable(),
+  latestBatch: backofficeInboundWebhookReplayBatchSchema.nullable(),
+});
+
 export type InboundWebhookProviderDto = z.infer<
   typeof inboundWebhookProviderSchema
 >;
@@ -313,6 +374,12 @@ export type InboundWebhookDeliveryStatusDto = z.infer<
 >;
 export type InboundWebhookEventClassificationDto = z.infer<
   typeof inboundWebhookEventClassificationSchema
+>;
+export type InboundWebhookReplayStatusDto = z.infer<
+  typeof inboundWebhookReplayStatusSchema
+>;
+export type InboundWebhookReplayItemStatusDto = z.infer<
+  typeof inboundWebhookReplayItemStatusSchema
 >;
 export type InboundWebhookConnectionCreateInputDto = z.infer<
   typeof inboundWebhookConnectionCreateInputSchema
@@ -388,4 +455,13 @@ export type InboundWebhookNormalizedObservationDto = z.infer<
 >;
 export type InboundWebhookNormalizedObservationListDto = z.infer<
   typeof inboundWebhookNormalizedObservationListSchema
+>;
+export type BackofficeInboundWebhookReplayConfirmationInputDto = z.infer<
+  typeof backofficeInboundWebhookReplayConfirmationInputSchema
+>;
+export type BackofficeInboundWebhookReplayBatchDto = z.infer<
+  typeof backofficeInboundWebhookReplayBatchSchema
+>;
+export type BackofficeInboundWebhookReplayPreviewDto = z.infer<
+  typeof backofficeInboundWebhookReplayPreviewSchema
 >;

@@ -189,6 +189,23 @@ enum InboundWebhookEventClassification {
   invalid_payload
 }
 
+enum InboundWebhookReplayStatus {
+  queued
+  processing
+  completed
+  completed_with_failures
+  failed
+}
+
+enum InboundWebhookReplayItemStatus {
+  queued
+  processing
+  materialized
+  duplicate
+  skipped
+  failed
+}
+
 model User {
   id              String        @id @default(cuid())
   email           String        @unique
@@ -214,6 +231,7 @@ model User {
   certifiedInboundWebhookParsers   InboundWebhookParserRelease[] @relation("InboundWebhookParserReleaseCertifier")
   createdInboundWebhookConnections InboundWebhookConnection[]    @relation("InboundWebhookConnectionCreator")
   createdInboundWebhookRoutes      InboundWebhookChannelRoute[]  @relation("InboundWebhookChannelRouteCreator")
+  requestedInboundWebhookReplays   InboundWebhookReplayBatch[]   @relation("InboundWebhookReplayRequester")
 
   @@index([lastWorkspaceId])
 }
@@ -264,6 +282,8 @@ model Workspace {
   inboundWebhookChannelRoutes InboundWebhookChannelRoute[]
   inboundWebhookDeliveries    InboundWebhookDelivery[]
   inboundWebhookEvents        InboundWebhookEvent[]
+  inboundWebhookReplayBatches InboundWebhookReplayBatch[]
+  inboundWebhookReplayItems   InboundWebhookReplayItem[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
@@ -1080,6 +1100,7 @@ model InboundWebhookConnection {
   channels      InboundWebhookChannel[]
   deliveries    InboundWebhookDelivery[]
   events        InboundWebhookEvent[]
+  replayBatches InboundWebhookReplayBatch[]
 
   @@unique([workspaceId, id])
   @@index([workspaceId, removedAt])
@@ -1102,8 +1123,8 @@ model InboundWebhookChannel {
   createdAt         DateTime                    @default(now())
   updatedAt         DateTime                    @updatedAt
 
-  workspace  Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  connection InboundWebhookConnection @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookChannel_connectionId_fkey")
+  workspace  Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  connection InboundWebhookConnection     @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookChannel_connectionId_fkey")
   routes     InboundWebhookChannelRoute[]
   events     InboundWebhookEvent[]
 
@@ -1222,7 +1243,9 @@ model InboundWebhookEvent {
   resolvedBusinessConnection    MetaBusinessConnection?    @relation("InboundWebhookEventResolvedBusiness", fields: [resolvedBusinessConnectionWorkspaceId, resolvedBusinessConnectionId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedBusinessConnectionId_fkey")
   resolvedReportingAccount      MetaReportingAccount?      @relation("InboundWebhookEventResolvedReportingAccount", fields: [resolvedReportingAccountWorkspaceId, resolvedReportingAccountId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedReportingAccountId_fkey")
   resolvedConversionDestination MetaConversionDestination? @relation("InboundWebhookEventResolvedDestination", fields: [resolvedConversionDestinationWorkspaceId, resolvedConversionDestinationId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedConversionDestinationId_fkey")
+  replayItem                    InboundWebhookReplayItem?
 
+  @@unique([workspaceId, id])
   @@unique([connectionId, dedupeKey], map: "InboundWebhookEvent_connection_dedupe_key")
   @@index([workspaceId, classification, occurredAt], map: "InboundWebhookEvent_workspace_classification_occurred_idx")
   @@index([workspaceId, adId])
@@ -1231,6 +1254,57 @@ model InboundWebhookEvent {
   @@index([resolvedBusinessConnectionId])
   @@index([resolvedReportingAccountId])
   @@index([resolvedConversionDestinationId])
+}
+
+model InboundWebhookReplayBatch {
+  id                String                     @id @default(cuid())
+  workspaceId       String
+  connectionId      String
+  requestedByUserId String
+  status            InboundWebhookReplayStatus @default(queued)
+  totalItems        Int                        @default(0)
+  materializedCount Int                        @default(0)
+  duplicateCount    Int                        @default(0)
+  skippedCount      Int                        @default(0)
+  failedCount       Int                        @default(0)
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  workspace   Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  connection  InboundWebhookConnection   @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookReplayBatch_connectionId_fkey")
+  requestedBy User                       @relation("InboundWebhookReplayRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  items       InboundWebhookReplayItem[]
+
+  @@unique([workspaceId, id])
+  @@index([connectionId, createdAt])
+  @@index([workspaceId, status, createdAt])
+  @@index([requestedByUserId])
+}
+
+model InboundWebhookReplayItem {
+  id                   String                         @id @default(cuid())
+  workspaceId          String
+  batchId              String
+  eventId              String                         @unique
+  status               InboundWebhookReplayItemStatus @default(queued)
+  leadId               String?
+  conversionEventLogId String?
+  errorCode            String?
+  processedAt          DateTime?
+  createdAt            DateTime                       @default(now())
+  updatedAt            DateTime                       @updatedAt
+
+  workspace Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  batch     InboundWebhookReplayBatch @relation(fields: [workspaceId, batchId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookReplayItem_batchId_fkey")
+  event     InboundWebhookEvent       @relation(fields: [workspaceId, eventId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookReplayItem_eventId_fkey")
+
+  @@unique([workspaceId, eventId])
+  @@index([batchId, status])
+  @@index([workspaceId, status, createdAt])
+  @@index([leadId])
+  @@index([conversionEventLogId])
 }
 
 model MetaCampaign {

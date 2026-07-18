@@ -355,6 +355,7 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
   const channelName = optionalString(channel.Name, 160);
   const externalContactId = boundedString(contact.Id, 255);
   const contactPhone = parsePhone(contact.PhoneNumber);
+  const contactName = optionalText(contact.Name, 160);
   const externalMessageId = boundedString(lastMessage.Id, 255);
   const source = boundedString(lastMessage.Source, 120);
   const isPrivate =
@@ -379,6 +380,7 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
     !channelName.valid ||
     !externalContactId ||
     !contactPhone ||
+    !contactName.valid ||
     !externalMessageId ||
     !source ||
     isPrivate === null ||
@@ -430,6 +432,7 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
     contact: {
       externalContactId,
       phoneNumber: contactPhone,
+      name: contactName.value,
     },
     adId: parsedAd.adId,
     ad: parsedAd.ad,

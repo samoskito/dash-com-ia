@@ -84,7 +84,7 @@ type ConversionEventLogRecord = {
 
 export type RecordExternalConversionInput = {
   workspaceId: string;
-  externalConnectorId: string;
+  externalConnectorId?: string | null;
   sourceEventId: string;
   sourceTrigger: string;
   eventName: "LeadSubmitted" | "QualifiedLead" | "Purchase";
@@ -93,6 +93,9 @@ export type RecordExternalConversionInput = {
   leadId?: string | null;
   phoneHash: string;
   businessSource: "paid" | "organic";
+  metaAccountId?: string | null;
+  metaBusinessConnectionId?: string | null;
+  metaConversionDestinationId?: string | null;
   campaignId?: string | null;
   adSetId?: string | null;
   adId?: string | null;
@@ -406,7 +409,7 @@ export class ConversionEventsService {
       const log = await this.prisma.conversionEventLog.create({
         data: {
           workspaceId: input.workspaceId,
-          externalConnectorId: input.externalConnectorId,
+          externalConnectorId: input.externalConnectorId ?? null,
           sourceEventId: input.sourceEventId,
           leadId: input.leadId ?? null,
           phoneHash: input.phoneHash,
@@ -420,6 +423,11 @@ export class ConversionEventsService {
           status: initialStatus.status,
           pixelId: null,
           eventId: input.eventId,
+          metaAccountId: input.metaAccountId ?? null,
+          metaBusinessConnectionId:
+            input.metaBusinessConnectionId ?? null,
+          metaConversionDestinationId:
+            input.metaConversionDestinationId ?? null,
           campaignId: input.campaignId ?? null,
           adSetId: input.adSetId ?? null,
           adId: input.adId ?? null,
@@ -490,6 +498,16 @@ export class ConversionEventsService {
         campaignId: existing.campaignId ?? input.campaignId ?? null,
         adSetId: existing.adSetId ?? input.adSetId ?? null,
         adId,
+        metaAccountId:
+          existing.metaAccountId ?? input.metaAccountId ?? null,
+        metaBusinessConnectionId:
+          existing.metaBusinessConnectionId ??
+          input.metaBusinessConnectionId ??
+          null,
+        metaConversionDestinationId:
+          existing.metaConversionDestinationId ??
+          input.metaConversionDestinationId ??
+          null,
         ctwaClid: existing.ctwaClid ?? input.ctwaClid ?? null,
         attributionStatus: adId ? "attributed" : existing.attributionStatus,
         valueCents: existing.valueCents ?? input.valueCents ?? null,

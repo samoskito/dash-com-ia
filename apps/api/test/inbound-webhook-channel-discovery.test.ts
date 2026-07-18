@@ -61,6 +61,7 @@ class DiscoveryParser implements InboundWebhookParser {
           contact: {
             externalContactId: `contact_${input.messageId}`,
             phoneNumber: "+15550001111",
+            name: null,
           },
           adId: null,
           ad: null,

@@ -38,6 +38,7 @@ describe("parseDeploymentConfig", () => {
       email: { provider: "", smtp: null },
       inboundWebhooks: {
         enabled: false,
+        replayEnabled: false,
         apiPublicUrl: null,
         encryptionKey: null,
         rawPayloadRetentionDays: 7,
@@ -56,6 +57,7 @@ describe("parseDeploymentConfig", () => {
           META_CONNECTION_MODES: "oauth, manual",
           API_PUBLIC_URL: "https://api.example.com/",
           INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_REPLAY_ENABLED: "true",
           INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
           SMTP_HOST: "smtp-relay.brevo.com",
           SMTP_SECURE: "false",
@@ -81,6 +83,7 @@ describe("parseDeploymentConfig", () => {
       },
       inboundWebhooks: {
         enabled: true,
+        replayEnabled: true,
         apiPublicUrl: "https://api.example.com",
         encryptionKey: Buffer.from(inboundWebhookEncryptionKey, "base64"),
         rawPayloadRetentionDays: 7,
@@ -100,10 +103,38 @@ describe("parseDeploymentConfig", () => {
       ).inboundWebhooks,
     ).toEqual({
       enabled: false,
+      replayEnabled: false,
       apiPublicUrl: null,
       encryptionKey: null,
       rawPayloadRetentionDays: 7,
     });
+  });
+
+  it("keeps controlled inbound replay disabled by default", () => {
+    expect(
+      parseDeploymentConfig(
+        testEnv({
+          API_PUBLIC_URL: "http://localhost:3333",
+          INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
+        }),
+      ).inboundWebhooks.replayEnabled,
+    ).toBe(false);
+  });
+
+  it("validates the controlled inbound replay flag", () => {
+    expect(() =>
+      parseDeploymentConfig(
+        testEnv({
+          API_PUBLIC_URL: "http://localhost:3333",
+          INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_REPLAY_ENABLED: "sometimes",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
+        }),
+      ),
+    ).toThrowError(
+      "Invalid INBOUND_WEBHOOK_REPLAY_ENABLED: expected true or false",
+    );
   });
 
   it("requires API_PUBLIC_URL when inbound webhooks are enabled", () => {

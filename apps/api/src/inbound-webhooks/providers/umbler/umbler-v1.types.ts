@@ -40,6 +40,10 @@ export type UmblerV1ChatContent = {
   Contact: UmblerV1Contact;
   Channel: UmblerV1Channel;
   LastMessage: UmblerV1LastMessage;
+  FirstContactMessage?: {
+    Id: string;
+    EventAtUTC?: string | null;
+  } | null;
 };
 
 export type UmblerV1Envelope = {

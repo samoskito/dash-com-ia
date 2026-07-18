@@ -378,6 +378,53 @@ describe("conversion events service", () => {
     });
   });
 
+  it("stores an exact normalized Meta route without an external connector", async () => {
+    const { db, service } = createHarness();
+
+    const result = await service.recordExternalConversion({
+      workspaceId: "workspace_1",
+      externalConnectorId: null,
+      sourceEventId: "umbler:event_1",
+      sourceTrigger: "inbound_webhook:umbler",
+      eventName: "LeadSubmitted",
+      eventId: "umbler_message_1",
+      dedupeKey: "inbound-replay:workspace_1:event_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      businessSource: "paid",
+      metaAccountId: "act_1",
+      metaBusinessConnectionId: "business_1",
+      metaConversionDestinationId: "destination_1",
+      campaignId: "campaign_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      ctwaClid: "ctwa_1",
+      eventOccurredAt: new Date("2026-07-18T14:40:40.000Z"),
+      sourcePayload: {
+        schema: "inbound_webhook_replay_v1",
+        provider: "umbler",
+        eventId: "event_1",
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "created",
+      deliveryStatus: "ready_to_send",
+    });
+    expect(db.logs[0]).toMatchObject({
+      externalConnectorId: null,
+      sourceTrigger: "inbound_webhook:umbler",
+      metaAccountId: "act_1",
+      metaBusinessConnectionId: "business_1",
+      metaConversionDestinationId: "destination_1",
+      sourcePayload: {
+        schema: "inbound_webhook_replay_v1",
+        provider: "umbler",
+        eventId: "event_1",
+      },
+    });
+  });
+
   it("stores final external events without click context as not eligible", async () => {
     const { db, service } = createHarness();
 

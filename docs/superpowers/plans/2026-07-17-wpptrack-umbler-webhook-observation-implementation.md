@@ -220,6 +220,24 @@ Design: docs/plans/2026-07-17-wpptrack-umbler-inbound-webhook-design.md
   `observation_only`, and no production activation path or side effect was
   added.
 
+### 2026-07-18 - Live Umbler payload checkpoint
+
+- Inspected a real paid inbound delivery through the audited platform-owner
+  payload viewer.
+- Confirmed the current Umbler envelope still uses `Message` / `Chat`, stable
+  organization, channel, delivery and message IDs, `Source: Contact`,
+  `IsPrivate: false`, connected/contact phones, `Ad.SourceId` and
+  `Ad.CTWaCLId`.
+- Confirmed `FirstContactMessage.Id` matches `LastMessage.Id` for the observed
+  new conversation. This marker is retained in the sanitized fixture for
+  production-policy validation, but observation classification continues to
+  follow the approved CTWA contract.
+- Updated only synthetic parser evidence. No real name, phone, CTWA value,
+  message content or customer identifier was copied into the repository.
+- The observed event remains `eligible_route_unresolved` until an exact
+  channel-to-Meta route is configured. No lead, ledger or CAPI side effect was
+  enabled.
+
 ## 1. Goal
 
 Implement the approved provider-aware inbound webhook foundation and expose one
@@ -1274,17 +1292,14 @@ Stop before further rollout if:
 Payload differences are added as sanitized fixtures and parser v1 is adjusted
 before any certification discussion.
 
-## 17. Production Follow-Up, Explicitly Deferred
+## 17. Production Follow-Up
 
-After live payload validation, create a separate approved plan for:
+The separate controlled replay design and implementation were approved after
+live payload validation:
 
-- platform-owner parser certification;
-- workspace production activation;
-- canonical `conversation_started` ledger writes;
-- paid lead upsert;
-- exact Meta destination/CAPI queueing;
-- production retry and replay policy;
-- removal of organic-conversation UI where still present;
-- provider health monitoring and alerts.
+- `docs/plans/2026-07-18-wpptrack-umbler-controlled-replay-design.md`
+- `docs/superpowers/plans/2026-07-18-wpptrack-umbler-controlled-replay-implementation.md`
 
-No production-side-effect code belongs in this observation plan.
+Observation remains isolated. Replay is platform-owner-only, requires parser
+certification and an exact active Meta route, and stays disabled by default
+behind `INBOUND_WEBHOOK_REPLAY_ENABLED`.

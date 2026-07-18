@@ -107,6 +107,7 @@ export type UpsertWhatsappLeadInput = {
   lastMessageAt?: Date;
   recordMessageTimestamps?: boolean;
   preserveExistingSource?: boolean;
+  preserveEarliestFirstMessageAt?: boolean;
 };
 
 @Injectable()
@@ -568,7 +569,9 @@ export class LeadsService {
         ctwaSourceUrl: input.ctwaSourceUrl ?? undefined,
         ctwaThumbnailUrl: input.ctwaThumbnailUrl ?? undefined,
         firstMessageAt:
-          recordMessageTimestamps && input.firstMessageAt
+          recordMessageTimestamps &&
+          input.firstMessageAt &&
+          !input.preserveEarliestFirstMessageAt
             ? firstMessageAt
             : undefined,
         lastMessageAt: recordMessageTimestamps ? lastMessageAt : undefined,
@@ -577,6 +580,26 @@ export class LeadsService {
         id: true,
       },
     });
+
+    if (
+      recordMessageTimestamps &&
+      input.preserveEarliestFirstMessageAt &&
+      input.firstMessageAt
+    ) {
+      await this.prisma.lead.updateMany({
+        where: {
+          id: lead.id,
+          workspaceId: input.workspaceId,
+          OR: [
+            { firstMessageAt: null },
+            { firstMessageAt: { gt: firstMessageAt } },
+          ],
+        },
+        data: {
+          firstMessageAt,
+        },
+      });
+    }
 
     return lead;
   }

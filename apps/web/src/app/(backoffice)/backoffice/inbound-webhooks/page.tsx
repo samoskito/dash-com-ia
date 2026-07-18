@@ -7,6 +7,7 @@ import type {
 import {
   AlertTriangle,
   Eye,
+  RotateCcw,
   SlidersHorizontal,
 } from "lucide-react";
 import { BackofficeNavigation } from "../../../../components/backoffice-navigation";
@@ -551,13 +552,30 @@ export default async function InboundWebhookDeliveriesPage({
                     </span>
                   </div>
 
-                  <a
-                    className="button ghost compact-button inbound-payload-link"
-                    href={`/backoffice/inbound-webhooks/${delivery.id}/payload`}
-                  >
-                    <Eye aria-hidden="true" size={16} strokeWidth={2} />
-                    Ver payload
-                  </a>
+                  <div className="inbound-delivery-actions">
+                    <a
+                      className="button ghost compact-button inbound-payload-link"
+                      href={`/backoffice/inbound-webhooks/${delivery.id}/payload`}
+                    >
+                      <Eye aria-hidden="true" size={16} strokeWidth={2} />
+                      Ver payload
+                    </a>
+                    {delivery.classification === "eligible_route_resolved" ||
+                    delivery.classification ===
+                      "eligible_route_unresolved" ? (
+                      <a
+                        className="button ghost compact-button inbound-replay-link"
+                        href={`/backoffice/inbound-webhooks/replay/${delivery.connectionId}`}
+                      >
+                        <RotateCcw
+                          aria-hidden="true"
+                          size={16}
+                          strokeWidth={2}
+                        />
+                        Preparar replay
+                      </a>
+                    ) : null}
+                  </div>
                 </article>
               );
             })}

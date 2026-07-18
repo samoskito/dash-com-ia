@@ -5,10 +5,16 @@ export const CONVERSION_EVENTS_QUEUE = "conversion-events";
 export const META_REPORT_SYNC_QUEUE = "meta-report-sync";
 export const EXTERNAL_DATA_SYNC_QUEUE = "external-data-sync";
 export const INBOUND_WEBHOOK_QUEUE = "inbound-webhooks";
+export const INBOUND_WEBHOOK_REPLAY_QUEUE = "inbound-webhook-replay";
 
 export interface InboundWebhookJobPayload {
   deliveryId: string;
   connectionId: string;
+  workspaceId: string;
+}
+
+export interface InboundWebhookReplayJobPayload {
+  batchId: string;
   workspaceId: string;
 }
 

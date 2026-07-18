@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 describe("inbound webhook payload routes", () => {
-  it("renders recent deliveries with quick filters and one clear payload action", async () => {
+  it("renders recent deliveries with quick filters and scoped audit actions", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
         jsonResponse([
@@ -103,6 +103,10 @@ describe("inbound webhook payload routes", () => {
     expect(html).toContain("Ver payload");
     expect(html).toContain(
       'href="/backoffice/inbound-webhooks/delivery_available/payload"',
+    );
+    expect(html).toContain("Preparar replay");
+    expect(html).toContain(
+      'href="/backoffice/inbound-webhooks/replay/connection_1"',
     );
     expect(html).not.toContain("workspace_1");
     expect(html).not.toContain("umbler-v1.3.0");

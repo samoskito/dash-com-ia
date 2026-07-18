@@ -13,6 +13,7 @@ import { ExternalDataModule } from "./external-data/external-data.module";
 import { HealthController } from "./health/health.controller";
 import { HealthService } from "./health/health.service";
 import { InboundWebhooksModule } from "./inbound-webhooks/inbound-webhooks.module";
+import { InboundWebhookReplayModule } from "./inbound-webhook-replay/inbound-webhook-replay.module";
 import { IntegrationsModule } from "./integrations/integrations.module";
 import { LeadsModule } from "./leads/leads.module";
 import { ReportingModule } from "./reporting/reporting.module";
@@ -31,6 +32,7 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     ExternalDataModule,
     IntegrationsModule,
     InboundWebhooksModule,
+    InboundWebhookReplayModule,
     BillingModule,
     ConversionRulesModule,
     LeadsModule,
