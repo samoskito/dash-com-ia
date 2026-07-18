@@ -182,6 +182,21 @@ export const backofficeInboundWebhookDeliveryQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
+export const backofficeInboundWebhookDeliverySummaryQuerySchema =
+  backofficeInboundWebhookDeliveryQuerySchema.pick({
+    workspaceId: true,
+    connectionId: true,
+    provider: true,
+  });
+
+export const backofficeInboundWebhookDeliverySummarySchema = z.object({
+  all: z.number().int().nonnegative(),
+  ctwaPending: z.number().int().nonnegative(),
+  ctwaRouted: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  noCtwa: z.number().int().nonnegative(),
+});
+
 export const backofficeInboundWebhookDeliverySchema = z.object({
   id: idSchema,
   workspaceId: idSchema,
@@ -343,6 +358,12 @@ export type InboundWebhookConnectionOverviewDto = z.infer<
 >;
 export type BackofficeInboundWebhookDeliveryQueryDto = z.infer<
   typeof backofficeInboundWebhookDeliveryQuerySchema
+>;
+export type BackofficeInboundWebhookDeliverySummaryQueryDto = z.infer<
+  typeof backofficeInboundWebhookDeliverySummaryQuerySchema
+>;
+export type BackofficeInboundWebhookDeliverySummaryDto = z.infer<
+  typeof backofficeInboundWebhookDeliverySummarySchema
 >;
 export type BackofficeInboundWebhookDeliveryDto = z.infer<
   typeof backofficeInboundWebhookDeliverySchema

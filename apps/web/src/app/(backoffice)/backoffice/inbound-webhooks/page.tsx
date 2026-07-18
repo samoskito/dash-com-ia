@@ -1,5 +1,6 @@
 import type {
   BackofficeInboundWebhookDeliveryDto,
+  BackofficeInboundWebhookDeliverySummaryDto,
   InboundWebhookDeliveryStatusDto,
   InboundWebhookEventClassificationDto,
 } from "@wpptrack/shared";
@@ -25,6 +26,11 @@ type DeliveryFilters = {
 type DeliveryResult = {
   data: BackofficeInboundWebhookDeliveryDto[];
   state: "real" | "empty" | "error";
+};
+
+type DeliverySummaryResult = {
+  data: BackofficeInboundWebhookDeliverySummaryDto | null;
+  state: "real" | "error";
 };
 
 type QuickFilterKey =
@@ -66,11 +72,42 @@ function asStringParam(
   return resolved?.trim() || undefined;
 }
 
-async function getDeliveries(): Promise<DeliveryResult> {
+function deliveryScopeParams(filters: DeliveryFilters): URLSearchParams {
+  const params = new URLSearchParams();
+
+  if (filters.workspaceId) {
+    params.set("workspaceId", filters.workspaceId);
+  }
+
+  if (filters.connectionId) {
+    params.set("connectionId", filters.connectionId);
+  }
+
+  if (filters.provider) {
+    params.set("provider", filters.provider);
+  }
+
+  return params;
+}
+
+async function getDeliveries(
+  filters: DeliveryFilters,
+): Promise<DeliveryResult> {
   try {
+    const params = deliveryScopeParams(filters);
+    params.set("limit", "50");
+
+    if (filters.status) {
+      params.set("status", filters.status);
+    }
+
+    if (filters.classification) {
+      params.set("classification", filters.classification);
+    }
+
     const deliveries = await serverApiFetch<
       BackofficeInboundWebhookDeliveryDto[]
-    >("/backoffice/inbound-webhooks/deliveries?limit=50");
+    >(`/backoffice/inbound-webhooks/deliveries?${params.toString()}`);
 
     return {
       data: deliveries,
@@ -84,19 +121,49 @@ async function getDeliveries(): Promise<DeliveryResult> {
   }
 }
 
-function matchesFilters(
-  delivery: BackofficeInboundWebhookDeliveryDto,
+async function getDeliverySummary(
   filters: DeliveryFilters,
-): boolean {
-  return (
-    (!filters.workspaceId || delivery.workspaceId === filters.workspaceId) &&
-    (!filters.connectionId ||
-      delivery.connectionId === filters.connectionId) &&
-    (!filters.provider || delivery.provider === filters.provider) &&
-    (!filters.status || delivery.status === filters.status) &&
-    (!filters.classification ||
-      delivery.classification === filters.classification)
-  );
+): Promise<DeliverySummaryResult> {
+  try {
+    const params = deliveryScopeParams(filters);
+    const query = params.toString();
+    const suffix = query ? `?${query}` : "";
+    const summary =
+      await serverApiFetch<BackofficeInboundWebhookDeliverySummaryDto>(
+        `/backoffice/inbound-webhooks/summary${suffix}`,
+      );
+
+    return {
+      data: summary,
+      state: "real",
+    };
+  } catch {
+    return {
+      data: null,
+      state: "error",
+    };
+  }
+}
+
+function quickFilterHref(
+  filters: DeliveryFilters,
+  quickFilter: QuickFilterKey,
+): string {
+  const params = deliveryScopeParams(filters);
+
+  if (quickFilter === "ctwa_pending") {
+    params.set("classification", "eligible_route_unresolved");
+  } else if (quickFilter === "ctwa_routed") {
+    params.set("classification", "eligible_route_resolved");
+  } else if (quickFilter === "no_ctwa") {
+    params.set("classification", "ignored_no_ctwa");
+  } else if (quickFilter === "failed") {
+    params.set("status", "failed");
+  }
+
+  const query = params.toString();
+
+  return `/backoffice/inbound-webhooks${query ? `?${query}` : ""}`;
 }
 
 function classificationLabel(
@@ -212,10 +279,11 @@ export default async function InboundWebhookDeliveriesPage({
     status: asStringParam(resolvedSearchParams.status),
     classification: asStringParam(resolvedSearchParams.classification),
   };
-  const result = await getDeliveries();
-  const deliveries = result.data.filter((delivery) =>
-    matchesFilters(delivery, filters),
-  );
+  const [result, summaryResult] = await Promise.all([
+    getDeliveries(filters),
+    getDeliverySummary(filters),
+  ]);
+  const deliveries = result.data;
   const quickFilter = activeQuickFilter(filters);
   const hasAdvancedFilters = Boolean(
     filters.workspaceId ||
@@ -223,59 +291,42 @@ export default async function InboundWebhookDeliveriesPage({
       filters.provider ||
       quickFilter === null,
   );
-  const totals = {
-    all: result.data.length,
-    ctwaPending: result.data.filter(
-      (delivery) =>
-        delivery.classification === "eligible_route_unresolved",
-    ).length,
-    ctwaRouted: result.data.filter(
-      (delivery) => delivery.classification === "eligible_route_resolved",
-    ).length,
-    failed: result.data.filter(
-      (delivery) =>
-        delivery.status === "failed" ||
-        delivery.classification === "invalid_payload",
-    ).length,
-    noCtwa: result.data.filter(
-      (delivery) => delivery.classification === "ignored_no_ctwa",
-    ).length,
-  };
+  const totals = summaryResult.data;
   const quickFilters: Array<{
-    count: number;
+    count: number | null;
     href: string;
     key: QuickFilterKey;
     label: string;
   }> = [
     {
       key: "all",
-      label: "Todos",
-      count: totals.all,
-      href: "/backoffice/inbound-webhooks",
+      label: "Todos eventos",
+      count: totals?.all ?? null,
+      href: quickFilterHref(filters, "all"),
     },
     {
       key: "ctwa_pending",
       label: "CTWA pendente",
-      count: totals.ctwaPending,
-      href: "/backoffice/inbound-webhooks?classification=eligible_route_unresolved",
+      count: totals?.ctwaPending ?? null,
+      href: quickFilterHref(filters, "ctwa_pending"),
     },
     {
       key: "ctwa_routed",
       label: "CTWA roteado",
-      count: totals.ctwaRouted,
-      href: "/backoffice/inbound-webhooks?classification=eligible_route_resolved",
+      count: totals?.ctwaRouted ?? null,
+      href: quickFilterHref(filters, "ctwa_routed"),
     },
     {
       key: "no_ctwa",
       label: "Sem CTWA",
-      count: totals.noCtwa,
-      href: "/backoffice/inbound-webhooks?classification=ignored_no_ctwa",
+      count: totals?.noCtwa ?? null,
+      href: quickFilterHref(filters, "no_ctwa"),
     },
     {
       key: "failed",
-      label: "Falhas",
-      count: totals.failed,
-      href: "/backoffice/inbound-webhooks?status=failed",
+      label: "Falhas de entrega",
+      count: totals?.failed ?? null,
+      href: quickFilterHref(filters, "failed"),
     },
   ];
   const deliveryHeading =
@@ -284,6 +335,18 @@ export default async function InboundWebhookDeliveriesPage({
       : quickFilter === "all"
         ? "Ultimas entregas"
         : quickFilters.find((filter) => filter.key === quickFilter)?.label;
+  const activeTotal =
+    quickFilter === "all"
+      ? totals?.all
+      : quickFilter === "ctwa_pending"
+        ? totals?.ctwaPending
+        : quickFilter === "ctwa_routed"
+          ? totals?.ctwaRouted
+          : quickFilter === "no_ctwa"
+            ? totals?.noCtwa
+            : quickFilter === "failed"
+              ? totals?.failed
+              : undefined;
 
   return (
     <section className="page-stack standalone-page inbound-deliveries-page">
@@ -301,14 +364,14 @@ export default async function InboundWebhookDeliveriesPage({
         <span className="status-chip warn">Somente observacao</span>
       </header>
 
-      {totals.ctwaPending > 0 ? (
+      {(totals?.ctwaPending ?? 0) > 0 ? (
         <div className="inbound-attention-banner">
           <span className="inbound-attention-icon" aria-hidden="true">
             <AlertTriangle size={18} strokeWidth={2} />
           </span>
           <span>
             <strong>
-              {totals.ctwaPending} CTWA aguardando validacao do payload
+              {totals?.ctwaPending} CTWA aguardando validacao do payload
             </strong>
             <span>
               O evento foi reconhecido e ainda nao possui rota Meta associada.
@@ -334,7 +397,7 @@ export default async function InboundWebhookDeliveriesPage({
             key={filter.key}
           >
             <span>{filter.label}</span>
-            <strong>{filter.count}</strong>
+            <strong>{filter.count ?? "--"}</strong>
           </a>
         ))}
       </nav>
@@ -422,7 +485,9 @@ export default async function InboundWebhookDeliveriesPage({
             <h2>{deliveryHeading}</h2>
           </div>
           <span className="event-chip neutral">
-            {deliveries.length} registro(s)
+            {activeTotal === undefined
+              ? `${deliveries.length} entrega(s) exibida(s)`
+              : `${deliveries.length} entrega(s) / ${activeTotal} evento(s)`}
           </span>
         </div>
 

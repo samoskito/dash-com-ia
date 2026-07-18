@@ -7,7 +7,10 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
-import { backofficeInboundWebhookDeliveryQuerySchema } from "@wpptrack/shared";
+import {
+  backofficeInboundWebhookDeliveryQuerySchema,
+  backofficeInboundWebhookDeliverySummaryQuerySchema,
+} from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { PlatformAdminService } from "../auth/platform-admin.service";
@@ -40,6 +43,22 @@ export class BackofficeInboundWebhooksController {
     }
 
     return this.inboundWebhooks.listDeliveries(parsed.data);
+  }
+
+  @Get("summary")
+  async summarizeDeliveries(
+    @AuthToken() refreshToken: string,
+    @Query() query: Record<string, unknown>,
+  ) {
+    await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed =
+      backofficeInboundWebhookDeliverySummaryQuerySchema.safeParse(query);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Filtros invalidos");
+    }
+
+    return this.inboundWebhooks.summarizeDeliveries(parsed.data);
   }
 
   @Get("deliveries/:deliveryId/payload")

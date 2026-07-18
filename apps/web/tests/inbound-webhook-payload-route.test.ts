@@ -35,26 +35,36 @@ afterEach(() => {
 
 describe("inbound webhook payload routes", () => {
   it("renders recent deliveries with quick filters and one clear payload action", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      jsonResponse([
-        availableDelivery,
-        {
-          ...availableDelivery,
-          id: "delivery_expired",
-          connectionName: "Umbler Expirada",
-          status: "failed",
-          payloadAvailable: false,
-          payloadExpiresAt: "2000-01-01T00:00:00.000Z",
-        },
-        {
-          ...availableDelivery,
-          id: "delivery_removed",
-          connectionName: "Umbler Removida",
-          payloadAvailable: false,
-          payloadExpiresAt: "2999-01-01T00:00:00.000Z",
-        },
-      ]),
-    );
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse([
+          availableDelivery,
+          {
+            ...availableDelivery,
+            id: "delivery_expired",
+            connectionName: "Umbler Expirada",
+            status: "failed",
+            payloadAvailable: false,
+            payloadExpiresAt: "2000-01-01T00:00:00.000Z",
+          },
+          {
+            ...availableDelivery,
+            id: "delivery_removed",
+            connectionName: "Umbler Removida",
+            payloadAvailable: false,
+            payloadExpiresAt: "2999-01-01T00:00:00.000Z",
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          all: 423,
+          ctwaPending: 50,
+          ctwaRouted: 0,
+          failed: 1,
+          noCtwa: 373,
+        }),
+      );
 
     const element = await InboundWebhookDeliveriesPage({});
     const html = render(element);
@@ -66,6 +76,16 @@ describe("inbound webhook payload routes", () => {
         credentials: "include",
       }),
     );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/inbound-webhooks/summary",
+      expect.objectContaining({
+        cache: "no-store",
+        credentials: "include",
+      }),
+    );
+    expect(html).toContain("<strong>423</strong>");
+    expect(html).toContain("<strong>50</strong>");
+    expect(html).toContain("<strong>373</strong>");
     expect(html).toContain("Entregas do WhatsApp");
     expect(html).toContain("Filtros avancados");
     expect(html).toContain(
@@ -90,22 +110,26 @@ describe("inbound webhook payload routes", () => {
   });
 
   it("filters recent deliveries through the quick CTWA view", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      jsonResponse([
-        {
-          ...availableDelivery,
-          id: "delivery_pending",
-          connectionName: "Umbler CTWA",
-          classification: "eligible_route_unresolved",
-        },
-        {
-          ...availableDelivery,
-          id: "delivery_without_ctwa",
-          connectionName: "Umbler Organico",
-          classification: "ignored_no_ctwa",
-        },
-      ]),
-    );
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            ...availableDelivery,
+            id: "delivery_pending",
+            connectionName: "Umbler CTWA",
+            classification: "eligible_route_unresolved",
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          all: 423,
+          ctwaPending: 50,
+          ctwaRouted: 0,
+          failed: 0,
+          noCtwa: 373,
+        }),
+      );
 
     const element = await InboundWebhookDeliveriesPage({
       searchParams: Promise.resolve({
@@ -114,7 +138,11 @@ describe("inbound webhook payload routes", () => {
     });
     const html = render(element);
 
-    expect(html).toContain("1 CTWA aguardando validacao do payload");
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/inbound-webhooks/deliveries?limit=50&classification=eligible_route_unresolved",
+      expect.anything(),
+    );
+    expect(html).toContain("50 CTWA aguardando validacao do payload");
     expect(html).toContain("Umbler CTWA");
     expect(html).not.toContain("Umbler Organico");
     expect(html).toContain(
@@ -222,6 +250,7 @@ describe("inbound webhook payload routes", () => {
     const sensitiveDenial = "workspace manager cannot decrypt delivery_secret";
 
     vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new Error(sensitiveFailure))
       .mockRejectedValueOnce(new Error(sensitiveFailure))
       .mockResolvedValueOnce(
         jsonResponse({ message: sensitiveDenial }, 403),

@@ -176,7 +176,20 @@ function createHarness(state: PayloadState = "available") {
             (!where.provider || candidate.provider === where.provider) &&
             (!where.status || candidate.status === where.status) &&
             (!where.classification ||
-              candidate.classification === where.classification),
+              candidate.classification === where.classification) &&
+            (!where.OR ||
+              where.OR.some(
+                (condition: {
+                  classification?: string;
+                  events?: { some?: { classification?: string } };
+                }) =>
+                  condition.classification === candidate.classification ||
+                  candidate.events.some(
+                    (event) =>
+                      event.classification ===
+                      condition.events?.some?.classification,
+                  ),
+              )),
         )
         .sort(
           (left, right) =>
@@ -184,6 +197,19 @@ function createHarness(state: PayloadState = "available") {
             right.id.localeCompare(left.id),
         )
         .slice(0, take),
+    ),
+    count: vi.fn(async ({ where }) =>
+      [...deliveries.values()].filter(
+        (candidate) =>
+          (!where.workspaceId ||
+            candidate.workspaceId === where.workspaceId) &&
+          (!where.connectionId ||
+            candidate.connectionId === where.connectionId) &&
+          (!where.provider || candidate.provider === where.provider) &&
+          (!where.status || candidate.status === where.status) &&
+          (!where.classification ||
+            candidate.classification === where.classification),
+      ).length,
     ),
     findUnique: vi.fn(async ({ where, select }) => {
       const found = deliveries.get(where.id);
@@ -195,8 +221,28 @@ function createHarness(state: PayloadState = "available") {
       return select?.workspaceId ? { workspaceId: found.workspaceId } : found;
     }),
   };
+  const inboundWebhookEvent = {
+    count: vi.fn(async ({ where }) =>
+      [...deliveries.values()]
+        .flatMap((candidate) => candidate.events)
+        .filter(
+          (candidate) =>
+            (!where.workspaceId ||
+              candidate.workspaceId === where.workspaceId) &&
+            (!where.connectionId ||
+              candidate.connectionId === where.connectionId) &&
+            (!where.provider || candidate.provider === where.provider) &&
+            (!where.classification ||
+              candidate.classification === where.classification),
+        ).length,
+    ),
+  };
   const prisma = {
     inboundWebhookDelivery,
+    inboundWebhookEvent,
+    $transaction: vi.fn(async (operations: Array<Promise<unknown>>) =>
+      Promise.all(operations),
+    ),
     auditLog: {
       create: vi.fn(async ({ data }) => {
         audits.push(data);
@@ -309,6 +355,26 @@ describe("inbound webhook payload access", () => {
     expect(serialized).not.toContain(oneTimeWebhookUrl);
     expect(serialized).not.toContain("secretHash");
     expect(serialized).not.toContain("webhookUrl");
+  });
+
+  it("summarizes normalized events independently from the delivery list limit", async () => {
+    const harness = createHarness();
+
+    const summary = await harness.service.summarizeDeliveries({
+      workspaceId: "workspace_1",
+      connectionId: "connection_1",
+      provider: "umbler",
+    });
+
+    expect(summary).toEqual({
+      all: 1,
+      ctwaPending: 0,
+      ctwaRouted: 1,
+      failed: 0,
+      noCtwa: 0,
+    });
+    expect(harness.prisma.inboundWebhookEvent.count).toHaveBeenCalledTimes(4);
+    expect(harness.prisma.inboundWebhookDelivery.count).toHaveBeenCalledTimes(1);
   });
 
   it.each([

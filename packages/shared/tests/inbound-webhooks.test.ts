@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   backofficeInboundWebhookDeliveryListSchema,
+  backofficeInboundWebhookDeliverySummarySchema,
   backofficeInboundWebhookPayloadSchema,
   inboundWebhookChannelRouteInputSchema,
   inboundWebhookChannelRouteSchema,
@@ -281,6 +282,24 @@ describe("inbound webhook contracts", () => {
     expect(payload.payload).toEqual({
       Type: "Message",
       Payload: { Content: "private" },
+    });
+  });
+
+  it("accepts global backoffice delivery counters", () => {
+    expect(
+      backofficeInboundWebhookDeliverySummarySchema.parse({
+        all: 423,
+        ctwaPending: 50,
+        ctwaRouted: 0,
+        failed: 0,
+        noCtwa: 373,
+      }),
+    ).toEqual({
+      all: 423,
+      ctwaPending: 50,
+      ctwaRouted: 0,
+      failed: 0,
+      noCtwa: 373,
     });
   });
 });

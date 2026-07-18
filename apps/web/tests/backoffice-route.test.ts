@@ -40,6 +40,57 @@ describe("backoffice route", () => {
     expect(html).not.toContain("Saude operacional por camada");
   });
 
+  it("opens internal operations as separated task areas", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    const element = await BackofficePage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Onde voce precisa atuar?");
+    expect(html).toContain(
+      'href="/backoffice?view=operations&amp;area=whatsapp"'
+    );
+    expect(html).toContain(
+      'href="/backoffice?view=operations&amp;area=finance&amp;section=charges"'
+    );
+    expect(html).toContain(
+      'href="/backoffice?view=operations&amp;area=health&amp;section=incidents"'
+    );
+    expect(html).not.toContain("Cobrancas de instancias WhatsApp");
+    expect(html).not.toContain("Saude operacional por camada");
+  });
+
+  it("shows one health layer with only its related filters", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        area: "health",
+        section: "webhooks"
+      })
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Webhooks processados");
+    expect(html).toContain("Filtros desta tabela");
+    expect(html).toContain("Filtros avancados");
+    expect(html).toContain('name="campaignId"');
+    expect(html).not.toContain('name="queueName"');
+    expect(html).not.toContain('name="actorType"');
+    expect(html).not.toContain("Jobs operacionais");
+    expect(html).not.toContain("Auditoria operacional");
+  });
+
   it("revalidates diagnostic pages after retrying from the list", () => {
     const source = readFileSync(
       "src/app/(backoffice)/backoffice/page.tsx",
@@ -113,6 +164,8 @@ describe("backoffice route", () => {
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
+        area: "health",
+        section: "incidents",
         workspaceId: "workspace_1",
         since: "2026-07-01",
         until: "2026-07-02"
@@ -171,7 +224,12 @@ describe("backoffice route", () => {
         )
       );
 
-    const element = await BackofficePage({});
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        area: "finance",
+        section: "receivers"
+      })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -228,7 +286,12 @@ describe("backoffice route", () => {
         })
       );
 
-    const element = await BackofficePage({});
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        area: "health",
+        section: "incidents"
+      })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("Conversao nao enviada");
@@ -295,7 +358,12 @@ describe("backoffice route", () => {
         )
       );
 
-    const element = await BackofficePage({});
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        area: "health",
+        section: "webhooks"
+      })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -375,6 +443,8 @@ describe("backoffice route", () => {
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
+        area: "health",
+        section: "jobs",
         workspaceId: "workspace_1",
         source: "meta",
         status: "failed",
@@ -470,6 +540,8 @@ describe("backoffice route", () => {
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
+        area: "health",
+        section: "integrations",
         workspaceId: "workspace_1",
         source: "meta",
         status: "error",
@@ -573,6 +645,8 @@ describe("backoffice route", () => {
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
+        area: "health",
+        section: "conversions",
         workspaceId: "workspace_1",
         status: "error",
         eventType: "QualifiedLead",
@@ -680,6 +754,8 @@ describe("backoffice route", () => {
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
+        area: "health",
+        section: "audit",
         workspaceId: "workspace_1",
         status: "failed",
         eventType: "auth.login_failed",
@@ -742,7 +818,12 @@ describe("backoffice route", () => {
         })
       );
 
-    const element = await BackofficePage({});
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        area: "finance",
+        section: "customers"
+      })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -806,7 +887,12 @@ describe("backoffice route", () => {
         )
       );
 
-    const element = await BackofficePage({});
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        area: "finance",
+        section: "charges"
+      })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -900,7 +986,12 @@ describe("backoffice route", () => {
         )
       );
 
-    const element = await BackofficePage({});
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        area: "finance",
+        section: "plans"
+      })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -960,7 +1051,11 @@ describe("backoffice route", () => {
         )
       );
 
-    const element = await BackofficePage({});
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        area: "whatsapp"
+      })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -1003,6 +1098,8 @@ describe("backoffice route", () => {
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
+        area: "finance",
+        section: "charges",
         chargeStatus: "failed",
         chargeWorkspaceId: "workspace_2"
       })
@@ -1040,6 +1137,8 @@ describe("backoffice route", () => {
 
     const element = await BackofficePage({
       searchParams: Promise.resolve({
+        area: "health",
+        section: "incidents",
         q: "currency",
         source: "meta",
         since: "2026-07-01",
@@ -1058,7 +1157,7 @@ describe("backoffice route", () => {
       "http://localhost:3333/backoffice/diagnostics/webhooks?limit=10&source=meta&q=currency&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&campaignId=cmp_1&adId=ad_1",
       expect.objectContaining({ credentials: "include" })
     );
-    expect(html).toContain("6 filtros ativos");
+    expect(html).toContain("6 filtro(s) ativo(s)");
     expect(html).toContain("currency");
   });
 
@@ -1083,12 +1182,16 @@ describe("backoffice route", () => {
         })
       );
 
-    const element = await BackofficePage({});
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        area: "finance",
+        section: "receivers"
+      })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("API indisponivel");
     expect(html).toContain("Nao foi possivel carregar recebedores");
-    expect(html).toContain("Nao foi possivel carregar eventos diagnosticos");
     expect(html).not.toContain("R$ 18.420");
     expect(html).not.toContain("94.2%");
     expect(html).not.toContain("128");
@@ -1123,12 +1226,15 @@ describe("backoffice route", () => {
         })
       );
 
-    const element = await BackofficePage({});
+    const element = await BackofficePage({
+      searchParams: Promise.resolve({
+        area: "finance",
+        section: "receivers"
+      })
+    });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("Nenhum recebedor configurado");
-    expect(html).toContain("Nenhum evento diagnostico encontrado");
-    expect(html).toContain("Customer Asaas ausente");
     expect(html).not.toContain("sem dados");
     expect(html).not.toContain("Recebedor principal");
     expect(html).not.toContain("wallet_asaas_preview");

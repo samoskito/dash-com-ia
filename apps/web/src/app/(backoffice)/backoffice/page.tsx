@@ -12,9 +12,22 @@ import type {
   SplitReceiverDto,
   WorkspaceBillingDto
 } from "@wpptrack/shared";
+import { Activity, ArrowRight, CreditCard, MessageCircle } from "lucide-react";
 import { revalidatePath } from "next/cache";
+import {
+  BackofficeHealthFilters,
+  type BackofficeHealthFilterValues,
+} from "../../../components/backoffice-health-filters";
 import { BackofficeHome } from "../../../components/backoffice-home";
 import { BackofficeNavigation } from "../../../components/backoffice-navigation";
+import {
+  BackofficeOperationsNavigation,
+  FinanceOperationsNavigation,
+  HealthOperationsNavigation,
+  type FinanceSection,
+  type HealthSection,
+  type OperationsArea,
+} from "../../../components/backoffice-operations-navigation";
 import { formatDateTime } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 
@@ -649,8 +662,37 @@ function normalizeDateFilter(
     : `${value}T23:59:59.000Z`;
 }
 
-function dateInputValue(value: string | undefined): string | undefined {
-  return value?.slice(0, 10);
+function normalizeOperationsArea(
+  value: string | undefined
+): OperationsArea | undefined {
+  return value === "overview" ||
+    value === "whatsapp" ||
+    value === "finance" ||
+    value === "health"
+    ? value
+    : undefined;
+}
+
+function normalizeFinanceSection(
+  value: string | undefined
+): FinanceSection {
+  return value === "charges" ||
+    value === "plans" ||
+    value === "customers" ||
+    value === "receivers"
+    ? value
+    : "charges";
+}
+
+function normalizeHealthSection(value: string | undefined): HealthSection {
+  return value === "incidents" ||
+    value === "webhooks" ||
+    value === "conversions" ||
+    value === "integrations" ||
+    value === "jobs" ||
+    value === "audit"
+    ? value
+    : "incidents";
 }
 
 export default async function BackofficePage({
@@ -661,12 +703,29 @@ export default async function BackofficePage({
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const requestedView = asStringParam(resolvedSearchParams.view);
   const hasLegacyFilters = Object.keys(resolvedSearchParams).some(
-    (key) => key !== "view"
+    (key) => !["area", "section", "view"].includes(key)
   );
 
   if (requestedView !== "operations" && !hasLegacyFilters) {
     return <BackofficeHome />;
   }
+
+  const requestedArea = normalizeOperationsArea(
+    asStringParam(resolvedSearchParams.area)
+  );
+  const hasChargeFilters = Boolean(
+    asStringParam(resolvedSearchParams.chargeStatus) ||
+      asStringParam(resolvedSearchParams.chargeWorkspaceId)
+  );
+  const activeArea: OperationsArea =
+    requestedArea ??
+    (hasChargeFilters ? "finance" : hasLegacyFilters ? "health" : "overview");
+  const activeFinanceSection = normalizeFinanceSection(
+    asStringParam(resolvedSearchParams.section)
+  );
+  const activeHealthSection = normalizeHealthSection(
+    asStringParam(resolvedSearchParams.section)
+  );
 
   const diagnosticFilters: DiagnosticFilters = {
     workspaceId: asStringParam(resolvedSearchParams.workspaceId),
@@ -801,16 +860,47 @@ export default async function BackofficePage({
   const whatsappInstances = whatsappInstancesResult.data;
   const subscriptionPlans = subscriptionPlansResult.data;
   const diagnosticSummary = diagnosticSummaryResult.data;
-  const activeDiagnosticFilterCount = Object.values({
+  const healthFilterValues: BackofficeHealthFilterValues = {
     ...diagnosticFilters,
+    actorType: auditLogFilters.actorType,
+    jobId: integrationLogFilters.jobId,
     jobName: jobAttemptFilters.jobName,
     queueName: jobAttemptFilters.queueName,
-    jobId: integrationLogFilters.jobId,
-    actorType: auditLogFilters.actorType,
-    targetType: auditLogFilters.targetType,
     pixelId: conversionEventLogFilters.pixelId,
-    sourceTrigger: conversionEventLogFilters.sourceTrigger
-  }).filter(Boolean).length;
+    sourceTrigger: conversionEventLogFilters.sourceTrigger,
+    targetType: auditLogFilters.targetType,
+  };
+  const commonHealthFilters = {
+    q: diagnosticFilters.q,
+    status: diagnosticFilters.status,
+    workspaceId: diagnosticFilters.workspaceId,
+  };
+  const activeHealthFilterCount = Object.values(
+    activeHealthSection === "incidents"
+      ? {
+          ...commonHealthFilters,
+          adId: diagnosticFilters.adId,
+          adSetId: diagnosticFilters.adSetId,
+          campaignId: diagnosticFilters.campaignId,
+          errorCode: diagnosticFilters.errorCode,
+          eventType: diagnosticFilters.eventType,
+          leadId: diagnosticFilters.leadId,
+          phoneHash: diagnosticFilters.phoneHash,
+          severity: diagnosticFilters.severity,
+          since: diagnosticFilters.since,
+          source: diagnosticFilters.source,
+          until: diagnosticFilters.until,
+        }
+      : activeHealthSection === "webhooks"
+        ? webhookLogFilters
+        : activeHealthSection === "conversions"
+          ? conversionEventLogFilters
+          : activeHealthSection === "integrations"
+            ? integrationLogFilters
+            : activeHealthSection === "jobs"
+              ? jobAttemptFilters
+              : auditLogFilters
+  ).filter(Boolean).length;
   const activePaymentChargeFilterCount = Object.values(paymentChargeFilters).filter(
     Boolean
   ).length;
@@ -941,16 +1031,44 @@ export default async function BackofficePage({
     whatsappInstancesResult.state === "error"
       ? "Nao foi possivel carregar instancias WhatsApp"
       : "Nenhuma instancia WhatsApp encontrada";
+  const activeAreaCopy =
+    activeArea === "whatsapp"
+      ? {
+          eyebrow: "Operacao WhatsApp",
+          title: "Instancias da plataforma",
+          description:
+            "Acompanhe as instancias criadas nos workspaces e o estado de cobranca de cada conexao.",
+        }
+      : activeArea === "finance"
+        ? {
+            eyebrow: "Operacao financeira",
+            title: "Financeiro da plataforma",
+            description:
+              "Trabalhe em uma frente por vez: cobrancas, planos, workspaces ou recebedores.",
+          }
+        : activeArea === "health"
+          ? {
+              eyebrow: "Central de diagnostico",
+              title: "Saude operacional",
+              description:
+                "Investigue uma camada por vez com filtros proprios para cada tipo de registro.",
+            }
+          : {
+              eyebrow: "Backoffice interno",
+              title: "Operacoes internas",
+              description:
+                "Escolha uma area de trabalho para consultar a plataforma sem misturar tabelas e filtros.",
+            };
 
   return (
-    <section className="page-stack standalone-page">
+    <section className="page-stack standalone-page backoffice-operations-page">
       <BackofficeNavigation active="operations" />
 
       <header className="page-header">
         <div>
-          <span className="eyebrow">Backoffice interno</span>
-          <h1>Backoffice WppTrack</h1>
-          <p>Financeiro, split, workspaces e Central de Diagnostico operacional.</p>
+          <span className="eyebrow">{activeAreaCopy.eyebrow}</span>
+          <h1>{activeAreaCopy.title}</h1>
+          <p>{activeAreaCopy.description}</p>
         </div>
         <div className="header-actions">
           <a className="button ghost" href="/backoffice">
@@ -962,19 +1080,107 @@ export default async function BackofficePage({
         </div>
       </header>
 
-      <div className="backoffice-grid">
-        {panels.map(([label, value, description]) => (
-          <article className="config-card" key={label}>
-            <span className="micro-label">{label}</span>
-            <strong>{value}</strong>
-            <p className="muted">{description}</p>
-          </article>
-        ))}
-      </div>
+      <BackofficeOperationsNavigation activeArea={activeArea} />
 
-      <div className="surface-panel" id="instances">
-        <span className="eyebrow">Instancias WhatsApp</span>
-        <h2>Conexoes por workspace</h2>
+      {activeArea === "overview" ? (
+        <>
+          <section className="operations-overview" aria-label="Resumo operacional">
+            <div className="backoffice-grid">
+              {panels.map(([label, value, description]) => (
+                <article className="config-card" key={label}>
+                  <span className="micro-label">{label}</span>
+                  <strong>{value}</strong>
+                  <p className="muted">{description}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="backoffice-command-section">
+            <div className="operations-panel-header">
+              <div>
+                <span className="eyebrow">Areas de trabalho</span>
+                <h2>Onde voce precisa atuar?</h2>
+                <p>
+                  Cada area abre somente os controles e registros relacionados.
+                </p>
+              </div>
+            </div>
+            <div className="backoffice-command-list">
+              <a
+                className="backoffice-command-row"
+                href="/backoffice?view=operations&area=whatsapp"
+              >
+                <span className="backoffice-command-icon" aria-hidden="true">
+                  <MessageCircle size={20} strokeWidth={2} />
+                </span>
+                <span className="backoffice-command-copy">
+                  <span className="micro-label">Conexoes</span>
+                  <strong>WhatsApp</strong>
+                  <span>Instancias, providers e estado de cobranca.</span>
+                </span>
+                <ArrowRight
+                  className="backoffice-command-arrow"
+                  aria-hidden="true"
+                  size={19}
+                  strokeWidth={2}
+                />
+              </a>
+              <a
+                className="backoffice-command-row"
+                href="/backoffice?view=operations&area=finance&section=charges"
+              >
+                <span className="backoffice-command-icon" aria-hidden="true">
+                  <CreditCard size={20} strokeWidth={2} />
+                </span>
+                <span className="backoffice-command-copy">
+                  <span className="micro-label">Asaas e planos</span>
+                  <strong>Financeiro</strong>
+                  <span>Cobrancas, planos, customers e recebedores.</span>
+                </span>
+                <ArrowRight
+                  className="backoffice-command-arrow"
+                  aria-hidden="true"
+                  size={19}
+                  strokeWidth={2}
+                />
+              </a>
+              <a
+                className="backoffice-command-row"
+                href="/backoffice?view=operations&area=health&section=incidents"
+              >
+                <span className="backoffice-command-icon" aria-hidden="true">
+                  <Activity size={20} strokeWidth={2} />
+                </span>
+                <span className="backoffice-command-copy">
+                  <span className="micro-label">Diagnostico</span>
+                  <strong>Saude operacional</strong>
+                  <span>Incidentes, webhooks, CAPI, jobs e auditoria.</span>
+                </span>
+                <ArrowRight
+                  className="backoffice-command-arrow"
+                  aria-hidden="true"
+                  size={19}
+                  strokeWidth={2}
+                />
+              </a>
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      {activeArea === "whatsapp" ? (
+      <div className="surface-panel operations-panel" id="instances">
+        <div className="operations-panel-header">
+          <div>
+            <span className="eyebrow">Instancias WhatsApp</span>
+            <h2>Conexoes por workspace</h2>
+            <p>Instancias reais cadastradas e seus estados operacionais.</p>
+          </div>
+          <span className="status-chip">
+            {whatsappInstances.length} registro(s)
+          </span>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -1021,32 +1227,64 @@ export default async function BackofficePage({
           </table>
         </div>
       </div>
+      ) : null}
 
-      <div className="surface-panel" id="billing">
-        <span className="eyebrow">Cobrancas Asaas</span>
-        <h2>Cobrancas de instancias WhatsApp</h2>
-        <form className="filter-bar" aria-label="Filtros de cobrancas" action="/backoffice">
+      {activeArea === "finance" ? (
+        <FinanceOperationsNavigation activeSection={activeFinanceSection} />
+      ) : null}
+
+      {activeArea === "finance" && activeFinanceSection === "charges" ? (
+      <div className="surface-panel operations-panel" id="billing">
+        <div className="operations-panel-header">
+          <div>
+            <span className="eyebrow">Cobrancas Asaas</span>
+            <h2>Cobrancas de instancias WhatsApp</h2>
+            <p>Consulte somente as cobrancas criadas pela plataforma.</p>
+          </div>
+        </div>
+        <form
+          className="operations-filter-panel compact"
+          aria-label="Filtros de cobrancas"
+          action="/backoffice"
+        >
           <input type="hidden" name="view" value="operations" />
-          <select
-            className="filter-control"
-            name="chargeStatus"
-            defaultValue={paymentChargeFilters.status ?? ""}
-          >
-            <option value="">Todos status</option>
-            <option value="pending">pending</option>
-            <option value="paid">paid</option>
-            <option value="failed">failed</option>
-            <option value="canceled">canceled</option>
-            <option value="expired">expired</option>
-          </select>
-          <input
-            className="filter-control"
-            name="chargeWorkspaceId"
-            placeholder="Workspace da cobranca"
-            defaultValue={paymentChargeFilters.workspaceId}
-          />
-          <button className="button" type="submit">Filtrar cobrancas</button>
-          <a className="button ghost" href="/backoffice?view=operations#billing">Limpar</a>
+          <input type="hidden" name="area" value="finance" />
+          <input type="hidden" name="section" value="charges" />
+          <div className="operations-filter-grid">
+            <label className="operations-filter-field">
+              <span>Status</span>
+              <select
+                name="chargeStatus"
+                defaultValue={paymentChargeFilters.status ?? ""}
+              >
+                <option value="">Todos</option>
+                <option value="pending">pending</option>
+                <option value="paid">paid</option>
+                <option value="failed">failed</option>
+                <option value="canceled">canceled</option>
+                <option value="expired">expired</option>
+              </select>
+            </label>
+            <label className="operations-filter-field">
+              <span>Workspace</span>
+              <input
+                name="chargeWorkspaceId"
+                placeholder="ID do workspace"
+                defaultValue={paymentChargeFilters.workspaceId}
+              />
+            </label>
+          </div>
+          <div className="operations-filter-actions">
+            <button className="button" type="submit">
+              Filtrar cobrancas
+            </button>
+            <a
+              className="button ghost"
+              href="/backoffice?view=operations&area=finance&section=charges"
+            >
+              Limpar
+            </a>
+          </div>
         </form>
         <p className="muted">
           {activePaymentChargeFilterCount > 0
@@ -1107,10 +1345,17 @@ export default async function BackofficePage({
           </table>
         </div>
       </div>
+      ) : null}
 
-      <div className="surface-panel">
-        <span className="eyebrow">Planos de assinatura</span>
-        <h2>Preco por instancia WhatsApp</h2>
+      {activeArea === "finance" && activeFinanceSection === "plans" ? (
+      <div className="surface-panel operations-panel">
+        <div className="operations-panel-header">
+          <div>
+            <span className="eyebrow">Planos de assinatura</span>
+            <h2>Preco por instancia WhatsApp</h2>
+            <p>Cadastre e mantenha os planos cobrados pela plataforma.</p>
+          </div>
+        </div>
         <form className="inline-form" action={createSubscriptionPlan}>
           <input
             aria-label="Novo plano"
@@ -1208,10 +1453,20 @@ export default async function BackofficePage({
           </table>
         </div>
       </div>
+      ) : null}
 
-      <div className="surface-panel">
-        <span className="eyebrow">Workspaces</span>
-        <h2>Customers Asaas por workspace</h2>
+      {activeArea === "finance" && activeFinanceSection === "customers" ? (
+      <div className="surface-panel operations-panel">
+        <div className="operations-panel-header">
+          <div>
+            <span className="eyebrow">Workspaces</span>
+            <h2>Customers Asaas por workspace</h2>
+            <p>Gerencie o customer e o estado operacional de cada cliente.</p>
+          </div>
+          <span className="status-chip">
+            {configuredCustomers}/{workspaceBilling.length} configurado(s)
+          </span>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -1316,10 +1571,20 @@ export default async function BackofficePage({
           </table>
         </div>
       </div>
+      ) : null}
 
-      <div className="surface-panel">
-        <span className="eyebrow">Split Asaas</span>
-        <h2>Recebedores da plataforma</h2>
+      {activeArea === "finance" && activeFinanceSection === "receivers" ? (
+      <div className="surface-panel operations-panel">
+        <div className="operations-panel-header">
+          <div>
+            <span className="eyebrow">Split Asaas</span>
+            <h2>Recebedores da plataforma</h2>
+            <p>Cadastre as wallets que participam do split da plataforma.</p>
+          </div>
+          <span className="status-chip">
+            {activeReceivers}/{splitReceivers.length} ativo(s)
+          </span>
+        </div>
         <form className="inline-form" action={createSplitReceiver}>
           <input name="name" placeholder="Novo recebedor" aria-label="Novo recebedor" />
           <input name="walletId" placeholder="Wallet Asaas" aria-label="Wallet Asaas" />
@@ -1405,178 +1670,93 @@ export default async function BackofficePage({
           </table>
         </div>
       </div>
+      ) : null}
 
-      <div className="surface-panel" id="diagnostics">
-        <span className="eyebrow">Central de diagnostico</span>
-        <h2>Saude operacional por camada</h2>
-        <form className="filter-bar" aria-label="Filtros de diagnostico" action="/backoffice">
-          <input type="hidden" name="view" value="operations" />
-          <input
-            className="filter-control"
-            name="q"
-            placeholder="Buscar erro, evento ou texto"
-            defaultValue={diagnosticFilters.q}
-          />
-          <input
-            className="filter-control"
-            name="workspaceId"
-            placeholder="Workspace"
-            defaultValue={diagnosticFilters.workspaceId}
-          />
-          <select className="filter-control" name="source" defaultValue={diagnosticFilters.source ?? ""}>
-            <option value="">Todas as origens</option>
-            <option value="meta">Meta</option>
-            <option value="umbler">Umbler</option>
-            <option value="uazapi">Uazapi</option>
-            <option value="asaas">Asaas</option>
-            <option value="internal">Interno</option>
-          </select>
-          <select className="filter-control" name="severity" defaultValue={diagnosticFilters.severity ?? ""}>
-            <option value="">Todas severidades</option>
-            <option value="info">Info</option>
-            <option value="warning">Warning</option>
-            <option value="error">Error</option>
-            <option value="critical">Critical</option>
-          </select>
-          <input
-            className="filter-control"
-            name="status"
-            placeholder="Status"
-            defaultValue={diagnosticFilters.status}
-          />
-          <input
-            className="filter-control"
-            name="eventType"
-            placeholder="Tipo de evento"
-            defaultValue={diagnosticFilters.eventType}
-          />
-          <input
-            className="filter-control"
-            name="queueName"
-            placeholder="Fila"
-            defaultValue={jobAttemptFilters.queueName}
-          />
-          <input
-            className="filter-control"
-            name="jobName"
-            placeholder="Job"
-            defaultValue={jobAttemptFilters.jobName}
-          />
-          <input
-            className="filter-control"
-            name="jobId"
-            placeholder="ID do job"
-            defaultValue={integrationLogFilters.jobId}
-          />
-          <input
-            className="filter-control"
-            name="sourceTrigger"
-            placeholder="Gatilho CAPI"
-            defaultValue={conversionEventLogFilters.sourceTrigger}
-          />
-          <input
-            className="filter-control"
-            name="pixelId"
-            placeholder="Pixel"
-            defaultValue={conversionEventLogFilters.pixelId}
-          />
-          <input
-            className="filter-control"
-            name="actorType"
-            placeholder="Ator auditoria"
-            defaultValue={auditLogFilters.actorType}
-          />
-          <input
-            className="filter-control"
-            name="targetType"
-            placeholder="Alvo auditoria"
-            defaultValue={auditLogFilters.targetType}
-          />
-          <input
-            className="filter-control"
-            name="since"
-            type="date"
-            defaultValue={dateInputValue(diagnosticFilters.since)}
-          />
-          <input
-            className="filter-control"
-            name="until"
-            type="date"
-            defaultValue={dateInputValue(diagnosticFilters.until)}
-          />
-          <input
-            className="filter-control"
-            name="leadId"
-            placeholder="Lead"
-            defaultValue={diagnosticFilters.leadId}
-          />
-          <input
-            className="filter-control"
-            name="phoneHash"
-            placeholder="Telefone hash"
-            defaultValue={diagnosticFilters.phoneHash}
-          />
-          <input
-            className="filter-control"
-            name="campaignId"
-            placeholder="Campanha"
-            defaultValue={diagnosticFilters.campaignId}
-          />
-          <input
-            className="filter-control"
-            name="adSetId"
-            placeholder="Conjunto"
-            defaultValue={diagnosticFilters.adSetId}
-          />
-          <input
-            className="filter-control"
-            name="adId"
-            placeholder="Anuncio"
-            defaultValue={diagnosticFilters.adId}
-          />
-          <input
-            className="filter-control"
-            name="errorCode"
-            placeholder="Codigo do erro"
-            defaultValue={diagnosticFilters.errorCode}
-          />
-          <button className="button" type="submit">Filtrar</button>
-          <a className="button ghost" href="/backoffice?view=operations#diagnostics">Limpar</a>
-        </form>
-        <p className="muted">
-          {activeDiagnosticFilterCount > 0
-            ? `${activeDiagnosticFilterCount} filtros ativos`
-            : "Mostrando os ultimos eventos recebidos pela plataforma."}
-        </p>
-        {diagnosticSummary ? (
-          <div className="backoffice-grid">
-            <article className="config-card">
-              <span className="micro-label">Contas Meta ativas</span>
-              <strong>{diagnosticSummary.totals.metaReportingAccountsActive}</strong>
-              <p className="muted">Contas de anuncios Meta ativas para sync.</p>
-            </article>
-            <article className="config-card">
-              <span className="micro-label">Contas Meta com erro</span>
-              <strong>{diagnosticSummary.totals.metaReportingAccountsError}</strong>
-              <p className="muted">Contas com syncStatus error.</p>
-            </article>
-            <article className="config-card">
-              <span className="micro-label">Campanhas para revisar</span>
-              <strong>{diagnosticSummary.totals.metaWhatsappNeedsReview}</strong>
-              <p className="muted">Campanhas Meta classificadas como needs_review.</p>
-            </article>
-            <article className="config-card">
-              <span className="micro-label">Destino CAPI</span>
-              <strong>
-                {diagnosticSummary.totals.metaConversionDestinationConfigured
-                  ? "Configurado"
-                  : "Nao configurado"}
-              </strong>
-              <p className="muted">Destino de conversao Meta do workspace.</p>
-            </article>
+      {activeArea === "health" ? (
+        <HealthOperationsNavigation activeSection={activeHealthSection} />
+      ) : null}
+
+      {activeArea === "health" ? (
+      <div className="surface-panel operations-panel" id="diagnostics">
+        <div className="operations-panel-header">
+          <div>
+            <span className="eyebrow">Saude por camada</span>
+            <h2>
+              {activeHealthSection === "incidents"
+                ? "Incidentes operacionais"
+                : activeHealthSection === "webhooks"
+                  ? "Webhooks processados"
+                  : activeHealthSection === "conversions"
+                    ? "Eventos Pixel e CAPI"
+                    : activeHealthSection === "integrations"
+                      ? "Chamadas externas"
+                      : activeHealthSection === "jobs"
+                        ? "Jobs operacionais"
+                        : "Auditoria operacional"}
+            </h2>
+            <p>
+              {activeHealthSection === "incidents"
+                ? "Falhas e alertas consolidados pelas camadas da plataforma."
+                : activeHealthSection === "webhooks"
+                  ? "Entregas recebidas dos provedores e seu processamento."
+                  : activeHealthSection === "conversions"
+                    ? "Conversoes geradas, enviadas e disponiveis para reprocessamento."
+                    : activeHealthSection === "integrations"
+                      ? "Comunicacoes da plataforma com servicos externos."
+                      : activeHealthSection === "jobs"
+                        ? "Execucoes em fila, tentativas e proximos retries."
+                        : "Acoes administrativas e acessos registrados pela plataforma."}
+            </p>
           </div>
+        </div>
+        <BackofficeHealthFilters
+          activeCount={activeHealthFilterCount}
+          section={activeHealthSection}
+          values={healthFilterValues}
+        />
+        {activeHealthSection === "incidents" && diagnosticSummary ? (
+          <>
+            <div className="operations-summary-banner">
+              <span
+                className={`status-chip${
+                  diagnosticSummary.status === "healthy" ? "" : " warn"
+                }`}
+              >
+                {diagnosticStatusLabel}
+              </span>
+              <strong>{diagnosticPanelValue}</strong>
+              <span>{diagnosticFailureTotal} falhas no periodo</span>
+            </div>
+            <div className="backoffice-grid">
+              <article className="config-card">
+                <span className="micro-label">Contas Meta ativas</span>
+                <strong>{diagnosticSummary.totals.metaReportingAccountsActive}</strong>
+                <p className="muted">Contas de anuncios Meta ativas para sync.</p>
+              </article>
+              <article className="config-card">
+                <span className="micro-label">Contas Meta com erro</span>
+                <strong>{diagnosticSummary.totals.metaReportingAccountsError}</strong>
+                <p className="muted">Contas com syncStatus error.</p>
+              </article>
+              <article className="config-card">
+                <span className="micro-label">Campanhas para revisar</span>
+                <strong>{diagnosticSummary.totals.metaWhatsappNeedsReview}</strong>
+                <p className="muted">Campanhas Meta classificadas como needs_review.</p>
+              </article>
+              <article className="config-card">
+                <span className="micro-label">Destino CAPI</span>
+                <strong>
+                  {diagnosticSummary.totals.metaConversionDestinationConfigured
+                    ? "Configurado"
+                    : "Nao configurado"}
+                </strong>
+                <p className="muted">Destino de conversao Meta do workspace.</p>
+              </article>
+            </div>
+          </>
         ) : null}
-        <div className="table-wrap">
+        {activeHealthSection === "audit" ? (
+        <div className="table-wrap operations-table-wrap">
           <table>
             <thead>
               <tr>
@@ -1624,7 +1804,9 @@ export default async function BackofficePage({
             </tbody>
           </table>
         </div>
-        <div className="table-wrap">
+        ) : null}
+        {activeHealthSection === "webhooks" ? (
+        <div className="table-wrap operations-table-wrap">
           <table>
             <thead>
               <tr>
@@ -1678,7 +1860,9 @@ export default async function BackofficePage({
             </tbody>
           </table>
         </div>
-        <div className="table-wrap">
+        ) : null}
+        {activeHealthSection === "conversions" ? (
+        <div className="table-wrap operations-table-wrap">
           <table>
             <thead>
               <tr>
@@ -1740,7 +1924,9 @@ export default async function BackofficePage({
             </tbody>
           </table>
         </div>
-        <div className="table-wrap">
+        ) : null}
+        {activeHealthSection === "integrations" ? (
+        <div className="table-wrap operations-table-wrap">
           <table>
             <thead>
               <tr>
@@ -1788,7 +1974,9 @@ export default async function BackofficePage({
             </tbody>
           </table>
         </div>
-        <div className="table-wrap">
+        ) : null}
+        {activeHealthSection === "jobs" ? (
+        <div className="table-wrap operations-table-wrap">
           <table>
             <thead>
               <tr>
@@ -1840,7 +2028,9 @@ export default async function BackofficePage({
             </tbody>
           </table>
         </div>
-        <div className="table-wrap">
+        ) : null}
+        {activeHealthSection === "incidents" ? (
+        <div className="table-wrap operations-table-wrap">
           <table>
             <thead>
               <tr>
@@ -1887,7 +2077,9 @@ export default async function BackofficePage({
             </tbody>
           </table>
         </div>
+        ) : null}
       </div>
+      ) : null}
     </section>
   );
 }

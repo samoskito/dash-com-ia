@@ -112,6 +112,13 @@ async function createApp() {
   };
   const service = {
     listDeliveries: vi.fn(async () => [delivery]),
+    summarizeDeliveries: vi.fn(async () => ({
+      all: 423,
+      ctwaPending: 50,
+      ctwaRouted: 0,
+      failed: 0,
+      noCtwa: 373,
+    })),
     getPayload: vi.fn(async () => payloadResult),
     recordDeniedPayloadAccess: vi.fn(async () => undefined),
   };
@@ -186,6 +193,31 @@ describe("backoffice inbound webhooks controller", () => {
       await app.close();
     },
   );
+
+  it("returns global counters scoped to the selected workspace and connection", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/inbound-webhooks/summary?workspaceId=workspace_1&connectionId=connection_1&provider=umbler",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .expect(200)
+      .expect({
+        all: 423,
+        ctwaPending: 50,
+        ctwaRouted: 0,
+        failed: 0,
+        noCtwa: 373,
+      });
+
+    expect(service.summarizeDeliveries).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      connectionId: "connection_1",
+      provider: "umbler",
+    });
+    await app.close();
+  });
 
   it("returns a platform-owner payload with metadata and normalized events", async () => {
     const { app, platformAdminService, service } = await createApp();

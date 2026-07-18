@@ -12,6 +12,8 @@ import type {
 import type {
   BackofficeInboundWebhookDeliveryDto,
   BackofficeInboundWebhookDeliveryQueryDto,
+  BackofficeInboundWebhookDeliverySummaryDto,
+  BackofficeInboundWebhookDeliverySummaryQueryDto,
   BackofficeInboundWebhookPayloadDto,
   InboundWebhookNormalizedObservationDto,
 } from "@wpptrack/shared";
@@ -79,12 +81,21 @@ export class BackofficeInboundWebhooksService {
   ): Promise<BackofficeInboundWebhookDeliveryDto[]> {
     const deliveries = await this.prisma.inboundWebhookDelivery.findMany({
       where: {
-        ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
-        ...(query.connectionId ? { connectionId: query.connectionId } : {}),
-        ...(query.provider ? { provider: query.provider } : {}),
+        ...this.deliveryScope(query),
         ...(query.status ? { status: query.status } : {}),
         ...(query.classification
-          ? { classification: query.classification }
+          ? {
+              OR: [
+                { classification: query.classification },
+                {
+                  events: {
+                    some: {
+                      classification: query.classification,
+                    },
+                  },
+                },
+              ],
+            }
           : {}),
       },
       select: deliveryListSelect,
@@ -96,6 +107,49 @@ export class BackofficeInboundWebhooksService {
     return deliveries.map((delivery) =>
       this.toDeliveryDto(delivery, this.listPayloadAvailable(delivery, now)),
     );
+  }
+
+  async summarizeDeliveries(
+    query: BackofficeInboundWebhookDeliverySummaryQueryDto,
+  ): Promise<BackofficeInboundWebhookDeliverySummaryDto> {
+    const deliveryScope = this.deliveryScope(query);
+    const eventScope = this.eventScope(query);
+    const [all, ctwaPending, ctwaRouted, failed, noCtwa] =
+      await this.prisma.$transaction([
+        this.prisma.inboundWebhookEvent.count({ where: eventScope }),
+        this.prisma.inboundWebhookEvent.count({
+          where: {
+            ...eventScope,
+            classification: "eligible_route_unresolved",
+          },
+        }),
+        this.prisma.inboundWebhookEvent.count({
+          where: {
+            ...eventScope,
+            classification: "eligible_route_resolved",
+          },
+        }),
+        this.prisma.inboundWebhookDelivery.count({
+          where: {
+            ...deliveryScope,
+            status: "failed",
+          },
+        }),
+        this.prisma.inboundWebhookEvent.count({
+          where: {
+            ...eventScope,
+            classification: "ignored_no_ctwa",
+          },
+        }),
+      ]);
+
+    return {
+      all,
+      ctwaPending,
+      ctwaRouted,
+      failed,
+      noCtwa,
+    };
   }
 
   async getPayload(
@@ -259,6 +313,26 @@ export class BackofficeInboundWebhooksService {
       routingErrorCode: delivery.routingErrorCode,
       normalizedSummary: this.recordValue(delivery.normalizedSummary),
       eventCount: delivery._count.events,
+    };
+  }
+
+  private deliveryScope(
+    query: BackofficeInboundWebhookDeliverySummaryQueryDto,
+  ): Prisma.InboundWebhookDeliveryWhereInput {
+    return {
+      ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
+      ...(query.connectionId ? { connectionId: query.connectionId } : {}),
+      ...(query.provider ? { provider: query.provider } : {}),
+    };
+  }
+
+  private eventScope(
+    query: BackofficeInboundWebhookDeliverySummaryQueryDto,
+  ): Prisma.InboundWebhookEventWhereInput {
+    return {
+      ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
+      ...(query.connectionId ? { connectionId: query.connectionId } : {}),
+      ...(query.provider ? { provider: query.provider } : {}),
     };
   }
 
