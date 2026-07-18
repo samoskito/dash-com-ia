@@ -13,6 +13,7 @@ import {
   BackofficeActionForm,
   type BackofficeActionState
 } from "../../../../components/backoffice-action-form";
+import { BackofficeNavigation } from "../../../../components/backoffice-navigation";
 import { ExternalConnectorRow } from "../../../../components/external-connector-row";
 import { PendingSubmitButton } from "../../../../components/pending-submit-button";
 import { SecurePasswordInput } from "../../../../components/secure-password-input";
@@ -480,6 +481,8 @@ export default async function BackofficeClientsPage({
 
   return (
     <section className="page-stack standalone-page client-admin-page">
+      <BackofficeNavigation active="clients" />
+
       <header className="page-header client-admin-header">
         <div>
           <span className="eyebrow">Operacao da plataforma</span>
@@ -487,9 +490,6 @@ export default async function BackofficeClientsPage({
           <p>Provisionamento isolado, suporte auditado e fontes externas por workspace.</p>
         </div>
         <div className="header-actions">
-          <a className="button ghost" href="/backoffice">
-            Voltar ao backoffice
-          </a>
           <span className="status-chip">
             {session?.user.platformRole === "platform_owner" ? "Platform Owner" : "Operador"}
           </span>

@@ -13,6 +13,8 @@ import type {
   WorkspaceBillingDto
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
+import { BackofficeHome } from "../../../components/backoffice-home";
+import { BackofficeNavigation } from "../../../components/backoffice-navigation";
 import { formatDateTime } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 
@@ -657,6 +659,15 @@ export default async function BackofficePage({
   searchParams?: Promise<BackofficeSearchParams>;
 }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
+  const requestedView = asStringParam(resolvedSearchParams.view);
+  const hasLegacyFilters = Object.keys(resolvedSearchParams).some(
+    (key) => key !== "view"
+  );
+
+  if (requestedView !== "operations" && !hasLegacyFilters) {
+    return <BackofficeHome />;
+  }
+
   const diagnosticFilters: DiagnosticFilters = {
     workspaceId: asStringParam(resolvedSearchParams.workspaceId),
     source: asStringParam(resolvedSearchParams.source),
@@ -933,6 +944,8 @@ export default async function BackofficePage({
 
   return (
     <section className="page-stack standalone-page">
+      <BackofficeNavigation active="operations" />
+
       <header className="page-header">
         <div>
           <span className="eyebrow">Backoffice interno</span>
@@ -940,11 +953,8 @@ export default async function BackofficePage({
           <p>Financeiro, split, workspaces e Central de Diagnostico operacional.</p>
         </div>
         <div className="header-actions">
-          <a className="button ghost" href="/backoffice/inbound-webhooks">
-            Webhooks WhatsApp
-          </a>
-          <a className="button ghost" href="/backoffice/clients">
-            Clientes e acessos
+          <a className="button ghost" href="/backoffice">
+            Voltar ao inicio
           </a>
           <span className={`status-chip${hasBackofficeError ? " warn" : ""}`}>
             {hasBackofficeError ? "API indisponivel" : "Backoffice conectado"}
@@ -962,7 +972,7 @@ export default async function BackofficePage({
         ))}
       </div>
 
-      <div className="surface-panel">
+      <div className="surface-panel" id="instances">
         <span className="eyebrow">Instancias WhatsApp</span>
         <h2>Conexoes por workspace</h2>
         <div className="table-wrap">
@@ -1012,10 +1022,11 @@ export default async function BackofficePage({
         </div>
       </div>
 
-      <div className="surface-panel">
+      <div className="surface-panel" id="billing">
         <span className="eyebrow">Cobrancas Asaas</span>
         <h2>Cobrancas de instancias WhatsApp</h2>
         <form className="filter-bar" aria-label="Filtros de cobrancas" action="/backoffice">
+          <input type="hidden" name="view" value="operations" />
           <select
             className="filter-control"
             name="chargeStatus"
@@ -1035,7 +1046,7 @@ export default async function BackofficePage({
             defaultValue={paymentChargeFilters.workspaceId}
           />
           <button className="button" type="submit">Filtrar cobrancas</button>
-          <a className="button ghost" href="/backoffice">Limpar</a>
+          <a className="button ghost" href="/backoffice?view=operations#billing">Limpar</a>
         </form>
         <p className="muted">
           {activePaymentChargeFilterCount > 0
@@ -1395,10 +1406,11 @@ export default async function BackofficePage({
         </div>
       </div>
 
-      <div className="surface-panel">
+      <div className="surface-panel" id="diagnostics">
         <span className="eyebrow">Central de diagnostico</span>
         <h2>Saude operacional por camada</h2>
         <form className="filter-bar" aria-label="Filtros de diagnostico" action="/backoffice">
+          <input type="hidden" name="view" value="operations" />
           <input
             className="filter-control"
             name="q"
@@ -1529,7 +1541,7 @@ export default async function BackofficePage({
             defaultValue={diagnosticFilters.errorCode}
           />
           <button className="button" type="submit">Filtrar</button>
-          <a className="button ghost" href="/backoffice">Limpar</a>
+          <a className="button ghost" href="/backoffice?view=operations#diagnostics">Limpar</a>
         </form>
         <p className="muted">
           {activeDiagnosticFilterCount > 0

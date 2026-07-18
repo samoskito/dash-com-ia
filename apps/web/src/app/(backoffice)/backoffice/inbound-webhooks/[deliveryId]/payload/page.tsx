@@ -2,6 +2,7 @@ import type {
   BackofficeInboundWebhookPayloadDto,
   InboundWebhookEventClassificationDto,
 } from "@wpptrack/shared";
+import { BackofficeNavigation } from "../../../../../../components/backoffice-navigation";
 import { formatDateTime } from "../../../../../../lib/date-time";
 import { serverApiFetch } from "../../../../../../lib/server-api";
 
@@ -49,6 +50,8 @@ export default async function InboundWebhookPayloadPage({
   if (!result) {
     return (
       <section className="page-stack standalone-page">
+        <BackofficeNavigation active="webhooks" />
+
         <header className="page-header">
           <div>
             <span className="eyebrow">Observacao de webhooks WhatsApp</span>
@@ -80,6 +83,8 @@ export default async function InboundWebhookPayloadPage({
 
   return (
     <section className="page-stack standalone-page">
+      <BackofficeNavigation active="webhooks" />
+
       <header className="page-header">
         <div>
           <span className="eyebrow">Auditoria restrita do payload</span>

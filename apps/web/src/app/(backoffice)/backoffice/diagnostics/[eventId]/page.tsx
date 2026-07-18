@@ -1,5 +1,6 @@
 import type { DiagnosticEventDetailDto } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
+import { BackofficeNavigation } from "../../../../../components/backoffice-navigation";
 import { serverApiFetch } from "../../../../../lib/server-api";
 
 type DiagnosticEventPageProps = {
@@ -99,6 +100,8 @@ export default async function DiagnosticEventPage({
   if (!event) {
     return (
       <section className="page-stack standalone-page">
+        <BackofficeNavigation active="operations" />
+
         <header className="page-header">
           <div>
             <span className="eyebrow">Central de diagnostico</span>
@@ -129,6 +132,8 @@ export default async function DiagnosticEventPage({
 
   return (
     <section className="page-stack standalone-page">
+      <BackofficeNavigation active="operations" />
+
       <header className="page-header">
         <div>
           <span className="eyebrow">Central de diagnostico</span>

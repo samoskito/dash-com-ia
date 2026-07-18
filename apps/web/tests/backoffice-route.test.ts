@@ -2,13 +2,44 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import BackofficePage from "../src/app/(backoffice)/backoffice/page";
+import BackofficePageRoute from "../src/app/(backoffice)/backoffice/page";
+
+type BackofficePageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+async function BackofficePage(props: BackofficePageProps) {
+  const searchParams = props.searchParams ? await props.searchParams : {};
+
+  return BackofficePageRoute({
+    searchParams: Promise.resolve({
+      ...searchParams,
+      view: "operations",
+    }),
+  });
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 describe("backoffice route", () => {
+  it("opens a task-first home without loading operational tables", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const element = await BackofficePageRoute({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(html).toContain("Central do backoffice");
+    expect(html).toContain("O que voce precisa fazer?");
+    expect(html).toContain('href="/backoffice/inbound-webhooks"');
+    expect(html).toContain("Webhooks WhatsApp");
+    expect(html).toContain('href="/backoffice/clients"');
+    expect(html).toContain('href="/backoffice?view=operations"');
+    expect(html).not.toContain("Saude operacional por camada");
+  });
+
   it("revalidates diagnostic pages after retrying from the list", () => {
     const source = readFileSync(
       "src/app/(backoffice)/backoffice/page.tsx",

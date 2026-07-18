@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 describe("inbound webhook payload routes", () => {
-  it("renders delivery, parser version, statuses, payload state and audit link", async () => {
+  it("renders recent deliveries with quick filters and one clear payload action", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       jsonResponse([
         availableDelivery,
@@ -66,18 +66,61 @@ describe("inbound webhook payload routes", () => {
         credentials: "include",
       }),
     );
+    expect(html).toContain("Entregas do WhatsApp");
+    expect(html).toContain("Filtros avancados");
+    expect(html).toContain(
+      'href="/backoffice/inbound-webhooks?classification=eligible_route_unresolved"',
+    );
+    expect(html).toContain(
+      'href="/backoffice/inbound-webhooks?classification=ignored_no_ctwa"',
+    );
     expect(html).toContain("Umbler Comercial");
-    expect(html).toContain("umbler-v1.3.0");
-    expect(html).toContain("observation_only");
     expect(html).toContain("Processado");
     expect(html).toContain("Falhou");
-    expect(html).toContain("Disponivel");
-    expect(html).toContain("Expirado");
-    expect(html).toContain("Removido");
+    expect(html).toContain("Payload disponivel");
+    expect(html).toContain("Payload expirado");
+    expect(html).toContain("Payload removido");
+    expect(html).toContain("Ver payload");
     expect(html).toContain(
       'href="/backoffice/inbound-webhooks/delivery_available/payload"',
     );
+    expect(html).not.toContain("workspace_1");
+    expect(html).not.toContain("umbler-v1.3.0");
     expectNoReleaseAction(html);
+  });
+
+  it("filters recent deliveries through the quick CTWA view", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      jsonResponse([
+        {
+          ...availableDelivery,
+          id: "delivery_pending",
+          connectionName: "Umbler CTWA",
+          classification: "eligible_route_unresolved",
+        },
+        {
+          ...availableDelivery,
+          id: "delivery_without_ctwa",
+          connectionName: "Umbler Organico",
+          classification: "ignored_no_ctwa",
+        },
+      ]),
+    );
+
+    const element = await InboundWebhookDeliveriesPage({
+      searchParams: Promise.resolve({
+        classification: "eligible_route_unresolved",
+      }),
+    });
+    const html = render(element);
+
+    expect(html).toContain("1 CTWA aguardando validacao do payload");
+    expect(html).toContain("Umbler CTWA");
+    expect(html).not.toContain("Umbler Organico");
+    expect(html).toContain(
+      'href="/backoffice/inbound-webhooks/delivery_pending/payload"',
+    );
+    expect(html).toContain('aria-current="page"');
   });
 
   it("renders escaped raw JSON beside normalized parser events", async () => {

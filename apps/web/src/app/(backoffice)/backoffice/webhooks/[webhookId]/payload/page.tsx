@@ -1,4 +1,5 @@
 import type { DiagnosticWebhookPayloadDto } from "@wpptrack/shared";
+import { BackofficeNavigation } from "../../../../../../components/backoffice-navigation";
 import { serverApiFetch } from "../../../../../../lib/server-api";
 
 type WebhookPayloadPageProps = {
@@ -36,6 +37,8 @@ export default async function WebhookPayloadPage({
   if (!webhook) {
     return (
       <section className="page-stack standalone-page">
+        <BackofficeNavigation active="operations" />
+
         <header className="page-header">
           <div>
             <span className="eyebrow">Central de diagnostico</span>
@@ -61,6 +64,8 @@ export default async function WebhookPayloadPage({
 
   return (
     <section className="page-stack standalone-page">
+      <BackofficeNavigation active="operations" />
+
       <header className="page-header">
         <div>
           <span className="eyebrow">Central de diagnostico</span>
