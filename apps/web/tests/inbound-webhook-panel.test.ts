@@ -1,0 +1,422 @@
+import type {
+  InboundWebhookCapabilitiesDto,
+  MetaManualConfigurationDto,
+} from "@wpptrack/shared";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import {
+  InboundWebhookPanel,
+  inboundWebhookProviderLabel,
+  type InboundWebhookConnectionView,
+} from "../src/app/(app)/integrations/inbound-webhook-panel";
+import { inboundWebhookReportingAccountOptions } from "../src/app/(app)/integrations/inbound-webhook-route-editor";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    refresh: () => undefined,
+  }),
+}));
+
+const capabilities = {
+  enabled: true,
+  providers: [
+    {
+      provider: "umbler",
+      parserVersion: "umbler/v1",
+      parserReleaseStatus: "observation_only",
+      creationEnabled: true,
+    },
+  ],
+} satisfies InboundWebhookCapabilitiesDto;
+
+const connectionView = {
+  overview: {
+    connection: {
+      id: "connection_1",
+      workspaceId: "workspace_current",
+      provider: "umbler",
+      displayName: "Umbler Comercial",
+      parserVersion: "umbler/v1",
+      parserReleaseStatus: "observation_only",
+      status: "observation",
+      lastDeliveryAt: "2026-07-17T19:35:00.000Z",
+      lastSuccessfulParseAt: "2026-07-17T19:34:00.000Z",
+      createdAt: "2026-07-17T18:00:00.000Z",
+      updatedAt: "2026-07-17T19:35:00.000Z",
+    },
+    counters: {
+      eligibleRouted: 12,
+      eligibleUnresolved: 5,
+      ignoredNoCtwa: 8,
+      duplicate: 3,
+      invalid: 2,
+    },
+  },
+  channels: [
+    {
+      id: "channel_1",
+      connectionId: "connection_1",
+      organizationId: "organization_1",
+      providerChannelId: "umbler_channel_1",
+      connectedPhone: "+5511999990001",
+      channelName: "Comercial Sao Paulo",
+      status: "active",
+      firstSeenAt: "2026-07-17T18:15:00.000Z",
+      lastSeenAt: "2026-07-17T19:30:00.000Z",
+      routes: [
+        inboundRoute({
+          id: "route_sales",
+          metaBusinessConnectionId: "business_connection_sales",
+          metaReportingAccountId: "reporting_sales",
+          metaConversionDestinationId: "destination_sales",
+        }),
+        inboundRoute({
+          id: "route_support",
+          metaBusinessConnectionId: "business_connection_support",
+          metaReportingAccountId: "reporting_support",
+          metaConversionDestinationId: "destination_support",
+        }),
+      ],
+      createdAt: "2026-07-17T18:15:00.000Z",
+      updatedAt: "2026-07-17T19:30:00.000Z",
+    },
+  ],
+} satisfies InboundWebhookConnectionView;
+
+const metaConfiguration = {
+  workspaceId: "workspace_current",
+  connectionMode: "manual",
+  advancedRoutingEnabled: false,
+  unmappedActiveAccountCount: 0,
+  credentials: [],
+  businessConnections: [
+    metaBusinessConnection({
+      id: "business_connection_sales",
+      businessManagerId: "bm_sales",
+      businessManagerName: "BM Vendas Atual",
+      defaultConversionDestinationId: "destination_sales",
+    }),
+    metaBusinessConnection({
+      id: "business_connection_support",
+      businessManagerId: "bm_support",
+      businessManagerName: "BM Suporte Atual",
+      defaultConversionDestinationId: "destination_support",
+    }),
+  ],
+  destinations: [
+    metaDestination({
+      id: "destination_sales",
+      label: "Pixel e Pagina Vendas",
+      ownerBusinessManagerId: "bm_sales",
+      pixelId: "pixel_sales",
+      pixelName: "Pixel Vendas",
+      pageId: "page_sales",
+      pageName: "Pagina Vendas",
+    }),
+    metaDestination({
+      id: "destination_support",
+      label: "Pixel e Pagina Suporte",
+      ownerBusinessManagerId: "bm_support",
+      pixelId: "pixel_support",
+      pixelName: "Pixel Suporte",
+      pageId: "page_support",
+      pageName: "Pagina Suporte",
+    }),
+  ],
+  reportingAccounts: [
+    metaReportingAccount({
+      id: "reporting_sales",
+      businessId: "bm_sales",
+      businessName: "BM Vendas Atual",
+      adAccountId: "act_sales",
+      adAccountName: "Conta Vendas Atual",
+      businessConnectionId: "business_connection_sales",
+      conversionDestinationId: "destination_sales",
+    }),
+    metaReportingAccount({
+      id: "reporting_support",
+      businessId: "bm_support",
+      businessName: "BM Suporte Atual",
+      adAccountId: "act_support",
+      adAccountName: "Conta Suporte Atual",
+      businessConnectionId: "business_connection_support",
+      conversionDestinationId: "destination_support",
+    }),
+  ],
+} satisfies MetaManualConfigurationDto;
+
+describe("inbound webhook panel", () => {
+  it("shows Umbler in an extensible provider selector and stays observation-only", () => {
+    const html = renderPanel({ connections: [] });
+
+    expect(inboundWebhookProviderLabel("umbler")).toBe("Umbler Talk");
+    expect(inboundWebhookProviderLabel("future-provider")).toBe(
+      "future-provider",
+    );
+    expect(html).toContain('<select name="provider"');
+    expect(html).toContain('<option value="umbler" selected="">Umbler Talk');
+    expect(html).toContain("modo de observacao");
+    expect(html).toContain("Esta etapa nao cria leads nem envia conversoes.");
+    expect(html.toLocaleLowerCase("pt-BR")).not.toContain("producao");
+    expect(html.toLocaleLowerCase("pt-BR")).not.toContain("production");
+  });
+
+  it("renders all five counters, channel metadata, and several N:N routes", () => {
+    const html = renderPanel();
+    const channel = connectionView.channels[0];
+    const expectedLastSeen = new Date(channel.lastSeenAt).toLocaleString(
+      "pt-BR",
+      {
+        dateStyle: "short",
+        timeStyle: "short",
+      },
+    );
+
+    for (const [label, value] of [
+      ["CTWA roteado", 12],
+      ["CTWA pendente", 5],
+      ["Sem CTWA", 8],
+      ["Duplicados", 3],
+      ["Invalidos", 2],
+    ] as const) {
+      expect(html).toContain(`<span>${label}</span><strong>${value}</strong>`);
+    }
+
+    expect(html).toContain("Comercial Sao Paulo");
+    expect(html).toContain("+5511999990001");
+    expect(html).toContain(expectedLastSeen);
+    expect(html.match(/class="inbound-route-row"/g)).toHaveLength(2);
+    expect(html).toContain('aria-label="BM da rota 1"');
+    expect(html).toContain('aria-label="BM da rota 2"');
+    expect(html).toContain("2 rota(s) preparada(s).");
+  });
+
+  it("uses only the supplied workspace Meta options for each exact route", () => {
+    expect(
+      inboundWebhookReportingAccountOptions(
+        metaConfiguration,
+        "business_connection_sales",
+      ),
+    ).toEqual([
+      {
+        value: "reporting_sales",
+        label: "Conta Vendas Atual",
+        description: "act_sales",
+      },
+    ]);
+
+    const html = renderPanel();
+
+    for (const value of [
+      "BM Vendas Atual",
+      "BM Suporte Atual",
+      "Conta Vendas Atual",
+      "Conta Suporte Atual",
+      "Pixel e Pagina Vendas",
+      "Pixel e Pagina Suporte",
+    ]) {
+      expect(html).toContain(value);
+    }
+    expect(html).not.toContain("workspace_foreign");
+    expect(html).not.toContain("Conta Foreign");
+  });
+
+  it("enables manager commands while keeping analyst routes visible and read-only", () => {
+    const managerHtml = renderPanel({ canManage: true });
+    const analystHtml = renderPanel({ canManage: false });
+
+    for (const command of [
+      "Adicionar conexao",
+      "Pausar",
+      "Gerar nova URL",
+      "Remover",
+      "Pausar canal",
+      "Adicionar rota",
+      "Salvar rotas",
+    ]) {
+      expect(managerHtml).toContain(command);
+    }
+    expect(managerHtml).toContain('aria-readonly="false"');
+
+    expect(analystHtml).toContain("Rotas visiveis em modo somente leitura.");
+    expect(analystHtml).toContain("2 rota(s) configurada(s).");
+    expect(analystHtml).toContain("BM Vendas Atual");
+    expect(analystHtml).toContain("Conta Suporte Atual");
+    expect(analystHtml).toContain('aria-readonly="true"');
+    expect(analystHtml).not.toContain("Adicionar conexao");
+    expect(analystHtml).not.toContain("Gerar nova URL");
+    expect(analystHtml).not.toContain("Pausar canal");
+    expect(analystHtml).not.toContain("Adicionar rota");
+    expect(analystHtml).not.toContain("Salvar rotas");
+  });
+
+  it("marks connection, channel, number, BM, account, Pixel, and Page as private", () => {
+    const html = renderPanel();
+
+    for (const placeholder of [
+      "Conexao Umbler",
+      "Canal oculto",
+      "Numero oculto",
+      "BM oculta",
+      "Conta oculta",
+      "Pixel e Pagina ocultos",
+    ]) {
+      expect(html).toContain(placeholder);
+    }
+    expect(html).toContain('data-presentation-sensitive="true"');
+    expect(html).toContain('data-presentation-sensitive-field="true"');
+  });
+});
+
+function renderPanel({
+  canManage = true,
+  connections = [connectionView],
+}: {
+  canManage?: boolean;
+  connections?: InboundWebhookConnectionView[];
+} = {}) {
+  const action = vi.fn(async (_formData: FormData) => ({
+    ok: true as const,
+    message: "ok",
+  }));
+
+  return renderToStaticMarkup(
+    createElement(InboundWebhookPanel, {
+      capabilities,
+      connections,
+      metaConfiguration,
+      canManage,
+      createAction: action,
+      rotateSecretAction: action,
+      setConnectionStatusAction: action,
+      removeConnectionAction: action,
+      setChannelStatusAction: action,
+      saveRoutesAction: action,
+    }),
+  );
+}
+
+function inboundRoute({
+  id,
+  metaBusinessConnectionId,
+  metaReportingAccountId,
+  metaConversionDestinationId,
+}: {
+  id: string;
+  metaBusinessConnectionId: string;
+  metaReportingAccountId: string;
+  metaConversionDestinationId: string;
+}) {
+  return {
+    id,
+    channelId: "channel_1",
+    metaBusinessConnectionId,
+    metaReportingAccountId,
+    metaConversionDestinationId,
+    active: true,
+    validationStatus: "valid",
+    validationErrorCode: null,
+    lastValidatedAt: "2026-07-17T19:25:00.000Z",
+    createdAt: "2026-07-17T19:00:00.000Z",
+    updatedAt: "2026-07-17T19:25:00.000Z",
+  };
+}
+
+function metaBusinessConnection({
+  id,
+  businessManagerId,
+  businessManagerName,
+  defaultConversionDestinationId,
+}: {
+  id: string;
+  businessManagerId: string;
+  businessManagerName: string;
+  defaultConversionDestinationId: string;
+}) {
+  return {
+    id,
+    workspaceId: "workspace_current",
+    credentialId: "credential_current",
+    businessManagerId,
+    businessManagerName,
+    status: "active" as const,
+    defaultConversionDestinationId,
+    reportingAccountCount: 1,
+    activeReportingAccountCount: 1,
+    lastValidatedAt: "2026-07-17T19:00:00.000Z",
+    validationError: null,
+    lastSyncedAt: "2026-07-17T19:00:00.000Z",
+    createdAt: "2026-07-17T18:00:00.000Z",
+    updatedAt: "2026-07-17T19:00:00.000Z",
+  };
+}
+
+function metaDestination({
+  id,
+  label,
+  ownerBusinessManagerId,
+  pixelId,
+  pixelName,
+  pageId,
+  pageName,
+}: {
+  id: string;
+  label: string;
+  ownerBusinessManagerId: string;
+  pixelId: string;
+  pixelName: string;
+  pageId: string;
+  pageName: string;
+}) {
+  return {
+    id,
+    workspaceId: "workspace_current",
+    label,
+    ownerBusinessManagerId,
+    pixelId,
+    pixelName,
+    pageId,
+    pageName,
+    status: "configured" as const,
+    lastValidatedAt: "2026-07-17T19:00:00.000Z",
+    validationError: null,
+  };
+}
+
+function metaReportingAccount({
+  id,
+  businessId,
+  businessName,
+  adAccountId,
+  adAccountName,
+  businessConnectionId,
+  conversionDestinationId,
+}: {
+  id: string;
+  businessId: string;
+  businessName: string;
+  adAccountId: string;
+  adAccountName: string;
+  businessConnectionId: string;
+  conversionDestinationId: string;
+}) {
+  return {
+    id,
+    workspaceId: "workspace_current",
+    businessId,
+    businessName,
+    adAccountId,
+    adAccountName,
+    currency: "BRL",
+    timezoneName: "America/Sao_Paulo",
+    businessConnectionId,
+    conversionDestinationId,
+    active: true,
+    syncStatus: "synced" as const,
+    lastSyncedAt: "2026-07-17T19:00:00.000Z",
+    lastSyncSince: null,
+    lastSyncUntil: null,
+    syncError: null,
+  };
+}

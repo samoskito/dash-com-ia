@@ -1,4 +1,8 @@
 import type {
+  InboundWebhookCapabilitiesDto,
+  InboundWebhookChannelDto,
+  InboundWebhookConnectionDto,
+  InboundWebhookConnectionOverviewDto,
   IntegrationHealthSummaryDto,
   IntegrationPipelineOverviewDto,
   MetaAssetsDto,
@@ -20,6 +24,18 @@ import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { MetaConversionDestinationForm } from "./meta-conversion-destination-form";
+import {
+  createInboundWebhookConnectionAction,
+  removeInboundWebhookConnectionAction,
+  rotateInboundWebhookSecretAction,
+  saveInboundWebhookChannelRoutesAction,
+  setInboundWebhookChannelStatusAction,
+  setInboundWebhookConnectionStatusAction,
+} from "./inbound-webhook-actions";
+import {
+  InboundWebhookPanel,
+  type InboundWebhookConnectionView,
+} from "./inbound-webhook-panel";
 import {
   createMetaManualConnectionAction,
   createMetaManualCredentialAction,
@@ -306,6 +322,80 @@ async function getMetaOAuthAdvancedConfiguration(): Promise<
     };
   } catch {
     return { data: null, state: "error" };
+  }
+}
+
+type InboundWebhookPageData = {
+  capabilities: InboundWebhookCapabilitiesDto;
+  connections: InboundWebhookConnectionView[];
+};
+
+async function getInboundWebhookData(): Promise<
+  ResourceResult<InboundWebhookPageData | null>
+> {
+  try {
+    const capabilities = await serverApiFetch<InboundWebhookCapabilitiesDto>(
+      "/integrations/inbound-webhooks/capabilities",
+    );
+    const connections = await serverApiFetch<InboundWebhookConnectionDto[]>(
+      "/integrations/inbound-webhooks",
+    );
+    let detailError = false;
+    const views = await Promise.all(
+      connections.map(async (connection) => {
+        const [overviewResult, channelsResult] = await Promise.allSettled([
+          serverApiFetch<InboundWebhookConnectionOverviewDto>(
+            `/integrations/inbound-webhooks/${encodeURIComponent(connection.id)}/overview`,
+          ),
+          serverApiFetch<InboundWebhookChannelDto[]>(
+            `/integrations/inbound-webhooks/${encodeURIComponent(connection.id)}/channels`,
+          ),
+        ]);
+
+        if (
+          overviewResult.status === "rejected" ||
+          channelsResult.status === "rejected"
+        ) {
+          detailError = true;
+        }
+
+        return {
+          overview:
+            overviewResult.status === "fulfilled"
+              ? overviewResult.value
+              : {
+                  connection,
+                  counters: {
+                    eligibleRouted: 0,
+                    eligibleUnresolved: 0,
+                    ignoredNoCtwa: 0,
+                    duplicate: 0,
+                    invalid: 0,
+                  },
+                },
+          channels:
+            channelsResult.status === "fulfilled" ? channelsResult.value : [],
+          detailState:
+            overviewResult.status === "fulfilled" &&
+            channelsResult.status === "fulfilled"
+              ? ("real" as const)
+              : ("error" as const),
+        };
+      }),
+    );
+
+    return {
+      data: {
+        capabilities,
+        connections: views,
+      },
+      state: detailError ? "error" : connections.length > 0 ? "real" : "empty",
+    };
+  } catch {
+    return {
+      data: null,
+      state: "error",
+    };
   }
 }
 
@@ -859,6 +949,8 @@ export default async function IntegrationsPage({
       : metaCapabilities.manualEnabled
         ? await getMetaManualConfiguration()
         : ({ data: null, state: "empty" } as const);
+  const inboundWebhookResult = await getInboundWebhookData();
+  const inboundWebhookData = inboundWebhookResult.data;
   const whatsappQuote = whatsappQuoteResult.data;
   const billingSubscription = billingSubscriptionResult.data;
   const pipeline = pipelineResult.data;
@@ -883,6 +975,9 @@ export default async function IntegrationsPage({
     ...((legacyMetaConnected && metaCapabilities.oauthEnabled) ||
     metaCapabilities.manualEnabled
       ? [metaManualResult.state]
+      : []),
+    ...(inboundWebhookData?.capabilities.enabled
+      ? [inboundWebhookResult.state]
       : []),
     ...(usesExternalWhatsapp
       ? []
@@ -1253,6 +1348,23 @@ export default async function IntegrationsPage({
             : "A conexao Meta fica protegida no backend. Esta tela mostra apenas o destino principal e as contas ativas usadas nos relatorios."}
         </p>
       </div>
+
+      {inboundWebhookData &&
+      (inboundWebhookData.capabilities.enabled ||
+        inboundWebhookData.connections.length > 0) ? (
+        <InboundWebhookPanel
+          capabilities={inboundWebhookData.capabilities}
+          connections={inboundWebhookData.connections}
+          metaConfiguration={metaManualResult.data}
+          canManage={canManageIntegrations}
+          createAction={createInboundWebhookConnectionAction}
+          rotateSecretAction={rotateInboundWebhookSecretAction}
+          setConnectionStatusAction={setInboundWebhookConnectionStatusAction}
+          removeConnectionAction={removeInboundWebhookConnectionAction}
+          setChannelStatusAction={setInboundWebhookChannelStatusAction}
+          saveRoutesAction={saveInboundWebhookChannelRoutesAction}
+        />
+      ) : null}
 
       {usesExternalWhatsapp ? (
         <div className="surface-panel external-source-panel">

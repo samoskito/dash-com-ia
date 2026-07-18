@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   CONVERSION_EVENTS_QUEUE,
   DIAGNOSTIC_QUEUE,
+  INBOUND_WEBHOOK_QUEUE,
   META_REPORT_SYNC_QUEUE,
   type ConversionEventJobPayload,
   type DiagnosticJobPayload,
+  type InboundWebhookJobPayload,
   type MetaReportSyncJobPayload,
 } from "../src/common/queue/queue.constants";
 
@@ -50,5 +52,25 @@ describe("diagnostic queue contract", () => {
 
     expect(META_REPORT_SYNC_QUEUE).toBe("meta-report-sync");
     expect(payload.workspaceId).toBe("workspace_1");
+  });
+
+  it("uses the minimal inbound webhook queue contract", () => {
+    const payload: InboundWebhookJobPayload = {
+      deliveryId: "delivery_1",
+      connectionId: "connection_1",
+      workspaceId: "workspace_1",
+    };
+
+    expect(INBOUND_WEBHOOK_QUEUE).toBe("inbound-webhooks");
+    expect(payload).toEqual({
+      deliveryId: "delivery_1",
+      connectionId: "connection_1",
+      workspaceId: "workspace_1",
+    });
+    expect(Object.keys(payload).sort()).toEqual([
+      "connectionId",
+      "deliveryId",
+      "workspaceId",
+    ]);
   });
 });

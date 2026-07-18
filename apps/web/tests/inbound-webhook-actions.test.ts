@@ -1,0 +1,384 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const { revalidatePath, serverApiFetch } = vi.hoisted(() => ({
+  revalidatePath: vi.fn(),
+  serverApiFetch: vi.fn(),
+}));
+
+vi.mock("next/cache", () => ({ revalidatePath }));
+vi.mock("../src/lib/server-api", () => ({ serverApiFetch }));
+
+import {
+  createInboundWebhookConnectionAction,
+  removeInboundWebhookChannelRouteAction,
+  removeInboundWebhookConnectionAction,
+  rotateInboundWebhookSecretAction,
+  saveInboundWebhookChannelRoutesAction,
+  setInboundWebhookChannelStatusAction,
+  setInboundWebhookConnectionStatusAction,
+} from "../src/app/(app)/integrations/inbound-webhook-actions";
+
+const firstSecret = "a".repeat(43);
+const rotatedSecret = "b".repeat(43);
+
+const connection = {
+  id: "connection_1",
+  workspaceId: "workspace_1",
+  provider: "umbler",
+  displayName: "Umbler Comercial",
+  parserVersion: "umbler/v1",
+  parserReleaseStatus: "observation_only",
+  status: "observation",
+  lastDeliveryAt: null,
+  lastSuccessfulParseAt: null,
+  createdAt: "2026-07-17T18:00:00.000Z",
+  updatedAt: "2026-07-17T18:00:00.000Z",
+} as const;
+
+afterEach(() => {
+  revalidatePath.mockReset();
+  serverApiFetch.mockReset();
+});
+
+describe("inbound webhook server actions", () => {
+  it("creates an Umbler connection and returns the credential only as an ephemeral result", async () => {
+    const webhookUrl = `https://api.wpptrack.test/webhooks/inbound/connection_1?token=${firstSecret}`;
+    serverApiFetch.mockResolvedValueOnce({
+      connection,
+      secret: firstSecret,
+      webhookUrl,
+    });
+    const formData = form({
+      provider: "umbler",
+      displayName: "  Umbler Comercial  ",
+    });
+
+    const result = await createInboundWebhookConnectionAction(formData);
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/integrations/inbound-webhooks",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "umbler",
+          displayName: "Umbler Comercial",
+        }),
+      },
+    );
+    expect(result).toEqual({
+      ok: true,
+      message:
+        "Conexao Umbler criada. Copie a URL agora; ela nao sera exibida novamente.",
+      oneTimeSecret: {
+        connectionId: "connection_1",
+        webhookUrl,
+      },
+    });
+    expect(result).not.toHaveProperty("connection");
+    expect(result.message).not.toContain(firstSecret);
+    expect(serverApiFetch.mock.calls[0]?.[0]).not.toContain(firstSecret);
+    expect(serverApiFetch.mock.calls[0]?.[1]?.body).not.toContain(firstSecret);
+    expect(revalidatePath).toHaveBeenCalledWith("/integrations");
+  });
+
+  it("rotates the secret without sending it in the request path or body", async () => {
+    const webhookUrl = `https://api.wpptrack.test/webhooks/inbound/connection_1?token=${rotatedSecret}`;
+    serverApiFetch.mockResolvedValueOnce({
+      connectionId: "connection_1",
+      secret: rotatedSecret,
+      webhookUrl,
+      rotatedAt: "2026-07-17T19:00:00.000Z",
+    });
+
+    const result = await rotateInboundWebhookSecretAction(
+      form({ connectionId: "connection_1" }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/integrations/inbound-webhooks/connection_1/rotate-secret",
+      { method: "POST", body: "{}" },
+    );
+    expect(result).toEqual({
+      ok: true,
+      message:
+        "Segredo rotacionado. Copie a nova URL agora; ela nao sera exibida novamente.",
+      oneTimeSecret: {
+        connectionId: "connection_1",
+        webhookUrl,
+      },
+    });
+    expect(result.message).not.toContain(rotatedSecret);
+    expect(serverApiFetch.mock.calls[0]?.[0]).not.toContain(rotatedSecret);
+    expect(serverApiFetch.mock.calls[0]?.[1]?.body).not.toContain(
+      rotatedSecret,
+    );
+    expect(revalidatePath).toHaveBeenCalledWith("/integrations");
+  });
+
+  it.each([
+    ["paused", "Conexao pausada. A observacao foi interrompida."],
+    ["observation", "Conexao retomada em modo de observacao."],
+  ] as const)(
+    "updates the connection status to %s",
+    async (status, message) => {
+      serverApiFetch.mockResolvedValueOnce({ ...connection, status });
+
+      const result = await setInboundWebhookConnectionStatusAction(
+        form({ connectionId: "connection_1", status }),
+      );
+
+      expect(serverApiFetch).toHaveBeenCalledWith(
+        "/integrations/inbound-webhooks/connection_1/status",
+        {
+          method: "PUT",
+          body: JSON.stringify({ status }),
+        },
+      );
+      expect(result).toEqual({ ok: true, message });
+      expect(revalidatePath).toHaveBeenCalledWith("/integrations");
+    },
+  );
+
+  it("removes a connection through the tenant-scoped endpoint", async () => {
+    serverApiFetch.mockResolvedValueOnce(undefined);
+
+    const result = await removeInboundWebhookConnectionAction(
+      form({ connectionId: "connection_1" }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/integrations/inbound-webhooks/connection_1",
+      { method: "DELETE" },
+    );
+    expect(result).toEqual({
+      ok: true,
+      message: "Conexao removida. O historico de observacao foi preservado.",
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/integrations");
+  });
+
+  it.each([
+    ["active", "Canal ativado para observacao."],
+    ["paused", "Canal pausado. Os demais canais continuam inalterados."],
+  ] as const)("updates the channel status to %s", async (status, message) => {
+    serverApiFetch.mockResolvedValueOnce({ status });
+
+    const result = await setInboundWebhookChannelStatusAction(
+      form({ channelId: "channel/1", status }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/integrations/inbound-webhooks/channels/channel%2F1/status",
+      {
+        method: "PUT",
+        body: JSON.stringify({ status }),
+      },
+    );
+    expect(result).toEqual({ ok: true, message });
+    expect(revalidatePath).toHaveBeenCalledWith("/integrations");
+  });
+
+  it("saves several validated routes for one channel", async () => {
+    const routes = [
+      {
+        metaBusinessConnectionId: "business_connection_1",
+        metaReportingAccountId: "reporting_account_1",
+        metaConversionDestinationId: null,
+      },
+      {
+        metaBusinessConnectionId: "business_connection_2",
+        metaReportingAccountId: null,
+        metaConversionDestinationId: "destination_2",
+      },
+    ];
+    serverApiFetch.mockResolvedValueOnce({ routes: [] });
+
+    const result = await saveInboundWebhookChannelRoutesAction(
+      form({
+        channelId: "channel_1",
+        routes: JSON.stringify(routes),
+      }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/integrations/inbound-webhooks/channels/channel_1/routes",
+      {
+        method: "PUT",
+        body: JSON.stringify({ routes }),
+      },
+    );
+    expect(result).toEqual({
+      ok: true,
+      message: "Rotas do canal salvas para observacao.",
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/integrations");
+  });
+
+  it("removes one exact channel route", async () => {
+    serverApiFetch.mockResolvedValueOnce(undefined);
+
+    const result = await removeInboundWebhookChannelRouteAction(
+      form({ channelId: "channel_1", routeId: "route/1" }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/integrations/inbound-webhooks/channels/channel_1/routes/route%2F1",
+      { method: "DELETE" },
+    );
+    expect(result).toEqual({
+      ok: true,
+      message: "Rota removida do canal.",
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/integrations");
+  });
+
+  it.each([
+    [
+      "create",
+      () =>
+        createInboundWebhookConnectionAction(
+          form({ provider: "other", displayName: "Umbler Comercial" }),
+        ),
+    ],
+    [
+      "rotate",
+      () => rotateInboundWebhookSecretAction(form({ connectionId: "" })),
+    ],
+    [
+      "connection status",
+      () =>
+        setInboundWebhookConnectionStatusAction(
+          form({ connectionId: "connection_1", status: "production" }),
+        ),
+    ],
+    [
+      "remove connection",
+      () => removeInboundWebhookConnectionAction(form({ connectionId: "" })),
+    ],
+    [
+      "channel status",
+      () =>
+        setInboundWebhookChannelStatusAction(
+          form({ channelId: "channel_1", status: "discovered" }),
+        ),
+    ],
+    [
+      "save routes",
+      () =>
+        saveInboundWebhookChannelRoutesAction(
+          form({ channelId: "channel_1", routes: "{raw-payload" }),
+        ),
+    ],
+    [
+      "remove route",
+      () =>
+        removeInboundWebhookChannelRouteAction(
+          form({ channelId: "channel_1", routeId: "" }),
+        ),
+    ],
+  ])(
+    "rejects invalid FormData for %s before calling the API",
+    async (_, run) => {
+      const result = await run();
+
+      expect(result).toMatchObject({ ok: false });
+      expect(result.message).not.toContain("raw-payload");
+      expect(serverApiFetch).not.toHaveBeenCalled();
+      expect(revalidatePath).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      "create",
+      () =>
+        createInboundWebhookConnectionAction(
+          form({ provider: "umbler", displayName: "Umbler Comercial" }),
+        ),
+    ],
+    [
+      "rotate",
+      () =>
+        rotateInboundWebhookSecretAction(
+          form({ connectionId: "connection_1" }),
+        ),
+    ],
+    [
+      "connection status",
+      () =>
+        setInboundWebhookConnectionStatusAction(
+          form({ connectionId: "connection_1", status: "paused" }),
+        ),
+    ],
+    [
+      "remove connection",
+      () =>
+        removeInboundWebhookConnectionAction(
+          form({ connectionId: "connection_1" }),
+        ),
+    ],
+    [
+      "channel status",
+      () =>
+        setInboundWebhookChannelStatusAction(
+          form({ channelId: "channel_1", status: "active" }),
+        ),
+    ],
+    [
+      "save routes",
+      () =>
+        saveInboundWebhookChannelRoutesAction(
+          form({ channelId: "channel_1", routes: "[]" }),
+        ),
+    ],
+    [
+      "remove route",
+      () =>
+        removeInboundWebhookChannelRouteAction(
+          form({ channelId: "channel_1", routeId: "route_1" }),
+        ),
+    ],
+  ])("sanitizes API errors for %s", async (_, run) => {
+    const sensitive =
+      "secret=super-secret-value raw-payload={phone:+5511999999999}";
+    serverApiFetch.mockRejectedValueOnce(new Error(sensitive));
+
+    const result = await run();
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result).not.toHaveProperty("oneTimeSecret");
+    expect(JSON.stringify(result)).not.toContain(sensitive);
+    expect(JSON.stringify(result)).not.toContain("super-secret-value");
+    expect(JSON.stringify(result)).not.toContain("+5511999999999");
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("does not forward an invalid secret-bearing API response", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      connection,
+      secret: "short",
+      webhookUrl:
+        "https://api.wpptrack.test/webhooks/inbound/connection_1?token=payload-secret",
+      payload: "raw-payload-must-not-leak",
+    });
+
+    const result = await createInboundWebhookConnectionAction(
+      form({ provider: "umbler", displayName: "Umbler Comercial" }),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(JSON.stringify(result)).not.toContain("payload-secret");
+    expect(JSON.stringify(result)).not.toContain("raw-payload-must-not-leak");
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+});
+
+function form(values: Record<string, string>): FormData {
+  const formData = new FormData();
+
+  for (const [key, value] of Object.entries(values)) {
+    formData.set(key, value);
+  }
+
+  return formData;
+}

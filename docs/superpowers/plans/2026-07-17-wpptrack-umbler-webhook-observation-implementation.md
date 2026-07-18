@@ -1,8 +1,224 @@
 # WppTrack Umbler Webhook Observation Implementation Plan
 
 Date: 2026-07-17
-Status: Ready for execution
+Status: Implementation complete - ready for deployment checkpoint
 Design: docs/plans/2026-07-17-wpptrack-umbler-inbound-webhook-design.md
+
+## Execution Log
+
+### 2026-07-17 - Wave 0 complete
+
+- Added the disabled-by-default inbound webhook feature gate.
+- Added strict 32-byte Base64 key and public API origin validation when enabled.
+- Fixed encrypted raw-payload retention at seven days.
+- Registered an empty inbound webhook module with no runtime behavior.
+- Added transitive Nest-module and source-import guards against lead/CAPI side
+  effects.
+- Verification: API typecheck passed; 95 test files and 738 tests passed.
+- No database migration, endpoint, queue, lead write or CAPI behavior was added.
+
+### 2026-07-17 - Wave 1 complete
+
+- Added the global Umbler v1 parser release in `observation_only`.
+- Added tenant-scoped connection, channel, N:N route, delivery and event models.
+- Added both delivery ingress and canonical event idempotency constraints.
+- Added encrypted payload retention fields without plaintext payload columns.
+- Added shared Umbler management and redacted observation contracts.
+- Added `umbler` as a diagnostic source.
+- Verification: Prisma schema validation and generation passed; API 96 test
+  files/755 tests passed; shared 3 test files/69 tests passed; monorepo
+  typecheck passed.
+- No existing business rows are updated by the additive migration.
+
+### 2026-07-17 - Wave 2 complete
+
+- Added AES-256-GCM raw-payload encryption with random IV, authenticated
+  ciphertext and sanitized failures.
+- Added tenant-scoped Umbler connection management for list, detail, create,
+  secret rotation, pause/resume and non-destructive removal.
+- Connection secrets use 32 random bytes, are persisted only as SHA-256 hashes
+  and are returned only during creation or rotation.
+- Added manager-only mutations, read-only member access and generic
+  cross-workspace not-found responses.
+- Added transactional audits without webhook URLs, plaintext secrets or secret
+  hashes.
+- Added optimistic concurrency guards for secret rotation, pause, resume and
+  removal so concurrent managers cannot overwrite a newer connection state.
+- Bound AES authentication data to workspace, connection and delivery IDs.
+- Added composite tenant foreign keys and made historical Meta references
+  nullable on asset removal without permitting cross-workspace references.
+- Kept `production` unavailable until parser certification and the deferred
+  production wave.
+- Verification: 21 focused security/management tests passed; API 99 test
+  files/771 tests passed; monorepo typecheck passed.
+- No public webhook endpoint, queue job, lead write, conversation ledger write
+  or CAPI behavior was added.
+
+### 2026-07-17 - Wave 3 complete
+
+- Added the public `POST /webhooks/inbound/:connectionId` ingress with raw-body
+  capture, JSON-only media validation and a 96 KiB request limit.
+- Authenticates opaque connection IDs and hashed tokens before payload
+  validation, with generic missing/revoked responses and sanitized database
+  failures.
+- Derives tenancy only from the persisted connection and ignores untrusted
+  workspace values in headers or payloads.
+- Persists AES-256-GCM ciphertext before returning 202 and uses Umbler
+  `EventId`, with a raw SHA-256 fallback, for delivery idempotency.
+- Added duplicate attempt accounting, deterministic BullMQ job IDs, bounded
+  retries and recoverable pending rows when queue publication fails.
+- Queue payloads contain only workspace, connection and delivery IDs.
+- Verification: 58 focused ingress, queue, migration and boundary tests passed;
+  API typecheck passed.
+- No provider business parsing, lead write, conversation ledger write,
+  conversion log or CAPI behavior was added.
+
+### 2026-07-17 - Wave 4 complete
+
+- Added a provider/version registry with exact matching and no fallback parser.
+- Added the Umbler v1 parser against a fully synthetic fixture that preserves
+  the historical `Message`/`Chat` payload shape.
+- Maps root `EventId`, message identity, organization, channel, timestamps,
+  Meta ad ID and the ephemeral CTWA value into one canonical parser result.
+- Classifies CTWA candidates, organic messages, outbound messages, private
+  notes, unsupported events and invalid payloads deterministically.
+- Uses organization, channel and message IDs for canonical event deduplication,
+  independent of delivery retries and mutable channel labels.
+- Persistible summaries exclude CTWA, message content, contact phone, full
+  connected phone and media/source URLs.
+- Verification: 2 focused parser suites and 11 tests passed; multiline
+  historical ad descriptions remain valid without relaxing ID validation.
+- No database writes, diagnostics, lead write, conversation ledger write,
+  conversion log or CAPI behavior was added.
+
+### 2026-07-17 - Wave 5 complete
+
+- Added the dedicated BullMQ processor and tenant-bound observation service.
+- The processor reloads delivery, workspace, connection and parser release
+  together before decrypting the raw payload.
+- Added optimistic delivery claims that safely reclaim interrupted
+  `processing` jobs while rejecting a stale concurrent claim.
+- Discovers several Umbler channels per connection and updates mutable
+  channel names, connected numbers and last-seen timestamps without
+  duplicating stable channel identities.
+- Persists canonical events with connection-scoped deduplication and only a
+  hashed contact identity plus redacted observation metadata.
+- Added redacted Umbler webhook diagnostics without importing diagnostics,
+  conversion, lead or shared execution queue modules.
+- Deterministic parser failures remain inspectable; transient failures can be
+  retried without leaving the delivery permanently stuck.
+- Verification: 3 focused Wave 5 suites and 16 tests passed; the full inbound
+  Waves 0-5 regression passed before the retry hardening.
+- No lead, conversation ledger, conversion log or CAPI side effect is
+  reachable from the observation module.
+
+### 2026-07-17 - Wave 6 complete
+
+- Added metadata-only Meta route previews that never decrypt or return an
+  access token.
+- Added tenant-scoped many-to-many routes between discovered Umbler channels
+  and active Meta business connections, with optional exact reporting-account
+  and conversion-destination overrides.
+- Route replacement is transactional, removed routes remain as tombstones and
+  every mutation creates a redacted audit entry.
+- Eligible unresolved observations are re-evaluated after route or channel
+  changes; exactly one matching route resolves, while missing attribution,
+  inactive references and ambiguity remain blocked and inspectable.
+- Added read-only channel listing for workspace members and manager-only route,
+  channel-status and route-removal endpoints.
+- Hardened the web API client to accept successful `204 No Content` responses
+  used by non-destructive removal commands.
+- Verification: 46 focused controller, route, Meta resolver, processor and
+  boundary tests passed; API typecheck passed; full API suite passed with 107
+  files and 853 tests.
+- No Meta token decryption, lead write, conversation ledger write, conversion
+  log or CAPI behavior was added.
+
+### 2026-07-17 - Wave 7 complete
+
+- Added the workspace Integrations panel for creating, pausing, rotating and
+  removing Umbler observation connections without terminal access.
+- Added one-time webhook URL presentation that remains client-memory-only and
+  is fully hidden by presentation privacy mode.
+- Added redacted observation counters, discovered-channel health and
+  many-to-many Meta route editing with current-workspace BM, account and
+  destination options.
+- Workspace managers receive mutation controls; analysts can inspect the same
+  routes in disabled read-only controls without receiving mutation commands.
+- Added responsive operational layouts for one or several connections, seven
+  channels, multiple routes and long labels without nested dashboard cards.
+- Verification: 48 focused web tests passed; full web suite passed with 33
+  files and 189 tests; web typecheck and production build passed.
+- Browser screenshot verification was unavailable because no browser runtime
+  was connected; the temporary local preview route was removed.
+- No production activation control, lead creation or CAPI action is exposed.
+
+### 2026-07-17 - Wave 8 complete
+
+- Added platform-owner-only delivery listing and raw-payload inspection across
+  workspaces without using workspace support context as authorization.
+- Raw JSON is decrypted only in the individual audited endpoint and is never
+  loaded by the metadata list query, logged, persisted in client state or
+  rendered as HTML.
+- Added audit outcomes for successful, unavailable, denied, missing and failed
+  payload access, with actor, workspace, delivery and sanitized source IP.
+- Expired or cleared payloads preserve safe delivery metadata and normalized
+  events while returning `payloadAvailable=false` and no raw JSON.
+- Added backoffice filters, parser release visibility and side-by-side raw
+  versus normalized inspection with no certification or production action.
+- The raw viewer is masked by presentation privacy mode and displays explicit
+  retention and sensitive-data warnings.
+- Verification: 17 focused API tests and 4 focused web tests passed; full API
+  suite passed with 110 files and 874 tests; full web suite passed with 34
+  files and 193 tests; shared suite passed with 3 files and 72 tests; API/web
+  typechecks and the web production build passed.
+- No parser certification, lead creation, conversation ledger write,
+  conversion log or CAPI action was added.
+
+### 2026-07-17 - Wave 9 complete
+
+- Added disabled-by-default maintenance that physically clears all encrypted
+  raw-payload material after the fixed seven-day retention period while
+  preserving redacted delivery metadata, normalized events and audit history.
+- Added indexed, bounded cleanup and recovery queries suitable for several API
+  replicas.
+- Added compare-and-set recovery leases and deterministic queue job IDs so an
+  accepted pending delivery is re-enqueued once after a transient publication
+  failure.
+- Pending deliveries with expired or unavailable ciphertext and deliveries
+  tied to missing, retired or inconsistent parser releases are marked for
+  operator review with allowlisted diagnostics.
+- Repeated queue failures remain recoverable without duplicating the same
+  delivery diagnostic or exposing payload, secret or infrastructure errors.
+- Verification: 63 focused maintenance, ingestion, processor and migration
+  tests passed; API typecheck, Prisma validation and API production build
+  passed.
+- No lead, conversation ledger, conversion log or CAPI side effect was added.
+
+### 2026-07-17 - Wave 10 complete
+
+- Added the Umbler observation rollout guide with environment, migration,
+  connection, controlled-test, retention, recovery and rollback instructions.
+- Isolated inbound routing behind a Prisma-only Meta route reader; the inbound
+  module no longer imports `IntegrationsModule`, the active Meta resolver or
+  any Meta adapter.
+- Isolated observation diagnostics behind a local Prisma writer with
+  allowlisted summaries; the inbound module no longer imports the general
+  diagnostics service or its conversion retry capabilities.
+- Added static boundary tests for both isolation rules and direct tests for
+  diagnostic idempotency and redaction.
+- Verification: shared 3 files/72 tests, API 112 files/884 tests and web 34
+  files/193 tests passed. Shared, API and web typechecks and production builds
+  passed. Prisma validation and `git diff --check` passed.
+- Existing Meta resolver, webhook, lead and conversion source files have no
+  implementation diff. The additive migration contains no data mutation or
+  destructive statement against current tables.
+- Automated browser screenshots could not be captured because the connected
+  Codex browser runtime exposed no browser instance. The temporary preview
+  route was removed; no test-only UI remains in the repository.
+- The feature remains disabled by default, the parser remains
+  `observation_only`, and no production activation path or side effect was
+  added.
 
 ## 1. Goal
 
@@ -147,7 +363,7 @@ Purpose: create the tenant-scoped observation model before exposing endpoints.
 Create:
 
 - `apps/api/test/inbound-webhook-migration.test.ts`
-- `packages/shared/src/schemas/inbound-webhooks.test.ts`
+- `packages/shared/tests/inbound-webhooks.test.ts`
 
 Migration assertions:
 
@@ -226,7 +442,7 @@ integration, lead, event or Meta rows.
 ```bash
 pnpm --filter @wpptrack/api prisma:generate
 pnpm --filter @wpptrack/api exec prisma validate --schema prisma/schema.prisma
-pnpm --filter @wpptrack/shared test -- src/schemas/inbound-webhooks.test.ts
+pnpm --filter @wpptrack/shared test -- tests/inbound-webhooks.test.ts
 pnpm --filter @wpptrack/api test -- test/inbound-webhook-migration.test.ts
 pnpm --filter @wpptrack/shared typecheck
 ```

@@ -5,6 +5,7 @@ import {
 } from "../src/config/deployment-config";
 
 type TestEnvironment = Record<string, string | undefined>;
+const inboundWebhookEncryptionKey = Buffer.alloc(32, 7).toString("base64");
 
 function testEnv(overrides: TestEnvironment = {}): TestEnvironment {
   return {
@@ -35,6 +36,12 @@ describe("parseDeploymentConfig", () => {
       authGoogleEnabled: false,
       metaConnectionModes: ["oauth"],
       email: { provider: "", smtp: null },
+      inboundWebhooks: {
+        enabled: false,
+        apiPublicUrl: null,
+        encryptionKey: null,
+        rawPayloadRetentionDays: 7,
+      },
       webOrigin: "http://localhost:3000",
     });
   });
@@ -47,6 +54,9 @@ describe("parseDeploymentConfig", () => {
           WEB_ORIGIN: "https://app.example.com/",
           AUTH_GOOGLE_ENABLED: "TRUE",
           META_CONNECTION_MODES: "oauth, manual",
+          API_PUBLIC_URL: "https://api.example.com/",
+          INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
           SMTP_HOST: "smtp-relay.brevo.com",
           SMTP_SECURE: "false",
           EMAIL_FROM_ADDRESS: "noreply@rastrack.app",
@@ -69,8 +79,147 @@ describe("parseDeploymentConfig", () => {
           replyTo: "suporte@rastrack.app",
         },
       },
+      inboundWebhooks: {
+        enabled: true,
+        apiPublicUrl: "https://api.example.com",
+        encryptionKey: Buffer.from(inboundWebhookEncryptionKey, "base64"),
+        rawPayloadRetentionDays: 7,
+      },
       webOrigin: "https://app.example.com",
     });
+  });
+
+  it("does not validate dormant inbound webhook values when disabled", () => {
+    expect(
+      parseDeploymentConfig(
+        testEnv({
+          API_PUBLIC_URL: "not-a-url",
+          INBOUND_WEBHOOKS_ENABLED: "false",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: "short",
+        }),
+      ).inboundWebhooks,
+    ).toEqual({
+      enabled: false,
+      apiPublicUrl: null,
+      encryptionKey: null,
+      rawPayloadRetentionDays: 7,
+    });
+  });
+
+  it("requires API_PUBLIC_URL when inbound webhooks are enabled", () => {
+    expect(() =>
+      parseDeploymentConfig(
+        testEnv({
+          INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
+        }),
+      ),
+    ).toThrowError(
+      "Invalid API_PUBLIC_URL: required when INBOUND_WEBHOOKS_ENABLED=true",
+    );
+  });
+
+  it("requires an encryption key when inbound webhooks are enabled", () => {
+    expect(() =>
+      parseDeploymentConfig(
+        testEnv({
+          API_PUBLIC_URL: "http://localhost:3333",
+          INBOUND_WEBHOOKS_ENABLED: "true",
+        }),
+      ),
+    ).toThrowError(
+      "Invalid INBOUND_WEBHOOK_ENCRYPTION_KEY: required when INBOUND_WEBHOOKS_ENABLED=true",
+    );
+  });
+
+  it.each([
+    "short",
+    Buffer.alloc(31, 7).toString("base64"),
+    Buffer.alloc(33, 7).toString("base64"),
+    "***************************************=",
+  ])("rejects malformed inbound webhook encryption key", (key) => {
+    expect(() =>
+      parseDeploymentConfig(
+        testEnv({
+          API_PUBLIC_URL: "http://localhost:3333",
+          INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: key,
+        }),
+      ),
+    ).toThrowError(
+      "Invalid INBOUND_WEBHOOK_ENCRYPTION_KEY: expected a Base64-encoded 32-byte key",
+    );
+  });
+
+  it("does not include the inbound webhook key in validation errors", () => {
+    const key = "inbound-key-that-must-stay-private";
+
+    try {
+      parseDeploymentConfig(
+        testEnv({
+          API_PUBLIC_URL: "http://localhost:3333",
+          INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: key,
+        }),
+      );
+      throw new Error("Expected configuration parsing to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(DeploymentConfigError);
+      expect((error as Error).message).not.toContain(key);
+    }
+  });
+
+  it.each(["development", "test"])(
+    "allows HTTP localhost API_PUBLIC_URL in %s",
+    (nodeEnv) => {
+      expect(
+        parseDeploymentConfig(
+          testEnv({
+            NODE_ENV: nodeEnv,
+            API_PUBLIC_URL: "http://127.0.0.1:3333",
+            INBOUND_WEBHOOKS_ENABLED: "true",
+            INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
+          }),
+        ).inboundWebhooks.apiPublicUrl,
+      ).toBe("http://127.0.0.1:3333");
+    },
+  );
+
+  it.each([
+    ["production", "http://localhost:3333"],
+    ["staging", "http://localhost:3333"],
+    ["development", "http://api.example.com"],
+  ])("rejects insecure API_PUBLIC_URL in %s", (nodeEnv, apiPublicUrl) => {
+    expect(() =>
+      parseDeploymentConfig(
+        testEnv({
+          NODE_ENV: nodeEnv,
+          API_PUBLIC_URL: apiPublicUrl,
+          INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
+        }),
+      ),
+    ).toThrowError(
+      "Invalid API_PUBLIC_URL: expected HTTPS, except HTTP localhost in development or test",
+    );
+  });
+
+  it.each([
+    "/webhooks",
+    "api.example.com",
+    "ftp://api.example.com",
+    "https://api.example.com/webhooks",
+    "https://user:secret@api.example.com",
+  ])("rejects invalid API_PUBLIC_URL %s", (apiPublicUrl) => {
+    expect(() =>
+      parseDeploymentConfig(
+        testEnv({
+          API_PUBLIC_URL: apiPublicUrl,
+          INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
+        }),
+      ),
+    ).toThrowError(/Invalid API_PUBLIC_URL/);
   });
 
   it("rejects unknown Meta connection modes", () => {
@@ -158,6 +307,10 @@ describe("parseDeploymentConfig", () => {
     expect(() =>
       parseDeploymentConfig(smtpEnv({ SMTP_SECURE: "yes" })),
     ).toThrowError("Invalid SMTP_SECURE: expected true or false");
+
+    expect(() =>
+      parseDeploymentConfig(testEnv({ INBOUND_WEBHOOKS_ENABLED: "sometimes" })),
+    ).toThrowError("Invalid INBOUND_WEBHOOKS_ENABLED: expected true or false");
   });
 
   it.each(["EMAIL_FROM_ADDRESS", "EMAIL_REPLY_TO"])(

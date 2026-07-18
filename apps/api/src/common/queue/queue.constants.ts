@@ -1,12 +1,21 @@
+import type { DiagnosticSourceDto } from "@wpptrack/shared";
+
 export const DIAGNOSTIC_QUEUE = "diagnostic-events";
 export const CONVERSION_EVENTS_QUEUE = "conversion-events";
 export const META_REPORT_SYNC_QUEUE = "meta-report-sync";
 export const EXTERNAL_DATA_SYNC_QUEUE = "external-data-sync";
+export const INBOUND_WEBHOOK_QUEUE = "inbound-webhooks";
+
+export interface InboundWebhookJobPayload {
+  deliveryId: string;
+  connectionId: string;
+  workspaceId: string;
+}
 
 export interface DiagnosticJobPayload {
   diagnosticEventId: string;
   workspaceId: string;
-  source: "meta" | "uazapi" | "asaas" | "external_mysql" | "internal";
+  source: DiagnosticSourceDto;
   message: string;
   occurredAt: string;
   conversionEventLogId?: string;

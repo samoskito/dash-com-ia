@@ -48,6 +48,7 @@ enum WhatsappInstanceStatus {
 enum DiagnosticSource {
   meta
   uazapi
+  umbler
   asaas
   external_mysql
   internal
@@ -148,6 +149,46 @@ enum AuthActionTokenType {
   account_activation
 }
 
+enum InboundWebhookProvider {
+  umbler
+}
+
+enum InboundWebhookParserReleaseStatus {
+  observation_only
+  certified
+  retired
+}
+
+enum InboundWebhookConnectionStatus {
+  observation
+  production
+  paused
+}
+
+enum InboundWebhookChannelStatus {
+  discovered
+  active
+  paused
+}
+
+enum InboundWebhookDeliveryStatus {
+  pending
+  queued
+  processing
+  processed
+  failed
+}
+
+enum InboundWebhookEventClassification {
+  eligible_route_resolved
+  eligible_route_unresolved
+  ignored_no_ctwa
+  ignored_outbound
+  ignored_private
+  unsupported_event
+  invalid_payload
+}
+
 model User {
   id              String        @id @default(cuid())
   email           String        @unique
@@ -161,15 +202,18 @@ model User {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  memberships                    WorkspaceMember[]
-  sessions                       AuthSession[]
-  actionTokens                   AuthActionToken[]
-  lastWorkspace                  Workspace?                  @relation("UserLastWorkspace", fields: [lastWorkspaceId], references: [id], onDelete: SetNull)
-  metaOAuthStates                MetaOAuthState[]
-  auditLogs                      AuditLog[]
-  createdMetaCredentials         MetaCredential[]            @relation("MetaCredentialCreator")
-  createdMetaBusinessConnections MetaBusinessConnection[]    @relation("MetaBusinessConnectionCreator")
-  createdMetaDestinations        MetaConversionDestination[] @relation("MetaConversionDestinationCreator")
+  memberships                      WorkspaceMember[]
+  sessions                         AuthSession[]
+  actionTokens                     AuthActionToken[]
+  lastWorkspace                    Workspace?                    @relation("UserLastWorkspace", fields: [lastWorkspaceId], references: [id], onDelete: SetNull)
+  metaOAuthStates                  MetaOAuthState[]
+  auditLogs                        AuditLog[]
+  createdMetaCredentials           MetaCredential[]              @relation("MetaCredentialCreator")
+  createdMetaBusinessConnections   MetaBusinessConnection[]      @relation("MetaBusinessConnectionCreator")
+  createdMetaDestinations          MetaConversionDestination[]   @relation("MetaConversionDestinationCreator")
+  certifiedInboundWebhookParsers   InboundWebhookParserRelease[] @relation("InboundWebhookParserReleaseCertifier")
+  createdInboundWebhookConnections InboundWebhookConnection[]    @relation("InboundWebhookConnectionCreator")
+  createdInboundWebhookRoutes      InboundWebhookChannelRoute[]  @relation("InboundWebhookChannelRouteCreator")
 
   @@index([lastWorkspaceId])
 }
@@ -215,6 +259,11 @@ model Workspace {
   supportSessions             AuthSession[]                @relation("AuthSessionSupportWorkspace")
   lastSelectedByUsers         User[]                       @relation("UserLastWorkspace")
   actionTokens                AuthActionToken[]
+  inboundWebhookConnections   InboundWebhookConnection[]
+  inboundWebhookChannels      InboundWebhookChannel[]
+  inboundWebhookChannelRoutes InboundWebhookChannelRoute[]
+  inboundWebhookDeliveries    InboundWebhookDelivery[]
+  inboundWebhookEvents        InboundWebhookEvent[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
@@ -884,13 +933,16 @@ model MetaBusinessConnection {
   createdAt                      DateTime                     @default(now())
   updatedAt                      DateTime                     @updatedAt
 
-  workspace                    Workspace                  @relation(fields: [workspaceId], references: [id])
-  credential                   MetaCredential             @relation(fields: [credentialId], references: [id], onDelete: Restrict)
-  defaultConversionDestination MetaConversionDestination? @relation("MetaBusinessDefaultDestination", fields: [defaultConversionDestinationId], references: [id], onDelete: SetNull)
-  createdBy                    User?                      @relation("MetaBusinessConnectionCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  workspace                    Workspace                    @relation(fields: [workspaceId], references: [id])
+  credential                   MetaCredential               @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  defaultConversionDestination MetaConversionDestination?   @relation("MetaBusinessDefaultDestination", fields: [defaultConversionDestinationId], references: [id], onDelete: SetNull)
+  createdBy                    User?                        @relation("MetaBusinessConnectionCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   reportingAccounts            MetaReportingAccount[]
   conversionEventLogs          ConversionEventLog[]
+  inboundWebhookChannelRoutes  InboundWebhookChannelRoute[] @relation("InboundWebhookRouteBusinessConnection")
+  resolvedInboundWebhookEvents InboundWebhookEvent[]        @relation("InboundWebhookEventResolvedBusiness")
 
+  @@unique([workspaceId, id])
   @@unique([workspaceId, businessManagerId])
   @@index([workspaceId, status])
   @@index([credentialId])
@@ -935,13 +987,16 @@ model MetaConversionDestination {
   createdAt              DateTime                        @default(now())
   updatedAt              DateTime                        @updatedAt
 
-  workspace                     Workspace                @relation(fields: [workspaceId], references: [id])
-  createdBy                     User?                    @relation("MetaConversionDestinationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  defaultForBusinessConnections MetaBusinessConnection[] @relation("MetaBusinessDefaultDestination")
-  reportingAccountOverrides     MetaReportingAccount[]   @relation("MetaReportingDestinationOverride")
-  primaryForIntegrations        MetaIntegration[]        @relation("MetaIntegrationPrimaryDestination")
+  workspace                     Workspace                    @relation(fields: [workspaceId], references: [id])
+  createdBy                     User?                        @relation("MetaConversionDestinationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  defaultForBusinessConnections MetaBusinessConnection[]     @relation("MetaBusinessDefaultDestination")
+  reportingAccountOverrides     MetaReportingAccount[]       @relation("MetaReportingDestinationOverride")
+  primaryForIntegrations        MetaIntegration[]            @relation("MetaIntegrationPrimaryDestination")
   conversionEventLogs           ConversionEventLog[]
+  inboundWebhookChannelRoutes   InboundWebhookChannelRoute[] @relation("InboundWebhookRouteDestination")
+  resolvedInboundWebhookEvents  InboundWebhookEvent[]        @relation("InboundWebhookEventResolvedDestination")
 
+  @@unique([workspaceId, id])
   @@unique([workspaceId, pixelId, pageId])
   @@index([workspaceId, status])
   @@index([pixelId])
@@ -970,10 +1025,13 @@ model MetaReportingAccount {
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
 
-  workspace             Workspace                  @relation(fields: [workspaceId], references: [id])
-  businessConnection    MetaBusinessConnection?    @relation(fields: [businessConnectionId], references: [id], onDelete: SetNull)
-  conversionDestination MetaConversionDestination? @relation("MetaReportingDestinationOverride", fields: [conversionDestinationId], references: [id], onDelete: SetNull)
+  workspace                    Workspace                    @relation(fields: [workspaceId], references: [id])
+  businessConnection           MetaBusinessConnection?      @relation(fields: [businessConnectionId], references: [id], onDelete: SetNull)
+  conversionDestination        MetaConversionDestination?   @relation("MetaReportingDestinationOverride", fields: [conversionDestinationId], references: [id], onDelete: SetNull)
+  inboundWebhookChannelRoutes  InboundWebhookChannelRoute[] @relation("InboundWebhookRouteReportingAccount")
+  resolvedInboundWebhookEvents InboundWebhookEvent[]        @relation("InboundWebhookEventResolvedReportingAccount")
 
+  @@unique([workspaceId, id])
   @@unique([workspaceId, adAccountId])
   @@index([workspaceId, active])
   @@index([workspaceId, active, businessId, adAccountId])
@@ -981,6 +1039,198 @@ model MetaReportingAccount {
   @@index([businessConnectionId])
   @@index([conversionDestinationId])
   @@index([businessId])
+}
+
+model InboundWebhookParserRelease {
+  id                String                            @id @default(cuid())
+  provider          InboundWebhookProvider
+  version           String
+  status            InboundWebhookParserReleaseStatus @default(observation_only)
+  certifiedByUserId String?
+  certifiedAt       DateTime?
+  createdAt         DateTime                          @default(now())
+  updatedAt         DateTime                          @updatedAt
+
+  certifiedBy User?                      @relation("InboundWebhookParserReleaseCertifier", fields: [certifiedByUserId], references: [id], onDelete: SetNull)
+  connections InboundWebhookConnection[]
+
+  @@unique([provider, version], map: "InboundWebhookParserRelease_provider_version_key")
+  @@index([provider, status])
+  @@index([certifiedByUserId])
+}
+
+model InboundWebhookConnection {
+  id                    String                         @id @default(cuid())
+  workspaceId           String
+  provider              InboundWebhookProvider
+  displayName           String
+  parserReleaseId       String
+  secretHash            String?
+  status                InboundWebhookConnectionStatus @default(observation)
+  createdByUserId       String?
+  lastDeliveryAt        DateTime?
+  lastSuccessfulParseAt DateTime?
+  removedAt             DateTime?
+  createdAt             DateTime                       @default(now())
+  updatedAt             DateTime                       @updatedAt
+
+  workspace     Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  parserRelease InboundWebhookParserRelease @relation(fields: [parserReleaseId], references: [id], onDelete: Restrict)
+  createdBy     User?                       @relation("InboundWebhookConnectionCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  channels      InboundWebhookChannel[]
+  deliveries    InboundWebhookDelivery[]
+  events        InboundWebhookEvent[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, removedAt])
+  @@index([workspaceId, provider, status])
+  @@index([parserReleaseId])
+  @@index([createdByUserId])
+}
+
+model InboundWebhookChannel {
+  id                String                      @id @default(cuid())
+  workspaceId       String
+  connectionId      String
+  organizationId    String
+  providerChannelId String
+  connectedPhone    String
+  channelName       String?
+  status            InboundWebhookChannelStatus @default(discovered)
+  firstSeenAt       DateTime                    @default(now())
+  lastSeenAt        DateTime                    @default(now())
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  workspace  Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  connection InboundWebhookConnection @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookChannel_connectionId_fkey")
+  routes     InboundWebhookChannelRoute[]
+  events     InboundWebhookEvent[]
+
+  @@unique([workspaceId, id])
+  @@unique([connectionId, organizationId, providerChannelId], map: "InboundWebhookChannel_identity_key")
+  @@index([workspaceId, connectionId, status])
+  @@index([workspaceId, connectedPhone])
+}
+
+model InboundWebhookChannelRoute {
+  id                                   String    @id @default(cuid())
+  workspaceId                          String
+  channelId                            String
+  routeKey                             String
+  metaBusinessConnectionWorkspaceId    String?
+  metaBusinessConnectionId             String?
+  metaReportingAccountWorkspaceId      String?
+  metaReportingAccountId               String?
+  metaConversionDestinationWorkspaceId String?
+  metaConversionDestinationId          String?
+  active                               Boolean   @default(true)
+  validationStatus                     String    @default("pending")
+  validationErrorCode                  String?
+  lastValidatedAt                      DateTime?
+  createdByUserId                      String?
+  createdAt                            DateTime  @default(now())
+  updatedAt                            DateTime  @updatedAt
+
+  workspace                 Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  channel                   InboundWebhookChannel      @relation(fields: [workspaceId, channelId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookChannelRoute_channelId_fkey")
+  metaBusinessConnection    MetaBusinessConnection?    @relation("InboundWebhookRouteBusinessConnection", fields: [metaBusinessConnectionWorkspaceId, metaBusinessConnectionId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookChannelRoute_metaBusinessConnectionId_fkey")
+  metaReportingAccount      MetaReportingAccount?      @relation("InboundWebhookRouteReportingAccount", fields: [metaReportingAccountWorkspaceId, metaReportingAccountId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookChannelRoute_metaReportingAccountId_fkey")
+  metaConversionDestination MetaConversionDestination? @relation("InboundWebhookRouteDestination", fields: [metaConversionDestinationWorkspaceId, metaConversionDestinationId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookChannelRoute_metaConversionDestinationId_fkey")
+  createdBy                 User?                      @relation("InboundWebhookChannelRouteCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([channelId, routeKey], map: "InboundWebhookChannelRoute_channel_route_key")
+  @@index([workspaceId, channelId, active])
+  @@index([workspaceId, metaBusinessConnectionId, active], map: "InboundWebhookChannelRoute_workspace_business_active_idx")
+  @@index([metaReportingAccountId])
+  @@index([metaConversionDestinationId])
+  @@index([createdByUserId])
+}
+
+model InboundWebhookDelivery {
+  id                   String                             @id @default(cuid())
+  workspaceId          String
+  connectionId         String
+  provider             InboundWebhookProvider
+  ingressKey           String
+  externalDeliveryId   String?
+  providerEventType    String?
+  parserVersion        String
+  status               InboundWebhookDeliveryStatus       @default(pending)
+  classification       InboundWebhookEventClassification?
+  firstReceivedAt      DateTime                           @default(now())
+  lastReceivedAt       DateTime                           @default(now())
+  attemptCount         Int                                @default(1)
+  providerAttempt      Int?
+  encryptedPayload     String?
+  payloadIv            String?
+  payloadTag           String?
+  encryptionKeyVersion Int?
+  payloadExpiresAt     DateTime
+  normalizedSummary    Json?
+  parseErrorCode       String?
+  routingErrorCode     String?
+  queuedAt             DateTime?
+  processedAt          DateTime?
+  createdAt            DateTime                           @default(now())
+  updatedAt            DateTime                           @updatedAt
+
+  workspace  Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  connection InboundWebhookConnection @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookDelivery_connectionId_fkey")
+  events     InboundWebhookEvent[]
+
+  @@unique([workspaceId, id])
+  @@unique([connectionId, ingressKey], map: "InboundWebhookDelivery_connection_ingress_key")
+  @@index([workspaceId, status, createdAt])
+  @@index([workspaceId, payloadExpiresAt])
+  @@index([connectionId, lastReceivedAt])
+  @@index([payloadExpiresAt], map: "InboundWebhookDelivery_payloadExpiresAt_idx")
+  @@index([status, lastReceivedAt, queuedAt], map: "InboundWebhookDelivery_recovery_idx")
+  @@index([externalDeliveryId])
+}
+
+model InboundWebhookEvent {
+  id                                       String                            @id @default(cuid())
+  workspaceId                              String
+  connectionId                             String
+  deliveryId                               String
+  channelId                                String
+  provider                                 InboundWebhookProvider
+  externalEventId                          String?
+  externalMessageId                        String?
+  dedupeKey                                String
+  occurredAt                               DateTime
+  contactIdentityHash                      String?
+  adId                                     String?
+  hasCtwa                                  Boolean                           @default(false)
+  classification                           InboundWebhookEventClassification
+  classificationReason                     String?
+  resolvedBusinessConnectionWorkspaceId    String?
+  resolvedBusinessConnectionId             String?
+  resolvedReportingAccountWorkspaceId      String?
+  resolvedReportingAccountId               String?
+  resolvedConversionDestinationWorkspaceId String?
+  resolvedConversionDestinationId          String?
+  normalizedSummary                        Json
+  createdAt                                DateTime                          @default(now())
+  updatedAt                                DateTime                          @updatedAt
+
+  workspace                     Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  connection                    InboundWebhookConnection   @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookEvent_connectionId_fkey")
+  delivery                      InboundWebhookDelivery     @relation(fields: [workspaceId, deliveryId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookEvent_deliveryId_fkey")
+  channel                       InboundWebhookChannel      @relation(fields: [workspaceId, channelId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookEvent_channelId_fkey")
+  resolvedBusinessConnection    MetaBusinessConnection?    @relation("InboundWebhookEventResolvedBusiness", fields: [resolvedBusinessConnectionWorkspaceId, resolvedBusinessConnectionId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedBusinessConnectionId_fkey")
+  resolvedReportingAccount      MetaReportingAccount?      @relation("InboundWebhookEventResolvedReportingAccount", fields: [resolvedReportingAccountWorkspaceId, resolvedReportingAccountId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedReportingAccountId_fkey")
+  resolvedConversionDestination MetaConversionDestination? @relation("InboundWebhookEventResolvedDestination", fields: [resolvedConversionDestinationWorkspaceId, resolvedConversionDestinationId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedConversionDestinationId_fkey")
+
+  @@unique([connectionId, dedupeKey], map: "InboundWebhookEvent_connection_dedupe_key")
+  @@index([workspaceId, classification, occurredAt], map: "InboundWebhookEvent_workspace_classification_occurred_idx")
+  @@index([workspaceId, adId])
+  @@index([deliveryId])
+  @@index([channelId, occurredAt])
+  @@index([resolvedBusinessConnectionId])
+  @@index([resolvedReportingAccountId])
+  @@index([resolvedConversionDestinationId])
 }
 
 model MetaCampaign {

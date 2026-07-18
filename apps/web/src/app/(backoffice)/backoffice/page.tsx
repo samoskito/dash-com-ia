@@ -940,6 +940,9 @@ export default async function BackofficePage({
           <p>Financeiro, split, workspaces e Central de Diagnostico operacional.</p>
         </div>
         <div className="header-actions">
+          <a className="button ghost" href="/backoffice/inbound-webhooks">
+            Webhooks WhatsApp
+          </a>
           <a className="button ghost" href="/backoffice/clients">
             Clientes e acessos
           </a>
@@ -1411,6 +1414,7 @@ export default async function BackofficePage({
           <select className="filter-control" name="source" defaultValue={diagnosticFilters.source ?? ""}>
             <option value="">Todas as origens</option>
             <option value="meta">Meta</option>
+            <option value="umbler">Umbler</option>
             <option value="uazapi">Uazapi</option>
             <option value="asaas">Asaas</option>
             <option value="internal">Interno</option>

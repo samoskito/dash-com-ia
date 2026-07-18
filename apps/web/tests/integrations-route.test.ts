@@ -1357,4 +1357,407 @@ describe("integrations route", () => {
       ),
     ).toBe(true);
   });
+
+  it.each([
+    ["manager", true],
+    ["analyst", false],
+  ] as const)(
+    "wires current-workspace Umbler routes for a %s without relying on fetch order",
+    async (_, canManage) => {
+      const { requestedPaths } = mockWave7IntegrationsFetch({ canManage });
+
+      const element = await IntegrationsPage({});
+      const html = renderToStaticMarkup(createElement("div", null, element));
+
+      expect(requestedPaths).toContain("/integrations/meta/manual");
+      expect(requestedPaths).toContain(
+        "/integrations/inbound-webhooks/capabilities",
+      );
+      expect(requestedPaths).toContain(
+        "/integrations/inbound-webhooks/connection_wave7/channels",
+      );
+      expect(html).toContain("Webhooks de plataformas WhatsApp");
+      expect(html).toContain("Umbler Talk");
+      expect(html).toContain("Umbler Workspace Atual");
+      expect(html).toContain("Canal Workspace Atual");
+      expect(html).toContain("+5511988880000");
+      expect(html.match(/class="inbound-route-row"/g)).toHaveLength(2);
+      expect(html).toContain('name="business-route_wave7_sales"');
+      expect(html).toContain('name="account-route_wave7_support"');
+      expect(html).toContain("BM Vendas Workspace Atual");
+      expect(html).toContain("Conta Suporte Workspace Atual");
+      expect(html).toContain("Pixel e Pagina Vendas Workspace Atual");
+      expect(html).not.toContain("workspace_foreign");
+      expect(html).not.toContain("Conta Foreign");
+
+      if (canManage) {
+        expect(html).toContain("Adicionar conexao");
+        expect(html).toContain("Gerar nova URL");
+        expect(html).toContain("Pausar canal");
+        expect(html).toContain("Adicionar rota");
+        expect(html).toContain("2 rota(s) preparada(s).");
+      } else {
+        expect(html).toContain("Rotas visiveis em modo somente leitura.");
+        expect(html).toContain("2 rota(s) configurada(s).");
+        expect(html).not.toContain("Gerar nova URL");
+        expect(html).not.toContain("Pausar canal");
+        expect(html).not.toContain("Adicionar rota");
+        expect(html).not.toContain("Salvar rotas");
+      }
+    },
+  );
+
+  it("shows a generic inbound detail error without payload or secret data", async () => {
+    mockWave7IntegrationsFetch({
+      canManage: true,
+      failInboundDetails: true,
+    });
+
+    const element = await IntegrationsPage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain(
+      "Parte dos dados desta conexao esta temporariamente indisponivel.",
+    );
+    expect(html).toContain("Umbler Workspace Atual");
+    expect(html).not.toContain("umbler-token-ultra-secreto");
+    expect(html).not.toContain("raw-payload");
+    expect(html).not.toContain("+5511977771111");
+    expect(html).not.toContain("secret=");
+  });
 });
+
+function mockWave7IntegrationsFetch({
+  canManage,
+  failInboundDetails = false,
+}: {
+  canManage: boolean;
+  failInboundDetails?: boolean;
+}) {
+  const requestedPaths: string[] = [];
+  const responses: Record<string, unknown> = {
+    "/integrations/health": {
+      checkedAt: "2026-07-17T20:00:00.000Z",
+      providers: [],
+    },
+    "/integrations/whatsapp/instances": [],
+    "/integrations/meta/connection": {
+      workspaceId: "workspace_current",
+      status: "not_connected",
+      tokenType: null,
+      scopes: [],
+      expiresAt: null,
+      connectedAt: null,
+      selectedBusinessId: null,
+      selectedAdAccountId: null,
+      selectedPixelId: null,
+      capiTokenConfigured: false,
+    },
+    "/integrations/meta/assets": {
+      workspaceId: "workspace_current",
+      status: "not_connected",
+      businesses: [],
+      adAccounts: [],
+      pixels: [],
+      pages: [],
+      reportingAccounts: [],
+      selection: {
+        businessId: null,
+        adAccountId: null,
+        pixelId: null,
+      },
+      lastSyncedAt: null,
+      syncError: null,
+    },
+    "/billing/whatsapp-instance/quote": {
+      workspaceId: "workspace_current",
+      activeInstances: 0,
+      pricePerInstanceCents: 9900,
+      nextInstanceAmountCents: 9900,
+      currency: "BRL",
+    },
+    "/billing/subscription": {
+      workspaceId: "workspace_current",
+      status: "active",
+      planName: "Por instancia",
+      activeInstances: 0,
+      pricePerWhatsappInstanceCents: 9900,
+      monthlyAmountCents: 0,
+      currentPeriodEnd: null,
+      asaasSubscriptionId: null,
+    },
+    "/integrations/pipeline": {
+      workspaceId: "workspace_current",
+      rangeLabel: "Ultimos 7 dias",
+      stages: [],
+    },
+    "/workspaces/current": {
+      id: "workspace_current",
+      name: "Workspace Atual",
+      slug: "workspace-atual",
+      role: canManage ? "owner" : "member",
+      permissions: {
+        canInviteMembers: canManage,
+        canManageBilling: canManage,
+        canManageIntegrations: canManage,
+        canViewReports: true,
+      },
+    },
+    "/integrations/meta/capabilities": {
+      enabledModes: ["manual"],
+      oauthEnabled: false,
+      manualEnabled: true,
+    },
+    "/integrations/meta/manual": wave7MetaConfiguration,
+    "/integrations/inbound-webhooks/capabilities": {
+      enabled: true,
+      providers: [
+        {
+          provider: "umbler",
+          parserVersion: "umbler/v1",
+          parserReleaseStatus: "observation_only",
+          creationEnabled: true,
+        },
+      ],
+    },
+    "/integrations/inbound-webhooks": [wave7Connection],
+    "/integrations/inbound-webhooks/connection_wave7/overview": {
+      connection: wave7Connection,
+      counters: {
+        eligibleRouted: 9,
+        eligibleUnresolved: 4,
+        ignoredNoCtwa: 7,
+        duplicate: 2,
+        invalid: 1,
+      },
+    },
+    "/integrations/inbound-webhooks/connection_wave7/channels": [wave7Channel],
+  };
+
+  const fetchMock = vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async (input) => {
+      const path = new URL(String(input)).pathname;
+      requestedPaths.push(path);
+
+      if (
+        failInboundDetails &&
+        path === "/integrations/inbound-webhooks/connection_wave7/overview"
+      ) {
+        return jsonResponse(
+          { message: "secret=umbler-token-ultra-secreto" },
+          500,
+        );
+      }
+
+      if (
+        failInboundDetails &&
+        path === "/integrations/inbound-webhooks/connection_wave7/channels"
+      ) {
+        return jsonResponse(
+          {
+            message:
+              "raw-payload={phone:+5511977771111,content:mensagem privada}",
+          },
+          500,
+        );
+      }
+
+      if (!(path in responses)) {
+        return jsonResponse({ message: `Unhandled test URL: ${path}` }, 404);
+      }
+
+      return jsonResponse(responses[path]);
+    });
+
+  return { fetchMock, requestedPaths };
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+const wave7Connection = {
+  id: "connection_wave7",
+  workspaceId: "workspace_current",
+  provider: "umbler",
+  displayName: "Umbler Workspace Atual",
+  parserVersion: "umbler/v1",
+  parserReleaseStatus: "observation_only",
+  status: "observation",
+  lastDeliveryAt: "2026-07-17T20:00:00.000Z",
+  lastSuccessfulParseAt: "2026-07-17T19:59:00.000Z",
+  createdAt: "2026-07-17T18:00:00.000Z",
+  updatedAt: "2026-07-17T20:00:00.000Z",
+};
+
+const wave7Channel = {
+  id: "channel_wave7",
+  connectionId: "connection_wave7",
+  organizationId: "organization_wave7",
+  providerChannelId: "umbler_channel_wave7",
+  connectedPhone: "+5511988880000",
+  channelName: "Canal Workspace Atual",
+  status: "active",
+  firstSeenAt: "2026-07-17T18:30:00.000Z",
+  lastSeenAt: "2026-07-17T19:58:00.000Z",
+  routes: [
+    {
+      id: "route_wave7_sales",
+      channelId: "channel_wave7",
+      metaBusinessConnectionId: "business_connection_wave7_sales",
+      metaReportingAccountId: "reporting_wave7_sales",
+      metaConversionDestinationId: "destination_wave7_sales",
+      active: true,
+      validationStatus: "valid",
+      validationErrorCode: null,
+      lastValidatedAt: "2026-07-17T19:50:00.000Z",
+      createdAt: "2026-07-17T19:00:00.000Z",
+      updatedAt: "2026-07-17T19:50:00.000Z",
+    },
+    {
+      id: "route_wave7_support",
+      channelId: "channel_wave7",
+      metaBusinessConnectionId: "business_connection_wave7_support",
+      metaReportingAccountId: "reporting_wave7_support",
+      metaConversionDestinationId: "destination_wave7_support",
+      active: true,
+      validationStatus: "valid",
+      validationErrorCode: null,
+      lastValidatedAt: "2026-07-17T19:50:00.000Z",
+      createdAt: "2026-07-17T19:00:00.000Z",
+      updatedAt: "2026-07-17T19:50:00.000Z",
+    },
+  ],
+  createdAt: "2026-07-17T18:30:00.000Z",
+  updatedAt: "2026-07-17T19:58:00.000Z",
+};
+
+const wave7MetaConfiguration = {
+  workspaceId: "workspace_current",
+  connectionMode: "manual",
+  advancedRoutingEnabled: false,
+  unmappedActiveAccountCount: 0,
+  credentials: [
+    {
+      id: "credential_wave7",
+      workspaceId: "workspace_current",
+      source: "manual",
+      label: "Token Workspace Atual",
+      fingerprint: "1234567890abcdef",
+      tokenLast4: "cret",
+      tokenType: "system_user",
+      scopes: ["ads_read", "ads_management"],
+      expiresAt: null,
+      status: "active",
+      lastValidatedAt: "2026-07-17T19:00:00.000Z",
+      validationError: null,
+      rotatedAt: null,
+      createdAt: "2026-07-17T18:00:00.000Z",
+      updatedAt: "2026-07-17T19:00:00.000Z",
+    },
+  ],
+  businessConnections: [
+    {
+      id: "business_connection_wave7_sales",
+      workspaceId: "workspace_current",
+      credentialId: "credential_wave7",
+      businessManagerId: "bm_wave7_sales",
+      businessManagerName: "BM Vendas Workspace Atual",
+      status: "active",
+      defaultConversionDestinationId: "destination_wave7_sales",
+      reportingAccountCount: 1,
+      activeReportingAccountCount: 1,
+      lastValidatedAt: "2026-07-17T19:00:00.000Z",
+      validationError: null,
+      lastSyncedAt: "2026-07-17T19:00:00.000Z",
+      createdAt: "2026-07-17T18:00:00.000Z",
+      updatedAt: "2026-07-17T19:00:00.000Z",
+    },
+    {
+      id: "business_connection_wave7_support",
+      workspaceId: "workspace_current",
+      credentialId: "credential_wave7",
+      businessManagerId: "bm_wave7_support",
+      businessManagerName: "BM Suporte Workspace Atual",
+      status: "active",
+      defaultConversionDestinationId: "destination_wave7_support",
+      reportingAccountCount: 1,
+      activeReportingAccountCount: 1,
+      lastValidatedAt: "2026-07-17T19:00:00.000Z",
+      validationError: null,
+      lastSyncedAt: "2026-07-17T19:00:00.000Z",
+      createdAt: "2026-07-17T18:00:00.000Z",
+      updatedAt: "2026-07-17T19:00:00.000Z",
+    },
+  ],
+  destinations: [
+    {
+      id: "destination_wave7_sales",
+      workspaceId: "workspace_current",
+      label: "Pixel e Pagina Vendas Workspace Atual",
+      ownerBusinessManagerId: "bm_wave7_sales",
+      pixelId: "pixel_wave7_sales",
+      pixelName: "Pixel Vendas Workspace Atual",
+      pageId: "page_wave7_sales",
+      pageName: "Pagina Vendas Workspace Atual",
+      status: "configured",
+      lastValidatedAt: "2026-07-17T19:00:00.000Z",
+      validationError: null,
+    },
+    {
+      id: "destination_wave7_support",
+      workspaceId: "workspace_current",
+      label: "Pixel e Pagina Suporte Workspace Atual",
+      ownerBusinessManagerId: "bm_wave7_support",
+      pixelId: "pixel_wave7_support",
+      pixelName: "Pixel Suporte Workspace Atual",
+      pageId: "page_wave7_support",
+      pageName: "Pagina Suporte Workspace Atual",
+      status: "configured",
+      lastValidatedAt: "2026-07-17T19:00:00.000Z",
+      validationError: null,
+    },
+  ],
+  reportingAccounts: [
+    {
+      id: "reporting_wave7_sales",
+      workspaceId: "workspace_current",
+      businessId: "bm_wave7_sales",
+      businessName: "BM Vendas Workspace Atual",
+      adAccountId: "act_wave7_sales",
+      adAccountName: "Conta Vendas Workspace Atual",
+      currency: "BRL",
+      timezoneName: "America/Sao_Paulo",
+      businessConnectionId: "business_connection_wave7_sales",
+      conversionDestinationId: "destination_wave7_sales",
+      active: true,
+      syncStatus: "synced",
+      lastSyncedAt: "2026-07-17T19:00:00.000Z",
+      lastSyncSince: null,
+      lastSyncUntil: null,
+      syncError: null,
+    },
+    {
+      id: "reporting_wave7_support",
+      workspaceId: "workspace_current",
+      businessId: "bm_wave7_support",
+      businessName: "BM Suporte Workspace Atual",
+      adAccountId: "act_wave7_support",
+      adAccountName: "Conta Suporte Workspace Atual",
+      currency: "BRL",
+      timezoneName: "America/Sao_Paulo",
+      businessConnectionId: "business_connection_wave7_support",
+      conversionDestinationId: "destination_wave7_support",
+      active: true,
+      syncStatus: "synced",
+      lastSyncedAt: "2026-07-17T19:00:00.000Z",
+      lastSyncSince: null,
+      lastSyncUntil: null,
+      syncError: null,
+    },
+  ],
+};

@@ -4,7 +4,7 @@ import { apiBaseUrl } from "./api";
 export class ApiRequestError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
   ) {
     super(message);
     this.name = "ApiRequestError";
@@ -17,7 +17,7 @@ export function isApiRequestError(error: unknown): error is ApiRequestError {
 
 export async function serverApiFetch<T>(
   path: string,
-  init: RequestInit = {}
+  init: RequestInit = {},
 ): Promise<T> {
   const startedAt = Date.now();
   const headers = Object.fromEntries(new Headers(init.headers).entries());
@@ -36,7 +36,7 @@ export async function serverApiFetch<T>(
       ...init,
       credentials: "include",
       headers,
-      cache: "no-store"
+      cache: "no-store",
     });
   } catch (error) {
     logSlowApiRequest(path, Date.now() - startedAt, "network_error");
@@ -46,7 +46,14 @@ export async function serverApiFetch<T>(
   logSlowApiRequest(path, Date.now() - startedAt, response.status);
 
   if (!response.ok) {
-    throw new ApiRequestError(await responseErrorMessage(response), response.status);
+    throw new ApiRequestError(
+      await responseErrorMessage(response),
+      response.status,
+    );
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return (await response.json()) as T;
@@ -55,7 +62,7 @@ export async function serverApiFetch<T>(
 function logSlowApiRequest(
   path: string,
   durationMs: number,
-  status: number | "network_error"
+  status: number | "network_error",
 ): void {
   const thresholdMs = Number(process.env.WPPTRACK_WEB_SLOW_REQUEST_MS ?? 1500);
 
@@ -66,7 +73,7 @@ function logSlowApiRequest(
   console.warn("[wpptrack:web-api] slow request", {
     path,
     status,
-    durationMs
+    durationMs,
   });
 }
 

@@ -1,0 +1,112 @@
+{
+  "Type": "Message",
+  "EventDate": "2026-01-15T14:31:45.000Z",
+  "Payload": {
+    "Type": "Chat",
+    "Content": {
+      "_t": "BasicChatModel",
+      "Organization": {
+        "Id": "org_fixture_001"
+      },
+      "Contact": {
+        "LastActiveUTC": "2026-01-15T14:31:44.000Z",
+        "PhoneNumber": "+15550001111",
+        "ProfilePictureUrl": null,
+        "IsOptIn": true,
+        "IsBlocked": false,
+        "ScheduledMessages": [],
+        "GroupIdentifier": null,
+        "Tags": [],
+        "Name": "Synthetic Contact",
+        "Id": "contact_fixture_001"
+      },
+      "Channel": {
+        "PhoneNumber": "+15550002222",
+        "ChannelType": "WhatsappApi",
+        "Platform": null,
+        "Name": "Synthetic Support Channel",
+        "Id": "channel_fixture_001"
+      },
+      "Sector": {
+        "Default": true,
+        "Order": 0,
+        "Name": "Synthetic General Sector",
+        "Id": "sector_fixture_001"
+      },
+      "OrganizationMember": null,
+      "OrganizationMembers": [],
+      "Tags": [],
+      "LastMessage": {
+        "Prefix": null,
+        "HeaderContent": null,
+        "Content": "Synthetic inbound message for parser tests.",
+        "Footer": null,
+        "File": null,
+        "Thumbnail": null,
+        "Contacts": [],
+        "MessageType": "Text",
+        "SentByOrganizationMember": null,
+        "IsPrivate": false,
+        "Location": null,
+        "Question": null,
+        "Source": "Contact",
+        "InReplyTo": null,
+        "MessageState": "Processing",
+        "EventAtUTC": "2026-01-15T14:31:44.000Z",
+        "Chat": {
+          "Id": "chat_fixture_001"
+        },
+        "FromContact": null,
+        "TemplateId": null,
+        "Buttons": [],
+        "LatestEdit": null,
+        "BotInstance": null,
+        "ForwardedFrom": null,
+        "ScheduledMessage": null,
+        "BulkSendSession": null,
+        "Ad": {
+          "ConversionSource": null,
+          "SourceUrl": "https://example.invalid/ads/source/fixture-001",
+          "Description": "Synthetic advertisement description.\nSecond synthetic line.",
+          "Title": "Synthetic Advertisement",
+          "ThumbnailUrl": "https://example.invalid/ads/thumbnail/fixture-001.jpg",
+          "MediaUrl": "https://example.invalid/ads/media/fixture-001.jpg",
+          "SourceType": "ad",
+          "SourceId": "ad_fixture_001",
+          "FileId": null,
+          "CTWaCLId": "ctwa_fixture_001"
+        },
+        "FileId": null,
+        "Reactions": [],
+        "Id": "message_fixture_001",
+        "CreatedAtUTC": "2026-01-15T14:31:44.000Z"
+      },
+      "RedactReason": null,
+      "UsingInactivityFlow": false,
+      "UsingWaitingFlow": false,
+      "InactivityFlowAt": null,
+      "WaitingFlowAt": null,
+      "Open": true,
+      "Private": false,
+      "Waiting": true,
+      "WaitingSinceUTC": "2026-01-15T14:31:44.000Z",
+      "Unread": ["message_fixture_001"],
+      "ClosedAtUTC": null,
+      "EventAtUTC": "2026-01-15T14:31:44.000Z",
+      "FirstMemberReplyMessage": null,
+      "Bots": [
+        {
+          "Status": "Active",
+          "BotId": "bot_fixture_001",
+          "BotInstanceId": null,
+          "TriggerName": null
+        }
+      ],
+      "LastOrganizationMember": null,
+      "Message": null,
+      "Id": "chat_fixture_001",
+      "CreatedAtUTC": "2026-01-15T14:31:40.000Z"
+    }
+  },
+  "EventId": "delivery_fixture_001"
+}

@@ -4,6 +4,7 @@ import { conversionEventTestInputSchema } from "./conversion-events";
 export const diagnosticSources = [
   "meta",
   "uazapi",
+  "umbler",
   "asaas",
   "external_mysql",
   "internal"

@@ -5,9 +5,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { loadLocalEnv } from "../src/config/load-env";
 
 const keys = [
+  "INBOUND_WEBHOOKS_ENABLED",
+  "INBOUND_WEBHOOK_ENCRYPTION_KEY",
   "WPPTRACK_TEST_ENV_LOADER_VALUE",
   "WPPTRACK_TEST_ENV_LOADER_SECRET",
-  "WPPTRACK_TEST_ENV_LOADER_PRESET"
+  "WPPTRACK_TEST_ENV_LOADER_PRESET",
 ];
 
 afterEach(() => {
@@ -27,8 +29,10 @@ describe("loadLocalEnv", () => {
       [
         "WPPTRACK_TEST_ENV_LOADER_VALUE=local-value",
         "WPPTRACK_TEST_ENV_LOADER_SECRET=$secret-with-dollar",
-        "WPPTRACK_TEST_ENV_LOADER_PRESET=from-file"
-      ].join("\n")
+        "WPPTRACK_TEST_ENV_LOADER_PRESET=from-file",
+        "INBOUND_WEBHOOKS_ENABLED=true",
+        "INBOUND_WEBHOOK_ENCRYPTION_KEY=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+      ].join("\n"),
     );
     process.env.WPPTRACK_TEST_ENV_LOADER_PRESET = "from-process";
 
@@ -37,9 +41,13 @@ describe("loadLocalEnv", () => {
 
       expect(process.env.WPPTRACK_TEST_ENV_LOADER_VALUE).toBe("local-value");
       expect(process.env.WPPTRACK_TEST_ENV_LOADER_SECRET).toBe(
-        "$secret-with-dollar"
+        "$secret-with-dollar",
       );
       expect(process.env.WPPTRACK_TEST_ENV_LOADER_PRESET).toBe("from-process");
+      expect(process.env.INBOUND_WEBHOOKS_ENABLED).toBe("true");
+      expect(process.env.INBOUND_WEBHOOK_ENCRYPTION_KEY).toBe(
+        "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

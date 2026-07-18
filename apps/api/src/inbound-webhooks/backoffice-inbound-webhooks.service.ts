@@ -1,0 +1,399 @@
+import {
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from "@nestjs/common";
+import type {
+  InboundWebhookDelivery,
+  InboundWebhookEvent,
+  Prisma,
+} from "@prisma/client";
+import type {
+  BackofficeInboundWebhookDeliveryDto,
+  BackofficeInboundWebhookDeliveryQueryDto,
+  BackofficeInboundWebhookPayloadDto,
+  InboundWebhookNormalizedObservationDto,
+} from "@wpptrack/shared";
+import { PrismaService } from "../common/prisma/prisma.service";
+import { InboundWebhookPayloadEncryptionService } from "./inbound-webhook-payload-encryption.service";
+
+const payloadReadAction = "inbound_webhook.payload.read";
+const payloadTargetType = "inbound_webhook_delivery";
+const genericPayloadError = "Payload indisponivel";
+
+const deliveryListSelect = {
+  id: true,
+  workspaceId: true,
+  connectionId: true,
+  provider: true,
+  providerEventType: true,
+  parserVersion: true,
+  status: true,
+  classification: true,
+  firstReceivedAt: true,
+  lastReceivedAt: true,
+  attemptCount: true,
+  encryptionKeyVersion: true,
+  payloadExpiresAt: true,
+  normalizedSummary: true,
+  parseErrorCode: true,
+  routingErrorCode: true,
+  connection: {
+    select: {
+      displayName: true,
+      parserRelease: {
+        select: {
+          status: true,
+        },
+      },
+    },
+  },
+  _count: {
+    select: {
+      events: true,
+    },
+  },
+} satisfies Prisma.InboundWebhookDeliverySelect;
+
+type DeliveryListRecord = Prisma.InboundWebhookDeliveryGetPayload<{
+  select: typeof deliveryListSelect;
+}>;
+
+export type InboundWebhookPayloadActor = {
+  id: string;
+  actorType: string;
+  sourceIp: string | null;
+};
+
+@Injectable()
+export class BackofficeInboundWebhooksService {
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(InboundWebhookPayloadEncryptionService)
+    private readonly payloadEncryption: InboundWebhookPayloadEncryptionService,
+  ) {}
+
+  async listDeliveries(
+    query: BackofficeInboundWebhookDeliveryQueryDto,
+  ): Promise<BackofficeInboundWebhookDeliveryDto[]> {
+    const deliveries = await this.prisma.inboundWebhookDelivery.findMany({
+      where: {
+        ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
+        ...(query.connectionId ? { connectionId: query.connectionId } : {}),
+        ...(query.provider ? { provider: query.provider } : {}),
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.classification
+          ? { classification: query.classification }
+          : {}),
+      },
+      select: deliveryListSelect,
+      orderBy: [{ lastReceivedAt: "desc" }, { id: "desc" }],
+      take: query.limit,
+    });
+    const now = new Date();
+
+    return deliveries.map((delivery) =>
+      this.toDeliveryDto(delivery, this.listPayloadAvailable(delivery, now)),
+    );
+  }
+
+  async getPayload(
+    deliveryId: string,
+    actor: InboundWebhookPayloadActor,
+  ): Promise<BackofficeInboundWebhookPayloadDto> {
+    const delivery = await this.prisma.inboundWebhookDelivery.findUnique({
+      where: { id: deliveryId },
+      include: {
+        connection: {
+          select: {
+            displayName: true,
+            parserRelease: {
+              select: {
+                status: true,
+              },
+            },
+          },
+        },
+        events: {
+          orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+        },
+        _count: {
+          select: {
+            events: true,
+          },
+        },
+      },
+    });
+
+    if (!delivery) {
+      await this.recordAudit({
+        workspaceId: null,
+        deliveryId,
+        actor,
+        resultStatus: "failed",
+        reason: "delivery_not_found",
+        afterSummary: null,
+      });
+      throw new NotFoundException("Entrega nao encontrada");
+    }
+
+    const now = new Date();
+    const deliveryDto = this.toDeliveryDto(
+      delivery,
+      this.payloadAvailable(delivery, now),
+    );
+    const events = delivery.events.map((event) => this.toObservationDto(event));
+
+    if (!deliveryDto.payloadAvailable) {
+      await this.recordAudit({
+        workspaceId: delivery.workspaceId,
+        deliveryId,
+        actor,
+        resultStatus: "unavailable",
+        reason:
+          delivery.payloadExpiresAt.getTime() <= now.getTime()
+            ? "payload_expired"
+            : "payload_cleared",
+        afterSummary: this.accessSummary(deliveryDto),
+      });
+
+      return {
+        delivery: deliveryDto,
+        payload: null,
+        events,
+      };
+    }
+
+    let payload: Record<string, unknown>;
+
+    try {
+      const decrypted = this.payloadEncryption.decrypt(
+        {
+          encryptedPayload: delivery.encryptedPayload!,
+          payloadIv: delivery.payloadIv!,
+          payloadTag: delivery.payloadTag!,
+          encryptionKeyVersion: delivery.encryptionKeyVersion!,
+        },
+        {
+          workspaceId: delivery.workspaceId,
+          connectionId: delivery.connectionId,
+          deliveryId: delivery.id,
+        },
+      );
+      payload = this.parsePayload(decrypted);
+    } catch {
+      await this.recordAudit({
+        workspaceId: delivery.workspaceId,
+        deliveryId,
+        actor,
+        resultStatus: "failed",
+        reason: "payload_decryption_failed",
+        afterSummary: this.accessSummary(deliveryDto),
+      });
+      throw new InternalServerErrorException(genericPayloadError);
+    }
+
+    await this.recordAudit({
+      workspaceId: delivery.workspaceId,
+      deliveryId,
+      actor,
+      resultStatus: "success",
+      reason: null,
+      afterSummary: this.accessSummary(deliveryDto),
+    });
+
+    return {
+      delivery: deliveryDto,
+      payload,
+      events,
+    };
+  }
+
+  async recordDeniedPayloadAccess(input: {
+    deliveryId: string;
+    actorUserId: string;
+    actorType: string;
+    sourceIp: string | null;
+  }): Promise<void> {
+    const delivery = await this.prisma.inboundWebhookDelivery.findUnique({
+      where: { id: input.deliveryId },
+      select: { workspaceId: true },
+    });
+
+    await this.recordAudit({
+      workspaceId: delivery?.workspaceId ?? null,
+      deliveryId: input.deliveryId,
+      actor: {
+        id: input.actorUserId,
+        actorType: input.actorType,
+        sourceIp: input.sourceIp,
+      },
+      resultStatus: "denied",
+      reason: "platform_owner_required",
+      afterSummary: null,
+    });
+  }
+
+  private toDeliveryDto(
+    delivery: DeliveryListRecord,
+    payloadAvailable: boolean,
+  ): BackofficeInboundWebhookDeliveryDto {
+    return {
+      id: delivery.id,
+      workspaceId: delivery.workspaceId,
+      connectionId: delivery.connectionId,
+      connectionName: delivery.connection.displayName,
+      provider: delivery.provider,
+      providerEventType: delivery.providerEventType,
+      parserVersion: delivery.parserVersion,
+      parserReleaseStatus: delivery.connection.parserRelease.status,
+      status: delivery.status,
+      classification: delivery.classification,
+      firstReceivedAt: delivery.firstReceivedAt.toISOString(),
+      lastReceivedAt: delivery.lastReceivedAt.toISOString(),
+      attemptCount: delivery.attemptCount,
+      payloadAvailable,
+      payloadExpiresAt: delivery.payloadExpiresAt.toISOString(),
+      parseErrorCode: delivery.parseErrorCode,
+      routingErrorCode: delivery.routingErrorCode,
+      normalizedSummary: this.recordValue(delivery.normalizedSummary),
+      eventCount: delivery._count.events,
+    };
+  }
+
+  private toObservationDto(
+    event: InboundWebhookEvent,
+  ): InboundWebhookNormalizedObservationDto {
+    const summary = this.recordValue(event.normalizedSummary);
+    const providerEventType = this.boundedString(
+      summary?.providerEventType,
+      120,
+    );
+    const connectedPhoneSuffix = this.phoneSuffix(
+      summary?.connectedPhoneSuffix,
+    );
+
+    return {
+      id: event.id,
+      connectionId: event.connectionId,
+      deliveryId: event.deliveryId,
+      channelId: event.channelId,
+      provider: event.provider,
+      providerEventType,
+      externalMessageId: event.externalMessageId,
+      occurredAt: event.occurredAt.toISOString(),
+      connectedPhoneSuffix,
+      contactIdentityHash: event.contactIdentityHash,
+      adId: event.adId,
+      hasCtwa: event.hasCtwa,
+      classification: event.classification,
+      classificationReason: event.classificationReason,
+      resolvedBusinessConnectionId: event.resolvedBusinessConnectionId,
+      resolvedReportingAccountId: event.resolvedReportingAccountId,
+      resolvedConversionDestinationId: event.resolvedConversionDestinationId,
+      createdAt: event.createdAt.toISOString(),
+    };
+  }
+
+  private payloadAvailable(
+    delivery: InboundWebhookDelivery,
+    now: Date,
+  ): boolean {
+    return Boolean(
+      delivery.payloadExpiresAt.getTime() > now.getTime() &&
+      delivery.encryptedPayload &&
+      delivery.payloadIv &&
+      delivery.payloadTag &&
+      delivery.encryptionKeyVersion,
+    );
+  }
+
+  private listPayloadAvailable(
+    delivery: DeliveryListRecord,
+    now: Date,
+  ): boolean {
+    return Boolean(
+      delivery.payloadExpiresAt.getTime() > now.getTime() &&
+      delivery.encryptionKeyVersion,
+    );
+  }
+
+  private parsePayload(payload: Buffer): Record<string, unknown> {
+    const parsed: unknown = JSON.parse(payload.toString("utf8"));
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(genericPayloadError);
+    }
+
+    return parsed as Record<string, unknown>;
+  }
+
+  private accessSummary(
+    delivery: BackofficeInboundWebhookDeliveryDto,
+  ): Prisma.InputJsonObject {
+    return {
+      provider: delivery.provider,
+      parserVersion: delivery.parserVersion,
+      parserReleaseStatus: delivery.parserReleaseStatus,
+      classification: delivery.classification,
+      payloadAvailable: delivery.payloadAvailable,
+      eventCount: delivery.eventCount,
+    };
+  }
+
+  private async recordAudit(input: {
+    workspaceId: string | null;
+    deliveryId: string;
+    actor: InboundWebhookPayloadActor;
+    resultStatus: string;
+    reason: string | null;
+    afterSummary: Prisma.InputJsonObject | null;
+  }): Promise<void> {
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: input.workspaceId,
+        actorUserId: input.actor.id,
+        actorType: input.actor.actorType,
+        action: payloadReadAction,
+        targetType: payloadTargetType,
+        targetId: input.deliveryId,
+        reason: input.reason,
+        sourceIp: this.sourceIp(input.actor.sourceIp),
+        resultStatus: input.resultStatus,
+        beforeSummary: undefined,
+        afterSummary: input.afterSummary ?? undefined,
+      },
+    });
+  }
+
+  private recordValue(
+    value: Prisma.JsonValue | null,
+  ): Record<string, unknown> | null {
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  }
+
+  private boundedString(value: unknown, maxLength: number): string | null {
+    return typeof value === "string" &&
+      value.length > 0 &&
+      value.length <= maxLength
+      ? value
+      : null;
+  }
+
+  private phoneSuffix(value: unknown): string | null {
+    return typeof value === "string" && /^\d{2,8}$/u.test(value) ? value : null;
+  }
+
+  private sourceIp(value: string | null): string | null {
+    const normalized = value?.trim();
+
+    return normalized &&
+      normalized.length <= 128 &&
+      !/[\u0000-\u001f\u007f]/u.test(normalized)
+      ? normalized
+      : null;
+  }
+}

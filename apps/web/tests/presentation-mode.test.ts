@@ -44,6 +44,26 @@ describe("presentation mode", () => {
       ["../src/app/(app)/events/page.tsx", "Lead oculto"],
       ["../src/app/(app)/events/event-audit-details.tsx", "Payload oculto"],
       ["../src/app/(app)/integrations/page.tsx", "Pixel oculto"],
+      [
+        "../src/app/(app)/integrations/inbound-webhook-panel.tsx",
+        "Conexao Umbler",
+      ],
+      [
+        "../src/app/(app)/integrations/inbound-webhook-panel.tsx",
+        "Numero oculto",
+      ],
+      [
+        "../src/app/(app)/integrations/inbound-webhook-route-editor.tsx",
+        "BM oculta",
+      ],
+      [
+        "../src/app/(app)/integrations/inbound-webhook-route-editor.tsx",
+        "Conta oculta",
+      ],
+      [
+        "../src/app/(app)/integrations/inbound-webhook-route-editor.tsx",
+        "Pixel e Pagina ocultos",
+      ],
       ["../src/app/(app)/settings/page.tsx", "Usuario oculto"],
     ] as const;
 

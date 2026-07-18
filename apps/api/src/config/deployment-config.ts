@@ -2,6 +2,9 @@ import { z } from "zod";
 
 const metaConnectionModes = ["oauth", "manual"] as const;
 const emailAddressSchema = z.string().email();
+const inboundWebhookEncryptionKeyPattern = /^[A-Za-z0-9+/]{43}=$/;
+
+export const INBOUND_WEBHOOK_RAW_RETENTION_DAYS = 7 as const;
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -28,10 +31,25 @@ export type EmailConfig =
       smtp: SmtpConfig;
     };
 
+export type InboundWebhooksConfig =
+  | {
+      enabled: false;
+      apiPublicUrl: null;
+      encryptionKey: null;
+      rawPayloadRetentionDays: typeof INBOUND_WEBHOOK_RAW_RETENTION_DAYS;
+    }
+  | {
+      enabled: true;
+      apiPublicUrl: string;
+      encryptionKey: Buffer;
+      rawPayloadRetentionDays: typeof INBOUND_WEBHOOK_RAW_RETENTION_DAYS;
+    };
+
 export interface DeploymentConfig {
   authGoogleEnabled: boolean;
   metaConnectionModes: MetaConnectionMode[];
   email: EmailConfig;
+  inboundWebhooks: InboundWebhooksConfig;
   webOrigin: string;
 }
 
@@ -254,6 +272,106 @@ function parseWebOrigin(env: Environment): string {
   return parsed.origin;
 }
 
+function parseApiPublicUrl(env: Environment): string {
+  const value = env.API_PUBLIC_URL?.trim();
+
+  if (!value) {
+    invalid("API_PUBLIC_URL", "required when INBOUND_WEBHOOKS_ENABLED=true");
+  }
+
+  let parsed: URL;
+
+  try {
+    parsed = new URL(value);
+  } catch {
+    invalid("API_PUBLIC_URL", "expected an absolute URL");
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    invalid("API_PUBLIC_URL", "expected an absolute HTTP or HTTPS URL");
+  }
+
+  if (
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    invalid("API_PUBLIC_URL", "expected an origin without path or credentials");
+  }
+
+  const nodeEnv = env.NODE_ENV?.trim().toLowerCase();
+  const localHttpAllowed =
+    parsed.protocol === "http:" &&
+    (nodeEnv === "development" || nodeEnv === "test") &&
+    isLocalhost(parsed.hostname);
+
+  if (parsed.protocol !== "https:" && !localHttpAllowed) {
+    invalid(
+      "API_PUBLIC_URL",
+      "expected HTTPS, except HTTP localhost in development or test",
+    );
+  }
+
+  return parsed.origin;
+}
+
+function parseInboundWebhookEncryptionKey(env: Environment): Buffer {
+  const value = env.INBOUND_WEBHOOK_ENCRYPTION_KEY?.trim();
+
+  if (!value) {
+    invalid(
+      "INBOUND_WEBHOOK_ENCRYPTION_KEY",
+      "required when INBOUND_WEBHOOKS_ENABLED=true",
+    );
+  }
+
+  if (!inboundWebhookEncryptionKeyPattern.test(value)) {
+    invalid(
+      "INBOUND_WEBHOOK_ENCRYPTION_KEY",
+      "expected a Base64-encoded 32-byte key",
+    );
+  }
+
+  const key = Buffer.from(value, "base64");
+
+  if (key.length !== 32) {
+    invalid(
+      "INBOUND_WEBHOOK_ENCRYPTION_KEY",
+      "expected a Base64-encoded 32-byte key",
+    );
+  }
+
+  return key;
+}
+
+export function parseInboundWebhooksConfig(
+  env: Environment,
+): InboundWebhooksConfig {
+  const enabled = parseBoolean(
+    "INBOUND_WEBHOOKS_ENABLED",
+    env.INBOUND_WEBHOOKS_ENABLED,
+    false,
+  );
+
+  if (!enabled) {
+    return {
+      enabled: false,
+      apiPublicUrl: null,
+      encryptionKey: null,
+      rawPayloadRetentionDays: INBOUND_WEBHOOK_RAW_RETENTION_DAYS,
+    };
+  }
+
+  return {
+    enabled: true,
+    apiPublicUrl: parseApiPublicUrl(env),
+    encryptionKey: parseInboundWebhookEncryptionKey(env),
+    rawPayloadRetentionDays: INBOUND_WEBHOOK_RAW_RETENTION_DAYS,
+  };
+}
+
 export function parseDeploymentConfig(
   env: Environment = process.env,
 ): DeploymentConfig {
@@ -265,6 +383,7 @@ export function parseDeploymentConfig(
     ),
     metaConnectionModes: parseMetaConnectionModes(env.META_CONNECTION_MODES),
     email: parseEmailConfig(env),
+    inboundWebhooks: parseInboundWebhooksConfig(env),
     webOrigin: parseWebOrigin(env),
   };
 }
