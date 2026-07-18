@@ -39,6 +39,36 @@ Status, WhatsApp classification, comparison period, name scope, and page size
 remain grouped under advanced filters. Comparison inputs are now visible when
 the operator needs them instead of existing only as hidden fields.
 
+## Compact controls refinement
+
+The follow-up refinement consolidates the period commands and report filters
+into one low-emphasis control center. On wide desktops, the surface uses two
+compact rows:
+
+1. period, export, Meta synchronization, and synchronization context;
+2. report level, result count, Business Manager, ad account, name search, and
+   the filter command.
+
+The duplicate "Estrutura e filtros" heading was removed. Advanced filters now
+use a small disclosure control at the end of the primary filter row and only
+consume vertical space when opened. At narrower desktop widths the two rows
+wrap deliberately before controls become compressed; mobile keeps full-width
+inputs and touch targets.
+
+This hierarchy keeps the report summary and the beginning of the performance
+table in the first desktop viewport under normal conditions. Filters remain
+easy to find, but the table is the visual destination of the page.
+
+Follow-up verification:
+
+- 36 web test files passed;
+- 212 tests passed, including the compact control layout contract;
+- TypeScript validation passed;
+- Next.js production build passed for all 22 static-generation steps.
+
+The automated browser surface was unavailable during this follow-up, so the
+final visual confirmation is performed against the deployed Vercel preview.
+
 ## Metric groups
 
 The result table uses four controlled metric groups:

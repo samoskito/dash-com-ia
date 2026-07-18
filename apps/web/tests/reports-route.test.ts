@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -502,19 +504,48 @@ describe("reports route", () => {
     expect(row).toContain('class="performance-review-cell"');
   });
 
-  it("groups the report controls and keeps organic metrics out of entity rows", async () => {
+  it("keeps report controls compact and gives the results table visual priority", async () => {
     mockReportsApi();
     const html = await renderReports();
+    const controlsIndex = html.indexOf(
+      'class="surface-panel report-control-center"',
+    );
+    const resultsIndex = html.indexOf('class="report-results-overview"');
+    const tableIndex = html.indexOf('class="performance-table"');
 
-    expect(html).toContain('class="surface-panel report-command-panel"');
-    expect(html).toContain('class="surface-panel report-analysis-controls"');
+    expect(controlsIndex).toBeGreaterThan(-1);
+    expect(resultsIndex).toBeGreaterThan(controlsIndex);
+    expect(tableIndex).toBeGreaterThan(resultsIndex);
+    expect(html).toContain('class="report-analysis-switcher"');
+    expect(html).toContain('class="report-period-context"');
+    expect(html).not.toContain("Estrutura e filtros");
     expect(html).toContain('aria-label="Grupo de metricas"');
-    expect(html).toContain("Filtros avancados");
+    expect(html).toContain('aria-label="Filtros avancados"');
     expect(html).toContain('name="compareSince"');
     expect(html).toContain('name="compareUntil"');
     expect(html).toContain('data-label="Conversas reais"');
     expect(html).not.toContain("<th>Leads organicos</th>");
     expect(html).not.toContain("<th>Receita organica</th>");
+  });
+
+  it("uses two compact desktop control rows with advanced filters on demand", () => {
+    const css = readFileSync(
+      join(process.cwd(), "src/styles/layout-system.css"),
+      "utf8",
+    );
+
+    expect(css).toMatch(
+      /\.report-command-body\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto[^}]*padding:\s*12px 14px/s,
+    );
+    expect(css).toMatch(
+      /\.report-analysis-controls\s*{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\)/s,
+    );
+    expect(css).toMatch(
+      /\.report-filter-primary\s*{[^}]*grid-template-columns:[^}]*auto\s*auto[^}]*padding:\s*10px 12px/s,
+    );
+    expect(css).toMatch(
+      /\.report-advanced-filters\[open\]\s*{[^}]*grid-column:\s*1\s*\/\s*-1/s,
+    );
   });
 
   it("renders and preserves the selected metric group without changing the API query", async () => {

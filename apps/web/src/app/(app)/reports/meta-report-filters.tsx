@@ -1,7 +1,7 @@
 "use client";
 
 import type { MetaAssetsDto } from "@wpptrack/shared";
-import { SlidersHorizontal } from "lucide-react";
+import { Filter, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePresentationMode } from "../../../components/presentation-mode-toggle";
@@ -256,114 +256,115 @@ export function MetaReportFilters({
           data-presentation-sensitive-field="true"
         />
         <button className="button" type="submit">
+          <Filter aria-hidden="true" size={15} />
           Aplicar filtros
         </button>
-      </div>
 
-      <details
-        className="report-advanced-filters"
-        open={advancedFilterCount > 0}
-      >
-        <summary>
-          <span>
-            <SlidersHorizontal aria-hidden="true" size={15} />
-            Filtros avancados
-          </span>
-          {advancedFilterCount > 0 ? (
-            <span className="tag">{advancedFilterCount} ativo(s)</span>
-          ) : null}
-        </summary>
-        <div className="report-filter-advanced-grid">
-          <label className="filter-field">
-            <span>Buscar em</span>
-            <select
-              className="filter-control"
-              name="nameScope"
-              defaultValue={nameScope}
-              aria-label="Tipo de filtro por nome"
-            >
-              {nameScopeOptions.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="filter-field">
-            <span>Status</span>
-            <select
-              className="filter-control"
-              name="status"
-              defaultValue={status}
-              aria-label="Filtrar por status"
-            >
-              {statusOptions.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="filter-field">
-            <span>Canal</span>
-            <select
-              className="filter-control"
-              name="whatsappClassification"
-              defaultValue={whatsappClassification}
-              aria-label="Filtrar por classificacao WhatsApp"
-            >
-              {classificationOptions.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="filter-field">
-            <span>Comparar desde</span>
-            <input
-              className="filter-control"
-              type="date"
-              name="compareSince"
-              defaultValue={compareSince ?? ""}
-            />
-          </label>
-          <label className="filter-field">
-            <span>Comparar ate</span>
-            <input
-              className="filter-control"
-              type="date"
-              name="compareUntil"
-              defaultValue={compareUntil ?? ""}
-            />
-          </label>
-          <label className="filter-field">
-            <span>Itens por pagina</span>
-            <select
-              className="filter-control"
-              name="pageSize"
-              defaultValue={String(pageSize)}
-            >
-              <option value="10">10 itens</option>
-              <option value="25">25 itens</option>
-              <option value="50">50 itens</option>
-              <option value="100">100 itens</option>
-            </select>
-          </label>
-        </div>
-        <div className="report-filter-footer">
-          <span>
-            {hasFilters
-              ? "O relatorio esta usando filtros personalizados."
-              : "Sem filtros adicionais aplicados."}
-          </span>
-          {hasFilters ? (
-            <Link className="button ghost" href={`/reports?${clearParams}`}>
-              Limpar filtros
-            </Link>
-          ) : null}
-        </div>
-      </details>
+        <details
+          className="report-advanced-filters"
+          open={advancedFilterCount > 0}
+        >
+          <summary aria-label="Filtros avancados">
+            <span>
+              <SlidersHorizontal aria-hidden="true" size={15} />
+              Avancados
+            </span>
+            {advancedFilterCount > 0 ? (
+              <span className="tag">{advancedFilterCount}</span>
+            ) : null}
+          </summary>
+          <div className="report-filter-advanced-grid">
+            <label className="filter-field">
+              <span>Buscar em</span>
+              <select
+                className="filter-control"
+                name="nameScope"
+                defaultValue={nameScope}
+                aria-label="Tipo de filtro por nome"
+              >
+                {nameScopeOptions.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Status</span>
+              <select
+                className="filter-control"
+                name="status"
+                defaultValue={status}
+                aria-label="Filtrar por status"
+              >
+                {statusOptions.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Canal</span>
+              <select
+                className="filter-control"
+                name="whatsappClassification"
+                defaultValue={whatsappClassification}
+                aria-label="Filtrar por classificacao WhatsApp"
+              >
+                {classificationOptions.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Comparar desde</span>
+              <input
+                className="filter-control"
+                type="date"
+                name="compareSince"
+                defaultValue={compareSince ?? ""}
+              />
+            </label>
+            <label className="filter-field">
+              <span>Comparar ate</span>
+              <input
+                className="filter-control"
+                type="date"
+                name="compareUntil"
+                defaultValue={compareUntil ?? ""}
+              />
+            </label>
+            <label className="filter-field">
+              <span>Itens por pagina</span>
+              <select
+                className="filter-control"
+                name="pageSize"
+                defaultValue={String(pageSize)}
+              >
+                <option value="10">10 itens</option>
+                <option value="25">25 itens</option>
+                <option value="50">50 itens</option>
+                <option value="100">100 itens</option>
+              </select>
+            </label>
+          </div>
+          <div className="report-filter-footer">
+            <span>
+              {hasFilters
+                ? "O relatorio esta usando filtros personalizados."
+                : "Sem filtros adicionais aplicados."}
+            </span>
+            {hasFilters ? (
+              <Link className="button ghost" href={`/reports?${clearParams}`}>
+                Limpar filtros
+              </Link>
+            ) : null}
+          </div>
+        </details>
+      </div>
     </form>
   );
 }
