@@ -39,8 +39,14 @@ shared-contract change is required.
 
 ## Sidebar Scrollbar
 
-Use a thin, low-contrast mint scrollbar with a transparent track. It becomes
-slightly more visible on hover and keeps the native scrolling behavior.
+The expanded desktop sidebar uses a compact navigation density: `14px` labels,
+`36px` rows, shorter group gaps, and a reduced workspace selector. This keeps
+all primary destinations and account actions visible on common notebook
+heights.
+
+The scrollbar gutter is not reserved permanently. A thin, low-contrast mint
+scrollbar with a transparent track remains available only as an accessibility
+fallback for very short viewports or increased browser zoom.
 
 ## Safety
 

@@ -160,6 +160,21 @@ describe("product app layout", () => {
     );
   });
 
+  it("uses a compact desktop sidebar while preserving scroll as a fallback", () => {
+    const css = readFileSync(
+      join(process.cwd(), "src/styles/layout-system.css"),
+      "utf8",
+    );
+
+    expect(css).toMatch(
+      /@media \(min-width:\s*901px\)\s*{[\s\S]*?\.sidebar-nav a\s*{[^}]*min-height:\s*36px[^}]*font-size:\s*14px/s,
+    );
+    expect(css).toMatch(
+      /\.sidebar\s*{[^}]*scrollbar-gutter:\s*auto[^}]*scrollbar-width:\s*thin/s,
+    );
+    expect(css).toContain(".workspace-selector-trigger");
+  });
+
   it("only compacts status chips that live inside the collapsed sidebar", () => {
     const css = readFileSync(
       join(process.cwd(), "src/styles/globals.css"),

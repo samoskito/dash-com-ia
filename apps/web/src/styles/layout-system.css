@@ -30,7 +30,7 @@ body {
     rgba(5, 10, 9, 0.97);
   box-shadow: 12px 0 34px rgba(0, 0, 0, 0.14);
   scrollbar-color: rgba(66, 240, 168, 0.28) transparent;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
   scrollbar-width: thin;
 }
 
@@ -115,6 +115,99 @@ body {
 
 .sidebar-collapsed .sidebar-nav a.active .nav-icon {
   color: var(--mint);
+}
+
+@media (min-width: 901px) {
+  .sidebar {
+    padding: 14px 14px 12px;
+  }
+
+  .brand {
+    min-height: 38px;
+  }
+
+  .brand strong {
+    font-size: 18px;
+  }
+
+  .brand-mark {
+    width: 34px;
+    height: 34px;
+  }
+
+  .sidebar-toggle {
+    width: 32px;
+    height: 32px;
+  }
+
+  .workspace-strip {
+    min-height: 82px;
+    margin-top: 14px;
+    gap: 6px;
+    padding: 10px;
+  }
+
+  .workspace-selector-trigger {
+    min-height: 80px;
+    padding: 9px 10px;
+  }
+
+  .workspace-strip strong {
+    font-size: 15px;
+  }
+
+  .workspace-strip small {
+    font-size: 11px;
+  }
+
+  .sidebar-navigation {
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .sidebar-navigation .sidebar-nav {
+    gap: 3px;
+  }
+
+  .sidebar-nav .nav-label {
+    margin-bottom: 2px;
+    font-size: 9px;
+  }
+
+  .sidebar-nav a {
+    min-height: 36px;
+    padding: 7px 9px;
+    border-radius: 7px;
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .nav-icon {
+    flex-basis: 20px;
+    width: 20px;
+    height: 20px;
+  }
+
+  .platform-sidebar-nav {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  .health-panel {
+    gap: 6px;
+    padding-top: 12px;
+  }
+
+  .health-panel .status-chip {
+    min-height: 24px;
+    padding-block: 4px;
+    font-size: 10px;
+  }
+
+  .presentation-mode-toggle,
+  .logout-button {
+    min-height: 32px;
+  }
 }
 
 /* Page widths and hierarchy */
