@@ -89,13 +89,14 @@ export function InboundWebhookPanel({
       return;
     }
 
+    const form = event.currentTarget;
     setPendingAction("create");
     setNotice(null);
-    const result = await createAction(new FormData(event.currentTarget));
+    const result = await createAction(new FormData(form));
     applyResult(result);
 
     if (result.ok && result.oneTimeSecret) {
-      event.currentTarget.reset();
+      form.reset();
       setOneTimeSecret(result.oneTimeSecret);
       setCopied(false);
       setCreateOpen(false);

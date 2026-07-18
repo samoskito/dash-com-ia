@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type {
   InboundWebhookCapabilitiesDto,
   MetaManualConfigurationDto,
@@ -147,6 +149,29 @@ const metaConfiguration = {
 } satisfies MetaManualConfigurationDto;
 
 describe("inbound webhook panel", () => {
+  it("keeps the submitted form reference across the async create action", () => {
+    const source = readFileSync(
+      resolve(
+        __dirname,
+        "../src/app/(app)/integrations/inbound-webhook-panel.tsx",
+      ),
+      "utf8",
+    );
+    const handler = source.slice(
+      source.indexOf("async function handleCreate"),
+      source.indexOf("async function runConnectionAction"),
+    );
+
+    expect(handler).toMatch(/const form = event\.currentTarget;/);
+    expect(handler).toMatch(
+      /await createAction\(new FormData\(form\)\)/,
+    );
+    expect(handler).toMatch(/form\.reset\(\)/);
+    expect(handler).not.toMatch(
+      /await createAction\(new FormData\(event\.currentTarget\)\)/,
+    );
+  });
+
   it("shows Umbler in an extensible provider selector and stays observation-only", () => {
     const html = renderPanel({ connections: [] });
 
