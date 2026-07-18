@@ -1664,7 +1664,7 @@ export default async function ReportsPage({
             };
 
   return (
-    <section className="page-stack">
+    <section className="page-stack page-wide reports-page">
       <header className="page-header">
         <div>
           <span className="eyebrow">Relatorios</span>

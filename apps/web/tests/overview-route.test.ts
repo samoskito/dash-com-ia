@@ -169,6 +169,17 @@ describe("overview route", () => {
     expect(html).toContain("Meta x conversas reais");
     expect(html).toContain("4 conversas a mais na Meta");
     expect(html).toContain("daily-comparison-chart");
+    expect(html).toContain("overview-summary-grid");
+
+    const metricsPosition = html.indexOf('class="metric-grid"');
+    const funnelPosition = html.indexOf("overview-funnel-panel");
+    const dailyPosition = html.indexOf("daily-comparison");
+    const summaryPosition = html.indexOf("overview-summary-grid");
+
+    expect(metricsPosition).toBeGreaterThan(-1);
+    expect(funnelPosition).toBeGreaterThan(metricsPosition);
+    expect(dailyPosition).toBeGreaterThan(funnelPosition);
+    expect(summaryPosition).toBeGreaterThan(dailyPosition);
   });
 
   it("renders aggregated campaign metrics returned by the backend", async () => {

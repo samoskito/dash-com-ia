@@ -201,7 +201,7 @@ export default async function LeadsPage({
       : "Quando uma integracao ativa receber conversas, elas aparecem aqui.";
 
   return (
-    <section className="page-stack">
+    <section className="page-stack page-wide leads-page">
       <header className="page-header">
         <div>
           <span className="eyebrow">Leads</span>

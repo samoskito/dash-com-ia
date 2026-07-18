@@ -447,9 +447,20 @@ export default async function OverviewPage({
     selectedBusiness?.businessName ??
     "Todas as contas";
   const detailHref = reportsHref(filters);
+  const workspaceSummary =
+    reportState === "error"
+      ? "Os numeros permanecem ocultos ate a API responder, evitando exibir zero como dado confirmado."
+      : campaigns.length > 0
+        ? `Investimento de ${money(campaign.spendCents)} gerou ${campaign.realConversations} conversas reais, ${campaign.organicLeads} conversas organicas e ${money(campaign.totalRevenueCents)} em receita total.`
+        : campaign.totalReceived > 0
+          ? `${campaign.realConversations} ${campaign.realConversations === 1 ? "conversa" : "conversas"} com origem identificada e ${campaign.organicLeads} ${campaign.organicLeads === 1 ? "conversa organica" : "conversas organicas"} foram recebidas. Campanha e conjunto serao exibidos quando a estrutura Meta for resolvida.`
+          : "Nenhuma campanha sincronizada. Use Sincronizar Meta em Relatorios para carregar dados reais.";
+  const funnelSummary = dataAvailable
+    ? `${report.rangeLabel}: ${campaign.metaConversationsStarted} conversas registradas pela Meta chegaram a ${campaign.firstPurchases} ${campaign.firstPurchases === 1 ? "primeira compra" : "primeiras compras"}.`
+    : "A jornada sera exibida quando a API concluir a inicializacao.";
 
   return (
-    <section className="page-stack">
+    <section className="page-stack page-wide overview-page">
       <header className="page-header">
         <div>
           <span className="eyebrow">Visao geral</span>
@@ -533,6 +544,34 @@ export default async function OverviewPage({
         />
       </div>
 
+      <section
+        className="surface-panel overview-funnel-panel"
+        aria-label="Funil integrado"
+      >
+        {dataAvailable ? (
+          <ConversionFunnel description={funnelSummary} stages={funnelStages} />
+        ) : (
+          <>
+            <div className="overview-section-heading">
+              <div>
+                <span className="eyebrow">Funil integrado</span>
+                <h2>Conversao por etapas</h2>
+                <p>{funnelSummary}</p>
+              </div>
+            </div>
+            <div className="overview-unavailable" role="status">
+              <span className="status-dot" aria-hidden="true" />
+              <div>
+                <strong>Dados temporariamente indisponiveis</strong>
+                <span>
+                  Tente novamente quando a API concluir a inicializacao.
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+      </section>
+
       <DailyConversationComparison
         available={report.dailyComparisonAvailable === true}
         detailHref={detailHref}
@@ -541,29 +580,22 @@ export default async function OverviewPage({
         scopeLabel={scopeLabel}
       />
 
-      <div className="panel-grid">
-        <div className="surface-panel">
-          <div>
-            <span className="eyebrow">Funil integrado</span>
-            <h2>
-              {reportState === "error" ? (
-                "Nao foi possivel carregar relatorios"
-              ) : (
-                <PresentationMask placeholder="Campanha oculta">
-                  {campaign.name}
-                </PresentationMask>
-              )}
-            </h2>
+      <div className="overview-summary-grid">
+        <section
+          className="surface-panel overview-workspace-summary"
+          aria-labelledby="overview-workspace-summary-title"
+        >
+          <div className="overview-section-heading">
+            <div>
+              <span className="eyebrow">Resultado do periodo</span>
+              <h2 id="overview-workspace-summary-title">
+                {reportState === "error"
+                  ? "Nao foi possivel carregar relatorios"
+                  : "Resumo do workspace"}
+              </h2>
+              <p>{workspaceSummary}</p>
+            </div>
           </div>
-          <p>
-            {reportState === "error"
-              ? "Os numeros permanecem ocultos ate a API responder, evitando exibir zero como dado confirmado."
-              : campaigns.length > 0
-                ? `Investimento de ${money(campaign.spendCents)} gerou ${campaign.realConversations} conversas reais, ${campaign.organicLeads} conversas organicas e ${money(campaign.totalRevenueCents)} em receita total.`
-                : campaign.totalReceived > 0
-                  ? `${campaign.realConversations} ${campaign.realConversations === 1 ? "conversa" : "conversas"} com origem identificada e ${campaign.organicLeads} ${campaign.organicLeads === 1 ? "conversa organica" : "conversas organicas"} foram recebidas. Campanha e conjunto serao exibidos quando a estrutura Meta for resolvida.`
-                  : "Nenhuma campanha sincronizada. Use Sincronizar Meta em Relatorios para carregar dados reais."}
-          </p>
           {dataAvailable ? (
             <div
               className="overview-finance-strip"
@@ -593,19 +625,6 @@ export default async function OverviewPage({
               ) : null}
             </div>
           ) : null}
-          {dataAvailable ? (
-            <ConversionFunnel stages={funnelStages} />
-          ) : (
-            <div className="overview-unavailable" role="status">
-              <span className="status-dot" aria-hidden="true" />
-              <div>
-                <strong>Dados temporariamente indisponiveis</strong>
-                <span>
-                  Tente novamente quando a API concluir a inicializacao.
-                </span>
-              </div>
-            </div>
-          )}
           <div className="overview-report-link">
             <span>
               {dataAvailable
@@ -616,7 +635,7 @@ export default async function OverviewPage({
               Ver relatorios
             </Link>
           </div>
-        </div>
+        </section>
 
         <aside
           className="surface-panel tracking-health"
@@ -897,7 +916,13 @@ function Metric({
   );
 }
 
-function ConversionFunnel({ stages }: { stages: ReportFunnelStepDto[] }) {
+function ConversionFunnel({
+  description,
+  stages,
+}: {
+  description: string;
+  stages: ReportFunnelStepDto[];
+}) {
   const palette = [
     "var(--mint)",
     "var(--teal)",
@@ -965,8 +990,9 @@ function ConversionFunnel({ stages }: { stages: ReportFunnelStepDto[] }) {
     >
       <div className="conversion-funnel-heading">
         <div>
-          <span className="micro-label">Jornada completa</span>
-          <h3>Funil de conversao</h3>
+          <span className="micro-label">Funil integrado</span>
+          <h2>Conversao por etapas</h2>
+          <p>{description}</p>
         </div>
         <span className="conversion-funnel-stage-count">
           {stages.length} {stages.length === 1 ? "etapa" : "etapas"}

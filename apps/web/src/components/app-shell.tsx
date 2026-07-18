@@ -7,16 +7,24 @@ import type {
   WorkspaceListEntryDto,
 } from "@wpptrack/shared";
 import {
+  BarChart3,
   Building2,
   Check,
   ChevronsUpDown,
+  LayoutDashboard,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Plug,
+  Send,
+  Settings2,
+  ShieldCheck,
+  UsersRound,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { LogoutButton } from "./logout-button";
@@ -30,6 +38,32 @@ import { exitPlatformSupportAccess } from "../app/actions/platform-support";
 import { switchActiveWorkspace } from "../app/actions/workspaces";
 
 const sidebarStorageKey = "wpptrack-sidebar-collapsed";
+
+type ClientNavigationId = (typeof clientNavigation)[number]["id"];
+
+const navigationIconById: Record<ClientNavigationId, LucideIcon> = {
+  overview: LayoutDashboard,
+  leads: UsersRound,
+  reports: BarChart3,
+  events: Send,
+  integrations: Plug,
+  settings: Settings2,
+};
+
+const navigationGroups = [
+  {
+    label: "Operacao",
+    items: clientNavigation.filter((item) =>
+      ["overview", "leads", "reports", "events"].includes(item.id),
+    ),
+  },
+  {
+    label: "Gestao",
+    items: clientNavigation.filter((item) =>
+      ["integrations", "settings"].includes(item.id),
+    ),
+  },
+] as const;
 
 function workspaceAccessLabel(workspace: CurrentWorkspaceDto): string {
   if (workspace.accessMode === "platform_support") {
@@ -59,6 +93,7 @@ export function AppShell({
   workspaces?: WorkspaceListEntryDto[];
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const presentationMode = usePresentationMode();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -363,22 +398,39 @@ export function AppShell({
           )}
         </section>
 
-        <nav className="sidebar-nav" aria-label="Navegacao principal">
-          <p className="nav-label">Operacao</p>
-          {clientNavigation.map((item) => (
-            <Link
-              key={item.id}
-              href={`/${item.id}`}
-              title={item.label}
-              onClick={closeMobileMenu}
+        <div className="sidebar-navigation">
+          {navigationGroups.map((group) => (
+            <nav
+              className="sidebar-nav"
+              aria-label={group.label}
+              key={group.label}
             >
-              <span className="nav-short" aria-hidden="true">
-                {item.label.slice(0, 1)}
-              </span>
-              <span className="nav-text">{item.label}</span>
-            </Link>
+              <p className="nav-label">{group.label}</p>
+              {group.items.map((item) => {
+                const href = `/${item.id}`;
+                const active =
+                  pathname === href || pathname.startsWith(`${href}/`);
+                const Icon = navigationIconById[item.id];
+
+                return (
+                  <Link
+                    className={active ? "active" : undefined}
+                    key={item.id}
+                    href={href}
+                    aria-current={active ? "page" : undefined}
+                    title={item.label}
+                    onClick={closeMobileMenu}
+                  >
+                    <span className="nav-icon" aria-hidden="true">
+                      <Icon size={17} strokeWidth={2.1} />
+                    </span>
+                    <span className="nav-text">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
           ))}
-        </nav>
+        </div>
 
         {workspace?.platformRole ? (
           <nav
@@ -387,12 +439,18 @@ export function AppShell({
           >
             <p className="nav-label">Plataforma</p>
             <Link
+              className={
+                pathname.startsWith("/backoffice") ? "active" : undefined
+              }
               href="/backoffice/clients"
+              aria-current={
+                pathname.startsWith("/backoffice") ? "page" : undefined
+              }
               title="Backoffice"
               onClick={closeMobileMenu}
             >
-              <span className="nav-short" aria-hidden="true">
-                P
+              <span className="nav-icon" aria-hidden="true">
+                <ShieldCheck size={17} strokeWidth={2.1} />
               </span>
               <span className="nav-text">Backoffice</span>
             </Link>

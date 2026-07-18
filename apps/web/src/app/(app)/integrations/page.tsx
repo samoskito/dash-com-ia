@@ -1045,7 +1045,7 @@ export default async function IntegrationsPage({
       : "Nenhuma instancia";
 
   return (
-    <section className="page-stack">
+    <section className="page-stack page-standard integrations-page">
       <header className="page-header">
         <div>
           <span className="eyebrow">Integracoes</span>

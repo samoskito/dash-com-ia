@@ -182,7 +182,7 @@ export default async function EventsPage({
   const hasAttention = summary.blocked + summary.failed > 0;
 
   return (
-    <section className="page-stack audit-page">
+    <section className="page-stack page-wide audit-page">
       <header className="page-header">
         <div>
           <span className="eyebrow">Eventos Meta</span>

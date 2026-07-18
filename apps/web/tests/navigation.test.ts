@@ -6,6 +6,7 @@ import { clientNavigation, backofficeNavigation } from "@wpptrack/shared";
 import { AppShell } from "../src/components/app-shell";
 
 vi.mock("next/navigation", () => ({
+  usePathname: () => "/overview",
   useRouter: () => ({
     refresh: () => undefined,
   }),
@@ -59,6 +60,10 @@ describe("navigation", () => {
       expect(html).toContain(item.label);
     }
 
+    expect(html).toContain('aria-label="Operacao"');
+    expect(html).toContain('aria-label="Gestao"');
+    expect(html).toContain('class="active" aria-current="page"');
+    expect(html).toContain('class="nav-icon"');
     expect(html).toContain("Panel content");
     expect(html).not.toContain("Clientes");
     expect(html).not.toContain("/backoffice/clients");

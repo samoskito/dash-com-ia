@@ -7,9 +7,10 @@ import ProductLayout from "../src/app/(app)/layout";
 import { WorkspaceAccessGate } from "../src/components/workspace-access-gate";
 
 vi.mock("next/navigation", () => ({
+  usePathname: () => "/overview",
   useRouter: () => ({
-    refresh: () => undefined
-  })
+    refresh: () => undefined,
+  }),
 }));
 
 afterEach(() => {
@@ -22,14 +23,14 @@ describe("product app layout", () => {
       new Response(
         JSON.stringify({
           statusCode: 403,
-          message: "Workspace bloqueado operacionalmente"
+          message: "Workspace bloqueado operacionalmente",
         }),
-        { status: 403, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
     const element = await WorkspaceAccessGate({
-      children: createElement("p", null, "Conteudo privado")
+      children: createElement("p", null, "Conteudo privado"),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -51,15 +52,15 @@ describe("product app layout", () => {
             canInviteMembers: true,
             canManageBilling: true,
             canManageIntegrations: true,
-            canViewReports: true
-          }
+            canViewReports: true,
+          },
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
     );
 
     const element = await WorkspaceAccessGate({
-      children: createElement("p", null, "Conteudo privado")
+      children: createElement("p", null, "Conteudo privado"),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -83,10 +84,10 @@ describe("product app layout", () => {
               canInviteMembers: true,
               canManageBilling: true,
               canManageIntegrations: true,
-              canViewReports: true
-            }
+              canViewReports: true,
+            },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+          { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
@@ -103,8 +104,8 @@ describe("product app layout", () => {
                 canInviteMembers: true,
                 canManageBilling: true,
                 canManageIntegrations: true,
-                canViewReports: true
-              }
+                canViewReports: true,
+              },
             },
             {
               id: "workspace_b",
@@ -116,22 +117,22 @@ describe("product app layout", () => {
                 canInviteMembers: false,
                 canManageBilling: false,
                 canManageIntegrations: false,
-                canViewReports: true
-              }
-            }
+                canViewReports: true,
+              },
+            },
           ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
+          { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
       return new Response(JSON.stringify({ message: "not configured" }), {
         status: 404,
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
     });
 
     const element = await WorkspaceAccessGate({
-      children: createElement("p", null, "Conteudo privado")
+      children: createElement("p", null, "Conteudo privado"),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
@@ -144,25 +145,25 @@ describe("product app layout", () => {
   it("keeps the desktop sidebar fixed while product pages scroll", () => {
     const css = readFileSync(
       join(process.cwd(), "src/styles/globals.css"),
-      "utf8"
+      "utf8",
     );
 
     expect(css).toMatch(/\.app-shell\s*{[^}]*--sidebar-width:\s*260px/s);
     expect(css).toMatch(
-      /\.app-shell\.sidebar-collapsed\s*{[^}]*--sidebar-width:\s*76px/s
+      /\.app-shell\.sidebar-collapsed\s*{[^}]*--sidebar-width:\s*76px/s,
     );
     expect(css).toMatch(/\.sidebar\s*{[^}]*position:\s*fixed/s);
     expect(css).toMatch(/\.sidebar\s*{[^}]*height:\s*100vh/s);
     expect(css).toMatch(/\.sidebar\s*{[^}]*overflow-y:\s*auto/s);
     expect(css).toMatch(
-      /\.content\s*{[^}]*padding-left:\s*var\(--sidebar-width\)/s
+      /\.content\s*{[^}]*padding-left:\s*var\(--sidebar-width\)/s,
     );
   });
 
   it("only compacts status chips that live inside the collapsed sidebar", () => {
     const css = readFileSync(
       join(process.cwd(), "src/styles/globals.css"),
-      "utf8"
+      "utf8",
     );
 
     expect(css).toContain(".sidebar-collapsed .sidebar .status-chip");
@@ -172,7 +173,7 @@ describe("product app layout", () => {
   it("wraps workspace authorization in Suspense so the shell can render first", () => {
     const source = readFileSync(
       join(process.cwd(), "src/app/(app)/layout.tsx"),
-      "utf8"
+      "utf8",
     );
 
     expect(ProductLayout).toBeTypeOf("function");
@@ -184,7 +185,7 @@ describe("product app layout", () => {
   it("refreshes workspace data without a full reload or a tab-return refresh", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/data-auto-refresh.tsx"),
-      "utf8"
+      "utf8",
     );
 
     expect(source).toContain("router.refresh()");

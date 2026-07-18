@@ -842,7 +842,7 @@ export default async function SettingsPage() {
       : "Crie uma regra por palavra-chave ou etiqueta para iniciar o envio de eventos.";
 
   return (
-    <section className="page-stack">
+    <section className="page-stack page-standard settings-page">
       <header className="page-header">
         <div>
           <span className="eyebrow">Configuracoes</span>

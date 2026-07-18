@@ -1,0 +1,429 @@
+/*
+ * Progressive layout layer.
+ *
+ * The pre-refactor visual state is preserved by the
+ * layout-baseline-2026-07-18 Git tag. Keeping this layer separate makes the
+ * structural rollout easy to inspect and selectively restore.
+ */
+
+:root {
+  --page-width-narrow: 900px;
+  --page-width-standard: 1280px;
+  --page-width-wide: 1520px;
+  --content-gutter: 30px;
+  --section-gap: 24px;
+}
+
+body {
+  background:
+    linear-gradient(90deg, rgba(190, 226, 215, 0.018) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(190, 226, 215, 0.018) 1px, transparent 1px),
+    var(--graphite-950);
+  background-size: 40px 40px;
+}
+
+/* Shell and wayfinding */
+
+.sidebar {
+  background:
+    linear-gradient(180deg, rgba(18, 184, 132, 0.045), transparent 260px),
+    rgba(5, 10, 9, 0.97);
+  box-shadow: 12px 0 34px rgba(0, 0, 0, 0.14);
+}
+
+.sidebar-navigation {
+  display: grid;
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.sidebar-navigation .sidebar-nav {
+  margin-top: 0;
+}
+
+.sidebar-nav a {
+  position: relative;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.nav-icon {
+  display: inline-grid;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: var(--ink-muted);
+}
+
+.sidebar-nav a::after {
+  margin-left: auto;
+}
+
+.sidebar-nav a:hover .nav-icon,
+.sidebar-nav a.active .nav-icon {
+  color: var(--mint);
+}
+
+.sidebar-nav a.active {
+  border-color: rgba(66, 240, 168, 0.2);
+  background: rgba(18, 184, 132, 0.1);
+  color: var(--ink);
+}
+
+.sidebar-nav a.active::after {
+  background: var(--mint);
+  box-shadow: 0 0 12px rgba(66, 240, 168, 0.45);
+}
+
+.sidebar-collapsed .sidebar-navigation {
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.sidebar-collapsed .sidebar-navigation .sidebar-nav {
+  margin-top: 0;
+}
+
+.sidebar-collapsed .nav-icon {
+  display: inline-grid;
+  color: var(--ink-soft);
+}
+
+.sidebar-collapsed .sidebar-nav a.active .nav-icon {
+  color: var(--mint);
+}
+
+/* Page widths and hierarchy */
+
+.page-stack {
+  width: 100%;
+  max-width: var(--page-width-standard);
+  gap: var(--section-gap);
+  padding: 30px var(--content-gutter) 48px;
+}
+
+.page-stack.page-narrow {
+  max-width: var(--page-width-narrow);
+}
+
+.page-stack.page-standard {
+  max-width: var(--page-width-standard);
+}
+
+.page-stack.page-wide,
+.page-stack.standalone-page {
+  max-width: var(--page-width-wide);
+}
+
+.page-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 24px;
+  padding-bottom: 18px;
+}
+
+.page-header h1 {
+  max-width: 900px;
+  font-size: 36px;
+  line-height: 1.08;
+}
+
+.page-header p {
+  max-width: 760px;
+}
+
+.page-header .header-actions {
+  justify-content: flex-end;
+}
+
+.surface-panel,
+.metric-card,
+.table-wrap,
+.quality-card,
+.integration-card,
+.config-card {
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.2);
+}
+
+.surface-panel {
+  padding: 22px;
+}
+
+.surface-panel h2,
+.panel-title {
+  font-size: 24px;
+  line-height: 1.18;
+}
+
+.metric-grid {
+  gap: 14px;
+}
+
+.metric-card {
+  min-height: 126px;
+  padding: 18px;
+}
+
+.metric-card strong {
+  margin-top: 16px;
+  font-size: 34px;
+}
+
+/* Overview: metrics -> funnel -> daily comparison -> workspace summary */
+
+.overview-page {
+  --section-gap: 22px;
+}
+
+.overview-funnel-panel {
+  padding: 24px 26px 20px;
+  overflow: hidden;
+  border-color: rgba(66, 240, 168, 0.22);
+  background:
+    linear-gradient(180deg, rgba(18, 184, 132, 0.055), transparent 220px),
+    var(--surface);
+}
+
+.overview-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.overview-section-heading h2 {
+  margin: 6px 0 0;
+}
+
+.overview-section-heading p {
+  max-width: 760px;
+  margin-top: 8px;
+}
+
+.overview-funnel-panel .conversion-funnel {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.conversion-funnel-heading {
+  align-items: flex-start;
+}
+
+.conversion-funnel-heading > div {
+  min-width: 0;
+}
+
+.conversion-funnel-heading h2 {
+  margin: 6px 0 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 26px;
+  line-height: 1.15;
+}
+
+.conversion-funnel-heading p {
+  max-width: 760px;
+  margin: 8px 0 0;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+.conversion-funnel-stage-grid {
+  margin-top: 24px;
+}
+
+.conversion-funnel-stage {
+  padding-inline: 10px;
+}
+
+.conversion-funnel-stage-label strong {
+  max-width: 148px;
+  font-size: 10px;
+}
+
+.conversion-funnel-stage > b {
+  font-size: 27px;
+}
+
+.conversion-funnel-chart {
+  height: 164px;
+  margin-top: 10px;
+}
+
+.daily-comparison {
+  padding: 24px 26px 20px;
+}
+
+.overview-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.overview-workspace-summary {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.overview-workspace-summary .overview-finance-strip {
+  margin-top: 22px;
+}
+
+.overview-workspace-summary .overview-report-link {
+  margin-top: auto;
+}
+
+.overview-summary-value {
+  padding-block: 16px;
+}
+
+.overview-summary-value strong {
+  font-size: 19px;
+}
+
+.overview-summary-grid .tracking-health {
+  min-height: 100%;
+  align-self: stretch;
+}
+
+.overview-summary-grid .tracking-health-body {
+  margin-top: 22px;
+}
+
+.overview-summary-grid .tracking-health-note {
+  margin-top: auto !important;
+  padding-top: 20px;
+}
+
+@media (max-width: 1120px) {
+  :root {
+    --content-gutter: 24px;
+  }
+
+  .overview-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .overview-summary-grid .tracking-health-body {
+    grid-template-columns: 148px minmax(0, 1fr);
+  }
+
+  .overview-summary-grid .tracking-score {
+    width: 148px;
+  }
+}
+
+@media (max-width: 900px) {
+  :root {
+    --content-gutter: 18px;
+    --section-gap: 20px;
+  }
+
+  .sidebar-navigation {
+    gap: 14px;
+    margin-top: 20px;
+  }
+
+  .sidebar-collapsed .sidebar-navigation {
+    gap: 14px;
+    margin-top: 20px;
+  }
+
+  .sidebar-collapsed .nav-icon {
+    display: inline-grid;
+  }
+
+  .page-stack {
+    padding-top: 22px;
+    padding-bottom: 36px;
+  }
+
+  .page-header {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 14px;
+  }
+
+  .page-header h1 {
+    font-size: 32px;
+  }
+
+  .page-header .header-actions {
+    justify-content: flex-start;
+  }
+
+  .surface-panel {
+    padding: 20px;
+  }
+
+  .overview-funnel-panel,
+  .daily-comparison {
+    padding: 21px;
+  }
+}
+
+@media (max-width: 620px) {
+  :root {
+    --content-gutter: 14px;
+    --section-gap: 16px;
+  }
+
+  body {
+    background: var(--graphite-950);
+  }
+
+  .page-stack {
+    padding-top: 18px;
+    padding-bottom: 28px;
+  }
+
+  .page-header h1 {
+    font-size: 29px;
+  }
+
+  .surface-panel,
+  .overview-funnel-panel,
+  .daily-comparison {
+    padding: 17px;
+  }
+
+  .metric-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .metric-card {
+    min-height: 112px;
+  }
+
+  .metric-card strong {
+    font-size: 30px;
+  }
+
+  .conversion-funnel-heading {
+    align-items: flex-start;
+  }
+
+  .conversion-funnel-heading h2 {
+    font-size: 22px;
+  }
+
+  .conversion-funnel-heading p {
+    font-size: 13px;
+  }
+
+  .conversion-funnel-stage-count {
+    margin-top: 1px;
+  }
+
+  .overview-summary-grid .tracking-health-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .overview-summary-grid .tracking-score {
+    width: 136px;
+  }
+}
