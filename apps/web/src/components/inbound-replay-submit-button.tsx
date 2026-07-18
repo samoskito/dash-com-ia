@@ -1,23 +1,32 @@
 "use client";
 
-import { PlayCircle, ShieldCheck } from "lucide-react";
+import { PlayCircle, RotateCcw, ShieldCheck } from "lucide-react";
 import { useFormStatus } from "react-dom";
 
 export function InboundReplaySubmitButton({
   mode,
 }: {
-  mode: "certify" | "replay";
+  mode: "certify" | "replay" | "retry";
 }) {
   const { pending } = useFormStatus();
-  const Icon = mode === "certify" ? ShieldCheck : PlayCircle;
+  const Icon =
+    mode === "certify"
+      ? ShieldCheck
+      : mode === "retry"
+        ? RotateCcw
+        : PlayCircle;
   const label =
     mode === "certify"
       ? pending
         ? "Certificando..."
         : "Certificar parser"
-      : pending
-        ? "Autorizando..."
-        : "Autorizar replay";
+      : mode === "retry"
+        ? pending
+          ? "Recuperando..."
+          : "Recuperar falhas"
+        : pending
+          ? "Autorizando..."
+          : "Autorizar lote";
 
   return (
     <button className="button" type="submit" disabled={pending}>

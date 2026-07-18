@@ -1,6 +1,7 @@
 import type {
   BackofficeInboundWebhookReplayBatchDto,
   BackofficeInboundWebhookReplayPreviewDto,
+  InboundWebhookReplaySelectionDto,
   InboundWebhookReplayStatusDto,
 } from "@wpptrack/shared";
 import {
@@ -10,9 +11,7 @@ import {
   LockKeyhole,
   ShieldAlert,
 } from "lucide-react";
-import {
-  BackofficeActionForm,
-} from "../../../../../../components/backoffice-action-form";
+import { BackofficeActionForm } from "../../../../../../components/backoffice-action-form";
 import { BackofficeNavigation } from "../../../../../../components/backoffice-navigation";
 import { InboundReplaySubmitButton } from "../../../../../../components/inbound-replay-submit-button";
 import { formatDateTime } from "../../../../../../lib/date-time";
@@ -20,6 +19,7 @@ import { serverApiFetch } from "../../../../../../lib/server-api";
 import {
   authorizeInboundWebhookReplayAction,
   certifyInboundWebhookParserAction,
+  retryInboundWebhookReplayAction,
 } from "../actions";
 
 type PreviewResult = {
@@ -29,10 +29,9 @@ type PreviewResult = {
 
 async function getPreview(connectionId: string): Promise<PreviewResult> {
   try {
-    const data =
-      await serverApiFetch<BackofficeInboundWebhookReplayPreviewDto>(
-        `/backoffice/inbound-webhooks/connections/${encodeURIComponent(connectionId)}/replay-preview`,
-      );
+    const data = await serverApiFetch<BackofficeInboundWebhookReplayPreviewDto>(
+      `/backoffice/inbound-webhooks/connections/${encodeURIComponent(connectionId)}/replay-preview`,
+    );
 
     return { data, state: "real" };
   } catch {
@@ -73,17 +72,85 @@ function replayStatusTone(
   return "neutral";
 }
 
+function selectionLabel(selection: InboundWebhookReplaySelectionDto): string {
+  switch (selection) {
+    case "canary_1":
+      return "Canario de 1";
+    case "canary_5":
+      return "Canario de 5";
+    case "canary_10":
+      return "Canario de 10";
+    case "remaining":
+      return "Restante";
+  }
+}
+
+function effectiveSelectionCount(
+  selection: InboundWebhookReplaySelectionDto,
+  eligible: number,
+): number {
+  const limits: Record<InboundWebhookReplaySelectionDto, number> = {
+    canary_1: 1,
+    canary_5: 5,
+    canary_10: 10,
+    remaining: 500,
+  };
+
+  return Math.min(limits[selection], eligible);
+}
+
+function expirySummary(value: string | null): {
+  detail: string;
+  label: string;
+  tone: "bad" | "neutral" | "warn";
+} {
+  if (!value) {
+    return {
+      detail: "Nenhum payload pendente permanece disponivel.",
+      label: "Sem prazo ativo",
+      tone: "neutral",
+    };
+  }
+
+  const remainingMs = new Date(value).getTime() - Date.now();
+
+  if (remainingMs <= 0) {
+    return {
+      detail: `Prazo registrado em ${formatDateTime(value)}.`,
+      label: "Payload expirando",
+      tone: "bad",
+    };
+  }
+
+  const remainingHours = Math.ceil(remainingMs / 3_600_000);
+  const days = Math.floor(remainingHours / 24);
+  const hours = remainingHours % 24;
+  const duration = days > 0 ? `${days}d ${hours}h` : `${remainingHours}h`;
+
+  return {
+    detail: `Proximo vencimento em ${formatDateTime(value)}.`,
+    label: `${duration} restantes`,
+    tone: remainingHours <= 48 ? "warn" : "neutral",
+  };
+}
+
 function BatchSummary({
   batch,
+  connectionId,
+  connectionName,
+  retryAllowed,
 }: {
   batch: BackofficeInboundWebhookReplayBatchDto;
+  connectionId: string;
+  connectionName: string;
+  retryAllowed: boolean;
 }) {
   return (
-    <div className="inbound-replay-batch">
+    <article className="inbound-replay-batch">
       <div className="section-heading-row">
         <div>
-          <span className="eyebrow">Ultimo lote</span>
-          <h2>Resultado do replay</h2>
+          <span className="eyebrow">{selectionLabel(batch.selection)}</span>
+          <h3>Lote de {formatDateTime(batch.createdAt)}</h3>
         </div>
         <span className={`status-chip ${replayStatusTone(batch.status)}`}>
           {replayStatusLabel(batch.status)}
@@ -111,11 +178,36 @@ function BatchSummary({
           <strong>{batch.failedCount}</strong>
         </span>
         <span>
-          <small>Criado em</small>
-          <strong>{formatDateTime(batch.createdAt)}</strong>
+          <small>Recuperacoes</small>
+          <strong>{batch.retryCount}</strong>
         </span>
       </div>
-    </div>
+      {retryAllowed && batch.retryableFailedCount > 0 ? (
+        <BackofficeActionForm
+          action={retryInboundWebhookReplayAction}
+          className="inbound-replay-retry"
+        >
+          <input type="hidden" name="connectionId" value={connectionId} />
+          <input type="hidden" name="batchId" value={batch.id} />
+          <label>
+            <span>
+              {batch.retryableFailedCount} falha(s) transitoria(s). Digite{" "}
+              <strong>{connectionName}</strong> para recuperar.
+            </span>
+            <input
+              name="confirmation"
+              required
+              minLength={2}
+              maxLength={120}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Nome exato da conexao"
+            />
+          </label>
+          <InboundReplaySubmitButton mode="retry" />
+        </BackofficeActionForm>
+      ) : null}
+    </article>
   );
 }
 
@@ -137,8 +229,8 @@ export default async function InboundWebhookReplayPage({
             <span className="eyebrow">Replay controlado</span>
             <h1>Conexao indisponivel</h1>
             <p>
-              O registro nao existe ou esta sessao nao possui acesso de
-              platform owner.
+              O registro nao existe ou esta sessao nao possui acesso de platform
+              owner.
             </p>
           </div>
           <a className="button ghost" href="/backoffice/inbound-webhooks">
@@ -156,6 +248,7 @@ export default async function InboundWebhookReplayPage({
     preview.latestBatch?.status === "queued" ||
     preview.latestBatch?.status === "processing";
   const connectionReady = preview.connection.status === "observation";
+  const expiry = expirySummary(preview.nextPayloadExpiresAt);
   const canReplay =
     parserCertified &&
     preview.replayEnabled &&
@@ -237,6 +330,13 @@ export default async function InboundWebhookReplayPage({
           <span className="eligible">
             <small>Elegiveis agora</small>
             <strong>{preview.counts.eligible}</strong>
+          </span>
+        </div>
+        <div className={`inbound-replay-expiry ${expiry.tone}`}>
+          <Clock3 aria-hidden="true" size={20} strokeWidth={2} />
+          <span>
+            <strong>{expiry.label}</strong>
+            <small>{expiry.detail}</small>
           </span>
         </div>
       </section>
@@ -322,8 +422,29 @@ export default async function InboundWebhookReplayPage({
         </div>
       </section>
 
-      {preview.latestBatch ? (
-        <BatchSummary batch={preview.latestBatch} />
+      {preview.recentBatches.length > 0 ? (
+        <section className="inbound-replay-history">
+          <div className="section-heading-row">
+            <div>
+              <span className="eyebrow">Historico operacional</span>
+              <h2>Ultimos lotes</h2>
+            </div>
+            <span className="event-chip neutral">
+              {preview.recentBatches.length} lote(s)
+            </span>
+          </div>
+          <div className="inbound-replay-history-list">
+            {preview.recentBatches.map((batch) => (
+              <BatchSummary
+                key={batch.id}
+                batch={batch}
+                connectionId={preview.connection.id}
+                connectionName={preview.connection.displayName}
+                retryAllowed={preview.replayEnabled && !activeBatch}
+              />
+            ))}
+          </div>
+        </section>
       ) : null}
 
       <section className="inbound-replay-authorization">
@@ -347,9 +468,43 @@ export default async function InboundWebhookReplayPage({
               name="connectionId"
               value={preview.connection.id}
             />
+            <fieldset className="inbound-replay-selection">
+              <legend>Escolha o tamanho do lote real</legend>
+              <div className="inbound-replay-selection-grid">
+                {(
+                  [
+                    ["canary_1", "1 evento", "Primeiro teste real"],
+                    ["canary_5", "5 eventos", "Segunda validacao"],
+                    ["canary_10", "10 eventos", "Expansao controlada"],
+                    ["remaining", "Restante", "Maximo de 500"],
+                  ] as const
+                ).map(([value, label, detail]) => (
+                  <label key={value}>
+                    <input
+                      type="radio"
+                      name="selection"
+                      value={value}
+                      defaultChecked={value === "canary_1"}
+                    />
+                    <span>
+                      <strong>{label}</strong>
+                      <small>
+                        {detail} -{" "}
+                        {effectiveSelectionCount(
+                          value,
+                          preview.counts.eligible,
+                        )}{" "}
+                        selecionado(s)
+                      </small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <label>
               <span>
-                Digite exatamente <strong>{preview.connection.displayName}</strong>
+                Digite exatamente{" "}
+                <strong>{preview.connection.displayName}</strong>
               </span>
               <input
                 name="confirmation"

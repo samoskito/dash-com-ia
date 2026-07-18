@@ -37,6 +37,11 @@ async function createApp() {
       id: "batch_1",
       status: "queued",
     })),
+    retryTransientFailures: vi.fn(async () => ({
+      id: "batch_1",
+      status: "queued",
+      retryCount: 1,
+    })),
   };
   const moduleRef = await Test.createTestingModule({
     controllers: [InboundWebhookReplayController],
@@ -56,9 +61,7 @@ describe("inbound webhook replay controller", () => {
     const { app, replay } = await createApp();
 
     await request(app.getHttpServer())
-      .post(
-        "/backoffice/inbound-webhooks/parser-releases/parser_1/certify",
-      )
+      .post("/backoffice/inbound-webhooks/parser-releases/parser_1/certify")
       .set("Authorization", "Bearer owner-token")
       .expect(201);
     await request(app.getHttpServer())
@@ -82,27 +85,61 @@ describe("inbound webhook replay controller", () => {
     const { app, replay } = await createApp();
 
     await request(app.getHttpServer())
-      .post(
-        "/backoffice/inbound-webhooks/connections/connection_1/replay",
-      )
+      .post("/backoffice/inbound-webhooks/connections/connection_1/replay")
       .set("Authorization", "Bearer owner-token")
       .send({ confirmation: "" })
       .expect(400);
     expect(replay.authorizeReplay).not.toHaveBeenCalled();
 
     await request(app.getHttpServer())
-      .post(
-        "/backoffice/inbound-webhooks/connections/connection_1/replay",
-      )
+      .post("/backoffice/inbound-webhooks/connections/connection_1/replay")
       .set("Authorization", "Bearer owner-token")
       .send({ confirmation: "observacao inicial" })
       .expect(201);
     expect(replay.authorizeReplay).toHaveBeenCalledWith(
       "connection_1",
       "observacao inicial",
+      "canary_1",
       expect.objectContaining({ id: "owner_1" }),
       expect.any(String),
     );
+    await app.close();
+  });
+
+  it("passes fixed canary scope and protects transient retry", async () => {
+    const { app, replay } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/backoffice/inbound-webhooks/connections/connection_1/replay")
+      .set("Authorization", "Bearer owner-token")
+      .send({
+        confirmation: "observacao inicial",
+        selection: "canary_5",
+      })
+      .expect(201);
+    expect(replay.authorizeReplay).toHaveBeenLastCalledWith(
+      "connection_1",
+      "observacao inicial",
+      "canary_5",
+      expect.objectContaining({ id: "owner_1" }),
+      expect.any(String),
+    );
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/connections/connection_1/replay-batches/batch_1/retry",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .send({ confirmation: "observacao inicial" })
+      .expect(201);
+    expect(replay.retryTransientFailures).toHaveBeenCalledWith(
+      "connection_1",
+      "batch_1",
+      "observacao inicial",
+      expect.objectContaining({ id: "owner_1" }),
+      expect.any(String),
+    );
+
     await app.close();
   });
 
@@ -112,9 +149,7 @@ describe("inbound webhook replay controller", () => {
       const { app, replay } = await createApp();
 
       await request(app.getHttpServer())
-        .post(
-          "/backoffice/inbound-webhooks/connections/connection_1/replay",
-        )
+        .post("/backoffice/inbound-webhooks/connections/connection_1/replay")
         .set("Authorization", `Bearer ${token}`)
         .send({ confirmation: "observacao inicial" })
         .expect(403);

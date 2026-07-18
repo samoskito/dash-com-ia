@@ -1,16 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { isApiRequestError, revalidatePath, serverApiFetch } = vi.hoisted(() => ({
-  isApiRequestError: vi.fn(
-    (error: unknown) =>
-      typeof error === "object" &&
-      error !== null &&
-      "status" in error &&
-      "message" in error,
-  ),
-  revalidatePath: vi.fn(),
-  serverApiFetch: vi.fn(),
-}));
+const { isApiRequestError, revalidatePath, serverApiFetch } = vi.hoisted(
+  () => ({
+    isApiRequestError: vi.fn(
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "status" in error &&
+        "message" in error,
+    ),
+    revalidatePath: vi.fn(),
+    serverApiFetch: vi.fn(),
+  }),
+);
 
 vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("../src/lib/server-api", () => ({
@@ -21,6 +23,7 @@ vi.mock("../src/lib/server-api", () => ({
 import {
   authorizeInboundWebhookReplayAction,
   certifyInboundWebhookParserAction,
+  retryInboundWebhookReplayAction,
 } from "../src/app/(backoffice)/backoffice/inbound-webhooks/replay/actions";
 
 const previousState = {
@@ -77,6 +80,7 @@ describe("inbound webhook replay actions", () => {
       form({
         connectionId: "connection_1",
         confirmation: "observacao inicial",
+        selection: "canary_1",
       }),
     );
 
@@ -84,15 +88,16 @@ describe("inbound webhook replay actions", () => {
       "/backoffice/inbound-webhooks/connections/connection_1/replay",
       {
         method: "POST",
-        body: JSON.stringify({ confirmation: "observacao inicial" }),
+        body: JSON.stringify({
+          confirmation: "observacao inicial",
+          selection: "canary_1",
+        }),
       },
     );
     expect(revalidatePath).toHaveBeenCalledWith(
       "/backoffice/inbound-webhooks/replay/connection_1",
     );
-    expect(revalidatePath).toHaveBeenCalledWith(
-      "/backoffice/inbound-webhooks",
-    );
+    expect(revalidatePath).toHaveBeenCalledWith("/backoffice/inbound-webhooks");
     expect(result).toMatchObject({
       status: "success",
       message: "12 evento(s) autorizado(s) para replay controlado.",
@@ -128,6 +133,7 @@ describe("inbound webhook replay actions", () => {
       form({
         connectionId: "connection_1",
         confirmation: "observacao inicial",
+        selection: "canary_1",
       }),
     );
 
@@ -136,6 +142,38 @@ describe("inbound webhook replay actions", () => {
       message: "Nao foi possivel autorizar o replay.",
     });
     expect(result.message).not.toContain("database password");
+  });
+
+  it("retries a terminal batch without sending event data", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      id: "batch_1",
+    });
+
+    const result = await retryInboundWebhookReplayAction(
+      previousState,
+      form({
+        connectionId: "connection_1",
+        batchId: "batch_1",
+        confirmation: "observacao inicial",
+      }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/backoffice/inbound-webhooks/connections/connection_1/replay-batches/batch_1/retry",
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmation: "observacao inicial" }),
+      },
+    );
+    expect(revalidatePath).toHaveBeenCalledWith(
+      "/backoffice/inbound-webhooks/replay/connection_1",
+    );
+    expect(result).toMatchObject({
+      status: "success",
+      message: "Lote batch_1 retornou para recuperacao controlada.",
+    });
+    expect(JSON.stringify(serverApiFetch.mock.calls)).not.toContain("payload");
+    expect(JSON.stringify(serverApiFetch.mock.calls)).not.toContain("ctwa");
   });
 });
 

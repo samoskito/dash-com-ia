@@ -8,7 +8,10 @@ import {
   Post,
   Req,
 } from "@nestjs/common";
-import { backofficeInboundWebhookReplayConfirmationInputSchema } from "@wpptrack/shared";
+import {
+  backofficeInboundWebhookReplayConfirmationInputSchema,
+  backofficeInboundWebhookReplayRetryInputSchema,
+} from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { PlatformAdminService } from "../auth/platform-admin.service";
 import { InboundWebhookReplayService } from "./inbound-webhook-replay.service";
@@ -70,6 +73,32 @@ export class InboundWebhookReplayController {
 
     return this.replay.authorizeReplay(
       this.identifier(connectionId, "Conexao invalida"),
+      parsed.data.confirmation,
+      parsed.data.selection,
+      owner,
+      request.ip ?? null,
+    );
+  }
+
+  @Post("connections/:connectionId/replay-batches/:batchId/retry")
+  async retryReplay(
+    @AuthToken() refreshToken: string,
+    @Param("connectionId") connectionId: string,
+    @Param("batchId") batchId: string,
+    @Body() body: unknown,
+    @Req() request: ReplayBackofficeRequest,
+  ) {
+    const owner = await this.platformAdmin.assertPlatformOwner(refreshToken);
+    const parsed =
+      backofficeInboundWebhookReplayRetryInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Confirmacao invalida");
+    }
+
+    return this.replay.retryTransientFailures(
+      this.identifier(connectionId, "Conexao invalida"),
+      this.identifier(batchId, "Lote invalido"),
       parsed.data.confirmation,
       owner,
       request.ip ?? null,

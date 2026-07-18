@@ -4,10 +4,9 @@ import type {
   BackofficeInboundWebhookReplayBatchDto,
   InboundWebhookParserReleaseDto,
 } from "@wpptrack/shared";
+import { inboundWebhookReplaySelectionSchema } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
-import type {
-  BackofficeActionState,
-} from "../../../../../components/backoffice-action-form";
+import type { BackofficeActionState } from "../../../../../components/backoffice-action-form";
 import {
   isApiRequestError,
   serverApiFetch,
@@ -27,11 +26,7 @@ function actionResult(
 function identifier(formData: FormData, field: string): string | null {
   const value = String(formData.get(field) ?? "").trim();
 
-  if (
-    !value ||
-    value.length > 255 ||
-    /[\u0000-\u001f\u007f]/u.test(value)
-  ) {
+  if (!value || value.length > 255 || /[\u0000-\u001f\u007f]/u.test(value)) {
     return null;
   }
 
@@ -93,20 +88,30 @@ export async function authorizeInboundWebhookReplayAction(
 ): Promise<BackofficeActionState> {
   const connectionId = identifier(formData, "connectionId");
   const confirmation = String(formData.get("confirmation") ?? "").trim();
+  const selection = inboundWebhookReplaySelectionSchema.safeParse(
+    String(formData.get("selection") ?? ""),
+  );
 
-  if (!connectionId || !confirmation || confirmation.length > 120) {
+  if (
+    !connectionId ||
+    !confirmation ||
+    confirmation.length > 120 ||
+    !selection.success
+  ) {
     return actionResult("error", "Confirmacao invalida.");
   }
 
   try {
-    const batch =
-      await serverApiFetch<BackofficeInboundWebhookReplayBatchDto>(
-        `/backoffice/inbound-webhooks/connections/${encodeURIComponent(connectionId)}/replay`,
-        {
-          method: "POST",
-          body: JSON.stringify({ confirmation }),
-        },
-      );
+    const batch = await serverApiFetch<BackofficeInboundWebhookReplayBatchDto>(
+      `/backoffice/inbound-webhooks/connections/${encodeURIComponent(connectionId)}/replay`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          confirmation,
+          selection: selection.data,
+        }),
+      },
+    );
     revalidatePath(replayPath(connectionId));
     revalidatePath("/backoffice/inbound-webhooks");
 
@@ -118,6 +123,44 @@ export async function authorizeInboundWebhookReplayAction(
     return actionResult(
       "error",
       safeApiMessage(error, "Nao foi possivel autorizar o replay."),
+    );
+  }
+}
+
+export async function retryInboundWebhookReplayAction(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  const connectionId = identifier(formData, "connectionId");
+  const batchId = identifier(formData, "batchId");
+  const confirmation = String(formData.get("confirmation") ?? "").trim();
+
+  if (!connectionId || !batchId || !confirmation || confirmation.length > 120) {
+    return actionResult("error", "Confirmacao invalida.");
+  }
+
+  try {
+    const batch = await serverApiFetch<BackofficeInboundWebhookReplayBatchDto>(
+      `/backoffice/inbound-webhooks/connections/${encodeURIComponent(connectionId)}/replay-batches/${encodeURIComponent(batchId)}/retry`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmation }),
+      },
+    );
+    revalidatePath(replayPath(connectionId));
+    revalidatePath("/backoffice/inbound-webhooks");
+
+    return actionResult(
+      "success",
+      `Lote ${batch.id} retornou para recuperacao controlada.`,
+    );
+  } catch (error) {
+    return actionResult(
+      "error",
+      safeApiMessage(
+        error,
+        "Nao foi possivel recuperar as falhas transitorias.",
+      ),
     );
   }
 }

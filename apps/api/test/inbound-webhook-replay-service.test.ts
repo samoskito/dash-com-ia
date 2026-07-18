@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { ServiceUnavailableException } from "@nestjs/common";
+import { ConflictException, ServiceUnavailableException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { InboundWebhookReplayService } from "../src/inbound-webhook-replay/inbound-webhook-replay.service";
 import { InboundWebhookParserRegistry } from "../src/inbound-webhooks/providers/inbound-webhook-parser.registry";
@@ -178,8 +178,23 @@ describe("inbound webhook replay service", () => {
       {
         ...resolved,
         occurredAt: new Date("2026-07-18T12:40:00.000Z"),
-        replayItem: { id: "item_existing" },
+        replayItem: {
+          id: "item_existing",
+          status: "materialized",
+        },
         delivery: availableDelivery,
+      },
+      {
+        ...resolved,
+        occurredAt: new Date("2026-07-18T12:50:00.000Z"),
+        replayItem: {
+          id: "item_failed",
+          status: "failed",
+        },
+        delivery: {
+          ...availableDelivery,
+          payloadExpiresAt: new Date("2026-07-19T15:00:00.000Z"),
+        },
       },
     ];
     const prisma = {
@@ -190,7 +205,30 @@ describe("inbound webhook replay service", () => {
         findMany: vi.fn(async () => events),
       },
       inboundWebhookReplayBatch: {
-        findFirst: vi.fn(async () => null),
+        findMany: vi.fn(async () => [
+          {
+            id: "batch_preview",
+            workspaceId,
+            connectionId,
+            requestedByUserId: owner.id,
+            selection: "canary_1",
+            requestedLimit: 1,
+            status: "completed_with_failures",
+            totalItems: 1,
+            materializedCount: 0,
+            duplicateCount: 0,
+            skippedCount: 0,
+            failedCount: 1,
+            retryableFailedCount: 3,
+            retryCount: 0,
+            startedAt: now,
+            completedAt: now,
+            lastRetriedAt: null,
+            createdAt: now,
+            updatedAt: now,
+            items: [{ id: "item_failed" }],
+          },
+        ]),
       },
       metaAd: {
         findMany: vi.fn(async () => [
@@ -206,10 +244,10 @@ describe("inbound webhook replay service", () => {
     const preview = await service.getPreview(connectionId);
 
     expect(preview.counts).toEqual({
-      totalCtwa: 5,
-      routeResolved: 4,
+      totalCtwa: 6,
+      routeResolved: 5,
       routeUnresolved: 1,
-      payloadAvailable: 3,
+      payloadAvailable: 4,
       payloadExpired: 1,
       payloadUnavailable: 1,
       alreadyMaterialized: 1,
@@ -217,7 +255,13 @@ describe("inbound webhook replay service", () => {
     });
     expect(preview.replayEnabled).toBe(true);
     expect(preview.oldestOccurredAt).toBe("2026-07-18T12:00:00.000Z");
-    expect(preview.newestOccurredAt).toBe("2026-07-18T12:40:00.000Z");
+    expect(preview.newestOccurredAt).toBe("2026-07-18T12:50:00.000Z");
+    expect(preview.nextPayloadExpiresAt).toBe("2026-07-19T15:00:00.000Z");
+    expect(preview.recentBatches).toHaveLength(1);
+    expect(preview.recentBatches[0]).toMatchObject({
+      id: "batch_preview",
+      retryableFailedCount: 1,
+    });
     expect(JSON.stringify(preview)).not.toContain("private-ciphertext");
     expect(JSON.stringify(preview)).not.toContain("private-iv");
     expect(JSON.stringify(preview)).not.toContain("private-tag");
@@ -236,6 +280,7 @@ describe("inbound webhook replay service", () => {
       service.authorizeReplay(
         connectionId,
         connection.displayName,
+        "canary_1",
         owner,
         null,
       ),
@@ -248,19 +293,24 @@ describe("inbound webhook replay service", () => {
       workspaceId,
       connectionId,
       requestedByUserId: owner.id,
+      selection: "canary_5" as const,
+      requestedLimit: 5,
       status: "queued" as const,
       totalItems: 0,
       materializedCount: 0,
       duplicateCount: 0,
       skippedCount: 0,
       failedCount: 0,
+      retryableFailedCount: 0,
+      retryCount: 0,
       startedAt: null,
       completedAt: null,
+      lastRetriedAt: null,
       createdAt: now,
       updatedAt: now,
     };
     const auditCreate = vi.fn(async () => undefined);
-    const itemCreateMany = vi.fn(async () => ({ count: 2 }));
+    const itemCreateMany = vi.fn(async () => ({ count: 5 }));
     const batchUpdate = vi.fn(async ({ data }) => ({
       ...batch,
       ...data,
@@ -282,8 +332,24 @@ describe("inbound webhook replay service", () => {
             ...resolvedRoute("ad_2"),
           },
           {
-            id: "event_stale_route",
+            id: "event_3",
             ...resolvedRoute("ad_3"),
+          },
+          {
+            id: "event_4",
+            ...resolvedRoute("ad_4"),
+          },
+          {
+            id: "event_5",
+            ...resolvedRoute("ad_5"),
+          },
+          {
+            id: "event_6",
+            ...resolvedRoute("ad_6"),
+          },
+          {
+            id: "event_stale_route",
+            ...resolvedRoute("ad_7"),
             channel: {
               routes: [
                 {
@@ -301,6 +367,10 @@ describe("inbound webhook replay service", () => {
           { adId: "ad_1", adAccountId: "act_1" },
           { adId: "ad_2", adAccountId: "act_1" },
           { adId: "ad_3", adAccountId: "act_1" },
+          { adId: "ad_4", adAccountId: "act_1" },
+          { adId: "ad_5", adAccountId: "act_1" },
+          { adId: "ad_6", adAccountId: "act_1" },
+          { adId: "ad_7", adAccountId: "act_1" },
         ]),
       },
       inboundWebhookReplayItem: {
@@ -329,13 +399,16 @@ describe("inbound webhook replay service", () => {
       service.authorizeReplay(
         connectionId,
         connection.displayName,
+        "canary_5",
         owner,
         "127.0.0.1",
       ),
     ).resolves.toMatchObject({
       id: "batch_1",
-      totalItems: 2,
+      totalItems: 5,
       status: "queued",
+      selection: "canary_5",
+      requestedLimit: 5,
     });
     expect(itemCreateMany).toHaveBeenCalledWith({
       data: [
@@ -351,6 +424,24 @@ describe("inbound webhook replay service", () => {
           eventId: "event_2",
           status: "queued",
         },
+        {
+          workspaceId,
+          batchId: "batch_1",
+          eventId: "event_3",
+          status: "queued",
+        },
+        {
+          workspaceId,
+          batchId: "batch_1",
+          eventId: "event_4",
+          status: "queued",
+        },
+        {
+          workspaceId,
+          batchId: "batch_1",
+          eventId: "event_5",
+          status: "queued",
+        },
       ],
       skipDuplicates: true,
     });
@@ -362,23 +453,176 @@ describe("inbound webhook replay service", () => {
     expect(JSON.stringify(enqueueBatch.mock.calls)).not.toContain("payload");
   });
 
+  it("maps a concurrent active-batch collision to a safe conflict", async () => {
+    const enqueueBatch = vi.fn();
+    const service = createService({
+      prisma: {
+        inboundWebhookConnection: {
+          findFirst: vi.fn(async () => connection),
+        },
+        $transaction: vi.fn(async () => {
+          throw { code: "P2002" };
+        }),
+      },
+      replayQueue: { enqueueBatch },
+    });
+
+    await expect(
+      service.authorizeReplay(
+        connectionId,
+        connection.displayName,
+        "canary_1",
+        owner,
+        null,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(enqueueBatch).not.toHaveBeenCalled();
+  });
+
+  it("requeues only retained failures from the transient allowlist", async () => {
+    const batch = {
+      id: "batch_retry",
+      workspaceId,
+      connectionId,
+      requestedByUserId: owner.id,
+      selection: "canary_5" as const,
+      requestedLimit: 5,
+      status: "completed_with_failures" as const,
+      totalItems: 5,
+      materializedCount: 3,
+      duplicateCount: 0,
+      skippedCount: 0,
+      failedCount: 2,
+      retryableFailedCount: 2,
+      retryCount: 0,
+      startedAt: now,
+      completedAt: now,
+      lastRetriedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const batchFindFirst = vi
+      .fn()
+      .mockResolvedValueOnce(batch)
+      .mockResolvedValueOnce(null);
+    const itemFindMany = vi.fn(async () => [
+      { id: "item_retry_1" },
+      { id: "item_retry_2" },
+    ]);
+    const itemUpdateMany = vi.fn(async () => ({ count: 2 }));
+    const batchUpdate = vi.fn(async ({ data }) => ({
+      ...batch,
+      ...data,
+      status: "queued" as const,
+      failedCount: 0,
+      retryableFailedCount: 0,
+      retryCount: 1,
+      completedAt: null,
+      lastRetriedAt: now,
+    }));
+    const tx = {
+      inboundWebhookReplayBatch: {
+        findFirst: batchFindFirst,
+        update: batchUpdate,
+      },
+      inboundWebhookReplayItem: {
+        findMany: itemFindMany,
+        updateMany: itemUpdateMany,
+      },
+      auditLog: {
+        create: vi.fn(async () => undefined),
+      },
+    };
+    const enqueueBatch = vi.fn(async () => ({
+      jobId: "replay_batch_retry",
+      status: "queued",
+    }));
+    const service = createService({
+      prisma: {
+        inboundWebhookConnection: {
+          findFirst: vi.fn(async () => connection),
+        },
+        $transaction: vi.fn(async (callback) => callback(tx)),
+      },
+      replayQueue: { enqueueBatch },
+    });
+
+    await expect(
+      service.retryTransientFailures(
+        connectionId,
+        batch.id,
+        connection.displayName,
+        owner,
+        "127.0.0.1",
+      ),
+    ).resolves.toMatchObject({
+      id: batch.id,
+      status: "queued",
+      retryCount: 1,
+      failedCount: 0,
+    });
+    expect(itemFindMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        workspaceId,
+        batchId: batch.id,
+        status: "failed",
+        errorCode: {
+          in: [
+            "inbound_webhook_replay_disabled",
+            "inbound_webhook_replay_queue_unavailable",
+            "inbound_webhook_replay_unexpected",
+          ],
+        },
+        event: {
+          delivery: {
+            payloadExpiresAt: { gt: expect.any(Date) },
+            encryptedPayload: { not: null },
+            payloadIv: { not: null },
+            payloadTag: { not: null },
+            encryptionKeyVersion: { not: null },
+          },
+        },
+      }),
+      select: { id: true },
+    });
+    expect(itemUpdateMany).toHaveBeenCalledWith({
+      where: {
+        workspaceId,
+        batchId: batch.id,
+        id: {
+          in: ["item_retry_1", "item_retry_2"],
+        },
+      },
+      data: {
+        status: "queued",
+        errorCode: null,
+        processedAt: null,
+      },
+    });
+    expect(enqueueBatch).toHaveBeenCalledWith({
+      workspaceId,
+      batchId: batch.id,
+    });
+  });
+
   it("materializes one event through existing lead and CAPI pipelines exactly once", async () => {
     const payload = readFileSync(
       resolve(__dirname, "fixtures/umbler/message-with-ctwa.json"),
     );
-    const parsed =
-      new InboundWebhookParserRegistry()
-        .resolve({
-          provider: "umbler",
-          parserVersion: "v1",
-          parserReleaseStatus: "certified",
-        })
-        .parse(JSON.parse(payload.toString("utf8"))).events[0]!;
+    const parsed = new InboundWebhookParserRegistry()
+      .resolve({
+        provider: "umbler",
+        parserVersion: "v1",
+        parserReleaseStatus: "certified",
+      })
+      .parse(JSON.parse(payload.toString("utf8"))).events[0]!;
     const itemState = {
       status: "queued",
       leadId: null as string | null,
       conversionEventLogId: null as string | null,
       errorCode: null as string | null,
+      attemptCount: 0,
+      lastAttemptedAt: null as Date | null,
       processedAt: null as Date | null,
     };
     const batch = {
@@ -386,14 +630,19 @@ describe("inbound webhook replay service", () => {
       workspaceId,
       connectionId,
       requestedByUserId: owner.id,
+      selection: "canary_1" as const,
+      requestedLimit: 1,
       status: "queued",
       totalItems: 1,
       materializedCount: 0,
       duplicateCount: 0,
       skippedCount: 0,
       failedCount: 0,
+      retryableFailedCount: 0,
+      retryCount: 0,
       startedAt: null as Date | null,
       completedAt: null as Date | null,
+      lastRetriedAt: null as Date | null,
       createdAt: now,
       updatedAt: now,
     };
@@ -474,7 +723,11 @@ describe("inbound webhook replay service", () => {
       },
     };
     const itemUpdate = vi.fn(async ({ data }) => {
-      Object.assign(itemState, data);
+      const attemptIncrement = data.attemptCount?.increment ?? 0;
+      Object.assign(itemState, {
+        ...data,
+        attemptCount: itemState.attemptCount + attemptIncrement,
+      });
       return { ...replayItem, ...itemState };
     });
     const batchUpdate = vi.fn(async ({ data }) => {

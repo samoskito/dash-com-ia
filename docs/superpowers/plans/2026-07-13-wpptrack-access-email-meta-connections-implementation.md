@@ -4,6 +4,11 @@ Date: 2026-07-13
 Status: Waves 0-11 and OAuth multi-destination routing implemented; outbound SMTP accepted in production; OAuth advanced routing deploy pending
 Design: docs/plans/2026-07-13-wpptrack-access-email-meta-connections-design.md
 
+Extension: Umbler observation and controlled replay are tracked in
+`docs/superpowers/plans/2026-07-18-wpptrack-umbler-replay-canary-implementation.md`.
+The replay canary is implemented locally and remains deployment-gated until
+the customer's Meta routes are configured.
+
 ## 1. Goal
 
 Implement secure multi-workspace access, delegated team management, Brevo transactional email, closed invitation onboarding, feature-gated Google login and guided OAuth/manual Meta connections for the current client SaaS.

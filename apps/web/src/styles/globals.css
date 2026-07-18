@@ -8586,6 +8586,7 @@ button.meta-manual-entry[aria-expanded="true"] {
 
 .inbound-replay-overview,
 .inbound-replay-readiness,
+.inbound-replay-history,
 .inbound-replay-batch,
 .inbound-replay-authorization {
   min-width: 0;
@@ -8594,6 +8595,7 @@ button.meta-manual-entry[aria-expanded="true"] {
 
 .inbound-replay-overview > .section-heading-row,
 .inbound-replay-readiness > .section-heading-row,
+.inbound-replay-history > .section-heading-row,
 .inbound-replay-batch > .section-heading-row,
 .inbound-replay-authorization > .section-heading-row {
   padding-bottom: 12px;
@@ -8639,6 +8641,44 @@ button.meta-manual-entry[aria-expanded="true"] {
 
 .inbound-replay-metrics .eligible strong {
   color: var(--mint);
+}
+
+.inbound-replay-expiry {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 64px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--ink-muted);
+}
+
+.inbound-replay-expiry.warn {
+  border-left: 3px solid var(--amber);
+  background: color-mix(in srgb, var(--amber) 6%, transparent);
+  color: var(--amber);
+}
+
+.inbound-replay-expiry.bad {
+  border-left: 3px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+  color: var(--danger);
+}
+
+.inbound-replay-expiry > span {
+  display: grid;
+  gap: 3px;
+}
+
+.inbound-replay-expiry strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.inbound-replay-expiry small {
+  color: var(--ink-muted);
+  font-size: 10px;
 }
 
 .inbound-replay-check-list {
@@ -8691,6 +8731,22 @@ button.meta-manual-entry[aria-expanded="true"] {
   border-bottom: 1px solid var(--border);
 }
 
+.inbound-replay-history-list {
+  border-top: 1px solid var(--border);
+}
+
+.inbound-replay-history-list .inbound-replay-batch {
+  padding: 16px 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.inbound-replay-batch h3 {
+  margin: 2px 0 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 16px;
+}
+
 .inbound-replay-batch-grid > span {
   display: grid;
   gap: 7px;
@@ -8732,6 +8788,93 @@ button.meta-manual-entry[aria-expanded="true"] {
 }
 
 .inbound-replay-confirmation label > span strong {
+  color: var(--ink);
+}
+
+.inbound-replay-selection {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.inbound-replay-selection legend {
+  margin-bottom: 9px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.inbound-replay-selection-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.inbound-replay-selection-grid label {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  min-height: 68px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.inbound-replay-selection-grid label:has(input:checked) {
+  border-color: var(--mint);
+  background: color-mix(in srgb, var(--mint) 7%, var(--surface));
+}
+
+.inbound-replay-selection-grid input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--mint);
+}
+
+.inbound-replay-selection-grid label > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.inbound-replay-selection-grid strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.inbound-replay-selection-grid small {
+  overflow-wrap: anywhere;
+  color: var(--ink-muted);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.inbound-replay-retry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding-top: 14px;
+}
+
+.inbound-replay-retry label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.inbound-replay-retry label > span {
+  color: var(--ink-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.inbound-replay-retry label > span strong {
   color: var(--ink);
 }
 
@@ -8786,6 +8929,10 @@ button.meta-manual-entry[aria-expanded="true"] {
 
   .inbound-replay-batch-grid > span:nth-child(-n + 3) {
     border-bottom: 1px solid var(--border);
+  }
+
+  .inbound-replay-selection-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -8930,6 +9077,15 @@ button.meta-manual-entry[aria-expanded="true"] {
   }
 
   .inbound-replay-confirmation .button {
+    width: 100%;
+  }
+
+  .inbound-replay-selection-grid,
+  .inbound-replay-retry {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inbound-replay-retry .button {
     width: 100%;
   }
 }

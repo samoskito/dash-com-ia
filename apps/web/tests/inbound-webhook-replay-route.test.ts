@@ -39,10 +39,13 @@ const preview = {
   },
   oldestOccurredAt: "2026-07-18T00:06:00.000Z",
   newestOccurredAt: "2026-07-18T14:40:44.000Z",
+  nextPayloadExpiresAt: null,
   latestBatch: null,
+  recentBatches: [],
 } as const;
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -71,13 +74,38 @@ describe("inbound webhook controlled replay route", () => {
       "INBOUND_WEBHOOK_REPLAY_ENABLED permanece desativada.",
     );
     expect(html).toContain("O lote ainda nao pode ser autorizado");
-    expect(html).not.toContain("Autorizar replay");
+    expect(html).not.toContain("Autorizar lote");
     expect(html).not.toContain("contact@example.com");
     expect(html).not.toContain("+5521981071538");
     expect(html).not.toContain("AfhlkOT");
   });
 
   it("requires the exact connection name when a certified batch is ready", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-18T12:00:00.000Z"));
+
+    const completedBatch = {
+      id: "batch_1",
+      workspaceId: "workspace_1",
+      connectionId: "connection_1",
+      requestedByUserId: "owner_1",
+      status: "completed_with_failures",
+      selection: "canary_5",
+      requestedLimit: 5,
+      totalItems: 5,
+      materializedCount: 4,
+      duplicateCount: 0,
+      skippedCount: 0,
+      failedCount: 1,
+      retryableFailedCount: 1,
+      retryCount: 0,
+      lastRetriedAt: null,
+      startedAt: "2026-07-18T15:01:00.000Z",
+      completedAt: "2026-07-18T15:01:02.000Z",
+      createdAt: "2026-07-18T15:00:59.000Z",
+      updatedAt: "2026-07-18T15:01:02.000Z",
+    } as const;
+
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       jsonResponse({
         ...preview,
@@ -98,22 +126,9 @@ describe("inbound webhook controlled replay route", () => {
           alreadyMaterialized: 2,
           eligible: 10,
         },
-        latestBatch: {
-          id: "batch_1",
-          workspaceId: "workspace_1",
-          connectionId: "connection_1",
-          requestedByUserId: "owner_1",
-          status: "completed",
-          totalItems: 2,
-          materializedCount: 2,
-          duplicateCount: 0,
-          skippedCount: 0,
-          failedCount: 0,
-          startedAt: "2026-07-18T15:01:00.000Z",
-          completedAt: "2026-07-18T15:01:02.000Z",
-          createdAt: "2026-07-18T15:00:59.000Z",
-          updatedAt: "2026-07-18T15:01:02.000Z",
-        },
+        nextPayloadExpiresAt: "2026-07-19T12:00:00.000Z",
+        latestBatch: completedBatch,
+        recentBatches: [completedBatch],
       }),
     );
 
@@ -124,9 +139,17 @@ describe("inbound webhook controlled replay route", () => {
 
     expect(html).toContain("Elegiveis agora");
     expect(html).toContain(">10<");
-    expect(html).toContain("Resultado do replay");
+    expect(html).toContain("1d 0h restantes");
+    expect(html).toContain("Ultimos lotes");
+    expect(html).toContain("Canario de 5");
     expect(html).toContain("Materializados");
-    expect(html).toContain("Autorizar replay");
+    expect(html).toContain("Recuperar falhas");
+    expect(html).toContain("Autorizar lote");
+    expect(html).toContain('name="selection"');
+    expect(html).toContain('value="canary_1"');
+    expect(html).toContain('value="canary_5"');
+    expect(html).toContain('value="canary_10"');
+    expect(html).toContain('value="remaining"');
     expect(html).toContain(
       "Digite exatamente <strong>observacao inicial</strong>",
     );

@@ -55,6 +55,12 @@ export const inboundWebhookReplayItemStatuses = [
   "skipped",
   "failed",
 ] as const;
+export const inboundWebhookReplaySelections = [
+  "canary_1",
+  "canary_5",
+  "canary_10",
+  "remaining",
+] as const;
 
 export const inboundWebhookProviderSchema = z.enum(inboundWebhookProviders);
 export const inboundWebhookParserReleaseStatusSchema = z.enum(
@@ -83,6 +89,9 @@ export const inboundWebhookReplayStatusSchema = z.enum(
 );
 export const inboundWebhookReplayItemStatusSchema = z.enum(
   inboundWebhookReplayItemStatuses,
+);
+export const inboundWebhookReplaySelectionSchema = z.enum(
+  inboundWebhookReplaySelections,
 );
 
 const idSchema = z.string().trim().min(1).max(255);
@@ -313,6 +322,11 @@ export const backofficeInboundWebhookPayloadSchema = z.object({
 
 export const backofficeInboundWebhookReplayConfirmationInputSchema = z.object({
   confirmation: inboundWebhookDisplayNameSchema,
+  selection: inboundWebhookReplaySelectionSchema.default("canary_1"),
+});
+
+export const backofficeInboundWebhookReplayRetryInputSchema = z.object({
+  confirmation: inboundWebhookDisplayNameSchema,
 });
 
 export const backofficeInboundWebhookReplayBatchSchema = z.object({
@@ -320,14 +334,19 @@ export const backofficeInboundWebhookReplayBatchSchema = z.object({
   workspaceId: idSchema,
   connectionId: idSchema,
   requestedByUserId: idSchema,
+  selection: inboundWebhookReplaySelectionSchema,
+  requestedLimit: z.number().int().min(1).max(500),
   status: inboundWebhookReplayStatusSchema,
   totalItems: z.number().int().nonnegative(),
   materializedCount: z.number().int().nonnegative(),
   duplicateCount: z.number().int().nonnegative(),
   skippedCount: z.number().int().nonnegative(),
   failedCount: z.number().int().nonnegative(),
+  retryableFailedCount: z.number().int().nonnegative(),
+  retryCount: z.number().int().nonnegative(),
   startedAt: dateTimeSchema.nullable(),
   completedAt: dateTimeSchema.nullable(),
+  lastRetriedAt: dateTimeSchema.nullable(),
   createdAt: dateTimeSchema,
   updatedAt: dateTimeSchema,
 });
@@ -348,7 +367,9 @@ export const backofficeInboundWebhookReplayPreviewSchema = z.object({
   }),
   oldestOccurredAt: dateTimeSchema.nullable(),
   newestOccurredAt: dateTimeSchema.nullable(),
+  nextPayloadExpiresAt: dateTimeSchema.nullable(),
   latestBatch: backofficeInboundWebhookReplayBatchSchema.nullable(),
+  recentBatches: z.array(backofficeInboundWebhookReplayBatchSchema).max(10),
 });
 
 export type InboundWebhookProviderDto = z.infer<
@@ -380,6 +401,9 @@ export type InboundWebhookReplayStatusDto = z.infer<
 >;
 export type InboundWebhookReplayItemStatusDto = z.infer<
   typeof inboundWebhookReplayItemStatusSchema
+>;
+export type InboundWebhookReplaySelectionDto = z.infer<
+  typeof inboundWebhookReplaySelectionSchema
 >;
 export type InboundWebhookConnectionCreateInputDto = z.infer<
   typeof inboundWebhookConnectionCreateInputSchema
@@ -458,6 +482,9 @@ export type InboundWebhookNormalizedObservationListDto = z.infer<
 >;
 export type BackofficeInboundWebhookReplayConfirmationInputDto = z.infer<
   typeof backofficeInboundWebhookReplayConfirmationInputSchema
+>;
+export type BackofficeInboundWebhookReplayRetryInputDto = z.infer<
+  typeof backofficeInboundWebhookReplayRetryInputSchema
 >;
 export type BackofficeInboundWebhookReplayBatchDto = z.infer<
   typeof backofficeInboundWebhookReplayBatchSchema

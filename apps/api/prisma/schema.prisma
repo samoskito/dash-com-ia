@@ -206,6 +206,13 @@ enum InboundWebhookReplayItemStatus {
   failed
 }
 
+enum InboundWebhookReplaySelection {
+  canary_1
+  canary_5
+  canary_10
+  remaining
+}
+
 model User {
   id              String        @id @default(cuid())
   email           String        @unique
@@ -1257,20 +1264,25 @@ model InboundWebhookEvent {
 }
 
 model InboundWebhookReplayBatch {
-  id                String                     @id @default(cuid())
-  workspaceId       String
-  connectionId      String
-  requestedByUserId String
-  status            InboundWebhookReplayStatus @default(queued)
-  totalItems        Int                        @default(0)
-  materializedCount Int                        @default(0)
-  duplicateCount    Int                        @default(0)
-  skippedCount      Int                        @default(0)
-  failedCount       Int                        @default(0)
-  startedAt         DateTime?
-  completedAt       DateTime?
-  createdAt         DateTime                   @default(now())
-  updatedAt         DateTime                   @updatedAt
+  id                   String                        @id @default(cuid())
+  workspaceId          String
+  connectionId         String
+  requestedByUserId    String
+  selection            InboundWebhookReplaySelection @default(canary_1)
+  requestedLimit       Int                           @default(1)
+  status               InboundWebhookReplayStatus    @default(queued)
+  totalItems           Int                           @default(0)
+  materializedCount    Int                           @default(0)
+  duplicateCount       Int                           @default(0)
+  skippedCount         Int                           @default(0)
+  failedCount          Int                           @default(0)
+  retryableFailedCount Int                           @default(0)
+  retryCount           Int                           @default(0)
+  startedAt            DateTime?
+  completedAt          DateTime?
+  lastRetriedAt        DateTime?
+  createdAt            DateTime                      @default(now())
+  updatedAt            DateTime                      @updatedAt
 
   workspace   Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   connection  InboundWebhookConnection   @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookReplayBatch_connectionId_fkey")
@@ -1292,6 +1304,8 @@ model InboundWebhookReplayItem {
   leadId               String?
   conversionEventLogId String?
   errorCode            String?
+  attemptCount         Int                            @default(0)
+  lastAttemptedAt      DateTime?
   processedAt          DateTime?
   createdAt            DateTime                       @default(now())
   updatedAt            DateTime                       @updatedAt
