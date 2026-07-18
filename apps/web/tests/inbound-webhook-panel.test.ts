@@ -80,6 +80,20 @@ const connectionView = {
           metaConversionDestinationId: "destination_support",
         }),
       ],
+      readiness: {
+        state: "partial",
+        blockers: ["ctwa_unresolved", "payload_expiring_soon"],
+        routeCount: 2,
+        validRouteCount: 2,
+        totalCtwa: 17,
+        routedCtwa: 12,
+        unresolvedCtwa: 5,
+        retainedCtwa: 17,
+        retainedRoutedCtwa: 12,
+        payloadUnavailableCtwa: 0,
+        alreadyMaterializedCtwa: 0,
+        nextPayloadExpiresAt: "2026-07-19T18:00:00.000Z",
+      },
       createdAt: "2026-07-17T18:15:00.000Z",
       updatedAt: "2026-07-17T19:30:00.000Z",
     },
@@ -163,9 +177,7 @@ describe("inbound webhook panel", () => {
     );
 
     expect(handler).toMatch(/const form = event\.currentTarget;/);
-    expect(handler).toMatch(
-      /await createAction\(new FormData\(form\)\)/,
-    );
+    expect(handler).toMatch(/await createAction\(new FormData\(form\)\)/);
     expect(handler).toMatch(/form\.reset\(\)/);
     expect(handler).not.toMatch(
       /await createAction\(new FormData\(event\.currentTarget\)\)/,
@@ -215,6 +227,31 @@ describe("inbound webhook panel", () => {
     expect(html).toContain('aria-label="BM da rota 1"');
     expect(html).toContain('aria-label="BM da rota 2"');
     expect(html).toContain("2 rota(s) preparada(s).");
+  });
+
+  it("shows redacted readiness and exact blockers for each channel", () => {
+    const html = renderPanel();
+    const expectedExpiry = new Date(
+      connectionView.channels[0].readiness.nextPayloadExpiresAt!,
+    ).toLocaleString("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+
+    expect(html).toContain("Prontidao parcial");
+    expect(html).toContain("<span>Rotas validas</span><strong>2/2</strong>");
+    expect(html).toContain("<span>CTWA observados</span><strong>17</strong>");
+    expect(html).toContain(
+      "<span>Roteados preservados</span><strong>12</strong>",
+    );
+    expect(html).toContain("<span>CTWA pendentes</span><strong>5</strong>");
+    expect(html).toContain("5 CTWA aguardam uma rota Meta exata.");
+    expect(html).toContain(
+      "O payload preservado mais proximo expira em menos de 48 horas.",
+    );
+    expect(html).toContain(expectedExpiry);
+    expect(html).not.toContain("CTWaCLId");
+    expect(html).not.toContain("encryptedPayload");
   });
 
   it("uses only the supplied workspace Meta options for each exact route", () => {

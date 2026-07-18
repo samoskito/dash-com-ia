@@ -7,12 +7,14 @@ import type {
   MetaManualConfigurationDto,
 } from "@wpptrack/shared";
 import {
+  AlertTriangle,
   Check,
   Copy,
   Pause,
   Play,
   Plus,
   RefreshCw,
+  ShieldCheck,
   Trash2,
   Webhook,
   X,
@@ -441,7 +443,7 @@ export function InboundWebhookPanel({
                     <div className="inbound-channel-heading">
                       <span>Canal</span>
                       <span>Numero conectado</span>
-                      <span>Status</span>
+                      <span>Prontidao</span>
                       <span>Ultimo evento</span>
                     </div>
                     {channels.length === 0 ? (
@@ -449,75 +451,85 @@ export function InboundWebhookPanel({
                         Os canais aparecerao depois do primeiro payload valido.
                       </p>
                     ) : (
-                      channels.map((channel) => (
-                        <details className="inbound-channel" key={channel.id}>
-                          <summary>
-                            <strong>
-                              <PresentationMask placeholder="Canal oculto">
-                                {channel.channelName ?? "Canal sem nome"}
-                              </PresentationMask>
-                            </strong>
-                            <span>
-                              <PresentationMask placeholder="Numero oculto">
-                                {channel.connectedPhone}
-                              </PresentationMask>
-                            </span>
-                            <span
-                              className={`event-chip ${channel.status === "active" ? "" : "warn"}`}
-                            >
-                              {channelStatusLabel(channel.status)}
-                            </span>
-                            <span>{formatDateTime(channel.lastSeenAt)}</span>
-                          </summary>
-                          <div className="inbound-channel-body">
-                            {canManage ? (
-                              <div className="inbound-channel-actions">
-                                <button
-                                  className="button"
-                                  type="button"
-                                  disabled={Boolean(
-                                    pendingAction?.includes(channel.id),
-                                  )}
-                                  onClick={() =>
-                                    runConnectionAction(
-                                      `channel-${channel.id}`,
-                                      setChannelStatusAction,
-                                      {
-                                        channelId: channel.id,
-                                        status:
-                                          channel.status === "paused"
-                                            ? "active"
-                                            : "paused",
-                                      },
-                                    )
-                                  }
+                      channels.map((channel) => {
+                        const readiness = channel.readiness;
+
+                        return (
+                          <details className="inbound-channel" key={channel.id}>
+                            <summary>
+                              <strong>
+                                <PresentationMask placeholder="Canal oculto">
+                                  {channel.channelName ?? "Canal sem nome"}
+                                </PresentationMask>
+                              </strong>
+                              <span>
+                                <PresentationMask placeholder="Numero oculto">
+                                  {channel.connectedPhone}
+                                </PresentationMask>
+                              </span>
+                              <div className="inbound-readiness-summary">
+                                <span
+                                  className={`event-chip ${readinessChipTone(readiness.state)}`}
                                 >
-                                  {channel.status === "paused" ? (
-                                    <Play size={15} aria-hidden="true" />
-                                  ) : (
-                                    <Pause size={15} aria-hidden="true" />
-                                  )}
-                                  {channel.status === "paused"
-                                    ? "Ativar canal"
-                                    : "Pausar canal"}
-                                </button>
+                                  {readinessStateLabel(readiness.state)}
+                                </span>
+                                <small>
+                                  Canal {channelStatusLabel(channel.status)}
+                                </small>
                               </div>
-                            ) : null}
-                            <InboundWebhookRouteEditor
-                              channel={channel}
-                              metaConfiguration={metaConfiguration}
-                              canManage={canManage}
-                              saveAction={saveRoutesAction}
-                              onUpdated={(result) => {
-                                applyResult(result);
-                                if (result.ok) {
-                                  router.refresh();
-                                }
-                              }}
-                            />
-                          </div>
-                        </details>
-                      ))
+                              <span>{formatDateTime(channel.lastSeenAt)}</span>
+                            </summary>
+                            <div className="inbound-channel-body">
+                              <ChannelReadiness readiness={readiness} />
+                              {canManage ? (
+                                <div className="inbound-channel-actions">
+                                  <button
+                                    className="button"
+                                    type="button"
+                                    disabled={Boolean(
+                                      pendingAction?.includes(channel.id),
+                                    )}
+                                    onClick={() =>
+                                      runConnectionAction(
+                                        `channel-${channel.id}`,
+                                        setChannelStatusAction,
+                                        {
+                                          channelId: channel.id,
+                                          status:
+                                            channel.status === "paused"
+                                              ? "active"
+                                              : "paused",
+                                        },
+                                      )
+                                    }
+                                  >
+                                    {channel.status === "paused" ? (
+                                      <Play size={15} aria-hidden="true" />
+                                    ) : (
+                                      <Pause size={15} aria-hidden="true" />
+                                    )}
+                                    {channel.status === "paused"
+                                      ? "Ativar canal"
+                                      : "Pausar canal"}
+                                  </button>
+                                </div>
+                              ) : null}
+                              <InboundWebhookRouteEditor
+                                channel={channel}
+                                metaConfiguration={metaConfiguration}
+                                canManage={canManage}
+                                saveAction={saveRoutesAction}
+                                onUpdated={(result) => {
+                                  applyResult(result);
+                                  if (result.ok) {
+                                    router.refresh();
+                                  }
+                                }}
+                              />
+                            </div>
+                          </details>
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -547,16 +559,147 @@ function ObservationCounter({
   );
 }
 
+function ChannelReadiness({
+  readiness,
+}: {
+  readiness: InboundWebhookChannelDto["readiness"];
+}) {
+  const ready = readiness.state === "ready" || readiness.state === "complete";
+
+  return (
+    <section
+      className="inbound-readiness"
+      aria-label="Prontidao operacional do canal"
+    >
+      <div className="inbound-readiness-heading">
+        <div className="inbound-readiness-title">
+          {ready ? (
+            <ShieldCheck className="success" size={18} aria-hidden="true" />
+          ) : (
+            <AlertTriangle className="warn" size={18} aria-hidden="true" />
+          )}
+          <div>
+            <span className="micro-label">Prontidao do canal</span>
+            <strong>{readinessStateLabel(readiness.state)}</strong>
+          </div>
+        </div>
+        {readiness.nextPayloadExpiresAt ? (
+          <span className="inbound-readiness-expiry">
+            Proxima expiracao:{" "}
+            <strong>{formatDateTime(readiness.nextPayloadExpiresAt)}</strong>
+          </span>
+        ) : null}
+      </div>
+
+      <div className="inbound-readiness-metrics">
+        <ReadinessMetric
+          label="Rotas validas"
+          value={`${readiness.validRouteCount}/${readiness.routeCount}`}
+        />
+        <ReadinessMetric label="CTWA observados" value={readiness.totalCtwa} />
+        <ReadinessMetric
+          label="Roteados preservados"
+          value={readiness.retainedRoutedCtwa}
+          tone={readiness.retainedRoutedCtwa > 0 ? "success" : ""}
+        />
+        <ReadinessMetric
+          label="CTWA pendentes"
+          value={readiness.unresolvedCtwa}
+          tone={readiness.unresolvedCtwa > 0 ? "warn" : ""}
+        />
+      </div>
+
+      {readiness.blockers.length > 0 ? (
+        <ul className="inbound-readiness-blockers">
+          {readiness.blockers.map((blocker) => (
+            <li key={blocker}>{readinessBlockerLabel(blocker, readiness)}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="inbound-readiness-clear">
+          Rota e payload preservado prontos para a revisao operacional.
+        </p>
+      )}
+
+      {readiness.alreadyMaterializedCtwa > 0 ? (
+        <p className="muted inbound-readiness-materialized">
+          {readiness.alreadyMaterializedCtwa} CTWA ja materializado(s).
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function ReadinessMetric({
+  label,
+  tone = "",
+  value,
+}: {
+  label: string;
+  tone?: "" | "success" | "warn";
+  value: number | string;
+}) {
+  return (
+    <div className={`inbound-readiness-metric${tone ? ` ${tone}` : ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function readinessStateLabel(
+  state: InboundWebhookChannelDto["readiness"]["state"],
+) {
+  const labels = {
+    waiting: "Aguardando CTWA",
+    blocked: "Bloqueado",
+    partial: "Prontidao parcial",
+    ready: "Rota pronta",
+    complete: "Concluido",
+  } as const;
+
+  return labels[state];
+}
+
+function readinessChipTone(
+  state: InboundWebhookChannelDto["readiness"]["state"],
+) {
+  if (state === "ready" || state === "complete") {
+    return "";
+  }
+
+  return state === "blocked" ? "bad" : "warn";
+}
+
+function readinessBlockerLabel(
+  blocker: InboundWebhookChannelDto["readiness"]["blockers"][number],
+  readiness: InboundWebhookChannelDto["readiness"],
+) {
+  const labels = {
+    connection_paused: "A conexao Umbler esta pausada.",
+    channel_paused: "Este canal esta pausado.",
+    route_not_configured: "Configure ao menos uma rota Meta para este canal.",
+    route_not_valid: "Existe uma rota Meta que precisa ser validada novamente.",
+    ctwa_not_observed: "Nenhum CTWA foi observado neste canal.",
+    ctwa_unresolved: `${readiness.unresolvedCtwa} CTWA aguardam uma rota Meta exata.`,
+    payload_unavailable: `${readiness.payloadUnavailableCtwa} CTWA nao possuem mais payload disponivel.`,
+    payload_expiring_soon:
+      "O payload preservado mais proximo expira em menos de 48 horas.",
+  } as const;
+
+  return labels[blocker];
+}
+
 function channelStatusLabel(status: InboundWebhookChannelDto["status"]) {
   if (status === "active") {
-    return "Ativo";
+    return "ativo";
   }
 
   if (status === "paused") {
-    return "Pausado";
+    return "pausado";
   }
 
-  return "Descoberto";
+  return "descoberto";
 }
 
 function formatDateTime(value: string | null): string {

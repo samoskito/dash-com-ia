@@ -3,6 +3,7 @@ import {
   backofficeInboundWebhookDeliveryListSchema,
   backofficeInboundWebhookDeliverySummarySchema,
   backofficeInboundWebhookPayloadSchema,
+  inboundWebhookChannelSchema,
   inboundWebhookChannelRouteInputSchema,
   inboundWebhookChannelRouteSchema,
   inboundWebhookChannelRoutesUpdateInputSchema,
@@ -132,6 +133,59 @@ describe("inbound webhook contracts", () => {
     });
 
     expect(persisted.metaBusinessConnectionId).toBeNull();
+  });
+
+  it("keeps channel readiness redacted and rejects unknown states", () => {
+    const sensitiveValues = {
+      ctwaClid: "full-ctwa-value",
+      contactPhone: "+5511999999999",
+      encryptedPayload: "encrypted-payload",
+      payloadIv: "payload-iv",
+      payloadTag: "payload-tag",
+    };
+    const channel = inboundWebhookChannelSchema.parse({
+      id: "channel_1",
+      connectionId: connection.id,
+      organizationId: "organization_1",
+      providerChannelId: "provider_channel_1",
+      connectedPhone: "+551143377011",
+      channelName: "Central de Vendas",
+      status: "discovered",
+      firstSeenAt: timestamp,
+      lastSeenAt: timestamp,
+      routes: [],
+      readiness: {
+        state: "blocked",
+        blockers: ["route_not_configured", "ctwa_unresolved"],
+        routeCount: 0,
+        validRouteCount: 0,
+        totalCtwa: 7,
+        routedCtwa: 0,
+        unresolvedCtwa: 7,
+        retainedCtwa: 7,
+        retainedRoutedCtwa: 0,
+        payloadUnavailableCtwa: 0,
+        alreadyMaterializedCtwa: 0,
+        nextPayloadExpiresAt: timestamp,
+        ...sensitiveValues,
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    expect(channel.readiness).not.toHaveProperty("ctwaClid");
+    expect(channel.readiness).not.toHaveProperty("contactPhone");
+    expect(channel.readiness).not.toHaveProperty("encryptedPayload");
+    expect(JSON.stringify(channel.readiness)).not.toContain("full-ctwa-value");
+    expect(() =>
+      inboundWebhookChannelSchema.parse({
+        ...channel,
+        readiness: {
+          ...channel.readiness,
+          state: "production",
+        },
+      }),
+    ).toThrow();
   });
 
   it("keeps one-time secrets out of ordinary connection listings", () => {

@@ -6899,12 +6899,161 @@ html[data-presentation-mode="active"] .inbound-webhook-secret {
   overflow-wrap: anywhere;
 }
 
+.inbound-readiness-summary {
+  display: grid;
+  min-width: 0;
+  justify-items: start;
+  gap: 4px;
+}
+
+.inbound-readiness-summary small {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
 .inbound-channel-body {
   display: grid;
   gap: 12px;
   padding: 12px;
   border-top: 1px solid rgba(142, 173, 164, 0.13);
   background: rgba(255, 255, 255, 0.018);
+}
+
+.inbound-readiness {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding: 4px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.inbound-readiness-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.inbound-readiness-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.inbound-readiness-title > svg {
+  flex: 0 0 auto;
+}
+
+.inbound-readiness-title > svg.success {
+  color: var(--mint);
+}
+
+.inbound-readiness-title > svg.warn {
+  color: var(--amber);
+}
+
+.inbound-readiness-title > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.inbound-readiness-title strong {
+  font-size: 15px;
+}
+
+.inbound-readiness-expiry {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: right;
+}
+
+.inbound-readiness-expiry strong {
+  color: var(--amber);
+}
+
+.inbound-readiness-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.inbound-readiness-metric {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 10px 12px;
+  border-left: 1px solid var(--border);
+}
+
+.inbound-readiness-metric:first-child {
+  border-left: 0;
+}
+
+.inbound-readiness-metric span {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.inbound-readiness-metric strong {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.inbound-readiness-metric.success strong {
+  color: var(--mint);
+}
+
+.inbound-readiness-metric.warn strong {
+  color: var(--amber);
+}
+
+.inbound-readiness-blockers {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inbound-readiness-blockers li {
+  position: relative;
+  padding-left: 16px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.inbound-readiness-blockers li::before {
+  content: "";
+  position: absolute;
+  top: 0.55em;
+  left: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+.inbound-readiness-clear {
+  color: var(--mint);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.inbound-readiness-materialized {
+  margin-top: -4px;
+  font-size: 11px;
 }
 
 .inbound-channel-empty {
@@ -7049,6 +7198,19 @@ html[data-presentation-mode="active"] .inbound-webhook-secret {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .inbound-readiness-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inbound-readiness-metric:nth-child(3) {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .inbound-readiness-metric:nth-child(4) {
+    border-top: 1px solid var(--border);
+  }
+
   .inbound-route-row,
   .inbound-route-editor[aria-readonly="true"] .inbound-route-row {
     grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 38px;
@@ -7133,6 +7295,30 @@ html[data-presentation-mode="active"] .inbound-webhook-secret {
   .inbound-channel > summary {
     grid-template-columns: minmax(0, 1fr);
     gap: 7px;
+  }
+
+  .inbound-readiness-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .inbound-readiness-expiry {
+    text-align: left;
+  }
+
+  .inbound-readiness-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inbound-readiness-metric,
+  .inbound-readiness-metric:nth-child(3),
+  .inbound-readiness-metric:nth-child(4) {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .inbound-readiness-metric:first-child {
+    border-top: 0;
   }
 
   .inbound-route-row,

@@ -3,6 +3,8 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
   InboundWebhookChannelDto,
+  InboundWebhookChannelReadinessBlockerDto,
+  InboundWebhookChannelReadinessDto,
   InboundWebhookChannelRouteDto,
   InboundWebhookChannelRouteInputDto,
   InboundWebhookChannelRoutesUpdateInputDto,
@@ -18,6 +20,7 @@ const resourceNotFoundMessage = "Recurso de webhook nao encontrado";
 const validRouteStatus = "valid";
 const removedRouteStatus = "inactive";
 const removedRouteReason = "route_removed";
+const payloadExpiryWarningMs = 48 * 60 * 60 * 1_000;
 
 const channelInclude = {
   connection: {
@@ -41,6 +44,26 @@ type PersistedChannel = Prisma.InboundWebhookChannelGetPayload<{
 }>;
 
 type PersistedRoute = Prisma.InboundWebhookChannelRouteGetPayload<object>;
+
+const channelReadinessEventSelect = {
+  channelId: true,
+  deliveryId: true,
+  classification: true,
+  replayItem: {
+    select: {
+      status: true,
+    },
+  },
+  delivery: {
+    select: {
+      payloadExpiresAt: true,
+    },
+  },
+} satisfies Prisma.InboundWebhookEventSelect;
+
+type ChannelReadinessEvent = Prisma.InboundWebhookEventGetPayload<{
+  select: typeof channelReadinessEventSelect;
+}>;
 
 type NormalizedRouteInput = {
   routeKey: string;
@@ -97,8 +120,15 @@ export class InboundWebhookChannelRoutesService {
       include: channelInclude,
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
+    const readinessByChannel = await this.loadChannelReadiness(
+      workspaceId,
+      connectionId,
+      channels,
+    );
 
-    return channels.map((channel) => this.toChannelDto(channel));
+    return channels.map((channel) =>
+      this.toChannelDto(channel, readinessByChannel.get(channel.id)),
+    );
   }
 
   async replaceRoutes(
@@ -342,7 +372,18 @@ export class InboundWebhookChannelRoutesService {
     });
 
     await this.reevaluateUnresolvedEvents(workspaceId, channelId);
-    return this.toChannelDto(channel);
+    const refreshed = await this.requireChannel(
+      this.prisma,
+      workspaceId,
+      channelId,
+    );
+    const readinessByChannel = await this.loadChannelReadiness(
+      workspaceId,
+      refreshed.connectionId,
+      [refreshed],
+    );
+
+    return this.toChannelDto(refreshed, readinessByChannel.get(refreshed.id));
   }
 
   async reevaluateUnresolvedEvents(
@@ -790,7 +831,180 @@ export class InboundWebhookChannelRoutesService {
     throw new NotFoundException(resourceNotFoundMessage);
   }
 
-  private toChannelDto(channel: PersistedChannel): InboundWebhookChannelDto {
+  private async loadChannelReadiness(
+    workspaceId: string,
+    connectionId: string,
+    channels: PersistedChannel[],
+  ): Promise<Map<string, InboundWebhookChannelReadinessDto>> {
+    const channelIds = channels.map((channel) => channel.id);
+    const now = new Date();
+    const events =
+      channelIds.length === 0
+        ? []
+        : await this.prisma.inboundWebhookEvent.findMany({
+            where: {
+              workspaceId,
+              connectionId,
+              channelId: {
+                in: channelIds,
+              },
+              hasCtwa: true,
+            },
+            select: channelReadinessEventSelect,
+            orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+          });
+    const availableDeliveries =
+      events.length === 0
+        ? []
+        : await this.prisma.inboundWebhookDelivery.findMany({
+            where: {
+              workspaceId,
+              connectionId,
+              id: {
+                in: [...new Set(events.map((event) => event.deliveryId))],
+              },
+              payloadExpiresAt: {
+                gt: now,
+              },
+              encryptedPayload: {
+                not: null,
+              },
+              payloadIv: {
+                not: null,
+              },
+              payloadTag: {
+                not: null,
+              },
+              encryptionKeyVersion: {
+                not: null,
+              },
+            },
+            select: {
+              id: true,
+            },
+          });
+    const availableDeliveryIds = new Set(
+      availableDeliveries.map((delivery) => delivery.id),
+    );
+    const eventsByChannel = new Map<string, ChannelReadinessEvent[]>();
+
+    for (const event of events) {
+      const current = eventsByChannel.get(event.channelId) ?? [];
+      current.push(event);
+      eventsByChannel.set(event.channelId, current);
+    }
+
+    return new Map(
+      channels.map((channel) => [
+        channel.id,
+        this.channelReadiness(
+          channel,
+          eventsByChannel.get(channel.id) ?? [],
+          now,
+          availableDeliveryIds,
+        ),
+      ]),
+    );
+  }
+
+  private channelReadiness(
+    channel: PersistedChannel,
+    events: ChannelReadinessEvent[],
+    now: Date,
+    availableDeliveryIds: ReadonlySet<string>,
+  ): InboundWebhookChannelReadinessDto {
+    const routeCount = channel.routes.length;
+    const validRouteCount = channel.routes.filter(
+      (route) => route.validationStatus === validRouteStatus,
+    ).length;
+    const routedEvents = events.filter(
+      (event) => event.classification === "eligible_route_resolved",
+    );
+    const unresolvedEvents = events.filter(
+      (event) => event.classification === "eligible_route_unresolved",
+    );
+    const alreadyMaterializedEvents = events.filter((event) =>
+      ["materialized", "duplicate"].includes(event.replayItem?.status ?? ""),
+    );
+    const openEvents = events.filter(
+      (event) =>
+        !["materialized", "duplicate"].includes(event.replayItem?.status ?? ""),
+    );
+    const retainedEvents = openEvents.filter((event) =>
+      availableDeliveryIds.has(event.deliveryId),
+    );
+    const retainedRoutedEvents = routedEvents.filter(
+      (event) =>
+        event.replayItem === null && availableDeliveryIds.has(event.deliveryId),
+    );
+    const nextPayloadExpiresAt = retainedEvents
+      .map((event) => event.delivery.payloadExpiresAt)
+      .sort((left, right) => left.getTime() - right.getTime())[0];
+    const blockers: InboundWebhookChannelReadinessBlockerDto[] = [];
+
+    if (channel.connection.status === "paused") {
+      blockers.push("connection_paused");
+    }
+    if (channel.status === "paused") {
+      blockers.push("channel_paused");
+    }
+    if (routeCount === 0) {
+      blockers.push("route_not_configured");
+    } else if (validRouteCount !== routeCount) {
+      blockers.push("route_not_valid");
+    }
+    if (events.length === 0) {
+      blockers.push("ctwa_not_observed");
+    }
+    if (unresolvedEvents.length > 0) {
+      blockers.push("ctwa_unresolved");
+    }
+    if (openEvents.length > retainedEvents.length) {
+      blockers.push("payload_unavailable");
+    }
+    if (
+      nextPayloadExpiresAt &&
+      nextPayloadExpiresAt.getTime() - now.getTime() <= payloadExpiryWarningMs
+    ) {
+      blockers.push("payload_expiring_soon");
+    }
+
+    const hardBlocked =
+      channel.connection.status === "paused" ||
+      channel.status === "paused" ||
+      routeCount === 0 ||
+      validRouteCount === 0;
+    const state =
+      events.length === 0
+        ? "waiting"
+        : alreadyMaterializedEvents.length === events.length
+          ? "complete"
+          : hardBlocked || retainedRoutedEvents.length === 0
+            ? "blocked"
+            : blockers.length > 0
+              ? "partial"
+              : "ready";
+
+    return {
+      state,
+      blockers,
+      routeCount,
+      validRouteCount,
+      totalCtwa: events.length,
+      routedCtwa: routedEvents.length,
+      unresolvedCtwa: unresolvedEvents.length,
+      retainedCtwa: retainedEvents.length,
+      retainedRoutedCtwa: retainedRoutedEvents.length,
+      payloadUnavailableCtwa: openEvents.length - retainedEvents.length,
+      alreadyMaterializedCtwa: alreadyMaterializedEvents.length,
+      nextPayloadExpiresAt: nextPayloadExpiresAt?.toISOString() ?? null,
+    };
+  }
+
+  private toChannelDto(
+    channel: PersistedChannel,
+    readiness?: InboundWebhookChannelReadinessDto,
+  ): InboundWebhookChannelDto {
     return {
       id: channel.id,
       connectionId: channel.connectionId,
@@ -802,6 +1016,8 @@ export class InboundWebhookChannelRoutesService {
       firstSeenAt: channel.firstSeenAt.toISOString(),
       lastSeenAt: channel.lastSeenAt.toISOString(),
       routes: channel.routes.map((route) => this.toRouteDto(route)),
+      readiness:
+        readiness ?? this.channelReadiness(channel, [], new Date(), new Set()),
       createdAt: channel.createdAt.toISOString(),
       updatedAt: channel.updatedAt.toISOString(),
     };

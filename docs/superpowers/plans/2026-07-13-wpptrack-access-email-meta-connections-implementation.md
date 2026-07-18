@@ -9,6 +9,11 @@ Extension: Umbler observation and controlled replay are tracked in
 The replay canary is implemented locally and remains deployment-gated until
 the customer's Meta routes are configured.
 
+Channel-level Umbler readiness is tracked in
+`docs/superpowers/plans/2026-07-18-wpptrack-umbler-channel-readiness-implementation.md`.
+It is implemented locally, requires no migration and keeps replay disabled
+while showing route, retained payload and CTWA blockers per discovered channel.
+
 ## 1. Goal
 
 Implement secure multi-workspace access, delegated team management, Brevo transactional email, closed invitation onboarding, feature-gated Google login and guided OAuth/manual Meta connections for the current client SaaS.

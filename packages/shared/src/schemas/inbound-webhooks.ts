@@ -61,6 +61,23 @@ export const inboundWebhookReplaySelections = [
   "canary_10",
   "remaining",
 ] as const;
+export const inboundWebhookChannelReadinessStates = [
+  "waiting",
+  "blocked",
+  "partial",
+  "ready",
+  "complete",
+] as const;
+export const inboundWebhookChannelReadinessBlockers = [
+  "connection_paused",
+  "channel_paused",
+  "route_not_configured",
+  "route_not_valid",
+  "ctwa_not_observed",
+  "ctwa_unresolved",
+  "payload_unavailable",
+  "payload_expiring_soon",
+] as const;
 
 export const inboundWebhookProviderSchema = z.enum(inboundWebhookProviders);
 export const inboundWebhookParserReleaseStatusSchema = z.enum(
@@ -92,6 +109,12 @@ export const inboundWebhookReplayItemStatusSchema = z.enum(
 );
 export const inboundWebhookReplaySelectionSchema = z.enum(
   inboundWebhookReplaySelections,
+);
+export const inboundWebhookChannelReadinessStateSchema = z.enum(
+  inboundWebhookChannelReadinessStates,
+);
+export const inboundWebhookChannelReadinessBlockerSchema = z.enum(
+  inboundWebhookChannelReadinessBlockers,
 );
 
 const idSchema = z.string().trim().min(1).max(255);
@@ -267,6 +290,21 @@ export const inboundWebhookChannelRouteSchema = z.object({
   updatedAt: dateTimeSchema,
 });
 
+export const inboundWebhookChannelReadinessSchema = z.object({
+  state: inboundWebhookChannelReadinessStateSchema,
+  blockers: z.array(inboundWebhookChannelReadinessBlockerSchema),
+  routeCount: z.number().int().nonnegative(),
+  validRouteCount: z.number().int().nonnegative(),
+  totalCtwa: z.number().int().nonnegative(),
+  routedCtwa: z.number().int().nonnegative(),
+  unresolvedCtwa: z.number().int().nonnegative(),
+  retainedCtwa: z.number().int().nonnegative(),
+  retainedRoutedCtwa: z.number().int().nonnegative(),
+  payloadUnavailableCtwa: z.number().int().nonnegative(),
+  alreadyMaterializedCtwa: z.number().int().nonnegative(),
+  nextPayloadExpiresAt: dateTimeSchema.nullable(),
+});
+
 export const inboundWebhookChannelSchema = z.object({
   id: idSchema,
   connectionId: idSchema,
@@ -278,6 +316,7 @@ export const inboundWebhookChannelSchema = z.object({
   firstSeenAt: dateTimeSchema,
   lastSeenAt: dateTimeSchema,
   routes: z.array(inboundWebhookChannelRouteSchema),
+  readiness: inboundWebhookChannelReadinessSchema,
   createdAt: dateTimeSchema,
   updatedAt: dateTimeSchema,
 });
@@ -467,6 +506,15 @@ export type BackofficeInboundWebhookPayloadDto = z.infer<
 >;
 export type InboundWebhookChannelRouteDto = z.infer<
   typeof inboundWebhookChannelRouteSchema
+>;
+export type InboundWebhookChannelReadinessStateDto = z.infer<
+  typeof inboundWebhookChannelReadinessStateSchema
+>;
+export type InboundWebhookChannelReadinessBlockerDto = z.infer<
+  typeof inboundWebhookChannelReadinessBlockerSchema
+>;
+export type InboundWebhookChannelReadinessDto = z.infer<
+  typeof inboundWebhookChannelReadinessSchema
 >;
 export type InboundWebhookChannelDto = z.infer<
   typeof inboundWebhookChannelSchema
