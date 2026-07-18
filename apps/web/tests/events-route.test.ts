@@ -90,10 +90,13 @@ describe("events route", () => {
       expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Auditoria de conversoes");
-    expect(html).toContain("Periodo e filtros");
-    expect(html).toContain("Filtros de eventos");
+    expect(html).toContain("Periodo da auditoria");
+    expect(html).toContain('class="audit-advanced-filters"');
     expect(html).toContain("Saude da entrega");
     expect(html).toContain("Fluxo para a Meta");
+    expect(html.indexOf("Eventos do periodo")).toBeLessThan(
+      html.indexOf("Fluxo para a Meta"),
+    );
     expect(html).toContain("audit-mobile-event-card");
     expect(html).toContain("Em sombra");
     expect(html).toContain("Mariana Alves");
@@ -270,5 +273,25 @@ describe("events route", () => {
     expect(auditMobileBlock).toContain(
       "grid-template-columns: repeat(2, minmax(0, 1fr));",
     );
+  });
+
+  it("keeps the Meta audit controls compact with dark date fields", () => {
+    const css = readFileSync(
+      new URL("../src/styles/layout-system.css", import.meta.url),
+      "utf8",
+    );
+    const auditStylesStart = css.indexOf(
+      "Wave 4: Meta Events becomes a layered delivery audit.",
+    );
+    const nextWaveStart = css.indexOf("/* Wave 5:", auditStylesStart);
+    const auditStyles = css.slice(auditStylesStart, nextWaveStart);
+
+    expect(auditStyles).toContain(".audit-filter-form {");
+    expect(auditStyles).toContain("padding: 12px 14px;");
+    expect(auditStyles).toContain('.audit-filter-form input[type="date"] {');
+    expect(auditStyles).toContain("rgba(5, 8, 7, 0.92)");
+    expect(auditStyles).toContain("color-scheme: dark;");
+    expect(auditStyles).toContain(".audit-advanced-filters[open] {");
+    expect(auditStyles).toContain("grid-column: 1 / -1;");
   });
 });

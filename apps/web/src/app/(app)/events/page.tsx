@@ -418,44 +418,33 @@ export default async function EventsPage({
 
       <section
         className="surface-panel audit-command-panel"
-        aria-labelledby="audit-command-title"
+        aria-label="Controles da auditoria Meta"
       >
-        <header className="audit-command-heading">
-          <div className="audit-heading-copy">
-            <span className="audit-heading-icon" aria-hidden="true">
-              <CalendarRange size={18} strokeWidth={2.1} />
-            </span>
-            <div>
-              <span className="eyebrow">Recorte da auditoria</span>
-              <h2 id="audit-command-title">Periodo e filtros</h2>
-              <p>Defina o intervalo e refine somente quando precisar.</p>
-            </div>
-          </div>
-          <span className="status-chip neutral">
-            {report?.rangeLabel ?? `${since} a ${until}`}
-          </span>
-        </header>
-
         <form
           action="/events"
           aria-label="Filtros da auditoria Meta"
           className="audit-filter-form"
         >
           <input type="hidden" name="pageSize" value={pageSize} />
-          <div className="audit-period-controls">
-            <label className="filter-field">
-              <span>Inicio</span>
-              <input type="date" name="since" defaultValue={since} />
-            </label>
-            <label className="filter-field">
-              <span>Fim</span>
-              <input type="date" name="until" defaultValue={until} />
-            </label>
-            <button className="button" type="submit">
-              <Filter aria-hidden="true" size={16} strokeWidth={2.1} />
-              Atualizar auditoria
-            </button>
+          <div className="audit-period-context">
+            <CalendarRange aria-hidden="true" size={18} strokeWidth={2.1} />
+            <span>
+              <strong>Periodo da auditoria</strong>
+              <small>{report?.rangeLabel ?? `${since} a ${until}`}</small>
+            </span>
           </div>
+          <label className="filter-field">
+            <span>Inicio</span>
+            <input type="date" name="since" defaultValue={since} />
+          </label>
+          <label className="filter-field">
+            <span>Fim</span>
+            <input type="date" name="until" defaultValue={until} />
+          </label>
+          <button className="button" type="submit">
+            <Filter aria-hidden="true" size={16} strokeWidth={2.1} />
+            Aplicar
+          </button>
 
           <details
             className="audit-advanced-filters"
@@ -464,7 +453,7 @@ export default async function EventsPage({
             <summary>
               <span>
                 <SlidersHorizontal aria-hidden="true" size={15} />
-                Filtros de eventos
+                Filtros
               </span>
               {activeFilterCount > 0 ? (
                 <span className="tag">{activeFilterCount} ativo(s)</span>
@@ -538,55 +527,6 @@ export default async function EventsPage({
             </footer>
           </details>
         </form>
-      </section>
-
-      <section
-        className="surface-panel audit-health-panel"
-        aria-labelledby="audit-health-title"
-      >
-        <header className="audit-health-heading">
-          <div className="audit-heading-copy">
-            <span className="audit-heading-icon" aria-hidden="true">
-              <ShieldAlert size={18} strokeWidth={2.1} />
-            </span>
-            <div>
-              <span className="eyebrow">Saude da entrega</span>
-              <h2 id="audit-health-title">Fluxo para a Meta</h2>
-              <p>Estados operacionais primeiro; classificacoes em seguida.</p>
-            </div>
-          </div>
-          <span className="status-chip neutral">
-            {summary.total} eventos no periodo
-          </span>
-        </header>
-
-        <div className="audit-primary-metrics">
-          {primaryMetrics.map((metric) => (
-            <AuditPrimaryMetric key={metric.tone} {...metric} />
-          ))}
-        </div>
-
-        <div className="audit-classification-strip">
-          <span className="audit-classification-label">
-            Fora da fila de envio
-          </span>
-          <div>
-            {classifiedMetrics.map((metric) => {
-              const Icon = metric.icon;
-
-              return (
-                <span
-                  className={`audit-classification-item ${metric.tone}`}
-                  key={metric.tone}
-                >
-                  <Icon aria-hidden="true" size={14} strokeWidth={2.1} />
-                  <span>{metric.label}</span>
-                  <strong>{metric.value}</strong>
-                </span>
-              );
-            })}
-          </div>
-        </div>
       </section>
 
       <div className="audit-section-heading">
@@ -728,6 +668,55 @@ export default async function EventsPage({
           )}
         </div>
       </nav>
+
+      <section
+        className="surface-panel audit-health-panel"
+        aria-labelledby="audit-health-title"
+      >
+        <header className="audit-health-heading">
+          <div className="audit-heading-copy">
+            <span className="audit-heading-icon" aria-hidden="true">
+              <ShieldAlert size={18} strokeWidth={2.1} />
+            </span>
+            <div>
+              <span className="eyebrow">Saude da entrega</span>
+              <h2 id="audit-health-title">Fluxo para a Meta</h2>
+              <p>Estados operacionais primeiro; classificacoes em seguida.</p>
+            </div>
+          </div>
+          <span className="status-chip neutral">
+            {summary.total} eventos no periodo
+          </span>
+        </header>
+
+        <div className="audit-primary-metrics">
+          {primaryMetrics.map((metric) => (
+            <AuditPrimaryMetric key={metric.tone} {...metric} />
+          ))}
+        </div>
+
+        <div className="audit-classification-strip">
+          <span className="audit-classification-label">
+            Fora da fila de envio
+          </span>
+          <div>
+            {classifiedMetrics.map((metric) => {
+              const Icon = metric.icon;
+
+              return (
+                <span
+                  className={`audit-classification-item ${metric.tone}`}
+                  key={metric.tone}
+                >
+                  <Icon aria-hidden="true" size={14} strokeWidth={2.1} />
+                  <span>{metric.label}</span>
+                  <strong>{metric.value}</strong>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </section>
     </section>
   );
 }

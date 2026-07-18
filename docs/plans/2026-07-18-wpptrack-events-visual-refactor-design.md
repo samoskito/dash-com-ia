@@ -26,15 +26,20 @@ the recoverable code baseline is preserved by the
 Meta Events now follows the order in which an operator investigates delivery:
 
 1. Page identity and overall attention state.
-2. Period selection.
-3. Optional event, delivery-state, and source filters.
+2. Compact period selection and optional filters.
+3. Delivery history and event-level audit.
 4. Primary delivery health.
 5. Secondary classifications outside the active send queue.
-6. Delivery history and event-level audit.
 
-Period controls remain immediately visible. Event type, delivery state, and
-source are grouped under an optional disclosure. Active filters automatically
-open that disclosure and preserve the existing query-string contract.
+Period controls remain immediately visible in a single low-emphasis command
+row. Event type, delivery state, and source are grouped under an optional
+disclosure in that same surface. Active filters automatically open the
+disclosure and preserve the existing query-string contract.
+
+The redundant command heading was removed, control height and spacing now
+match the compact Reports pattern, and date inputs use the same near-black
+graphite surface with a dark browser color scheme. Delivery history now appears
+before the health summary so the event table enters the first desktop fold.
 
 ## Delivery health
 
@@ -85,6 +90,11 @@ The visual audit confirmed:
 - desktop and mobile inspection dialogs load and remain fully framed;
 - retry remains visible only on the transient failure scenario.
 
+The later compact-control refinement was verified through route, CSS-contract,
+responsive-structure, typecheck, and production-build tests. Browser automation
+was not available in that session, so its final production visual review remains
+the deployment checkpoint.
+
 ## Verification
 
 ```bash
@@ -93,10 +103,10 @@ pnpm --filter @wpptrack/web typecheck
 pnpm --filter @wpptrack/web build
 ```
 
-Wave 4 result:
+Current result:
 
 - 36 test files passed;
-- 210 tests passed;
+- 213 tests passed;
 - TypeScript validation passed;
 - Next.js production build passed for all 22 static-generation steps.
 
