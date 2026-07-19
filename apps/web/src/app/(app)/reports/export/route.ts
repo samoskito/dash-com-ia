@@ -7,7 +7,12 @@ const exportQueryParams = [
   "until",
   "businessId",
   "adAccountId",
-  "whatsappClassification"
+  "nameScope",
+  "nameContains",
+  "status",
+  "delivery",
+  "selectedIds",
+  "whatsappClassification",
 ] as const;
 
 export async function GET(request: Request) {
@@ -28,27 +33,28 @@ export async function GET(request: Request) {
     {
       credentials: "include",
       headers: {
-        ...(await cookieHeader())
+        ...(await cookieHeader()),
       },
-      cache: "no-store"
-    }
+      cache: "no-store",
+    },
   );
 
   if (!response.ok) {
     return NextResponse.json(
       { message: "Nao foi possivel exportar relatorios" },
-      { status: response.status }
+      { status: response.status },
     );
   }
 
   return new Response(await response.text(), {
     status: 200,
     headers: {
-      "Content-Type": response.headers.get("Content-Type") ?? "text/csv; charset=utf-8",
+      "Content-Type":
+        response.headers.get("Content-Type") ?? "text/csv; charset=utf-8",
       "Content-Disposition":
         response.headers.get("Content-Disposition") ??
-        'attachment; filename="wpptrack-campanhas.csv"'
-    }
+        'attachment; filename="wpptrack-campanhas.csv"',
+    },
   });
 }
 

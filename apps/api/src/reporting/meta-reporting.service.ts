@@ -41,8 +41,10 @@ import {
 import {
   MetaAdapter,
   type MetaAdAsset,
+  type MetaAdDailyInsight,
   type MetaAdInsight,
   type MetaAdSetAsset,
+  type MetaAdSetDailyInsight,
   type MetaAdSetInsight,
   type MetaCampaignAsset,
   type MetaCampaignDailyInsight,
@@ -87,6 +89,7 @@ type WhatsappClassificationFilter =
   "whatsapp" | "needs_review" | "excluded" | "all";
 type ReportNameScope = "campaign" | "adset" | "ad";
 type ReportStatusFilter = "all" | "active" | "paused";
+type ReportDeliveryFilter = "all" | "had_delivery";
 
 type ReportFilterInput = {
   businessId?: string;
@@ -97,6 +100,8 @@ type ReportFilterInput = {
   nameScope?: ReportNameScope;
   nameContains?: string;
   status?: ReportStatusFilter;
+  delivery?: ReportDeliveryFilter;
+  selectedEntityIds?: string[];
   whatsappClassification?: WhatsappClassificationFilter;
   page?: number;
   pageSize?: number;
@@ -175,6 +180,20 @@ type MetaCampaignRecord = {
 
 type MetaCampaignDailyInsightRecord = {
   campaignId: string;
+  localDate: string;
+  spendCents: number;
+  metaConversationsStarted: number;
+};
+
+type MetaAdSetDailyInsightRecord = {
+  adSetId: string;
+  localDate: string;
+  spendCents: number;
+  metaConversationsStarted: number;
+};
+
+type MetaAdDailyInsightRecord = {
+  adId: string;
   localDate: string;
   spendCents: number;
   metaConversationsStarted: number;
@@ -307,6 +326,11 @@ type CampaignMetricOverride = {
   adSetIds: Set<string>;
   adIds: Set<string>;
 };
+
+type EntityMetricOverride = Pick<
+  CampaignMetricOverride,
+  "spendCents" | "metaConversationsStarted"
+>;
 
 type WhatsappOverrideLevel = "campaign" | "adset" | "ad";
 type WhatsappManualOverride = "manual_include" | "manual_exclude";
@@ -510,7 +534,9 @@ export class MetaReportingService {
       campaignInsights,
       campaignDailyInsightsBatch,
       adSetInsights,
+      adSetDailyInsightsBatch,
       adInsights,
+      adDailyInsightsBatch,
     ] = await Promise.all([
       this.metaAdapter.listCampaigns({
         accessToken: input.accessToken,
@@ -542,7 +568,21 @@ export class MetaReportingService {
         until: input.until,
         readMode: input.insightReadMode,
       }),
+      this.metaAdapter.listAdSetDailyInsights({
+        accessToken: input.accessToken,
+        adAccountId,
+        since: input.since,
+        until: input.until,
+        readMode: input.insightReadMode,
+      }),
       this.metaAdapter.listAdInsights({
+        accessToken: input.accessToken,
+        adAccountId,
+        since: input.since,
+        until: input.until,
+        readMode: input.insightReadMode,
+      }),
+      this.metaAdapter.listAdDailyInsights({
         accessToken: input.accessToken,
         adAccountId,
         since: input.since,
@@ -561,6 +601,28 @@ export class MetaReportingService {
             dailyInsights: campaignDailyInsightsBatch,
           })
         : campaignDailyInsightsBatch;
+    const adSetDailyInsights =
+      input.insightReadMode === "manual"
+        ? await this.resolveManualAdSetDailyInsights({
+            accessToken: input.accessToken,
+            adAccountId,
+            since: input.since,
+            until: input.until,
+            aggregateInsights: adSetInsights,
+            dailyInsights: adSetDailyInsightsBatch,
+          })
+        : adSetDailyInsightsBatch;
+    const adDailyInsights =
+      input.insightReadMode === "manual"
+        ? await this.resolveManualAdDailyInsights({
+            accessToken: input.accessToken,
+            adAccountId,
+            since: input.since,
+            until: input.until,
+            aggregateInsights: adInsights,
+            dailyInsights: adDailyInsightsBatch,
+          })
+        : adDailyInsightsBatch;
     const insightByCampaign = new Map(
       campaignInsights.map((item) => [item.campaignId, item]),
     );
@@ -736,15 +798,42 @@ export class MetaReportingService {
       ),
     ]);
 
-    await this.replaceCampaignDailyInsights({
-      workspaceId: input.workspaceId,
-      account: input.account,
-      campaignIds: campaigns.map((campaign) => campaign.id),
-      insights: campaignDailyInsights,
-      since: input.since,
-      syncedAt,
-      until: input.until,
-    });
+    await Promise.all([
+      this.replaceCampaignDailyInsights({
+        workspaceId: input.workspaceId,
+        account: input.account,
+        campaignIds: campaigns.map((campaign) => campaign.id),
+        insights: campaignDailyInsights,
+        since: input.since,
+        syncedAt,
+        until: input.until,
+      }),
+      this.replaceAdSetDailyInsights({
+        workspaceId: input.workspaceId,
+        account: input.account,
+        adSets: adSets.map((adSet) => ({
+          adSetId: adSet.id,
+          campaignId: adSet.campaignId,
+        })),
+        insights: adSetDailyInsights,
+        since: input.since,
+        syncedAt,
+        until: input.until,
+      }),
+      this.replaceAdDailyInsights({
+        workspaceId: input.workspaceId,
+        account: input.account,
+        ads: ads.map((ad) => ({
+          adId: ad.id,
+          adSetId: ad.adSetId,
+          campaignId: ad.campaignId,
+        })),
+        insights: adDailyInsights,
+        since: input.since,
+        syncedAt,
+        until: input.until,
+      }),
+    ]);
 
     await this.reconcileTrackingHierarchy(input.workspaceId, ads);
 
@@ -801,17 +890,111 @@ export class MetaReportingService {
     since: string,
     until: string,
   ): boolean {
+    return this.dailySpendMatchesAggregate(
+      aggregateInsights,
+      dailyInsights,
+      (insight) => insight.campaignId,
+      (insight) => insight.campaignId,
+      since,
+      until,
+    );
+  }
+
+  private async resolveManualAdSetDailyInsights(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+    aggregateInsights: MetaAdSetInsight[];
+    dailyInsights: MetaAdSetDailyInsight[];
+  }): Promise<MetaAdSetDailyInsight[]> {
+    const matchesAggregate = (dailyInsights: MetaAdSetDailyInsight[]) =>
+      this.dailySpendMatchesAggregate(
+        input.aggregateInsights,
+        dailyInsights,
+        (insight) => insight.adSetId,
+        (insight) => insight.adSetId,
+        input.since,
+        input.until,
+      );
+
+    if (matchesAggregate(input.dailyInsights)) {
+      return input.dailyInsights;
+    }
+
+    this.logger.warn(
+      `Meta ad set daily insights diverged for ${input.adAccountId} from ${input.since} to ${input.until}; retrying one day at a time`,
+    );
+    const recoveredInsights = await this.listAdSetDailyInsightsByDate(input);
+
+    if (!matchesAggregate(recoveredInsights)) {
+      throw new Error(
+        "Meta retornou totais diarios de conjuntos inconsistentes com o investimento agregado",
+      );
+    }
+
+    return recoveredInsights;
+  }
+
+  private async resolveManualAdDailyInsights(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+    aggregateInsights: MetaAdInsight[];
+    dailyInsights: MetaAdDailyInsight[];
+  }): Promise<MetaAdDailyInsight[]> {
+    const matchesAggregate = (dailyInsights: MetaAdDailyInsight[]) =>
+      this.dailySpendMatchesAggregate(
+        input.aggregateInsights,
+        dailyInsights,
+        (insight) => insight.adId,
+        (insight) => insight.adId,
+        input.since,
+        input.until,
+      );
+
+    if (matchesAggregate(input.dailyInsights)) {
+      return input.dailyInsights;
+    }
+
+    this.logger.warn(
+      `Meta ad daily insights diverged for ${input.adAccountId} from ${input.since} to ${input.until}; retrying one day at a time`,
+    );
+    const recoveredInsights = await this.listAdDailyInsightsByDate(input);
+
+    if (!matchesAggregate(recoveredInsights)) {
+      throw new Error(
+        "Meta retornou totais diarios de anuncios inconsistentes com o investimento agregado",
+      );
+    }
+
+    return recoveredInsights;
+  }
+
+  private dailySpendMatchesAggregate<
+    TAggregate extends { spendCents: number },
+    TDaily extends { spendCents: number },
+  >(
+    aggregateInsights: TAggregate[],
+    dailyInsights: TDaily[],
+    aggregateId: (insight: TAggregate) => string,
+    dailyId: (insight: TDaily) => string,
+    since: string,
+    until: string,
+  ): boolean {
     const aggregateSpend = new Map<string, number>();
     const dailySpend = new Map<string, number>();
 
     for (const insight of aggregateInsights) {
-      aggregateSpend.set(insight.campaignId, insight.spendCents);
+      aggregateSpend.set(aggregateId(insight), insight.spendCents);
     }
 
     for (const insight of dailyInsights) {
+      const entityId = dailyId(insight);
       dailySpend.set(
-        insight.campaignId,
-        (dailySpend.get(insight.campaignId) ?? 0) + insight.spendCents,
+        entityId,
+        (dailySpend.get(entityId) ?? 0) + insight.spendCents,
       );
     }
 
@@ -825,10 +1008,9 @@ export class MetaReportingService {
     );
 
     return [...campaignIds].every(
-      (campaignId) =>
+      (entityId) =>
         Math.abs(
-          (aggregateSpend.get(campaignId) ?? 0) -
-            (dailySpend.get(campaignId) ?? 0),
+          (aggregateSpend.get(entityId) ?? 0) - (dailySpend.get(entityId) ?? 0),
         ) <= roundingToleranceCents,
     );
   }
@@ -847,6 +1029,68 @@ export class MetaReportingService {
       const batch = await Promise.all(
         dates.slice(index, index + concurrency).map(async (date) => {
           const insights = await this.metaAdapter.listCampaignInsights({
+            accessToken: input.accessToken,
+            adAccountId: input.adAccountId,
+            since: date,
+            until: date,
+            readMode: "manual",
+          });
+
+          return insights.map((insight) => ({ ...insight, date }));
+        }),
+      );
+
+      results.push(...batch.flat());
+    }
+
+    return results;
+  }
+
+  private async listAdSetDailyInsightsByDate(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+  }): Promise<MetaAdSetDailyInsight[]> {
+    const dates = this.reportDateRange(input.since, input.until);
+    const results: MetaAdSetDailyInsight[] = [];
+    const concurrency = 3;
+
+    for (let index = 0; index < dates.length; index += concurrency) {
+      const batch = await Promise.all(
+        dates.slice(index, index + concurrency).map(async (date) => {
+          const insights = await this.metaAdapter.listAdSetInsights({
+            accessToken: input.accessToken,
+            adAccountId: input.adAccountId,
+            since: date,
+            until: date,
+            readMode: "manual",
+          });
+
+          return insights.map((insight) => ({ ...insight, date }));
+        }),
+      );
+
+      results.push(...batch.flat());
+    }
+
+    return results;
+  }
+
+  private async listAdDailyInsightsByDate(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+  }): Promise<MetaAdDailyInsight[]> {
+    const dates = this.reportDateRange(input.since, input.until);
+    const results: MetaAdDailyInsight[] = [];
+    const concurrency = 3;
+
+    for (let index = 0; index < dates.length; index += concurrency) {
+      const batch = await Promise.all(
+        dates.slice(index, index + concurrency).map(async (date) => {
+          const insights = await this.metaAdapter.listAdInsights({
             accessToken: input.accessToken,
             adAccountId: input.adAccountId,
             since: date,
@@ -905,6 +1149,113 @@ export class MetaReportingService {
             businessId: input.account.businessId,
             adAccountId: input.account.adAccountId,
             campaignId,
+            localDate,
+            spendCents: insight?.spendCents ?? 0,
+            impressions: insight?.impressions ?? 0,
+            clicks: insight?.clicks ?? 0,
+            metaConversationsStarted: insight?.metaConversationsStarted ?? 0,
+            syncedAt: input.syncedAt,
+          };
+        }),
+      ),
+    });
+  }
+
+  private async replaceAdSetDailyInsights(input: {
+    workspaceId: string;
+    account: MetaReportingAccountRecord;
+    adSets: Array<{ adSetId: string; campaignId: string }>;
+    insights: MetaAdSetDailyInsight[];
+    since: string;
+    until: string;
+    syncedAt: Date;
+  }): Promise<void> {
+    await this.prisma.metaAdSetDailyInsight.deleteMany({
+      where: {
+        workspaceId: input.workspaceId,
+        adAccountId: input.account.adAccountId,
+        localDate: { gte: input.since, lte: input.until },
+      },
+    });
+
+    if (input.adSets.length === 0) {
+      return;
+    }
+
+    const insightByAdSetAndDate = new Map(
+      input.insights.map((insight) => [
+        `${insight.adSetId}:${insight.date}`,
+        insight,
+      ]),
+    );
+    const dates = this.reportDateRange(input.since, input.until);
+
+    await this.prisma.metaAdSetDailyInsight.createMany({
+      data: input.adSets.flatMap((adSet) =>
+        dates.map((localDate) => {
+          const insight = insightByAdSetAndDate.get(
+            `${adSet.adSetId}:${localDate}`,
+          );
+
+          return {
+            workspaceId: input.workspaceId,
+            businessId: input.account.businessId,
+            adAccountId: input.account.adAccountId,
+            campaignId: adSet.campaignId,
+            adSetId: adSet.adSetId,
+            localDate,
+            spendCents: insight?.spendCents ?? 0,
+            impressions: insight?.impressions ?? 0,
+            clicks: insight?.clicks ?? 0,
+            metaConversationsStarted: insight?.metaConversationsStarted ?? 0,
+            syncedAt: input.syncedAt,
+          };
+        }),
+      ),
+    });
+  }
+
+  private async replaceAdDailyInsights(input: {
+    workspaceId: string;
+    account: MetaReportingAccountRecord;
+    ads: Array<{ adId: string; adSetId: string; campaignId: string }>;
+    insights: MetaAdDailyInsight[];
+    since: string;
+    until: string;
+    syncedAt: Date;
+  }): Promise<void> {
+    await this.prisma.metaAdDailyInsight.deleteMany({
+      where: {
+        workspaceId: input.workspaceId,
+        adAccountId: input.account.adAccountId,
+        localDate: { gte: input.since, lte: input.until },
+      },
+    });
+
+    if (input.ads.length === 0) {
+      return;
+    }
+
+    const insightByAdAndDate = new Map(
+      input.insights.map((insight) => [
+        `${insight.adId}:${insight.date}`,
+        insight,
+      ]),
+    );
+    const dates = this.reportDateRange(input.since, input.until);
+
+    await this.prisma.metaAdDailyInsight.createMany({
+      data: input.ads.flatMap((ad) =>
+        dates.map((localDate) => {
+          const insight = insightByAdAndDate.get(`${ad.adId}:${localDate}`);
+
+          return {
+            workspaceId: input.workspaceId,
+            businessId: input.account.businessId,
+            adAccountId: input.account.adAccountId,
+            campaignId: ad.campaignId,
+            adSetId: ad.adSetId,
+            adId: ad.adId,
             localDate,
             spendCents: insight?.spendCents ?? 0,
             impressions: insight?.impressions ?? 0,
@@ -1162,7 +1513,7 @@ export class MetaReportingService {
     const whatsappAdSetWhere = usesWhatsappDefault ? campaignWhere : null;
     const childWhere =
       whatsappAdSetWhere ?? (needsChildNameFilter ? campaignWhere : null);
-    const [campaigns, whatsappAdSets, whatsappAds, funnelStages] =
+    const [campaigns, whatsappAdSets, whatsappAds, funnelStages, deliveredIds] =
       (await Promise.all([
         this.prisma.metaCampaign.findMany({
           where: campaignWhere,
@@ -1181,17 +1532,20 @@ export class MetaReportingService {
             })
           : Promise.resolve([]),
         this.getFunnelStages(input.workspaceId),
+        this.deliveredEntityIds("campaign", input),
       ])) as [
         MetaCampaignRecord[],
         MetaAdSetRecord[],
         MetaAdRecord[],
         FunnelStageConfigurationDto[],
+        Set<string> | null,
       ];
     const filteredCampaigns = this.filterCampaignRecords(
       campaigns,
       input,
       whatsappAdSets,
       whatsappAds,
+      deliveredIds,
     );
     const paginated = this.paginateRecords(filteredCampaigns, input);
     const campaignIds = filteredCampaigns.map(
@@ -2043,7 +2397,10 @@ export class MetaReportingService {
       until?: string;
     } & ReportFilterInput,
   ): Promise<ReportCsvResult> {
-    const report = await this.getCampaignReportOverview(input);
+    const report = await this.getCampaignReportOverview({
+      ...input,
+      includeDaily: Boolean(input.since && input.until),
+    });
     const rows = [
       [
         "Campanha",
@@ -2110,7 +2467,7 @@ export class MetaReportingService {
       ...(input.adSetId ? { adSetId: input.adSetId } : {}),
     };
     const shouldLoadAdsForNameFilter = this.reportNameScope(input) === "ad";
-    const [campaigns, adSets, adsForNameFilter, funnelStages] =
+    const [campaigns, adSets, adsForNameFilter, funnelStages, deliveredIds] =
       await Promise.all([
         this.prisma.metaCampaign.findMany({
           where: hierarchyWhere,
@@ -2127,6 +2484,7 @@ export class MetaReportingService {
             }) as Promise<MetaAdRecord[]>)
           : Promise.resolve([]),
         this.getFunnelStages(input.workspaceId),
+        this.deliveredEntityIds("adset", input),
       ]);
     const campaignById = new Map(
       campaigns.map((campaign) => [campaign.campaignId, campaign]),
@@ -2139,18 +2497,41 @@ export class MetaReportingService {
       input,
       campaignNames,
       adsForNameFilter,
+      deliveredIds,
     );
     const paginated = this.paginateRecords(filteredAdSets, input);
     const adSetIds = filteredAdSets.map((adSet) => adSet.adSetId);
-    const [conversionLogs, leads] = await Promise.all([
+    const [conversionLogs, leads, dailyInsights] = await Promise.all([
       this.getMetricConversionEvents(input, { adSetIds }),
       this.getLeads(input, { adSetIds }),
+      input.since && input.until && adSetIds.length
+        ? (this.prisma.metaAdSetDailyInsight.findMany({
+            where: {
+              workspaceId: input.workspaceId,
+              adSetId: { in: adSetIds },
+              localDate: { gte: input.since, lte: input.until },
+            },
+            select: {
+              adSetId: true,
+              localDate: true,
+              spendCents: true,
+              metaConversationsStarted: true,
+            },
+          }) as Promise<MetaAdSetDailyInsightRecord[]>)
+        : Promise.resolve([] as MetaAdSetDailyInsightRecord[]),
     ]);
     const conversionLogsByAdSet = this.groupByOptionalKey(
       conversionLogs,
       "adSetId",
     );
     const leadsByAdSet = this.groupByOptionalKey(leads, "adSetId");
+    const dailyMetricByAdSet = this.completeDailyEntityMetrics({
+      entityIds: adSetIds,
+      entityId: (insight) => insight.adSetId,
+      insights: dailyInsights,
+      since: input.since,
+      until: input.until,
+    });
     const rows = paginated.items.map((adSet) =>
       this.toAdSetReportRow({
         adSet,
@@ -2160,13 +2541,19 @@ export class MetaReportingService {
         conversionLogs: conversionLogsByAdSet.get(adSet.adSetId) ?? [],
         funnelStages,
         leads: leadsByAdSet.get(adSet.adSetId) ?? [],
+        metricOverride: dailyMetricByAdSet?.get(adSet.adSetId),
       }),
     );
     const totalsMeta = filteredAdSets.reduce(
       (totals, adSet) => ({
-        spendCents: totals.spendCents + adSet.spendCents,
+        spendCents:
+          totals.spendCents +
+          (dailyMetricByAdSet?.get(adSet.adSetId)?.spendCents ??
+            adSet.spendCents),
         metaConversationsStarted:
-          totals.metaConversationsStarted + adSet.metaConversationsStarted,
+          totals.metaConversationsStarted +
+          (dailyMetricByAdSet?.get(adSet.adSetId)?.metaConversationsStarted ??
+            adSet.metaConversationsStarted),
       }),
       { spendCents: 0, metaConversationsStarted: 0 },
     );
@@ -2217,21 +2604,23 @@ export class MetaReportingService {
       ...adSetWhere,
       ...(input.adId ? { adId: input.adId } : {}),
     };
-    const [campaigns, adSets, ads, funnelStages] = await Promise.all([
-      this.prisma.metaCampaign.findMany({
-        where: hierarchyWhere,
-        orderBy: { name: "asc" },
-      }) as Promise<MetaCampaignRecord[]>,
-      this.prisma.metaAdSet.findMany({
-        where: adSetWhere,
-        orderBy: { name: "asc" },
-      }) as Promise<MetaAdSetRecord[]>,
-      this.prisma.metaAd.findMany({
-        where: adWhere,
-        orderBy: { name: "asc" },
-      }) as Promise<MetaAdRecord[]>,
-      this.getFunnelStages(input.workspaceId),
-    ]);
+    const [campaigns, adSets, ads, funnelStages, deliveredIds] =
+      await Promise.all([
+        this.prisma.metaCampaign.findMany({
+          where: hierarchyWhere,
+          orderBy: { name: "asc" },
+        }) as Promise<MetaCampaignRecord[]>,
+        this.prisma.metaAdSet.findMany({
+          where: adSetWhere,
+          orderBy: { name: "asc" },
+        }) as Promise<MetaAdSetRecord[]>,
+        this.prisma.metaAd.findMany({
+          where: adWhere,
+          orderBy: { name: "asc" },
+        }) as Promise<MetaAdRecord[]>,
+        this.getFunnelStages(input.workspaceId),
+        this.deliveredEntityIds("ad", input),
+      ]);
     const campaignNames = new Map(
       campaigns.map((campaign) => [campaign.campaignId, campaign.name]),
     );
@@ -2243,15 +2632,38 @@ export class MetaReportingService {
       input,
       campaignNames,
       adSetNames,
+      deliveredIds,
     );
     const paginated = this.paginateRecords(filteredAds, input);
     const adIds = filteredAds.map((ad) => ad.adId);
-    const [conversionLogs, leads] = await Promise.all([
+    const [conversionLogs, leads, dailyInsights] = await Promise.all([
       this.getMetricConversionEvents(input, { adIds }),
       this.getLeads(input, { adIds }),
+      input.since && input.until && adIds.length
+        ? (this.prisma.metaAdDailyInsight.findMany({
+            where: {
+              workspaceId: input.workspaceId,
+              adId: { in: adIds },
+              localDate: { gte: input.since, lte: input.until },
+            },
+            select: {
+              adId: true,
+              localDate: true,
+              spendCents: true,
+              metaConversationsStarted: true,
+            },
+          }) as Promise<MetaAdDailyInsightRecord[]>)
+        : Promise.resolve([] as MetaAdDailyInsightRecord[]),
     ]);
     const conversionLogsByAd = this.groupByOptionalKey(conversionLogs, "adId");
     const leadsByAd = this.groupByOptionalKey(leads, "adId");
+    const dailyMetricByAd = this.completeDailyEntityMetrics({
+      entityIds: adIds,
+      entityId: (insight) => insight.adId,
+      insights: dailyInsights,
+      since: input.since,
+      until: input.until,
+    });
     const rows = paginated.items.map((ad) =>
       this.toAdReportRow({
         ad,
@@ -2261,13 +2673,18 @@ export class MetaReportingService {
         conversionLogs: conversionLogsByAd.get(ad.adId) ?? [],
         funnelStages,
         leads: leadsByAd.get(ad.adId) ?? [],
+        metricOverride: dailyMetricByAd?.get(ad.adId),
       }),
     );
     const totalsMeta = filteredAds.reduce(
       (totals, ad) => ({
-        spendCents: totals.spendCents + ad.spendCents,
+        spendCents:
+          totals.spendCents +
+          (dailyMetricByAd?.get(ad.adId)?.spendCents ?? ad.spendCents),
         metaConversationsStarted:
-          totals.metaConversationsStarted + ad.metaConversationsStarted,
+          totals.metaConversationsStarted +
+          (dailyMetricByAd?.get(ad.adId)?.metaConversationsStarted ??
+            ad.metaConversationsStarted),
       }),
       { spendCents: 0, metaConversationsStarted: 0 },
     );
@@ -2301,8 +2718,17 @@ export class MetaReportingService {
     input: ReportFilterInput,
     adSets: MetaAdSetRecord[],
     ads: MetaAdRecord[],
+    deliveredIds: Set<string> | null,
   ): MetaCampaignRecord[] {
-    const statusRows = this.filterRecordsByStatus(campaigns, input);
+    const statusRows = this.filterRecordsByStatus(
+      this.filterRecordsByEntityScope(
+        campaigns,
+        input,
+        (campaign) => campaign.campaignId,
+        deliveredIds,
+      ),
+      input,
+    );
     const nameContains = this.normalizedReportName(input.nameContains);
 
     if (!nameContains) {
@@ -2349,8 +2775,17 @@ export class MetaReportingService {
     input: ReportFilterInput,
     campaignNames: Map<string, string>,
     ads: MetaAdRecord[],
+    deliveredIds: Set<string> | null,
   ): MetaAdSetRecord[] {
-    const statusRows = this.filterRecordsByStatus(adSets, input);
+    const statusRows = this.filterRecordsByStatus(
+      this.filterRecordsByEntityScope(
+        adSets,
+        input,
+        (adSet) => adSet.adSetId,
+        deliveredIds,
+      ),
+      input,
+    );
     const nameContains = this.normalizedReportName(input.nameContains);
 
     if (!nameContains) {
@@ -2389,8 +2824,17 @@ export class MetaReportingService {
     input: ReportFilterInput,
     campaignNames: Map<string, string>,
     adSetNames: Map<string, string>,
+    deliveredIds: Set<string> | null,
   ): MetaAdRecord[] {
-    const statusRows = this.filterRecordsByStatus(ads, input);
+    const statusRows = this.filterRecordsByStatus(
+      this.filterRecordsByEntityScope(
+        ads,
+        input,
+        (ad) => ad.adId,
+        deliveredIds,
+      ),
+      input,
+    );
     const nameContains = this.normalizedReportName(input.nameContains);
 
     if (!nameContains) {
@@ -2431,6 +2875,78 @@ export class MetaReportingService {
     return rows.filter(
       (row) => this.toReportStatus(row.status) === input.status,
     );
+  }
+
+  private filterRecordsByEntityScope<T>(
+    rows: T[],
+    input: ReportFilterInput,
+    id: (row: T) => string,
+    deliveredIds: Set<string> | null,
+  ): T[] {
+    const selectedIds = input.selectedEntityIds?.length
+      ? new Set(input.selectedEntityIds)
+      : null;
+
+    return rows.filter((row) => {
+      const entityId = id(row);
+
+      return (
+        (!selectedIds || selectedIds.has(entityId)) &&
+        (!deliveredIds || deliveredIds.has(entityId))
+      );
+    });
+  }
+
+  private async deliveredEntityIds(
+    level: "campaign" | "adset" | "ad",
+    input: {
+      workspaceId: string;
+      since?: string;
+      until?: string;
+      delivery?: ReportDeliveryFilter;
+    },
+  ): Promise<Set<string> | null> {
+    if (input.delivery !== "had_delivery") {
+      return null;
+    }
+
+    if (!input.since || !input.until) {
+      return new Set();
+    }
+
+    const where = {
+      workspaceId: input.workspaceId,
+      localDate: { gte: input.since, lte: input.until },
+      impressions: { gt: 0 },
+    };
+
+    if (level === "campaign") {
+      const rows = await this.prisma.metaCampaignDailyInsight.findMany({
+        where,
+        select: { campaignId: true },
+        distinct: ["campaignId"],
+      });
+
+      return new Set(rows.map((row) => row.campaignId));
+    }
+
+    if (level === "adset") {
+      const rows = await this.prisma.metaAdSetDailyInsight.findMany({
+        where,
+        select: { adSetId: true },
+        distinct: ["adSetId"],
+      });
+
+      return new Set(rows.map((row) => row.adSetId));
+    }
+
+    const rows = await this.prisma.metaAdDailyInsight.findMany({
+      where,
+      select: { adId: true },
+      distinct: ["adId"],
+    });
+
+    return new Set(rows.map((row) => row.adId));
   }
 
   private paginateRecords<T>(
@@ -2927,11 +3443,14 @@ export class MetaReportingService {
     conversionLogs: ConversionEventRecord[];
     funnelStages: FunnelStageConfigurationDto[];
     leads: LeadRecord[];
+    metricOverride?: EntityMetricOverride;
   }): AdSetReportRowDto {
     const metrics = this.calculateMetrics({
       funnelStages: input.funnelStages,
-      spendCents: input.adSet.spendCents,
-      metaConversationsStarted: input.adSet.metaConversationsStarted,
+      spendCents: input.metricOverride?.spendCents ?? input.adSet.spendCents,
+      metaConversationsStarted:
+        input.metricOverride?.metaConversationsStarted ??
+        input.adSet.metaConversationsStarted,
       events: input.conversionLogs,
       leads: input.leads,
       scope: { adSetId: input.adSet.adSetId },
@@ -2962,11 +3481,14 @@ export class MetaReportingService {
     conversionLogs: ConversionEventRecord[];
     funnelStages: FunnelStageConfigurationDto[];
     leads: LeadRecord[];
+    metricOverride?: EntityMetricOverride;
   }): AdReportRowDto {
     const metrics = this.calculateMetrics({
       funnelStages: input.funnelStages,
-      spendCents: input.ad.spendCents,
-      metaConversationsStarted: input.ad.metaConversationsStarted,
+      spendCents: input.metricOverride?.spendCents ?? input.ad.spendCents,
+      metaConversationsStarted:
+        input.metricOverride?.metaConversationsStarted ??
+        input.ad.metaConversationsStarted,
       events: input.conversionLogs,
       leads: input.leads,
       scope: { adId: input.ad.adId },
@@ -3297,6 +3819,56 @@ export class MetaReportingService {
     }
 
     return metrics;
+  }
+
+  private completeDailyEntityMetrics<
+    T extends {
+      localDate: string;
+      spendCents: number;
+      metaConversationsStarted: number;
+    },
+  >(input: {
+    entityIds: string[];
+    entityId: (insight: T) => string;
+    insights: T[];
+    since?: string;
+    until?: string;
+  }): Map<string, EntityMetricOverride> | null {
+    if (
+      !input.since ||
+      !input.until ||
+      input.entityIds.length === 0 ||
+      input.insights.length === 0
+    ) {
+      return null;
+    }
+
+    const expectedDates = this.reportDateRange(input.since, input.until).length;
+    const datesByEntity = new Map<string, Set<string>>();
+    const metrics = new Map<string, EntityMetricOverride>();
+
+    for (const insight of input.insights) {
+      const entityId = input.entityId(insight);
+      const dates = datesByEntity.get(entityId) ?? new Set<string>();
+      const current = metrics.get(entityId) ?? {
+        spendCents: 0,
+        metaConversationsStarted: 0,
+      };
+
+      dates.add(insight.localDate);
+      datesByEntity.set(entityId, dates);
+      current.spendCents += insight.spendCents;
+      current.metaConversationsStarted += insight.metaConversationsStarted;
+      metrics.set(entityId, current);
+    }
+
+    const complete =
+      expectedDates > 0 &&
+      input.entityIds.every(
+        (entityId) => datesByEntity.get(entityId)?.size === expectedDates,
+      );
+
+    return complete ? metrics : null;
   }
 
   private summaryMetricScope(

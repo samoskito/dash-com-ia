@@ -276,7 +276,9 @@ model Workspace {
   metaCampaigns               MetaCampaign[]
   metaCampaignDailyInsights   MetaCampaignDailyInsight[]
   metaAdSets                  MetaAdSet[]
+  metaAdSetDailyInsights      MetaAdSetDailyInsight[]
   metaAds                     MetaAd[]
+  metaAdDailyInsights         MetaAdDailyInsight[]
   metaOAuthStates             MetaOAuthState[]
   externalDataConnectors      ExternalDataConnector[]
   externalIngestionRecords    ExternalIngestionRecord[]
@@ -1373,6 +1375,7 @@ model MetaCampaignDailyInsight {
   @@index([workspaceId, localDate])
   @@index([workspaceId, businessId, adAccountId, localDate])
   @@index([workspaceId, campaignId, localDate])
+  @@index([workspaceId, localDate, impressions])
 }
 
 model MetaAdSet {
@@ -1405,6 +1408,32 @@ model MetaAdSet {
   @@index([workspaceId, campaignId])
   @@index([workspaceId, businessId, adAccountId, whatsappClassification])
   @@index([workspaceId, status])
+}
+
+model MetaAdSetDailyInsight {
+  id                       String   @id @default(cuid())
+  workspaceId              String
+  businessId               String
+  adAccountId              String
+  campaignId               String
+  adSetId                  String
+  localDate                String
+  spendCents               Int      @default(0)
+  impressions              Int      @default(0)
+  clicks                   Int      @default(0)
+  metaConversationsStarted Int      @default(0)
+  syncedAt                 DateTime @default(now())
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, adSetId, localDate])
+  @@index([workspaceId, localDate])
+  @@index([workspaceId, businessId, adAccountId, localDate])
+  @@index([workspaceId, campaignId, localDate])
+  @@index([workspaceId, adSetId, localDate])
+  @@index([workspaceId, localDate, impressions])
 }
 
 model MetaAd {
@@ -1441,4 +1470,32 @@ model MetaAd {
   @@index([workspaceId, adSetId])
   @@index([workspaceId, businessId, adAccountId, whatsappClassification])
   @@index([workspaceId, status])
+}
+
+model MetaAdDailyInsight {
+  id                       String   @id @default(cuid())
+  workspaceId              String
+  businessId               String
+  adAccountId              String
+  campaignId               String
+  adSetId                  String
+  adId                     String
+  localDate                String
+  spendCents               Int      @default(0)
+  impressions              Int      @default(0)
+  clicks                   Int      @default(0)
+  metaConversationsStarted Int      @default(0)
+  syncedAt                 DateTime @default(now())
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, adId, localDate])
+  @@index([workspaceId, localDate])
+  @@index([workspaceId, businessId, adAccountId, localDate])
+  @@index([workspaceId, campaignId, localDate])
+  @@index([workspaceId, adSetId, localDate])
+  @@index([workspaceId, adId, localDate])
+  @@index([workspaceId, localDate, impressions])
 }

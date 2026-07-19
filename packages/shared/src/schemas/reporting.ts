@@ -320,6 +320,11 @@ export const conversionAuditOverviewSchema = z.object({
 export const reportFiltersSchema = z.object({
   businessId: z.string().min(1).optional(),
   adAccountId: z.string().min(1).optional(),
+  delivery: z.enum(["all", "had_delivery"]).default("all"),
+  selectedEntityIds: z
+    .array(z.string().trim().min(1).max(200))
+    .max(200)
+    .optional(),
   nameScope: z.enum(["campaign", "adset", "ad"]).default("campaign"),
   nameContains: z.string().trim().min(1).optional(),
   status: z.enum(["all", "active", "paused"]).default("all"),

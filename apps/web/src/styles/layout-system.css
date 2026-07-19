@@ -1527,6 +1527,77 @@ body {
   white-space: nowrap;
 }
 
+.report-analysis-meta,
+.report-selection-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-analysis-meta {
+  margin-left: auto;
+}
+
+.report-selection-toolbar {
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
+.report-selection-count {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.report-selection-filter,
+.report-selection-clear {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: rgba(5, 8, 7, 0.42);
+  color: var(--ink-soft);
+  cursor: pointer;
+  font: inherit;
+}
+
+.report-selection-filter {
+  gap: 7px;
+  padding: 5px 10px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.report-selection-clear {
+  width: 32px;
+  padding: 0;
+}
+
+.report-selection-filter:hover:not(:disabled),
+.report-selection-clear:hover:not(:disabled),
+.report-selection-filter.is-active {
+  border-color: rgba(66, 240, 168, 0.5);
+  color: var(--mint);
+}
+
+.report-selection-filter.is-active {
+  background: rgba(18, 184, 132, 0.1);
+  box-shadow: inset 0 -2px 0 var(--mint);
+}
+
+.report-selection-filter:disabled,
+.report-selection-clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
 .report-results-heading h2 {
   margin: 2px 0 0;
   font-size: 24px;
@@ -1830,6 +1901,108 @@ body {
   width: 112px;
 }
 
+.performance-entity-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.performance-entity-heading strong,
+.performance-entity-heading strong a {
+  min-width: 0;
+}
+
+.report-selection-checkbox {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.report-selection-checkbox input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.report-selection-checkbox > span {
+  position: relative;
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: rgba(3, 7, 6, 0.72);
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.report-selection-checkbox:hover > span,
+.report-selection-checkbox input:focus-visible + span {
+  border-color: var(--mint);
+}
+
+.report-selection-checkbox input:focus-visible + span {
+  outline: 2px solid rgba(66, 240, 168, 0.22);
+  outline-offset: 2px;
+}
+
+.report-selection-checkbox input:checked + span,
+.report-selection-checkbox input:indeterminate + span {
+  border-color: var(--mint);
+  background: var(--mint);
+  box-shadow: 0 0 0 2px rgba(66, 240, 168, 0.1);
+}
+
+.report-selection-checkbox input:checked + span::after {
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  width: 4px;
+  height: 8px;
+  border: solid #03100c;
+  border-width: 0 2px 2px 0;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.report-selection-checkbox input:indeterminate + span::after {
+  position: absolute;
+  top: 6px;
+  left: 3px;
+  width: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: #03100c;
+  content: "";
+}
+
+.reports-page
+  .performance-table
+  tbody
+  tr:has(.report-row-selector input:checked)
+  td {
+  background: rgba(18, 184, 132, 0.045);
+}
+
+.reports-page
+  .performance-table
+  tbody
+  tr:has(.report-row-selector input:checked)
+  td:first-child {
+  box-shadow: inset 3px 0 0 var(--mint);
+}
+
 @media (max-width: 1280px) {
   .report-command-body {
     grid-template-columns: minmax(0, 1fr);
@@ -1932,6 +2105,17 @@ body {
   .report-analysis-switcher {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .report-analysis-meta {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+
+  .report-selection-toolbar {
+    padding-left: 0;
+    border-left: 0;
   }
 
   .report-analysis-controls .report-view-tabs {
@@ -2073,6 +2257,10 @@ body {
     min-height: 96px;
   }
 
+  .reports-page .performance-table .performance-entity-heading {
+    align-items: flex-start;
+  }
+
   .reports-page .performance-table .performance-name-cell strong a {
     color: var(--ink);
   }
@@ -2083,6 +2271,14 @@ body {
   }
 
   .reports-page .performance-table tbody tr.is-selected td:first-child {
+    box-shadow: none;
+  }
+
+  .reports-page
+    .performance-table
+    tbody
+    tr:has(.report-row-selector input:checked)
+    td:first-child {
     box-shadow: none;
   }
 

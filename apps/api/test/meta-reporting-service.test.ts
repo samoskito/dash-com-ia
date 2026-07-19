@@ -37,6 +37,10 @@ function matchesWhere(
       return record[key] !== value.not;
     }
 
+    if (value && typeof value === "object" && "gt" in value) {
+      return Number(record[key]) > Number(value.gt);
+    }
+
     if (
       value &&
       typeof value === "object" &&
@@ -112,6 +116,8 @@ function createHarness() {
     }>,
     campaigns: [] as Array<Record<string, unknown>>,
     dailyInsights: [] as Array<Record<string, unknown>>,
+    adSetDailyInsights: [] as Array<Record<string, unknown>>,
+    adDailyInsights: [] as Array<Record<string, unknown>>,
     adSets: [] as Array<Record<string, unknown>>,
     ads: [] as Array<Record<string, unknown>>,
     auditLogs: [] as Array<Record<string, unknown>>,
@@ -320,6 +326,52 @@ function createHarness() {
       createMany: vi.fn(
         async ({ data }: { data: Array<Record<string, unknown>> }) => {
           db.dailyInsights.push(...data);
+          return { count: data.length };
+        },
+      ),
+    },
+    metaAdSetDailyInsight: {
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.adSetDailyInsights.filter((insight) =>
+          matchesWhere(insight, args?.where),
+        ),
+      ),
+      deleteMany: vi.fn(async (args?: { where?: Record<string, unknown> }) => {
+        const retained = db.adSetDailyInsights.filter(
+          (insight) => !matchesWhere(insight, args?.where),
+        );
+        const count = db.adSetDailyInsights.length - retained.length;
+        db.adSetDailyInsights.splice(
+          0,
+          db.adSetDailyInsights.length,
+          ...retained,
+        );
+        return { count };
+      }),
+      createMany: vi.fn(
+        async ({ data }: { data: Array<Record<string, unknown>> }) => {
+          db.adSetDailyInsights.push(...data);
+          return { count: data.length };
+        },
+      ),
+    },
+    metaAdDailyInsight: {
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.adDailyInsights.filter((insight) =>
+          matchesWhere(insight, args?.where),
+        ),
+      ),
+      deleteMany: vi.fn(async (args?: { where?: Record<string, unknown> }) => {
+        const retained = db.adDailyInsights.filter(
+          (insight) => !matchesWhere(insight, args?.where),
+        );
+        const count = db.adDailyInsights.length - retained.length;
+        db.adDailyInsights.splice(0, db.adDailyInsights.length, ...retained);
+        return { count };
+      }),
+      createMany: vi.fn(
+        async ({ data }: { data: Array<Record<string, unknown>> }) => {
+          db.adDailyInsights.push(...data);
           return { count: data.length };
         },
       ),
@@ -586,25 +638,83 @@ function createHarness() {
         metaConversationsStarted: 76,
       },
     ]),
-    listAdSetInsights: vi.fn(async () => [
+    listAdSetInsights: vi.fn(
+      async (_input: {
+        accessToken?: string;
+        adAccountId?: string;
+        since?: string;
+        until?: string;
+        readMode?: "legacy" | "manual";
+      }) => [
+        {
+          adSetId: "adset_1",
+          campaignId: "cmp_1",
+          spendCents: 60000,
+          impressions: 5000,
+          clicks: 210,
+          metaConversationsStarted: 80,
+        },
+      ],
+    ),
+    listAdSetDailyInsights: vi.fn(async () => [
       {
         adSetId: "adset_1",
         campaignId: "cmp_1",
-        spendCents: 60000,
-        impressions: 5000,
-        clicks: 210,
-        metaConversationsStarted: 80,
+        date: "2026-07-01",
+        spendCents: 35000,
+        impressions: 3000,
+        clicks: 125,
+        metaConversationsStarted: 45,
+      },
+      {
+        adSetId: "adset_1",
+        campaignId: "cmp_1",
+        date: "2026-07-02",
+        spendCents: 25000,
+        impressions: 2000,
+        clicks: 85,
+        metaConversationsStarted: 35,
       },
     ]),
-    listAdInsights: vi.fn(async () => [
+    listAdInsights: vi.fn(
+      async (_input: {
+        accessToken?: string;
+        adAccountId?: string;
+        since?: string;
+        until?: string;
+        readMode?: "legacy" | "manual";
+      }) => [
+        {
+          adId: "ad_1",
+          adSetId: "adset_1",
+          campaignId: "cmp_1",
+          spendCents: 30000,
+          impressions: 2500,
+          clicks: 105,
+          metaConversationsStarted: 40,
+        },
+      ],
+    ),
+    listAdDailyInsights: vi.fn(async () => [
       {
         adId: "ad_1",
         adSetId: "adset_1",
         campaignId: "cmp_1",
-        spendCents: 30000,
-        impressions: 2500,
-        clicks: 105,
-        metaConversationsStarted: 40,
+        date: "2026-07-01",
+        spendCents: 17500,
+        impressions: 1500,
+        clicks: 65,
+        metaConversationsStarted: 22,
+      },
+      {
+        adId: "ad_1",
+        adSetId: "adset_1",
+        campaignId: "cmp_1",
+        date: "2026-07-02",
+        spendCents: 12500,
+        impressions: 1000,
+        clicks: 40,
+        metaConversationsStarted: 18,
       },
     ]),
     updateEntityStatus: vi.fn(async () => undefined),
@@ -1960,6 +2070,104 @@ describe("meta reporting service", () => {
     );
   });
 
+  it("recovers missing manual ad set and ad daily insights one date at a time", async () => {
+    const { db, metaAdapter, prisma, service } = createHarness();
+    prisma.metaReportingAccount.findFirst.mockResolvedValue({
+      id: "reporting_1",
+      workspaceId: "workspace_1",
+      businessId: "business_1",
+      businessName: "BM 1",
+      adAccountId: "act_123",
+      adAccountName: "Conta 1",
+      businessConnectionId: "connection_1",
+      active: true,
+    });
+    metaAdapter.listAdSetDailyInsights.mockResolvedValue([]);
+    metaAdapter.listAdDailyInsights.mockResolvedValue([]);
+    metaAdapter.listAdSetInsights.mockImplementation(async (input) => {
+      const spendCents =
+        input.since === "2026-07-01" && input.until === "2026-07-01"
+          ? 35000
+          : input.since === "2026-07-02" && input.until === "2026-07-02"
+            ? 25000
+            : 60000;
+
+      return [
+        {
+          adSetId: "adset_1",
+          campaignId: "cmp_1",
+          spendCents,
+          impressions: spendCents > 30000 ? 3000 : 2000,
+          clicks: spendCents > 30000 ? 125 : 85,
+          metaConversationsStarted: spendCents > 30000 ? 45 : 35,
+        },
+      ];
+    });
+    metaAdapter.listAdInsights.mockImplementation(async (input) => {
+      const spendCents =
+        input.since === "2026-07-01" && input.until === "2026-07-01"
+          ? 17500
+          : input.since === "2026-07-02" && input.until === "2026-07-02"
+            ? 12500
+            : 30000;
+
+      return [
+        {
+          adId: "ad_1",
+          adSetId: "adset_1",
+          campaignId: "cmp_1",
+          spendCents,
+          impressions: spendCents > 15000 ? 1500 : 1000,
+          clicks: spendCents > 15000 ? 65 : 40,
+          metaConversationsStarted: spendCents > 15000 ? 22 : 18,
+        },
+      ];
+    });
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      businessConnectionId: "connection_1",
+      reportingAccountId: "reporting_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    expect(metaAdapter.listAdSetInsights).toHaveBeenCalledTimes(3);
+    expect(metaAdapter.listAdInsights).toHaveBeenCalledTimes(3);
+    expect(db.adSetDailyInsights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adSetId: "adset_1",
+          localDate: "2026-07-01",
+          spendCents: 35000,
+          impressions: 3000,
+        }),
+        expect.objectContaining({
+          adSetId: "adset_1",
+          localDate: "2026-07-02",
+          spendCents: 25000,
+          impressions: 2000,
+        }),
+      ]),
+    );
+    expect(db.adDailyInsights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adId: "ad_1",
+          localDate: "2026-07-01",
+          spendCents: 17500,
+          impressions: 1500,
+        }),
+        expect.objectContaining({
+          adId: "ad_1",
+          localDate: "2026-07-02",
+          spendCents: 12500,
+          impressions: 1000,
+        }),
+      ]),
+    );
+  });
+
   it("rejects a manual sync when daily recovery still disagrees", async () => {
     const { db, metaAdapter, prisma, service } = createHarness();
     prisma.metaReportingAccount.findFirst.mockResolvedValue({
@@ -2531,6 +2739,176 @@ describe("meta reporting service", () => {
         }),
       }),
     );
+  });
+
+  it("intersects selected entities with delivery in the requested period at every level", async () => {
+    const { db, service } = createHarness();
+    const sharedSnapshot = {
+      workspaceId: "workspace_1",
+      status: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "manual_include",
+      spendCents: 10000,
+      metaConversationsStarted: 2,
+    };
+
+    db.campaigns.push(
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_delivered",
+        name: "Campanha com entrega",
+      },
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_without_delivery",
+        name: "Campanha sem entrega",
+      },
+    );
+    db.adSets.push(
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_delivered",
+        adSetId: "adset_delivered",
+        name: "Conjunto com entrega",
+      },
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_without_delivery",
+        adSetId: "adset_without_delivery",
+        name: "Conjunto sem entrega",
+      },
+    );
+    db.ads.push(
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_delivered",
+        adSetId: "adset_delivered",
+        adId: "ad_delivered",
+        name: "Anuncio com entrega",
+      },
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_without_delivery",
+        adSetId: "adset_without_delivery",
+        adId: "ad_without_delivery",
+        name: "Anuncio sem entrega",
+      },
+    );
+    db.dailyInsights.push(
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_delivered",
+        localDate: "2026-07-01",
+        impressions: 20,
+      },
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_without_delivery",
+        localDate: "2026-07-01",
+        impressions: 0,
+      },
+    );
+    db.adSetDailyInsights.push(
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_delivered",
+        adSetId: "adset_delivered",
+        localDate: "2026-07-01",
+        impressions: 20,
+      },
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_without_delivery",
+        adSetId: "adset_without_delivery",
+        localDate: "2026-07-01",
+        impressions: 0,
+      },
+    );
+    db.adDailyInsights.push(
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_delivered",
+        adSetId: "adset_delivered",
+        adId: "ad_delivered",
+        localDate: "2026-07-01",
+        impressions: 20,
+      },
+      {
+        ...sharedSnapshot,
+        campaignId: "cmp_without_delivery",
+        adSetId: "adset_without_delivery",
+        adId: "ad_without_delivery",
+        localDate: "2026-07-01",
+        impressions: 0,
+      },
+    );
+
+    const baseInput = {
+      workspaceId: "workspace_1",
+      rangeLabel: "01/07/2026",
+      since: "2026-07-01",
+      until: "2026-07-01",
+      delivery: "had_delivery" as const,
+    };
+    const [campaignReport, adSetReport, adReport] = await Promise.all([
+      service.getCampaignReportOverview({
+        ...baseInput,
+        selectedEntityIds: ["cmp_delivered", "cmp_without_delivery"],
+      }),
+      service.getAdSetReportOverview({
+        ...baseInput,
+        selectedEntityIds: ["adset_delivered", "adset_without_delivery"],
+      }),
+      service.getAdReportOverview({
+        ...baseInput,
+        selectedEntityIds: ["ad_delivered", "ad_without_delivery"],
+      }),
+    ]);
+
+    expect(campaignReport.campaigns.map((row) => row.id)).toEqual([
+      "cmp_delivered",
+    ]);
+    expect(adSetReport.adSets.map((row) => row.id)).toEqual([
+      "adset_delivered",
+    ]);
+    expect(adReport.ads.map((row) => row.id)).toEqual(["ad_delivered"]);
+  });
+
+  it("exports campaign metrics from the requested daily period", async () => {
+    const { db, service } = createHarness();
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_1",
+      name: "Campanha do periodo",
+      status: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "manual_include",
+      spendCents: 99999,
+      metaConversationsStarted: 9,
+    });
+    db.dailyInsights.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_1",
+      localDate: "2026-07-01",
+      spendCents: 12345,
+      impressions: 20,
+      clicks: 4,
+      metaConversationsStarted: 3,
+    });
+
+    const csv = await service.getCampaignReportCsv({
+      workspaceId: "workspace_1",
+      rangeLabel: "01/07/2026",
+      since: "2026-07-01",
+      until: "2026-07-01",
+    });
+
+    expect(csv.content).toContain("Campanha do periodo,active,123.45,3");
+    expect(csv.content).not.toContain("Campanha do periodo,active,999.99,9");
   });
 
   it("excludes inactive Meta reporting account snapshots from default campaign reports", async () => {

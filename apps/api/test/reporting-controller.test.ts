@@ -350,6 +350,28 @@ describe("reporting controller", () => {
     await app.close();
   });
 
+  it("parses delivery and selected entity filters for report levels", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/reports/adsets?since=2026-07-01&until=2026-07-02&delivery=had_delivery&selectedIds=adset_1,adset_2,adset_1",
+      )
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+
+    expect(reportingService.getAdSetReportOverview).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      delivery: "had_delivery",
+      selectedEntityIds: ["adset_1", "adset_2"],
+    });
+
+    await app.close();
+  });
+
   it("requests the workspace summary only when explicitly enabled", async () => {
     const { app, reportingService } = await createApp();
 

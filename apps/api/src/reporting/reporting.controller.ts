@@ -46,6 +46,7 @@ type WhatsappClassificationFilter =
   "whatsapp" | "needs_review" | "excluded" | "all";
 type ReportNameScope = "campaign" | "adset" | "ad";
 type ReportStatusFilter = "all" | "active" | "paused";
+type ReportDeliveryFilter = "all" | "had_delivery";
 
 type ReportFilters = {
   businessId?: string;
@@ -56,6 +57,8 @@ type ReportFilters = {
   nameScope?: ReportNameScope;
   nameContains?: string;
   status?: ReportStatusFilter;
+  delivery?: ReportDeliveryFilter;
+  selectedEntityIds?: string[];
   whatsappClassification?: WhatsappClassificationFilter;
 };
 
@@ -87,6 +90,8 @@ export class ReportingController {
     @Query("nameScope") nameScope?: string | string[],
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
+    @Query("delivery") delivery?: string | string[],
+    @Query("selectedIds") selectedIds?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
     @Query("includeSummary") includeSummary?: string | string[],
     @Query("includeDaily") includeDaily?: string | string[],
@@ -110,6 +115,8 @@ export class ReportingController {
       nameScope,
       nameContains,
       status,
+      delivery,
+      selectedIds,
       whatsappClassification,
     });
     const pagination = this.parseReportPagination(page, pageSize);
@@ -140,6 +147,8 @@ export class ReportingController {
     @Query("nameScope") nameScope?: string | string[],
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
+    @Query("delivery") delivery?: string | string[],
+    @Query("selectedIds") selectedIds?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
   ) {
     const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
@@ -153,6 +162,8 @@ export class ReportingController {
       nameScope,
       nameContains,
       status,
+      delivery,
+      selectedIds,
       whatsappClassification,
     });
     const csv = await this.metaReportingService.getCampaignReportCsv({
@@ -183,6 +194,8 @@ export class ReportingController {
     @Query("nameScope") nameScope?: string | string[],
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
+    @Query("delivery") delivery?: string | string[],
+    @Query("selectedIds") selectedIds?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
     @Query("page") page?: string | string[],
     @Query("pageSize") pageSize?: string | string[],
@@ -198,6 +211,8 @@ export class ReportingController {
       nameScope,
       nameContains,
       status,
+      delivery,
+      selectedIds,
       whatsappClassification,
     });
     const pagination = this.parseReportPagination(page, pageSize);
@@ -223,6 +238,8 @@ export class ReportingController {
     @Query("nameScope") nameScope?: string | string[],
     @Query("nameContains") nameContains?: string | string[],
     @Query("status") status?: string | string[],
+    @Query("delivery") delivery?: string | string[],
+    @Query("selectedIds") selectedIds?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
     @Query("page") page?: string | string[],
     @Query("pageSize") pageSize?: string | string[],
@@ -238,6 +255,8 @@ export class ReportingController {
       nameScope,
       nameContains,
       status,
+      delivery,
+      selectedIds,
       whatsappClassification,
     });
     const pagination = this.parseReportPagination(page, pageSize);
@@ -623,6 +642,8 @@ export class ReportingController {
     nameScope?: string | string[];
     nameContains?: string | string[];
     status?: string | string[];
+    delivery?: string | string[];
+    selectedIds?: string | string[];
     whatsappClassification?: string | string[];
   }): ReportFilters {
     const filters: ReportFilters = {};
@@ -634,6 +655,8 @@ export class ReportingController {
     const nameContains = this.trimOptional(input.nameContains);
     const nameScope = this.parseNameScopeFilter(input.nameScope);
     const status = this.parseStatusFilter(input.status);
+    const delivery = this.parseDeliveryFilter(input.delivery);
+    const selectedEntityIds = this.parseSelectedEntityIds(input.selectedIds);
     const whatsappClassification = this.parseWhatsappClassificationFilter(
       input.whatsappClassification,
     );
@@ -667,6 +690,14 @@ export class ReportingController {
       filters.status = status;
     }
 
+    if (delivery) {
+      filters.delivery = delivery;
+    }
+
+    if (selectedEntityIds.length > 0) {
+      filters.selectedEntityIds = selectedEntityIds;
+    }
+
     if (whatsappClassification) {
       filters.whatsappClassification = whatsappClassification;
     }
@@ -696,6 +727,10 @@ export class ReportingController {
 
   private isStatusFilter(value: string): value is ReportStatusFilter {
     return ["all", "active", "paused"].includes(value);
+  }
+
+  private isDeliveryFilter(value: string): value is ReportDeliveryFilter {
+    return ["all", "had_delivery"].includes(value);
   }
 
   private parseNameScopeFilter(
@@ -736,6 +771,50 @@ export class ReportingController {
     }
 
     throw new BadRequestException("Filtro de status invalido");
+  }
+
+  private parseDeliveryFilter(
+    value?: string | string[],
+  ): ReportDeliveryFilter | undefined {
+    if (Array.isArray(value)) {
+      throw new BadRequestException("Filtro de relatorio invalido");
+    }
+
+    const trimmed = value?.trim();
+
+    if (!trimmed) {
+      return undefined;
+    }
+
+    if (this.isDeliveryFilter(trimmed)) {
+      return trimmed;
+    }
+
+    throw new BadRequestException("Filtro de veiculacao invalido");
+  }
+
+  private parseSelectedEntityIds(value?: string | string[]): string[] {
+    if (Array.isArray(value)) {
+      throw new BadRequestException("Filtro de selecao invalido");
+    }
+
+    const ids = [
+      ...new Set(
+        (value ?? "")
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    if (
+      ids.length > 200 ||
+      ids.some((id) => id.length > 200 || !/^[A-Za-z0-9_.:-]+$/.test(id))
+    ) {
+      throw new BadRequestException("Filtro de selecao invalido");
+    }
+
+    return ids;
   }
 
   private parseWhatsappClassificationFilter(

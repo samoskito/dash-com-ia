@@ -528,6 +528,27 @@ describe("reports route", () => {
     expect(html).not.toContain("<th>Receita organica</th>");
   });
 
+  it("sends delivery and selected entity filters while rendering table selection controls", async () => {
+    const fetchMock = mockReportsApi();
+    const html = await renderReports({
+      delivery: "had_delivery",
+      selectedIds: "cmp_1,cmp_2,cmp_1",
+    });
+    const campaignCall = fetchMock.mock.calls
+      .map(([input]) => String(input))
+      .find((url) => url.includes("/reports/campaigns"));
+
+    expect(campaignCall).toContain("delivery=had_delivery");
+    expect(campaignCall).toContain("selectedIds=cmp_1%2Ccmp_2");
+    expect(html).toContain("Teve veiculacao no periodo");
+    expect(html).toContain("Filtrar por selecao");
+    expect(html).toContain("2 selecionados");
+    expect(html).toContain('aria-label="Selecionar campanhas desta pagina"');
+    expect(html).toMatch(
+      /aria-label="Selecionar Black Friday WhatsApp"[^>]*checked=""/,
+    );
+  });
+
   it("uses two compact desktop control rows with advanced filters on demand", () => {
     const css = readFileSync(
       join(process.cwd(), "src/styles/layout-system.css"),

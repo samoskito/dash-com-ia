@@ -617,12 +617,19 @@ describe("meta adapter oauth", () => {
       }
 
       if (url.includes("level=adset")) {
+        const daily = new URL(url).searchParams.get("time_increment") === "1";
         return new Response(
           JSON.stringify({
             data: [
               {
                 adset_id: "adset_1",
                 campaign_id: "cmp_1",
+                ...(daily
+                  ? {
+                      date_start: "2026-07-01",
+                      date_stop: "2026-07-01",
+                    }
+                  : {}),
                 spend: "600.10",
                 impressions: "5000",
                 clicks: "210",
@@ -641,6 +648,7 @@ describe("meta adapter oauth", () => {
       }
 
       if (url.includes("level=ad")) {
+        const daily = new URL(url).searchParams.get("time_increment") === "1";
         return new Response(
           JSON.stringify({
             data: [
@@ -648,6 +656,12 @@ describe("meta adapter oauth", () => {
                 ad_id: "ad_1",
                 adset_id: "adset_1",
                 campaign_id: "cmp_1",
+                ...(daily
+                  ? {
+                      date_start: "2026-07-01",
+                      date_stop: "2026-07-01",
+                    }
+                  : {}),
                 spend: "300.05",
                 impressions: "2500",
                 clicks: "105",
@@ -821,6 +835,24 @@ describe("meta adapter oauth", () => {
       },
     ]);
     await expect(
+      adapter.listAdSetDailyInsights({
+        accessToken: "EAAB-secret-token",
+        adAccountId: "act_123",
+        since: "2026-07-01",
+        until: "2026-07-02",
+      }),
+    ).resolves.toEqual([
+      {
+        adSetId: "adset_1",
+        campaignId: "cmp_1",
+        date: "2026-07-01",
+        spendCents: 60010,
+        impressions: 5000,
+        clicks: 210,
+        metaConversationsStarted: 80,
+      },
+    ]);
+    await expect(
       adapter.listAdInsights({
         accessToken: "EAAB-secret-token",
         adAccountId: "act_123",
@@ -832,6 +864,25 @@ describe("meta adapter oauth", () => {
         adId: "ad_1",
         adSetId: "adset_1",
         campaignId: "cmp_1",
+        spendCents: 30005,
+        impressions: 2500,
+        clicks: 105,
+        metaConversationsStarted: 40,
+      },
+    ]);
+    await expect(
+      adapter.listAdDailyInsights({
+        accessToken: "EAAB-secret-token",
+        adAccountId: "act_123",
+        since: "2026-07-01",
+        until: "2026-07-02",
+      }),
+    ).resolves.toEqual([
+      {
+        adId: "ad_1",
+        adSetId: "adset_1",
+        campaignId: "cmp_1",
+        date: "2026-07-01",
         spendCents: 30005,
         impressions: 2500,
         clicks: 105,

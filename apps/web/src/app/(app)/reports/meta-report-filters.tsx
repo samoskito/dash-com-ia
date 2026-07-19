@@ -15,11 +15,13 @@ type MetaReportFiltersProps = {
   campaignId?: string;
   compareSince?: string;
   compareUntil?: string;
+  delivery?: "all" | "had_delivery";
   metrics?: "overview" | "traffic" | "funnel" | "revenue";
   nameContains?: string;
   nameScope?: string;
   pageSize?: number;
   since?: string;
+  selectedIds?: string;
   status?: string;
   until?: string;
   view?: "campaigns" | "adsets" | "ads";
@@ -36,6 +38,11 @@ const statusOptions = [
   ["all", "Todos os status"],
   ["active", "Ativas"],
   ["paused", "Pausadas"],
+] as const;
+
+const deliveryOptions = [
+  ["all", "Com ou sem veiculacao"],
+  ["had_delivery", "Teve veiculacao no periodo"],
 ] as const;
 
 const classificationOptions = [
@@ -90,11 +97,13 @@ export function MetaReportFilters({
   campaignId,
   compareSince,
   compareUntil,
+  delivery = "all",
   metrics = "overview",
   nameContains,
   nameScope = "campaign",
   pageSize = 10,
   since,
+  selectedIds,
   status = "all",
   until,
   view = "campaigns",
@@ -168,6 +177,7 @@ export function MetaReportFilters({
   const advancedFilterCount = [
     nameScope !== "campaign",
     status !== "all",
+    delivery !== "all",
     whatsappClassification !== "whatsapp",
     Boolean(compareSince && compareUntil),
     pageSize !== 10,
@@ -177,6 +187,7 @@ export function MetaReportFilters({
     selectedAdAccountId ||
     nameContains ||
     status !== "all" ||
+    delivery !== "all" ||
     whatsappClassification !== "whatsapp" ||
     compareSince ||
     compareUntil ||
@@ -196,6 +207,7 @@ export function MetaReportFilters({
       <input type="hidden" name="campaignId" value={campaignId ?? ""} />
       <input type="hidden" name="adSetId" value={adSetId ?? ""} />
       <input type="hidden" name="adId" value={adId ?? ""} />
+      <input type="hidden" name="selectedIds" value={selectedIds ?? ""} />
       {presentationMode ? (
         <>
           <input type="hidden" name="businessId" value={selectedBusinessId} />
@@ -298,6 +310,21 @@ export function MetaReportFilters({
                 aria-label="Filtrar por status"
               >
                 {statusOptions.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Veiculacao</span>
+              <select
+                className="filter-control"
+                name="delivery"
+                defaultValue={delivery}
+                aria-label="Filtrar por veiculacao no periodo"
+              >
+                {deliveryOptions.map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>

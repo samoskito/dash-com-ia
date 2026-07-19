@@ -467,10 +467,19 @@ describe("shared contracts", () => {
     ).toThrow();
   });
 
-  it("defaults report filters to WhatsApp classification", () => {
+  it("defaults report filters and accepts delivery with selected entities", () => {
     const filters = reportFiltersSchema.parse({});
+    const narrowed = reportFiltersSchema.parse({
+      delivery: "had_delivery",
+      selectedEntityIds: ["cmp_1", "cmp_2"],
+    });
 
     expect(filters.whatsappClassification).toBe("whatsapp");
+    expect(filters.delivery).toBe("all");
+    expect(narrowed).toMatchObject({
+      delivery: "had_delivery",
+      selectedEntityIds: ["cmp_1", "cmp_2"],
+    });
   });
 
   it("validates controlled Meta status and budget operations", () => {

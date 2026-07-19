@@ -23,6 +23,12 @@ import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { MetaEntityControls } from "./meta-entity-controls";
 import { MetaReportFilters } from "./meta-report-filters";
 import { ReportAdPreview } from "./report-ad-preview";
+import {
+  ReportPageSelectionCheckbox,
+  ReportSelectionCheckbox,
+  ReportSelectionToolbar,
+  type ReportSelectionLevel,
+} from "./report-selection-controls";
 import { WhatsappReviewActions } from "./whatsapp-review-actions";
 import {
   resolveWhatsappReviewActionState,
@@ -123,12 +129,14 @@ type ReportFilters = {
   campaignId?: string;
   compareSince?: string;
   compareUntil?: string;
+  delivery?: "all" | "had_delivery";
   nameContains?: string;
   nameScope?: string;
   metrics?: ReportMetricGroup;
   page?: number;
   pageSize?: number;
   since?: string;
+  selectedIds?: string;
   status?: string;
   until?: string;
   whatsappClassification?: string;
@@ -347,6 +355,14 @@ function reportQuery(
     params.set("status", filters.status);
   }
 
+  if (filters.delivery && filters.delivery !== "all") {
+    params.set("delivery", filters.delivery);
+  }
+
+  if (filters.selectedIds) {
+    params.set("selectedIds", filters.selectedIds);
+  }
+
   if (filters.whatsappClassification) {
     params.set("whatsappClassification", filters.whatsappClassification);
   }
@@ -382,6 +398,8 @@ async function syncMetaReports(formData: FormData) {
     "nameScope",
     "nameContains",
     "status",
+    "delivery",
+    "selectedIds",
     "whatsappClassification",
     "view",
     "metrics",
@@ -600,6 +618,35 @@ function reportMetricGroup(value?: string): ReportMetricGroup {
     : "overview";
 }
 
+function reportDeliveryFilter(value?: string): "all" | "had_delivery" {
+  return value === "had_delivery" ? value : "all";
+}
+
+function selectedIdsParam(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const ids = Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((id) => id.trim())
+        .filter((id) => /^[A-Za-z0-9_.:-]{1,200}$/.test(id)),
+    ),
+  ).slice(0, 200);
+
+  return ids.length > 0 ? ids.join(",") : undefined;
+}
+
+function reportSelectionLevel(view: ReportView): ReportSelectionLevel {
+  if (view === "adsets") {
+    return "adset";
+  }
+
+  return view === "ads" ? "ad" : "campaign";
+}
+
 function positiveIntegerParam(value: string | undefined, fallback: number) {
   const parsed = Number(value);
 
@@ -696,8 +743,14 @@ function leadsHref(filters: {
   return query ? `/leads?${query}` : "/leads";
 }
 
-function reportExportHref(filters: ReportFilters): string {
-  const query = reportQuery(filters, true, false);
+function reportExportHref(filters: ReportFilters, view: ReportView): string {
+  const query = reportQuery(
+    view === "campaigns"
+      ? filters
+      : { ...filters, delivery: undefined, selectedIds: undefined },
+    true,
+    false,
+  );
 
   return query ? `/reports/export?${query}` : "/reports/export";
 }
@@ -1823,6 +1876,12 @@ export default async function ReportsPage({
   const nameScope = asStringParam(resolvedSearchParams.nameScope);
   const nameContains = asStringParam(resolvedSearchParams.nameContains);
   const status = asStringParam(resolvedSearchParams.status);
+  const delivery = reportDeliveryFilter(
+    asStringParam(resolvedSearchParams.delivery),
+  );
+  const selectedIds = selectedIdsParam(
+    asStringParam(resolvedSearchParams.selectedIds),
+  );
   const activeView = reportView(asStringParam(resolvedSearchParams.view));
   const activeMetricGroup = reportMetricGroup(
     asStringParam(resolvedSearchParams.metrics),
@@ -1866,6 +1925,8 @@ export default async function ReportsPage({
     page,
     pageSize,
     status,
+    delivery,
+    selectedIds,
     whatsappClassification,
     metrics: activeMetricGroup,
   };
@@ -1947,6 +2008,7 @@ export default async function ReportsPage({
     campaignId: undefined,
     adSetId: undefined,
     adId: undefined,
+    selectedIds: undefined,
     page: 1,
   });
   const activeRows: PerformanceRow[] =
@@ -1955,6 +2017,8 @@ export default async function ReportsPage({
       : activeView === "adsets"
         ? adSetRows
         : adRows;
+  const activeSelectedIds = selectedIds?.split(",") ?? [];
+  const activeSelectionLevel = reportSelectionLevel(activeView);
   const reportState =
     campaignReports?.state ??
     adSetReports?.state ??
@@ -2002,6 +2066,8 @@ export default async function ReportsPage({
   );
   const workspacePermissionsUnavailable =
     currentWorkspaceResult.state === "error";
+  const currentWorkspaceId =
+    currentWorkspaceResult.data?.id ?? loadedReport?.workspaceId ?? "unknown";
   const syncCampaignHint = canSyncMetaReports
     ? "Use Sincronizar Meta para carregar campanhas reais."
     : workspacePermissionsUnavailable
@@ -2108,6 +2174,8 @@ export default async function ReportsPage({
               value={nameContains ?? ""}
             />
             <input type="hidden" name="status" value={status ?? ""} />
+            <input type="hidden" name="delivery" value={delivery} />
+            <input type="hidden" name="selectedIds" value={selectedIds ?? ""} />
             <input
               type="hidden"
               name="whatsappClassification"
@@ -2158,7 +2226,7 @@ export default async function ReportsPage({
             <div className="report-command-actions">
               <Link
                 className="button ghost"
-                href={reportExportHref(reportFilters)}
+                href={reportExportHref(reportFilters, activeView)}
               >
                 <Download aria-hidden="true" size={16} />
                 Exportar CSV
@@ -2212,6 +2280,12 @@ export default async function ReportsPage({
                     value={nameContains ?? ""}
                   />
                   <input type="hidden" name="status" value={status ?? ""} />
+                  <input type="hidden" name="delivery" value={delivery} />
+                  <input
+                    type="hidden"
+                    name="selectedIds"
+                    value={selectedIds ?? ""}
+                  />
                   <input
                     type="hidden"
                     name="whatsappClassification"
@@ -2250,16 +2324,31 @@ export default async function ReportsPage({
                 <Link
                   aria-current={activeView === view ? "page" : undefined}
                   className={activeView === view ? "active" : ""}
-                  href={reportViewHref(view, reportFilters)}
+                  href={reportViewHref(view, {
+                    ...reportFilters,
+                    selectedIds:
+                      view === activeView
+                        ? reportFilters.selectedIds
+                        : undefined,
+                  })}
                   key={view}
                 >
                   {label}
                 </Link>
               ))}
             </nav>
-            <span className="tag">
-              {pagination?.totalItems ?? activeRows.length} {activeCopy.plural}
-            </span>
+            <div className="report-analysis-meta">
+              <span className="tag">
+                {pagination?.totalItems ?? activeRows.length}{" "}
+                {activeCopy.plural}
+              </span>
+              <ReportSelectionToolbar
+                activeSelectedIds={activeSelectedIds}
+                filterActive={Boolean(selectedIds)}
+                level={activeSelectionLevel}
+                workspaceId={currentWorkspaceId}
+              />
+            </div>
           </div>
 
           <MetaReportFilters
@@ -2272,6 +2361,8 @@ export default async function ReportsPage({
             metrics={activeMetricGroup}
             nameScope={nameScope}
             nameContains={nameContains}
+            delivery={delivery}
+            selectedIds={selectedIds}
             status={status}
             whatsappClassification={whatsappClassification}
             since={since}
@@ -2409,7 +2500,19 @@ export default async function ReportsPage({
           >
             <thead>
               <tr>
-                <th>Campanha</th>
+                <th>
+                  <span className="performance-entity-heading">
+                    <ReportPageSelectionCheckbox
+                      activeSelectedIds={activeSelectedIds}
+                      entityIds={rows.map((row) => row.id)}
+                      entityLabel="campanhas"
+                      filterActive={Boolean(selectedIds)}
+                      level="campaign"
+                      workspaceId={currentWorkspaceId}
+                    />
+                    Campanha
+                  </span>
+                </th>
                 <PerformanceMetricHeaders
                   funnelSteps={currentTotals.funnelSteps}
                   metricGroup={activeMetricGroup}
@@ -2427,21 +2530,32 @@ export default async function ReportsPage({
                     key={row.id}
                   >
                     <td className="performance-name-cell" data-label="Campanha">
-                      <strong>
-                        <Link
-                          href={reportViewHref("adsets", {
-                            ...reportFilters,
-                            campaignId: row.id,
-                            adSetId: undefined,
-                            adId: undefined,
-                            page: 1,
-                          })}
-                        >
-                          <PresentationMask placeholder="Campanha oculta">
-                            {row.name}
-                          </PresentationMask>
-                        </Link>
-                      </strong>
+                      <div className="performance-entity-heading">
+                        <ReportSelectionCheckbox
+                          activeSelectedIds={activeSelectedIds}
+                          entityId={row.id}
+                          entityLabel={row.name}
+                          filterActive={Boolean(selectedIds)}
+                          level="campaign"
+                          workspaceId={currentWorkspaceId}
+                        />
+                        <strong>
+                          <Link
+                            href={reportViewHref("adsets", {
+                              ...reportFilters,
+                              campaignId: row.id,
+                              adSetId: undefined,
+                              adId: undefined,
+                              page: 1,
+                              selectedIds: undefined,
+                            })}
+                          >
+                            <PresentationMask placeholder="Campanha oculta">
+                              {row.name}
+                            </PresentationMask>
+                          </Link>
+                        </strong>
+                      </div>
                       <MetaEntityControls
                         action={updateMetaEntity}
                         budget={row.budget}
@@ -2531,7 +2645,19 @@ export default async function ReportsPage({
           >
             <thead>
               <tr>
-                <th>Conjunto</th>
+                <th>
+                  <span className="performance-entity-heading">
+                    <ReportPageSelectionCheckbox
+                      activeSelectedIds={activeSelectedIds}
+                      entityIds={adSetRows.map((row) => row.id)}
+                      entityLabel="conjuntos"
+                      filterActive={Boolean(selectedIds)}
+                      level="adset"
+                      workspaceId={currentWorkspaceId}
+                    />
+                    Conjunto
+                  </span>
+                </th>
                 <PerformanceMetricHeaders
                   funnelSteps={currentTotals.funnelSteps}
                   metricGroup={activeMetricGroup}
@@ -2547,21 +2673,32 @@ export default async function ReportsPage({
                     key={row.id}
                   >
                     <td className="performance-name-cell" data-label="Conjunto">
-                      <strong>
-                        <Link
-                          href={reportViewHref("ads", {
-                            ...reportFilters,
-                            campaignId: row.campaignId,
-                            adSetId: row.id,
-                            adId: undefined,
-                            page: 1,
-                          })}
-                        >
-                          <PresentationMask placeholder="Conjunto oculto">
-                            {row.name}
-                          </PresentationMask>
-                        </Link>
-                      </strong>
+                      <div className="performance-entity-heading">
+                        <ReportSelectionCheckbox
+                          activeSelectedIds={activeSelectedIds}
+                          entityId={row.id}
+                          entityLabel={row.name}
+                          filterActive={Boolean(selectedIds)}
+                          level="adset"
+                          workspaceId={currentWorkspaceId}
+                        />
+                        <strong>
+                          <Link
+                            href={reportViewHref("ads", {
+                              ...reportFilters,
+                              campaignId: row.campaignId,
+                              adSetId: row.id,
+                              adId: undefined,
+                              page: 1,
+                              selectedIds: undefined,
+                            })}
+                          >
+                            <PresentationMask placeholder="Conjunto oculto">
+                              {row.name}
+                            </PresentationMask>
+                          </Link>
+                        </strong>
+                      </div>
                       <span>
                         <PresentationMask placeholder="Campanha oculta">
                           {row.campaignName}
@@ -2657,7 +2794,19 @@ export default async function ReportsPage({
           >
             <thead>
               <tr>
-                <th>Anuncio</th>
+                <th>
+                  <span className="performance-entity-heading">
+                    <ReportPageSelectionCheckbox
+                      activeSelectedIds={activeSelectedIds}
+                      entityIds={adRows.map((row) => row.id)}
+                      entityLabel="anuncios"
+                      filterActive={Boolean(selectedIds)}
+                      level="ad"
+                      workspaceId={currentWorkspaceId}
+                    />
+                    Anuncio
+                  </span>
+                </th>
                 <PerformanceMetricHeaders
                   funnelSteps={currentTotals.funnelSteps}
                   metricGroup={activeMetricGroup}
@@ -2674,6 +2823,14 @@ export default async function ReportsPage({
                   >
                     <td className="performance-name-cell" data-label="Anuncio">
                       <div className="report-ad-entity">
+                        <ReportSelectionCheckbox
+                          activeSelectedIds={activeSelectedIds}
+                          entityId={row.id}
+                          entityLabel={row.name}
+                          filterActive={Boolean(selectedIds)}
+                          level="ad"
+                          workspaceId={currentWorkspaceId}
+                        />
                         <ReportAdPreview
                           adName={row.name}
                           previewUrl={row.previewUrl}
@@ -2688,6 +2845,7 @@ export default async function ReportsPage({
                                 adSetId: row.adSetId,
                                 adId: row.id,
                                 page: 1,
+                                selectedIds: undefined,
                               })}
                             >
                               <PresentationMask placeholder="Anuncio oculto">

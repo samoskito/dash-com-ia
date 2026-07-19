@@ -152,6 +152,10 @@ export type MetaAdSetInsight = {
   metaConversationsStarted: number;
 };
 
+export type MetaAdSetDailyInsight = MetaAdSetInsight & {
+  date: string;
+};
+
 export type MetaAdInsight = {
   adId: string;
   adSetId: string;
@@ -160,6 +164,10 @@ export type MetaAdInsight = {
   impressions: number;
   clicks: number;
   metaConversationsStarted: number;
+};
+
+export type MetaAdDailyInsight = MetaAdInsight & {
+  date: string;
 };
 
 export type MetaInsightReadMode = "legacy" | "manual";
@@ -943,6 +951,39 @@ export class MetaAdapter implements IntegrationAdapter {
       );
   }
 
+  async listAdSetDailyInsights(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+    readMode?: MetaInsightReadMode;
+  }): Promise<MetaAdSetDailyInsight[]> {
+    const payload = await this.listInsights({
+      ...input,
+      fields:
+        "campaign_id,adset_id,date_start,date_stop,spend,impressions,clicks,actions",
+      level: "adset",
+      timeIncrement: 1,
+    });
+
+    return payload
+      .map((item) => ({
+        adSetId: this.asString(item.adset_id),
+        campaignId: this.asString(item.campaign_id),
+        date: this.asString(item.date_start),
+        spendCents: this.asMoneyCents(item.spend),
+        impressions: this.asInteger(item.impressions),
+        clicks: this.asInteger(item.clicks),
+        metaConversationsStarted: this.messagingConversationStarted(
+          item.actions,
+          input.readMode,
+        ),
+      }))
+      .filter((item): item is MetaAdSetDailyInsight =>
+        Boolean(item.adSetId && item.campaignId && item.date),
+      );
+  }
+
   async listAdInsights(input: {
     accessToken: string;
     adAccountId: string;
@@ -971,6 +1012,40 @@ export class MetaAdapter implements IntegrationAdapter {
       }))
       .filter((item): item is MetaAdInsight =>
         Boolean(item.adId && item.adSetId && item.campaignId),
+      );
+  }
+
+  async listAdDailyInsights(input: {
+    accessToken: string;
+    adAccountId: string;
+    since: string;
+    until: string;
+    readMode?: MetaInsightReadMode;
+  }): Promise<MetaAdDailyInsight[]> {
+    const payload = await this.listInsights({
+      ...input,
+      fields:
+        "campaign_id,adset_id,ad_id,date_start,date_stop,spend,impressions,clicks,actions",
+      level: "ad",
+      timeIncrement: 1,
+    });
+
+    return payload
+      .map((item) => ({
+        adId: this.asString(item.ad_id),
+        adSetId: this.asString(item.adset_id),
+        campaignId: this.asString(item.campaign_id),
+        date: this.asString(item.date_start),
+        spendCents: this.asMoneyCents(item.spend),
+        impressions: this.asInteger(item.impressions),
+        clicks: this.asInteger(item.clicks),
+        metaConversationsStarted: this.messagingConversationStarted(
+          item.actions,
+          input.readMode,
+        ),
+      }))
+      .filter((item): item is MetaAdDailyInsight =>
+        Boolean(item.adId && item.adSetId && item.campaignId && item.date),
       );
   }
 
