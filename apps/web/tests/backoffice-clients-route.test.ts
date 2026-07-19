@@ -199,6 +199,77 @@ describe("backoffice clients route", () => {
     expect(teamHtml).not.toContain("MySQL Barbieri");
   });
 
+  it("filters client workspaces by name without exposing unrelated results", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      let body: unknown = [];
+
+      if (url.endsWith("/backoffice/workspaces")) {
+        body = [
+          {
+            id: "workspace_sao_paulo",
+            name: "São Paulo Performance",
+            slug: "sao-paulo-performance",
+            operationalStatus: "active",
+            createdAt: "2026-07-18T18:00:00.000Z",
+            owners: [
+              {
+                id: "owner_sao_paulo",
+                name: "Ana Martins",
+                email: "ana@example.com",
+              },
+            ],
+            connectorCount: 0,
+          },
+          {
+            id: "workspace_barbieri",
+            name: "Barbieri",
+            slug: "barbieri",
+            operationalStatus: "active",
+            createdAt: "2026-07-18T18:00:00.000Z",
+            owners: [
+              {
+                id: "owner_barbieri",
+                name: "Javan",
+                email: "javan@example.com",
+              },
+            ],
+            connectorCount: 1,
+          },
+        ];
+      } else if (url.endsWith("/auth/me")) {
+        body = {
+          user: {
+            id: "platform_owner",
+            name: "Owner",
+            email: "owner@wpptrack.com",
+            platformRole: "platform_owner",
+          },
+        };
+      }
+
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const element = await BackofficeClientsPage({
+      searchParams: Promise.resolve({ q: "sao" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('role="search"');
+    expect(html).toContain('name="q"');
+    expect(html).toContain('value="sao"');
+    expect(html).toContain("São Paulo Performance");
+    expect(html).toContain("1 de 2");
+    expect(html).toContain("1 resultado(s)");
+    expect(html).toContain("Limpar");
+    expect(html).not.toContain(">Barbieri<");
+    expect(html).not.toContain(">Javan<");
+  });
+
   it("keeps password fields server-bound and never repopulates secrets", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify([]), {

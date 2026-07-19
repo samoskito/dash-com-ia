@@ -106,6 +106,9 @@ headings, and actions must remain fully visible.
   or MySQL Connectors.
 - Workspace provisioning is secondary to the current workspace list and uses
   progressive disclosure when clients already exist.
+- The workspace list now has a compact name search that also recognizes the
+  responsible person's name, ignores accents and keeps nonmatching clients out
+  of both the desktop table and mobile cards.
 - Mobile workspace cards replace the dense desktop comparison table without
   removing owner, connector, access-email, or support-access commands.
 - Internal Operations keeps WhatsApp, Finance, and Health separated, with a
@@ -118,10 +121,13 @@ headings, and actions must remain fully visible.
 Verification after Wave 8:
 
 - 36 test files passed;
-- 210 tests passed;
+- 214 tests passed;
 - TypeScript validation passed;
 - Next.js production build passed for all 22 static-generation steps;
 - Home, Clients, Webhooks, and Internal Operations passed desktop and mobile
   visual audits without page-level overflow;
 - dense operational filters and tables scroll only inside their own framed
   regions.
+
+The client-search behavior and responsive CSS were verified locally. Its final
+visual review remains the deployment checkpoint.

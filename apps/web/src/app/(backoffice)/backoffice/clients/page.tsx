@@ -7,8 +7,9 @@ import type {
   ExternalConnectorHealthDto,
   PlatformUserDto,
 } from "@wpptrack/shared";
-import { Plus, ShieldCheck } from "lucide-react";
+import { Plus, Search, ShieldCheck, X } from "lucide-react";
 import { revalidatePath } from "next/cache";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   BackofficeActionForm,
@@ -495,6 +496,13 @@ function normalizeClientsSection(
     : "workspaces";
 }
 
+function normalizeClientSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleLowerCase("pt-BR");
+}
+
 export default async function BackofficeClientsPage({
   searchParams,
 }: {
@@ -504,6 +512,7 @@ export default async function BackofficeClientsPage({
   const activeSection = normalizeClientsSection(
     stringParam(resolvedSearchParams.section),
   );
+  const clientSearch = stringParam(resolvedSearchParams.q);
   const [workspacesResult, connectorsResult, platformUsersResult, session] =
     await Promise.all([
       getClientWorkspaces(),
@@ -512,6 +521,16 @@ export default async function BackofficeClientsPage({
       getPlatformSession(),
     ]);
   const workspaces = workspacesResult.data;
+  const normalizedClientSearch = clientSearch
+    ? normalizeClientSearch(clientSearch)
+    : null;
+  const visibleWorkspaces = normalizedClientSearch
+    ? workspaces.filter((workspace) =>
+        [workspace.name, ...workspace.owners.map((owner) => owner.name ?? "")]
+          .map(normalizeClientSearch)
+          .some((value) => value.includes(normalizedClientSearch)),
+      )
+    : workspaces;
   const connectorHealth = connectorsResult.data;
   const platformUsers = platformUsersResult.data;
   const workspaceNames = new Map(
@@ -527,6 +546,16 @@ export default async function BackofficeClientsPage({
     (total, { connector }) => total + connector.capiCutovers.length,
     0,
   );
+  const emptyWorkspaceTitle =
+    clientSearch && workspaces.length
+      ? "Nenhum cliente encontrado"
+      : workspacesResult.state === "error"
+        ? "Nao foi possivel carregar os workspaces"
+        : "Nenhum cliente provisionado";
+  const emptyWorkspaceDetail =
+    clientSearch && workspaces.length
+      ? "Tente outro nome ou limpe a pesquisa."
+      : "Use o controle acima para criar o primeiro ambiente.";
 
   return (
     <section className="page-stack standalone-page client-admin-page">
@@ -597,7 +626,11 @@ export default async function BackofficeClientsPage({
                 Responsaveis, estado operacional e acesso de suporte por conta.
               </p>
             </div>
-            <span className="status-chip">{workspaces.length} cadastrados</span>
+            <span className="status-chip">
+              {clientSearch
+                ? `${visibleWorkspaces.length} de ${workspaces.length}`
+                : `${workspaces.length} cadastrados`}
+            </span>
           </div>
 
           <details
@@ -648,6 +681,43 @@ export default async function BackofficeClientsPage({
             </BackofficeActionForm>
           </details>
 
+          <form
+            action="/backoffice/clients"
+            className="client-workspace-search"
+            role="search"
+          >
+            <input type="hidden" name="section" value="workspaces" />
+            <label className="client-workspace-search-field">
+              <span className="sr-only">Buscar cliente por nome</span>
+              <Search aria-hidden="true" size={16} strokeWidth={2} />
+              <input
+                name="q"
+                type="search"
+                defaultValue={clientSearch ?? ""}
+                placeholder="Nome do workspace ou responsavel"
+                autoComplete="off"
+              />
+            </label>
+            <button className="button ghost compact-button" type="submit">
+              <Search aria-hidden="true" size={15} strokeWidth={2} />
+              Buscar
+            </button>
+            {clientSearch ? (
+              <Link
+                className="button ghost compact-button"
+                href="/backoffice/clients?section=workspaces"
+              >
+                <X aria-hidden="true" size={15} strokeWidth={2} />
+                Limpar
+              </Link>
+            ) : null}
+            <span className="client-workspace-search-result" aria-live="polite">
+              {clientSearch
+                ? `${visibleWorkspaces.length} resultado(s)`
+                : `${workspaces.length} cliente(s)`}
+            </span>
+          </form>
+
           <div className="table-wrap client-workspaces-table">
             <table>
               <thead>
@@ -661,8 +731,8 @@ export default async function BackofficeClientsPage({
                 </tr>
               </thead>
               <tbody>
-                {workspaces.length ? (
-                  workspaces.map((workspace) => (
+                {visibleWorkspaces.length ? (
+                  visibleWorkspaces.map((workspace) => (
                     <tr key={workspace.id}>
                       <td>
                         <strong>{workspace.name}</strong>
@@ -732,14 +802,8 @@ export default async function BackofficeClientsPage({
                 ) : (
                   <tr>
                     <td colSpan={6}>
-                      <strong>
-                        {workspacesResult.state === "error"
-                          ? "Nao foi possivel carregar os workspaces"
-                          : "Nenhum cliente provisionado"}
-                      </strong>
-                      <span>
-                        Use o controle acima para criar o primeiro ambiente.
-                      </span>
+                      <strong>{emptyWorkspaceTitle}</strong>
+                      <span>{emptyWorkspaceDetail}</span>
                     </td>
                   </tr>
                 )}
@@ -748,8 +812,8 @@ export default async function BackofficeClientsPage({
           </div>
 
           <div className="client-workspace-mobile-list" aria-label="Workspaces">
-            {workspaces.length ? (
-              workspaces.map((workspace) => (
+            {visibleWorkspaces.length ? (
+              visibleWorkspaces.map((workspace) => (
                 <article
                   className="client-workspace-mobile-card"
                   key={workspace.id}
@@ -825,14 +889,8 @@ export default async function BackofficeClientsPage({
               ))
             ) : (
               <div className="empty-state compact">
-                <strong>
-                  {workspacesResult.state === "error"
-                    ? "Nao foi possivel carregar os workspaces"
-                    : "Nenhum cliente provisionado"}
-                </strong>
-                <span>
-                  Use o controle acima para criar o primeiro ambiente.
-                </span>
+                <strong>{emptyWorkspaceTitle}</strong>
+                <span>{emptyWorkspaceDetail}</span>
               </div>
             )}
           </div>
