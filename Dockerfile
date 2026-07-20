@@ -1,23 +1,24 @@
-FROM node:22-bookworm-slim AS base
+# syntax=docker/dockerfile:1.7
+
+FROM node:22-bookworm AS base
 
 WORKDIR /app
 
-ENV PNPM_HOME="/usr/local/share/pnpm"
+ENV PNPM_HOME="/pnpm"
 ENV PATH="${PNPM_HOME}:/usr/local/bin:${PATH}"
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
-  && rm -rf /var/lib/apt/lists/* \
-  && npm install -g pnpm@9.15.0
+RUN corepack enable \
+  && corepack prepare pnpm@9.15.0 --activate
 
 FROM base AS deps
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/api/package.json apps/api/package.json
-COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=wpptrack-api-pnpm-store,target=/pnpm/store \
+  pnpm config set store-dir /pnpm/store \
+  && pnpm install --frozen-lockfile --filter @wpptrack/api...
 
 FROM deps AS build
 
