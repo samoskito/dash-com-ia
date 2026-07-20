@@ -16,9 +16,14 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
-RUN --mount=type=cache,id=wpptrack-api-pnpm-store,target=/pnpm/store \
+RUN --mount=type=cache,id=wpptrack-api-pnpm-store,target=/pnpm/store,sharing=locked \
   pnpm config set store-dir /pnpm/store \
-  && pnpm install --frozen-lockfile --filter @wpptrack/api...
+  && pnpm config set network-concurrency 4 \
+  && pnpm config set fetch-retries 5 \
+  && pnpm config set fetch-retry-mintimeout 1000 \
+  && pnpm config set fetch-retry-maxtimeout 10000 \
+  && pnpm config set fetch-timeout 30000 \
+  && pnpm install --frozen-lockfile --prefer-offline --filter @wpptrack/api...
 
 FROM deps AS build
 
