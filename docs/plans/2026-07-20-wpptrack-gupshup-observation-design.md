@@ -42,6 +42,8 @@ number or every field required by the canonical conversation parser.
 
 - `gupshup` is a selectable inbound webhook provider.
 - The seeded `gupshup/v1` parser release is `observation_only`.
+- Provider enums and the parser release use consecutive migrations so the new
+  PostgreSQL enum value is committed before the parser seed references it.
 - The protected URL is displayed only after creation or secret rotation.
 - Exact JSON request bodies are stored through the existing encrypted inbox and
   retention policy.

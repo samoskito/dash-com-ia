@@ -22,6 +22,13 @@ implemented locally only to generate a protected URL and retain the real raw
 payload. Parsing, channel discovery, canonical events and replay remain blocked
 until a customer callback is inspected and approved.
 
+Production recovery note (2026-07-20): the first Gupshup migration failed with
+PostgreSQL `55P04` because it added and consumed the new provider enum in one
+transaction. The fix separates enum registration from parser-release seeding.
+After the fixed API image reports 51 migrations, resolve
+`20260720010000_gupshup_inbound_observation` as rolled back so the safe pair can
+run.
+
 ## 1. Goal
 
 Implement secure multi-workspace access, delegated team management, Brevo transactional email, closed invitation onboarding, feature-gated Google login and guided OAuth/manual Meta connections for the current client SaaS.
