@@ -567,7 +567,11 @@ export class MetaManualConnectionsService {
               businessManagerId: business.id,
             },
           },
-          select: { id: true, credentialId: true },
+          select: {
+            id: true,
+            credentialId: true,
+            defaultConversionDestinationId: true,
+          },
         });
       const conflictingAccount = occupiedAccounts.find(
         (account) => account.businessConnectionId !== existingConnection?.id,
@@ -579,6 +583,7 @@ export class MetaManualConnectionsService {
         );
       }
 
+      const accountSelectionMode = input.accountSelectionMode ?? "merge";
       const now = new Date();
       const saved = await this.prisma.$transaction(async (transaction) => {
         const savedDestination = destination.existing
@@ -620,6 +625,15 @@ export class MetaManualConnectionsService {
                 validationError: null,
               },
             });
+        const defaultConversionDestinationId =
+          accountSelectionMode === "merge" &&
+          existingConnection?.defaultConversionDestinationId
+            ? existingConnection.defaultConversionDestinationId
+            : savedDestination.id;
+        const selectedAccountDestinationId =
+          defaultConversionDestinationId === savedDestination.id
+            ? null
+            : savedDestination.id;
         const connection = await transaction.metaBusinessConnection.upsert({
           where: {
             workspaceId_businessManagerId: {
@@ -633,7 +647,7 @@ export class MetaManualConnectionsService {
             businessManagerId: business.id,
             businessManagerName: business.name,
             status: "active",
-            defaultConversionDestinationId: savedDestination.id,
+            defaultConversionDestinationId,
             lastValidatedAt: now,
             validationError: null,
             createdByUserId: actorUserId ?? null,
@@ -642,7 +656,7 @@ export class MetaManualConnectionsService {
             credentialId: credential.id,
             businessManagerName: business.name,
             status: "active",
-            defaultConversionDestinationId: savedDestination.id,
+            defaultConversionDestinationId,
             lastValidatedAt: now,
             validationError: null,
           },
@@ -665,7 +679,7 @@ export class MetaManualConnectionsService {
               currency: account.currency,
               timezoneName: account.timezoneName,
               businessConnectionId: connection.id,
-              conversionDestinationId: null,
+              conversionDestinationId: selectedAccountDestinationId,
               active: true,
               syncStatus: "pending",
               syncError: null,
@@ -677,6 +691,11 @@ export class MetaManualConnectionsService {
               currency: account.currency,
               timezoneName: account.timezoneName,
               businessConnectionId: connection.id,
+              ...(accountSelectionMode === "merge"
+                ? {
+                    conversionDestinationId: selectedAccountDestinationId,
+                  }
+                : {}),
               active: true,
               syncStatus: "pending",
               syncError: null,
@@ -684,23 +703,25 @@ export class MetaManualConnectionsService {
           });
         }
 
-        await transaction.metaReportingAccount.updateMany({
-          where: {
-            workspaceId,
-            businessConnectionId: connection.id,
-            active: true,
-            adAccountId: {
-              notIn: accounts.map((account) => account.id),
+        if (accountSelectionMode === "replace") {
+          await transaction.metaReportingAccount.updateMany({
+            where: {
+              workspaceId,
+              businessConnectionId: connection.id,
+              active: true,
+              adAccountId: {
+                notIn: accounts.map((account) => account.id),
+              },
             },
-          },
-          data: {
-            active: false,
-            businessConnectionId: null,
-            conversionDestinationId: null,
-            syncStatus: "pending",
-            syncError: null,
-          },
-        });
+            data: {
+              active: false,
+              businessConnectionId: null,
+              conversionDestinationId: null,
+              syncStatus: "pending",
+              syncError: null,
+            },
+          });
+        }
 
         await transaction.metaCredential.update({
           where: { id: credential.id },
@@ -729,6 +750,7 @@ export class MetaManualConnectionsService {
           businessManagerId: business.id,
           destinationId: saved.destinationId,
           adAccountIds: accounts.map((account) => account.id),
+          accountSelectionMode,
         },
       });
 

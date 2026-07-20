@@ -134,6 +134,8 @@ export async function createMetaManualConnectionAction(
             .getAll("adAccountIds")
             .map(String)
             .filter(Boolean),
+          accountSelectionMode:
+            optionalFormText(formData, "accountSelectionMode") ?? "merge",
           destination,
         }),
       },
@@ -546,6 +548,8 @@ function metaBusinessConnectionPayload(formData: FormData) {
     businessManagerId: requiredFormText(formData, "businessManagerId"),
     businessManagerName: requiredFormText(formData, "businessManagerName"),
     adAccountIds: formData.getAll("adAccountIds").map(String).filter(Boolean),
+    accountSelectionMode:
+      optionalFormText(formData, "accountSelectionMode") ?? "merge",
     destination,
   };
 }

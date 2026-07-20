@@ -93,8 +93,8 @@ describe("Meta manual connection panel", () => {
               businessManagerName: "BM Cliente",
               status: "active",
               defaultConversionDestinationId: "destination_1",
-              reportingAccountCount: 1,
-              activeReportingAccountCount: 1,
+              reportingAccountCount: 2,
+              activeReportingAccountCount: 2,
               lastValidatedAt: "2026-07-17T12:00:00.000Z",
               validationError: null,
               lastSyncedAt: null,
@@ -112,6 +112,19 @@ describe("Meta manual connection panel", () => {
               pixelName: "Pixel Cliente",
               pageId: "page_1",
               pageName: "Pagina Cliente",
+              status: "configured",
+              lastValidatedAt: "2026-07-17T12:00:00.000Z",
+              validationError: null,
+            },
+            {
+              id: "destination_2",
+              workspaceId: "workspace_1",
+              label: "Destino BM Cliente 2",
+              ownerBusinessManagerId: "business_1",
+              pixelId: "pixel_2",
+              pixelName: "Pixel Cliente 2",
+              pageId: "page_2",
+              pageName: "Pagina Cliente 2",
               status: "configured",
               lastValidatedAt: "2026-07-17T12:00:00.000Z",
               validationError: null,
@@ -136,6 +149,24 @@ describe("Meta manual connection panel", () => {
               lastSyncUntil: null,
               syncError: null,
             },
+            {
+              id: "reporting_2",
+              workspaceId: "workspace_1",
+              businessId: "business_1",
+              businessName: "BM Cliente",
+              adAccountId: "act_456",
+              adAccountName: "Conta Cliente 2",
+              currency: "BRL",
+              timezoneName: "America/Sao_Paulo",
+              businessConnectionId: "connection_oauth",
+              conversionDestinationId: "destination_2",
+              active: true,
+              syncStatus: "pending",
+              lastSyncedAt: null,
+              lastSyncSince: null,
+              lastSyncUntil: null,
+              syncError: null,
+            },
           ],
         },
         legacyConnected: true,
@@ -148,6 +179,18 @@ describe("Meta manual connection panel", () => {
     expect(html).toContain("Estruturas salvas sem alterar a rota atual");
     expect(html).toContain("Ativar roteamento por BM");
     expect(html).not.toContain("Roteamento por BM ativo");
+    expect(html).toContain("1 BM");
+    expect(html).toContain("2 contas");
+    expect(html).toContain("2 destinos");
+    expect(html).toContain("2 vinculo(s) ativo(s)");
+    expect(html).toContain("2 destino(s) salvo(s)");
+    expect(html).toContain("Conta Cliente");
+    expect(html).toContain("Conta Cliente 2");
+    expect(html).toContain("Pixel Cliente");
+    expect(html).toContain("Pixel Cliente 2");
+    expect(html).toContain("Pagina Cliente");
+    expect(html).toContain("Pagina Cliente 2");
+    expect(html).toContain("Destinos salvos nesta BM");
   });
 
   it("shows the permanent-token entry without exposing setup to analysts", () => {

@@ -820,6 +820,7 @@ describe("MetaManualConnectionsService", () => {
       businessManagerId: "business_1",
       businessManagerName: "BM Principal editada",
       adAccountIds: ["act_2"],
+      accountSelectionMode: "replace",
       destination: { existingDestinationId: destinationId },
     });
 
@@ -1092,6 +1093,58 @@ describe("MetaManualConnectionsService", () => {
         ),
       ).size,
     ).toBe(2);
+  });
+
+  it("adds accounts and dedicated destinations to the same BM without replacing prior mappings", async () => {
+    const { accounts, connections, destinations, service } = createHarness();
+    const credential = await service.createCredential("workspace_1", {
+      label: "Login social Meta",
+      accessToken: "EAAB-permanent-system-user-token-one",
+    });
+
+    const first = await service.createBusinessConnection("workspace_1", {
+      credentialId: credential.credential.id,
+      businessManagerId: "business_1",
+      businessManagerName: "BM Principal",
+      adAccountIds: ["act_1"],
+      accountSelectionMode: "merge",
+      destination: { pixelId: "pixel_1", pageId: "page_1" },
+    });
+    const firstDestinationId =
+      first.businessConnections[0]!.defaultConversionDestinationId!;
+
+    const configuration = await service.createBusinessConnection(
+      "workspace_1",
+      {
+        credentialId: credential.credential.id,
+        businessManagerId: "business_1",
+        businessManagerName: "BM Principal",
+        adAccountIds: ["act_2"],
+        accountSelectionMode: "merge",
+        destination: { pixelId: "pixel_2", pageId: "page_2" },
+      },
+    );
+
+    expect(connections).toHaveLength(1);
+    expect(destinations).toHaveLength(2);
+    expect(accounts.filter((account) => account.active)).toHaveLength(2);
+    expect(connections[0]?.defaultConversionDestinationId).toBe(
+      firstDestinationId,
+    );
+    expect(
+      accounts.find((account) => account.adAccountId === "act_1")
+        ?.conversionDestinationId,
+    ).toBeNull();
+    expect(
+      accounts.find((account) => account.adAccountId === "act_2")
+        ?.conversionDestinationId,
+    ).toBe(destinations[1]?.id);
+    expect(configuration.businessConnections[0]).toMatchObject({
+      reportingAccountCount: 2,
+      activeReportingAccountCount: 2,
+    });
+    expect(configuration.destinations).toHaveLength(2);
+    expect(configuration.reportingAccounts).toHaveLength(2);
   });
 
   it("keeps the saved token unchanged when rotation validation fails", async () => {

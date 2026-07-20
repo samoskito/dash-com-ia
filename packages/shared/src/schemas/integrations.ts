@@ -356,6 +356,7 @@ export const metaManualBusinessConnectionInputSchema = z.object({
   businessManagerId: z.string().trim().min(1),
   businessManagerName: z.string().trim().min(1).max(160),
   adAccountIds: z.array(z.string().trim().min(1)).min(1).max(200),
+  accountSelectionMode: z.enum(["merge", "replace"]).optional(),
   destination: metaManualDestinationInputSchema,
 });
 

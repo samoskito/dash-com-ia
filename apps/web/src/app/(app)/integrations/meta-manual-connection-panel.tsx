@@ -20,6 +20,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Save,
   ShieldCheck,
   Trash2,
   TriangleAlert,
@@ -361,6 +362,12 @@ export function MetaManualConnectionPanel({
     (connection) => connection.id === removingConnectionId,
   );
   const oauthMode = legacyConnected;
+  const configuredBusinessCount =
+    configuration?.businessConnections.length ?? 0;
+  const configuredAccountCount =
+    configuration?.reportingAccounts.filter((account) => account.active)
+      .length ?? 0;
+  const configuredDestinationCount = configuration?.destinations.length ?? 0;
 
   if (!capabilities.manualEnabled && !oauthMode) {
     return null;
@@ -509,6 +516,10 @@ export function MetaManualConnectionPanel({
     formData.set("credentialId", credentialId);
     formData.set("businessManagerId", businessId);
     formData.set("businessManagerName", selectedBusiness.name);
+    formData.set(
+      "accountSelectionMode",
+      editingConnectionId ? "replace" : "merge",
+    );
     selectedAccountIds.forEach((id) => formData.append("adAccountIds", id));
     formData.set(
       "destinationMode",
@@ -884,6 +895,19 @@ export function MetaManualConnectionPanel({
           const activeConnectionAccounts = connectionAccounts.filter(
             (account) => account.active,
           );
+          const connectionDestinationIds = new Set(
+            [
+              connection.defaultConversionDestinationId,
+              ...activeConnectionAccounts.map(
+                (account) => account.conversionDestinationId,
+              ),
+            ].filter((id): id is string => Boolean(id)),
+          );
+          const connectionDestinations = configuration.destinations.filter(
+            (item) =>
+              (item.id ? connectionDestinationIds.has(item.id) : false) ||
+              item.ownerBusinessManagerId === connection.businessManagerId,
+          );
 
           return (
             <article className="meta-connection-row" key={connection.id}>
@@ -1054,85 +1078,202 @@ export function MetaManualConnectionPanel({
                 </form>
               ) : null}
 
-              {canManage && activeConnectionAccounts.length > 0 ? (
-                <div className="meta-account-sync-list">
-                  {activeConnectionAccounts.map((account) => (
-                    <div
-                      className={account.syncStatus === "error" ? "error" : ""}
-                      key={`sync:${account.id}`}
-                    >
-                      <span>
-                        <strong>
-                          <PresentationMask placeholder="Conta de anuncios oculta">
-                            {account.adAccountName}
-                          </PresentationMask>
-                        </strong>
-                        <small>
-                          <PresentationMask placeholder="ID oculto">
-                            {account.adAccountId}
-                          </PresentationMask>
-                        </small>
-                      </span>
-                      <span className="event-chip">
-                        {syncStatusLabel(account.syncStatus)}
-                      </span>
-                      <small>{accountSyncDetail(account)}</small>
-                    </div>
-                  ))}
-                </div>
+              {activeConnectionAccounts.length > 0 ? (
+                <section className="meta-account-routing">
+                  <div className="meta-account-routing-heading">
+                    <span>
+                      <small>Contas e destinos</small>
+                      <strong>
+                        {activeConnectionAccounts.length} vinculo(s) ativo(s)
+                      </strong>
+                    </span>
+                    <span className="event-chip">
+                      {connectionDestinations.length} destino(s) salvo(s)
+                    </span>
+                  </div>
+                  <div className="meta-account-routing-list">
+                    {activeConnectionAccounts.map((account) => {
+                      const effectiveDestinationId =
+                        account.conversionDestinationId ??
+                        connection.defaultConversionDestinationId;
+                      const effectiveDestination =
+                        configuration.destinations.find(
+                          (item) => item.id === effectiveDestinationId,
+                        );
+                      const selectedDestinationId =
+                        accountDestinationDrafts[account.id] ??
+                        account.conversionDestinationId ??
+                        "";
+
+                      return (
+                        <div
+                          className={
+                            account.syncStatus === "error" ? "error" : ""
+                          }
+                          key={account.id}
+                        >
+                          <span className="meta-account-routing-account">
+                            <small>Conta de anuncios</small>
+                            <strong>
+                              <PresentationMask placeholder="Conta de anuncios oculta">
+                                {account.adAccountName}
+                              </PresentationMask>
+                            </strong>
+                            <small>
+                              <PresentationMask placeholder="ID oculto">
+                                {account.adAccountId}
+                              </PresentationMask>
+                            </small>
+                          </span>
+                          <span className="meta-account-routing-asset">
+                            <small>Pixel / Dataset</small>
+                            <strong>
+                              <PresentationMask placeholder="Pixel oculto">
+                                {effectiveDestination?.pixelName ??
+                                  "Nao configurado"}
+                              </PresentationMask>
+                            </strong>
+                            <small>
+                              <PresentationMask placeholder="ID oculto">
+                                {effectiveDestination?.pixelId ?? "-"}
+                              </PresentationMask>
+                            </small>
+                          </span>
+                          <span className="meta-account-routing-asset">
+                            <small>Pagina</small>
+                            <strong>
+                              <PresentationMask placeholder="Pagina oculta">
+                                {effectiveDestination?.pageName ??
+                                  "Nao configurada"}
+                              </PresentationMask>
+                            </strong>
+                            <small>
+                              <PresentationMask placeholder="ID oculto">
+                                {effectiveDestination?.pageId ?? "-"}
+                              </PresentationMask>
+                            </small>
+                          </span>
+                          <span className="meta-account-routing-health">
+                            <small>Sincronizacao</small>
+                            <span className="event-chip">
+                              {syncStatusLabel(account.syncStatus)}
+                            </span>
+                            <small>{accountSyncDetail(account)}</small>
+                          </span>
+                          {canManage ? (
+                            <span className="meta-account-routing-control">
+                              <label htmlFor={`destination-${account.id}`}>
+                                Alterar destino
+                              </label>
+                              <span>
+                                <select
+                                  id={`destination-${account.id}`}
+                                  aria-label={`Destino de ${account.adAccountName}`}
+                                  value={selectedDestinationId}
+                                  onChange={(event) =>
+                                    setAccountDestinationDrafts((current) => ({
+                                      ...current,
+                                      [account.id]: event.currentTarget.value,
+                                    }))
+                                  }
+                                  data-presentation-sensitive-field="true"
+                                >
+                                  <option value="">
+                                    Padrao da BM
+                                    {destination?.label
+                                      ? `: ${destination.label}`
+                                      : ""}
+                                  </option>
+                                  {configuration.destinations.map((item) => (
+                                    <option
+                                      key={item.id}
+                                      value={item.id ?? ""}
+                                    >
+                                      {item.label ??
+                                        item.pixelName ??
+                                        item.pixelId}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  className="button ghost"
+                                  type="button"
+                                  disabled={pendingAction !== null}
+                                  onClick={() =>
+                                    void handleAccountDestination(account.id)
+                                  }
+                                >
+                                  <Save size={15} aria-hidden="true" />
+                                  Salvar
+                                </button>
+                              </span>
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
               ) : null}
 
-              {activeConnectionAccounts.length > 0 ? (
-                <div className="meta-account-overrides">
-                  {activeConnectionAccounts.map((account) => (
-                    <div key={account.id}>
-                      <span>
-                        <strong>
-                          <PresentationMask placeholder="Conta de anuncios oculta">
-                            {account.adAccountName}
-                          </PresentationMask>
-                        </strong>
-                        <small>
-                          <PresentationMask placeholder="ID oculto">
-                            {account.adAccountId}
-                          </PresentationMask>
-                        </small>
-                      </span>
-                      <select
-                        aria-label={`Destino de ${account.adAccountName}`}
-                        value={
-                          accountDestinationDrafts[account.id] ??
-                          account.conversionDestinationId ??
-                          ""
-                        }
-                        onChange={(event) =>
-                          setAccountDestinationDrafts((current) => ({
-                            ...current,
-                            [account.id]: event.currentTarget.value,
-                          }))
-                        }
-                        data-presentation-sensitive-field="true"
-                      >
-                        <option value="">Padrao da BM</option>
-                        {configuration.destinations.map((item) => (
-                          <option key={item.id} value={item.id ?? ""}>
-                            {item.label ?? item.pixelName ?? item.pixelId}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        className="button ghost"
-                        type="button"
-                        disabled={pendingAction !== null}
-                        onClick={() =>
-                          void handleAccountDestination(account.id)
-                        }
-                      >
-                        Salvar
-                      </button>
-                    </div>
-                  ))}
-                </div>
+              {connectionDestinations.length > 0 ? (
+                <details className="meta-destination-inventory">
+                  <summary>
+                    <span>
+                      Destinos salvos nesta BM
+                      <small>
+                        Pixel/Dataset e Pagina preservados para reutilizacao
+                      </small>
+                    </span>
+                    <span>
+                      {connectionDestinations.length}
+                      <ChevronDown size={15} aria-hidden="true" />
+                    </span>
+                  </summary>
+                  <div>
+                    {connectionDestinations.map((item) => (
+                      <div key={item.id ?? `${item.pixelId}:${item.pageId}`}>
+                        <span>
+                          <small>Destino</small>
+                          <strong>
+                            <PresentationMask placeholder="Destino oculto">
+                              {item.label ?? "Destino Meta"}
+                            </PresentationMask>
+                          </strong>
+                        </span>
+                        <span>
+                          <small>Pixel / Dataset</small>
+                          <strong>
+                            <PresentationMask placeholder="Pixel oculto">
+                              {item.pixelName ?? item.pixelId}
+                            </PresentationMask>
+                          </strong>
+                          <small>
+                            <PresentationMask placeholder="ID oculto">
+                              {item.pixelId}
+                            </PresentationMask>
+                          </small>
+                        </span>
+                        <span>
+                          <small>Pagina</small>
+                          <strong>
+                            <PresentationMask placeholder="Pagina oculta">
+                              {item.pageName ?? item.pageId}
+                            </PresentationMask>
+                          </strong>
+                          <small>
+                            <PresentationMask placeholder="ID oculto">
+                              {item.pageId}
+                            </PresentationMask>
+                          </small>
+                        </span>
+                        <span className="event-chip">
+                          {statusLabel(item.status)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
               ) : null}
             </article>
           );
@@ -1264,7 +1405,14 @@ export function MetaManualConnectionPanel({
             </span>
           </span>
           <span className="meta-manual-entry-action">
-            {configuration?.businessConnections.length ?? 0} BMs
+            {configuredBusinessCount}{" "}
+            {configuredBusinessCount === 1 ? "BM" : "BMs"}
+            <span aria-hidden="true">·</span>
+            {configuredAccountCount}{" "}
+            {configuredAccountCount === 1 ? "conta" : "contas"}
+            <span aria-hidden="true">·</span>
+            {configuredDestinationCount}{" "}
+            {configuredDestinationCount === 1 ? "destino" : "destinos"}
             <ChevronDown size={16} />
           </span>
         </button>
@@ -1844,14 +1992,20 @@ export function MetaManualConnectionPanel({
               </span>
               <span>
                 <span className="micro-label">Estruturas salvas</span>
-                <strong>Tokens, BMs e destinos</strong>
+                <strong>
+                  {oauthMode
+                    ? "BMs, contas e destinos OAuth"
+                    : "Tokens, BMs e destinos"}
+                </strong>
                 <small>
-                  {configuration?.businessConnections.length ?? 0} BMs,{" "}
-                  {configuration?.reportingAccounts.filter(
-                    (account) => account.active,
-                  ).length ?? 0}{" "}
-                  contas ativas e {configuration?.destinations.length ?? 0}{" "}
-                  destinos
+                  {configuredBusinessCount}{" "}
+                  {configuredBusinessCount === 1 ? "BM" : "BMs"},{" "}
+                  {configuredAccountCount}{" "}
+                  {configuredAccountCount === 1
+                    ? "conta ativa"
+                    : "contas ativas"}{" "}
+                  e {configuredDestinationCount}{" "}
+                  {configuredDestinationCount === 1 ? "destino" : "destinos"}
                 </small>
               </span>
               <span className="meta-configured-structures-action">
@@ -1986,6 +2140,7 @@ function SetupStep({
 function statusLabel(status: string) {
   const labels: Record<string, string> = {
     active: "Ativa",
+    configured: "Configurado",
     pending: "Pendente",
     paused: "Pausada",
     validation_required: "Requer validacao",

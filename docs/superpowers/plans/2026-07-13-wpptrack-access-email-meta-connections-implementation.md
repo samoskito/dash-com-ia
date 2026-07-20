@@ -1,7 +1,7 @@
 # WppTrack Access, Email and Meta Connections Implementation Plan
 
 Date: 2026-07-13
-Status: Waves 0-11 and OAuth multi-destination routing implemented; outbound SMTP accepted in production; OAuth advanced routing deploy pending
+Status: Waves 0-11 and OAuth multi-destination routing deployed; outbound SMTP accepted in production; same-BM additive mapping fix awaiting release
 Design: docs/plans/2026-07-13-wpptrack-access-email-meta-connections-design.md
 
 Extension: Umbler observation and controlled replay are tracked in
@@ -907,6 +907,20 @@ New manual connections can report and send CAPI through exact mappings. Existing
 The database migration only adds opt-in state and records the current primary destination. It defaults `advancedRoutingEnabled` to false, so applying it does not migrate Barbieri or change any existing request route.
 
 Local validation passed after the extension: shared, API and web typechecks; 62 shared tests; 718 API tests; 156 web tests; Prisma generation; and production builds for shared, API and web.
+
+### Same-BM additive mapping checkpoint - 2026-07-20
+
+- [x] Saving another account and Pixel/Page destination for an already configured BM now merges the new association instead of deactivating the BM's previous accounts.
+- [x] The BM's original default destination remains stable; each later dedicated destination is stored as the selected account's explicit override.
+- [x] Only the explicit Edit flow uses replacement semantics and may deactivate accounts omitted from the edited structure.
+- [x] The configured-structure summary now distinguishes BM, active-account and saved-destination counts.
+- [x] Each active account is rendered once with its effective Pixel/Dataset, Page, sync health and destination selector.
+- [x] A separate destination inventory exposes every saved Pixel/Page pair associated with that BM.
+- [x] No migration is required; the existing normalized Meta schema already supports multiple accounts and destinations per BM.
+
+Existing accounts detached by the pre-fix replacement behavior are not guessed or reactivated automatically. After release, an operator must select the missing account again and save its exact Pixel/Page association; subsequent same-BM additions remain preserved.
+
+Focused validation passed with 23 API service tests and 5 web component tests. Shared, API and web typechecks passed, as did production builds for API and web.
 
 ## 15. Wave 12 - Final Security Audit and Controlled Rollout
 

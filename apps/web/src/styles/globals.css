@@ -7674,7 +7674,7 @@ button.meta-manual-entry[aria-expanded="true"] {
 .meta-direct-account-form textarea,
 .meta-direct-destination-grid input,
 .meta-rotate-form input,
-.meta-account-overrides select {
+.meta-account-routing-control select {
   width: 100%;
   min-width: 0;
   min-height: 40px;
@@ -7692,7 +7692,7 @@ button.meta-manual-entry[aria-expanded="true"] {
 .meta-direct-account-form textarea:focus,
 .meta-direct-destination-grid input:focus,
 .meta-rotate-form input:focus,
-.meta-account-overrides select:focus {
+.meta-account-routing-control select:focus {
   border-color: var(--border-strong);
   box-shadow: 0 0 0 3px rgba(66, 240, 168, 0.08);
 }
@@ -8042,82 +8042,186 @@ button.meta-manual-entry[aria-expanded="true"] {
   align-items: center;
 }
 
-.meta-account-sync-list {
+.meta-account-routing {
   display: grid;
-  gap: 6px;
-}
-
-.meta-account-sync-list > div {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(180px, 1fr) auto minmax(220px, 1.2fr);
-  align-items: center;
   gap: 10px;
-  padding: 9px 0;
-  border-top: 1px solid var(--border);
+  padding-top: 2px;
 }
 
-.meta-account-sync-list > div > span:first-child {
+.meta-account-routing-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.meta-account-routing-heading > span:first-child {
   display: grid;
-  min-width: 0;
   gap: 3px;
 }
 
-.meta-account-sync-list strong,
-.meta-account-sync-list small {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.meta-account-sync-list small {
+.meta-account-routing-heading small,
+.meta-account-routing-list small,
+.meta-destination-inventory small {
   color: var(--ink-muted);
   font-family: var(--font-mono);
   font-size: 9px;
 }
 
-.meta-account-sync-list > div.error > small:last-child {
+.meta-account-routing-heading > span:first-child > small,
+.meta-account-routing-list > div > span > small:first-child,
+.meta-destination-inventory > div > div > span > small:first-child {
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.meta-account-routing-list {
+  display: grid;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.meta-account-routing-list > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns:
+    minmax(150px, 1.15fr)
+    minmax(145px, 1fr)
+    minmax(145px, 1fr)
+    minmax(120px, 0.75fr)
+    minmax(190px, 1.2fr);
+  align-items: stretch;
+}
+
+.meta-account-routing-list > div > span {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 3px;
+  padding: 11px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.meta-account-routing-list strong,
+.meta-account-routing-list small,
+.meta-destination-inventory strong,
+.meta-destination-inventory small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.meta-account-routing-list > div.error {
+  box-shadow: inset 3px 0 0 var(--coral);
+}
+
+.meta-account-routing-list > div.error .meta-account-routing-health > small:last-child {
   color: var(--coral);
+}
+
+.meta-account-routing-health .event-chip {
+  width: fit-content;
+}
+
+.meta-account-routing-control {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+}
+
+.meta-account-routing-control > label {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.meta-account-routing-control > span {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+}
+
+.meta-account-routing-control select {
+  flex: 1;
+}
+
+.meta-account-routing-control .button {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.meta-destination-inventory {
+  border-top: 1px solid var(--border);
+}
+
+.meta-destination-inventory > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+}
+
+.meta-destination-inventory > summary::-webkit-details-marker {
+  display: none;
+}
+
+.meta-destination-inventory > summary > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meta-destination-inventory > summary > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.meta-destination-inventory[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.meta-destination-inventory > div {
+  display: grid;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.meta-destination-inventory > div > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns:
+    minmax(150px, 1fr)
+    minmax(160px, 1fr)
+    minmax(160px, 1fr)
+    auto;
+  align-items: stretch;
+}
+
+.meta-destination-inventory > div > div > span {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 3px;
+  padding: 10px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.meta-destination-inventory > div > div > .event-chip {
+  align-self: center;
+  justify-self: center;
+  margin: 0 10px;
 }
 
 .meta-remove-connection-dialog {
   width: min(540px, calc(100vw - 28px));
   border-color: rgba(255, 107, 95, 0.38);
-}
-
-.meta-account-overrides {
-  display: grid;
-  gap: 6px;
-}
-
-.meta-account-overrides > div {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 0.8fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  border-top: 1px solid var(--border);
-}
-
-.meta-account-overrides > div > span {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.meta-account-overrides strong,
-.meta-account-overrides small {
-  overflow-wrap: anywhere;
-}
-
-.meta-account-overrides small {
-  color: var(--ink-muted);
-  font-family: var(--font-mono);
-  font-size: 9px;
-}
-
-.meta-account-overrides .button {
-  width: auto;
 }
 
 @media (max-width: 900px) {
@@ -8147,15 +8251,24 @@ button.meta-manual-entry[aria-expanded="true"] {
   }
 
   .meta-rotate-form,
-  .meta-account-sync-list > div,
-  .meta-account-overrides > div {
+  .meta-account-routing-list > div,
+  .meta-destination-inventory > div > div {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .meta-rotate-form .button,
-  .meta-account-overrides .button,
   .meta-manual-notice > .button {
     width: 100%;
+  }
+
+  .meta-account-routing-list > div > span,
+  .meta-destination-inventory > div > div > span {
+    border-right: 1px solid var(--border);
+  }
+
+  .meta-destination-inventory > div > div > .event-chip {
+    justify-self: start;
+    margin: 10px;
   }
 
   .meta-manual-notice {
@@ -8183,6 +8296,21 @@ button.meta-manual-entry[aria-expanded="true"] {
 
   .meta-setup-steps li {
     font-size: 0;
+  }
+
+  .meta-account-routing-heading,
+  .meta-destination-inventory > summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .meta-account-routing-control > span {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .meta-account-routing-control .button {
+    width: 100%;
   }
 
   .meta-setup-steps li::after {
