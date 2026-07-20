@@ -144,6 +144,11 @@ enum MetaWhatsappClassification {
   not_whatsapp
 }
 
+enum MetaAdDestinationAssignmentSource {
+  automatic
+  manual
+}
+
 enum AuthActionTokenType {
   password_reset
   email_verification
@@ -231,16 +236,18 @@ model User {
   memberships                      WorkspaceMember[]
   sessions                         AuthSession[]
   actionTokens                     AuthActionToken[]
-  lastWorkspace                    Workspace?                    @relation("UserLastWorkspace", fields: [lastWorkspaceId], references: [id], onDelete: SetNull)
+  lastWorkspace                    Workspace?                        @relation("UserLastWorkspace", fields: [lastWorkspaceId], references: [id], onDelete: SetNull)
   metaOAuthStates                  MetaOAuthState[]
   auditLogs                        AuditLog[]
-  createdMetaCredentials           MetaCredential[]              @relation("MetaCredentialCreator")
-  createdMetaBusinessConnections   MetaBusinessConnection[]      @relation("MetaBusinessConnectionCreator")
-  createdMetaDestinations          MetaConversionDestination[]   @relation("MetaConversionDestinationCreator")
-  certifiedInboundWebhookParsers   InboundWebhookParserRelease[] @relation("InboundWebhookParserReleaseCertifier")
-  createdInboundWebhookConnections InboundWebhookConnection[]    @relation("InboundWebhookConnectionCreator")
-  createdInboundWebhookRoutes      InboundWebhookChannelRoute[]  @relation("InboundWebhookChannelRouteCreator")
-  requestedInboundWebhookReplays   InboundWebhookReplayBatch[]   @relation("InboundWebhookReplayRequester")
+  createdMetaCredentials           MetaCredential[]                  @relation("MetaCredentialCreator")
+  createdMetaBusinessConnections   MetaBusinessConnection[]          @relation("MetaBusinessConnectionCreator")
+  createdMetaDestinations          MetaConversionDestination[]       @relation("MetaConversionDestinationCreator")
+  createdMetaAccountDestinations   MetaReportingAccountDestination[] @relation("MetaReportingAccountDestinationCreator")
+  createdMetaAdAssignments         MetaAdDestinationAssignment[]     @relation("MetaAdDestinationAssignmentCreator")
+  certifiedInboundWebhookParsers   InboundWebhookParserRelease[]     @relation("InboundWebhookParserReleaseCertifier")
+  createdInboundWebhookConnections InboundWebhookConnection[]        @relation("InboundWebhookConnectionCreator")
+  createdInboundWebhookRoutes      InboundWebhookChannelRoute[]      @relation("InboundWebhookChannelRouteCreator")
+  requestedInboundWebhookReplays   InboundWebhookReplayBatch[]       @relation("InboundWebhookReplayRequester")
 
   @@index([lastWorkspaceId])
 }
@@ -254,47 +261,49 @@ model Workspace {
   createdAt         DateTime                   @default(now())
   updatedAt         DateTime                   @updatedAt
 
-  members                     WorkspaceMember[]
-  invites                     WorkspaceInvite[]
-  whatsappInstances           WhatsappInstance[]
-  diagnosticEvents            DiagnosticEvent[]
-  webhookLogs                 WebhookLog[]
-  integrationLogs             IntegrationLog[]
-  conversionEventLogs         ConversionEventLog[]
-  jobAttempts                 JobAttempt[]
-  auditLogs                   AuditLog[]
-  subscriptions               WorkspaceSubscription[]
-  paymentCharges              PaymentCharge[]
-  whatsappInstanceActivations WhatsappInstanceActivation[]
-  conversionRules             ConversionRule[]
-  funnelStageConfigurations   FunnelStageConfiguration[]
-  leads                       Lead[]
-  metaIntegration             MetaIntegration?
-  metaCredentials             MetaCredential[]
-  metaBusinessConnections     MetaBusinessConnection[]
-  metaAssetSnapshots          MetaAssetSnapshot[]
-  metaConversionDestinations  MetaConversionDestination[]
-  metaReportingAccounts       MetaReportingAccount[]
-  metaCampaigns               MetaCampaign[]
-  metaCampaignDailyInsights   MetaCampaignDailyInsight[]
-  metaAdSets                  MetaAdSet[]
-  metaAdSetDailyInsights      MetaAdSetDailyInsight[]
-  metaAds                     MetaAd[]
-  metaAdDailyInsights         MetaAdDailyInsight[]
-  metaOAuthStates             MetaOAuthState[]
-  externalDataConnectors      ExternalDataConnector[]
-  externalIngestionRecords    ExternalIngestionRecord[]
-  activeSessions              AuthSession[]                @relation("AuthSessionActiveWorkspace")
-  supportSessions             AuthSession[]                @relation("AuthSessionSupportWorkspace")
-  lastSelectedByUsers         User[]                       @relation("UserLastWorkspace")
-  actionTokens                AuthActionToken[]
-  inboundWebhookConnections   InboundWebhookConnection[]
-  inboundWebhookChannels      InboundWebhookChannel[]
-  inboundWebhookChannelRoutes InboundWebhookChannelRoute[]
-  inboundWebhookDeliveries    InboundWebhookDelivery[]
-  inboundWebhookEvents        InboundWebhookEvent[]
-  inboundWebhookReplayBatches InboundWebhookReplayBatch[]
-  inboundWebhookReplayItems   InboundWebhookReplayItem[]
+  members                          WorkspaceMember[]
+  invites                          WorkspaceInvite[]
+  whatsappInstances                WhatsappInstance[]
+  diagnosticEvents                 DiagnosticEvent[]
+  webhookLogs                      WebhookLog[]
+  integrationLogs                  IntegrationLog[]
+  conversionEventLogs              ConversionEventLog[]
+  jobAttempts                      JobAttempt[]
+  auditLogs                        AuditLog[]
+  subscriptions                    WorkspaceSubscription[]
+  paymentCharges                   PaymentCharge[]
+  whatsappInstanceActivations      WhatsappInstanceActivation[]
+  conversionRules                  ConversionRule[]
+  funnelStageConfigurations        FunnelStageConfiguration[]
+  leads                            Lead[]
+  metaIntegration                  MetaIntegration?
+  metaCredentials                  MetaCredential[]
+  metaBusinessConnections          MetaBusinessConnection[]
+  metaAssetSnapshots               MetaAssetSnapshot[]
+  metaConversionDestinations       MetaConversionDestination[]
+  metaReportingAccounts            MetaReportingAccount[]
+  metaReportingAccountDestinations MetaReportingAccountDestination[]
+  metaAdDestinationAssignments     MetaAdDestinationAssignment[]
+  metaCampaigns                    MetaCampaign[]
+  metaCampaignDailyInsights        MetaCampaignDailyInsight[]
+  metaAdSets                       MetaAdSet[]
+  metaAdSetDailyInsights           MetaAdSetDailyInsight[]
+  metaAds                          MetaAd[]
+  metaAdDailyInsights              MetaAdDailyInsight[]
+  metaOAuthStates                  MetaOAuthState[]
+  externalDataConnectors           ExternalDataConnector[]
+  externalIngestionRecords         ExternalIngestionRecord[]
+  activeSessions                   AuthSession[]                     @relation("AuthSessionActiveWorkspace")
+  supportSessions                  AuthSession[]                     @relation("AuthSessionSupportWorkspace")
+  lastSelectedByUsers              User[]                            @relation("UserLastWorkspace")
+  actionTokens                     AuthActionToken[]
+  inboundWebhookConnections        InboundWebhookConnection[]
+  inboundWebhookChannels           InboundWebhookChannel[]
+  inboundWebhookChannelRoutes      InboundWebhookChannelRoute[]
+  inboundWebhookDeliveries         InboundWebhookDelivery[]
+  inboundWebhookEvents             InboundWebhookEvent[]
+  inboundWebhookReplayBatches      InboundWebhookReplayBatch[]
+  inboundWebhookReplayItems        InboundWebhookReplayItem[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
@@ -1018,14 +1027,16 @@ model MetaConversionDestination {
   createdAt              DateTime                        @default(now())
   updatedAt              DateTime                        @updatedAt
 
-  workspace                     Workspace                    @relation(fields: [workspaceId], references: [id])
-  createdBy                     User?                        @relation("MetaConversionDestinationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  defaultForBusinessConnections MetaBusinessConnection[]     @relation("MetaBusinessDefaultDestination")
-  reportingAccountOverrides     MetaReportingAccount[]       @relation("MetaReportingDestinationOverride")
-  primaryForIntegrations        MetaIntegration[]            @relation("MetaIntegrationPrimaryDestination")
+  workspace                     Workspace                         @relation(fields: [workspaceId], references: [id])
+  createdBy                     User?                             @relation("MetaConversionDestinationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  defaultForBusinessConnections MetaBusinessConnection[]          @relation("MetaBusinessDefaultDestination")
+  reportingAccountOverrides     MetaReportingAccount[]            @relation("MetaReportingDestinationOverride")
+  reportingAccountDestinations  MetaReportingAccountDestination[] @relation("MetaReportingAccountDestinationDestination")
+  adDestinationAssignments      MetaAdDestinationAssignment[]     @relation("MetaAdDestinationAssignmentDestination")
+  primaryForIntegrations        MetaIntegration[]                 @relation("MetaIntegrationPrimaryDestination")
   conversionEventLogs           ConversionEventLog[]
-  inboundWebhookChannelRoutes   InboundWebhookChannelRoute[] @relation("InboundWebhookRouteDestination")
-  resolvedInboundWebhookEvents  InboundWebhookEvent[]        @relation("InboundWebhookEventResolvedDestination")
+  inboundWebhookChannelRoutes   InboundWebhookChannelRoute[]      @relation("InboundWebhookRouteDestination")
+  resolvedInboundWebhookEvents  InboundWebhookEvent[]             @relation("InboundWebhookEventResolvedDestination")
 
   @@unique([workspaceId, id])
   @@unique([workspaceId, pixelId, pageId])
@@ -1056,11 +1067,13 @@ model MetaReportingAccount {
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
 
-  workspace                    Workspace                    @relation(fields: [workspaceId], references: [id])
-  businessConnection           MetaBusinessConnection?      @relation(fields: [businessConnectionId], references: [id], onDelete: SetNull)
-  conversionDestination        MetaConversionDestination?   @relation("MetaReportingDestinationOverride", fields: [conversionDestinationId], references: [id], onDelete: SetNull)
-  inboundWebhookChannelRoutes  InboundWebhookChannelRoute[] @relation("InboundWebhookRouteReportingAccount")
-  resolvedInboundWebhookEvents InboundWebhookEvent[]        @relation("InboundWebhookEventResolvedReportingAccount")
+  workspace                    Workspace                         @relation(fields: [workspaceId], references: [id])
+  businessConnection           MetaBusinessConnection?           @relation(fields: [businessConnectionId], references: [id], onDelete: SetNull)
+  conversionDestination        MetaConversionDestination?        @relation("MetaReportingDestinationOverride", fields: [conversionDestinationId], references: [id], onDelete: SetNull)
+  allowedDestinations          MetaReportingAccountDestination[] @relation("MetaReportingAccountDestinationAccount")
+  adDestinationAssignments     MetaAdDestinationAssignment[]     @relation("MetaAdDestinationAssignmentAccount")
+  inboundWebhookChannelRoutes  InboundWebhookChannelRoute[]      @relation("InboundWebhookRouteReportingAccount")
+  resolvedInboundWebhookEvents InboundWebhookEvent[]             @relation("InboundWebhookEventResolvedReportingAccount")
 
   @@unique([workspaceId, id])
   @@unique([workspaceId, adAccountId])
@@ -1070,6 +1083,53 @@ model MetaReportingAccount {
   @@index([businessConnectionId])
   @@index([conversionDestinationId])
   @@index([businessId])
+}
+
+model MetaReportingAccountDestination {
+  id                      String   @id @default(cuid())
+  workspaceId             String
+  reportingAccountId      String
+  conversionDestinationId String
+  active                  Boolean  @default(true)
+  createdByUserId         String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  workspace   Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  account     MetaReportingAccount      @relation("MetaReportingAccountDestinationAccount", fields: [workspaceId, reportingAccountId], references: [workspaceId, id], onDelete: Restrict, map: "MetaReportingAccountDestination_accountId_fkey")
+  destination MetaConversionDestination @relation("MetaReportingAccountDestinationDestination", fields: [workspaceId, conversionDestinationId], references: [workspaceId, id], onDelete: Restrict, map: "MetaReportingAccountDestination_destinationId_fkey")
+  createdBy   User?                     @relation("MetaReportingAccountDestinationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, reportingAccountId, conversionDestinationId], map: "MetaReportingAccountDestination_unique")
+  @@index([workspaceId, reportingAccountId, active])
+  @@index([workspaceId, conversionDestinationId, active])
+  @@index([createdByUserId])
+}
+
+model MetaAdDestinationAssignment {
+  id                      String                            @id @default(cuid())
+  workspaceId             String
+  adId                    String
+  reportingAccountId      String
+  conversionDestinationId String
+  source                  MetaAdDestinationAssignmentSource @default(automatic)
+  detectedPixelId         String?
+  detectedPageId          String?
+  createdByUserId         String?
+  createdAt               DateTime                          @default(now())
+  updatedAt               DateTime                          @updatedAt
+
+  workspace   Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  ad          MetaAd                    @relation("MetaAdDestinationAssignmentAd", fields: [workspaceId, adId], references: [workspaceId, adId], onDelete: Restrict, map: "MetaAdDestinationAssignment_adId_fkey")
+  account     MetaReportingAccount      @relation("MetaAdDestinationAssignmentAccount", fields: [workspaceId, reportingAccountId], references: [workspaceId, id], onDelete: Restrict, map: "MetaAdDestinationAssignment_accountId_fkey")
+  destination MetaConversionDestination @relation("MetaAdDestinationAssignmentDestination", fields: [workspaceId, conversionDestinationId], references: [workspaceId, id], onDelete: Restrict, map: "MetaAdDestinationAssignment_destinationId_fkey")
+  createdBy   User?                     @relation("MetaAdDestinationAssignmentCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, adId], map: "MetaAdDestinationAssignment_workspace_ad_key")
+  @@index([workspaceId, reportingAccountId])
+  @@index([workspaceId, conversionDestinationId])
+  @@index([source])
+  @@index([createdByUserId])
 }
 
 model InboundWebhookParserRelease {
@@ -1134,10 +1194,11 @@ model InboundWebhookChannel {
   createdAt         DateTime                    @default(now())
   updatedAt         DateTime                    @updatedAt
 
-  workspace  Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  connection InboundWebhookConnection     @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookChannel_connectionId_fkey")
-  routes     InboundWebhookChannelRoute[]
-  events     InboundWebhookEvent[]
+  workspace     Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  connection    InboundWebhookConnection     @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookChannel_connectionId_fkey")
+  routes        InboundWebhookChannelRoute[]
+  events        InboundWebhookEvent[]
+  replayBatches InboundWebhookReplayBatch[]
 
   @@unique([workspaceId, id])
   @@unique([connectionId, organizationId, providerChannelId], map: "InboundWebhookChannel_identity_key")
@@ -1271,6 +1332,7 @@ model InboundWebhookReplayBatch {
   id                   String                        @id @default(cuid())
   workspaceId          String
   connectionId         String
+  channelId            String?
   requestedByUserId    String
   selection            InboundWebhookReplaySelection @default(canary_1)
   requestedLimit       Int                           @default(1)
@@ -1290,11 +1352,13 @@ model InboundWebhookReplayBatch {
 
   workspace   Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   connection  InboundWebhookConnection   @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookReplayBatch_connectionId_fkey")
+  channel     InboundWebhookChannel?     @relation(fields: [workspaceId, channelId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookReplayBatch_channelId_fkey")
   requestedBy User                       @relation("InboundWebhookReplayRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
   items       InboundWebhookReplayItem[]
 
   @@unique([workspaceId, id])
   @@index([connectionId, createdAt])
+  @@index([workspaceId, channelId, createdAt])
   @@index([workspaceId, status, createdAt])
   @@index([requestedByUserId])
 }
@@ -1454,6 +1518,8 @@ model MetaAd {
   thumbnailUrl             String?
   previewUrl               String?
   callToActionType         String?
+  detectedPixelIds         String[]                    @default([])
+  detectedPageIds          String[]                    @default([])
   whatsappClassification   MetaWhatsappClassification  @default(not_whatsapp)
   classificationSource     String?
   classificationOverride   MetaWhatsappClassification?
@@ -1465,7 +1531,8 @@ model MetaAd {
   createdAt                DateTime                    @default(now())
   updatedAt                DateTime                    @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace             Workspace                    @relation(fields: [workspaceId], references: [id])
+  destinationAssignment MetaAdDestinationAssignment? @relation("MetaAdDestinationAssignmentAd")
 
   @@unique([workspaceId, adId])
   @@index([workspaceId, campaignId])

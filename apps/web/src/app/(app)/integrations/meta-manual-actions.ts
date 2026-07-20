@@ -5,6 +5,7 @@ import type {
   MetaManualConfigurationDto,
   MetaManualConnectionTestResultDto,
   MetaOAuthDisconnectResultDto,
+  MetaReportingAccountAdRoutingDto,
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
@@ -19,6 +20,7 @@ export type MetaManualActionResult = {
   discovery?: MetaManualAssetDiscoveryDto;
   configuration?: MetaManualConfigurationDto;
   testResult?: MetaManualConnectionTestResultDto;
+  adRouting?: MetaReportingAccountAdRoutingDto;
 };
 
 export async function disconnectMetaOAuthAction(
@@ -292,10 +294,62 @@ export async function syncMetaManualHistoryAction(): Promise<MetaManualActionRes
 export async function setMetaManualAccountDestinationAction(
   reportingAccountId: string,
   conversionDestinationId: string | null,
+  conversionDestinationIds: string[],
 ): Promise<MetaManualActionResult> {
   try {
     const configuration = await serverApiFetch<MetaManualConfigurationDto>(
       `/integrations/meta/manual/reporting-accounts/${encodeURIComponent(reportingAccountId)}/destination`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          conversionDestinationId,
+          conversionDestinationIds,
+        }),
+      },
+    );
+
+    revalidatePath("/integrations");
+    return {
+      ok: true,
+      message:
+        conversionDestinationIds.length > 1
+          ? `${conversionDestinationIds.length} destinos autorizados. Revise o roteamento por anuncio.`
+          : conversionDestinationId
+            ? "Destino especifico aplicado a esta conta."
+            : "A conta voltou a usar o destino padrao da BM.",
+      configuration,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel alterar o destino desta conta.");
+  }
+}
+
+export async function getMetaManualAdRoutingAction(
+  reportingAccountId: string,
+): Promise<MetaManualActionResult> {
+  try {
+    const adRouting = await serverApiFetch<MetaReportingAccountAdRoutingDto>(
+      `/integrations/meta/manual/reporting-accounts/${encodeURIComponent(reportingAccountId)}/ad-routing`,
+    );
+
+    return {
+      ok: true,
+      message: "Roteamento dos anuncios carregado.",
+      adRouting,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel carregar os anuncios desta conta.");
+  }
+}
+
+export async function setMetaManualAdDestinationAction(
+  reportingAccountId: string,
+  adId: string,
+  conversionDestinationId: string | null,
+): Promise<MetaManualActionResult> {
+  try {
+    const adRouting = await serverApiFetch<MetaReportingAccountAdRoutingDto>(
+      `/integrations/meta/manual/reporting-accounts/${encodeURIComponent(reportingAccountId)}/ads/${encodeURIComponent(adId)}/destination`,
       {
         method: "PUT",
         body: JSON.stringify({ conversionDestinationId }),
@@ -306,12 +360,12 @@ export async function setMetaManualAccountDestinationAction(
     return {
       ok: true,
       message: conversionDestinationId
-        ? "Destino especifico aplicado a esta conta."
-        : "A conta voltou a usar o destino padrao da BM.",
-      configuration,
+        ? "Destino manual aplicado ao anuncio."
+        : "Excecao removida; a descoberta automatica voltou a valer.",
+      adRouting,
     };
   } catch (error) {
-    return failure(error, "Nao foi possivel alterar o destino desta conta.");
+    return failure(error, "Nao foi possivel alterar o destino deste anuncio.");
   }
 }
 
@@ -460,10 +514,62 @@ export async function removeMetaOAuthAdvancedConnectionAction(
 export async function setMetaOAuthAdvancedAccountDestinationAction(
   reportingAccountId: string,
   conversionDestinationId: string | null,
+  conversionDestinationIds: string[],
 ): Promise<MetaManualActionResult> {
   try {
     const configuration = await serverApiFetch<MetaManualConfigurationDto>(
       `/integrations/meta/oauth/advanced/reporting-accounts/${encodeURIComponent(reportingAccountId)}/destination`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          conversionDestinationId,
+          conversionDestinationIds,
+        }),
+      },
+    );
+
+    revalidatePath("/integrations");
+    return {
+      ok: true,
+      message:
+        conversionDestinationIds.length > 1
+          ? `${conversionDestinationIds.length} destinos autorizados. Revise o roteamento por anuncio.`
+          : conversionDestinationId
+            ? "Destino especifico aplicado a esta conta."
+            : "A conta voltou a usar o destino padrao da BM.",
+      configuration,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel alterar o destino desta conta.");
+  }
+}
+
+export async function getMetaOAuthAdvancedAdRoutingAction(
+  reportingAccountId: string,
+): Promise<MetaManualActionResult> {
+  try {
+    const adRouting = await serverApiFetch<MetaReportingAccountAdRoutingDto>(
+      `/integrations/meta/oauth/advanced/reporting-accounts/${encodeURIComponent(reportingAccountId)}/ad-routing`,
+    );
+
+    return {
+      ok: true,
+      message: "Roteamento dos anuncios carregado.",
+      adRouting,
+    };
+  } catch (error) {
+    return failure(error, "Nao foi possivel carregar os anuncios desta conta.");
+  }
+}
+
+export async function setMetaOAuthAdvancedAdDestinationAction(
+  reportingAccountId: string,
+  adId: string,
+  conversionDestinationId: string | null,
+): Promise<MetaManualActionResult> {
+  try {
+    const adRouting = await serverApiFetch<MetaReportingAccountAdRoutingDto>(
+      `/integrations/meta/oauth/advanced/reporting-accounts/${encodeURIComponent(reportingAccountId)}/ads/${encodeURIComponent(adId)}/destination`,
       {
         method: "PUT",
         body: JSON.stringify({ conversionDestinationId }),
@@ -474,12 +580,12 @@ export async function setMetaOAuthAdvancedAccountDestinationAction(
     return {
       ok: true,
       message: conversionDestinationId
-        ? "Destino especifico aplicado a esta conta."
-        : "A conta voltou a usar o destino padrao da BM.",
-      configuration,
+        ? "Destino manual aplicado ao anuncio."
+        : "Excecao removida; a descoberta automatica voltou a valer.",
+      adRouting,
     };
   } catch (error) {
-    return failure(error, "Nao foi possivel alterar o destino desta conta.");
+    return failure(error, "Nao foi possivel alterar o destino deste anuncio.");
   }
 }
 

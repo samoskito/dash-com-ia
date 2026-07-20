@@ -91,6 +91,7 @@ type TestEvent = {
   resolvedConversionDestinationWorkspaceId: string | null;
   resolvedConversionDestinationId: string | null;
   normalizedSummary: Record<string, unknown>;
+  replayItem?: { id: string } | null;
 };
 
 const workspaceId = "workspace_1";
@@ -356,11 +357,28 @@ function createHarness() {
   const inboundWebhookChannel = {
     findMany: vi.fn(async ({ where }) =>
       [...channels.values()]
-        .filter(
-          (channel) =>
-            channel.workspaceId === where.workspaceId &&
-            channel.connectionId === where.connectionId,
-        )
+        .filter((channel) => {
+          if (
+            channel.workspaceId !== where.workspaceId ||
+            (where.connectionId !== undefined &&
+              channel.connectionId !== where.connectionId)
+          ) {
+            return false;
+          }
+
+          if (!where.events?.some) {
+            return true;
+          }
+
+          const classifications = where.events.some.classification?.in ?? [];
+          return [...events.values()].some(
+            (event) =>
+              event.workspaceId === where.workspaceId &&
+              event.channelId === channel.id &&
+              classifications.includes(event.classification) &&
+              event.replayItem == null,
+          );
+        })
         .map(withChannelRelations),
     ),
     findFirst: vi.fn(async ({ where }) => {
@@ -511,21 +529,30 @@ function createHarness() {
     }),
   };
   const inboundWebhookEvent = {
-    findMany: vi.fn(async ({ where }) =>
-      [...events.values()].filter(
+    findMany: vi.fn(async ({ where }) => {
+      const classifications = where.classification?.in ?? [
+        where.classification,
+      ];
+
+      return [...events.values()].filter(
         (event) =>
           event.workspaceId === where.workspaceId &&
           event.channelId === where.channelId &&
-          event.classification === where.classification,
-      ),
-    ),
+          classifications.includes(event.classification) &&
+          (where.replayItem === undefined || event.replayItem == null),
+      );
+    }),
     updateMany: vi.fn(async ({ where, data }) => {
       const event = events.get(where.id);
+      const classifications = where.classification?.in ?? [
+        where.classification,
+      ];
       if (
         !event ||
         event.workspaceId !== where.workspaceId ||
         event.channelId !== where.channelId ||
-        event.classification !== where.classification
+        !classifications.includes(event.classification) ||
+        (where.replayItem !== undefined && event.replayItem != null)
       ) {
         return { count: 0 };
       }
@@ -996,6 +1023,41 @@ describe("inbound webhook channel routes service", () => {
       resolvedConversionDestinationWorkspaceId: workspaceId,
       resolvedConversionDestinationId: "destination_1",
       normalizedSummary: originalSummary,
+    });
+  });
+
+  it("demotes an unmaterialized resolved event when its channel route is removed", async () => {
+    const harness = createHarness();
+    const [route] = await harness.service.replaceRoutes(
+      workspaceId,
+      "channel_1",
+      { routes: [{ metaBusinessConnectionId: "business_1" }] },
+      "user_1",
+    );
+    harness.addUnresolvedEvent("event_resolved", {
+      classification: "eligible_route_resolved",
+      classificationReason: "route_resolved",
+      resolvedBusinessConnectionWorkspaceId: workspaceId,
+      resolvedBusinessConnectionId: "business_1",
+      resolvedReportingAccountWorkspaceId: workspaceId,
+      resolvedReportingAccountId: "reporting_1",
+      resolvedConversionDestinationWorkspaceId: workspaceId,
+      resolvedConversionDestinationId: "destination_1",
+    });
+
+    await harness.service.removeRoute(
+      workspaceId,
+      "channel_1",
+      route!.id,
+      "user_1",
+    );
+
+    expect(harness.events.get("event_resolved")).toMatchObject({
+      classification: "eligible_route_unresolved",
+      classificationReason: "route_not_configured",
+      resolvedBusinessConnectionId: null,
+      resolvedReportingAccountId: null,
+      resolvedConversionDestinationId: null,
     });
   });
 

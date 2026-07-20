@@ -40,6 +40,19 @@ const preview = {
   oldestOccurredAt: "2026-07-18T00:06:00.000Z",
   newestOccurredAt: "2026-07-18T14:40:44.000Z",
   nextPayloadExpiresAt: null,
+  channels: [
+    {
+      id: "channel_1",
+      displayName: "Central de Vendas",
+      connectedPhone: "+551143377011",
+      totalCtwa: 50,
+      routeResolved: 0,
+      routeUnresolved: 50,
+      payloadAvailable: 50,
+      alreadyMaterialized: 0,
+      eligible: 0,
+    },
+  ],
   latestBatch: null,
   recentBatches: [],
 } as const;
@@ -88,6 +101,7 @@ describe("inbound webhook controlled replay route", () => {
       id: "batch_1",
       workspaceId: "workspace_1",
       connectionId: "connection_1",
+      channelId: "channel_1",
       requestedByUserId: "owner_1",
       status: "completed_with_failures",
       selection: "canary_5",
@@ -126,6 +140,15 @@ describe("inbound webhook controlled replay route", () => {
           alreadyMaterialized: 2,
           eligible: 10,
         },
+        channels: [
+          {
+            ...preview.channels[0],
+            routeResolved: 12,
+            routeUnresolved: 38,
+            alreadyMaterialized: 2,
+            eligible: 10,
+          },
+        ],
         nextPayloadExpiresAt: "2026-07-19T12:00:00.000Z",
         latestBatch: completedBatch,
         recentBatches: [completedBatch],
@@ -155,6 +178,8 @@ describe("inbound webhook controlled replay route", () => {
     );
     expect(html).toContain('name="confirmation"');
     expect(html).toContain('name="connectionId"');
+    expect(html).toContain('name="channelId"');
+    expect(html).toContain('value="channel_1"');
     expect(html).not.toContain("Certificar parser");
   });
 

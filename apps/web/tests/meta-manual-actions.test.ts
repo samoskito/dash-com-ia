@@ -145,6 +145,7 @@ describe("Meta manual server actions", () => {
           businessManagerId: "business_advertiser",
           businessManagerName: "BM Anunciante",
           adAccountIds: ["act_1", "act_2"],
+          accountSelectionMode: "merge",
           destination: {
             label: "Pixel matriz",
             ownerBusinessManagerId: "business_matrix",

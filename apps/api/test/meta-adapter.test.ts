@@ -539,6 +539,49 @@ describe("meta adapter oauth", () => {
     expect(batchCall).toBe(2);
   });
 
+  it("extracts Pixel and Page destination hints from each ad", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "ad_1",
+                name: "Anuncio com multiplos destinos",
+                campaign_id: "cmp_1",
+                adset_id: "adset_1",
+                status: "ACTIVE",
+                effective_status: "ACTIVE",
+                tracking_specs: [
+                  {
+                    "action.type": ["offsite_conversion"],
+                    fb_pixel: ["pixel_1"],
+                    page: ["page_tracking"],
+                  },
+                  { dataset: ["pixel_2"] },
+                ],
+                creative: {
+                  object_story_spec: { page_id: "page_creative" },
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+    ) as unknown as typeof fetch;
+    const adapter = new MetaAdapter({}, fetcher);
+
+    await expect(
+      adapter.listAds({ accessToken: "meta-token", adAccountId: "act_123" }),
+    ).resolves.toMatchObject([
+      {
+        id: "ad_1",
+        detectedPixelIds: ["pixel_1", "pixel_2"],
+        detectedPageIds: ["page_creative", "page_tracking"],
+      },
+    ]);
+  });
+
   it("lists campaigns, ad sets, ads and campaign insights from the selected ad account", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -782,6 +825,8 @@ describe("meta adapter oauth", () => {
         thumbnailUrl: "https://example.com/ad-1.jpg",
         previewUrl: "https://example.com/ad-1-high.jpg",
         callToActionType: null,
+        detectedPixelIds: [],
+        detectedPageIds: [],
       },
     ]);
     await expect(

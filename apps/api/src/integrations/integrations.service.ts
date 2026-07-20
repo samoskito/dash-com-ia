@@ -6,6 +6,7 @@ import {
   Optional,
 } from "@nestjs/common";
 import type {
+  MetaAdDestinationInputDto,
   MetaConnectionDto,
   MetaCapiTokenInputDto,
   MetaCapiTokenStatusDto,
@@ -15,6 +16,7 @@ import type {
   MetaAssetsDto,
   MetaReportingAccountDto,
   MetaReportingAccountInputDto,
+  MetaReportingAccountAdRoutingDto,
   IntegrationHealthSummaryDto,
   IntegrationPipelineOverviewDto,
   IntegrationStartActionDto,
@@ -848,6 +850,32 @@ export class IntegrationsService {
     );
   }
 
+  async getMetaOAuthAdvancedAdRouting(
+    workspaceId: string,
+    reportingAccountId: string,
+  ): Promise<MetaReportingAccountAdRoutingDto> {
+    return this.requireMetaManualConnectionsService().getOAuthReportingAccountAdRouting(
+      workspaceId,
+      reportingAccountId,
+    );
+  }
+
+  async setMetaOAuthAdvancedAdDestination(
+    workspaceId: string,
+    reportingAccountId: string,
+    adId: string,
+    input: MetaAdDestinationInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaReportingAccountAdRoutingDto> {
+    return this.requireMetaManualConnectionsService().setOAuthAdDestination(
+      workspaceId,
+      reportingAccountId,
+      adId,
+      input,
+      actorUserId,
+    );
+  }
+
   async setMetaOAuthAdvancedRouting(
     workspaceId: string,
     input: MetaOAuthAdvancedRoutingInputDto,
@@ -959,6 +987,32 @@ export class IntegrationsService {
     return this.requireMetaManualConnectionsService().setReportingAccountDestination(
       workspaceId,
       reportingAccountId,
+      input,
+      actorUserId,
+    );
+  }
+
+  async getMetaManualAdRouting(
+    workspaceId: string,
+    reportingAccountId: string,
+  ): Promise<MetaReportingAccountAdRoutingDto> {
+    return this.requireMetaManualConnectionsService().getReportingAccountAdRouting(
+      workspaceId,
+      reportingAccountId,
+    );
+  }
+
+  async setMetaManualAdDestination(
+    workspaceId: string,
+    reportingAccountId: string,
+    adId: string,
+    input: MetaAdDestinationInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaReportingAccountAdRoutingDto> {
+    return this.requireMetaManualConnectionsService().setAdDestination(
+      workspaceId,
+      reportingAccountId,
+      adId,
       input,
       actorUserId,
     );

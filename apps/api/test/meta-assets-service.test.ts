@@ -244,6 +244,9 @@ describe("meta assets service", () => {
         adAccountName: "Conta WhatsApp",
         currency: "BRL",
         timezoneName: "America/Sao_Paulo",
+        businessConnectionId: null,
+        conversionDestinationId: null,
+        allowedDestinations: [],
         active: false,
         syncStatus: "pending",
         lastSyncedAt: null,
@@ -270,6 +273,9 @@ describe("meta assets service", () => {
         adAccountName: "Conta WhatsApp",
         currency: "BRL",
         timezoneName: "America/Sao_Paulo",
+        businessConnectionId: null,
+        conversionDestinationId: null,
+        conversionDestinationIds: [],
         active: false,
         syncStatus: "pending",
         lastSyncedAt: null,
@@ -285,6 +291,16 @@ describe("meta assets service", () => {
     });
     expect(prisma.metaReportingAccount.findMany).toHaveBeenCalledWith({
       where: { workspaceId: "workspace_1" },
+      include: {
+        allowedDestinations: {
+          where: { active: true },
+          orderBy: { createdAt: "asc" },
+          select: {
+            conversionDestinationId: true,
+            active: true,
+          },
+        },
+      },
       orderBy: [{ active: "desc" }, { adAccountName: "asc" }],
     });
     expect(prisma.auditLog.create).toHaveBeenCalledWith({

@@ -67,7 +67,7 @@ export class InboundWebhookReplayController {
     const parsed =
       backofficeInboundWebhookReplayConfirmationInputSchema.safeParse(body);
 
-    if (!parsed.success) {
+    if (!parsed.success || !parsed.data.channelId) {
       throw new BadRequestException("Confirmacao invalida");
     }
 
@@ -75,6 +75,7 @@ export class InboundWebhookReplayController {
       this.identifier(connectionId, "Conexao invalida"),
       parsed.data.confirmation,
       parsed.data.selection,
+      parsed.data.channelId,
       owner,
       request.ip ?? null,
     );

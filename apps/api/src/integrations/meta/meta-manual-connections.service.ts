@@ -4,10 +4,12 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
   MetaAdAccountAssetDto,
+  MetaAdDestinationInputDto,
   MetaConnectionCapabilitiesDto,
   MetaManualAccountDestinationInputDto,
   MetaManualAssetDiscoveryDto,
@@ -23,8 +25,10 @@ import type {
   MetaOAuthAdvancedRoutingInputDto,
   MetaPageAssetDto,
   MetaPixelAssetDto,
+  MetaReportingAccountAdRoutingDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../../common/prisma/prisma.service";
+import { InboundWebhookChannelRoutesService } from "../../inbound-webhooks/inbound-webhook-channel-routes.service";
 import type { IntegrationEnv } from "../integration.types";
 import { INTEGRATION_ENV } from "../integration.types";
 import { MetaAdapter } from "./meta.adapter";
@@ -111,6 +115,10 @@ type ReportingAccountRecord = {
   timezoneName: string | null;
   businessConnectionId: string | null;
   conversionDestinationId: string | null;
+  allowedDestinations?: Array<{
+    conversionDestinationId: string;
+    active: boolean;
+  }>;
   active: boolean;
   syncStatus: "pending" | "syncing" | "synced" | "error";
   lastSyncedAt: Date | null;
@@ -126,6 +134,8 @@ export class MetaManualConnectionsService {
     private readonly adapter: MetaAdapter,
     private readonly encryption: MetaTokenEncryptionService,
     @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env,
+    @Optional()
+    private readonly inboundRoutes?: InboundWebhookChannelRoutesService,
   ) {}
 
   getCapabilities(): MetaConnectionCapabilitiesDto {
@@ -277,6 +287,16 @@ export class MetaManualConnectionsService {
         }),
         this.prisma.metaReportingAccount.findMany({
           where: { workspaceId },
+          include: {
+            allowedDestinations: {
+              where: { active: true },
+              select: {
+                conversionDestinationId: true,
+                active: true,
+              },
+              orderBy: { createdAt: "asc" },
+            },
+          },
           orderBy: [{ businessName: "asc" }, { adAccountName: "asc" }],
         }),
       ]);
@@ -663,7 +683,7 @@ export class MetaManualConnectionsService {
         });
 
         for (const account of accounts) {
-          await transaction.metaReportingAccount.upsert({
+          const savedAccount = await transaction.metaReportingAccount.upsert({
             where: {
               workspaceId_adAccountId: {
                 workspaceId,
@@ -691,14 +711,29 @@ export class MetaManualConnectionsService {
               currency: account.currency,
               timezoneName: account.timezoneName,
               businessConnectionId: connection.id,
-              ...(accountSelectionMode === "merge"
-                ? {
-                    conversionDestinationId: selectedAccountDestinationId,
-                  }
-                : {}),
               active: true,
               syncStatus: "pending",
               syncError: null,
+            },
+          });
+
+          await transaction.metaReportingAccountDestination.upsert({
+            where: {
+              workspaceId_reportingAccountId_conversionDestinationId: {
+                workspaceId,
+                reportingAccountId: savedAccount.id,
+                conversionDestinationId: savedDestination.id,
+              },
+            },
+            create: {
+              workspaceId,
+              reportingAccountId: savedAccount.id,
+              conversionDestinationId: savedDestination.id,
+              active: true,
+              createdByUserId: actorUserId ?? null,
+            },
+            update: {
+              active: true,
             },
           });
         }
@@ -720,6 +755,17 @@ export class MetaManualConnectionsService {
               syncStatus: "pending",
               syncError: null,
             },
+          });
+
+          await transaction.metaReportingAccountDestination.updateMany({
+            where: {
+              workspaceId,
+              account: {
+                businessConnectionId: connection.id,
+                active: false,
+              },
+            },
+            data: { active: false },
           });
         }
 
@@ -1208,34 +1254,76 @@ export class MetaManualConnectionsService {
       throw new NotFoundException("Conta Meta normalizada nao encontrada");
     }
 
-    if (input.conversionDestinationId) {
-      const destination = await this.prisma.metaConversionDestination.findFirst(
-        {
-          where: { id: input.conversionDestinationId, workspaceId },
-        },
+    const requestedDestinationIds = [
+      ...new Set(input.conversionDestinationIds),
+    ];
+    const destinations = await this.prisma.metaConversionDestination.findMany({
+      where: {
+        workspaceId,
+        id: { in: requestedDestinationIds },
+      },
+    });
+
+    if (destinations.length !== requestedDestinationIds.length) {
+      throw new NotFoundException(
+        "Um ou mais destinos Meta nao foram encontrados",
       );
-
-      if (!destination) {
-        throw new NotFoundException("Destino Meta nao encontrado");
-      }
-
-      const accessToken = this.decryptCredential(
-        account.businessConnection.credential as CredentialRecord,
-      );
-
-      try {
-        await this.validateDestinationAccess(accessToken, destination);
-      } catch (error) {
-        throw this.publicBadRequest(
-          error,
-          "O token desta BM nao acessa o destino selecionado",
-        );
-      }
     }
 
-    await this.prisma.metaReportingAccount.updateMany({
-      where: { id: reportingAccountId, workspaceId },
-      data: { conversionDestinationId: input.conversionDestinationId },
+    const accessToken = this.decryptCredential(
+      account.businessConnection.credential as CredentialRecord,
+    );
+
+    try {
+      for (const destination of destinations) {
+        await this.validateDestinationAccess(accessToken, destination);
+      }
+    } catch (error) {
+      throw this.publicBadRequest(
+        error,
+        "O token desta BM nao acessa todos os destinos selecionados",
+      );
+    }
+
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.metaReportingAccount.updateMany({
+        where: { id: reportingAccountId, workspaceId },
+        data: { conversionDestinationId: input.conversionDestinationId },
+      });
+      await transaction.metaReportingAccountDestination.updateMany({
+        where: { workspaceId, reportingAccountId, active: true },
+        data: { active: false },
+      });
+
+      for (const conversionDestinationId of requestedDestinationIds) {
+        await transaction.metaReportingAccountDestination.upsert({
+          where: {
+            workspaceId_reportingAccountId_conversionDestinationId: {
+              workspaceId,
+              reportingAccountId,
+              conversionDestinationId,
+            },
+          },
+          create: {
+            workspaceId,
+            reportingAccountId,
+            conversionDestinationId,
+            active: true,
+            createdByUserId: actorUserId ?? null,
+          },
+          update: { active: true },
+        });
+      }
+
+      await transaction.metaAdDestinationAssignment.deleteMany({
+        where: {
+          workspaceId,
+          reportingAccountId,
+          ...(requestedDestinationIds.length > 0
+            ? { conversionDestinationId: { notIn: requestedDestinationIds } }
+            : {}),
+        },
+      });
     });
     await this.recordAudit({
       workspaceId,
@@ -1246,8 +1334,11 @@ export class MetaManualConnectionsService {
       resultStatus: "success",
       afterSummary: {
         conversionDestinationId: input.conversionDestinationId,
+        conversionDestinationIds: requestedDestinationIds,
       },
     });
+
+    await this.inboundRoutes?.reevaluateWorkspaceOpenEvents(workspaceId);
 
     return this.listConfigurationForSource(workspaceId, source);
   }
@@ -1261,6 +1352,286 @@ export class MetaManualConnectionsService {
     return this.setReportingAccountDestination(
       workspaceId,
       reportingAccountId,
+      input,
+      actorUserId,
+      "oauth",
+    );
+  }
+
+  async getReportingAccountAdRouting(
+    workspaceId: string,
+    reportingAccountId: string,
+    source: NormalizedConnectionSource = "manual",
+  ): Promise<MetaReportingAccountAdRoutingDto> {
+    this.requireSourceEnabled(source);
+    const account = await this.prisma.metaReportingAccount.findFirst({
+      where: { id: reportingAccountId, workspaceId },
+      include: {
+        businessConnection: { include: { credential: true } },
+        allowedDestinations: {
+          where: { active: true },
+          include: { destination: true },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+
+    if (
+      !account?.businessConnection ||
+      account.businessConnection.credential.source !== source
+    ) {
+      throw new NotFoundException("Conta Meta normalizada nao encontrada");
+    }
+
+    let destinations = account.allowedDestinations.map(
+      (record) => record.destination,
+    );
+    const legacyDestinationId =
+      account.conversionDestinationId ??
+      account.businessConnection.defaultConversionDestinationId;
+
+    if (destinations.length === 0 && legacyDestinationId) {
+      destinations = await this.prisma.metaConversionDestination.findMany({
+        where: { id: legacyDestinationId, workspaceId },
+      });
+    }
+
+    const allowedDestinationIds = destinations.map(
+      (destination) => destination.id,
+    );
+    const ads = await this.prisma.metaAd.findMany({
+      where: {
+        workspaceId,
+        adAccountId: account.adAccountId,
+      },
+      select: {
+        adId: true,
+        name: true,
+        status: true,
+        effectiveStatus: true,
+        detectedPixelIds: true,
+        detectedPageIds: true,
+        updatedAt: true,
+        destinationAssignment: {
+          select: {
+            conversionDestinationId: true,
+            source: true,
+            detectedPixelId: true,
+            detectedPageId: true,
+            updatedAt: true,
+          },
+        },
+      },
+      orderBy: [{ updatedAt: "desc" }, { name: "asc" }],
+      take: 1000,
+    });
+
+    return {
+      reportingAccountId: account.id,
+      adAccountId: account.adAccountId,
+      adAccountName: account.adAccountName,
+      conversionDestinationId: account.conversionDestinationId,
+      conversionDestinationIds: allowedDestinationIds,
+      ads: ads.map((ad) => {
+        const candidates = this.destinationCandidates(
+          destinations,
+          ad.detectedPixelIds,
+          ad.detectedPageIds,
+        );
+        const assignment =
+          ad.destinationAssignment &&
+          allowedDestinationIds.includes(
+            ad.destinationAssignment.conversionDestinationId,
+          )
+            ? ad.destinationAssignment
+            : null;
+
+        return {
+          adId: ad.adId,
+          adName: ad.name,
+          status: ad.status,
+          effectiveStatus: ad.effectiveStatus,
+          routeStatus: assignment
+            ? ("assigned" as const)
+            : candidates.length > 1
+              ? ("ambiguous" as const)
+              : ("unresolved" as const),
+          conversionDestinationId: assignment?.conversionDestinationId ?? null,
+          assignmentSource: assignment?.source ?? null,
+          detectedPixelId:
+            assignment?.detectedPixelId ?? ad.detectedPixelIds[0] ?? null,
+          detectedPageId:
+            assignment?.detectedPageId ?? ad.detectedPageIds[0] ?? null,
+          candidateDestinationIds: candidates.map(
+            (destination) => destination.id,
+          ),
+          updatedAt:
+            assignment?.updatedAt.toISOString() ?? ad.updatedAt.toISOString(),
+        };
+      }),
+    };
+  }
+
+  async getOAuthReportingAccountAdRouting(
+    workspaceId: string,
+    reportingAccountId: string,
+  ): Promise<MetaReportingAccountAdRoutingDto> {
+    return this.getReportingAccountAdRouting(
+      workspaceId,
+      reportingAccountId,
+      "oauth",
+    );
+  }
+
+  async setAdDestination(
+    workspaceId: string,
+    reportingAccountId: string,
+    adId: string,
+    input: MetaAdDestinationInputDto,
+    actorUserId?: string | null,
+    source: NormalizedConnectionSource = "manual",
+  ): Promise<MetaReportingAccountAdRoutingDto> {
+    this.requireSourceEnabled(source);
+    const account = await this.prisma.metaReportingAccount.findFirst({
+      where: { id: reportingAccountId, workspaceId },
+      include: {
+        businessConnection: { include: { credential: true } },
+        allowedDestinations: {
+          where: { active: true },
+          include: { destination: true },
+        },
+      },
+    });
+
+    if (
+      !account?.businessConnection ||
+      account.businessConnection.credential.source !== source
+    ) {
+      throw new NotFoundException("Conta Meta normalizada nao encontrada");
+    }
+
+    const ad = await this.prisma.metaAd.findFirst({
+      where: {
+        workspaceId,
+        adId,
+        adAccountId: account.adAccountId,
+      },
+      select: {
+        adId: true,
+        detectedPixelIds: true,
+        detectedPageIds: true,
+      },
+    });
+
+    if (!ad) {
+      throw new NotFoundException("Anuncio Meta nao encontrado nesta conta");
+    }
+
+    let destinations = account.allowedDestinations.map(
+      (record) => record.destination,
+    );
+    const legacyDestinationId =
+      account.conversionDestinationId ??
+      account.businessConnection.defaultConversionDestinationId;
+
+    if (destinations.length === 0 && legacyDestinationId) {
+      destinations = await this.prisma.metaConversionDestination.findMany({
+        where: { id: legacyDestinationId, workspaceId },
+      });
+    }
+
+    if (
+      input.conversionDestinationId &&
+      !destinations.some(
+        (destination) => destination.id === input.conversionDestinationId,
+      )
+    ) {
+      throw new BadRequestException(
+        "O destino escolhido nao esta autorizado para esta conta",
+      );
+    }
+
+    const automaticCandidate = this.destinationCandidates(
+      destinations,
+      ad.detectedPixelIds,
+      ad.detectedPageIds,
+    );
+    const selectedDestinationId =
+      input.conversionDestinationId ??
+      (automaticCandidate.length === 1 ? automaticCandidate[0].id : null);
+    const assignmentSource = input.conversionDestinationId
+      ? ("manual" as const)
+      : ("automatic" as const);
+
+    await this.prisma.$transaction(async (transaction) => {
+      if (!selectedDestinationId) {
+        await transaction.metaAdDestinationAssignment.deleteMany({
+          where: { workspaceId, adId: ad.adId },
+        });
+        return;
+      }
+
+      await transaction.metaAdDestinationAssignment.upsert({
+        where: {
+          workspaceId_adId: { workspaceId, adId: ad.adId },
+        },
+        create: {
+          workspaceId,
+          adId: ad.adId,
+          reportingAccountId: account.id,
+          conversionDestinationId: selectedDestinationId,
+          source: assignmentSource,
+          detectedPixelId: ad.detectedPixelIds[0] ?? null,
+          detectedPageId: ad.detectedPageIds[0] ?? null,
+          createdByUserId:
+            assignmentSource === "manual" ? (actorUserId ?? null) : null,
+        },
+        update: {
+          reportingAccountId: account.id,
+          conversionDestinationId: selectedDestinationId,
+          source: assignmentSource,
+          detectedPixelId: ad.detectedPixelIds[0] ?? null,
+          detectedPageId: ad.detectedPageIds[0] ?? null,
+          createdByUserId:
+            assignmentSource === "manual" ? (actorUserId ?? null) : null,
+        },
+      });
+    });
+
+    await this.recordAudit({
+      workspaceId,
+      actorUserId: actorUserId ?? null,
+      action: `meta.${source}.ad_destination_updated`,
+      targetType: "MetaAd",
+      targetId: ad.adId,
+      resultStatus: "success",
+      afterSummary: {
+        reportingAccountId: account.id,
+        conversionDestinationId: selectedDestinationId,
+        source: selectedDestinationId ? assignmentSource : null,
+      },
+    });
+
+    await this.inboundRoutes?.reevaluateWorkspaceOpenEvents(workspaceId);
+
+    return this.getReportingAccountAdRouting(
+      workspaceId,
+      reportingAccountId,
+      source,
+    );
+  }
+
+  async setOAuthAdDestination(
+    workspaceId: string,
+    reportingAccountId: string,
+    adId: string,
+    input: MetaAdDestinationInputDto,
+    actorUserId?: string | null,
+  ): Promise<MetaReportingAccountAdRoutingDto> {
+    return this.setAdDestination(
+      workspaceId,
+      reportingAccountId,
+      adId,
       input,
       actorUserId,
       "oauth",
@@ -1643,6 +2014,10 @@ export class MetaManualConnectionsService {
       timezoneName: record.timezoneName,
       businessConnectionId: record.businessConnectionId,
       conversionDestinationId: record.conversionDestinationId,
+      conversionDestinationIds:
+        record.allowedDestinations
+          ?.filter((destination) => destination.active)
+          .map((destination) => destination.conversionDestinationId) ?? [],
       active: record.active,
       syncStatus: record.syncStatus,
       lastSyncedAt: record.lastSyncedAt?.toISOString() ?? null,
@@ -1650,6 +2025,23 @@ export class MetaManualConnectionsService {
       lastSyncUntil: record.lastSyncUntil,
       syncError: record.syncError,
     };
+  }
+
+  private destinationCandidates<
+    T extends { id: string; pixelId: string; pageId: string },
+  >(destinations: T[], pixelIds: string[], pageIds: string[]): T[] {
+    const hasPixelHint = pixelIds.length > 0;
+    const hasPageHint = pageIds.length > 0;
+
+    if (!hasPixelHint && !hasPageHint) {
+      return [];
+    }
+
+    return destinations.filter(
+      (destination) =>
+        (!hasPixelHint || pixelIds.includes(destination.pixelId)) &&
+        (!hasPageHint || pageIds.includes(destination.pageId)),
+    );
   }
 
   private async recordAudit(input: {

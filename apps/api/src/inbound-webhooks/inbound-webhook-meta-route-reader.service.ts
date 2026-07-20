@@ -12,6 +12,9 @@ export type InboundWebhookMetaRouteReason =
   | "business_connection_inactive"
   | "credential_inactive"
   | "conversion_destination_missing"
+  | "conversion_destination_not_authorized"
+  | "ad_destination_unresolved"
+  | "ad_destination_mismatch"
   | "conversion_destination_not_configured";
 
 export type InboundWebhookMetaRoutePreview = {
@@ -52,7 +55,15 @@ export class InboundWebhookMetaRouteReaderService {
     const ad = adId
       ? await this.prisma.metaAd.findFirst({
           where: { workspaceId: input.workspaceId, adId },
-          select: { adAccountId: true },
+          select: {
+            adAccountId: true,
+            destinationAssignment: {
+              select: {
+                reportingAccountId: true,
+                conversionDestinationId: true,
+              },
+            },
+          },
         })
       : null;
 
@@ -76,6 +87,13 @@ export class InboundWebhookMetaRouteReaderService {
         businessConnectionId: true,
         conversionDestinationId: true,
         active: true,
+        allowedDestinations: {
+          where: { active: true },
+          select: {
+            conversionDestinationId: true,
+          },
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
 
@@ -105,10 +123,7 @@ export class InboundWebhookMetaRouteReaderService {
       businessConnectionId !== null &&
       businessConnectionId !== account.businessConnectionId
     ) {
-      return this.unresolved(
-        "business_connection_not_found",
-        accountMetadata,
-      );
+      return this.unresolved("business_connection_not_found", accountMetadata);
     }
 
     const connection = await this.prisma.metaBusinessConnection.findFirst({
@@ -126,10 +141,7 @@ export class InboundWebhookMetaRouteReaderService {
     });
 
     if (!connection) {
-      return this.unresolved(
-        "business_connection_not_found",
-        accountMetadata,
-      );
+      return this.unresolved("business_connection_not_found", accountMetadata);
     }
 
     const connectionMetadata = {
@@ -148,14 +160,74 @@ export class InboundWebhookMetaRouteReaderService {
       return this.unresolved("credential_inactive", connectionMetadata);
     }
 
-    const destinationId =
-      conversionDestinationId ??
+    const legacyDestinationId =
       account.conversionDestinationId ??
       connection.defaultConversionDestinationId;
+    const allowedDestinations = account.allowedDestinations ?? [];
+    const authorizedDestinationIds = [
+      ...new Set(
+        allowedDestinations.length > 0
+          ? allowedDestinations.map(
+              (destination) => destination.conversionDestinationId,
+            )
+          : legacyDestinationId
+            ? [legacyDestinationId]
+            : [],
+      ),
+    ];
+    const assignment =
+      ad.destinationAssignment?.reportingAccountId === account.id
+        ? ad.destinationAssignment
+        : null;
+
+    if (
+      conversionDestinationId &&
+      !authorizedDestinationIds.includes(conversionDestinationId)
+    ) {
+      return this.unresolved(
+        "conversion_destination_not_authorized",
+        connectionMetadata,
+      );
+    }
+
+    if (
+      conversionDestinationId &&
+      assignment &&
+      assignment.conversionDestinationId !== conversionDestinationId
+    ) {
+      return this.unresolved("ad_destination_mismatch", connectionMetadata);
+    }
+
+    if (
+      conversionDestinationId &&
+      !assignment &&
+      authorizedDestinationIds.length > 1
+    ) {
+      return this.unresolved("ad_destination_unresolved", connectionMetadata);
+    }
+
+    if (
+      assignment &&
+      !authorizedDestinationIds.includes(assignment.conversionDestinationId)
+    ) {
+      return this.unresolved(
+        "conversion_destination_not_authorized",
+        connectionMetadata,
+      );
+    }
+
+    const destinationId =
+      conversionDestinationId ??
+      assignment?.conversionDestinationId ??
+      (authorizedDestinationIds.length === 1
+        ? authorizedDestinationIds[0]
+        : null);
 
     if (!destinationId) {
       return this.unresolved(
-        "conversion_destination_missing",
+        authorizedDestinationIds.length > 1
+          ? "ad_destination_unresolved"
+          : "conversion_destination_missing",
         connectionMetadata,
       );
     }

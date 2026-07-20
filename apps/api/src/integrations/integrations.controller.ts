@@ -16,6 +16,7 @@ import {
   Res,
 } from "@nestjs/common";
 import {
+  metaAdDestinationInputSchema,
   metaAssetSelectionInputSchema,
   metaCapiTokenInputSchema,
   metaConversionDestinationInputSchema,
@@ -371,6 +372,43 @@ export class IntegrationsController {
     );
   }
 
+  @Get("meta/oauth/advanced/reporting-accounts/:id/ad-routing")
+  async getMetaOAuthAdvancedAdRouting(
+    @AuthToken() refreshToken: string,
+    @Param("id") reportingAccountId: string,
+  ) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.integrationsService.getMetaOAuthAdvancedAdRouting(
+      workspaceId,
+      reportingAccountId,
+    );
+  }
+
+  @Put("meta/oauth/advanced/reporting-accounts/:id/ads/:adId/destination")
+  async setMetaOAuthAdvancedAdDestination(
+    @AuthToken() refreshToken: string,
+    @Param("id") reportingAccountId: string,
+    @Param("adId") adId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(metaAdDestinationInputSchema.safeParse(body));
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.setMetaOAuthAdvancedAdDestination(
+      workspace.id,
+      reportingAccountId,
+      adId,
+      input,
+      authenticated.user.id,
+    );
+  }
+
   @Put("meta/oauth/advanced/routing")
   async setMetaOAuthAdvancedRouting(
     @AuthToken() refreshToken: string,
@@ -573,6 +611,43 @@ export class IntegrationsController {
     return this.integrationsService.setMetaManualReportingDestination(
       workspace.id,
       reportingAccountId,
+      input,
+      authenticated.user.id,
+    );
+  }
+
+  @Get("meta/manual/reporting-accounts/:id/ad-routing")
+  async getMetaManualAdRouting(
+    @AuthToken() refreshToken: string,
+    @Param("id") reportingAccountId: string,
+  ) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+
+    return this.integrationsService.getMetaManualAdRouting(
+      workspaceId,
+      reportingAccountId,
+    );
+  }
+
+  @Put("meta/manual/reporting-accounts/:id/ads/:adId/destination")
+  async setMetaManualAdDestination(
+    @AuthToken() refreshToken: string,
+    @Param("id") reportingAccountId: string,
+    @Param("adId") adId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const authenticated = await this.authService.getSession(refreshToken);
+    const workspace = this.workspacesService.getCurrentWorkspace(authenticated);
+    const input = this.parseBody(metaAdDestinationInputSchema.safeParse(body));
+
+    if (!workspace.permissions.canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.integrationsService.setMetaManualAdDestination(
+      workspace.id,
+      reportingAccountId,
+      adId,
       input,
       authenticated.user.id,
     );

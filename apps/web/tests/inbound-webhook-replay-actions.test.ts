@@ -79,6 +79,7 @@ describe("inbound webhook replay actions", () => {
       previousState,
       form({
         connectionId: "connection_1",
+        channelId: "channel_1",
         confirmation: "observacao inicial",
         selection: "canary_1",
       }),
@@ -91,6 +92,7 @@ describe("inbound webhook replay actions", () => {
         body: JSON.stringify({
           confirmation: "observacao inicial",
           selection: "canary_1",
+          channelId: "channel_1",
         }),
       },
     );
@@ -132,6 +134,7 @@ describe("inbound webhook replay actions", () => {
       previousState,
       form({
         connectionId: "connection_1",
+        channelId: "channel_1",
         confirmation: "observacao inicial",
         selection: "canary_1",
       }),

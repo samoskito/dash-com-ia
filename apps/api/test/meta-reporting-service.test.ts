@@ -120,6 +120,9 @@ function createHarness() {
     adDailyInsights: [] as Array<Record<string, unknown>>,
     adSets: [] as Array<Record<string, unknown>>,
     ads: [] as Array<Record<string, unknown>>,
+    conversionDestinations: [] as Array<Record<string, unknown>>,
+    accountDestinations: [] as Array<Record<string, unknown>>,
+    adDestinationAssignments: [] as Array<Record<string, unknown>>,
     auditLogs: [] as Array<Record<string, unknown>>,
     integrationLogs: [] as Array<Record<string, unknown>>,
     diagnosticEvents: [] as Array<Record<string, unknown>>,
@@ -246,12 +249,37 @@ function createHarness() {
           matchesWhere(account, args?.where),
         ),
       ),
-      findFirst: vi.fn(
-        async (args?: { where?: Record<string, unknown> }) =>
-          db.reportingAccounts.find((account) =>
-            matchesWhere(account, args?.where),
-          ) ?? null,
-      ),
+      findFirst: vi.fn(async (args?: { where?: Record<string, unknown> }) => {
+        const account = db.reportingAccounts.find((candidate) =>
+          matchesWhere(candidate, args?.where),
+        );
+
+        if (!account) {
+          return null;
+        }
+
+        return {
+          ...account,
+          conversionDestinationId:
+            (account as Record<string, unknown>).conversionDestinationId ??
+            null,
+          businessConnection: null,
+          allowedDestinations: db.accountDestinations
+            .filter(
+              (record) =>
+                record.workspaceId === account.workspaceId &&
+                record.reportingAccountId === account.id &&
+                record.active === true,
+            )
+            .map((record) => ({
+              destination: db.conversionDestinations.find(
+                (destination) =>
+                  destination.id === record.conversionDestinationId,
+              ),
+            }))
+            .filter((record) => Boolean(record.destination)),
+        };
+      }),
       update: vi.fn(
         async ({
           where,
@@ -269,6 +297,52 @@ function createHarness() {
     },
     metaBusinessConnection: {
       updateMany: vi.fn(async () => ({ count: 1 })),
+    },
+    metaConversionDestination: {
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.conversionDestinations.filter((destination) =>
+          matchesWhere(destination, args?.where),
+        ),
+      ),
+    },
+    metaAdDestinationAssignment: {
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.adDestinationAssignments.filter((assignment) =>
+          matchesWhere(assignment, args?.where),
+        ),
+      ),
+      deleteMany: vi.fn(async (args?: { where?: Record<string, unknown> }) => {
+        const retained = db.adDestinationAssignments.filter(
+          (assignment) => !matchesWhere(assignment, args?.where),
+        );
+        const count = db.adDestinationAssignments.length - retained.length;
+        db.adDestinationAssignments.splice(
+          0,
+          db.adDestinationAssignments.length,
+          ...retained,
+        );
+        return { count };
+      }),
+      upsert: vi.fn(async ({ where, create, update }: any) => {
+        const key = where.workspaceId_adId;
+        const existing = db.adDestinationAssignments.find(
+          (assignment) =>
+            assignment.workspaceId === key.workspaceId &&
+            assignment.adId === key.adId,
+        );
+
+        if (existing) {
+          Object.assign(existing, update);
+          return existing;
+        }
+
+        const record = {
+          id: `assignment_${db.adDestinationAssignments.length + 1}`,
+          ...create,
+        };
+        db.adDestinationAssignments.push(record);
+        return record;
+      }),
     },
     metaCampaign: {
       upsert: vi.fn(
@@ -601,6 +675,8 @@ function createHarness() {
         thumbnailUrl: "https://example.com/ad-1.jpg" as string | null,
         previewUrl: "https://example.com/ad-1-high.jpg" as string | null,
         callToActionType: "WHATSAPP_MESSAGE" as string | null,
+        detectedPixelIds: [] as string[],
+        detectedPageIds: [] as string[],
       },
     ]),
     listCampaignInsights: vi.fn(
@@ -1890,6 +1966,88 @@ describe("meta reporting service", () => {
     );
   });
 
+  it("assigns one exact ad destination automatically and never overwrites a manual choice", async () => {
+    const { db, metaAdapter, service } = createHarness();
+    db.conversionDestinations.push(
+      {
+        id: "destination_1",
+        workspaceId: "workspace_1",
+        pixelId: "pixel_1",
+        pageId: "page_1",
+        status: "configured",
+      },
+      {
+        id: "destination_2",
+        workspaceId: "workspace_1",
+        pixelId: "pixel_2",
+        pageId: "page_2",
+        status: "configured",
+      },
+    );
+    db.accountDestinations.push(
+      {
+        workspaceId: "workspace_1",
+        reportingAccountId: "reporting_1",
+        conversionDestinationId: "destination_1",
+        active: true,
+      },
+      {
+        workspaceId: "workspace_1",
+        reportingAccountId: "reporting_1",
+        conversionDestinationId: "destination_2",
+        active: true,
+      },
+    );
+    metaAdapter.listAds.mockResolvedValue([
+      {
+        id: "ad_1",
+        name: "Criativo WhatsApp",
+        campaignId: "cmp_1",
+        adSetId: "adset_1",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        creativeId: "creative_1",
+        thumbnailUrl: null,
+        previewUrl: null,
+        callToActionType: "WHATSAPP_MESSAGE",
+        detectedPixelIds: ["pixel_2"],
+        detectedPageIds: ["page_2"],
+      },
+    ]);
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    expect(db.adDestinationAssignments).toEqual([
+      expect.objectContaining({
+        adId: "ad_1",
+        reportingAccountId: "reporting_1",
+        conversionDestinationId: "destination_2",
+        source: "automatic",
+      }),
+    ]);
+
+    Object.assign(db.adDestinationAssignments[0]!, {
+      conversionDestinationId: "destination_1",
+      source: "manual",
+      createdByUserId: "user_1",
+    });
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    expect(db.adDestinationAssignments[0]).toMatchObject({
+      conversionDestinationId: "destination_1",
+      source: "manual",
+      createdByUserId: "user_1",
+    });
+  });
+
   it("syncs every active Meta reporting account and isolates failed accounts", async () => {
     const { service, prisma, metaAdapter } = createHarness();
     prisma.metaReportingAccount.findMany.mockResolvedValue([
@@ -1956,6 +2114,9 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       adAccountName: "Conta 1",
       businessConnectionId: "connection_1",
+      conversionDestinationId: null,
+      businessConnection: null,
+      allowedDestinations: [],
       active: true,
     };
     prisma.metaReportingAccount.findFirst.mockResolvedValue(account);
@@ -2004,6 +2165,9 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       adAccountName: "Conta 1",
       businessConnectionId: "connection_1",
+      conversionDestinationId: null,
+      businessConnection: null,
+      allowedDestinations: [],
       active: true,
     });
     metaAdapter.listCampaignDailyInsights.mockResolvedValue([]);
@@ -2080,6 +2244,9 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       adAccountName: "Conta 1",
       businessConnectionId: "connection_1",
+      conversionDestinationId: null,
+      businessConnection: null,
+      allowedDestinations: [],
       active: true,
     });
     metaAdapter.listAdSetDailyInsights.mockResolvedValue([]);
@@ -2178,6 +2345,9 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       adAccountName: "Conta 1",
       businessConnectionId: "connection_1",
+      conversionDestinationId: null,
+      businessConnection: null,
+      allowedDestinations: [],
       active: true,
     });
     metaAdapter.listCampaignDailyInsights.mockResolvedValue([]);
@@ -2228,6 +2398,9 @@ describe("meta reporting service", () => {
       adAccountId: "act_123",
       adAccountName: "Conta 1",
       businessConnectionId: "connection_1",
+      conversionDestinationId: null,
+      businessConnection: null,
+      allowedDestinations: [],
       active: true,
     });
     metaAdapter.listCampaigns.mockRejectedValueOnce(
@@ -2322,6 +2495,8 @@ describe("meta reporting service", () => {
         thumbnailUrl: null as string | null,
         previewUrl: null as string | null,
         callToActionType: null,
+        detectedPixelIds: [],
+        detectedPageIds: [],
       },
     ]);
 
@@ -2413,6 +2588,8 @@ describe("meta reporting service", () => {
         thumbnailUrl: null as string | null,
         previewUrl: null as string | null,
         callToActionType: null as string | null,
+        detectedPixelIds: [],
+        detectedPageIds: [],
       },
     ]);
 
@@ -2479,6 +2656,8 @@ describe("meta reporting service", () => {
         thumbnailUrl: null as string | null,
         previewUrl: null as string | null,
         callToActionType: null as string | null,
+        detectedPixelIds: [],
+        detectedPageIds: [],
       },
     ]);
 

@@ -204,7 +204,7 @@ export class InboundWebhookReplayService {
   ): Promise<BackofficeInboundWebhookReplayPreviewDto> {
     const connection = await this.loadConnection(connectionId);
     const now = new Date();
-    const [events, recentBatches] = await Promise.all([
+    const [events, channels, recentBatches] = await Promise.all([
       this.prisma.inboundWebhookEvent.findMany({
         where: {
           workspaceId: connection.workspaceId,
@@ -213,6 +213,7 @@ export class InboundWebhookReplayService {
         },
         select: {
           occurredAt: true,
+          channelId: true,
           adId: true,
           classification: true,
           resolvedBusinessConnectionId: true,
@@ -242,6 +243,9 @@ export class InboundWebhookReplayService {
           },
           channel: {
             select: {
+              id: true,
+              channelName: true,
+              connectedPhone: true,
               routes: {
                 where: {
                   active: true,
@@ -272,6 +276,18 @@ export class InboundWebhookReplayService {
           },
         },
         orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+      }),
+      this.prisma.inboundWebhookChannel.findMany({
+        where: {
+          workspaceId: connection.workspaceId,
+          connectionId: connection.id,
+        },
+        select: {
+          id: true,
+          channelName: true,
+          connectedPhone: true,
+        },
+        orderBy: [{ channelName: "asc" }, { connectedPhone: "asc" }],
       }),
       this.prisma.inboundWebhookReplayBatch.findMany({
         where: {
@@ -340,6 +356,14 @@ export class InboundWebhookReplayService {
       )
       .map((event) => event.delivery.payloadExpiresAt)
       .sort((left, right) => left.getTime() - right.getTime())[0];
+    const alreadyMaterialized = (event: (typeof events)[number]) =>
+      event.replayItem?.status === "materialized" ||
+      event.replayItem?.status === "duplicate";
+    const eligible = (event: (typeof events)[number]) =>
+      event.adId !== null &&
+      routeResolved(event) &&
+      payloadAvailable(event) &&
+      event.replayItem === null;
 
     return {
       connection: {
@@ -371,23 +395,32 @@ export class InboundWebhookReplayService {
             event.delivery.payloadExpiresAt.getTime() > now.getTime() &&
             !payloadAvailable(event),
         ).length,
-        alreadyMaterialized: events.filter(
-          (event) =>
-            event.replayItem?.status === "materialized" ||
-            event.replayItem?.status === "duplicate",
-        ).length,
-        eligible: events.filter(
-          (event) =>
-            event.adId !== null &&
-            routeResolved(event) &&
-            payloadAvailable(event) &&
-            event.replayItem === null,
-        ).length,
+        alreadyMaterialized: events.filter(alreadyMaterialized).length,
+        eligible: events.filter(eligible).length,
       },
       oldestOccurredAt: events[0]?.occurredAt.toISOString() ?? null,
       newestOccurredAt:
         events[events.length - 1]?.occurredAt.toISOString() ?? null,
       nextPayloadExpiresAt: nextPayloadExpiresAt?.toISOString() ?? null,
+      channels: channels.map((channel) => {
+        const channelEvents = events.filter(
+          (event) => event.channelId === channel.id,
+        );
+
+        return {
+          id: channel.id,
+          displayName: channel.channelName ?? channel.connectedPhone,
+          connectedPhone: channel.connectedPhone,
+          totalCtwa: channelEvents.length,
+          routeResolved: channelEvents.filter(routeResolved).length,
+          routeUnresolved: channelEvents.filter(
+            (event) => !routeResolved(event),
+          ).length,
+          payloadAvailable: channelEvents.filter(payloadAvailable).length,
+          alreadyMaterialized: channelEvents.filter(alreadyMaterialized).length,
+          eligible: channelEvents.filter(eligible).length,
+        };
+      }),
       latestBatch: recentBatches[0]
         ? this.batchDto({
             ...recentBatches[0],
@@ -407,12 +440,20 @@ export class InboundWebhookReplayService {
     connectionId: string,
     confirmation: string,
     selection: InboundWebhookReplaySelectionDto,
+    channelId: string,
     actor: PlatformAdminUser,
     sourceIp: string | null,
   ): Promise<BackofficeInboundWebhookReplayBatchDto> {
     this.assertReplayEnabled();
     const connection = await this.loadConnection(connectionId);
     const requestedLimit = this.replaySelectionLimit(selection);
+    const replayChannelId = channelId.trim();
+
+    if (!replayChannelId) {
+      throw new BadRequestException(
+        "Selecione um canal para autorizar o replay",
+      );
+    }
 
     if (confirmation !== connection.displayName) {
       throw new BadRequestException(
@@ -430,6 +471,18 @@ export class InboundWebhookReplayService {
       throw new ConflictException(
         "Certifique o parser antes de autorizar o replay",
       );
+    }
+
+    const channelExists = await this.prisma.inboundWebhookChannel.count({
+      where: {
+        id: replayChannelId,
+        workspaceId: connection.workspaceId,
+        connectionId: connection.id,
+      },
+    });
+
+    if (channelExists !== 1) {
+      throw new BadRequestException("Canal invalido para esta conexao");
     }
 
     const now = new Date();
@@ -458,6 +511,7 @@ export class InboundWebhookReplayService {
           where: {
             workspaceId: connection.workspaceId,
             connectionId: connection.id,
+            channelId: replayChannelId,
             hasCtwa: true,
             adId: { not: null },
             classification: "eligible_route_resolved",
@@ -557,6 +611,7 @@ export class InboundWebhookReplayService {
           data: {
             workspaceId: connection.workspaceId,
             connectionId: connection.id,
+            channelId: replayChannelId,
             requestedByUserId: actor.id,
             selection,
             requestedLimit,
@@ -596,6 +651,7 @@ export class InboundWebhookReplayService {
             resultStatus: "queued",
             afterSummary: {
               connectionId: connection.id,
+              channelId: replayChannelId,
               parserReleaseId: connection.parserRelease.id,
               selection,
               requestedLimit,
@@ -1351,6 +1407,7 @@ export class InboundWebhookReplayService {
     id: string;
     workspaceId: string;
     connectionId: string;
+    channelId: string | null;
     requestedByUserId: string;
     selection: InboundWebhookReplaySelectionDto;
     requestedLimit: number;
@@ -1377,6 +1434,7 @@ export class InboundWebhookReplayService {
       id: batch.id,
       workspaceId: batch.workspaceId,
       connectionId: batch.connectionId,
+      channelId: batch.channelId,
       requestedByUserId: batch.requestedByUserId,
       selection: batch.selection,
       requestedLimit: batch.requestedLimit,

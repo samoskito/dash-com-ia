@@ -87,6 +87,8 @@ export async function authorizeInboundWebhookReplayAction(
   formData: FormData,
 ): Promise<BackofficeActionState> {
   const connectionId = identifier(formData, "connectionId");
+  const channelValue = String(formData.get("channelId") ?? "").trim();
+  const channelId = identifier(formData, "channelId");
   const confirmation = String(formData.get("confirmation") ?? "").trim();
   const selection = inboundWebhookReplaySelectionSchema.safeParse(
     String(formData.get("selection") ?? ""),
@@ -94,6 +96,8 @@ export async function authorizeInboundWebhookReplayAction(
 
   if (
     !connectionId ||
+    !channelValue ||
+    !channelId ||
     !confirmation ||
     confirmation.length > 120 ||
     !selection.success
@@ -109,6 +113,7 @@ export async function authorizeInboundWebhookReplayAction(
         body: JSON.stringify({
           confirmation,
           selection: selection.data,
+          channelId,
         }),
       },
     );

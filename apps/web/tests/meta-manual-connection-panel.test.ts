@@ -18,6 +18,8 @@ const actions = {
   removeConnectionAction: vi.fn(),
   syncHistoryAction: vi.fn(),
   setAccountDestinationAction: vi.fn(),
+  loadAdRoutingAction: vi.fn(),
+  setAdDestinationAction: vi.fn(),
   setOAuthRoutingAction: vi.fn(),
 };
 
@@ -142,6 +144,7 @@ describe("Meta manual connection panel", () => {
               timezoneName: "America/Sao_Paulo",
               businessConnectionId: "connection_oauth",
               conversionDestinationId: null,
+              conversionDestinationIds: ["destination_1"],
               active: true,
               syncStatus: "synced",
               lastSyncedAt: null,
@@ -160,6 +163,7 @@ describe("Meta manual connection panel", () => {
               timezoneName: "America/Sao_Paulo",
               businessConnectionId: "connection_oauth",
               conversionDestinationId: "destination_2",
+              conversionDestinationIds: ["destination_2"],
               active: true,
               syncStatus: "pending",
               lastSyncedAt: null,
@@ -293,6 +297,7 @@ describe("Meta manual connection panel", () => {
               timezoneName: "America/Sao_Paulo",
               businessConnectionId: "connection_1",
               conversionDestinationId: null,
+              conversionDestinationIds: ["destination_1"],
               active: true,
               syncStatus: "error",
               lastSyncedAt: null,

@@ -486,6 +486,7 @@ function metaReportingAccount({
     timezoneName: "America/Sao_Paulo",
     businessConnectionId,
     conversionDestinationId,
+    conversionDestinationIds: [conversionDestinationId],
     active: true,
     syncStatus: "synced" as const,
     lastSyncedAt: "2026-07-17T19:00:00.000Z",

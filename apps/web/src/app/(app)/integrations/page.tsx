@@ -51,13 +51,17 @@ import {
   disconnectMetaOAuthAction,
   discoverMetaManualAssetsAction,
   discoverMetaOAuthAdvancedAssetsAction,
+  getMetaManualAdRoutingAction,
+  getMetaOAuthAdvancedAdRoutingAction,
   prepareMetaOAuthAdvancedCredentialAction,
   removeMetaManualConnectionAction,
   removeMetaOAuthAdvancedConnectionAction,
   rotateMetaManualCredentialAction,
   setMetaManualAccountDestinationAction,
+  setMetaManualAdDestinationAction,
   setMetaManualConnectionStatusAction,
   setMetaOAuthAdvancedAccountDestinationAction,
+  setMetaOAuthAdvancedAdDestinationAction,
   setMetaOAuthAdvancedConnectionStatusAction,
   setMetaOAuthAdvancedRoutingAction,
   testMetaManualConnectionAction,
@@ -1120,9 +1124,7 @@ export default async function IntegrationsPage({
             <span className="eyebrow">Estado do workspace</span>
             <h2 id="integration-overview-title">Mapa das conexoes</h2>
           </div>
-          <span
-            className={`status-chip${hasIntegrationError ? " warn" : ""}`}
-          >
+          <span className={`status-chip${hasIntegrationError ? " warn" : ""}`}>
             {hasIntegrationError ? "Requer atencao" : "Operacao disponivel"}
           </span>
         </div>
@@ -1169,7 +1171,10 @@ export default async function IntegrationsPage({
             </div>
           </article>
           <article>
-            <span className="integration-overview-icon signal" aria-hidden="true">
+            <span
+              className="integration-overview-icon signal"
+              aria-hidden="true"
+            >
               <Activity size={18} />
             </span>
             <div>
@@ -1278,227 +1283,239 @@ export default async function IntegrationsPage({
 
         <div className="integration-domain-content">
           <div className="connection-callout integration-meta-oauth">
-          <div>
-            <span className="micro-label">Login social Facebook</span>
-            <strong>
-              {metaStatus === "not_connected"
-                ? "Conectar conta Meta"
-                : metaConnectionTitle(metaStatus)}
-            </strong>
-            <p className="muted">
-              Use o OAuth oficial para autorizar BM, contas de anuncio e Pixels.
-              O token nasce no backend e fica criptografado.
-            </p>
-          </div>
-          {canManageIntegrations || workspacePermissionsUnavailable ? (
-            <div className="meta-connection-actions">
-              <MetaOAuthButton
-                completeOAuthAction={completeMetaOAuthForCurrentWorkspace}
-                connected={metaStatus === "connected"}
-                startOAuthAction={startMetaOAuthForCurrentWorkspace}
-              />
-              {canManageIntegrations ? (
-                <form action={refreshMetaAssets}>
-                  <input
-                    type="hidden"
-                    name="businessId"
-                    value={metaRefreshBusinessId}
-                  />
-                  <SubmitButton
-                    disabled={metaStatus !== "connected"}
-                    pendingLabel="Atualizando..."
-                    statusText="Buscando ativos no Meta e salvando snapshot."
-                  >
-                    Atualizar ativos Meta
-                  </SubmitButton>
-                </form>
-              ) : (
-                <span className="action-note warn">
-                  Permissoes temporariamente indisponiveis. A API validara a
-                  acao ao continuar.
-                </span>
-              )}
+            <div>
+              <span className="micro-label">Login social Facebook</span>
+              <strong>
+                {metaStatus === "not_connected"
+                  ? "Conectar conta Meta"
+                  : metaConnectionTitle(metaStatus)}
+              </strong>
+              <p className="muted">
+                Use o OAuth oficial para autorizar BM, contas de anuncio e
+                Pixels. O token nasce no backend e fica criptografado.
+              </p>
             </div>
-          ) : (
-            <span className="event-chip warn">
-              {workspacePermissionsUnavailable
-                ? "permissoes indisponiveis"
-                : "sem permissao"}
-            </span>
-          )}
+            {canManageIntegrations || workspacePermissionsUnavailable ? (
+              <div className="meta-connection-actions">
+                <MetaOAuthButton
+                  completeOAuthAction={completeMetaOAuthForCurrentWorkspace}
+                  connected={metaStatus === "connected"}
+                  startOAuthAction={startMetaOAuthForCurrentWorkspace}
+                />
+                {canManageIntegrations ? (
+                  <form action={refreshMetaAssets}>
+                    <input
+                      type="hidden"
+                      name="businessId"
+                      value={metaRefreshBusinessId}
+                    />
+                    <SubmitButton
+                      disabled={metaStatus !== "connected"}
+                      pendingLabel="Atualizando..."
+                      statusText="Buscando ativos no Meta e salvando snapshot."
+                    >
+                      Atualizar ativos Meta
+                    </SubmitButton>
+                  </form>
+                ) : (
+                  <span className="action-note warn">
+                    Permissoes temporariamente indisponiveis. A API validara a
+                    acao ao continuar.
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span className="event-chip warn">
+                {workspacePermissionsUnavailable
+                  ? "permissoes indisponiveis"
+                  : "sem permissao"}
+              </span>
+            )}
           </div>
           <MetaManualConnectionPanel
-          workspaceId={metaConnection?.workspaceId ?? workspace?.id ?? ""}
-          capabilities={metaCapabilities}
-          initialConfiguration={metaManualResult.data}
-          legacyConnected={legacyMetaConnected}
-          canManage={canManageIntegrations}
-          disconnectOAuthAction={disconnectMetaOAuthAction}
-          prepareOAuthCredentialAction={
-            prepareMetaOAuthAdvancedCredentialAction
-          }
-          createCredentialAction={createMetaManualCredentialAction}
-          discoverAssetsAction={
-            legacyMetaConnected
-              ? discoverMetaOAuthAdvancedAssetsAction
-              : discoverMetaManualAssetsAction
-          }
-          createConnectionAction={
-            legacyMetaConnected
-              ? createMetaOAuthAdvancedConnectionAction
-              : createMetaManualConnectionAction
-          }
-          rotateCredentialAction={rotateMetaManualCredentialAction}
-          setConnectionStatusAction={
-            legacyMetaConnected
-              ? setMetaOAuthAdvancedConnectionStatusAction
-              : setMetaManualConnectionStatusAction
-          }
-          testConnectionAction={
-            legacyMetaConnected
-              ? testMetaOAuthAdvancedConnectionAction
-              : testMetaManualConnectionAction
-          }
-          removeConnectionAction={
-            legacyMetaConnected
-              ? removeMetaOAuthAdvancedConnectionAction
-              : removeMetaManualConnectionAction
-          }
-          syncHistoryAction={syncMetaManualHistoryAction}
-          setAccountDestinationAction={
-            legacyMetaConnected
-              ? setMetaOAuthAdvancedAccountDestinationAction
-              : setMetaManualAccountDestinationAction
-          }
-          setOAuthRoutingAction={setMetaOAuthAdvancedRoutingAction}
+            workspaceId={metaConnection?.workspaceId ?? workspace?.id ?? ""}
+            capabilities={metaCapabilities}
+            initialConfiguration={metaManualResult.data}
+            legacyConnected={legacyMetaConnected}
+            canManage={canManageIntegrations}
+            disconnectOAuthAction={disconnectMetaOAuthAction}
+            prepareOAuthCredentialAction={
+              prepareMetaOAuthAdvancedCredentialAction
+            }
+            createCredentialAction={createMetaManualCredentialAction}
+            discoverAssetsAction={
+              legacyMetaConnected
+                ? discoverMetaOAuthAdvancedAssetsAction
+                : discoverMetaManualAssetsAction
+            }
+            createConnectionAction={
+              legacyMetaConnected
+                ? createMetaOAuthAdvancedConnectionAction
+                : createMetaManualConnectionAction
+            }
+            rotateCredentialAction={rotateMetaManualCredentialAction}
+            setConnectionStatusAction={
+              legacyMetaConnected
+                ? setMetaOAuthAdvancedConnectionStatusAction
+                : setMetaManualConnectionStatusAction
+            }
+            testConnectionAction={
+              legacyMetaConnected
+                ? testMetaOAuthAdvancedConnectionAction
+                : testMetaManualConnectionAction
+            }
+            removeConnectionAction={
+              legacyMetaConnected
+                ? removeMetaOAuthAdvancedConnectionAction
+                : removeMetaManualConnectionAction
+            }
+            syncHistoryAction={syncMetaManualHistoryAction}
+            setAccountDestinationAction={
+              legacyMetaConnected
+                ? setMetaOAuthAdvancedAccountDestinationAction
+                : setMetaManualAccountDestinationAction
+            }
+            loadAdRoutingAction={
+              legacyMetaConnected
+                ? getMetaOAuthAdvancedAdRoutingAction
+                : getMetaManualAdRoutingAction
+            }
+            setAdDestinationAction={
+              legacyMetaConnected
+                ? setMetaOAuthAdvancedAdDestinationAction
+                : setMetaManualAdDestinationAction
+            }
+            setOAuthRoutingAction={setMetaOAuthAdvancedRoutingAction}
           />
           <div className="metric-grid compact integration-meta-metrics">
-          <div className="metric-card">
-            <span className="micro-label">Status</span>
-            <strong>{metaStatusLabel}</strong>
-          </div>
-          <div className="metric-card">
-            <span className="micro-label">Destino CAPI</span>
-            <strong>
-              {manualConfigured &&
-              metaManualResult.data?.connectionMode === "manual"
-                ? `${metaManualResult.data?.destinations.length ?? 0} configurado(s)`
-                : oauthAdvancedEnabled
-                  ? `${metaManualResult.data?.destinations.length ?? 0} por BM`
-                  : metaAssets?.conversionDestination
-                    ? statusLabel(metaAssets.conversionDestination.status)
-                    : "Nao configurado"}
-            </strong>
-          </div>
-          <div className="metric-card">
-            <span className="micro-label">Contas em relatorios</span>
-            <strong>
-              {manualConfigured
-                ? manualActiveReportingAccounts
-                : activeReportingAccounts}
-            </strong>
-          </div>
-        </div>
-        {!manualConfigured ? (
-          <>
-            <p className="muted">
-              {metaAssetsDetail(metaAssets, metaAssetsResult.state)}
-            </p>
-            <p className="muted">{metaLastSyncedAt(metaAssets)}</p>
-          </>
-        ) : null}
-        {metaAssets &&
-        (legacyMetaConnected || !metaCapabilities.manualEnabled) ? (
-          <>
-            <div className="meta-config-section">
-              <div>
-                <span className="eyebrow">
-                  {oauthAdvancedEnabled
-                    ? "Rota de retorno"
-                    : "Destino de conversao"}
-                </span>
-                <h2>
-                  {oauthAdvancedEnabled
-                    ? "Pixel e Pagina do destino principal"
-                    : "Pixel e Pagina Facebook principal"}
-                </h2>
-              </div>
-              <div className="metric-grid compact">
-                <div className="metric-card">
-                  <span className="micro-label">Pixel CAPI</span>
-                  <strong>
-                    <PresentationMask placeholder="Pixel oculto">
-                      {metaAssets.conversionDestination?.pixelName ??
-                        "Sem Pixel"}
-                    </PresentationMask>
-                  </strong>
-                </div>
-                <div className="metric-card">
-                  <span className="micro-label">Pagina Facebook principal</span>
-                  <strong>
-                    <PresentationMask placeholder="Pagina oculta">
-                      {metaAssets.conversionDestination?.pageName ??
-                        "Sem Pagina"}
-                    </PresentationMask>
-                  </strong>
-                </div>
-                <div className="metric-card">
-                  <span className="micro-label">Status destino</span>
-                  <strong>
-                    {metaAssets.conversionDestination
+            <div className="metric-card">
+              <span className="micro-label">Status</span>
+              <strong>{metaStatusLabel}</strong>
+            </div>
+            <div className="metric-card">
+              <span className="micro-label">Destino CAPI</span>
+              <strong>
+                {manualConfigured &&
+                metaManualResult.data?.connectionMode === "manual"
+                  ? `${metaManualResult.data?.destinations.length ?? 0} configurado(s)`
+                  : oauthAdvancedEnabled
+                    ? `${metaManualResult.data?.destinations.length ?? 0} por BM`
+                    : metaAssets?.conversionDestination
                       ? statusLabel(metaAssets.conversionDestination.status)
                       : "Nao configurado"}
-                  </strong>
-                </div>
-              </div>
-              {canManageIntegrations && !oauthAdvancedEnabled ? (
-                <MetaConversionDestinationForm
-                  assets={metaAssets}
-                  action={saveMetaConversionDestination}
-                  loadBusinessAssetsAction={loadMetaBusinessDestinationAssets}
-                />
-              ) : !oauthAdvancedEnabled ? (
-                <p className="muted">
-                  {workspacePermissionsUnavailable
-                    ? "Nao foi possivel confirmar as permissoes agora."
-                    : "Sem permissao para alterar destino Meta"}
-                </p>
-              ) : (
-                <p className="muted">
-                  O roteamento por BM esta ativo. Este destino volta a ser usado
-                  somente ao escolher Usar destino principal.
-                </p>
-              )}
+              </strong>
             </div>
-
-            {!oauthAdvancedEnabled ? (
+            <div className="metric-card">
+              <span className="micro-label">Contas em relatorios</span>
+              <strong>
+                {manualConfigured
+                  ? manualActiveReportingAccounts
+                  : activeReportingAccounts}
+              </strong>
+            </div>
+          </div>
+          {!manualConfigured ? (
+            <>
+              <p className="muted">
+                {metaAssetsDetail(metaAssets, metaAssetsResult.state)}
+              </p>
+              <p className="muted">{metaLastSyncedAt(metaAssets)}</p>
+            </>
+          ) : null}
+          {metaAssets &&
+          (legacyMetaConnected || !metaCapabilities.manualEnabled) ? (
+            <>
               <div className="meta-config-section">
                 <div>
-                  <span className="eyebrow">Contas para relatorios</span>
-                  <h2>Contas Meta sincronizadas nos relatorios</h2>
+                  <span className="eyebrow">
+                    {oauthAdvancedEnabled
+                      ? "Rota de retorno"
+                      : "Destino de conversao"}
+                  </span>
+                  <h2>
+                    {oauthAdvancedEnabled
+                      ? "Pixel e Pagina do destino principal"
+                      : "Pixel e Pagina Facebook principal"}
+                  </h2>
                 </div>
-                {canManageIntegrations ? (
-                  <MetaReportingAccountsForm
+                <div className="metric-grid compact">
+                  <div className="metric-card">
+                    <span className="micro-label">Pixel CAPI</span>
+                    <strong>
+                      <PresentationMask placeholder="Pixel oculto">
+                        {metaAssets.conversionDestination?.pixelName ??
+                          "Sem Pixel"}
+                      </PresentationMask>
+                    </strong>
+                  </div>
+                  <div className="metric-card">
+                    <span className="micro-label">
+                      Pagina Facebook principal
+                    </span>
+                    <strong>
+                      <PresentationMask placeholder="Pagina oculta">
+                        {metaAssets.conversionDestination?.pageName ??
+                          "Sem Pagina"}
+                      </PresentationMask>
+                    </strong>
+                  </div>
+                  <div className="metric-card">
+                    <span className="micro-label">Status destino</span>
+                    <strong>
+                      {metaAssets.conversionDestination
+                        ? statusLabel(metaAssets.conversionDestination.status)
+                        : "Nao configurado"}
+                    </strong>
+                  </div>
+                </div>
+                {canManageIntegrations && !oauthAdvancedEnabled ? (
+                  <MetaConversionDestinationForm
                     assets={metaAssets}
-                    action={saveMetaReportingAccount}
-                    loadBusinessAssetsAction={loadMetaBusinessReportingAssets}
-                    statusAction={setMetaReportingAccountStatus}
+                    action={saveMetaConversionDestination}
+                    loadBusinessAssetsAction={loadMetaBusinessDestinationAssets}
                   />
-                ) : (
+                ) : !oauthAdvancedEnabled ? (
                   <p className="muted">
                     {workspacePermissionsUnavailable
                       ? "Nao foi possivel confirmar as permissoes agora."
-                      : "Sem permissao para alterar contas de relatorio"}
+                      : "Sem permissao para alterar destino Meta"}
+                  </p>
+                ) : (
+                  <p className="muted">
+                    O roteamento por BM esta ativo. Este destino volta a ser
+                    usado somente ao escolher Usar destino principal.
                   </p>
                 )}
               </div>
-            ) : null}
-          </>
-        ) : null}
+
+              {!oauthAdvancedEnabled ? (
+                <div className="meta-config-section">
+                  <div>
+                    <span className="eyebrow">Contas para relatorios</span>
+                    <h2>Contas Meta sincronizadas nos relatorios</h2>
+                  </div>
+                  {canManageIntegrations ? (
+                    <MetaReportingAccountsForm
+                      assets={metaAssets}
+                      action={saveMetaReportingAccount}
+                      loadBusinessAssetsAction={loadMetaBusinessReportingAssets}
+                      statusAction={setMetaReportingAccountStatus}
+                    />
+                  ) : (
+                    <p className="muted">
+                      {workspacePermissionsUnavailable
+                        ? "Nao foi possivel confirmar as permissoes agora."
+                        : "Sem permissao para alterar contas de relatorio"}
+                    </p>
+                  )}
+                </div>
+              ) : null}
+            </>
+          ) : null}
           <p className="muted integration-domain-note">
-          {oauthAdvancedEnabled
-            ? "A conexao Meta fica protegida no backend. Cada conta ativa usa o Pixel e a Pagina vinculados a sua BM."
-            : "A conexao Meta fica protegida no backend. Esta tela mostra apenas o destino principal e as contas ativas usadas nos relatorios."}
+            {oauthAdvancedEnabled
+              ? "A conexao Meta fica protegida no backend. Cada conta ativa usa o Pixel e a Pagina vinculados a sua BM."
+              : "A conexao Meta fica protegida no backend. Esta tela mostra apenas o destino principal e as contas ativas usadas nos relatorios."}
           </p>
         </div>
       </section>
@@ -1543,233 +1560,249 @@ export default async function IntegrationsPage({
 
           {usesExternalWhatsapp ? (
             <div className="surface-panel external-source-panel">
-          <div>
-            <span className="eyebrow">Fonte do WhatsApp</span>
-            <h2>Dados recebidos por integracao externa do MySQL</h2>
-            <p className="muted">
-              As conversas deste workspace chegam por uma integracao externa com
-              o MySQL. Nao ha instancia ou cobranca adicional para configurar
-              aqui.
-            </p>
-          </div>
-          <div className="metric-grid compact">
-            <div className="metric-card">
-              <span className="micro-label">Origem</span>
-              <strong>Integracao externa MySQL</strong>
-            </div>
-            <div className="metric-card">
-              <span className="micro-label">Ultima sincronizacao</span>
-              <strong>
-                {sourceSyncLabel(pipeline?.whatsappSource?.lastSyncCompletedAt)}
-              </strong>
-            </div>
-            <div className="metric-card">
-              <span className="micro-label">Status</span>
-              <strong>
-                {statusLabel(
-                  pipeline?.whatsappSource?.lastSyncStatus ?? "pending",
-                )}
-              </strong>
-            </div>
-          </div>
+              <div>
+                <span className="eyebrow">Fonte do WhatsApp</span>
+                <h2>Dados recebidos por integracao externa do MySQL</h2>
+                <p className="muted">
+                  As conversas deste workspace chegam por uma integracao externa
+                  com o MySQL. Nao ha instancia ou cobranca adicional para
+                  configurar aqui.
+                </p>
+              </div>
+              <div className="metric-grid compact">
+                <div className="metric-card">
+                  <span className="micro-label">Origem</span>
+                  <strong>Integracao externa MySQL</strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Ultima sincronizacao</span>
+                  <strong>
+                    {sourceSyncLabel(
+                      pipeline?.whatsappSource?.lastSyncCompletedAt,
+                    )}
+                  </strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Status</span>
+                  <strong>
+                    {statusLabel(
+                      pipeline?.whatsappSource?.lastSyncStatus ?? "pending",
+                    )}
+                  </strong>
+                </div>
+              </div>
             </div>
           ) : null}
 
           {!usesExternalWhatsapp && (
             <div className="surface-panel whatsapp-instance-panel">
-          <span className="eyebrow">WhatsApp Business</span>
-          <h2>Instancias conectadas</h2>
-          <div className="metric-grid compact">
-            <div className="metric-card">
-              <span className="micro-label">Instancias ativas</span>
-              <strong>
-                {whatsappQuote?.activeInstances ?? whatsappInstances.length}
-              </strong>
-            </div>
-            <div className="metric-card">
-              <span className="micro-label">Nova instancia</span>
-              <strong>{money(whatsappQuote?.nextInstanceAmountCents)}</strong>
-            </div>
-            <div className="metric-card">
-              <span className="micro-label">Cobranca</span>
-              <strong>Antecipada via Asaas</strong>
-            </div>
-          </div>
-          <div className="metric-grid compact">
-            <div className="metric-card">
-              <span className="micro-label">Assinatura</span>
-              <strong>
-                {billingSubscription
-                  ? statusLabel(billingSubscription.status)
-                  : billingSubscriptionResult.state === "error"
-                    ? "API indisponivel"
-                    : "sem assinatura"}
-              </strong>
-            </div>
-            <div className="metric-card">
-              <span className="micro-label">Plano</span>
-              <strong>
-                {billingSubscription?.planName ?? "Por instancia"}
-              </strong>
-            </div>
-            <div className="metric-card">
-              <span className="micro-label">Mensal estimado</span>
-              <strong>{money(billingSubscription?.monthlyAmountCents)}</strong>
-            </div>
-            <div className="metric-card">
-              <span className="micro-label">Asaas</span>
-              <strong>
-                {billingSubscription?.asaasSubscriptionId ?? "Nao vinculada"}
-              </strong>
-            </div>
-          </div>
-          {canManageBilling ? (
-            <>
-              <form className="inline-form" action={createWhatsappCheckout}>
-                <input
-                  minLength={2}
-                  name="instanceName"
-                  placeholder="Nome da instancia"
-                  required
-                  aria-label="Nome da instancia WhatsApp"
-                />
-                <SubmitButton
-                  pendingLabel="Gerando cobranca..."
-                  statusText="Gerando cobranca da instancia no backend."
-                >
-                  Adicionar instancia
-                </SubmitButton>
-              </form>
-              <span className="action-note">
-                Preencha o nome para gerar a cobranca. A conexao do WhatsApp so
-                libera depois do pagamento confirmado.
-              </span>
-              <p className="muted">
-                Ao continuar, o backend vai gerar uma cobranca de{" "}
-                {money(whatsappQuote?.nextInstanceAmountCents)} no Asaas antes
-                da conexao.
-              </p>
-            </>
-          ) : (
-            <p className="muted">
-              {workspacePermissionsUnavailable
-                ? "Nao foi possivel confirmar as permissoes agora."
-                : "Sem permissao para adicionar instancias"}
-            </p>
-          )}
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Instancia</th>
-                  <th>Provider</th>
-                  <th>Billing</th>
-                  <th>Conexao</th>
-                  <th>ID Uazapi</th>
-                  <th>Acao</th>
-                </tr>
-              </thead>
-              <tbody>
-                {whatsappInstances.length > 0 ? (
-                  whatsappInstances.map((instance) => (
-                    <tr key={instance.id}>
-                      <td>
-                        <strong>{instance.name}</strong>
-                        <span>{instance.id}</span>
-                      </td>
-                      <td>{instance.provider}</td>
-                      <td>{statusLabel(instance.billingStatus)}</td>
-                      <td>
-                        {whatsappInstanceStatuses[instance.id] ? (
-                          <>
-                            <strong>
-                              {statusLabel(
-                                whatsappInstanceStatuses[instance.id]
-                                  .connectionStatus,
-                              )}
-                            </strong>
-                            {whatsappInstanceStatuses[instance.id].message ? (
-                              <span>
-                                {whatsappInstanceStatuses[instance.id].message}
-                              </span>
-                            ) : null}
-                            {whatsappInstanceStatuses[instance.id].qrCode ? (
-                              <code>
-                                {whatsappInstanceStatuses[instance.id].qrCode}
-                              </code>
-                            ) : null}
-                          </>
-                        ) : (
-                          <span>-</span>
-                        )}
-                      </td>
-                      <td>
-                        {instance.providerInstanceId ??
-                          "ID Uazapi ainda nao emitido"}
-                      </td>
-                      <td>
-                        {instance.billingStatus === "active" &&
-                        canManageIntegrations ? (
-                          <form action={connectWhatsappInstance}>
-                            <input
-                              type="hidden"
-                              name="instanceId"
-                              value={instance.id}
-                            />
-                            <SubmitButton
-                              pendingLabel="Conectando..."
-                              statusText="Solicitando conexao do WhatsApp."
-                            >
-                              Conectar WhatsApp
-                            </SubmitButton>
-                          </form>
-                        ) : instance.billingStatus === "active" ? (
-                          <span className="event-chip warn">
-                            {workspacePermissionsUnavailable
-                              ? "permissoes indisponiveis"
-                              : "sem permissao"}
-                          </span>
-                        ) : instance.checkoutUrl ? (
-                          <a
-                            className="button primary"
-                            href={instance.checkoutUrl}
-                            rel="noreferrer"
-                            target="_blank"
-                          >
-                            Pagar agora
-                          </a>
-                        ) : (
-                          <span className="event-chip warn">
-                            Pagamento pendente
-                          </span>
-                        )}
-                      </td>
+              <span className="eyebrow">WhatsApp Business</span>
+              <h2>Instancias conectadas</h2>
+              <div className="metric-grid compact">
+                <div className="metric-card">
+                  <span className="micro-label">Instancias ativas</span>
+                  <strong>
+                    {whatsappQuote?.activeInstances ?? whatsappInstances.length}
+                  </strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Nova instancia</span>
+                  <strong>
+                    {money(whatsappQuote?.nextInstanceAmountCents)}
+                  </strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Cobranca</span>
+                  <strong>Antecipada via Asaas</strong>
+                </div>
+              </div>
+              <div className="metric-grid compact">
+                <div className="metric-card">
+                  <span className="micro-label">Assinatura</span>
+                  <strong>
+                    {billingSubscription
+                      ? statusLabel(billingSubscription.status)
+                      : billingSubscriptionResult.state === "error"
+                        ? "API indisponivel"
+                        : "sem assinatura"}
+                  </strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Plano</span>
+                  <strong>
+                    {billingSubscription?.planName ?? "Por instancia"}
+                  </strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Mensal estimado</span>
+                  <strong>
+                    {money(billingSubscription?.monthlyAmountCents)}
+                  </strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Asaas</span>
+                  <strong>
+                    {billingSubscription?.asaasSubscriptionId ??
+                      "Nao vinculada"}
+                  </strong>
+                </div>
+              </div>
+              {canManageBilling ? (
+                <>
+                  <form className="inline-form" action={createWhatsappCheckout}>
+                    <input
+                      minLength={2}
+                      name="instanceName"
+                      placeholder="Nome da instancia"
+                      required
+                      aria-label="Nome da instancia WhatsApp"
+                    />
+                    <SubmitButton
+                      pendingLabel="Gerando cobranca..."
+                      statusText="Gerando cobranca da instancia no backend."
+                    >
+                      Adicionar instancia
+                    </SubmitButton>
+                  </form>
+                  <span className="action-note">
+                    Preencha o nome para gerar a cobranca. A conexao do WhatsApp
+                    so libera depois do pagamento confirmado.
+                  </span>
+                  <p className="muted">
+                    Ao continuar, o backend vai gerar uma cobranca de{" "}
+                    {money(whatsappQuote?.nextInstanceAmountCents)} no Asaas
+                    antes da conexao.
+                  </p>
+                </>
+              ) : (
+                <p className="muted">
+                  {workspacePermissionsUnavailable
+                    ? "Nao foi possivel confirmar as permissoes agora."
+                    : "Sem permissao para adicionar instancias"}
+                </p>
+              )}
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Instancia</th>
+                      <th>Provider</th>
+                      <th>Billing</th>
+                      <th>Conexao</th>
+                      <th>ID Uazapi</th>
+                      <th>Acao</th>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td>
-                      <strong>{whatsappInstancesEmptyTitle}</strong>
-                      <span>
-                        Adicione e pague uma instancia para conectar o WhatsApp
-                      </span>
-                    </td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td>
-                      <span className="event-chip warn">
-                        {whatsappInstancesResult.state === "error"
-                          ? "indisponivel"
-                          : "sem instancias"}
-                      </span>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {whatsappInstances.length > 0 ? (
+                      whatsappInstances.map((instance) => (
+                        <tr key={instance.id}>
+                          <td>
+                            <strong>{instance.name}</strong>
+                            <span>{instance.id}</span>
+                          </td>
+                          <td>{instance.provider}</td>
+                          <td>{statusLabel(instance.billingStatus)}</td>
+                          <td>
+                            {whatsappInstanceStatuses[instance.id] ? (
+                              <>
+                                <strong>
+                                  {statusLabel(
+                                    whatsappInstanceStatuses[instance.id]
+                                      .connectionStatus,
+                                  )}
+                                </strong>
+                                {whatsappInstanceStatuses[instance.id]
+                                  .message ? (
+                                  <span>
+                                    {
+                                      whatsappInstanceStatuses[instance.id]
+                                        .message
+                                    }
+                                  </span>
+                                ) : null}
+                                {whatsappInstanceStatuses[instance.id]
+                                  .qrCode ? (
+                                  <code>
+                                    {
+                                      whatsappInstanceStatuses[instance.id]
+                                        .qrCode
+                                    }
+                                  </code>
+                                ) : null}
+                              </>
+                            ) : (
+                              <span>-</span>
+                            )}
+                          </td>
+                          <td>
+                            {instance.providerInstanceId ??
+                              "ID Uazapi ainda nao emitido"}
+                          </td>
+                          <td>
+                            {instance.billingStatus === "active" &&
+                            canManageIntegrations ? (
+                              <form action={connectWhatsappInstance}>
+                                <input
+                                  type="hidden"
+                                  name="instanceId"
+                                  value={instance.id}
+                                />
+                                <SubmitButton
+                                  pendingLabel="Conectando..."
+                                  statusText="Solicitando conexao do WhatsApp."
+                                >
+                                  Conectar WhatsApp
+                                </SubmitButton>
+                              </form>
+                            ) : instance.billingStatus === "active" ? (
+                              <span className="event-chip warn">
+                                {workspacePermissionsUnavailable
+                                  ? "permissoes indisponiveis"
+                                  : "sem permissao"}
+                              </span>
+                            ) : instance.checkoutUrl ? (
+                              <a
+                                className="button primary"
+                                href={instance.checkoutUrl}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                Pagar agora
+                              </a>
+                            ) : (
+                              <span className="event-chip warn">
+                                Pagamento pendente
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td>
+                          <strong>{whatsappInstancesEmptyTitle}</strong>
+                          <span>
+                            Adicione e pague uma instancia para conectar o
+                            WhatsApp
+                          </span>
+                        </td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>
+                          <span className="event-chip warn">
+                            {whatsappInstancesResult.state === "error"
+                              ? "indisponivel"
+                              : "sem instancias"}
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
@@ -1801,39 +1834,39 @@ export default async function IntegrationsPage({
         </header>
         <div className="integration-domain-content integration-flow-content">
           <p className="muted integration-flow-note">
-          {pipeline
-            ? `${pipeline.rangeLabel} com dados reais do workspace.`
-            : "Nao foi possivel carregar o pipeline operacional agora."}
+            {pipeline
+              ? `${pipeline.rangeLabel} com dados reais do workspace.`
+              : "Nao foi possivel carregar o pipeline operacional agora."}
           </p>
           <div className="funnel-row" aria-label="Pipeline das integracoes">
-          {pipeline?.stages.length ? (
-            pipeline.stages.map((stage) => (
-              <div className="funnel-step" key={stage.key}>
-                <span>{stage.label}</span>
-                <strong>{stage.value}</strong>
-                <p>{stage.detail}</p>
+            {pipeline?.stages.length ? (
+              pipeline.stages.map((stage) => (
+                <div className="funnel-step" key={stage.key}>
+                  <span>{stage.label}</span>
+                  <strong>{stage.value}</strong>
+                  <p>{stage.detail}</p>
+                  <div className="signal-bar">
+                    <i
+                      style={{
+                        width: pipelineWidth(stage.value, maxPipelineValue),
+                      }}
+                    />
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="funnel-step">
+                <span>Pipeline</span>
+                <strong>
+                  {pipelineResult.state === "error"
+                    ? "API indisponivel"
+                    : "Aguardando eventos reais"}
+                </strong>
                 <div className="signal-bar">
-                  <i
-                    style={{
-                      width: pipelineWidth(stage.value, maxPipelineValue),
-                    }}
-                  />
+                  <i style={{ width: "0%" }} />
                 </div>
               </div>
-            ))
-          ) : (
-            <div className="funnel-step">
-              <span>Pipeline</span>
-              <strong>
-                {pipelineResult.state === "error"
-                  ? "API indisponivel"
-                  : "Aguardando eventos reais"}
-              </strong>
-              <div className="signal-bar">
-                <i style={{ width: "0%" }} />
-              </div>
-            </div>
-          )}
+            )}
           </div>
         </div>
       </section>

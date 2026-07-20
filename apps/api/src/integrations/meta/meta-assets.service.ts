@@ -43,6 +43,10 @@ type MetaReportingAccountRecord = {
   timezoneName: string | null;
   businessConnectionId: string | null;
   conversionDestinationId: string | null;
+  allowedDestinations?: Array<{
+    conversionDestinationId: string;
+    active: boolean;
+  }>;
   active: boolean;
   syncStatus: string;
   lastSyncedAt: Date | null;
@@ -143,6 +147,13 @@ export class MetaAssetsService {
   ): Promise<MetaReportingAccountDto[]> {
     const accounts = (await this.prisma.metaReportingAccount.findMany({
       where: { workspaceId },
+      include: {
+        allowedDestinations: {
+          where: { active: true },
+          select: { conversionDestinationId: true, active: true },
+          orderBy: { createdAt: "asc" },
+        },
+      },
       orderBy: [{ active: "desc" }, { adAccountName: "asc" }],
     })) as MetaReportingAccountRecord[];
 
@@ -294,6 +305,13 @@ export class MetaAssetsService {
       timezoneName: record.timezoneName,
       businessConnectionId: record.businessConnectionId,
       conversionDestinationId: record.conversionDestinationId,
+      conversionDestinationIds:
+        record.allowedDestinations?.map(
+          (destination) => destination.conversionDestinationId,
+        ) ??
+        (record.conversionDestinationId
+          ? [record.conversionDestinationId]
+          : []),
       active: record.active,
       syncStatus: this.toSyncStatus(record.syncStatus),
       lastSyncedAt: record.lastSyncedAt?.toISOString() ?? null,

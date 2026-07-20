@@ -51,6 +51,7 @@ import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser
     InboundWebhookParserRegistry,
   ],
   exports: [
+    InboundWebhookChannelRoutesService,
     InboundWebhookConnectionsService,
     InboundWebhookPayloadEncryptionService,
     InboundWebhookParserRegistry,

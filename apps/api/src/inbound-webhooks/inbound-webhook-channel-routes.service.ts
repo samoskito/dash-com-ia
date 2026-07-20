@@ -248,7 +248,7 @@ export class InboundWebhookChannelRoutesService {
       return after;
     });
 
-    await this.reevaluateUnresolvedEvents(workspaceId, channelId);
+    await this.reevaluateOpenEvents(workspaceId, channelId);
     return routes.map((route) => this.toRouteDto(route));
   }
 
@@ -315,7 +315,7 @@ export class InboundWebhookChannelRoutesService {
       void channel;
     });
 
-    await this.reevaluateUnresolvedEvents(workspaceId, channelId);
+    await this.reevaluateOpenEvents(workspaceId, channelId);
   }
 
   async updateChannelStatus(
@@ -371,7 +371,7 @@ export class InboundWebhookChannelRoutesService {
       return updated;
     });
 
-    await this.reevaluateUnresolvedEvents(workspaceId, channelId);
+    await this.reevaluateOpenEvents(workspaceId, channelId);
     const refreshed = await this.requireChannel(
       this.prisma,
       workspaceId,
@@ -390,6 +390,67 @@ export class InboundWebhookChannelRoutesService {
     workspaceId: string,
     channelId: string,
   ): Promise<InboundWebhookRouteReevaluationResult> {
+    return this.reevaluateEvents(workspaceId, channelId, [
+      "eligible_route_unresolved",
+    ]);
+  }
+
+  async reevaluateOpenEvents(
+    workspaceId: string,
+    channelId: string,
+  ): Promise<InboundWebhookRouteReevaluationResult> {
+    return this.reevaluateEvents(workspaceId, channelId, [
+      "eligible_route_resolved",
+      "eligible_route_unresolved",
+    ]);
+  }
+
+  async reevaluateWorkspaceOpenEvents(
+    workspaceId: string,
+  ): Promise<InboundWebhookRouteReevaluationResult> {
+    const channels = await this.prisma.inboundWebhookChannel.findMany({
+      where: {
+        workspaceId,
+        events: {
+          some: {
+            classification: {
+              in: ["eligible_route_resolved", "eligible_route_unresolved"],
+            },
+            replayItem: null,
+          },
+        },
+      },
+      select: { id: true },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    const total: InboundWebhookRouteReevaluationResult = {
+      examinedCount: 0,
+      updatedCount: 0,
+      resolvedCount: 0,
+      unresolvedCount: 0,
+      conflictCount: 0,
+    };
+
+    for (const channel of channels) {
+      const result = await this.reevaluateOpenEvents(workspaceId, channel.id);
+
+      total.examinedCount += result.examinedCount;
+      total.updatedCount += result.updatedCount;
+      total.resolvedCount += result.resolvedCount;
+      total.unresolvedCount += result.unresolvedCount;
+      total.conflictCount += result.conflictCount;
+    }
+
+    return total;
+  }
+
+  private async reevaluateEvents(
+    workspaceId: string,
+    channelId: string,
+    classifications: Array<
+      "eligible_route_resolved" | "eligible_route_unresolved"
+    >,
+  ): Promise<InboundWebhookRouteReevaluationResult> {
     const channel = await this.requireChannel(
       this.prisma,
       workspaceId,
@@ -399,7 +460,8 @@ export class InboundWebhookChannelRoutesService {
       where: {
         workspaceId,
         channelId,
-        classification: "eligible_route_unresolved",
+        classification: { in: classifications },
+        replayItem: null,
       },
       select: {
         id: true,
@@ -432,7 +494,8 @@ export class InboundWebhookChannelRoutesService {
               id: eventId,
               workspaceId,
               channelId,
-              classification: "eligible_route_unresolved",
+              classification: { in: classifications },
+              replayItem: null,
             },
             data: this.eventRouteUpdate(workspaceId, decision),
           });

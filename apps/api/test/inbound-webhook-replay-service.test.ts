@@ -7,6 +7,7 @@ import { InboundWebhookParserRegistry } from "../src/inbound-webhooks/providers/
 
 const workspaceId = "workspace_1";
 const connectionId = "connection_1";
+const channelId = "channel_1";
 const now = new Date("2026-07-18T15:00:00.000Z");
 
 afterEach(() => {
@@ -210,6 +211,15 @@ describe("inbound webhook replay service", () => {
       inboundWebhookEvent: {
         findMany: vi.fn(async () => events),
       },
+      inboundWebhookChannel: {
+        findMany: vi.fn(async () => [
+          {
+            id: channelId,
+            channelName: "Comercial",
+            connectedPhone: "5511999990001",
+          },
+        ]),
+      },
       inboundWebhookReplayBatch: {
         findMany: vi.fn(async () => [
           {
@@ -287,6 +297,7 @@ describe("inbound webhook replay service", () => {
         connectionId,
         connection.displayName,
         "canary_1",
+        channelId,
         owner,
         null,
       ),
@@ -298,6 +309,7 @@ describe("inbound webhook replay service", () => {
       id: "batch_1",
       workspaceId,
       connectionId,
+      channelId,
       requestedByUserId: owner.id,
       selection: "canary_5" as const,
       requestedLimit: 5,
@@ -390,6 +402,9 @@ describe("inbound webhook replay service", () => {
       inboundWebhookConnection: {
         findFirst: vi.fn(async () => connection),
       },
+      inboundWebhookChannel: {
+        count: vi.fn(async () => 1),
+      },
       $transaction: vi.fn(async (callback) => callback(tx)),
     };
     const enqueueBatch = vi.fn(async () => ({
@@ -406,6 +421,7 @@ describe("inbound webhook replay service", () => {
         connectionId,
         connection.displayName,
         "canary_5",
+        channelId,
         owner,
         "127.0.0.1",
       ),
@@ -466,6 +482,9 @@ describe("inbound webhook replay service", () => {
         inboundWebhookConnection: {
           findFirst: vi.fn(async () => connection),
         },
+        inboundWebhookChannel: {
+          count: vi.fn(async () => 1),
+        },
         $transaction: vi.fn(async () => {
           throw { code: "P2002" };
         }),
@@ -478,6 +497,7 @@ describe("inbound webhook replay service", () => {
         connectionId,
         connection.displayName,
         "canary_1",
+        channelId,
         owner,
         null,
       ),

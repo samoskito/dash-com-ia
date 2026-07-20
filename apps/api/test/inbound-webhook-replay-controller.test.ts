@@ -94,12 +94,16 @@ describe("inbound webhook replay controller", () => {
     await request(app.getHttpServer())
       .post("/backoffice/inbound-webhooks/connections/connection_1/replay")
       .set("Authorization", "Bearer owner-token")
-      .send({ confirmation: "observacao inicial" })
+      .send({
+        confirmation: "observacao inicial",
+        channelId: "channel_1",
+      })
       .expect(201);
     expect(replay.authorizeReplay).toHaveBeenCalledWith(
       "connection_1",
       "observacao inicial",
       "canary_1",
+      "channel_1",
       expect.objectContaining({ id: "owner_1" }),
       expect.any(String),
     );
@@ -115,12 +119,14 @@ describe("inbound webhook replay controller", () => {
       .send({
         confirmation: "observacao inicial",
         selection: "canary_5",
+        channelId: "channel_1",
       })
       .expect(201);
     expect(replay.authorizeReplay).toHaveBeenLastCalledWith(
       "connection_1",
       "observacao inicial",
       "canary_5",
+      "channel_1",
       expect.objectContaining({ id: "owner_1" }),
       expect.any(String),
     );

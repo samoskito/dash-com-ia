@@ -4,6 +4,7 @@ import type {
   MetaConnectionCapabilitiesDto,
   MetaManualAssetDiscoveryDto,
   MetaManualConfigurationDto,
+  MetaReportingAccountAdRoutingDto,
 } from "@wpptrack/shared";
 import { META_OAUTH_DISCONNECT_CONFIRMATION } from "@wpptrack/shared";
 import {
@@ -35,6 +36,41 @@ import type { MetaManualActionResult } from "./meta-manual-actions";
 
 type SetupMode = "quick" | "advanced";
 type DestinationMode = "discovered" | "direct" | "existing";
+type AccountDestinationDraft = {
+  allowedIds: string[];
+  defaultId: string;
+};
+type ReportingAccountConfiguration =
+  MetaManualConfigurationDto["reportingAccounts"][number];
+
+function accountDestinationDraft(
+  account: ReportingAccountConfiguration,
+  businessDefaultId: string | null,
+): AccountDestinationDraft {
+  const fallbackId = account.conversionDestinationId ?? businessDefaultId;
+  const allowedIds = [
+    ...new Set(
+      account.conversionDestinationIds.length > 0
+        ? account.conversionDestinationIds
+        : fallbackId
+          ? [fallbackId]
+          : [],
+    ),
+  ];
+  const defaultId =
+    account.conversionDestinationId &&
+    allowedIds.includes(account.conversionDestinationId)
+      ? account.conversionDestinationId
+      : businessDefaultId && allowedIds.includes(businessDefaultId)
+        ? businessDefaultId
+        : (allowedIds[0] ?? "");
+
+  return { allowedIds, defaultId };
+}
+
+function adDestinationDraftKey(accountId: string, adId: string): string {
+  return `${accountId}:${adId}`;
+}
 
 export function parseMetaAdAccountIds(value: string): string[] {
   return [
@@ -89,6 +125,15 @@ type MetaManualConnectionPanelProps = {
   syncHistoryAction: () => Promise<MetaManualActionResult>;
   setAccountDestinationAction: (
     reportingAccountId: string,
+    conversionDestinationId: string | null,
+    conversionDestinationIds: string[],
+  ) => Promise<MetaManualActionResult>;
+  loadAdRoutingAction: (
+    reportingAccountId: string,
+  ) => Promise<MetaManualActionResult>;
+  setAdDestinationAction: (
+    reportingAccountId: string,
+    adId: string,
     conversionDestinationId: string | null,
   ) => Promise<MetaManualActionResult>;
   setOAuthRoutingAction: (enabled: boolean) => Promise<MetaManualActionResult>;
@@ -279,6 +324,8 @@ export function MetaManualConnectionPanel({
   removeConnectionAction,
   syncHistoryAction,
   setAccountDestinationAction,
+  loadAdRoutingAction,
+  setAdDestinationAction,
   setOAuthRoutingAction,
 }: MetaManualConnectionPanelProps) {
   const [configuration, setConfiguration] = useState(initialConfiguration);
@@ -315,8 +362,20 @@ export function MetaManualConnectionPanel({
   >(null);
   const [removalConfirmation, setRemovalConfirmation] = useState("");
   const [accountDestinationDrafts, setAccountDestinationDrafts] = useState<
+    Record<string, AccountDestinationDraft>
+  >({});
+  const [adRoutingByAccount, setAdRoutingByAccount] = useState<
+    Record<string, MetaReportingAccountAdRoutingDto>
+  >({});
+  const [adDestinationDrafts, setAdDestinationDrafts] = useState<
     Record<string, string>
   >({});
+  const [adRoutingSearches, setAdRoutingSearches] = useState<
+    Record<string, string>
+  >({});
+  const [expandedAdRoutingAccountId, setExpandedAdRoutingAccountId] = useState<
+    string | null
+  >(null);
   const credentialFormRef = useRef<HTMLFormElement>(null);
   const rotateFormRef = useRef<HTMLFormElement>(null);
   const removeDialogRef = useRef<HTMLDialogElement>(null);
@@ -749,13 +808,102 @@ export function MetaManualConnectionPanel({
     setPendingAction(null);
   }
 
-  async function handleAccountDestination(accountId: string) {
-    const draft = accountDestinationDrafts[accountId] ?? "";
+  async function handleAccountDestination(
+    account: ReportingAccountConfiguration,
+    businessDefaultId: string | null,
+  ) {
+    const accountId = account.id;
+    const draft =
+      accountDestinationDrafts[accountId] ??
+      accountDestinationDraft(account, businessDefaultId);
     setPendingAction(`destination:${accountId}`);
-    const result = await setAccountDestinationAction(accountId, draft || null);
+    const result = await setAccountDestinationAction(
+      accountId,
+      draft.defaultId || null,
+      draft.allowedIds,
+    );
 
     if (result.ok && result.configuration) {
       setConfiguration(result.configuration);
+      setAdRoutingByAccount((current) => {
+        const next = { ...current };
+        delete next[accountId];
+        return next;
+      });
+      setExpandedAdRoutingAccountId((current) =>
+        current === accountId ? null : current,
+      );
+    }
+
+    showResult(result);
+    setPendingAction(null);
+  }
+
+  async function handleAdRouting(accountId: string) {
+    if (expandedAdRoutingAccountId === accountId) {
+      setExpandedAdRoutingAccountId(null);
+      return;
+    }
+
+    setExpandedAdRoutingAccountId(accountId);
+
+    if (adRoutingByAccount[accountId]) {
+      return;
+    }
+
+    setPendingAction(`ad-routing:${accountId}`);
+    const result = await loadAdRoutingAction(accountId);
+
+    if (result.ok && result.adRouting) {
+      setAdRoutingByAccount((current) => ({
+        ...current,
+        [accountId]: result.adRouting!,
+      }));
+      setAdDestinationDrafts((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          result.adRouting!.ads.map((ad) => [
+            adDestinationDraftKey(accountId, ad.adId),
+            ad.assignmentSource === "manual"
+              ? (ad.conversionDestinationId ?? "")
+              : "",
+          ]),
+        ),
+      }));
+    } else {
+      setExpandedAdRoutingAccountId(null);
+      showResult(result);
+    }
+
+    setPendingAction(null);
+  }
+
+  async function handleAdDestination(accountId: string, adId: string) {
+    const key = adDestinationDraftKey(accountId, adId);
+    const destinationId = adDestinationDrafts[key] ?? "";
+    setPendingAction(`ad-destination:${key}`);
+    const result = await setAdDestinationAction(
+      accountId,
+      adId,
+      destinationId || null,
+    );
+
+    if (result.ok && result.adRouting) {
+      setAdRoutingByAccount((current) => ({
+        ...current,
+        [accountId]: result.adRouting!,
+      }));
+      setAdDestinationDrafts((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          result.adRouting!.ads.map((ad) => [
+            adDestinationDraftKey(accountId, ad.adId),
+            ad.assignmentSource === "manual"
+              ? (ad.conversionDestinationId ?? "")
+              : "",
+          ]),
+        ),
+      }));
     }
 
     showResult(result);
@@ -898,9 +1046,10 @@ export function MetaManualConnectionPanel({
           const connectionDestinationIds = new Set(
             [
               connection.defaultConversionDestinationId,
-              ...activeConnectionAccounts.map(
-                (account) => account.conversionDestinationId,
-              ),
+              ...activeConnectionAccounts.flatMap((account) => [
+                account.conversionDestinationId,
+                ...account.conversionDestinationIds,
+              ]),
             ].filter((id): id is string => Boolean(id)),
           );
           const connectionDestinations = configuration.destinations.filter(
@@ -1093,17 +1242,41 @@ export function MetaManualConnectionPanel({
                   </div>
                   <div className="meta-account-routing-list">
                     {activeConnectionAccounts.map((account) => {
-                      const effectiveDestinationId =
-                        account.conversionDestinationId ??
-                        connection.defaultConversionDestinationId;
-                      const effectiveDestination =
-                        configuration.destinations.find(
-                          (item) => item.id === effectiveDestinationId,
+                      const persistedDraft = accountDestinationDraft(
+                        account,
+                        connection.defaultConversionDestinationId,
+                      );
+                      const draft =
+                        accountDestinationDrafts[account.id] ?? persistedDraft;
+                      const allowedDestinations =
+                        configuration.destinations.filter(
+                          (item) =>
+                            Boolean(item.id) &&
+                            draft.allowedIds.includes(item.id ?? ""),
                         );
-                      const selectedDestinationId =
-                        accountDestinationDrafts[account.id] ??
-                        account.conversionDestinationId ??
-                        "";
+                      const persistedDestinationIds =
+                        account.conversionDestinationIds.length > 0
+                          ? account.conversionDestinationIds
+                          : persistedDraft.allowedIds;
+                      const persistedDestinations =
+                        configuration.destinations.filter(
+                          (item) =>
+                            Boolean(item.id) &&
+                            persistedDestinationIds.includes(item.id ?? ""),
+                        );
+                      const adRouting = adRoutingByAccount[account.id];
+                      const search = (adRoutingSearches[account.id] ?? "")
+                        .trim()
+                        .toLocaleLowerCase("pt-BR");
+                      const visibleAds =
+                        adRouting?.ads.filter(
+                          (ad) =>
+                            !search ||
+                            ad.adName
+                              .toLocaleLowerCase("pt-BR")
+                              .includes(search) ||
+                            ad.adId.toLocaleLowerCase("pt-BR").includes(search),
+                        ) ?? [];
 
                       return (
                         <div
@@ -1126,31 +1299,43 @@ export function MetaManualConnectionPanel({
                             </small>
                           </span>
                           <span className="meta-account-routing-asset">
-                            <small>Pixel / Dataset</small>
+                            <small>Pixels / Datasets</small>
                             <strong>
                               <PresentationMask placeholder="Pixel oculto">
-                                {effectiveDestination?.pixelName ??
-                                  "Nao configurado"}
+                                {persistedDestinations.length > 1
+                                  ? `${new Set(persistedDestinations.map((item) => item.pixelId)).size} vinculados`
+                                  : (persistedDestinations[0]?.pixelName ??
+                                    "Nao configurado")}
                               </PresentationMask>
                             </strong>
                             <small>
-                              <PresentationMask placeholder="ID oculto">
-                                {effectiveDestination?.pixelId ?? "-"}
-                              </PresentationMask>
+                              {persistedDestinations.length > 1 ? (
+                                `${persistedDestinations.length} destinos permitidos`
+                              ) : (
+                                <PresentationMask placeholder="ID oculto">
+                                  {persistedDestinations[0]?.pixelId ?? "-"}
+                                </PresentationMask>
+                              )}
                             </small>
                           </span>
                           <span className="meta-account-routing-asset">
-                            <small>Pagina</small>
+                            <small>Paginas</small>
                             <strong>
                               <PresentationMask placeholder="Pagina oculta">
-                                {effectiveDestination?.pageName ??
-                                  "Nao configurada"}
+                                {persistedDestinations.length > 1
+                                  ? `${new Set(persistedDestinations.map((item) => item.pageId)).size} vinculadas`
+                                  : (persistedDestinations[0]?.pageName ??
+                                    "Nao configurada")}
                               </PresentationMask>
                             </strong>
                             <small>
-                              <PresentationMask placeholder="ID oculto">
-                                {effectiveDestination?.pageId ?? "-"}
-                              </PresentationMask>
+                              {persistedDestinations.length > 1 ? (
+                                "Roteamento definido por anuncio"
+                              ) : (
+                                <PresentationMask placeholder="ID oculto">
+                                  {persistedDestinations[0]?.pageId ?? "-"}
+                                </PresentationMask>
+                              )}
                             </small>
                           </span>
                           <span className="meta-account-routing-health">
@@ -1161,53 +1346,348 @@ export function MetaManualConnectionPanel({
                             <small>{accountSyncDetail(account)}</small>
                           </span>
                           {canManage ? (
-                            <span className="meta-account-routing-control">
-                              <label htmlFor={`destination-${account.id}`}>
-                                Alterar destino
-                              </label>
-                              <span>
-                                <select
-                                  id={`destination-${account.id}`}
-                                  aria-label={`Destino de ${account.adAccountName}`}
-                                  value={selectedDestinationId}
-                                  onChange={(event) =>
-                                    setAccountDestinationDrafts((current) => ({
-                                      ...current,
-                                      [account.id]: event.currentTarget.value,
-                                    }))
-                                  }
-                                  data-presentation-sensitive-field="true"
-                                >
-                                  <option value="">
-                                    Padrao da BM
-                                    {destination?.label
-                                      ? `: ${destination.label}`
-                                      : ""}
-                                  </option>
-                                  {configuration.destinations.map((item) => (
-                                    <option
-                                      key={item.id}
-                                      value={item.id ?? ""}
-                                    >
-                                      {item.label ??
-                                        item.pixelName ??
-                                        item.pixelId}
-                                    </option>
-                                  ))}
-                                </select>
+                            <div className="meta-account-routing-control">
+                              <small>Destinos da conta</small>
+                              <details className="meta-account-destination-picker">
+                                <summary>
+                                  <span>
+                                    {draft.allowedIds.length} selecionado(s)
+                                  </span>
+                                  <ChevronDown size={15} aria-hidden="true" />
+                                </summary>
+                                <div>
+                                  <fieldset>
+                                    <legend>Pixels e paginas permitidos</legend>
+                                    {configuration.destinations.map((item) => {
+                                      const itemId = item.id ?? "";
+                                      const checked =
+                                        draft.allowedIds.includes(itemId);
+
+                                      return (
+                                        <label
+                                          key={
+                                            item.id ??
+                                            `${item.pixelId}:${item.pageId}`
+                                          }
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            disabled={
+                                              !itemId || pendingAction !== null
+                                            }
+                                            onChange={(event) => {
+                                              const nextAllowedIds = event
+                                                .currentTarget.checked
+                                                ? [
+                                                    ...new Set([
+                                                      ...draft.allowedIds,
+                                                      itemId,
+                                                    ]),
+                                                  ]
+                                                : draft.allowedIds.filter(
+                                                    (destinationId) =>
+                                                      destinationId !== itemId,
+                                                  );
+                                              const nextDefaultId =
+                                                nextAllowedIds.includes(
+                                                  draft.defaultId,
+                                                )
+                                                  ? draft.defaultId
+                                                  : (nextAllowedIds[0] ?? "");
+
+                                              setAccountDestinationDrafts(
+                                                (current) => ({
+                                                  ...current,
+                                                  [account.id]: {
+                                                    allowedIds: nextAllowedIds,
+                                                    defaultId: nextDefaultId,
+                                                  },
+                                                }),
+                                              );
+                                            }}
+                                          />
+                                          <span>
+                                            <strong>
+                                              {item.label ??
+                                                item.pixelName ??
+                                                item.pixelId}
+                                            </strong>
+                                            <small>
+                                              {item.pixelName ?? item.pixelId} /{" "}
+                                              {item.pageName ?? item.pageId}
+                                            </small>
+                                          </span>
+                                        </label>
+                                      );
+                                    })}
+                                  </fieldset>
+                                  <label htmlFor={`destination-${account.id}`}>
+                                    Destino padrao da conta
+                                  </label>
+                                  <select
+                                    id={`destination-${account.id}`}
+                                    aria-label={`Destino padrao de ${account.adAccountName}`}
+                                    value={draft.defaultId}
+                                    disabled={
+                                      draft.allowedIds.length === 0 ||
+                                      pendingAction !== null
+                                    }
+                                    onChange={(event) =>
+                                      setAccountDestinationDrafts(
+                                        (current) => ({
+                                          ...current,
+                                          [account.id]: {
+                                            ...draft,
+                                            defaultId:
+                                              event.currentTarget.value,
+                                          },
+                                        }),
+                                      )
+                                    }
+                                    data-presentation-sensitive-field="true"
+                                  >
+                                    {allowedDestinations.map((item) => (
+                                      <option
+                                        key={item.id}
+                                        value={item.id ?? ""}
+                                      >
+                                        {item.label ??
+                                          item.pixelName ??
+                                          item.pixelId}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    className="button secondary"
+                                    type="button"
+                                    disabled={
+                                      draft.allowedIds.length === 0 ||
+                                      pendingAction !== null
+                                    }
+                                    onClick={() =>
+                                      void handleAccountDestination(
+                                        account,
+                                        connection.defaultConversionDestinationId,
+                                      )
+                                    }
+                                  >
+                                    <Save size={15} aria-hidden="true" />
+                                    {pendingAction ===
+                                    `destination:${account.id}`
+                                      ? "Salvando..."
+                                      : "Salvar destinos"}
+                                  </button>
+                                </div>
+                              </details>
+                              {persistedDestinationIds.length > 1 ? (
                                 <button
                                   className="button ghost"
                                   type="button"
                                   disabled={pendingAction !== null}
                                   onClick={() =>
-                                    void handleAccountDestination(account.id)
+                                    void handleAdRouting(account.id)
                                   }
                                 >
-                                  <Save size={15} aria-hidden="true" />
-                                  Salvar
+                                  <Link2 size={15} aria-hidden="true" />
+                                  {pendingAction === `ad-routing:${account.id}`
+                                    ? "Carregando..."
+                                    : expandedAdRoutingAccountId === account.id
+                                      ? "Fechar anuncios"
+                                      : "Roteamento por anuncio"}
                                 </button>
-                              </span>
-                            </span>
+                              ) : null}
+                            </div>
+                          ) : null}
+
+                          {expandedAdRoutingAccountId === account.id ? (
+                            <section className="meta-ad-routing-editor">
+                              <div className="meta-ad-routing-editor-head">
+                                <span>
+                                  <small>Roteamento fino</small>
+                                  <strong>Anuncios desta conta</strong>
+                                </span>
+                                {adRouting ? (
+                                  <span className="event-chip">
+                                    {adRouting.ads.length} anuncio(s)
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              {adRouting ? (
+                                <>
+                                  <div className="meta-ad-routing-toolbar">
+                                    <input
+                                      type="search"
+                                      value={
+                                        adRoutingSearches[account.id] ?? ""
+                                      }
+                                      onChange={(event) =>
+                                        setAdRoutingSearches((current) => ({
+                                          ...current,
+                                          [account.id]:
+                                            event.currentTarget.value,
+                                        }))
+                                      }
+                                      placeholder="Buscar anuncio por nome ou ID"
+                                      aria-label={`Buscar anuncios de ${account.adAccountName}`}
+                                      data-presentation-sensitive-field="true"
+                                    />
+                                    <span>
+                                      {
+                                        adRouting.ads.filter(
+                                          (ad) => ad.routeStatus === "assigned",
+                                        ).length
+                                      }{" "}
+                                      resolvido(s)
+                                    </span>
+                                    <span>
+                                      {
+                                        adRouting.ads.filter(
+                                          (ad) => ad.routeStatus !== "assigned",
+                                        ).length
+                                      }{" "}
+                                      pendente(s)
+                                    </span>
+                                  </div>
+                                  <div className="meta-ad-routing-list">
+                                    {visibleAds.length > 0 ? (
+                                      visibleAds.map((ad) => {
+                                        const selectedManualId =
+                                          adDestinationDrafts[
+                                            adDestinationDraftKey(
+                                              account.id,
+                                              ad.adId,
+                                            )
+                                          ] ?? "";
+                                        const assignedDestination =
+                                          configuration.destinations.find(
+                                            (item) =>
+                                              item.id ===
+                                              ad.conversionDestinationId,
+                                          );
+
+                                        return (
+                                          <div key={ad.adId}>
+                                            <span>
+                                              <strong>
+                                                <PresentationMask placeholder="Anuncio oculto">
+                                                  {ad.adName}
+                                                </PresentationMask>
+                                              </strong>
+                                              <small>
+                                                <PresentationMask placeholder="ID oculto">
+                                                  {ad.adId}
+                                                </PresentationMask>
+                                              </small>
+                                            </span>
+                                            <span>
+                                              <small>Destino atual</small>
+                                              <strong>
+                                                {assignedDestination?.label ??
+                                                  assignedDestination?.pixelName ??
+                                                  adRouteStatusLabel(
+                                                    ad.routeStatus,
+                                                  )}
+                                              </strong>
+                                              <small>
+                                                {ad.assignmentSource ===
+                                                "manual"
+                                                  ? "Excecao manual"
+                                                  : ad.assignmentSource ===
+                                                      "automatic"
+                                                    ? "Descoberto pela Meta"
+                                                    : adRouteStatusLabel(
+                                                        ad.routeStatus,
+                                                      )}
+                                              </small>
+                                            </span>
+                                            <span>
+                                              <small>Hints Meta</small>
+                                              <strong>
+                                                Pixel{" "}
+                                                {ad.detectedPixelId ??
+                                                  "nao informado"}
+                                              </strong>
+                                              <small>
+                                                Pagina{" "}
+                                                {ad.detectedPageId ??
+                                                  "nao informada"}
+                                              </small>
+                                            </span>
+                                            <span className="meta-ad-routing-control">
+                                              <select
+                                                aria-label={`Destino manual de ${ad.adName}`}
+                                                value={selectedManualId}
+                                                disabled={
+                                                  pendingAction !== null
+                                                }
+                                                onChange={(event) =>
+                                                  setAdDestinationDrafts(
+                                                    (current) => ({
+                                                      ...current,
+                                                      [adDestinationDraftKey(
+                                                        account.id,
+                                                        ad.adId,
+                                                      )]:
+                                                        event.currentTarget
+                                                          .value,
+                                                    }),
+                                                  )
+                                                }
+                                                data-presentation-sensitive-field="true"
+                                              >
+                                                <option value="">
+                                                  Usar descoberta automatica
+                                                </option>
+                                                {persistedDestinations.map(
+                                                  (item) => (
+                                                    <option
+                                                      key={item.id}
+                                                      value={item.id ?? ""}
+                                                    >
+                                                      {item.label ??
+                                                        item.pixelName ??
+                                                        item.pixelId}
+                                                    </option>
+                                                  ),
+                                                )}
+                                              </select>
+                                              <button
+                                                className="icon-button"
+                                                type="button"
+                                                title="Salvar destino do anuncio"
+                                                aria-label={`Salvar destino de ${ad.adName}`}
+                                                disabled={
+                                                  pendingAction !== null
+                                                }
+                                                onClick={() =>
+                                                  void handleAdDestination(
+                                                    account.id,
+                                                    ad.adId,
+                                                  )
+                                                }
+                                              >
+                                                <Save
+                                                  size={15}
+                                                  aria-hidden="true"
+                                                />
+                                              </button>
+                                            </span>
+                                          </div>
+                                        );
+                                      })
+                                    ) : (
+                                      <p className="muted">
+                                        Nenhum anuncio corresponde a esta busca.
+                                      </p>
+                                    )}
+                                  </div>
+                                </>
+                              ) : (
+                                <p className="muted">Carregando anuncios...</p>
+                              )}
+                            </section>
                           ) : null}
                         </div>
                       );
@@ -1983,11 +2463,13 @@ export function MetaManualConnectionPanel({
             <span>{notice.message}</span>
           </div>
         ) : null}
-        {!setupOpen &&
-        (configuration?.businessConnections.length ?? 0) > 0 ? (
+        {!setupOpen && (configuration?.businessConnections.length ?? 0) > 0 ? (
           <details className="meta-configured-structures">
             <summary>
-              <span className="meta-configured-structures-icon" aria-hidden="true">
+              <span
+                className="meta-configured-structures-icon"
+                aria-hidden="true"
+              >
                 <Database size={17} />
               </span>
               <span>
@@ -2161,6 +2643,16 @@ function syncStatusLabel(status: string) {
     syncing: "Sincronizando",
     synced: "Sincronizada",
     error: "Falhou",
+  };
+
+  return labels[status] ?? status;
+}
+
+function adRouteStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    assigned: "Destino resolvido",
+    ambiguous: "Multiplas correspondencias",
+    unresolved: "Destino pendente",
   };
 
   return labels[status] ?? status;

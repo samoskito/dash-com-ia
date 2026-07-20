@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../common/prisma/prisma.module";
+import { InboundWebhooksModule } from "../inbound-webhooks/inbound-webhooks.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AsaasAdapter } from "./asaas/asaas.adapter";
 import { INTEGRATION_ENV } from "./integration.types";
@@ -19,7 +20,7 @@ import { WhatsappConnectionsService } from "./whatsapp-connections.service";
 export { INTEGRATION_ENV } from "./integration.types";
 
 @Module({
-  imports: [AuthModule, PrismaModule, WorkspacesModule],
+  imports: [AuthModule, PrismaModule, InboundWebhooksModule, WorkspacesModule],
   providers: [
     {
       provide: INTEGRATION_ENV,

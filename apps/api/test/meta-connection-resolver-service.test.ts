@@ -146,6 +146,9 @@ function createHarness() {
           adAccountId: string;
           businessConnectionId: string | null;
           conversionDestinationId: string | null;
+          allowedDestinations: Array<{
+            conversionDestinationId: string;
+          }>;
           active: boolean;
         } | null> => {
           const accounts = [
@@ -155,6 +158,7 @@ function createHarness() {
               adAccountId: "act_manual",
               businessConnectionId: "connection_manual",
               conversionDestinationId: "destination_override",
+              allowedDestinations: [],
               active: true,
             },
             {
@@ -163,6 +167,7 @@ function createHarness() {
               adAccountId: "act_legacy",
               businessConnectionId: "connection_oauth_shadow",
               conversionDestinationId: null,
+              allowedDestinations: [],
               active: true,
             },
             {
@@ -171,6 +176,7 @@ function createHarness() {
               adAccountId: "act_oauth",
               businessConnectionId: "connection_oauth",
               conversionDestinationId: null,
+              allowedDestinations: [],
               active: true,
             },
           ];
@@ -271,19 +277,31 @@ function createHarness() {
           where,
         }: {
           where: { workspaceId: string; adId: string };
-        }): Promise<{ adAccountId: string | null } | null> => {
+        }): Promise<{
+          adAccountId: string | null;
+          destinationAssignment: {
+            reportingAccountId: string;
+            conversionDestinationId: string;
+          } | null;
+        } | null> => {
           if (
             where.workspaceId === "workspace_manual" &&
             where.adId === "ad_manual"
           ) {
-            return { adAccountId: "act_manual" };
+            return {
+              adAccountId: "act_manual",
+              destinationAssignment: null,
+            };
           }
 
           if (
             where.workspaceId === "workspace_oauth_advanced" &&
             where.adId === "ad_oauth"
           ) {
-            return { adAccountId: "act_oauth" };
+            return {
+              adAccountId: "act_oauth",
+              destinationAssignment: null,
+            };
           }
 
           return null;
@@ -370,6 +388,25 @@ describe("MetaConnectionResolverService", () => {
     const decryptSpy = vi.spyOn(encryption, "decrypt");
     const fingerprintSpy = vi.spyOn(encryption, "fingerprint");
     const tokenRouteSpy = vi.spyOn(service, "resolveCapiRoute");
+    prisma.metaAd.findFirst.mockResolvedValueOnce({
+      adAccountId: "act_manual",
+      destinationAssignment: {
+        reportingAccountId: "reporting_manual",
+        conversionDestinationId: "destination_exact",
+      },
+    });
+    prisma.metaReportingAccount.findFirst.mockResolvedValueOnce({
+      id: "reporting_manual",
+      workspaceId: "workspace_manual",
+      adAccountId: "act_manual",
+      businessConnectionId: "connection_manual",
+      conversionDestinationId: "destination_override",
+      allowedDestinations: [
+        { conversionDestinationId: "destination_override" },
+        { conversionDestinationId: "destination_exact" },
+      ],
+      active: true,
+    });
 
     const preview = await routeReader.previewRoute({
       workspaceId: "workspace_manual",
@@ -430,6 +467,100 @@ describe("MetaConnectionResolverService", () => {
     });
   });
 
+  it("routes one account with multiple destinations only through its exact ad assignment", async () => {
+    const { prisma, routeReader } = createHarness();
+    prisma.metaAd.findFirst.mockResolvedValueOnce({
+      adAccountId: "act_manual",
+      destinationAssignment: {
+        reportingAccountId: "reporting_manual",
+        conversionDestinationId: "destination_exact",
+      },
+    });
+    prisma.metaReportingAccount.findFirst.mockResolvedValueOnce({
+      id: "reporting_manual",
+      workspaceId: "workspace_manual",
+      adAccountId: "act_manual",
+      businessConnectionId: "connection_manual",
+      conversionDestinationId: "destination_override",
+      allowedDestinations: [
+        { conversionDestinationId: "destination_override" },
+        { conversionDestinationId: "destination_exact" },
+      ],
+      active: true,
+    });
+
+    await expect(
+      routeReader.previewRoute({
+        workspaceId: "workspace_manual",
+        adId: "ad_manual",
+      }),
+    ).resolves.toMatchObject({
+      status: "resolved",
+      reason: "route_resolved",
+      conversionDestinationId: "destination_exact",
+      pixelId: "pixel_exact",
+      pageId: "page_exact",
+    });
+  });
+
+  it("blocks a multi-destination account when the ad assignment is missing or mismatched", async () => {
+    const unresolved = createHarness();
+    unresolved.prisma.metaReportingAccount.findFirst.mockResolvedValueOnce({
+      id: "reporting_manual",
+      workspaceId: "workspace_manual",
+      adAccountId: "act_manual",
+      businessConnectionId: "connection_manual",
+      conversionDestinationId: "destination_override",
+      allowedDestinations: [
+        { conversionDestinationId: "destination_override" },
+        { conversionDestinationId: "destination_exact" },
+      ],
+      active: true,
+    });
+
+    await expect(
+      unresolved.routeReader.previewRoute({
+        workspaceId: "workspace_manual",
+        adId: "ad_manual",
+      }),
+    ).resolves.toMatchObject({
+      status: "unresolved",
+      reason: "ad_destination_unresolved",
+    });
+
+    const mismatch = createHarness();
+    mismatch.prisma.metaAd.findFirst.mockResolvedValueOnce({
+      adAccountId: "act_manual",
+      destinationAssignment: {
+        reportingAccountId: "reporting_manual",
+        conversionDestinationId: "destination_exact",
+      },
+    });
+    mismatch.prisma.metaReportingAccount.findFirst.mockResolvedValueOnce({
+      id: "reporting_manual",
+      workspaceId: "workspace_manual",
+      adAccountId: "act_manual",
+      businessConnectionId: "connection_manual",
+      conversionDestinationId: "destination_override",
+      allowedDestinations: [
+        { conversionDestinationId: "destination_override" },
+        { conversionDestinationId: "destination_exact" },
+      ],
+      active: true,
+    });
+
+    await expect(
+      mismatch.routeReader.previewRoute({
+        workspaceId: "workspace_manual",
+        adId: "ad_manual",
+        conversionDestinationId: "destination_override",
+      }),
+    ).resolves.toMatchObject({
+      status: "unresolved",
+      reason: "ad_destination_mismatch",
+    });
+  });
+
   it("keeps an unknown ad unresolved without falling back to another account or BM", async () => {
     const { prisma, routeReader } = createHarness();
 
@@ -454,7 +585,10 @@ describe("MetaConnectionResolverService", () => {
 
   it("keeps an ad without an attributed account unresolved", async () => {
     const { prisma, routeReader } = createHarness();
-    prisma.metaAd.findFirst.mockResolvedValueOnce({ adAccountId: null });
+    prisma.metaAd.findFirst.mockResolvedValueOnce({
+      adAccountId: null,
+      destinationAssignment: null,
+    });
 
     await expect(
       routeReader.previewRoute({
@@ -475,6 +609,7 @@ describe("MetaConnectionResolverService", () => {
     const missing = createHarness();
     missing.prisma.metaAd.findFirst.mockResolvedValueOnce({
       adAccountId: "act_unsynchronized",
+      destinationAssignment: null,
     });
 
     await expect(
@@ -496,6 +631,7 @@ describe("MetaConnectionResolverService", () => {
     const inactive = createHarness();
     inactive.prisma.metaAd.findFirst.mockResolvedValueOnce({
       adAccountId: "act_inactive",
+      destinationAssignment: null,
     });
     inactive.prisma.metaReportingAccount.findFirst.mockResolvedValueOnce({
       id: "reporting_inactive",
@@ -503,6 +639,7 @@ describe("MetaConnectionResolverService", () => {
       adAccountId: "act_inactive",
       businessConnectionId: "connection_manual",
       conversionDestinationId: null,
+      allowedDestinations: [],
       active: false,
     });
 
@@ -525,6 +662,7 @@ describe("MetaConnectionResolverService", () => {
     const withoutBm = createHarness();
     withoutBm.prisma.metaAd.findFirst.mockResolvedValueOnce({
       adAccountId: "act_without_bm",
+      destinationAssignment: null,
     });
     withoutBm.prisma.metaReportingAccount.findFirst.mockResolvedValueOnce({
       id: "reporting_without_bm",
@@ -532,6 +670,7 @@ describe("MetaConnectionResolverService", () => {
       adAccountId: "act_without_bm",
       businessConnectionId: null,
       conversionDestinationId: null,
+      allowedDestinations: [],
       active: true,
     });
 
@@ -624,6 +763,7 @@ describe("MetaConnectionResolverService", () => {
       adAccountId: "act_manual",
       businessConnectionId: "connection_manual",
       conversionDestinationId: null,
+      allowedDestinations: [],
       active: true,
     });
     absent.prisma.metaBusinessConnection.findFirst.mockResolvedValueOnce({
@@ -658,6 +798,17 @@ describe("MetaConnectionResolverService", () => {
     ).not.toHaveBeenCalled();
 
     const invalid = createHarness();
+    invalid.prisma.metaReportingAccount.findFirst.mockResolvedValueOnce({
+      id: "reporting_manual",
+      workspaceId: "workspace_manual",
+      adAccountId: "act_manual",
+      businessConnectionId: "connection_manual",
+      conversionDestinationId: "destination_not_configured",
+      allowedDestinations: [
+        { conversionDestinationId: "destination_not_configured" },
+      ],
+      active: true,
+    });
 
     await expect(
       invalid.routeReader.previewRoute({
@@ -725,7 +876,7 @@ describe("MetaConnectionResolverService", () => {
       }),
     ).resolves.toMatchObject({
       status: "unresolved",
-      reason: "conversion_destination_not_configured",
+      reason: "conversion_destination_not_authorized",
       reportingAccountId: "reporting_manual",
       adAccountId: "act_manual",
       businessConnectionId: "connection_manual",

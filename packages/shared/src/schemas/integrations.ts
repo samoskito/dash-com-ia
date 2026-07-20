@@ -190,6 +190,7 @@ export const metaReportingAccountSchema = z.object({
   timezoneName: z.string().min(1).nullable(),
   businessConnectionId: z.string().min(1).nullable().optional(),
   conversionDestinationId: z.string().min(1).nullable().optional(),
+  conversionDestinationIds: z.array(z.string().min(1)).default([]),
   active: z.boolean(),
   syncStatus: metaAssetSyncStatusSchema,
   lastSyncedAt: z.string().datetime().nullable(),
@@ -378,7 +379,62 @@ export const metaManualConnectionTestResultSchema = z.object({
   message: z.string().min(1),
 });
 
-export const metaManualAccountDestinationInputSchema = z.object({
+export const metaManualAccountDestinationInputSchema = z
+  .object({
+    conversionDestinationId: z.string().trim().min(1).nullable(),
+    conversionDestinationIds: z
+      .array(z.string().trim().min(1))
+      .max(50)
+      .default([]),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.conversionDestinationId &&
+      !value.conversionDestinationIds.includes(value.conversionDestinationId)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "O destino padrao precisa estar entre os destinos autorizados",
+        path: ["conversionDestinationId"],
+      });
+    }
+  });
+
+export const metaAdDestinationAssignmentSourceSchema = z.enum([
+  "automatic",
+  "manual",
+]);
+
+export const metaAdDestinationRouteStatusSchema = z.enum([
+  "assigned",
+  "unresolved",
+  "ambiguous",
+]);
+
+export const metaAdDestinationRouteSchema = z.object({
+  adId: z.string().min(1),
+  adName: z.string().min(1),
+  status: z.string().min(1).nullable(),
+  effectiveStatus: z.string().min(1).nullable(),
+  routeStatus: metaAdDestinationRouteStatusSchema,
+  conversionDestinationId: z.string().min(1).nullable(),
+  assignmentSource: metaAdDestinationAssignmentSourceSchema.nullable(),
+  detectedPixelId: z.string().min(1).nullable(),
+  detectedPageId: z.string().min(1).nullable(),
+  candidateDestinationIds: z.array(z.string().min(1)),
+  updatedAt: z.string().datetime().nullable(),
+});
+
+export const metaReportingAccountAdRoutingSchema = z.object({
+  reportingAccountId: z.string().min(1),
+  adAccountId: z.string().min(1),
+  adAccountName: z.string().min(1),
+  conversionDestinationId: z.string().min(1).nullable(),
+  conversionDestinationIds: z.array(z.string().min(1)),
+  ads: z.array(metaAdDestinationRouteSchema),
+});
+
+export const metaAdDestinationInputSchema = z.object({
   conversionDestinationId: z.string().trim().min(1).nullable(),
 });
 
@@ -503,6 +559,21 @@ export type MetaManualConnectionTestResultDto = z.infer<
 >;
 export type MetaManualAccountDestinationInputDto = z.infer<
   typeof metaManualAccountDestinationInputSchema
+>;
+export type MetaAdDestinationAssignmentSourceDto = z.infer<
+  typeof metaAdDestinationAssignmentSourceSchema
+>;
+export type MetaAdDestinationRouteStatusDto = z.infer<
+  typeof metaAdDestinationRouteStatusSchema
+>;
+export type MetaAdDestinationRouteDto = z.infer<
+  typeof metaAdDestinationRouteSchema
+>;
+export type MetaReportingAccountAdRoutingDto = z.infer<
+  typeof metaReportingAccountAdRoutingSchema
+>;
+export type MetaAdDestinationInputDto = z.infer<
+  typeof metaAdDestinationInputSchema
 >;
 export type MetaOAuthAdvancedRoutingInputDto = z.infer<
   typeof metaOAuthAdvancedRoutingInputSchema

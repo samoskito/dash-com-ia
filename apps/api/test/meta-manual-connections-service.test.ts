@@ -15,6 +15,9 @@ function createHarness(options?: {
   const connections: Array<Record<string, any>> = [];
   const destinations: Array<Record<string, any>> = [];
   const accounts: Array<Record<string, any>> = [];
+  const accountDestinations: Array<Record<string, any>> = [];
+  const ads: Array<Record<string, any>> = [];
+  const adAssignments: Array<Record<string, any>> = [];
   const audits: Array<Record<string, any>> = [];
   const encryption = new MetaTokenEncryptionService({
     META_TOKEN_ENCRYPTION_KEY: "manual-service-test-key",
@@ -342,7 +345,11 @@ function createHarness(options?: {
     },
     metaConversionDestination: {
       findMany: vi.fn(async ({ where }: any) =>
-        destinations.filter((item) => item.workspaceId === where.workspaceId),
+        destinations.filter(
+          (item) =>
+            item.workspaceId === where.workspaceId &&
+            (where.id?.in === undefined || where.id.in.includes(item.id)),
+        ),
       ),
       findFirst: vi.fn(
         async ({ where }: any) =>
@@ -378,15 +385,25 @@ function createHarness(options?: {
     },
     metaReportingAccount: {
       findMany: vi.fn(async ({ where }: any) =>
-        accounts.filter(
-          (item) =>
-            item.workspaceId === where.workspaceId &&
-            (where.adAccountId?.in
-              ? where.adAccountId.in.includes(item.adAccountId)
-              : where.businessConnectionId?.not === null
-                ? item.businessConnectionId !== null
-                : true),
-        ),
+        accounts
+          .filter(
+            (item) =>
+              item.workspaceId === where.workspaceId &&
+              (where.adAccountId?.in
+                ? where.adAccountId.in.includes(item.adAccountId)
+                : where.businessConnectionId?.not === null
+                  ? item.businessConnectionId !== null
+                  : true),
+          )
+          .map((item) => ({
+            ...item,
+            allowedDestinations: accountDestinations.filter(
+              (destination) =>
+                destination.workspaceId === item.workspaceId &&
+                destination.reportingAccountId === item.id &&
+                destination.active,
+            ),
+          })),
       ),
       findFirst: vi.fn(async ({ where, include }: any) => {
         const account = accounts.find(
@@ -404,6 +421,19 @@ function createHarness(options?: {
 
         return {
           ...account,
+          allowedDestinations: accountDestinations
+            .filter(
+              (destination) =>
+                destination.workspaceId === account.workspaceId &&
+                destination.reportingAccountId === account.id &&
+                destination.active,
+            )
+            .map((destination) => ({
+              ...destination,
+              destination: destinations.find(
+                (item) => item.id === destination.conversionDestinationId,
+              ),
+            })),
           businessConnection:
             include?.businessConnection && businessConnection
               ? {
@@ -458,6 +488,124 @@ function createHarness(options?: {
         return { count: matching.length };
       }),
     },
+    metaReportingAccountDestination: {
+      upsert: vi.fn(async ({ where, create, update }: any) => {
+        const key =
+          where.workspaceId_reportingAccountId_conversionDestinationId;
+        const existing = accountDestinations.find(
+          (item) =>
+            item.workspaceId === key.workspaceId &&
+            item.reportingAccountId === key.reportingAccountId &&
+            item.conversionDestinationId === key.conversionDestinationId,
+        );
+
+        if (existing) {
+          Object.assign(existing, update, { updatedAt: now });
+          return existing;
+        }
+
+        const record = {
+          id: `account_destination_${accountDestinations.length + 1}`,
+          createdAt: now,
+          updatedAt: now,
+          ...create,
+        };
+        accountDestinations.push(record);
+        return record;
+      }),
+      updateMany: vi.fn(async ({ where, data }: any) => {
+        const matching = accountDestinations.filter((item) => {
+          const account = accounts.find(
+            (candidate) => candidate.id === item.reportingAccountId,
+          );
+
+          return (
+            item.workspaceId === where.workspaceId &&
+            (where.reportingAccountId === undefined ||
+              item.reportingAccountId === where.reportingAccountId) &&
+            (where.active === undefined || item.active === where.active) &&
+            (where.account === undefined ||
+              (account?.businessConnectionId ===
+                where.account.businessConnectionId &&
+                account?.active === where.account.active))
+          );
+        });
+        matching.forEach((item) =>
+          Object.assign(item, data, { updatedAt: now }),
+        );
+        return { count: matching.length };
+      }),
+    },
+    metaAd: {
+      findFirst: vi.fn(
+        async ({ where }: any) =>
+          ads.find(
+            (item) =>
+              item.workspaceId === where.workspaceId &&
+              item.adId === where.adId &&
+              item.adAccountId === where.adAccountId,
+          ) ?? null,
+      ),
+      findMany: vi.fn(async ({ where }: any) =>
+        ads
+          .filter(
+            (item) =>
+              item.workspaceId === where.workspaceId &&
+              item.adAccountId === where.adAccountId,
+          )
+          .map((item) => ({
+            ...item,
+            destinationAssignment:
+              adAssignments.find(
+                (assignment) =>
+                  assignment.workspaceId === item.workspaceId &&
+                  assignment.adId === item.adId,
+              ) ?? null,
+          })),
+      ),
+    },
+    metaAdDestinationAssignment: {
+      deleteMany: vi.fn(async ({ where }: any) => {
+        const before = adAssignments.length;
+        const kept = adAssignments.filter((item) => {
+          const matches =
+            (where.workspaceId === undefined ||
+              item.workspaceId === where.workspaceId) &&
+            (where.reportingAccountId === undefined ||
+              item.reportingAccountId === where.reportingAccountId) &&
+            (where.adId === undefined || item.adId === where.adId) &&
+            (where.conversionDestinationId?.notIn === undefined ||
+              !where.conversionDestinationId.notIn.includes(
+                item.conversionDestinationId,
+              ));
+
+          return !matches;
+        });
+        adAssignments.splice(0, adAssignments.length, ...kept);
+        return { count: before - kept.length };
+      }),
+      upsert: vi.fn(async ({ where, create, update }: any) => {
+        const key = where.workspaceId_adId;
+        const existing = adAssignments.find(
+          (item) =>
+            item.workspaceId === key.workspaceId && item.adId === key.adId,
+        );
+
+        if (existing) {
+          Object.assign(existing, update, { updatedAt: now });
+          return existing;
+        }
+
+        const record = {
+          id: `ad_assignment_${adAssignments.length + 1}`,
+          createdAt: now,
+          updatedAt: now,
+          ...create,
+        };
+        adAssignments.push(record);
+        return record;
+      }),
+    },
     auditLog: {
       create: vi.fn(async ({ data }: any) => {
         audits.push(data);
@@ -476,6 +624,9 @@ function createHarness(options?: {
     connections,
     destinations,
     accounts,
+    accountDestinations,
+    ads,
+    adAssignments,
     prisma,
     encryption,
     service: new MetaManualConnectionsService(
@@ -1213,7 +1364,10 @@ describe("MetaManualConnectionsService", () => {
     await service.setReportingAccountDestination(
       "workspace_1",
       accounts.find((account) => account.adAccountId === "act_1")!.id,
-      { conversionDestinationId: overrideDestinationId },
+      {
+        conversionDestinationId: overrideDestinationId,
+        conversionDestinationIds: [overrideDestinationId],
+      },
     );
 
     expect(
@@ -1225,6 +1379,140 @@ describe("MetaManualConnectionsService", () => {
         ?.conversionDestinationId,
     ).toBeNull();
     expect(initial.businessConnections).toHaveLength(1);
+  });
+
+  it("authorizes multiple Pixel and Page destinations for one ad account", async () => {
+    const { accountDestinations, accounts, destinations, service } =
+      createHarness();
+    const credential = await service.createCredential("workspace_1", {
+      label: "Token compartilhado",
+      accessToken: "EAAB-permanent-system-user-token-one",
+    });
+
+    await service.createBusinessConnection("workspace_1", {
+      credentialId: credential.credential.id,
+      businessManagerId: "business_1",
+      businessManagerName: "BM Principal",
+      adAccountIds: ["act_1"],
+      destination: { pixelId: "pixel_1", pageId: "page_1" },
+    });
+    await service.createBusinessConnection("workspace_1", {
+      credentialId: credential.credential.id,
+      businessManagerId: "business_2",
+      businessManagerName: "BM Secundaria",
+      adAccountIds: ["act_2"],
+      destination: { pixelId: "pixel_2", pageId: "page_2" },
+    });
+
+    const account = accounts.find((item) => item.adAccountId === "act_1")!;
+    const [firstDestination, secondDestination] = destinations;
+    const configuration = await service.setReportingAccountDestination(
+      "workspace_1",
+      account.id,
+      {
+        conversionDestinationId: firstDestination!.id,
+        conversionDestinationIds: [firstDestination!.id, secondDestination!.id],
+      },
+      "user_1",
+    );
+
+    expect(
+      accountDestinations
+        .filter((item) => item.reportingAccountId === account.id && item.active)
+        .map((item) => item.conversionDestinationId),
+    ).toEqual([firstDestination!.id, secondDestination!.id]);
+    expect(
+      configuration.reportingAccounts.find((item) => item.id === account.id),
+    ).toMatchObject({
+      conversionDestinationId: firstDestination!.id,
+      conversionDestinationIds: [firstDestination!.id, secondDestination!.id],
+    });
+  });
+
+  it("keeps a manual ad destination and restores a unique automatic match when cleared", async () => {
+    const { accounts, ads, adAssignments, destinations, service } =
+      createHarness();
+    const credential = await service.createCredential("workspace_1", {
+      label: "Token compartilhado",
+      accessToken: "EAAB-permanent-system-user-token-one",
+    });
+
+    await service.createBusinessConnection("workspace_1", {
+      credentialId: credential.credential.id,
+      businessManagerId: "business_1",
+      businessManagerName: "BM Principal",
+      adAccountIds: ["act_1"],
+      destination: { pixelId: "pixel_1", pageId: "page_1" },
+    });
+    await service.createBusinessConnection("workspace_1", {
+      credentialId: credential.credential.id,
+      businessManagerId: "business_2",
+      businessManagerName: "BM Secundaria",
+      adAccountIds: ["act_2"],
+      destination: { pixelId: "pixel_2", pageId: "page_2" },
+    });
+
+    const account = accounts.find((item) => item.adAccountId === "act_1")!;
+    const [firstDestination, secondDestination] = destinations;
+    await service.setReportingAccountDestination("workspace_1", account.id, {
+      conversionDestinationId: firstDestination!.id,
+      conversionDestinationIds: [firstDestination!.id, secondDestination!.id],
+    });
+    ads.push({
+      workspaceId: "workspace_1",
+      adAccountId: "act_1",
+      adId: "ad_1",
+      name: "Anuncio com destino dedicado",
+      status: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      detectedPixelIds: ["pixel_2"],
+      detectedPageIds: ["page_2"],
+      updatedAt: now,
+    });
+
+    const manual = await service.setAdDestination(
+      "workspace_1",
+      account.id,
+      "ad_1",
+      { conversionDestinationId: firstDestination!.id },
+      "user_1",
+    );
+
+    expect(adAssignments).toContainEqual(
+      expect.objectContaining({
+        adId: "ad_1",
+        conversionDestinationId: firstDestination!.id,
+        source: "manual",
+        createdByUserId: "user_1",
+      }),
+    );
+    expect(manual.ads[0]).toMatchObject({
+      routeStatus: "assigned",
+      conversionDestinationId: firstDestination!.id,
+      assignmentSource: "manual",
+    });
+
+    const automatic = await service.setAdDestination(
+      "workspace_1",
+      account.id,
+      "ad_1",
+      { conversionDestinationId: null },
+      "user_1",
+    );
+
+    expect(adAssignments).toContainEqual(
+      expect.objectContaining({
+        adId: "ad_1",
+        conversionDestinationId: secondDestination!.id,
+        source: "automatic",
+        createdByUserId: null,
+      }),
+    );
+    expect(automatic.ads[0]).toMatchObject({
+      routeStatus: "assigned",
+      conversionDestinationId: secondDestination!.id,
+      assignmentSource: "automatic",
+    });
   });
 
   it("isolates a failed token validation to its own business connection", async () => {

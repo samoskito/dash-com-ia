@@ -139,11 +139,13 @@ function BatchSummary({
   connectionId,
   connectionName,
   retryAllowed,
+  channelLabel,
 }: {
   batch: BackofficeInboundWebhookReplayBatchDto;
   connectionId: string;
   connectionName: string;
   retryAllowed: boolean;
+  channelLabel: string | null;
 }) {
   return (
     <article className="inbound-replay-batch">
@@ -151,6 +153,7 @@ function BatchSummary({
         <div>
           <span className="eyebrow">{selectionLabel(batch.selection)}</span>
           <h3>Lote de {formatDateTime(batch.createdAt)}</h3>
+          {channelLabel ? <small>Canal: {channelLabel}</small> : null}
         </div>
         <span className={`status-chip ${replayStatusTone(batch.status)}`}>
           {replayStatusLabel(batch.status)}
@@ -249,11 +252,15 @@ export default async function InboundWebhookReplayPage({
     preview.latestBatch?.status === "processing";
   const connectionReady = preview.connection.status === "observation";
   const expiry = expirySummary(preview.nextPayloadExpiresAt);
+  const defaultChannel = preview.channels.find(
+    (channel) => channel.eligible > 0,
+  );
   const canReplay =
     parserCertified &&
     preview.replayEnabled &&
     connectionReady &&
     preview.counts.eligible > 0 &&
+    Boolean(defaultChannel) &&
     !activeBatch;
 
   return (
@@ -338,6 +345,40 @@ export default async function InboundWebhookReplayPage({
             <strong>{expiry.label}</strong>
             <small>{expiry.detail}</small>
           </span>
+        </div>
+      </section>
+
+      <section className="inbound-replay-channel-scope">
+        <div className="section-heading-row">
+          <div>
+            <span className="eyebrow">Escopo do canario</span>
+            <h2>Canais desta conexao</h2>
+          </div>
+          <span className="event-chip neutral">
+            {preview.channels.length} canal(is)
+          </span>
+        </div>
+        <div className="inbound-replay-channel-list">
+          {preview.channels.map((channel) => (
+            <div key={channel.id}>
+              <span>
+                <strong>{channel.displayName}</strong>
+                <small>{channel.connectedPhone ?? "Numero indisponivel"}</small>
+              </span>
+              <span>
+                <small>CTWA</small>
+                <strong>{channel.totalCtwa}</strong>
+              </span>
+              <span>
+                <small>Rota completa</small>
+                <strong>{channel.routeResolved}</strong>
+              </span>
+              <span className={channel.eligible > 0 ? "eligible" : ""}>
+                <small>Elegiveis</small>
+                <strong>{channel.eligible}</strong>
+              </span>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -441,6 +482,13 @@ export default async function InboundWebhookReplayPage({
                 connectionId={preview.connection.id}
                 connectionName={preview.connection.displayName}
                 retryAllowed={preview.replayEnabled && !activeBatch}
+                channelLabel={
+                  batch.channelId
+                    ? (preview.channels.find(
+                        (channel) => channel.id === batch.channelId,
+                      )?.displayName ?? "Canal removido")
+                    : null
+                }
               />
             ))}
           </div>
@@ -468,6 +516,22 @@ export default async function InboundWebhookReplayPage({
               name="connectionId"
               value={preview.connection.id}
             />
+            <label>
+              <span>Canal que sera reprocessado</span>
+              <select
+                name="channelId"
+                required
+                defaultValue={defaultChannel?.id}
+              >
+                {preview.channels
+                  .filter((channel) => channel.eligible > 0)
+                  .map((channel) => (
+                    <option key={channel.id} value={channel.id}>
+                      {channel.displayName} - {channel.eligible} elegivel(is)
+                    </option>
+                  ))}
+              </select>
+            </label>
             <fieldset className="inbound-replay-selection">
               <legend>Escolha o tamanho do lote real</legend>
               <div className="inbound-replay-selection-grid">

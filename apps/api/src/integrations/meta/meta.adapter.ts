@@ -129,6 +129,8 @@ export type MetaAdAsset = {
   thumbnailUrl: string | null;
   previewUrl: string | null;
   callToActionType: string | null;
+  detectedPixelIds: string[];
+  detectedPageIds: string[];
 };
 
 export type MetaCampaignInsight = {
@@ -200,6 +202,7 @@ type MetaCreativeGraphNode = {
   image_url?: unknown;
   video_id?: unknown;
   object_story_spec?: {
+    page_id?: unknown;
     video_data?: {
       image_url?: unknown;
       video_id?: unknown;
@@ -231,6 +234,7 @@ type MetaAdGraphNode = {
   status?: unknown;
   effective_status?: unknown;
   creative?: MetaCreativeGraphNode;
+  tracking_specs?: unknown;
 };
 
 type MetaVideoThumbnailGraphNode = {
@@ -791,11 +795,34 @@ export class MetaAdapter implements IntegrationAdapter {
     accessToken: string;
     adAccountId: string;
   }): Promise<MetaAdAsset[]> {
-    const response = await this.getGraphList<MetaAdGraphNode>(
-      `/${input.adAccountId}/ads`,
-      "id,name,campaign_id,adset_id,status,effective_status,creative{id,call_to_action_type,thumbnail_url}",
-      input.accessToken,
-    );
+    let response: MetaAdGraphNode[];
+
+    try {
+      response = await this.getGraphList<MetaAdGraphNode>(
+        `/${input.adAccountId}/ads`,
+        "id,name,campaign_id,adset_id,status,effective_status,tracking_specs,creative{id,call_to_action_type,thumbnail_url,object_story_spec}",
+        input.accessToken,
+      );
+    } catch (error) {
+      console.warn("[wpptrack:meta-graph] ad destination enrichment failed", {
+        adAccountId: input.adAccountId,
+        message:
+          error instanceof Error ? error.message : "Meta Graph request failed",
+      });
+      try {
+        response = await this.getGraphList<MetaAdGraphNode>(
+          `/${input.adAccountId}/ads`,
+          "id,name,campaign_id,adset_id,status,effective_status,tracking_specs,creative{id,call_to_action_type,thumbnail_url}",
+          input.accessToken,
+        );
+      } catch {
+        response = await this.getGraphList<MetaAdGraphNode>(
+          `/${input.adAccountId}/ads`,
+          "id,name,campaign_id,adset_id,status,effective_status,creative{id,call_to_action_type,thumbnail_url}",
+          input.accessToken,
+        );
+      }
+    }
     const creativeIds = [
       ...new Set(
         response
@@ -821,6 +848,7 @@ export class MetaAdapter implements IntegrationAdapter {
     return response
       .map((item) => {
         const creativeId = this.asString(item.creative?.id);
+        const destinationHints = this.adDestinationHints(item);
 
         return {
           id: this.asString(item.id),
@@ -833,6 +861,8 @@ export class MetaAdapter implements IntegrationAdapter {
           thumbnailUrl: this.asHttpUrl(item.creative?.thumbnail_url),
           previewUrl: creativeId ? (previewUrls.get(creativeId) ?? null) : null,
           callToActionType: this.asString(item.creative?.call_to_action_type),
+          detectedPixelIds: destinationHints.pixelIds,
+          detectedPageIds: destinationHints.pageIds,
         };
       })
       .filter((item): item is MetaAdAsset =>
@@ -1100,6 +1130,86 @@ export class MetaAdapter implements IntegrationAdapter {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private adDestinationHints(item: MetaAdGraphNode): {
+    pixelIds: string[];
+    pageIds: string[];
+  } {
+    const pixelIds = new Set<string>();
+    const pageIds = new Set<string>();
+    const creativePageId = this.asString(
+      item.creative?.object_story_spec?.page_id,
+    );
+
+    if (creativePageId) {
+      pageIds.add(creativePageId);
+    }
+
+    const visit = (value: unknown, depth: number): void => {
+      if (depth > 8 || value === null || value === undefined) {
+        return;
+      }
+
+      if (Array.isArray(value)) {
+        value.forEach((entry) => visit(entry, depth + 1));
+        return;
+      }
+
+      const record = this.asRecord(value);
+      if (!record) {
+        return;
+      }
+
+      for (const [key, nested] of Object.entries(record)) {
+        const normalizedKey = key.toLowerCase();
+
+        if (normalizedKey === "dataset" || normalizedKey === "fb_pixel") {
+          this.collectGraphIdentifiers(nested, pixelIds, depth + 1);
+        } else if (normalizedKey === "page" || normalizedKey === "page_id") {
+          this.collectGraphIdentifiers(nested, pageIds, depth + 1);
+        } else {
+          visit(nested, depth + 1);
+        }
+      }
+    };
+
+    visit(item.tracking_specs, 0);
+
+    return {
+      pixelIds: [...pixelIds],
+      pageIds: [...pageIds],
+    };
+  }
+
+  private collectGraphIdentifiers(
+    value: unknown,
+    target: Set<string>,
+    depth: number,
+  ): void {
+    if (depth > 8 || value === null || value === undefined) {
+      return;
+    }
+
+    const identifier = this.asString(value);
+    if (identifier) {
+      target.add(identifier);
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((entry) =>
+        this.collectGraphIdentifiers(entry, target, depth + 1),
+      );
+      return;
+    }
+
+    const record = this.asRecord(value);
+    if (record) {
+      Object.values(record).forEach((entry) =>
+        this.collectGraphIdentifiers(entry, target, depth + 1),
+      );
+    }
   }
 
   private asPositiveInteger(value: unknown): number | null {

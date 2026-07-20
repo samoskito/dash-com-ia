@@ -363,6 +363,7 @@ export const backofficeInboundWebhookPayloadSchema = z.object({
 export const backofficeInboundWebhookReplayConfirmationInputSchema = z.object({
   confirmation: inboundWebhookDisplayNameSchema,
   selection: inboundWebhookReplaySelectionSchema.default("canary_1"),
+  channelId: idSchema,
 });
 
 export const backofficeInboundWebhookReplayRetryInputSchema = z.object({
@@ -373,6 +374,7 @@ export const backofficeInboundWebhookReplayBatchSchema = z.object({
   id: idSchema,
   workspaceId: idSchema,
   connectionId: idSchema,
+  channelId: idSchema.nullable(),
   requestedByUserId: idSchema,
   selection: inboundWebhookReplaySelectionSchema,
   requestedLimit: z.number().int().min(1).max(500),
@@ -389,6 +391,18 @@ export const backofficeInboundWebhookReplayBatchSchema = z.object({
   lastRetriedAt: dateTimeSchema.nullable(),
   createdAt: dateTimeSchema,
   updatedAt: dateTimeSchema,
+});
+
+export const backofficeInboundWebhookReplayChannelSchema = z.object({
+  id: idSchema,
+  displayName: inboundWebhookDisplayNameSchema,
+  connectedPhone: z.string().min(1).nullable(),
+  totalCtwa: z.number().int().nonnegative(),
+  routeResolved: z.number().int().nonnegative(),
+  routeUnresolved: z.number().int().nonnegative(),
+  payloadAvailable: z.number().int().nonnegative(),
+  alreadyMaterialized: z.number().int().nonnegative(),
+  eligible: z.number().int().nonnegative(),
 });
 
 export const backofficeInboundWebhookReplayPreviewSchema = z.object({
@@ -408,6 +422,7 @@ export const backofficeInboundWebhookReplayPreviewSchema = z.object({
   oldestOccurredAt: dateTimeSchema.nullable(),
   newestOccurredAt: dateTimeSchema.nullable(),
   nextPayloadExpiresAt: dateTimeSchema.nullable(),
+  channels: z.array(backofficeInboundWebhookReplayChannelSchema),
   latestBatch: backofficeInboundWebhookReplayBatchSchema.nullable(),
   recentBatches: z.array(backofficeInboundWebhookReplayBatchSchema).max(10),
 });
@@ -537,6 +552,9 @@ export type BackofficeInboundWebhookReplayRetryInputDto = z.infer<
 >;
 export type BackofficeInboundWebhookReplayBatchDto = z.infer<
   typeof backofficeInboundWebhookReplayBatchSchema
+>;
+export type BackofficeInboundWebhookReplayChannelDto = z.infer<
+  typeof backofficeInboundWebhookReplayChannelSchema
 >;
 export type BackofficeInboundWebhookReplayPreviewDto = z.infer<
   typeof backofficeInboundWebhookReplayPreviewSchema
