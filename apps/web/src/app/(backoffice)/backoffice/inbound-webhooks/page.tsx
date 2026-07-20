@@ -350,7 +350,7 @@ export default async function InboundWebhookDeliveriesPage({
 
       <header className="page-header">
         <div>
-          <span className="eyebrow">Observacao Umbler</span>
+          <span className="eyebrow">Observacao de provedores</span>
           <h1>Entregas do WhatsApp</h1>
           <p>
             Encontre o evento recente, confirme o CTWA e abra o payload
@@ -429,6 +429,7 @@ export default async function InboundWebhookDeliveriesPage({
             <select name="provider" defaultValue={filters.provider ?? ""}>
               <option value="">Todas</option>
               <option value="umbler">Umbler</option>
+              <option value="gupshup">Gupshup</option>
             </select>
           </label>
           <label className="filter-field">

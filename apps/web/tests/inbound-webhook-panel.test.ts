@@ -29,6 +29,12 @@ const capabilities = {
       parserReleaseStatus: "observation_only",
       creationEnabled: true,
     },
+    {
+      provider: "gupshup",
+      parserVersion: "v1",
+      parserReleaseStatus: "observation_only",
+      creationEnabled: true,
+    },
   ],
 } satisfies InboundWebhookCapabilitiesDto;
 
@@ -184,15 +190,17 @@ describe("inbound webhook panel", () => {
     );
   });
 
-  it("shows Umbler in an extensible provider selector and stays observation-only", () => {
+  it("shows Umbler and Gupshup in an extensible observation-only selector", () => {
     const html = renderPanel({ connections: [] });
 
     expect(inboundWebhookProviderLabel("umbler")).toBe("Umbler Talk");
+    expect(inboundWebhookProviderLabel("gupshup")).toBe("Gupshup");
     expect(inboundWebhookProviderLabel("future-provider")).toBe(
       "future-provider",
     );
     expect(html).toContain('<select name="provider"');
     expect(html).toContain('<option value="umbler" selected="">Umbler Talk');
+    expect(html).toContain('<option value="gupshup">Gupshup</option>');
     expect(html).toContain("modo de observacao");
     expect(html).toContain("Esta etapa nao cria leads nem envia conversoes.");
     expect(html.toLocaleLowerCase("pt-BR")).not.toContain("producao");
@@ -321,7 +329,7 @@ describe("inbound webhook panel", () => {
     const html = renderPanel();
 
     for (const placeholder of [
-      "Conexao Umbler",
+      "Conexao WhatsApp",
       "Canal oculto",
       "Numero oculto",
       "BM oculta",

@@ -8,12 +8,14 @@ import {
   inboundWebhookConnectionRotateSecretResultSchema,
   inboundWebhookConnectionStatusUpdateInputSchema,
   type InboundWebhookChannelRoutesUpdateInputDto,
+  type InboundWebhookProviderDto,
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
 
 export type InboundWebhookOneTimeSecret = {
   connectionId: string;
+  provider: InboundWebhookProviderDto;
   webhookUrl: string;
 };
 
@@ -50,21 +52,22 @@ export async function createInboundWebhookConnectionAction(
       inboundWebhookConnectionCreateResultSchema.safeParse(response);
 
     if (!result.success) {
-      return failure("Nao foi possivel criar a conexao Umbler.");
+      return failure("Nao foi possivel criar a conexao de webhook.");
     }
 
     revalidatePath(integrationsPath);
     return {
       ok: true,
       message:
-        "Conexao Umbler criada. Copie a URL agora; ela nao sera exibida novamente.",
+        "Conexao de webhook criada. Copie a URL agora; ela nao sera exibida novamente.",
       oneTimeSecret: {
         connectionId: result.data.connection.id,
+        provider: result.data.connection.provider,
         webhookUrl: result.data.webhookUrl,
       },
     };
   } catch {
-    return failure("Nao foi possivel criar a conexao Umbler.");
+    return failure("Nao foi possivel criar a conexao de webhook.");
   }
 }
 
@@ -99,6 +102,7 @@ export async function rotateInboundWebhookSecretAction(
         "Segredo rotacionado. Copie a nova URL agora; ela nao sera exibida novamente.",
       oneTimeSecret: {
         connectionId: result.data.connectionId,
+        provider: result.data.provider,
         webhookUrl: result.data.webhookUrl,
       },
     };

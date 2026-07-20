@@ -129,6 +129,7 @@ async function createApp(role: WorkspaceRole = "owner") {
     })),
     rotateSecret: vi.fn(async () => ({
       connectionId: "inbound_connection_1",
+      provider: "umbler",
       secret: "b".repeat(43),
       webhookUrl:
         "https://api.example.com/webhooks/inbound/inbound_connection_1?token=rotated-secret",

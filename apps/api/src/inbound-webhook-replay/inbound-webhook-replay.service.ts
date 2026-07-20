@@ -1329,7 +1329,7 @@ export class InboundWebhookReplayService {
 
   private parserReleaseDto(release: {
     id: string;
-    provider: "umbler";
+    provider: InboundWebhookParserReleaseDto["provider"];
     version: string;
     status: "observation_only" | "certified" | "retired";
     certifiedAt: Date | null;

@@ -10,7 +10,7 @@ import { InboundWebhookConnectionsService } from "../src/inbound-webhooks/inboun
 
 type TestParserRelease = {
   id: string;
-  provider: "umbler";
+  provider: "umbler" | "gupshup";
   version: string;
   status: "observation_only";
   certifiedByUserId: null;
@@ -22,7 +22,7 @@ type TestParserRelease = {
 type TestConnection = {
   id: string;
   workspaceId: string;
-  provider: "umbler";
+  provider: "umbler" | "gupshup";
   displayName: string;
   parserReleaseId: string;
   secretHash: string | null;
@@ -47,16 +47,28 @@ function enabledEnvironment() {
 
 function createHarness() {
   const now = new Date("2026-07-17T18:30:00.000Z");
-  const parserRelease: TestParserRelease = {
-    id: "inbound_parser_umbler_v1",
-    provider: "umbler",
-    version: "v1",
-    status: "observation_only",
-    certifiedByUserId: null,
-    certifiedAt: null,
-    createdAt: now,
-    updatedAt: now,
-  };
+  const parserReleases: TestParserRelease[] = [
+    {
+      id: "inbound_parser_umbler_v1",
+      provider: "umbler",
+      version: "v1",
+      status: "observation_only",
+      certifiedByUserId: null,
+      certifiedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "inbound_parser_gupshup_v1",
+      provider: "gupshup",
+      version: "v1",
+      status: "observation_only",
+      certifiedByUserId: null,
+      certifiedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
   const connections = new Map<string, TestConnection>();
   const audits: Array<Record<string, unknown>> = [];
   let sequence = 0;
@@ -86,6 +98,14 @@ function createHarness() {
     create: vi.fn(async ({ data }) => {
       sequence += 1;
       const createdAt = new Date(now.getTime() + sequence * 1_000);
+      const parserRelease = parserReleases.find(
+        (release) => release.id === data.parserReleaseId,
+      );
+
+      if (!parserRelease) {
+        throw new Error("parser release missing");
+      }
+
       const connection: TestConnection = {
         id: `inbound_connection_${sequence}`,
         workspaceId: data.workspaceId,
@@ -135,12 +155,15 @@ function createHarness() {
   };
   const prisma = {
     inboundWebhookParserRelease: {
-      findFirst: vi.fn(async ({ where }) =>
-        where.provider === parserRelease.provider &&
-        where.version === parserRelease.version
-          ? parserRelease
-          : null,
+      findFirst: vi.fn(
+        async ({ where }) =>
+          parserReleases.find(
+            (release) =>
+              where.provider === release.provider &&
+              where.version === release.version,
+          ) ?? null,
       ),
+      findMany: vi.fn(async () => parserReleases),
     },
     inboundWebhookConnection,
     auditLog: {
@@ -235,6 +258,45 @@ describe("inbound webhook connections service", () => {
       action: "inbound_webhook.connection_created",
       targetType: "InboundWebhookConnection",
     });
+  });
+
+  it("advertises and creates Gupshup only as an observation connection", async () => {
+    const harness = createHarness();
+    const capabilities = await harness.service.getCapabilities();
+
+    expect(capabilities.providers).toEqual([
+      {
+        provider: "umbler",
+        parserVersion: "v1",
+        parserReleaseStatus: "observation_only",
+        creationEnabled: true,
+      },
+      {
+        provider: "gupshup",
+        parserVersion: "v1",
+        parserReleaseStatus: "observation_only",
+        creationEnabled: true,
+      },
+    ]);
+
+    const created = await harness.service.createConnection(
+      "workspace_1",
+      {
+        provider: "gupshup",
+        displayName: "Gupshup Cliente",
+      },
+      "user_1",
+    );
+
+    expect(created.connection).toMatchObject({
+      provider: "gupshup",
+      parserVersion: "v1",
+      parserReleaseStatus: "observation_only",
+      status: "observation",
+    });
+    expect(new URL(created.webhookUrl).searchParams.get("token")).toBe(
+      created.secret,
+    );
   });
 
   it("rotates the hash and returns a single new URL without exposing it later", async () => {

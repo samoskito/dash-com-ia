@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import type { InboundWebhookProviderDto } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import type { InboundWebhookEventClassification } from "./providers/inbound-webhook-parser";
 
@@ -13,6 +14,7 @@ export type InboundWebhookObservationDiagnosticInput = {
   workspaceId: string;
   deliveryId: string;
   connectionId: string;
+  provider: InboundWebhookProviderDto;
   eventType: string;
   parserVersion: string;
   classification: InboundWebhookEventClassification | null;
@@ -54,7 +56,7 @@ export class InboundWebhookDiagnosticsService {
   ): Promise<void> {
     const idempotencyKey = `inbound-webhook-observation:${input.deliveryId}`;
     const summaryPayload = this.json({
-      provider: "umbler",
+      provider: input.provider,
       connectionId: input.connectionId,
       eventType: input.eventType,
       parserVersion: input.parserVersion,
@@ -79,7 +81,7 @@ export class InboundWebhookDiagnosticsService {
       if (existing) {
         if (
           existing.workspaceId !== input.workspaceId ||
-          existing.source !== "umbler"
+          existing.source !== input.provider
         ) {
           throw new Error("Inbound webhook diagnostic context mismatch");
         }
@@ -90,7 +92,7 @@ export class InboundWebhookDiagnosticsService {
       const webhook = await transaction.webhookLog.create({
         data: {
           workspaceId: input.workspaceId,
-          source: "umbler",
+          source: input.provider,
           eventType: input.eventType,
           status: "received",
           idempotencyKey,
@@ -102,11 +104,11 @@ export class InboundWebhookDiagnosticsService {
       await transaction.diagnosticEvent.create({
         data: {
           workspaceId: input.workspaceId,
-          source: "umbler",
+          source: input.provider,
           eventType: input.eventType,
           severity: "info",
           status: "received",
-          title: "Webhook umbler recebido",
+          title: `Webhook ${input.provider} recebido`,
           message: `Evento ${input.eventType} recebido para observacao`,
           webhookLogId: webhook.id,
           summaryPayload,

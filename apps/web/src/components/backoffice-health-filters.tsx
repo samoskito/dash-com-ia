@@ -50,6 +50,7 @@ function SourceField({
         <option value="">Todas</option>
         <option value="meta">Meta</option>
         <option value="umbler">Umbler</option>
+        <option value="gupshup">Gupshup</option>
         <option value="uazapi">Uazapi</option>
         <option value="asaas">Asaas</option>
         <option value="internal">Interno</option>

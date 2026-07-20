@@ -46,7 +46,7 @@ describe("presentation mode", () => {
       ["../src/app/(app)/integrations/page.tsx", "Pixel oculto"],
       [
         "../src/app/(app)/integrations/inbound-webhook-panel.tsx",
-        "Conexao Umbler",
+        "Conexao WhatsApp",
       ],
       [
         "../src/app/(app)/integrations/inbound-webhook-panel.tsx",

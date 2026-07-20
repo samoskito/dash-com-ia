@@ -501,6 +501,73 @@ describe("inbound webhook observation processor", () => {
     expect(harness.diagnostics.recordObservation).toHaveBeenCalledOnce();
   });
 
+  it("processes a Gupshup delivery as raw observation without creating canonical events", async () => {
+    const harness = createHarness();
+    harness.addConnection("connection_gupshup", "workspace_1", {
+      provider: "gupshup",
+      parserReleaseId: "parser_release_gupshup",
+      parserRelease: {
+        id: "parser_release_gupshup",
+        provider: "gupshup",
+        version: "v1",
+        status: "observation_only",
+      },
+    });
+    harness.addDelivery(
+      "delivery_gupshup",
+      {
+        app: "client-app",
+        timestamp: 1_721_111_222_333,
+        version: 2,
+        type: "message",
+        payload: {
+          id: "wamid.gupshup-observation-1",
+          source: "5511999990000",
+          type: "text",
+          payload: {
+            text: "Mensagem privada",
+          },
+        },
+      },
+      {
+        connectionId: "connection_gupshup",
+        provider: "gupshup",
+      },
+    );
+
+    const result = await harness.service.processDelivery({
+      deliveryId: "delivery_gupshup",
+      connectionId: "connection_gupshup",
+      workspaceId: "workspace_1",
+    });
+
+    expect(result).toEqual({
+      deliveryId: "delivery_gupshup",
+      status: "processed",
+      classification: "unsupported_event",
+      parsedEventCount: 0,
+      persistedEventCount: 0,
+      idempotent: false,
+    });
+    expect(harness.events.size).toBe(0);
+    expect(harness.channels.size).toBe(0);
+    expect(harness.deliveries.get("delivery_gupshup")).toMatchObject({
+      status: "processed",
+      classification: "unsupported_event",
+      providerEventType: "message",
+      externalDeliveryId: "wamid.gupshup-observation-1",
+      parseErrorCode: null,
+      routingErrorCode: null,
+    });
+    expect(harness.diagnostics.recordObservation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "gupshup",
+        eventType: "message",
+        eventCount: 0,
+      }),
+    );
+  });
+
   it("rejects cross-tenant or cross-connection jobs before decrypting", async () => {
     const harness = createHarness();
     harness.addDelivery("delivery_1", loadFixture());
@@ -546,9 +613,7 @@ describe("inbound webhook observation processor", () => {
     expect(harness.deliveries.get("delivery_1")?.processedAt).toBeInstanceOf(
       Date,
     );
-    expect(
-      harness.connections.get("connection_1")?.lastSuccessfulParseAt,
-    ).toBeNull();
+    expect(harness.connections.get("connection_1")?.lastSuccessfulParseAt).toBeNull();
   });
 
   it("persists zero or multiple canonical events from an allowlisted parser", async () => {
@@ -636,7 +701,9 @@ describe("inbound webhook observation processor", () => {
     expect(JSON.stringify(delivery.normalizedSummary)).not.toContain(
       privateMarker,
     );
-    expect(harness.connections.get("connection_1")?.lastSuccessfulParseAt).toBeNull();
+    expect(
+      harness.connections.get("connection_1")?.lastSuccessfulParseAt,
+    ).toBeNull();
     expect(harness.events).toHaveLength(0);
     expect(
       JSON.stringify(

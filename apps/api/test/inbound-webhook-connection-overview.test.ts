@@ -34,9 +34,16 @@ const connection = {
 function createService(enabled = true) {
   const prisma = {
     inboundWebhookParserRelease: {
-      findFirst: vi.fn(async () => ({
-        status: parserRelease.status,
-      })),
+      findMany: vi.fn(async () => [
+        {
+          provider: "umbler",
+          status: parserRelease.status,
+        },
+        {
+          provider: "gupshup",
+          status: "observation_only",
+        },
+      ]),
     },
     inboundWebhookConnection: {
       findFirst: vi.fn(async ({ where }) =>
@@ -114,6 +121,12 @@ describe("inbound webhook connection overview", () => {
           parserReleaseStatus: "observation_only",
           creationEnabled: true,
         },
+        {
+          provider: "gupshup",
+          parserVersion: "v1",
+          parserReleaseStatus: "observation_only",
+          creationEnabled: true,
+        },
       ],
     });
     expect(JSON.stringify(capabilities)).not.toContain("secret");
@@ -128,6 +141,10 @@ describe("inbound webhook connection overview", () => {
       providers: [
         expect.objectContaining({
           provider: "umbler",
+          creationEnabled: false,
+        }),
+        expect.objectContaining({
+          provider: "gupshup",
           creationEnabled: false,
         }),
       ],

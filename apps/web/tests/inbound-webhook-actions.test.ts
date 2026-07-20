@@ -68,9 +68,10 @@ describe("inbound webhook server actions", () => {
     expect(result).toEqual({
       ok: true,
       message:
-        "Conexao Umbler criada. Copie a URL agora; ela nao sera exibida novamente.",
+        "Conexao de webhook criada. Copie a URL agora; ela nao sera exibida novamente.",
       oneTimeSecret: {
         connectionId: "connection_1",
+        provider: "umbler",
         webhookUrl,
       },
     });
@@ -85,6 +86,7 @@ describe("inbound webhook server actions", () => {
     const webhookUrl = `https://api.wpptrack.test/webhooks/inbound/connection_1?token=${rotatedSecret}`;
     serverApiFetch.mockResolvedValueOnce({
       connectionId: "connection_1",
+      provider: "umbler",
       secret: rotatedSecret,
       webhookUrl,
       rotatedAt: "2026-07-17T19:00:00.000Z",
@@ -104,6 +106,7 @@ describe("inbound webhook server actions", () => {
         "Segredo rotacionado. Copie a nova URL agora; ela nao sera exibida novamente.",
       oneTimeSecret: {
         connectionId: "connection_1",
+        provider: "umbler",
         webhookUrl,
       },
     });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const inboundWebhookProviders = ["umbler"] as const;
+export const inboundWebhookProviders = ["umbler", "gupshup"] as const;
 export const inboundWebhookParserReleaseStatuses = [
   "observation_only",
   "certified",
@@ -196,6 +196,7 @@ export const inboundWebhookConnectionCreateResultSchema = z.object({
 
 export const inboundWebhookConnectionRotateSecretResultSchema = z.object({
   connectionId: idSchema,
+  provider: inboundWebhookProviderSchema,
   secret: oneTimeSecretSchema,
   webhookUrl: z.string().url(),
   rotatedAt: dateTimeSchema,

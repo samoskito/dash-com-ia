@@ -4,5 +4,6 @@ import { diagnosticSourceSchema } from "../src/schemas/diagnostics";
 describe("diagnostic source schema", () => {
   it("accepts redacted Umbler observation diagnostics", () => {
     expect(diagnosticSourceSchema.parse("umbler")).toBe("umbler");
+    expect(diagnosticSourceSchema.parse("gupshup")).toBe("gupshup");
   });
 });

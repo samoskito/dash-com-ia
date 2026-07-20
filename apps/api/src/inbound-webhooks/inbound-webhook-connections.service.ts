@@ -16,6 +16,7 @@ import type {
   InboundWebhookConnectionStatusUpdateInputDto,
   InboundWebhookCapabilitiesDto,
 } from "@wpptrack/shared";
+import { inboundWebhookProviders } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
@@ -41,29 +42,37 @@ export class InboundWebhookConnectionsService {
 
   async getCapabilities(): Promise<InboundWebhookCapabilitiesDto> {
     const config = parseInboundWebhooksConfig(this.env);
-    const release = await this.prisma.inboundWebhookParserRelease.findFirst({
+    const releases = await this.prisma.inboundWebhookParserRelease.findMany({
       where: {
-        provider: "umbler",
+        provider: {
+          in: [...inboundWebhookProviders],
+        },
         version: parserVersion,
       },
       select: {
+        provider: true,
         status: true,
       },
     });
+    const releaseByProvider = new Map(
+      releases.map((release) => [release.provider, release]),
+    );
 
     return {
       enabled: config.enabled,
-      providers: [
-        {
-          provider: "umbler",
+      providers: inboundWebhookProviders.map((provider) => {
+        const release = releaseByProvider.get(provider);
+
+        return {
+          provider,
           parserVersion,
           parserReleaseStatus: release?.status ?? null,
           creationEnabled:
             config.enabled === true &&
-            release !== null &&
+            release !== undefined &&
             release.status !== "retired",
-        },
-      ],
+        };
+      }),
     };
   }
 
@@ -263,6 +272,7 @@ export class InboundWebhookConnectionsService {
 
     return {
       connectionId: connection.id,
+      provider: connection.provider,
       secret,
       webhookUrl: this.buildWebhookUrl(
         config.apiPublicUrl,

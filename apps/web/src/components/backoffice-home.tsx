@@ -17,11 +17,11 @@ const destinations: Array<{
 }> = [
   {
     description:
-      "Encontre rapidamente os eventos Umbler, identifique CTWA e abra o payload auditado.",
+      "Encontre eventos dos provedores WhatsApp e abra o payload auditado.",
     href: "/backoffice/inbound-webhooks",
     icon: Webhook,
     label: "Webhooks WhatsApp",
-    meta: "Observacao Umbler",
+    meta: "Observacao de provedores",
   },
   {
     description:

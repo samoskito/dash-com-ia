@@ -53,6 +53,7 @@ describe("InboundWebhookDiagnosticsService", () => {
       workspaceId: "workspace_1",
       deliveryId: "delivery_1",
       connectionId: "connection_1",
+      provider: "umbler" as const,
       eventType: "Message",
       parserVersion: "v1",
       classification: "eligible_route_unresolved" as const,
@@ -89,6 +90,34 @@ describe("InboundWebhookDiagnosticsService", () => {
     expect(serialized).not.toContain("raw_message_private_marker");
     expect(serialized).not.toContain("5511999994321");
     expect(serialized).not.toContain("ctwa-private-value");
+  });
+
+  it("attributes Gupshup observations to their own diagnostic source", async () => {
+    const harness = createHarness();
+
+    await harness.service.recordObservation({
+      workspaceId: "workspace_1",
+      deliveryId: "delivery_gupshup_1",
+      connectionId: "connection_gupshup_1",
+      provider: "gupshup",
+      eventType: "message",
+      parserVersion: "v1",
+      classification: "unsupported_event",
+      routeStatus: "not_applicable",
+      processingStatus: "processed",
+      eventCount: 0,
+      errorCode: null,
+      events: [],
+    });
+
+    expect([...harness.webhookLogs.values()][0]).toMatchObject({
+      source: "gupshup",
+      eventType: "message",
+    });
+    expect(harness.diagnosticEvents[0]).toMatchObject({
+      source: "gupshup",
+      title: "Webhook gupshup recebido",
+    });
   });
 
   it("stores only allowlisted maintenance identifiers", async () => {

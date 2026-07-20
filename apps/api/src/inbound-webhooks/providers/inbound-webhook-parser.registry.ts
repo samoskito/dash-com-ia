@@ -1,4 +1,5 @@
 import type { InboundWebhookParser } from "./inbound-webhook-parser";
+import { GupshupV1Parser } from "./gupshup/gupshup-v1.parser";
 import { UmblerV1Parser } from "./umbler/umbler-v1.parser";
 
 export type InboundWebhookParserSelector = {
@@ -40,7 +41,7 @@ function parserKey(provider: string, parserVersion: string): string {
 }
 
 function defaultParsers(): InboundWebhookParser[] {
-  return [new UmblerV1Parser()];
+  return [new UmblerV1Parser(), new GupshupV1Parser()];
 }
 
 export class InboundWebhookParserRegistry {

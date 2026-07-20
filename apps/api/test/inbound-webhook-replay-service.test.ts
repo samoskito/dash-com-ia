@@ -1,13 +1,17 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ConflictException, ServiceUnavailableException } from "@nestjs/common";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { InboundWebhookReplayService } from "../src/inbound-webhook-replay/inbound-webhook-replay.service";
 import { InboundWebhookParserRegistry } from "../src/inbound-webhooks/providers/inbound-webhook-parser.registry";
 
 const workspaceId = "workspace_1";
 const connectionId = "connection_1";
 const now = new Date("2026-07-18T15:00:00.000Z");
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 const replayEnv = {
   NODE_ENV: "test",
   WEB_ORIGIN: "http://localhost:3000",
@@ -103,6 +107,8 @@ function resolvedRoute(adId: string) {
 
 describe("inbound webhook replay service", () => {
   it("returns a redacted preview and counts only fully eligible events", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
     const availableDelivery = {
       payloadExpiresAt: new Date("2026-07-20T15:00:00.000Z"),
       encryptedPayload: "private-ciphertext",

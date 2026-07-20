@@ -16,6 +16,12 @@ while showing route, retained payload and CTWA blockers per discovered channel.
 The production handoff for Monday, including the live observation snapshot and
 canary order, is recorded in the replay-canary implementation plan above.
 
+The Gupshup observation bootstrap is tracked in
+`docs/plans/2026-07-20-wpptrack-gupshup-observation-design.md`. It is
+implemented locally only to generate a protected URL and retain the real raw
+payload. Parsing, channel discovery, canonical events and replay remain blocked
+until a customer callback is inspected and approved.
+
 ## 1. Goal
 
 Implement secure multi-workspace access, delegated team management, Brevo transactional email, closed invitation onboarding, feature-gated Google login and guided OAuth/manual Meta connections for the current client SaaS.

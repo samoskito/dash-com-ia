@@ -5,6 +5,7 @@ export const diagnosticSources = [
   "meta",
   "uazapi",
   "umbler",
+  "gupshup",
   "asaas",
   "external_mysql",
   "internal"

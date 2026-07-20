@@ -768,6 +768,7 @@ export class InboundWebhookObservationService {
         workspaceId: delivery.workspaceId,
         deliveryId: delivery.id,
         connectionId: delivery.connectionId,
+        provider: delivery.provider,
         eventType,
         parserVersion: result?.parserVersion ?? delivery.parserVersion,
         classification,

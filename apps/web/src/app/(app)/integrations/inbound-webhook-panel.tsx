@@ -58,7 +58,12 @@ type PanelNotice = {
 };
 
 export function inboundWebhookProviderLabel(provider: string): string {
-  return provider === "umbler" ? "Umbler Talk" : provider;
+  const labels: Record<string, string> = {
+    gupshup: "Gupshup",
+    umbler: "Umbler Talk",
+  };
+
+  return labels[provider] ?? provider;
 }
 
 export function InboundWebhookPanel({
@@ -155,7 +160,7 @@ export function InboundWebhookPanel({
       setCopied(true);
       setNotice({
         tone: "success",
-        message: "URL copiada. Cadastre-a agora na Umbler.",
+        message: `URL copiada. Cadastre-a agora na ${inboundWebhookProviderLabel(oneTimeSecret.provider)}.`,
       });
     } catch {
       setNotice({
@@ -221,7 +226,7 @@ export function InboundWebhookPanel({
               name="displayName"
               minLength={2}
               maxLength={120}
-              placeholder="Ex.: Umbler Comercial"
+              placeholder="Ex.: Comercial - unidade 1"
               required
               disabled={pendingAction === "create"}
             />
@@ -246,12 +251,15 @@ export function InboundWebhookPanel({
         >
           <div>
             <span className="micro-label">URL exibida uma unica vez</span>
-            <strong>Cadastre este webhook na Umbler agora</strong>
+            <strong>
+              Cadastre este webhook na{" "}
+              {inboundWebhookProviderLabel(oneTimeSecret.provider)} agora
+            </strong>
           </div>
           <input
             readOnly
             value={oneTimeSecret.webhookUrl}
-            aria-label="URL privada do webhook Umbler"
+            aria-label={`URL privada do webhook ${inboundWebhookProviderLabel(oneTimeSecret.provider)}`}
             data-presentation-sensitive-field="true"
           />
           <button className="button" type="button" onClick={copyWebhookUrl}>
@@ -312,7 +320,7 @@ export function InboundWebhookPanel({
                     />
                     <div>
                       <strong>
-                        <PresentationMask placeholder="Conexao Umbler">
+                        <PresentationMask placeholder="Conexao WhatsApp">
                           {connection.displayName}
                         </PresentationMask>
                       </strong>
@@ -683,7 +691,7 @@ function readinessBlockerLabel(
   readiness: InboundWebhookChannelDto["readiness"],
 ) {
   const labels = {
-    connection_paused: "A conexao Umbler esta pausada.",
+    connection_paused: "A conexao de webhook esta pausada.",
     channel_paused: "Este canal esta pausado.",
     route_not_configured: "Configure ao menos uma rota Meta para este canal.",
     route_not_valid: "Existe uma rota Meta que precisa ser validada novamente.",

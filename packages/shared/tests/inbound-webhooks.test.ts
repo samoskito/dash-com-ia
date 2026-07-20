@@ -34,8 +34,9 @@ const connection = {
 };
 
 describe("inbound webhook contracts", () => {
-  it("accepts only the Umbler provider", () => {
+  it("accepts the registered observation providers", () => {
     expect(inboundWebhookProviderSchema.parse("umbler")).toBe("umbler");
+    expect(inboundWebhookProviderSchema.parse("gupshup")).toBe("gupshup");
     expect(() => inboundWebhookProviderSchema.parse("data_crazy")).toThrow();
   });
 
@@ -205,6 +206,7 @@ describe("inbound webhook contracts", () => {
     });
     const rotated = inboundWebhookConnectionRotateSecretResultSchema.parse({
       connectionId: connection.id,
+      provider: "umbler",
       secret,
       webhookUrl,
       rotatedAt: timestamp,
