@@ -1597,7 +1597,7 @@ export function MetaManualConnectionPanel({
                                   </button>
                                 </div>
                               </details>
-                              {persistedDestinationIds.length > 1 ? (
+                              {persistedDestinationIds.length > 0 ? (
                                 <button
                                   className="button ghost"
                                   type="button"
