@@ -250,7 +250,10 @@ export default async function InboundWebhookReplayPage({
   const activeBatch =
     preview.latestBatch?.status === "queued" ||
     preview.latestBatch?.status === "processing";
-  const connectionReady = preview.connection.status === "observation";
+  const connectionInProduction = preview.connection.status === "production";
+  const connectionReady = ["observation", "production"].includes(
+    preview.connection.status,
+  );
   const expiry = expirySummary(preview.nextPayloadExpiresAt);
   const defaultChannel = preview.channels.find(
     (channel) => channel.eligible > 0,
@@ -285,10 +288,15 @@ export default async function InboundWebhookReplayPage({
       <div className="inbound-replay-safety-banner">
         <LockKeyhole aria-hidden="true" size={20} strokeWidth={2} />
         <span>
-          <strong>A observacao continua isolada</strong>
+          <strong>
+            {connectionInProduction
+              ? "Replay isolado da fila ao vivo"
+              : "A observacao continua isolada"}
+          </strong>
           <span>
-            Nenhuma entrega e processada automaticamente. O lote abaixo exige
-            certificacao, trava de ambiente e confirmacao manual.
+            {connectionInProduction
+              ? "Somente entregas anteriores a ativacao automatica entram neste lote. Os eventos novos continuam na fila de producao."
+              : "Nenhuma entrega e processada automaticamente. O lote abaixo exige certificacao, trava de ambiente e confirmacao manual."}
           </span>
         </span>
       </div>
@@ -452,11 +460,17 @@ export default async function InboundWebhookReplayPage({
               <Clock3 aria-hidden="true" size={20} strokeWidth={2} />
             )}
             <span>
-              <strong>Conexao em observacao</strong>
+              <strong>
+                {connectionInProduction
+                  ? "Conexao em envio automatico"
+                  : "Conexao em observacao"}
+              </strong>
               <small>
                 {connectionReady
-                  ? "A origem permanece recebendo e classificando eventos."
-                  : "Retome a conexao em observacao antes do replay."}
+                  ? connectionInProduction
+                    ? "A fila ao vivo permanece ativa; o replay considera apenas a lacuna historica."
+                    : "A origem permanece recebendo e classificando eventos."
+                  : "A conexao precisa estar em observacao ou producao para o replay."}
               </small>
             </span>
           </div>
@@ -591,7 +605,9 @@ export default async function InboundWebhookReplayPage({
                 {activeBatch
                   ? "Ja existe um replay em andamento para esta conexao."
                   : preview.counts.eligible === 0
-                    ? "Associe as rotas Meta enquanto o payload ainda esta retido."
+                    ? connectionInProduction
+                      ? "Nenhum evento anterior a ativacao possui rota completa e payload retido."
+                      : "Associe as rotas Meta enquanto o payload ainda esta retido."
                     : "Conclua as barreiras de seguranca exibidas acima."}
               </span>
             </span>

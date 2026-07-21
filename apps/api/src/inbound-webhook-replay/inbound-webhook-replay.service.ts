@@ -246,6 +246,7 @@ export class InboundWebhookReplayService {
               id: true,
               channelName: true,
               connectedPhone: true,
+              productionActivatedAt: true,
               routes: {
                 where: {
                   active: true,
@@ -273,6 +274,7 @@ export class InboundWebhookReplayService {
           },
           delivery: {
             select: {
+              firstReceivedAt: true,
               payloadExpiresAt: true,
               encryptedPayload: true,
               payloadIv: true,
@@ -350,6 +352,8 @@ export class InboundWebhookReplayService {
         event,
         event.adId ? (adAccountsByAd.get(event.adId) ?? null) : null,
       );
+    const insideReplayWindow = (event: (typeof events)[number]) =>
+      this.replayWindowEligible(event, connection);
     const nextPayloadExpiresAt = events
       .filter(
         (event) =>
@@ -358,6 +362,7 @@ export class InboundWebhookReplayService {
               event.replayItem.status,
             )) &&
           event.productionItem === null &&
+          insideReplayWindow(event) &&
           event.delivery.payloadExpiresAt.getTime() > now.getTime() &&
           payloadAvailable(event),
       )
@@ -372,6 +377,7 @@ export class InboundWebhookReplayService {
       event.adId !== null &&
       routeResolved(event) &&
       payloadAvailable(event) &&
+      insideReplayWindow(event) &&
       event.replayItem === null &&
       event.productionItem === null;
 
@@ -571,6 +577,7 @@ export class InboundWebhookReplayService {
             },
             channel: {
               select: {
+                productionActivatedAt: true,
                 routes: {
                   where: {
                     active: true,
@@ -582,6 +589,11 @@ export class InboundWebhookReplayService {
                     metaConversionDestinationId: true,
                   },
                 },
+              },
+            },
+            delivery: {
+              select: {
+                firstReceivedAt: true,
               },
             },
           },
@@ -606,6 +618,7 @@ export class InboundWebhookReplayService {
           ads.map((ad) => [ad.adId, ad.adAccountId]),
         );
         const events = candidates
+          .filter((event) => this.replayWindowEligible(event, connection))
           .filter((event) =>
             this.routeReady(
               event,
@@ -992,6 +1005,12 @@ export class InboundWebhookReplayService {
       connection.parserRelease.version !== delivery.parserVersion
     ) {
       throw new ReplayItemFailure("inbound_webhook_replay_context_changed");
+    }
+
+    if (!this.replayWindowEligible(event, connection)) {
+      throw new ReplayItemFailure(
+        "inbound_webhook_replay_outside_historical_window",
+      );
     }
 
     if (
@@ -1521,6 +1540,41 @@ export class InboundWebhookReplayService {
           route.metaConversionDestinationId ===
             event.resolvedConversionDestinationId,
       ),
+    );
+  }
+
+  private replayWindowEligible(
+    event: {
+      delivery: {
+        firstReceivedAt: Date;
+      };
+      channel: {
+        productionActivatedAt: Date | null;
+      };
+    },
+    connection: {
+      status: string;
+      productionActivatedAt: Date | null;
+    },
+  ): boolean {
+    if (connection.status === "observation") {
+      return true;
+    }
+
+    if (
+      connection.status !== "production" ||
+      !connection.productionActivatedAt
+    ) {
+      return false;
+    }
+
+    const channelActivatedAt = event.channel.productionActivatedAt;
+
+    return Boolean(
+      !channelActivatedAt ||
+      event.delivery.firstReceivedAt.getTime() <
+        connection.productionActivatedAt.getTime() ||
+      event.delivery.firstReceivedAt.getTime() < channelActivatedAt.getTime(),
     );
   }
 

@@ -12,6 +12,7 @@ const preview = {
     parserVersion: "v1",
     parserReleaseStatus: "observation_only",
     status: "observation",
+    productionActivatedAt: null,
     lastDeliveryAt: "2026-07-18T14:40:44.000Z",
     lastSuccessfulParseAt: "2026-07-18T14:40:44.000Z",
     createdAt: "2026-07-17T12:00:00.000Z",
@@ -181,6 +182,57 @@ describe("inbound webhook controlled replay route", () => {
     expect(html).toContain('name="channelId"');
     expect(html).toContain('value="channel_1"');
     expect(html).not.toContain("Certificar parser");
+  });
+
+  it("allows the historical gap replay while live production remains active", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      jsonResponse({
+        ...preview,
+        connection: {
+          ...preview.connection,
+          parserReleaseStatus: "certified",
+          status: "production",
+          productionActivatedAt: "2026-07-18T12:30:00.000Z",
+        },
+        parserRelease: {
+          ...preview.parserRelease,
+          status: "certified",
+          certifiedAt: "2026-07-18T12:00:00.000Z",
+        },
+        replayEnabled: true,
+        counts: {
+          ...preview.counts,
+          routeResolved: 81,
+          routeUnresolved: 0,
+          alreadyMaterialized: 69,
+          eligible: 12,
+        },
+        channels: [
+          {
+            ...preview.channels[0],
+            totalCtwa: 81,
+            routeResolved: 81,
+            routeUnresolved: 0,
+            alreadyMaterialized: 69,
+            eligible: 12,
+          },
+        ],
+      }),
+    );
+
+    const element = await InboundWebhookReplayPage({
+      params: Promise.resolve({ connectionId: "connection_1" }),
+    });
+    const html = render(element);
+
+    expect(html).toContain("Replay isolado da fila ao vivo");
+    expect(html).toContain("Conexao em envio automatico");
+    expect(html).toContain("apenas a lacuna historica");
+    expect(html).toContain("Autorizar lote");
+    expect(html).toContain(">12<");
+    expect(html).not.toContain(
+      "Retome a conexao em observacao antes do replay.",
+    );
   });
 
   it("keeps denied or missing connections behind a generic message", async () => {

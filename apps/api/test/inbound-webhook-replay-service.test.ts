@@ -29,6 +29,7 @@ const connection = {
   parserReleaseId: "parser_1",
   secretHash: null,
   status: "observation" as const,
+  productionActivatedAt: null,
   createdByUserId: "owner_1",
   lastDeliveryAt: now,
   lastSuccessfulParseAt: now,
@@ -284,6 +285,103 @@ describe("inbound webhook replay service", () => {
     expect(JSON.stringify(preview)).not.toContain("private-tag");
   });
 
+  it("exposes only the pre-activation gap while production stays active", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const activatedAt = new Date("2026-07-18T12:30:00.000Z");
+    const productionConnection = {
+      ...connection,
+      status: "production" as const,
+      productionActivatedAt: activatedAt,
+    };
+    const route = resolvedRoute("ad_1");
+    const retainedDelivery = {
+      payloadExpiresAt: new Date("2026-07-20T15:00:00.000Z"),
+      encryptedPayload: "private-ciphertext",
+      payloadIv: "private-iv",
+      payloadTag: "private-tag",
+      encryptionKeyVersion: 1,
+    };
+    const events = [
+      {
+        ...route,
+        channelId,
+        channel: {
+          ...route.channel,
+          productionActivatedAt: activatedAt,
+        },
+        occurredAt: new Date("2026-07-18T12:20:00.000Z"),
+        replayItem: null,
+        productionItem: null,
+        delivery: {
+          ...retainedDelivery,
+          firstReceivedAt: new Date("2026-07-18T12:20:00.000Z"),
+        },
+      },
+      {
+        ...route,
+        channelId,
+        channel: {
+          ...route.channel,
+          productionActivatedAt: activatedAt,
+        },
+        occurredAt: new Date("2026-07-18T12:31:00.000Z"),
+        replayItem: null,
+        productionItem: null,
+        delivery: {
+          ...retainedDelivery,
+          firstReceivedAt: new Date("2026-07-18T12:31:00.000Z"),
+        },
+      },
+    ];
+    const service = createService({
+      prisma: {
+        inboundWebhookConnection: {
+          findFirst: vi.fn(async () => productionConnection),
+        },
+        inboundWebhookEvent: {
+          findMany: vi.fn(async () => events),
+        },
+        inboundWebhookChannel: {
+          findMany: vi.fn(async () => [
+            {
+              id: channelId,
+              channelName: "Comercial",
+              connectedPhone: "5511999990001",
+            },
+          ]),
+        },
+        inboundWebhookReplayBatch: {
+          findMany: vi.fn(async () => []),
+        },
+        metaAd: {
+          findMany: vi.fn(async () => [
+            {
+              adId: "ad_1",
+              adAccountId: "act_1",
+            },
+          ]),
+        },
+      },
+    });
+
+    const preview = await service.getPreview(connectionId);
+
+    expect(preview.connection.status).toBe("production");
+    expect(preview.counts).toMatchObject({
+      totalCtwa: 2,
+      routeResolved: 2,
+      payloadAvailable: 2,
+      alreadyMaterialized: 0,
+      eligible: 1,
+    });
+    expect(preview.channels[0]).toMatchObject({
+      id: channelId,
+      totalCtwa: 2,
+      eligible: 1,
+    });
+  });
+
   it("does not authorize a replay while the deployment gate is off", async () => {
     const service = createService({
       prisma: {},
@@ -474,6 +572,121 @@ describe("inbound webhook replay service", () => {
     });
     expect(JSON.stringify(enqueueBatch.mock.calls)).not.toContain("phone");
     expect(JSON.stringify(enqueueBatch.mock.calls)).not.toContain("payload");
+  });
+
+  it("authorizes only historical gap events for a production connection", async () => {
+    const activatedAt = new Date("2026-07-18T12:30:00.000Z");
+    const productionConnection = {
+      ...connection,
+      status: "production" as const,
+      productionActivatedAt: activatedAt,
+    };
+    const batch = {
+      id: "batch_production_gap",
+      workspaceId,
+      connectionId,
+      channelId,
+      requestedByUserId: owner.id,
+      selection: "remaining" as const,
+      requestedLimit: 500,
+      status: "queued" as const,
+      totalItems: 0,
+      materializedCount: 0,
+      duplicateCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      retryableFailedCount: 0,
+      retryCount: 0,
+      startedAt: null,
+      completedAt: null,
+      lastRetriedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const route = resolvedRoute("ad_1");
+    const itemCreateMany = vi.fn(async ({ data }) => ({
+      count: data.length,
+    }));
+    const tx = {
+      inboundWebhookReplayBatch: {
+        findFirst: vi.fn(async () => null),
+        create: vi.fn(async () => batch),
+        update: vi.fn(async ({ data }) => ({ ...batch, ...data })),
+      },
+      inboundWebhookEvent: {
+        findMany: vi.fn(async () => [
+          {
+            id: "event_historical",
+            ...route,
+            delivery: {
+              firstReceivedAt: new Date("2026-07-18T12:20:00.000Z"),
+            },
+            channel: {
+              ...route.channel,
+              productionActivatedAt: activatedAt,
+            },
+          },
+          {
+            id: "event_live",
+            ...route,
+            delivery: {
+              firstReceivedAt: new Date("2026-07-18T12:31:00.000Z"),
+            },
+            channel: {
+              ...route.channel,
+              productionActivatedAt: activatedAt,
+            },
+          },
+        ]),
+      },
+      metaAd: {
+        findMany: vi.fn(async () => [{ adId: "ad_1", adAccountId: "act_1" }]),
+      },
+      inboundWebhookReplayItem: {
+        createMany: itemCreateMany,
+      },
+      auditLog: {
+        create: vi.fn(async () => undefined),
+      },
+    };
+    const service = createService({
+      prisma: {
+        inboundWebhookConnection: {
+          findFirst: vi.fn(async () => productionConnection),
+        },
+        inboundWebhookChannel: {
+          count: vi.fn(async () => 1),
+        },
+        $transaction: vi.fn(async (callback) => callback(tx)),
+      },
+      replayQueue: {
+        enqueueBatch: vi.fn(async () => ({
+          jobId: "replay_batch_production_gap",
+          status: "queued",
+        })),
+      },
+    });
+
+    await service.authorizeReplay(
+      connectionId,
+      connection.displayName,
+      "remaining",
+      channelId,
+      owner,
+      null,
+    );
+
+    expect(itemCreateMany).toHaveBeenCalledWith({
+      data: [
+        {
+          workspaceId,
+          batchId: batch.id,
+          eventId: "event_historical",
+          status: "queued",
+        },
+      ],
+      skipDuplicates: true,
+    });
   });
 
   it("maps a concurrent active-batch collision to a safe conflict", async () => {
