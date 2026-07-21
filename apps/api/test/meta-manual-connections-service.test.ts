@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { MetaManualConnectionsService } from "../src/integrations/meta/meta-manual-connections.service";
+import { MetaAdDestinationRoutingService } from "../src/integrations/meta/meta-ad-destination-routing.service";
 import { MetaTokenEncryptionService } from "../src/integrations/meta/meta-token-encryption.service";
 
 const now = new Date("2026-07-14T20:00:00.000Z");
@@ -632,6 +633,7 @@ function createHarness(options?: {
     service: new MetaManualConnectionsService(
       prisma as never,
       adapter as never,
+      new MetaAdDestinationRoutingService(prisma as never),
       encryption,
       { META_CONNECTION_MODES: "oauth,manual" },
     ),

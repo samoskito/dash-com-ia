@@ -8077,20 +8077,20 @@ button.meta-manual-entry[aria-expanded="true"] {
 
 .meta-account-routing-list {
   display: grid;
-  border-top: 1px solid var(--border);
-  border-left: 1px solid var(--border);
+  gap: 12px;
 }
 
 .meta-account-routing-list > div {
   display: grid;
   min-width: 0;
   grid-template-columns:
-    minmax(150px, 1.15fr)
-    minmax(145px, 1fr)
-    minmax(145px, 1fr)
-    minmax(120px, 0.75fr)
-    minmax(190px, 1.2fr);
+    minmax(220px, 1.35fr)
+    repeat(3, minmax(145px, 1fr));
   align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
 }
 
 .meta-account-routing-list > div > span {
@@ -8098,16 +8098,32 @@ button.meta-manual-entry[aria-expanded="true"] {
   min-width: 0;
   align-content: center;
   gap: 3px;
-  padding: 11px;
+  padding: 13px;
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
 
 .meta-account-routing-list > div > .meta-account-routing-control {
+  grid-column: 1 / -1;
+  display: flex;
   min-width: 0;
-  padding: 11px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 13px;
+  border-top: 1px solid var(--border);
+}
+
+.meta-account-routing-list > div > .meta-account-routing-control > small {
+  margin-right: auto;
+  align-self: center;
+}
+
+.meta-account-routing-list
+  > div
+  > .meta-account-routing-control
+  .meta-account-destination-picker {
+  width: min(430px, 100%);
 }
 
 .meta-account-routing-list strong,
@@ -8131,6 +8147,42 @@ button.meta-manual-entry[aria-expanded="true"] {
 
 .meta-account-routing-health .event-chip {
   width: fit-content;
+}
+
+.meta-account-destination-summary {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(190px, 0.45fr) minmax(0, 1.55fr);
+  gap: 14px;
+  align-items: start;
+  padding: 13px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--mint) 2%, transparent);
+}
+
+.meta-account-destination-summary-head {
+  display: grid;
+  gap: 4px;
+}
+
+.meta-account-destination-summary > div {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+.meta-account-destination-pair {
+  display: grid;
+  min-width: min(210px, 100%);
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--mint) 65%, transparent);
+}
+
+.meta-account-destination-pair strong,
+.meta-account-destination-pair small {
+  overflow-wrap: anywhere;
 }
 
 .meta-account-routing-control {
@@ -8290,6 +8342,7 @@ button.meta-manual-entry[aria-expanded="true"] {
 
 .meta-ad-routing-toolbar {
   justify-content: flex-start;
+  flex-wrap: wrap;
 }
 
 .meta-ad-routing-toolbar input {
@@ -8307,7 +8360,121 @@ button.meta-manual-entry[aria-expanded="true"] {
   box-shadow: 0 0 0 3px rgba(66, 240, 168, 0.08);
 }
 
-.meta-ad-routing-toolbar > span {
+.meta-ad-routing-toolbar > span,
+.meta-ad-routing-guidance {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.meta-ad-routing-filter {
+  width: min(440px, 100%);
+}
+
+.meta-ad-routing-guidance {
+  margin: 0;
+  line-height: 1.65;
+}
+
+.meta-ad-routing-groups {
+  display: grid;
+  border-top: 1px solid var(--border);
+}
+
+.meta-ad-routing-group {
+  border-bottom: 1px solid var(--border);
+}
+
+.meta-ad-routing-group > summary {
+  display: grid;
+  grid-template-columns:
+    34px
+    minmax(170px, 1fr)
+    minmax(180px, 1fr)
+    auto
+    18px;
+  min-width: 0;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.meta-ad-routing-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.meta-ad-routing-group > summary:hover {
+  background: color-mix(in srgb, var(--mint) 3%, transparent);
+}
+
+.meta-ad-routing-group > summary > span:not(.meta-ad-routing-group-icon) {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.meta-ad-routing-group > summary strong,
+.meta-ad-routing-group > summary small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.meta-ad-routing-group > summary small {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.meta-ad-routing-group-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--mint);
+}
+
+.meta-ad-routing-group-status {
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px !important;
+}
+
+.meta-ad-routing-group-status .event-chip.warning {
+  color: var(--amber);
+}
+
+.meta-ad-routing-group-status .event-chip.success {
+  color: var(--mint);
+}
+
+.meta-ad-routing-group > summary > svg {
+  color: var(--ink-muted);
+  transition: transform 150ms ease;
+}
+
+.meta-ad-routing-group[open] > summary > svg {
+  transform: rotate(180deg);
+}
+
+.meta-ad-routing-complete {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 10px;
+  color: var(--mint);
+}
+
+.meta-ad-routing-complete > span {
+  display: grid;
+  gap: 3px;
+}
+
+.meta-ad-routing-complete small {
   color: var(--ink-muted);
   font-family: var(--font-mono);
   font-size: 9px;
@@ -8315,10 +8482,10 @@ button.meta-manual-entry[aria-expanded="true"] {
 
 .meta-ad-routing-list {
   display: grid;
-  max-height: 620px;
+  max-height: 440px;
   overflow-y: auto;
   border-top: 1px solid var(--border);
-  border-left: 1px solid var(--border);
+  background: color-mix(in srgb, var(--graphite-950) 86%, transparent);
   scrollbar-color: rgba(66, 240, 168, 0.45) transparent;
   scrollbar-width: thin;
 }
@@ -8328,7 +8495,6 @@ button.meta-manual-entry[aria-expanded="true"] {
   grid-template-columns:
     minmax(180px, 1.4fr)
     minmax(150px, 1fr)
-    minmax(170px, 1fr)
     minmax(220px, 1.25fr);
   min-width: 0;
 }
@@ -8473,6 +8639,41 @@ button.meta-manual-entry[aria-expanded="true"] {
   .meta-ad-routing-list > div,
   .meta-destination-inventory > div > div {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .meta-account-destination-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .meta-account-routing-list > div > .meta-account-routing-control {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .meta-account-routing-list > div > .meta-account-routing-control > small {
+    margin-right: 0;
+  }
+
+  .meta-account-routing-list
+    > div
+    > .meta-account-routing-control
+    .meta-account-destination-picker,
+  .meta-account-routing-list > div > .meta-account-routing-control > .button {
+    width: 100%;
+  }
+
+  .meta-ad-routing-group > summary {
+    grid-template-columns: 34px minmax(0, 1fr) 18px;
+  }
+
+  .meta-ad-routing-group > summary > span:nth-of-type(3),
+  .meta-ad-routing-group-status {
+    grid-column: 2;
+  }
+
+  .meta-ad-routing-group > summary > svg {
+    grid-column: 3;
+    grid-row: 1;
   }
 
   .meta-rotate-form .button,

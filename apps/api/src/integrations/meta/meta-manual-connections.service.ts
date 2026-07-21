@@ -31,6 +31,7 @@ import { PrismaService } from "../../common/prisma/prisma.service";
 import { InboundWebhookChannelRoutesService } from "../../inbound-webhooks/inbound-webhook-channel-routes.service";
 import type { IntegrationEnv } from "../integration.types";
 import { INTEGRATION_ENV } from "../integration.types";
+import { MetaAdDestinationRoutingService } from "./meta-ad-destination-routing.service";
 import { MetaAdapter } from "./meta.adapter";
 import { MetaTokenEncryptionService } from "./meta-token-encryption.service";
 
@@ -132,6 +133,7 @@ export class MetaManualConnectionsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     private readonly adapter: MetaAdapter,
+    private readonly adDestinationRouting: MetaAdDestinationRoutingService,
     private readonly encryption: MetaTokenEncryptionService,
     @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env,
     @Optional()
@@ -1270,6 +1272,20 @@ export class MetaManualConnectionsService {
       );
     }
 
+    const destinationByPage = new Map<string, (typeof destinations)[number]>();
+
+    for (const destination of destinations) {
+      const existing = destinationByPage.get(destination.pageId);
+
+      if (existing && existing.id !== destination.id) {
+        throw new BadRequestException(
+          "Cada Pagina Meta pode apontar para apenas um Pixel nesta conta",
+        );
+      }
+
+      destinationByPage.set(destination.pageId, destination);
+    }
+
     const accessToken = this.decryptCredential(
       account.businessConnection.credential as CredentialRecord,
     );
@@ -1336,6 +1352,11 @@ export class MetaManualConnectionsService {
         conversionDestinationId: input.conversionDestinationId,
         conversionDestinationIds: requestedDestinationIds,
       },
+    });
+
+    await this.adDestinationRouting.reconcileReportingAccount({
+      workspaceId,
+      reportingAccountId,
     });
 
     await this.inboundRoutes?.reevaluateWorkspaceOpenEvents(workspaceId);
@@ -1433,7 +1454,7 @@ export class MetaManualConnectionsService {
       conversionDestinationId: account.conversionDestinationId,
       conversionDestinationIds: allowedDestinationIds,
       ads: ads.map((ad) => {
-        const candidates = this.destinationCandidates(
+        const candidates = this.adDestinationRouting.destinationCandidates(
           destinations,
           ad.detectedPixelIds,
           ad.detectedPageIds,
@@ -1551,7 +1572,7 @@ export class MetaManualConnectionsService {
       );
     }
 
-    const automaticCandidate = this.destinationCandidates(
+    const automaticCandidate = this.adDestinationRouting.destinationCandidates(
       destinations,
       ad.detectedPixelIds,
       ad.detectedPageIds,
@@ -2025,23 +2046,6 @@ export class MetaManualConnectionsService {
       lastSyncUntil: record.lastSyncUntil,
       syncError: record.syncError,
     };
-  }
-
-  private destinationCandidates<
-    T extends { id: string; pixelId: string; pageId: string },
-  >(destinations: T[], pixelIds: string[], pageIds: string[]): T[] {
-    const hasPixelHint = pixelIds.length > 0;
-    const hasPageHint = pageIds.length > 0;
-
-    if (!hasPixelHint && !hasPageHint) {
-      return [];
-    }
-
-    return destinations.filter(
-      (destination) =>
-        (!hasPixelHint || pixelIds.includes(destination.pixelId)) &&
-        (!hasPageHint || pageIds.includes(destination.pageId)),
-    );
   }
 
   private async recordAudit(input: {

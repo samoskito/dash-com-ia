@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import type { InboundWebhookJobPayload } from "../common/queue/queue.constants";
 import { hashPhoneIdentity } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { InboundWebhookChannelRoutesService } from "./inbound-webhook-channel-routes.service";
 import { InboundWebhookDiagnosticsService } from "./inbound-webhook-diagnostics.service";
 import { InboundWebhookPayloadEncryptionService } from "./inbound-webhook-payload-encryption.service";
 import type {
@@ -49,6 +50,11 @@ type DeterministicFailure = {
   code: string;
   classification?: InboundWebhookEventClassification;
   result?: InboundWebhookParserResult;
+};
+
+type PersistedObservation = {
+  createdEventCount: number;
+  routableChannelIds: string[];
 };
 
 export type InboundWebhookObservationResult = {
@@ -113,6 +119,8 @@ export class InboundWebhookObservationService {
     private readonly parserRegistry: InboundWebhookParserRegistry,
     @Inject(InboundWebhookDiagnosticsService)
     private readonly diagnostics: InboundWebhookDiagnosticsService,
+    @Inject(InboundWebhookChannelRoutesService)
+    private readonly channelRoutes: InboundWebhookChannelRoutesService,
   ) {}
 
   async processDelivery(
@@ -172,10 +180,7 @@ export class InboundWebhookObservationService {
         parserReleaseStatus: delivery.connection.parserRelease.status,
       });
     } catch (error) {
-      return this.finishFailure(
-        delivery,
-        this.parserResolutionFailure(error),
-      );
+      return this.finishFailure(delivery, this.parserResolutionFailure(error));
     }
 
     try {
@@ -217,14 +222,10 @@ export class InboundWebhookObservationService {
     }
 
     const processedAt = new Date();
-    let persistedEventCount: number;
+    let persisted: PersistedObservation;
 
     try {
-      persistedEventCount = await this.persistResult(
-        delivery,
-        result,
-        processedAt,
-      );
+      persisted = await this.persistResult(delivery, result, processedAt);
     } catch (error) {
       if (error instanceof InboundWebhookObservationError) {
         throw error;
@@ -235,6 +236,15 @@ export class InboundWebhookObservationService {
       );
     }
 
+    await Promise.allSettled(
+      persisted.routableChannelIds.map((channelId) =>
+        this.channelRoutes.reevaluateUnresolvedEvents(
+          delivery.workspaceId,
+          channelId,
+        ),
+      ),
+    );
+
     await this.recordDiagnostic(delivery, "processed", result);
 
     return {
@@ -242,14 +252,12 @@ export class InboundWebhookObservationService {
       status: "processed",
       classification: result.classification,
       parsedEventCount: result.events.length,
-      persistedEventCount,
+      persistedEventCount: persisted.createdEventCount,
       idempotent: false,
     };
   }
 
-  private assertJobPayload(
-    input: Readonly<InboundWebhookJobPayload>,
-  ): void {
+  private assertJobPayload(input: Readonly<InboundWebhookJobPayload>): void {
     if (
       !input ||
       !this.isIdentifier(input.deliveryId) ||
@@ -328,9 +336,7 @@ export class InboundWebhookObservationService {
     }
   }
 
-  private async revalidateConnection(
-    delivery: LoadedDelivery,
-  ): Promise<void> {
+  private async revalidateConnection(delivery: LoadedDelivery): Promise<void> {
     const connection = await this.prisma.inboundWebhookConnection.findFirst({
       where: {
         id: delivery.connectionId,
@@ -444,9 +450,7 @@ export class InboundWebhookObservationService {
     }
   }
 
-  private deterministicProcessingFailure(
-    error: unknown,
-  ): DeterministicFailure {
+  private deterministicProcessingFailure(error: unknown): DeterministicFailure {
     if (error instanceof InboundWebhookDeterministicFailure) {
       return {
         code: error.code,
@@ -551,11 +555,12 @@ export class InboundWebhookObservationService {
     delivery: LoadedDelivery,
     result: InboundWebhookParserResult,
     processedAt: Date,
-  ): Promise<number> {
+  ): Promise<PersistedObservation> {
     return this.prisma.$transaction(async (transaction) => {
       await this.assertCurrentConnection(transaction, delivery);
 
       const eventRows: Prisma.InboundWebhookEventCreateManyInput[] = [];
+      const routableChannelIds = new Set<string>();
 
       for (const event of result.events) {
         const channel = await transaction.inboundWebhookChannel.upsert({
@@ -583,6 +588,13 @@ export class InboundWebhookObservationService {
             lastSeenAt: processedAt,
           },
         });
+
+        if (
+          event.classification === "eligible_route_resolved" ||
+          event.classification === "eligible_route_unresolved"
+        ) {
+          routableChannelIds.add(channel.id);
+        }
 
         eventRows.push({
           workspaceId: delivery.workspaceId,
@@ -655,7 +667,10 @@ export class InboundWebhookObservationService {
         );
       }
 
-      return created.count;
+      return {
+        createdEventCount: created.count,
+        routableChannelIds: [...routableChannelIds],
+      };
     });
   }
 
@@ -758,8 +773,7 @@ export class InboundWebhookObservationService {
     errorCode?: string,
     failureClassification?: InboundWebhookEventClassification | null,
   ): Promise<void> {
-    const eventType =
-      result?.providerEventType ?? "unknown";
+    const eventType = result?.providerEventType ?? "unknown";
     const classification =
       result?.classification ?? failureClassification ?? null;
 
@@ -776,16 +790,12 @@ export class InboundWebhookObservationService {
         processingStatus,
         eventCount: result?.events.length ?? 0,
         errorCode: errorCode
-          ? this.safeErrorCode(
-              errorCode,
-              "inbound_webhook_processing_failed",
-            )
+          ? this.safeErrorCode(errorCode, "inbound_webhook_processing_failed")
           : null,
         events:
           result?.events.map((event) => ({
             channelId: event.normalizedSummary.providerChannelId,
-            connectedPhoneSuffix:
-              event.normalizedSummary.connectedPhoneSuffix,
+            connectedPhoneSuffix: event.normalizedSummary.connectedPhoneSuffix,
             adId: event.normalizedSummary.adId,
             hasCtwa: event.normalizedSummary.hasCtwa,
             classification: event.normalizedSummary.classification,

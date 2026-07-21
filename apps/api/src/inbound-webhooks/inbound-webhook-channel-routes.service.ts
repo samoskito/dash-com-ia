@@ -76,18 +76,20 @@ type RouteDecision =
   | {
       classification: "eligible_route_resolved";
       reason: "route_resolved";
-      preview: InboundWebhookMetaRoutePreview & {
-        status: "resolved";
-        businessConnectionId: string;
-        reportingAccountId: string;
-        conversionDestinationId: string;
-      };
+      preview: ResolvedMetaRoutePreview;
     }
   | {
       classification: "eligible_route_unresolved";
       reason: string;
       conflict: boolean;
     };
+
+type ResolvedMetaRoutePreview = InboundWebhookMetaRoutePreview & {
+  status: "resolved";
+  businessConnectionId: string;
+  reportingAccountId: string;
+  conversionDestinationId: string;
+};
 
 export type InboundWebhookRouteReevaluationResult = {
   examinedCount: number;
@@ -451,7 +453,7 @@ export class InboundWebhookChannelRoutesService {
       "eligible_route_resolved" | "eligible_route_unresolved"
     >,
   ): Promise<InboundWebhookRouteReevaluationResult> {
-    const channel = await this.requireChannel(
+    let channel = await this.requireChannel(
       this.prisma,
       workspaceId,
       channelId,
@@ -469,6 +471,15 @@ export class InboundWebhookChannelRoutesService {
       },
       orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
     });
+
+    const learnedRoute = await this.learnRoutesFromEvents(
+      channel,
+      events.map((event) => event.adId),
+    );
+
+    if (learnedRoute) {
+      channel = await this.requireChannel(this.prisma, workspaceId, channelId);
+    }
 
     const decisions: Array<{
       eventId: string;
@@ -640,24 +651,183 @@ export class InboundWebhookChannelRoutesService {
     );
   }
 
+  private async learnRoutesFromEvents(
+    channel: PersistedChannel,
+    adIdValues: Array<string | null>,
+  ): Promise<boolean> {
+    if (channel.connection.status === "paused" || channel.status === "paused") {
+      return false;
+    }
+
+    const adIds = [
+      ...new Set(
+        adIdValues
+          .map((adId) => adId?.trim() ?? "")
+          .filter((adId) => adId.length > 0),
+      ),
+    ];
+    const candidates = new Map<string, NormalizedRouteInput>();
+
+    for (const adId of adIds) {
+      try {
+        const preview = await this.metaRouteReader.previewRoute({
+          workspaceId: channel.workspaceId,
+          adId,
+        });
+
+        if (!this.isResolvedPreview(preview)) {
+          continue;
+        }
+
+        if (
+          channel.routes.some((route) =>
+            this.previewMatchesRoute(preview, route),
+          )
+        ) {
+          continue;
+        }
+
+        const route = {
+          metaBusinessConnectionId: preview.businessConnectionId,
+          metaReportingAccountId: preview.reportingAccountId,
+          metaConversionDestinationId: preview.conversionDestinationId,
+        };
+        const routeKey = this.routeKey(route);
+
+        candidates.set(routeKey, { routeKey, ...route });
+      } catch {
+        // Observation stays isolated when a Meta route cannot be learned yet.
+      }
+    }
+
+    if (candidates.size === 0) {
+      return false;
+    }
+
+    return this.prisma.$transaction(async (transaction) => {
+      const before = await transaction.inboundWebhookChannelRoute.findMany({
+        where: {
+          workspaceId: channel.workspaceId,
+          channelId: channel.id,
+          active: true,
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      });
+      const existing = await transaction.inboundWebhookChannelRoute.findMany({
+        where: {
+          workspaceId: channel.workspaceId,
+          channelId: channel.id,
+          routeKey: { in: [...candidates.keys()] },
+        },
+        select: {
+          routeKey: true,
+          active: true,
+          validationStatus: true,
+        },
+      });
+      const existingByKey = new Map(
+        existing.map((route) => [route.routeKey, route]),
+      );
+      let changed = false;
+      const validatedAt = new Date();
+
+      for (const route of candidates.values()) {
+        const current = existingByKey.get(route.routeKey);
+
+        if (current?.active && current.validationStatus === validRouteStatus) {
+          continue;
+        }
+
+        await transaction.inboundWebhookChannelRoute.upsert({
+          where: {
+            channelId_routeKey: {
+              channelId: channel.id,
+              routeKey: route.routeKey,
+            },
+          },
+          create: {
+            workspaceId: channel.workspaceId,
+            channelId: channel.id,
+            routeKey: route.routeKey,
+            metaBusinessConnectionWorkspaceId: channel.workspaceId,
+            metaBusinessConnectionId: route.metaBusinessConnectionId,
+            metaReportingAccountWorkspaceId: channel.workspaceId,
+            metaReportingAccountId: route.metaReportingAccountId,
+            metaConversionDestinationWorkspaceId: channel.workspaceId,
+            metaConversionDestinationId: route.metaConversionDestinationId,
+            active: true,
+            validationStatus: validRouteStatus,
+            validationErrorCode: null,
+            lastValidatedAt: validatedAt,
+            createdByUserId: null,
+          },
+          update: {
+            metaBusinessConnectionWorkspaceId: channel.workspaceId,
+            metaBusinessConnectionId: route.metaBusinessConnectionId,
+            metaReportingAccountWorkspaceId: channel.workspaceId,
+            metaReportingAccountId: route.metaReportingAccountId,
+            metaConversionDestinationWorkspaceId: channel.workspaceId,
+            metaConversionDestinationId: route.metaConversionDestinationId,
+            active: true,
+            validationStatus: validRouteStatus,
+            validationErrorCode: null,
+            lastValidatedAt: validatedAt,
+          },
+        });
+        changed = true;
+      }
+
+      if (!changed) {
+        return false;
+      }
+
+      const after = await transaction.inboundWebhookChannelRoute.findMany({
+        where: {
+          workspaceId: channel.workspaceId,
+          channelId: channel.id,
+          active: true,
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      });
+
+      await this.createAudit(transaction, {
+        workspaceId: channel.workspaceId,
+        actorUserId: null,
+        actorType: "system",
+        action: "inbound_webhook.channel_routes_learned",
+        targetType: "InboundWebhookChannel",
+        targetId: channel.id,
+        resultStatus: "updated",
+        beforeSummary: this.channelRoutesAuditSummary(channel, before),
+        afterSummary: this.channelRoutesAuditSummary(channel, after),
+      });
+
+      return true;
+    });
+  }
+
   private previewMatchesRoute(
     preview: InboundWebhookMetaRoutePreview,
     route: PersistedRoute,
-  ): preview is InboundWebhookMetaRoutePreview & {
-    status: "resolved";
-    businessConnectionId: string;
-    reportingAccountId: string;
-    conversionDestinationId: string;
-  } {
+  ): preview is ResolvedMetaRoutePreview {
     return (
-      preview.status === "resolved" &&
+      this.isResolvedPreview(preview) &&
       preview.businessConnectionId === route.metaBusinessConnectionId &&
-      preview.reportingAccountId !== null &&
-      preview.conversionDestinationId !== null &&
       (route.metaReportingAccountId === null ||
         preview.reportingAccountId === route.metaReportingAccountId) &&
       (route.metaConversionDestinationId === null ||
         preview.conversionDestinationId === route.metaConversionDestinationId)
+    );
+  }
+
+  private isResolvedPreview(
+    preview: InboundWebhookMetaRoutePreview,
+  ): preview is ResolvedMetaRoutePreview {
+    return (
+      preview.status === "resolved" &&
+      preview.businessConnectionId !== null &&
+      preview.reportingAccountId !== null &&
+      preview.conversionDestinationId !== null
     );
   }
 
@@ -1154,7 +1324,8 @@ export class InboundWebhookChannelRoutesService {
     transaction: Prisma.TransactionClient,
     input: {
       workspaceId: string;
-      actorUserId: string;
+      actorUserId: string | null;
+      actorType?: "user" | "system";
       action: string;
       targetType: string;
       targetId: string;
@@ -1167,7 +1338,7 @@ export class InboundWebhookChannelRoutesService {
       data: {
         workspaceId: input.workspaceId,
         actorUserId: input.actorUserId,
-        actorType: "user",
+        actorType: input.actorType ?? "user",
         action: input.action,
         targetType: input.targetType,
         targetId: input.targetId,

@@ -1005,8 +1005,12 @@ describe("inbound webhook channel routes service", () => {
       "user_1",
     );
 
-    expect(harness.previewRoute).toHaveBeenCalledTimes(2);
+    expect(harness.previewRoute).toHaveBeenCalledTimes(3);
     expect(harness.previewRoute).toHaveBeenNthCalledWith(1, {
+      workspaceId,
+      adId: "ad_1",
+    });
+    expect(harness.previewRoute).toHaveBeenNthCalledWith(2, {
       workspaceId,
       adId: "ad_1",
       businessConnectionId: "business_1",
@@ -1024,6 +1028,57 @@ describe("inbound webhook channel routes service", () => {
       resolvedConversionDestinationId: "destination_1",
       normalizedSummary: originalSummary,
     });
+  });
+
+  it("learns an exact channel route from the ad and resolves the preserved event", async () => {
+    const harness = createHarness();
+    harness.addUnresolvedEvent("event_auto");
+    harness.previewRoute.mockResolvedValue({
+      status: "resolved",
+      reason: "route_resolved",
+      reportingAccountId: "reporting_1",
+      adAccountId: "act_1",
+      businessConnectionId: "business_1",
+      conversionDestinationId: "destination_1",
+      pixelId: "pixel_1",
+      pageId: "page_1",
+    });
+
+    const result = await harness.service.reevaluateUnresolvedEvents(
+      workspaceId,
+      "channel_1",
+    );
+
+    expect(result).toEqual({
+      examinedCount: 1,
+      updatedCount: 1,
+      resolvedCount: 1,
+      unresolvedCount: 0,
+      conflictCount: 0,
+    });
+    expect([...harness.routes.values()]).toEqual([
+      expect.objectContaining({
+        metaBusinessConnectionId: "business_1",
+        metaReportingAccountId: "reporting_1",
+        metaConversionDestinationId: "destination_1",
+        active: true,
+        validationStatus: "valid",
+        createdByUserId: null,
+      }),
+    ]);
+    expect(harness.events.get("event_auto")).toMatchObject({
+      classification: "eligible_route_resolved",
+      resolvedBusinessConnectionId: "business_1",
+      resolvedReportingAccountId: "reporting_1",
+      resolvedConversionDestinationId: "destination_1",
+    });
+    expect(harness.audits).toContainEqual(
+      expect.objectContaining({
+        actorUserId: null,
+        actorType: "system",
+        action: "inbound_webhook.channel_routes_learned",
+      }),
+    );
   });
 
   it("demotes an unmaterialized resolved event when its channel route is removed", async () => {

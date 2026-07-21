@@ -5,6 +5,7 @@ import type { InboundWebhookJobPayload } from "../src/common/queue/queue.constan
 import { hashPhoneIdentity } from "../src/common/phone/phone-identity";
 import type { PrismaService } from "../src/common/prisma/prisma.service";
 import type { InboundWebhookDiagnosticsService } from "../src/inbound-webhooks/inbound-webhook-diagnostics.service";
+import type { InboundWebhookChannelRoutesService } from "../src/inbound-webhooks/inbound-webhook-channel-routes.service";
 import {
   InboundWebhookObservationError,
   InboundWebhookObservationService,
@@ -42,7 +43,7 @@ function matchesStatus(
 
   return typeof expected === "string"
     ? actual === expected
-    : expected.in?.includes(actual) ?? true;
+    : (expected.in?.includes(actual) ?? true);
 }
 
 function createHarness(parser?: InboundWebhookParser) {
@@ -206,8 +207,7 @@ function createHarness(parser?: InboundWebhookParser) {
   };
   const inboundWebhookChannel = {
     upsert: vi.fn(async ({ where, create, update }: MutableRecord) => {
-      const identity =
-        where.connectionId_organizationId_providerChannelId;
+      const identity = where.connectionId_organizationId_providerChannelId;
       const key = [
         identity.connectionId,
         identity.organizationId,
@@ -285,11 +285,15 @@ function createHarness(parser?: InboundWebhookParser) {
   const registry = new InboundWebhookParserRegistry(
     parser ? [parser] : undefined,
   );
+  const channelRoutes = {
+    reevaluateUnresolvedEvents: vi.fn(async () => undefined),
+  };
   const service = new InboundWebhookObservationService(
     prisma as unknown as PrismaService,
     encryption as unknown as InboundWebhookPayloadEncryptionService,
     registry,
     diagnostics as unknown as InboundWebhookDiagnosticsService,
+    channelRoutes as unknown as InboundWebhookChannelRoutesService,
   );
 
   return {
@@ -363,16 +367,14 @@ class MultiEventParser implements InboundWebhookParser {
 describe("inbound webhook observation processor", () => {
   it("delegates BullMQ jobs using the identifier-only payload", async () => {
     const observation = {
-      processDelivery: vi.fn(
-        async (_input: InboundWebhookJobPayload) => ({
-          deliveryId: "delivery_1",
-          status: "processed" as const,
-          classification: "ignored_no_ctwa" as const,
-          parsedEventCount: 1,
-          persistedEventCount: 1,
-          idempotent: false,
-        }),
-      ),
+      processDelivery: vi.fn(async (_input: InboundWebhookJobPayload) => ({
+        deliveryId: "delivery_1",
+        status: "processed" as const,
+        classification: "ignored_no_ctwa" as const,
+        parsedEventCount: 1,
+        persistedEventCount: 1,
+        idempotent: false,
+      })),
     };
     const processor = new InboundWebhookProcessor(observation as never);
     const data = jobPayload();
@@ -380,9 +382,9 @@ describe("inbound webhook observation processor", () => {
     await processor.process({ data } as never);
 
     expect(observation.processDelivery).toHaveBeenCalledWith(data);
-    expect(Object.keys(observation.processDelivery.mock.calls[0][0]).sort()).toEqual(
-      ["connectionId", "deliveryId", "workspaceId"],
-    );
+    expect(
+      Object.keys(observation.processDelivery.mock.calls[0][0]).sort(),
+    ).toEqual(["connectionId", "deliveryId", "workspaceId"]);
   });
 
   it("claims, decrypts with tenant-bound AES context and persists only redacted observation data", async () => {
@@ -441,9 +443,9 @@ describe("inbound webhook observation processor", () => {
     expect(delivery.normalizedSummary).toEqual(
       new UmblerV1Parser().parse(body).normalizedSummary,
     );
-    expect(harness.connections.get("connection_1")?.lastSuccessfulParseAt).toBeInstanceOf(
-      Date,
-    );
+    expect(
+      harness.connections.get("connection_1")?.lastSuccessfulParseAt,
+    ).toBeInstanceOf(Date);
     expect(persistedEvent).toMatchObject({
       workspaceId: "workspace_1",
       connectionId: "connection_1",
@@ -613,7 +615,9 @@ describe("inbound webhook observation processor", () => {
     expect(harness.deliveries.get("delivery_1")?.processedAt).toBeInstanceOf(
       Date,
     );
-    expect(harness.connections.get("connection_1")?.lastSuccessfulParseAt).toBeNull();
+    expect(
+      harness.connections.get("connection_1")?.lastSuccessfulParseAt,
+    ).toBeNull();
   });
 
   it("persists zero or multiple canonical events from an allowlisted parser", async () => {
@@ -706,9 +710,7 @@ describe("inbound webhook observation processor", () => {
     ).toBeNull();
     expect(harness.events).toHaveLength(0);
     expect(
-      JSON.stringify(
-        harness.diagnostics.recordObservation.mock.calls[0][0],
-      ),
+      JSON.stringify(harness.diagnostics.recordObservation.mock.calls[0][0]),
     ).not.toContain(privateMarker);
   });
 

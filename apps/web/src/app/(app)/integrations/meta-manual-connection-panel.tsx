@@ -40,8 +40,16 @@ type AccountDestinationDraft = {
   allowedIds: string[];
   defaultId: string;
 };
+type AdRoutingFilter = "pending" | "resolved" | "all";
 type ReportingAccountConfiguration =
   MetaManualConfigurationDto["reportingAccounts"][number];
+type AdDestinationRoute = MetaReportingAccountAdRoutingDto["ads"][number];
+type AdDestinationRouteGroup = {
+  key: string;
+  pageId: string | null;
+  pixelId: string | null;
+  ads: AdDestinationRoute[];
+};
 
 function accountDestinationDraft(
   account: ReportingAccountConfiguration,
@@ -70,6 +78,37 @@ function accountDestinationDraft(
 
 function adDestinationDraftKey(accountId: string, adId: string): string {
   return `${accountId}:${adId}`;
+}
+
+function groupAdDestinationRoutes(
+  ads: AdDestinationRoute[],
+): AdDestinationRouteGroup[] {
+  const groups = new Map<string, AdDestinationRouteGroup>();
+
+  for (const ad of ads) {
+    const key = ad.detectedPageId ?? "page-unidentified";
+    const current = groups.get(key) ?? {
+      key,
+      pageId: ad.detectedPageId,
+      pixelId: ad.detectedPixelId,
+      ads: [],
+    };
+
+    current.ads.push(ad);
+    current.pixelId ??= ad.detectedPixelId;
+    groups.set(key, current);
+  }
+
+  return [...groups.values()].sort((left, right) => {
+    const leftPending = left.ads.filter(
+      (ad) => ad.routeStatus !== "assigned",
+    ).length;
+    const rightPending = right.ads.filter(
+      (ad) => ad.routeStatus !== "assigned",
+    ).length;
+
+    return rightPending - leftPending || left.key.localeCompare(right.key);
+  });
 }
 
 export function parseMetaAdAccountIds(value: string): string[] {
@@ -372,6 +411,9 @@ export function MetaManualConnectionPanel({
   >({});
   const [adRoutingSearches, setAdRoutingSearches] = useState<
     Record<string, string>
+  >({});
+  const [adRoutingFilters, setAdRoutingFilters] = useState<
+    Record<string, AdRoutingFilter>
   >({});
   const [expandedAdRoutingAccountId, setExpandedAdRoutingAccountId] = useState<
     string | null
@@ -1268,15 +1310,32 @@ export function MetaManualConnectionPanel({
                       const search = (adRoutingSearches[account.id] ?? "")
                         .trim()
                         .toLocaleLowerCase("pt-BR");
+                      const routingFilter =
+                        adRoutingFilters[account.id] ?? "pending";
                       const visibleAds =
-                        adRouting?.ads.filter(
-                          (ad) =>
+                        adRouting?.ads.filter((ad) => {
+                          const matchesFilter =
+                            routingFilter === "all" ||
+                            (routingFilter === "resolved"
+                              ? ad.routeStatus === "assigned"
+                              : ad.routeStatus !== "assigned");
+                          const matchesSearch =
                             !search ||
                             ad.adName
                               .toLocaleLowerCase("pt-BR")
                               .includes(search) ||
-                            ad.adId.toLocaleLowerCase("pt-BR").includes(search),
-                        ) ?? [];
+                            ad.adId.toLocaleLowerCase("pt-BR").includes(search);
+
+                          return matchesFilter && matchesSearch;
+                        }) ?? [];
+                      const adRouteGroups =
+                        groupAdDestinationRoutes(visibleAds);
+                      const resolvedAdCount =
+                        adRouting?.ads.filter(
+                          (ad) => ad.routeStatus === "assigned",
+                        ).length ?? 0;
+                      const pendingAdCount =
+                        (adRouting?.ads.length ?? 0) - resolvedAdCount;
 
                       return (
                         <div
@@ -1345,6 +1404,43 @@ export function MetaManualConnectionPanel({
                             </span>
                             <small>{accountSyncDetail(account)}</small>
                           </span>
+                          <div className="meta-account-destination-summary">
+                            <span className="meta-account-destination-summary-head">
+                              <small>Rotas automaticas por Pagina</small>
+                              <strong>
+                                {persistedDestinations.length} par(es){" "}
+                                Pagina/Pixel
+                              </strong>
+                            </span>
+                            <div>
+                              {persistedDestinations.length > 0 ? (
+                                persistedDestinations.map((item) => (
+                                  <span
+                                    className="meta-account-destination-pair"
+                                    key={
+                                      item.id ??
+                                      `${item.pixelId}:${item.pageId}`
+                                    }
+                                  >
+                                    <strong>
+                                      <PresentationMask placeholder="Pagina oculta">
+                                        {item.pageName ?? item.pageId}
+                                      </PresentationMask>
+                                    </strong>
+                                    <small>
+                                      <PresentationMask placeholder="Pixel oculto">
+                                        {item.pixelName ?? item.pixelId}
+                                      </PresentationMask>
+                                    </small>
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="muted">
+                                  Nenhuma rota de Pagina configurada.
+                                </span>
+                              )}
+                            </div>
+                          </div>
                           {canManage ? (
                             <div className="meta-account-routing-control">
                               <small>Destinos da conta</small>
@@ -1493,8 +1589,8 @@ export function MetaManualConnectionPanel({
                                   {pendingAction === `ad-routing:${account.id}`
                                     ? "Carregando..."
                                     : expandedAdRoutingAccountId === account.id
-                                      ? "Fechar anuncios"
-                                      : "Roteamento por anuncio"}
+                                      ? "Fechar auditoria"
+                                      : "Auditar roteamento"}
                                 </button>
                               ) : null}
                             </div>
@@ -1533,153 +1629,295 @@ export function MetaManualConnectionPanel({
                                       aria-label={`Buscar anuncios de ${account.adAccountName}`}
                                       data-presentation-sensitive-field="true"
                                     />
-                                    <span>
-                                      {
-                                        adRouting.ads.filter(
-                                          (ad) => ad.routeStatus === "assigned",
-                                        ).length
-                                      }{" "}
-                                      resolvido(s)
-                                    </span>
-                                    <span>
-                                      {
-                                        adRouting.ads.filter(
-                                          (ad) => ad.routeStatus !== "assigned",
-                                        ).length
-                                      }{" "}
-                                      pendente(s)
-                                    </span>
+                                    <div
+                                      className="segmented-control compact meta-ad-routing-filter"
+                                      aria-label="Filtrar auditoria de anuncios"
+                                    >
+                                      <button
+                                        className={
+                                          routingFilter === "pending"
+                                            ? "active"
+                                            : ""
+                                        }
+                                        type="button"
+                                        aria-pressed={
+                                          routingFilter === "pending"
+                                        }
+                                        onClick={() =>
+                                          setAdRoutingFilters((current) => ({
+                                            ...current,
+                                            [account.id]: "pending",
+                                          }))
+                                        }
+                                      >
+                                        Pendentes {pendingAdCount}
+                                      </button>
+                                      <button
+                                        className={
+                                          routingFilter === "resolved"
+                                            ? "active"
+                                            : ""
+                                        }
+                                        type="button"
+                                        aria-pressed={
+                                          routingFilter === "resolved"
+                                        }
+                                        onClick={() =>
+                                          setAdRoutingFilters((current) => ({
+                                            ...current,
+                                            [account.id]: "resolved",
+                                          }))
+                                        }
+                                      >
+                                        Resolvidos {resolvedAdCount}
+                                      </button>
+                                      <button
+                                        className={
+                                          routingFilter === "all"
+                                            ? "active"
+                                            : ""
+                                        }
+                                        type="button"
+                                        aria-pressed={routingFilter === "all"}
+                                        onClick={() =>
+                                          setAdRoutingFilters((current) => ({
+                                            ...current,
+                                            [account.id]: "all",
+                                          }))
+                                        }
+                                      >
+                                        Todos {adRouting.ads.length}
+                                      </button>
+                                    </div>
                                   </div>
-                                  <div className="meta-ad-routing-list">
-                                    {visibleAds.length > 0 ? (
-                                      visibleAds.map((ad) => {
-                                        const selectedManualId =
-                                          adDestinationDrafts[
-                                            adDestinationDraftKey(
-                                              account.id,
-                                              ad.adId,
-                                            )
-                                          ] ?? "";
-                                        const assignedDestination =
-                                          configuration.destinations.find(
+                                  <p className="meta-ad-routing-guidance">
+                                    A Pagina do anuncio define o Pixel e o
+                                    destino automaticamente. Abra um grupo
+                                    apenas para revisar ou criar uma excecao.
+                                  </p>
+                                  <div className="meta-ad-routing-groups">
+                                    {adRouteGroups.length > 0 ? (
+                                      adRouteGroups.map((group) => {
+                                        const groupDestination =
+                                          persistedDestinations.find(
                                             (item) =>
-                                              item.id ===
-                                              ad.conversionDestinationId,
+                                              item.pageId === group.pageId,
                                           );
+                                        const groupResolvedCount =
+                                          group.ads.filter(
+                                            (ad) =>
+                                              ad.routeStatus === "assigned",
+                                          ).length;
+                                        const groupPendingCount =
+                                          group.ads.length - groupResolvedCount;
 
                                         return (
-                                          <div key={ad.adId}>
-                                            <span>
-                                              <strong>
-                                                <PresentationMask placeholder="Anuncio oculto">
-                                                  {ad.adName}
-                                                </PresentationMask>
-                                              </strong>
-                                              <small>
-                                                <PresentationMask placeholder="ID oculto">
-                                                  {ad.adId}
-                                                </PresentationMask>
-                                              </small>
-                                            </span>
-                                            <span>
-                                              <small>Destino atual</small>
-                                              <strong>
-                                                {assignedDestination?.label ??
-                                                  assignedDestination?.pixelName ??
-                                                  adRouteStatusLabel(
-                                                    ad.routeStatus,
-                                                  )}
-                                              </strong>
-                                              <small>
-                                                {ad.assignmentSource ===
-                                                "manual"
-                                                  ? "Excecao manual"
-                                                  : ad.assignmentSource ===
-                                                      "automatic"
-                                                    ? "Descoberto pela Meta"
-                                                    : adRouteStatusLabel(
-                                                        ad.routeStatus,
-                                                      )}
-                                              </small>
-                                            </span>
-                                            <span>
-                                              <small>Hints Meta</small>
-                                              <strong>
-                                                Pixel{" "}
-                                                {ad.detectedPixelId ??
-                                                  "nao informado"}
-                                              </strong>
-                                              <small>
-                                                Pagina{" "}
-                                                {ad.detectedPageId ??
-                                                  "nao informada"}
-                                              </small>
-                                            </span>
-                                            <span className="meta-ad-routing-control">
-                                              <select
-                                                aria-label={`Destino manual de ${ad.adName}`}
-                                                value={selectedManualId}
-                                                disabled={
-                                                  pendingAction !== null
-                                                }
-                                                onChange={(event) =>
-                                                  setAdDestinationDrafts(
-                                                    (current) => ({
-                                                      ...current,
-                                                      [adDestinationDraftKey(
-                                                        account.id,
-                                                        ad.adId,
-                                                      )]:
-                                                        event.currentTarget
-                                                          .value,
-                                                    }),
-                                                  )
-                                                }
-                                                data-presentation-sensitive-field="true"
-                                              >
-                                                <option value="">
-                                                  Usar descoberta automatica
-                                                </option>
-                                                {persistedDestinations.map(
-                                                  (item) => (
-                                                    <option
-                                                      key={item.id}
-                                                      value={item.id ?? ""}
-                                                    >
-                                                      {item.label ??
-                                                        item.pixelName ??
-                                                        item.pixelId}
-                                                    </option>
-                                                  ),
-                                                )}
-                                              </select>
-                                              <button
-                                                className="icon-button"
-                                                type="button"
-                                                title="Salvar destino do anuncio"
-                                                aria-label={`Salvar destino de ${ad.adName}`}
-                                                disabled={
-                                                  pendingAction !== null
-                                                }
-                                                onClick={() =>
-                                                  void handleAdDestination(
-                                                    account.id,
-                                                    ad.adId,
-                                                  )
-                                                }
-                                              >
-                                                <Save
-                                                  size={15}
+                                          <details
+                                            className="meta-ad-routing-group"
+                                            key={group.key}
+                                          >
+                                            <summary>
+                                              <span className="meta-ad-routing-group-icon">
+                                                <Link2
+                                                  size={16}
                                                   aria-hidden="true"
                                                 />
-                                              </button>
-                                            </span>
-                                          </div>
+                                              </span>
+                                              <span>
+                                                <small>Pagina detectada</small>
+                                                <strong>
+                                                  <PresentationMask placeholder="Pagina oculta">
+                                                    {groupDestination?.pageName ??
+                                                      group.pageId ??
+                                                      "Pagina nao identificada"}
+                                                  </PresentationMask>
+                                                </strong>
+                                                <small>
+                                                  <PresentationMask placeholder="ID oculto">
+                                                    {group.pageId ??
+                                                      "Sem ID de Pagina"}
+                                                  </PresentationMask>
+                                                </small>
+                                              </span>
+                                              <span>
+                                                <small>Pixel / Destino</small>
+                                                <strong>
+                                                  {groupDestination?.label ??
+                                                    groupDestination?.pixelName ??
+                                                    (group.pixelId
+                                                      ? `Pixel ${group.pixelId}`
+                                                      : "Destino pendente")}
+                                                </strong>
+                                                <small>
+                                                  {groupDestination
+                                                    ? "Regra automatica da Pagina"
+                                                    : "Configure o par Pagina/Pixel"}
+                                                </small>
+                                              </span>
+                                              <span className="meta-ad-routing-group-status">
+                                                <span className="event-chip">
+                                                  {group.ads.length} anuncio(s)
+                                                </span>
+                                                {groupPendingCount > 0 ? (
+                                                  <span className="event-chip warning">
+                                                    {groupPendingCount}{" "}
+                                                    pendente(s)
+                                                  </span>
+                                                ) : (
+                                                  <span className="event-chip success">
+                                                    Todos resolvidos
+                                                  </span>
+                                                )}
+                                              </span>
+                                              <ChevronDown
+                                                size={16}
+                                                aria-hidden="true"
+                                              />
+                                            </summary>
+                                            <div className="meta-ad-routing-list">
+                                              {group.ads.map((ad) => {
+                                                const selectedManualId =
+                                                  adDestinationDrafts[
+                                                    adDestinationDraftKey(
+                                                      account.id,
+                                                      ad.adId,
+                                                    )
+                                                  ] ?? "";
+                                                const assignedDestination =
+                                                  configuration.destinations.find(
+                                                    (item) =>
+                                                      item.id ===
+                                                      ad.conversionDestinationId,
+                                                  );
+
+                                                return (
+                                                  <div key={ad.adId}>
+                                                    <span>
+                                                      <strong>
+                                                        <PresentationMask placeholder="Anuncio oculto">
+                                                          {ad.adName}
+                                                        </PresentationMask>
+                                                      </strong>
+                                                      <small>
+                                                        <PresentationMask placeholder="ID oculto">
+                                                          {ad.adId}
+                                                        </PresentationMask>
+                                                      </small>
+                                                    </span>
+                                                    <span>
+                                                      <small>
+                                                        Destino atual
+                                                      </small>
+                                                      <strong>
+                                                        {assignedDestination?.label ??
+                                                          assignedDestination?.pixelName ??
+                                                          adRouteStatusLabel(
+                                                            ad.routeStatus,
+                                                          )}
+                                                      </strong>
+                                                      <small>
+                                                        {ad.assignmentSource ===
+                                                        "manual"
+                                                          ? "Excecao manual"
+                                                          : ad.assignmentSource ===
+                                                              "automatic"
+                                                            ? "Regra automatica da Pagina"
+                                                            : adRouteStatusLabel(
+                                                                ad.routeStatus,
+                                                              )}
+                                                      </small>
+                                                    </span>
+                                                    <span className="meta-ad-routing-control">
+                                                      <select
+                                                        aria-label={`Destino manual de ${ad.adName}`}
+                                                        value={selectedManualId}
+                                                        disabled={
+                                                          pendingAction !== null
+                                                        }
+                                                        onChange={(event) =>
+                                                          setAdDestinationDrafts(
+                                                            (current) => ({
+                                                              ...current,
+                                                              [adDestinationDraftKey(
+                                                                account.id,
+                                                                ad.adId,
+                                                              )]:
+                                                                event
+                                                                  .currentTarget
+                                                                  .value,
+                                                            }),
+                                                          )
+                                                        }
+                                                        data-presentation-sensitive-field="true"
+                                                      >
+                                                        <option value="">
+                                                          Usar regra da Pagina
+                                                        </option>
+                                                        {persistedDestinations.map(
+                                                          (item) => (
+                                                            <option
+                                                              key={item.id}
+                                                              value={
+                                                                item.id ?? ""
+                                                              }
+                                                            >
+                                                              {item.label ??
+                                                                item.pixelName ??
+                                                                item.pixelId}
+                                                            </option>
+                                                          ),
+                                                        )}
+                                                      </select>
+                                                      <button
+                                                        className="icon-button"
+                                                        type="button"
+                                                        title="Salvar excecao do anuncio"
+                                                        aria-label={`Salvar destino de ${ad.adName}`}
+                                                        disabled={
+                                                          pendingAction !== null
+                                                        }
+                                                        onClick={() =>
+                                                          void handleAdDestination(
+                                                            account.id,
+                                                            ad.adId,
+                                                          )
+                                                        }
+                                                      >
+                                                        <Save
+                                                          size={15}
+                                                          aria-hidden="true"
+                                                        />
+                                                      </button>
+                                                    </span>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </details>
                                         );
                                       })
+                                    ) : routingFilter === "pending" &&
+                                      pendingAdCount === 0 ? (
+                                      <div className="meta-ad-routing-complete">
+                                        <CircleCheck
+                                          size={18}
+                                          aria-hidden="true"
+                                        />
+                                        <span>
+                                          <strong>
+                                            Todos os anuncios foram roteados
+                                            automaticamente
+                                          </strong>
+                                          <small>
+                                            Nenhuma decisao manual e necessaria
+                                            nesta conta.
+                                          </small>
+                                        </span>
+                                      </div>
                                     ) : (
                                       <p className="muted">
-                                        Nenhum anuncio corresponde a esta busca.
+                                        Nenhum anuncio corresponde a este
+                                        filtro.
                                       </p>
                                     )}
                                   </div>

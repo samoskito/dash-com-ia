@@ -7,6 +7,7 @@ import { AsaasAdapter } from "./asaas/asaas.adapter";
 import { INTEGRATION_ENV } from "./integration.types";
 import { IntegrationsController } from "./integrations.controller";
 import { IntegrationsService } from "./integrations.service";
+import { MetaAdDestinationRoutingService } from "./meta/meta-ad-destination-routing.service";
 import { MetaAdapter } from "./meta/meta.adapter";
 import { MetaAssetsService } from "./meta/meta-assets.service";
 import { MetaConnectionResolverService } from "./meta/meta-connection-resolver.service";
@@ -26,6 +27,7 @@ export { INTEGRATION_ENV } from "./integration.types";
       provide: INTEGRATION_ENV,
       useValue: process.env,
     },
+    MetaAdDestinationRoutingService,
     MetaAdapter,
     MetaAssetsService,
     MetaConnectionResolverService,
@@ -39,6 +41,7 @@ export { INTEGRATION_ENV } from "./integration.types";
   ],
   controllers: [IntegrationsController, WhatsappConnectionsController],
   exports: [
+    MetaAdDestinationRoutingService,
     MetaAdapter,
     MetaAssetsService,
     MetaConnectionResolverService,

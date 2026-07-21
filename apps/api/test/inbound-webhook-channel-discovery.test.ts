@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../src/common/prisma/prisma.service";
 import type { InboundWebhookDiagnosticsService } from "../src/inbound-webhooks/inbound-webhook-diagnostics.service";
+import type { InboundWebhookChannelRoutesService } from "../src/inbound-webhooks/inbound-webhook-channel-routes.service";
 import { InboundWebhookObservationService } from "../src/inbound-webhooks/inbound-webhook-observation.service";
 import type { InboundWebhookPayloadEncryptionService } from "../src/inbound-webhooks/inbound-webhook-payload-encryption.service";
 import {
@@ -28,7 +29,9 @@ class DiscoveryParser implements InboundWebhookParser {
   parse(payload: unknown): InboundWebhookParserResult {
     const input = payload as DiscoveryPayload;
     const occurredAt = new Date("2026-07-17T20:00:00.000Z");
-    const connectedPhoneSuffix = input.connectedPhone.replace(/\D/g, "").slice(-4);
+    const connectedPhoneSuffix = input.connectedPhone
+      .replace(/\D/g, "")
+      .slice(-4);
     const classification = "ignored_no_ctwa" as const;
     const classificationReason = "ctwa_missing";
 
@@ -179,9 +182,7 @@ function createHarness() {
       updateMany: vi.fn(async ({ where, data }: MutableRecord) => {
         const delivery = deliveries.get(where.id);
         const statuses =
-          typeof where.status === "string"
-            ? [where.status]
-            : where.status?.in;
+          typeof where.status === "string" ? [where.status] : where.status?.in;
 
         if (
           !delivery ||
@@ -225,8 +226,7 @@ function createHarness() {
     },
     inboundWebhookChannel: {
       upsert: vi.fn(async ({ where, create, update }: MutableRecord) => {
-        const identity =
-          where.connectionId_organizationId_providerChannelId;
+        const identity = where.connectionId_organizationId_providerChannelId;
         const key = [
           identity.connectionId,
           identity.organizationId,
@@ -265,21 +265,22 @@ function createHarness() {
     ),
   };
   const encryption = {
-    decrypt: vi.fn(
-      (
-        _payload: unknown,
-        context: { deliveryId: string },
-      ) => Buffer.from(JSON.stringify(payloads.get(context.deliveryId)), "utf8"),
+    decrypt: vi.fn((_payload: unknown, context: { deliveryId: string }) =>
+      Buffer.from(JSON.stringify(payloads.get(context.deliveryId)), "utf8"),
     ),
   };
   const diagnostics = {
     recordObservation: vi.fn(async () => undefined),
+  };
+  const channelRoutes = {
+    reevaluateUnresolvedEvents: vi.fn(async () => undefined),
   };
   const service = new InboundWebhookObservationService(
     prisma as unknown as PrismaService,
     encryption as unknown as InboundWebhookPayloadEncryptionService,
     new InboundWebhookParserRegistry([new DiscoveryParser()]),
     diagnostics as unknown as InboundWebhookDiagnosticsService,
+    channelRoutes as unknown as InboundWebhookChannelRoutesService,
   );
 
   return {
@@ -330,9 +331,7 @@ describe("inbound webhook channel discovery", () => {
 
     expect(harness.channels).toHaveLength(2);
     expect(
-      harness.channels.get(
-        "connection_1:organization_1:provider_channel_1",
-      ),
+      harness.channels.get("connection_1:organization_1:provider_channel_1"),
     ).toMatchObject({
       workspaceId: "workspace_1",
       connectionId: "connection_1",
@@ -343,9 +342,8 @@ describe("inbound webhook channel discovery", () => {
       status: "discovered",
     });
     expect(
-      harness.channels.get(
-        "connection_1:organization_1:provider_channel_1",
-      )?.lastSeenAt,
+      harness.channels.get("connection_1:organization_1:provider_channel_1")
+        ?.lastSeenAt,
     ).toBeInstanceOf(Date);
     expect(harness.events).toHaveLength(3);
   });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MetaReportingService } from "../src/reporting/meta-reporting.service";
+import { MetaAdDestinationRoutingService } from "../src/integrations/meta/meta-ad-destination-routing.service";
 import { ReportingMetricsEngine } from "../src/reporting/reporting-metrics.engine";
 import { WhatsappCampaignClassifierService } from "../src/reporting/whatsapp-campaign-classifier.service";
 
@@ -323,6 +324,29 @@ function createHarness() {
         );
         return { count };
       }),
+      createMany: vi.fn(
+        async ({ data }: { data: Array<Record<string, unknown>> }) => {
+          let count = 0;
+
+          for (const candidate of data) {
+            const exists = db.adDestinationAssignments.some(
+              (assignment) =>
+                assignment.workspaceId === candidate.workspaceId &&
+                assignment.adId === candidate.adId,
+            );
+
+            if (!exists) {
+              db.adDestinationAssignments.push({
+                id: `assignment_${db.adDestinationAssignments.length + 1}`,
+                ...candidate,
+              });
+              count += 1;
+            }
+          }
+
+          return { count };
+        },
+      ),
       upsert: vi.fn(async ({ where, create, update }: any) => {
         const key = where.workspaceId_adId;
         const existing = db.adDestinationAssignments.find(
@@ -635,6 +659,11 @@ function createHarness() {
       }),
     },
   };
+  Object.assign(prisma, {
+    $transaction: vi.fn(async (operation: (client: unknown) => unknown) =>
+      operation(prisma),
+    ),
+  });
   const encryption = {
     decrypt: vi.fn(() => "EAAB-secret-token"),
     fingerprint: vi.fn((accessToken: string) => `fingerprint:${accessToken}`),
@@ -821,6 +850,7 @@ function createHarness() {
     prisma as never,
     encryption as never,
     metaAdapter as never,
+    new MetaAdDestinationRoutingService(prisma as never),
     new WhatsappCampaignClassifierService(),
     new ReportingMetricsEngine(),
     {
@@ -2010,7 +2040,7 @@ describe("meta reporting service", () => {
         thumbnailUrl: null,
         previewUrl: null,
         callToActionType: "WHATSAPP_MESSAGE",
-        detectedPixelIds: ["pixel_2"],
+        detectedPixelIds: ["pixel_1", "pixel_2"],
         detectedPageIds: ["page_2"],
       },
     ]);
@@ -2027,6 +2057,8 @@ describe("meta reporting service", () => {
         reportingAccountId: "reporting_1",
         conversionDestinationId: "destination_2",
         source: "automatic",
+        detectedPixelId: "pixel_2",
+        detectedPageId: "page_2",
       }),
     ]);
 

@@ -51,6 +51,7 @@ import {
   type MetaCampaignDailyInsight,
   type MetaCampaignInsight,
 } from "../integrations/meta/meta.adapter";
+import { MetaAdDestinationRoutingService } from "../integrations/meta/meta-ad-destination-routing.service";
 import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
 import { MetaConnectionResolverService } from "../integrations/meta/meta-connection-resolver.service";
 import {
@@ -349,6 +350,7 @@ export class MetaReportingService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     private readonly encryption: MetaTokenEncryptionService,
     private readonly metaAdapter: MetaAdapter,
+    private readonly adDestinationRouting: MetaAdDestinationRoutingService,
     private readonly whatsappClassifier: WhatsappCampaignClassifierService,
     private readonly metricsEngine: ReportingMetricsEngine,
     private readonly funnelConfiguration: FunnelConfigurationService,
@@ -813,10 +815,10 @@ export class MetaReportingService {
       ),
     ]);
 
-    await this.reconcileAdDestinationAssignments({
+    await this.adDestinationRouting.reconcileReportingAccount({
       workspaceId: input.workspaceId,
       reportingAccountId: input.account.id,
-      ads,
+      adIds: ads.map((ad) => ad.id),
     });
 
     await Promise.all([
@@ -3363,153 +3365,6 @@ export class MetaReportingService {
       },
       update: data,
     });
-  }
-
-  private async reconcileAdDestinationAssignments(input: {
-    workspaceId: string;
-    reportingAccountId: string;
-    ads: MetaAdAsset[];
-  }): Promise<void> {
-    if (input.ads.length === 0) {
-      return;
-    }
-
-    const account = await this.prisma.metaReportingAccount.findFirst({
-      where: {
-        id: input.reportingAccountId,
-        workspaceId: input.workspaceId,
-      },
-      select: {
-        conversionDestinationId: true,
-        businessConnection: {
-          select: { defaultConversionDestinationId: true },
-        },
-        allowedDestinations: {
-          where: { active: true },
-          select: {
-            destination: {
-              select: {
-                id: true,
-                pixelId: true,
-                pageId: true,
-                status: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!account) {
-      return;
-    }
-
-    let destinations = account.allowedDestinations
-      .map((record) => record.destination)
-      .filter((destination) => destination.status === "configured");
-
-    if (destinations.length === 0) {
-      const legacyDestinationId =
-        account.conversionDestinationId ??
-        account.businessConnection?.defaultConversionDestinationId ??
-        null;
-
-      destinations = legacyDestinationId
-        ? await this.prisma.metaConversionDestination.findMany({
-            where: {
-              id: legacyDestinationId,
-              workspaceId: input.workspaceId,
-              status: "configured",
-            },
-            select: {
-              id: true,
-              pixelId: true,
-              pageId: true,
-              status: true,
-            },
-          })
-        : [];
-    }
-
-    if (destinations.length <= 1) {
-      await this.prisma.metaAdDestinationAssignment.deleteMany({
-        where: {
-          workspaceId: input.workspaceId,
-          reportingAccountId: input.reportingAccountId,
-          source: "automatic",
-        },
-      });
-      return;
-    }
-
-    const manualAssignments =
-      await this.prisma.metaAdDestinationAssignment.findMany({
-        where: {
-          workspaceId: input.workspaceId,
-          reportingAccountId: input.reportingAccountId,
-          adId: { in: input.ads.map((ad) => ad.id) },
-          source: "manual",
-        },
-        select: { adId: true },
-      });
-    const manuallyAssignedAdIds = new Set(
-      manualAssignments.map((assignment) => assignment.adId),
-    );
-
-    for (const ad of input.ads) {
-      if (manuallyAssignedAdIds.has(ad.id)) {
-        continue;
-      }
-
-      const hasPixelHint = ad.detectedPixelIds.length > 0;
-      const hasPageHint = ad.detectedPageIds.length > 0;
-      const candidates =
-        hasPixelHint || hasPageHint
-          ? destinations.filter(
-              (destination) =>
-                (!hasPixelHint ||
-                  ad.detectedPixelIds.includes(destination.pixelId)) &&
-                (!hasPageHint ||
-                  ad.detectedPageIds.includes(destination.pageId)),
-            )
-          : [];
-
-      if (candidates.length === 1) {
-        await this.prisma.metaAdDestinationAssignment.upsert({
-          where: {
-            workspaceId_adId: {
-              workspaceId: input.workspaceId,
-              adId: ad.id,
-            },
-          },
-          create: {
-            workspaceId: input.workspaceId,
-            adId: ad.id,
-            reportingAccountId: input.reportingAccountId,
-            conversionDestinationId: candidates[0].id,
-            source: "automatic",
-            detectedPixelId: ad.detectedPixelIds[0] ?? null,
-            detectedPageId: ad.detectedPageIds[0] ?? null,
-          },
-          update: {
-            reportingAccountId: input.reportingAccountId,
-            conversionDestinationId: candidates[0].id,
-            source: "automatic",
-            detectedPixelId: ad.detectedPixelIds[0] ?? null,
-            detectedPageId: ad.detectedPageIds[0] ?? null,
-            createdByUserId: null,
-          },
-        });
-      } else {
-        await this.prisma.metaAdDestinationAssignment.deleteMany({
-          where: {
-            workspaceId: input.workspaceId,
-            adId: ad.id,
-            source: "automatic",
-          },
-        });
-      }
-    }
   }
 
   private manualOverride(
