@@ -51,17 +51,35 @@ type AdDestinationRouteGroup = {
   ads: AdDestinationRoute[];
 };
 
+function persistedAccountDestinationIds(
+  account: ReportingAccountConfiguration,
+): string[] {
+  const configuredIds = Array.isArray(account.conversionDestinationIds)
+    ? account.conversionDestinationIds
+    : [];
+
+  return [
+    ...new Set(
+      configuredIds.length > 0
+        ? configuredIds
+        : account.conversionDestinationId
+          ? [account.conversionDestinationId]
+          : [],
+    ),
+  ];
+}
+
 function accountDestinationDraft(
   account: ReportingAccountConfiguration,
   businessDefaultId: string | null,
 ): AccountDestinationDraft {
-  const fallbackId = account.conversionDestinationId ?? businessDefaultId;
+  const persistedIds = persistedAccountDestinationIds(account);
   const allowedIds = [
     ...new Set(
-      account.conversionDestinationIds.length > 0
-        ? account.conversionDestinationIds
-        : fallbackId
-          ? [fallbackId]
+      persistedIds.length > 0
+        ? persistedIds
+        : businessDefaultId
+          ? [businessDefaultId]
           : [],
     ),
   ];
@@ -1088,10 +1106,9 @@ export function MetaManualConnectionPanel({
           const connectionDestinationIds = new Set(
             [
               connection.defaultConversionDestinationId,
-              ...activeConnectionAccounts.flatMap((account) => [
-                account.conversionDestinationId,
-                ...account.conversionDestinationIds,
-              ]),
+              ...activeConnectionAccounts.flatMap((account) =>
+                persistedAccountDestinationIds(account),
+              ),
             ].filter((id): id is string => Boolean(id)),
           );
           const connectionDestinations = configuration.destinations.filter(
@@ -1296,9 +1313,11 @@ export function MetaManualConnectionPanel({
                             Boolean(item.id) &&
                             draft.allowedIds.includes(item.id ?? ""),
                         );
+                      const savedDestinationIds =
+                        persistedAccountDestinationIds(account);
                       const persistedDestinationIds =
-                        account.conversionDestinationIds.length > 0
-                          ? account.conversionDestinationIds
+                        savedDestinationIds.length > 0
+                          ? savedDestinationIds
                           : persistedDraft.allowedIds;
                       const persistedDestinations =
                         configuration.destinations.filter(

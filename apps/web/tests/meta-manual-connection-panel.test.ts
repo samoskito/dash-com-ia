@@ -144,7 +144,7 @@ describe("Meta manual connection panel", () => {
               timezoneName: "America/Sao_Paulo",
               businessConnectionId: "connection_oauth",
               conversionDestinationId: null,
-              conversionDestinationIds: ["destination_1"],
+              conversionDestinationIds: undefined as unknown as string[],
               active: true,
               syncStatus: "synced",
               lastSyncedAt: null,
