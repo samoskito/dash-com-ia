@@ -529,6 +529,55 @@ export default async function EventsPage({
         </form>
       </section>
 
+      <section
+        className="surface-panel audit-health-panel"
+        aria-labelledby="audit-health-title"
+      >
+        <header className="audit-health-heading">
+          <div className="audit-heading-copy">
+            <span className="audit-heading-icon" aria-hidden="true">
+              <ShieldAlert size={18} strokeWidth={2.1} />
+            </span>
+            <div>
+              <span className="eyebrow">Saude da entrega</span>
+              <h2 id="audit-health-title">Fluxo para a Meta</h2>
+              <p>Estados operacionais primeiro; classificacoes em seguida.</p>
+            </div>
+          </div>
+          <span className="status-chip neutral">
+            {summary.total} eventos no periodo
+          </span>
+        </header>
+
+        <div className="audit-primary-metrics">
+          {primaryMetrics.map((metric) => (
+            <AuditPrimaryMetric key={metric.tone} {...metric} />
+          ))}
+        </div>
+
+        <div className="audit-classification-strip">
+          <span className="audit-classification-label">
+            Fora da fila de envio
+          </span>
+          <div>
+            {classifiedMetrics.map((metric) => {
+              const Icon = metric.icon;
+
+              return (
+                <span
+                  className={`audit-classification-item ${metric.tone}`}
+                  key={metric.tone}
+                >
+                  <Icon aria-hidden="true" size={14} strokeWidth={2.1} />
+                  <span>{metric.label}</span>
+                  <strong>{metric.value}</strong>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
       <div className="audit-section-heading">
         <div className="audit-heading-copy">
           <span className="audit-heading-icon" aria-hidden="true">
@@ -669,54 +718,6 @@ export default async function EventsPage({
         </div>
       </nav>
 
-      <section
-        className="surface-panel audit-health-panel"
-        aria-labelledby="audit-health-title"
-      >
-        <header className="audit-health-heading">
-          <div className="audit-heading-copy">
-            <span className="audit-heading-icon" aria-hidden="true">
-              <ShieldAlert size={18} strokeWidth={2.1} />
-            </span>
-            <div>
-              <span className="eyebrow">Saude da entrega</span>
-              <h2 id="audit-health-title">Fluxo para a Meta</h2>
-              <p>Estados operacionais primeiro; classificacoes em seguida.</p>
-            </div>
-          </div>
-          <span className="status-chip neutral">
-            {summary.total} eventos no periodo
-          </span>
-        </header>
-
-        <div className="audit-primary-metrics">
-          {primaryMetrics.map((metric) => (
-            <AuditPrimaryMetric key={metric.tone} {...metric} />
-          ))}
-        </div>
-
-        <div className="audit-classification-strip">
-          <span className="audit-classification-label">
-            Fora da fila de envio
-          </span>
-          <div>
-            {classifiedMetrics.map((metric) => {
-              const Icon = metric.icon;
-
-              return (
-                <span
-                  className={`audit-classification-item ${metric.tone}`}
-                  key={metric.tone}
-                >
-                  <Icon aria-hidden="true" size={14} strokeWidth={2.1} />
-                  <span>{metric.label}</span>
-                  <strong>{metric.value}</strong>
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      </section>
     </section>
   );
 }

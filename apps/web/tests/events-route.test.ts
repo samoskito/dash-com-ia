@@ -94,8 +94,11 @@ describe("events route", () => {
     expect(html).toContain('class="audit-advanced-filters"');
     expect(html).toContain("Saude da entrega");
     expect(html).toContain("Fluxo para a Meta");
-    expect(html.indexOf("Eventos do periodo")).toBeLessThan(
+    expect(html.indexOf("Periodo da auditoria")).toBeLessThan(
       html.indexOf("Fluxo para a Meta"),
+    );
+    expect(html.indexOf("Fluxo para a Meta")).toBeLessThan(
+      html.indexOf("Eventos do periodo"),
     );
     expect(html).toContain("audit-mobile-event-card");
     expect(html).toContain("Em sombra");
