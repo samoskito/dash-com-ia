@@ -35,6 +35,7 @@ export type InboundWebhooksConfig =
   | {
       enabled: false;
       replayEnabled: false;
+      productionEnabled: false;
       apiPublicUrl: null;
       encryptionKey: null;
       rawPayloadRetentionDays: typeof INBOUND_WEBHOOK_RAW_RETENTION_DAYS;
@@ -42,6 +43,7 @@ export type InboundWebhooksConfig =
   | {
       enabled: true;
       replayEnabled: boolean;
+      productionEnabled: boolean;
       apiPublicUrl: string;
       encryptionKey: Buffer;
       rawPayloadRetentionDays: typeof INBOUND_WEBHOOK_RAW_RETENTION_DAYS;
@@ -361,6 +363,7 @@ export function parseInboundWebhooksConfig(
     return {
       enabled: false,
       replayEnabled: false,
+      productionEnabled: false,
       apiPublicUrl: null,
       encryptionKey: null,
       rawPayloadRetentionDays: INBOUND_WEBHOOK_RAW_RETENTION_DAYS,
@@ -372,6 +375,11 @@ export function parseInboundWebhooksConfig(
     replayEnabled: parseBoolean(
       "INBOUND_WEBHOOK_REPLAY_ENABLED",
       env.INBOUND_WEBHOOK_REPLAY_ENABLED,
+      false,
+    ),
+    productionEnabled: parseBoolean(
+      "INBOUND_WEBHOOK_PRODUCTION_ENABLED",
+      env.INBOUND_WEBHOOK_PRODUCTION_ENABLED,
       false,
     ),
     apiPublicUrl: parseApiPublicUrl(env),

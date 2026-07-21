@@ -11,6 +11,7 @@ import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
 import { InboundWebhookDiagnosticsService } from "./inbound-webhook-diagnostics.service";
 import { InboundWebhookQueueService } from "./inbound-webhook-queue.service";
+import { InboundWebhookProductionIntakeService } from "./inbound-webhook-production-intake.service";
 import {
   InboundWebhookParserRegistry,
   InboundWebhookParserResolutionError,
@@ -61,6 +62,10 @@ export type InboundWebhookMaintenanceResult = {
   existingJobs: number;
   parserFailures: number;
   queueFailures: number;
+  productionCandidates: number;
+  productionEnqueued: number;
+  productionExistingJobs: number;
+  productionQueueFailures: number;
 };
 
 function emptyResult(enabled: boolean): InboundWebhookMaintenanceResult {
@@ -74,6 +79,10 @@ function emptyResult(enabled: boolean): InboundWebhookMaintenanceResult {
     existingJobs: 0,
     parserFailures: 0,
     queueFailures: 0,
+    productionCandidates: 0,
+    productionEnqueued: 0,
+    productionExistingJobs: 0,
+    productionQueueFailures: 0,
   };
 }
 
@@ -95,6 +104,8 @@ export class InboundWebhookMaintenanceService
     private readonly parserRegistry: InboundWebhookParserRegistry,
     @Inject(InboundWebhookDiagnosticsService)
     private readonly diagnostics: InboundWebhookDiagnosticsService,
+    @Inject(InboundWebhookProductionIntakeService)
+    private readonly productionIntake: InboundWebhookProductionIntakeService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -150,6 +161,12 @@ export class InboundWebhookMaintenanceService
       result.existingJobs = recovery.existingJobs;
       result.parserFailures = recovery.parserFailures;
       result.queueFailures = recovery.queueFailures;
+      const productionRecovery =
+        await this.productionIntake.recoverPendingItems(now);
+      result.productionCandidates = productionRecovery.eligible;
+      result.productionEnqueued = productionRecovery.queued;
+      result.productionExistingJobs = productionRecovery.existing;
+      result.productionQueueFailures = productionRecovery.queueFailures;
 
       return result;
     } catch {
@@ -184,6 +201,10 @@ export class InboundWebhookMaintenanceService
             `existing=${result.existingJobs}`,
             `parserFailures=${result.parserFailures}`,
             `queueFailures=${result.queueFailures}`,
+            `productionCandidates=${result.productionCandidates}`,
+            `productionEnqueued=${result.productionEnqueued}`,
+            `productionExisting=${result.productionExistingJobs}`,
+            `productionQueueFailures=${result.productionQueueFailures}`,
           ].join("; "),
         );
       })
@@ -362,7 +383,7 @@ export class InboundWebhookMaintenanceService
           },
         ],
         connection: {
-          status: "observation",
+          status: { in: ["observation", "production"] },
           removedAt: null,
         },
       },
@@ -425,7 +446,7 @@ export class InboundWebhookMaintenanceService
             not: null,
           },
           connection: {
-            status: "observation",
+            status: { in: ["observation", "production"] },
             removedAt: null,
             parserRelease: {
               provider: candidate.provider,

@@ -86,6 +86,7 @@ function event(input: {
       input.replayStatus === null || input.replayStatus === undefined
         ? null
         : { status: input.replayStatus },
+    productionItem: null,
     delivery: {
       payloadExpiresAt: input.expiresAt ?? future,
       encryptedPayload: payloadAvailable ? "encrypted-payload" : null,

@@ -114,6 +114,7 @@ describe("inbound webhook connection overview", () => {
 
     expect(capabilities).toEqual({
       enabled: true,
+      productionEnabled: false,
       providers: [
         {
           provider: "umbler",
@@ -138,6 +139,7 @@ describe("inbound webhook connection overview", () => {
 
     await expect(service.getCapabilities()).resolves.toEqual({
       enabled: false,
+      productionEnabled: false,
       providers: [
         expect.objectContaining({
           provider: "umbler",

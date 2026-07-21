@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { InboundWebhookJobPayload } from "../common/queue/queue.constants";
 import { hashPhoneIdentity } from "../common/phone/phone-identity";
@@ -6,6 +6,7 @@ import { PrismaService } from "../common/prisma/prisma.service";
 import { InboundWebhookChannelRoutesService } from "./inbound-webhook-channel-routes.service";
 import { InboundWebhookDiagnosticsService } from "./inbound-webhook-diagnostics.service";
 import { InboundWebhookPayloadEncryptionService } from "./inbound-webhook-payload-encryption.service";
+import { InboundWebhookProductionIntakeService } from "./inbound-webhook-production-intake.service";
 import type {
   InboundWebhookDeliveryNormalizedSummary,
   InboundWebhookEventClassification,
@@ -110,6 +111,8 @@ class InboundWebhookDeterministicFailure extends Error {
 
 @Injectable()
 export class InboundWebhookObservationService {
+  private readonly logger = new Logger(InboundWebhookObservationService.name);
+
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService,
@@ -121,6 +124,8 @@ export class InboundWebhookObservationService {
     private readonly diagnostics: InboundWebhookDiagnosticsService,
     @Inject(InboundWebhookChannelRoutesService)
     private readonly channelRoutes: InboundWebhookChannelRoutesService,
+    @Inject(InboundWebhookProductionIntakeService)
+    private readonly productionIntake: InboundWebhookProductionIntakeService,
   ) {}
 
   async processDelivery(
@@ -136,6 +141,10 @@ export class InboundWebhookObservationService {
     }
 
     if (terminalDeliveryStatuses.has(delivery.status)) {
+      if (delivery.status === "processed") {
+        await this.prepareProductionDelivery(delivery);
+      }
+
       return this.terminalResult(delivery);
     }
 
@@ -162,6 +171,10 @@ export class InboundWebhookObservationService {
       delivery = await this.loadDelivery(input);
 
       if (delivery && terminalDeliveryStatuses.has(delivery.status)) {
+        if (delivery.status === "processed") {
+          await this.prepareProductionDelivery(delivery);
+        }
+
         return this.terminalResult(delivery);
       }
 
@@ -236,13 +249,9 @@ export class InboundWebhookObservationService {
       );
     }
 
-    await Promise.allSettled(
-      persisted.routableChannelIds.map((channelId) =>
-        this.channelRoutes.reevaluateUnresolvedEvents(
-          delivery.workspaceId,
-          channelId,
-        ),
-      ),
+    await this.prepareProductionDelivery(
+      delivery,
+      persisted.routableChannelIds,
     );
 
     await this.recordDiagnostic(delivery, "processed", result);
@@ -324,7 +333,7 @@ export class InboundWebhookObservationService {
       connection.id !== delivery.connectionId ||
       connection.workspaceId !== delivery.workspaceId ||
       connection.provider !== delivery.provider ||
-      connection.status !== "observation" ||
+      !["observation", "production"].includes(connection.status) ||
       connection.removedAt !== null ||
       connection.parserRelease.id !== connection.parserReleaseId ||
       connection.parserRelease.provider !== connection.provider ||
@@ -343,7 +352,7 @@ export class InboundWebhookObservationService {
         workspaceId: delivery.workspaceId,
         provider: delivery.provider,
         parserReleaseId: delivery.connection.parserReleaseId,
-        status: "observation",
+        status: { in: ["observation", "production"] },
         removedAt: null,
         parserRelease: {
           id: delivery.connection.parserRelease.id,
@@ -700,7 +709,7 @@ export class InboundWebhookObservationService {
       workspaceId: delivery.workspaceId,
       provider: delivery.provider,
       parserReleaseId: delivery.connection.parserReleaseId,
-      status: "observation",
+      status: { in: ["observation", "production"] },
       removedAt: null,
       parserRelease: {
         id: delivery.connection.parserRelease.id,
@@ -709,6 +718,49 @@ export class InboundWebhookObservationService {
         status: delivery.connection.parserRelease.status,
       },
     };
+  }
+
+  private async prepareProductionDelivery(
+    delivery: LoadedDelivery,
+    knownChannelIds?: string[],
+  ): Promise<void> {
+    const channelIds =
+      knownChannelIds ??
+      (
+        await this.prisma.inboundWebhookEvent.findMany({
+          where: {
+            workspaceId: delivery.workspaceId,
+            connectionId: delivery.connectionId,
+            deliveryId: delivery.id,
+            classification: {
+              in: ["eligible_route_resolved", "eligible_route_unresolved"],
+            },
+          },
+          select: { channelId: true },
+          distinct: ["channelId"],
+        })
+      ).map((event) => event.channelId);
+
+    await Promise.allSettled(
+      channelIds.map((channelId) =>
+        this.channelRoutes.reevaluateUnresolvedEvents(
+          delivery.workspaceId,
+          channelId,
+        ),
+      ),
+    );
+
+    try {
+      await this.productionIntake.enqueueDelivery({
+        workspaceId: delivery.workspaceId,
+        connectionId: delivery.connectionId,
+        deliveryId: delivery.id,
+      });
+    } catch {
+      this.logger.warn(
+        `Live production enqueue deferred for delivery ${delivery.id}`,
+      );
+    }
   }
 
   private async finishFailure(

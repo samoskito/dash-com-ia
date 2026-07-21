@@ -213,6 +213,14 @@ enum InboundWebhookReplayItemStatus {
   failed
 }
 
+enum InboundWebhookProductionItemStatus {
+  queued
+  processing
+  materialized
+  duplicate
+  failed
+}
+
 enum InboundWebhookReplaySelection {
   canary_1
   canary_5
@@ -304,6 +312,7 @@ model Workspace {
   inboundWebhookEvents             InboundWebhookEvent[]
   inboundWebhookReplayBatches      InboundWebhookReplayBatch[]
   inboundWebhookReplayItems        InboundWebhookReplayItem[]
+  inboundWebhookProductionItems    InboundWebhookProductionItem[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
@@ -1158,6 +1167,7 @@ model InboundWebhookConnection {
   parserReleaseId       String
   secretHash            String?
   status                InboundWebhookConnectionStatus @default(observation)
+  productionActivatedAt DateTime?
   createdByUserId       String?
   lastDeliveryAt        DateTime?
   lastSuccessfulParseAt DateTime?
@@ -1189,6 +1199,7 @@ model InboundWebhookChannel {
   connectedPhone    String
   channelName       String?
   status            InboundWebhookChannelStatus @default(discovered)
+  productionActivatedAt DateTime?
   firstSeenAt       DateTime                    @default(now())
   lastSeenAt        DateTime                    @default(now())
   createdAt         DateTime                    @default(now())
@@ -1316,6 +1327,7 @@ model InboundWebhookEvent {
   resolvedReportingAccount      MetaReportingAccount?      @relation("InboundWebhookEventResolvedReportingAccount", fields: [resolvedReportingAccountWorkspaceId, resolvedReportingAccountId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedReportingAccountId_fkey")
   resolvedConversionDestination MetaConversionDestination? @relation("InboundWebhookEventResolvedDestination", fields: [resolvedConversionDestinationWorkspaceId, resolvedConversionDestinationId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedConversionDestinationId_fkey")
   replayItem                    InboundWebhookReplayItem?
+  productionItem                InboundWebhookProductionItem?
 
   @@unique([workspaceId, id])
   @@unique([connectionId, dedupeKey], map: "InboundWebhookEvent_connection_dedupe_key")
@@ -1385,6 +1397,31 @@ model InboundWebhookReplayItem {
   @@unique([workspaceId, eventId])
   @@index([batchId, status])
   @@index([workspaceId, status, createdAt])
+  @@index([leadId])
+  @@index([conversionEventLogId])
+}
+
+model InboundWebhookProductionItem {
+  id                   String                             @id @default(cuid())
+  workspaceId          String
+  eventId              String                             @unique
+  status               InboundWebhookProductionItemStatus @default(queued)
+  leadId               String?
+  conversionEventLogId String?
+  errorCode            String?
+  attemptCount         Int                                @default(0)
+  queuedAt             DateTime                           @default(now())
+  lastAttemptedAt      DateTime?
+  processedAt          DateTime?
+  createdAt            DateTime                           @default(now())
+  updatedAt            DateTime                           @updatedAt
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  event     InboundWebhookEvent @relation(fields: [workspaceId, eventId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookProductionItem_eventId_fkey")
+
+  @@unique([workspaceId, eventId])
+  @@index([workspaceId, status, createdAt])
+  @@index([status, lastAttemptedAt, queuedAt], map: "InboundWebhookProductionItem_recovery_idx")
   @@index([leadId])
   @@index([conversionEventLogId])
 }

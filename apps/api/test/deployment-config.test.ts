@@ -39,6 +39,7 @@ describe("parseDeploymentConfig", () => {
       inboundWebhooks: {
         enabled: false,
         replayEnabled: false,
+        productionEnabled: false,
         apiPublicUrl: null,
         encryptionKey: null,
         rawPayloadRetentionDays: 7,
@@ -58,6 +59,7 @@ describe("parseDeploymentConfig", () => {
           API_PUBLIC_URL: "https://api.example.com/",
           INBOUND_WEBHOOKS_ENABLED: "true",
           INBOUND_WEBHOOK_REPLAY_ENABLED: "true",
+          INBOUND_WEBHOOK_PRODUCTION_ENABLED: "true",
           INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
           SMTP_HOST: "smtp-relay.brevo.com",
           SMTP_SECURE: "false",
@@ -84,6 +86,7 @@ describe("parseDeploymentConfig", () => {
       inboundWebhooks: {
         enabled: true,
         replayEnabled: true,
+        productionEnabled: true,
         apiPublicUrl: "https://api.example.com",
         encryptionKey: Buffer.from(inboundWebhookEncryptionKey, "base64"),
         rawPayloadRetentionDays: 7,
@@ -104,6 +107,7 @@ describe("parseDeploymentConfig", () => {
     ).toEqual({
       enabled: false,
       replayEnabled: false,
+      productionEnabled: false,
       apiPublicUrl: null,
       encryptionKey: null,
       rawPayloadRetentionDays: 7,

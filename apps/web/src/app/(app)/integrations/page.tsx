@@ -1064,7 +1064,7 @@ export default async function IntegrationsPage({
       : 0;
   const inboundConnectionCount =
     inboundWebhookData?.connections.filter(
-      ({ overview }) => overview.connection.status === "observation",
+      ({ overview }) => overview.connection.status !== "paused",
     ).length ?? 0;
   const whatsappSourceLabel = usesExternalWhatsapp
     ? "MySQL externo"

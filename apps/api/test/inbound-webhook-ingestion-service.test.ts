@@ -24,7 +24,7 @@ function runtimeEnvironment(enabled = true) {
 
 function createHarness(options?: {
   connectionId?: string;
-  status?: "observation" | "paused";
+  status?: "observation" | "production" | "paused";
   removed?: boolean;
   secretHash?: string | null;
   featureEnabled?: boolean;
@@ -69,7 +69,7 @@ function createHarness(options?: {
       where.id === connection.id &&
       where.workspaceId === connection.workspaceId &&
       where.secretHash === connection.secretHash &&
-      where.status === "observation" &&
+      matchesConnectionStatus(connection.status, where.status) &&
       connection.removedAt === null
         ? { id: connection.id }
         : null,
@@ -79,7 +79,7 @@ function createHarness(options?: {
         where.id !== connection.id ||
         where.workspaceId !== connection.workspaceId ||
         where.secretHash !== connection.secretHash ||
-        where.status !== "observation" ||
+        !matchesConnectionStatus(connection.status, where.status) ||
         connection.removedAt !== null
       ) {
         return { count: 0 };
@@ -192,6 +192,19 @@ function createHarness(options?: {
       failPersistence = true;
     },
   };
+}
+
+function matchesConnectionStatus(
+  actual: string,
+  expected: string | { in?: string[] } | undefined,
+): boolean {
+  if (!expected) {
+    return true;
+  }
+
+  return typeof expected === "string"
+    ? actual === expected
+    : (expected.in?.includes(actual) ?? true);
 }
 
 function requestInput(

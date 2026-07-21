@@ -8,6 +8,7 @@ import {
   InboundWebhookMaintenanceService,
 } from "../src/inbound-webhooks/inbound-webhook-maintenance.service";
 import type { InboundWebhookQueueService } from "../src/inbound-webhooks/inbound-webhook-queue.service";
+import type { InboundWebhookProductionIntakeService } from "../src/inbound-webhooks/inbound-webhook-production-intake.service";
 import { InboundWebhookParserRegistry } from "../src/inbound-webhooks/providers/inbound-webhook-parser.registry";
 
 type MutableRecord = Record<string, any>;
@@ -324,6 +325,15 @@ function createHarness() {
     INBOUND_WEBHOOK_ENCRYPTION_KEY: Buffer.alloc(32, 47).toString("base64"),
   };
   const parserRegistry = new InboundWebhookParserRegistry();
+  const productionIntake = {
+    recoverPendingItems: vi.fn(async () => ({
+      eligible: 0,
+      persisted: 0,
+      queued: 0,
+      existing: 0,
+      queueFailures: 0,
+    })),
+  };
   const createService = () =>
     new InboundWebhookMaintenanceService(
       prisma as unknown as PrismaService,
@@ -331,6 +341,7 @@ function createHarness() {
       queue as unknown as InboundWebhookQueueService,
       parserRegistry,
       diagnostics as unknown as InboundWebhookDiagnosticsService,
+      productionIntake as unknown as InboundWebhookProductionIntakeService,
     );
 
   return {
@@ -427,7 +438,9 @@ describe("inbound webhook maintenance service", () => {
     });
     expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
     expect(harness.diagnostics.recordMaintenance).toHaveBeenCalledOnce();
-    expect(harness.diagnostics.recordMaintenance.mock.calls[0][0]).toMatchObject({
+    expect(
+      harness.diagnostics.recordMaintenance.mock.calls[0][0],
+    ).toMatchObject({
       workspaceId: "workspace_1",
       status: "requires_review",
       errorCode: "inbound_webhook_payload_unavailable",
@@ -485,7 +498,7 @@ describe("inbound webhook maintenance service", () => {
         status: "pending",
         queuedAt: null,
         connection: {
-          status: "observation",
+          status: { in: ["observation", "production"] },
           removedAt: null,
         },
       },
@@ -603,8 +616,7 @@ describe("inbound webhook maintenance service", () => {
       expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
       expect(harness.diagnostics.recordMaintenance).toHaveBeenCalledOnce();
 
-      const diagnostic =
-        harness.diagnostics.recordMaintenance.mock.calls[0][0];
+      const diagnostic = harness.diagnostics.recordMaintenance.mock.calls[0][0];
       expect(diagnostic).toMatchObject({
         workspaceId: "workspace_1",
         severity: "warning",
@@ -656,8 +668,7 @@ describe("inbound webhook maintenance service", () => {
     });
     expect(harness.diagnostics.recordMaintenance).toHaveBeenCalledOnce();
 
-    const diagnostic =
-      harness.diagnostics.recordMaintenance.mock.calls[0][0];
+    const diagnostic = harness.diagnostics.recordMaintenance.mock.calls[0][0];
     expect(diagnostic).toMatchObject({
       workspaceId: "workspace_1",
       severity: "warning",

@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Body,
-  ConflictException,
   Controller,
   Delete,
   ForbiddenException,
@@ -21,10 +20,7 @@ import {
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
-import {
-  InboundWebhookConnectionsService,
-  productionCertificationMessage,
-} from "./inbound-webhook-connections.service";
+import { InboundWebhookConnectionsService } from "./inbound-webhook-connections.service";
 import { InboundWebhookChannelRoutesService } from "./inbound-webhook-channel-routes.service";
 
 @Controller("integrations/inbound-webhooks")
@@ -124,15 +120,6 @@ export class InboundWebhookConnectionsController {
     @Body() body: unknown,
   ) {
     const context = await this.requireManager(refreshToken);
-
-    if (
-      body &&
-      typeof body === "object" &&
-      "status" in body &&
-      body.status === "production"
-    ) {
-      throw new ConflictException(productionCertificationMessage);
-    }
 
     const parsed =
       inboundWebhookConnectionStatusUpdateInputSchema.safeParse(body);

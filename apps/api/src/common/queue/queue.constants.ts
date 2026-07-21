@@ -6,6 +6,7 @@ export const META_REPORT_SYNC_QUEUE = "meta-report-sync";
 export const EXTERNAL_DATA_SYNC_QUEUE = "external-data-sync";
 export const INBOUND_WEBHOOK_QUEUE = "inbound-webhooks";
 export const INBOUND_WEBHOOK_REPLAY_QUEUE = "inbound-webhook-replay";
+export const INBOUND_WEBHOOK_PRODUCTION_QUEUE = "inbound-webhook-production";
 
 export interface InboundWebhookJobPayload {
   deliveryId: string;
@@ -15,6 +16,11 @@ export interface InboundWebhookJobPayload {
 
 export interface InboundWebhookReplayJobPayload {
   batchId: string;
+  workspaceId: string;
+}
+
+export interface InboundWebhookProductionJobPayload {
+  productionItemId: string;
   workspaceId: string;
 }
 

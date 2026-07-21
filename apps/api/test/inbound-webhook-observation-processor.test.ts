@@ -12,6 +12,7 @@ import {
 } from "../src/inbound-webhooks/inbound-webhook-observation.service";
 import { InboundWebhookProcessor } from "../src/inbound-webhooks/inbound-webhook.processor";
 import type { InboundWebhookPayloadEncryptionService } from "../src/inbound-webhooks/inbound-webhook-payload-encryption.service";
+import type { InboundWebhookProductionIntakeService } from "../src/inbound-webhooks/inbound-webhook-production-intake.service";
 import {
   buildInboundWebhookEventDedupeKey,
   type InboundWebhookParser,
@@ -180,7 +181,7 @@ function createHarness(parser?: InboundWebhookParser) {
         !connection ||
         connection.workspaceId !== where.workspaceId ||
         connection.parserReleaseId !== where.parserReleaseId ||
-        connection.status !== where.status ||
+        !matchesStatus(connection.status, where.status) ||
         connection.removedAt !== where.removedAt
       ) {
         return null;
@@ -195,7 +196,7 @@ function createHarness(parser?: InboundWebhookParser) {
         !connection ||
         connection.workspaceId !== where.workspaceId ||
         connection.parserReleaseId !== where.parserReleaseId ||
-        connection.status !== where.status ||
+        !matchesStatus(connection.status, where.status) ||
         connection.removedAt !== where.removedAt
       ) {
         return { count: 0 };
@@ -243,6 +244,18 @@ function createHarness(parser?: InboundWebhookParser) {
 
       return { count };
     }),
+    findMany: vi.fn(async ({ where }: MutableRecord) =>
+      [...events.values()]
+        .filter(
+          (event) =>
+            event.workspaceId === where.workspaceId &&
+            event.connectionId === where.connectionId &&
+            event.deliveryId === where.deliveryId &&
+            (!where.classification?.in ||
+              where.classification.in.includes(event.classification)),
+        )
+        .map((event) => ({ channelId: event.channelId })),
+    ),
   };
   const prisma = {
     inboundWebhookDelivery,
@@ -288,12 +301,16 @@ function createHarness(parser?: InboundWebhookParser) {
   const channelRoutes = {
     reevaluateUnresolvedEvents: vi.fn(async () => undefined),
   };
+  const productionIntake = {
+    enqueueDelivery: vi.fn(async () => undefined),
+  };
   const service = new InboundWebhookObservationService(
     prisma as unknown as PrismaService,
     encryption as unknown as InboundWebhookPayloadEncryptionService,
     registry,
     diagnostics as unknown as InboundWebhookDiagnosticsService,
     channelRoutes as unknown as InboundWebhookChannelRoutesService,
+    productionIntake as unknown as InboundWebhookProductionIntakeService,
   );
 
   return {

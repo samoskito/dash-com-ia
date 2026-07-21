@@ -265,6 +265,12 @@ export class InboundWebhookReplayService {
               status: true,
             },
           },
+          productionItem: {
+            select: {
+              id: true,
+              status: true,
+            },
+          },
           delivery: {
             select: {
               payloadExpiresAt: true,
@@ -351,6 +357,7 @@ export class InboundWebhookReplayService {
             ["queued", "processing", "failed"].includes(
               event.replayItem.status,
             )) &&
+          event.productionItem === null &&
           event.delivery.payloadExpiresAt.getTime() > now.getTime() &&
           payloadAvailable(event),
       )
@@ -358,12 +365,15 @@ export class InboundWebhookReplayService {
       .sort((left, right) => left.getTime() - right.getTime())[0];
     const alreadyMaterialized = (event: (typeof events)[number]) =>
       event.replayItem?.status === "materialized" ||
-      event.replayItem?.status === "duplicate";
+      event.replayItem?.status === "duplicate" ||
+      event.productionItem?.status === "materialized" ||
+      event.productionItem?.status === "duplicate";
     const eligible = (event: (typeof events)[number]) =>
       event.adId !== null &&
       routeResolved(event) &&
       payloadAvailable(event) &&
-      event.replayItem === null;
+      event.replayItem === null &&
+      event.productionItem === null;
 
     return {
       connection: {
@@ -374,6 +384,8 @@ export class InboundWebhookReplayService {
         parserVersion: connection.parserRelease.version,
         parserReleaseStatus: connection.parserRelease.status,
         status: connection.status,
+        productionActivatedAt:
+          connection.productionActivatedAt?.toISOString() ?? null,
         lastDeliveryAt: connection.lastDeliveryAt?.toISOString() ?? null,
         lastSuccessfulParseAt:
           connection.lastSuccessfulParseAt?.toISOString() ?? null,
@@ -461,9 +473,9 @@ export class InboundWebhookReplayService {
       );
     }
 
-    if (connection.status !== "observation") {
+    if (!["observation", "production"].includes(connection.status)) {
       throw new ConflictException(
-        "A conexao precisa estar em observacao para o replay controlado",
+        "A conexao precisa estar em observacao ou producao para o replay controlado",
       );
     }
 
@@ -519,6 +531,7 @@ export class InboundWebhookReplayService {
             resolvedReportingAccountId: { not: null },
             resolvedConversionDestinationId: { not: null },
             replayItem: { is: null },
+            productionItem: { is: null },
             delivery: {
               payloadExpiresAt: { gt: now },
               encryptedPayload: { not: null },
@@ -974,7 +987,7 @@ export class InboundWebhookReplayService {
 
     if (
       connection.removedAt ||
-      connection.status !== "observation" ||
+      !["observation", "production"].includes(connection.status) ||
       connection.parserRelease.status !== "certified" ||
       connection.parserRelease.version !== delivery.parserVersion
     ) {

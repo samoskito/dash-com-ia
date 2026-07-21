@@ -137,8 +137,10 @@ export async function setInboundWebhookConnectionStatusAction(
       ok: true,
       message:
         input.data.status === "paused"
-          ? "Conexao pausada. A observacao foi interrompida."
-          : "Conexao retomada em modo de observacao.",
+          ? "Conexao pausada. Novas entregas nao serao processadas."
+          : input.data.status === "production"
+            ? "Envio automatico ativado nos canais habilitados."
+            : "Conexao mantida em modo de observacao.",
     };
   } catch {
     return failure("Nao foi possivel alterar o status desta conexao.");
@@ -196,7 +198,7 @@ export async function setInboundWebhookChannelStatusAction(
       message:
         input.data.status === "paused"
           ? "Canal pausado. Os demais canais continuam inalterados."
-          : "Canal ativado para observacao.",
+          : "Canal habilitado para envio quando a conexao estiver em producao.",
     };
   } catch {
     return failure("Nao foi possivel alterar o status deste canal.");
@@ -225,7 +227,7 @@ export async function saveInboundWebhookChannelRoutesAction(
     revalidatePath(integrationsPath);
     return {
       ok: true,
-      message: "Rotas do canal salvas para observacao.",
+      message: "Rotas do canal salvas e validadas.",
     };
   } catch {
     return failure("Nao foi possivel salvar as rotas deste canal.");

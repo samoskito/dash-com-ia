@@ -23,8 +23,6 @@ import { parseInboundWebhooksConfig } from "../config/deployment-config";
 
 const parserVersion = "v1";
 const connectionNotFoundMessage = "Conexao de webhook nao encontrada";
-const productionCertificationMessage =
-  "A ativacao em producao depende da certificacao do parser e ainda nao esta disponivel";
 const concurrentMutationMessage =
   "A conexao foi alterada por outra operacao; tente novamente";
 
@@ -60,6 +58,7 @@ export class InboundWebhookConnectionsService {
 
     return {
       enabled: config.enabled,
+      productionEnabled: config.enabled && config.productionEnabled,
       providers: inboundWebhookProviders.map((provider) => {
         const release = releaseByProvider.get(provider);
 
@@ -289,12 +288,12 @@ export class InboundWebhookConnectionsService {
     input: InboundWebhookConnectionStatusUpdateInputDto,
     actorUserId: string,
   ): Promise<InboundWebhookConnectionDto> {
-    if ((input.status as string) === "production") {
-      throw new ConflictException(productionCertificationMessage);
-    }
-
     if (input.status === "observation") {
       this.requireEnabledConfig();
+    }
+
+    if (input.status === "production") {
+      this.requireProductionEnabledConfig();
     }
 
     const updated = await this.prisma.$transaction(async (transaction) => {
@@ -303,16 +302,41 @@ export class InboundWebhookConnectionsService {
         workspaceId,
         connectionId,
       );
+
+      if (input.status === "production") {
+        await this.assertProductionReady(transaction, current);
+      }
+
       const updatedAt = this.nextMutationTime(current.updatedAt);
       const claimed = await transaction.inboundWebhookConnection.updateMany({
         where: this.activeMutationWhere(current),
         data: {
           status: input.status,
+          productionActivatedAt:
+            input.status === "production"
+              ? current.status === "production"
+                ? (current.productionActivatedAt ?? updatedAt)
+                : updatedAt
+              : null,
           updatedAt,
         },
       });
 
       this.assertMutationClaimed(claimed.count);
+
+      await transaction.inboundWebhookChannel.updateMany({
+        where: {
+          workspaceId,
+          connectionId,
+          status: "active",
+        },
+        data: {
+          productionActivatedAt:
+            input.status === "production" ? updatedAt : null,
+          updatedAt,
+        },
+      });
+
       const connection = await this.requireConnection(
         transaction,
         workspaceId,
@@ -322,10 +346,7 @@ export class InboundWebhookConnectionsService {
       await this.createAudit(transaction, {
         workspaceId,
         actorUserId,
-        action:
-          input.status === "paused"
-            ? "inbound_webhook.connection_paused"
-            : "inbound_webhook.connection_resumed",
+        action: this.statusAuditAction(input.status),
         targetId: connection.id,
         resultStatus: connection.status,
         beforeSummary: this.auditSummary(current),
@@ -355,6 +376,7 @@ export class InboundWebhookConnectionsService {
         data: {
           status: "paused",
           secretHash: null,
+          productionActivatedAt: null,
           removedAt,
           updatedAt: removedAt,
         },
@@ -365,6 +387,7 @@ export class InboundWebhookConnectionsService {
         ...current,
         status: "paused",
         secretHash: null,
+        productionActivatedAt: null,
         removedAt,
         updatedAt: removedAt,
       };
@@ -473,6 +496,8 @@ export class InboundWebhookConnectionsService {
       parserVersion: connection.parserRelease.version,
       parserReleaseStatus: connection.parserRelease.status,
       status: connection.status,
+      productionActivatedAt:
+        connection.productionActivatedAt?.toISOString() ?? null,
       lastDeliveryAt: connection.lastDeliveryAt?.toISOString() ?? null,
       lastSuccessfulParseAt:
         connection.lastSuccessfulParseAt?.toISOString() ?? null,
@@ -489,7 +514,93 @@ export class InboundWebhookConnectionsService {
       provider: connection.provider,
       parserVersion: connection.parserRelease.version,
       status: connection.status,
+      productionActivatedAt:
+        connection.productionActivatedAt?.toISOString() ?? null,
     };
+  }
+
+  private requireProductionEnabledConfig() {
+    const config = this.requireEnabledConfig();
+
+    if (!config.productionEnabled) {
+      throw new ServiceUnavailableException(
+        "Envio automatico de webhooks ainda nao esta habilitado",
+      );
+    }
+
+    return config;
+  }
+
+  private async assertProductionReady(
+    transaction: Prisma.TransactionClient,
+    connection: PersistedInboundWebhookConnection,
+  ): Promise<void> {
+    if (connection.parserRelease.status !== "certified") {
+      throw new ConflictException(
+        "Certifique o parser antes de ativar o envio automatico",
+      );
+    }
+
+    const activeChannels = await transaction.inboundWebhookChannel.findMany({
+      where: {
+        workspaceId: connection.workspaceId,
+        connectionId: connection.id,
+        status: "active",
+      },
+      select: {
+        id: true,
+        routes: {
+          where: {
+            active: true,
+            validationStatus: "valid",
+            metaBusinessConnectionId: { not: null },
+            metaReportingAccountId: { not: null },
+            metaConversionDestinationId: { not: null },
+          },
+          select: { id: true },
+        },
+      },
+    });
+
+    if (activeChannels.length === 0) {
+      throw new ConflictException(
+        "Ative ao menos um canal validado antes da producao",
+      );
+    }
+
+    if (activeChannels.some((channel) => channel.routes.length === 0)) {
+      throw new ConflictException(
+        "Todo canal ativo precisa de uma rota Meta valida",
+      );
+    }
+
+    const activeReplay = await transaction.inboundWebhookReplayBatch.count({
+      where: {
+        workspaceId: connection.workspaceId,
+        connectionId: connection.id,
+        status: { in: ["queued", "processing"] },
+      },
+    });
+
+    if (activeReplay > 0) {
+      throw new ConflictException(
+        "Finalize o replay em andamento antes de ativar a producao",
+      );
+    }
+  }
+
+  private statusAuditAction(
+    status: InboundWebhookConnectionStatusUpdateInputDto["status"],
+  ): string {
+    if (status === "production") {
+      return "inbound_webhook.connection_promoted";
+    }
+
+    if (status === "paused") {
+      return "inbound_webhook.connection_paused";
+    }
+
+    return "inbound_webhook.connection_observation";
   }
 
   private async createAudit(
@@ -521,5 +632,3 @@ export class InboundWebhookConnectionsService {
     });
   }
 }
-
-export { productionCertificationMessage };

@@ -35,6 +35,7 @@ function connectionDto() {
     parserVersion: "v1",
     parserReleaseStatus: "observation_only" as const,
     status: "observation" as const,
+    productionActivatedAt: null,
     lastDeliveryAt: null,
     lastSuccessfulParseAt: null,
     createdAt: "2026-07-17T18:30:00.000Z",
@@ -51,6 +52,7 @@ function channelDto() {
     connectedPhone: "5511999999999",
     channelName: "Comercial",
     status: "active" as const,
+    productionActivatedAt: null,
     firstSeenAt: "2026-07-17T18:30:00.000Z",
     lastSeenAt: "2026-07-17T18:35:00.000Z",
     routes: [],
@@ -100,6 +102,7 @@ async function createApp(role: WorkspaceRole = "owner") {
   const connectionsService = {
     getCapabilities: vi.fn(async () => ({
       enabled: true,
+      productionEnabled: true,
       providers: [
         {
           provider: "umbler",
@@ -357,7 +360,7 @@ describe("inbound webhook connections controller", () => {
     await app.close();
   });
 
-  it("validates input and returns a certification conflict for production", async () => {
+  it("validates connection input and delegates production safety checks to the service", async () => {
     const { app, connectionsService } = await createApp("owner");
 
     await request(app.getHttpServer())
@@ -375,13 +378,18 @@ describe("inbound webhook connections controller", () => {
       .send({
         status: "production",
       })
-      .expect(409)
+      .expect(200)
       .expect(({ body }) => {
-        expect(body.message).toContain("certificacao");
+        expect(body.status).toBe("production");
       });
 
     expect(connectionsService.createConnection).not.toHaveBeenCalled();
-    expect(connectionsService.updateStatus).not.toHaveBeenCalled();
+    expect(connectionsService.updateStatus).toHaveBeenCalledWith(
+      "workspace_1",
+      "inbound_connection_1",
+      { status: "production" },
+      "user_1",
+    );
 
     await app.close();
   });

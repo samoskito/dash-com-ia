@@ -29,6 +29,7 @@ const connection = {
   parserVersion: "umbler/v1",
   parserReleaseStatus: "observation_only",
   status: "observation",
+  productionActivatedAt: null,
   lastDeliveryAt: null,
   lastSuccessfulParseAt: null,
   createdAt: "2026-07-17T18:00:00.000Z",
@@ -119,8 +120,9 @@ describe("inbound webhook server actions", () => {
   });
 
   it.each([
-    ["paused", "Conexao pausada. A observacao foi interrompida."],
-    ["observation", "Conexao retomada em modo de observacao."],
+    ["paused", "Conexao pausada. Novas entregas nao serao processadas."],
+    ["observation", "Conexao mantida em modo de observacao."],
+    ["production", "Envio automatico ativado nos canais habilitados."],
   ] as const)(
     "updates the connection status to %s",
     async (status, message) => {
@@ -161,7 +163,10 @@ describe("inbound webhook server actions", () => {
   });
 
   it.each([
-    ["active", "Canal ativado para observacao."],
+    [
+      "active",
+      "Canal habilitado para envio quando a conexao estiver em producao.",
+    ],
     ["paused", "Canal pausado. Os demais canais continuam inalterados."],
   ] as const)("updates the channel status to %s", async (status, message) => {
     serverApiFetch.mockResolvedValueOnce({ status });
@@ -212,7 +217,7 @@ describe("inbound webhook server actions", () => {
     );
     expect(result).toEqual({
       ok: true,
-      message: "Rotas do canal salvas para observacao.",
+      message: "Rotas do canal salvas e validadas.",
     });
     expect(revalidatePath).toHaveBeenCalledWith("/integrations");
   });
@@ -251,7 +256,7 @@ describe("inbound webhook server actions", () => {
       "connection status",
       () =>
         setInboundWebhookConnectionStatusAction(
-          form({ connectionId: "connection_1", status: "production" }),
+          form({ connectionId: "connection_1", status: "removed" }),
         ),
     ],
     [

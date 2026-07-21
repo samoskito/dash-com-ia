@@ -4,6 +4,7 @@ import type { InboundWebhookDiagnosticsService } from "../src/inbound-webhooks/i
 import type { InboundWebhookChannelRoutesService } from "../src/inbound-webhooks/inbound-webhook-channel-routes.service";
 import { InboundWebhookObservationService } from "../src/inbound-webhooks/inbound-webhook-observation.service";
 import type { InboundWebhookPayloadEncryptionService } from "../src/inbound-webhooks/inbound-webhook-payload-encryption.service";
+import type { InboundWebhookProductionIntakeService } from "../src/inbound-webhooks/inbound-webhook-production-intake.service";
 import {
   buildInboundWebhookEventDedupeKey,
   type InboundWebhookParser,
@@ -203,7 +204,7 @@ function createHarness() {
         return connection &&
           connection.workspaceId === where.workspaceId &&
           connection.parserReleaseId === where.parserReleaseId &&
-          connection.status === where.status &&
+          matchesStatus(connection.status, where.status) &&
           connection.removedAt === where.removedAt
           ? { id: connection.id }
           : null;
@@ -214,7 +215,7 @@ function createHarness() {
           !connection ||
           connection.workspaceId !== where.workspaceId ||
           connection.parserReleaseId !== where.parserReleaseId ||
-          connection.status !== where.status ||
+          !matchesStatus(connection.status, where.status) ||
           connection.removedAt !== where.removedAt
         ) {
           return { count: 0 };
@@ -275,12 +276,16 @@ function createHarness() {
   const channelRoutes = {
     reevaluateUnresolvedEvents: vi.fn(async () => undefined),
   };
+  const productionIntake = {
+    enqueueDelivery: vi.fn(async () => undefined),
+  };
   const service = new InboundWebhookObservationService(
     prisma as unknown as PrismaService,
     encryption as unknown as InboundWebhookPayloadEncryptionService,
     new InboundWebhookParserRegistry([new DiscoveryParser()]),
     diagnostics as unknown as InboundWebhookDiagnosticsService,
     channelRoutes as unknown as InboundWebhookChannelRoutesService,
+    productionIntake as unknown as InboundWebhookProductionIntakeService,
   );
 
   return {
@@ -291,6 +296,19 @@ function createHarness() {
     events,
     service,
   };
+}
+
+function matchesStatus(
+  actual: string,
+  expected: string | { in?: string[] } | undefined,
+): boolean {
+  if (!expected) {
+    return true;
+  }
+
+  return typeof expected === "string"
+    ? actual === expected
+    : (expected.in?.includes(actual) ?? true);
 }
 
 describe("inbound webhook channel discovery", () => {

@@ -12,7 +12,7 @@ type TestParserRelease = {
   id: string;
   provider: "umbler" | "gupshup";
   version: string;
-  status: "observation_only";
+  status: "observation_only" | "certified";
   certifiedByUserId: null;
   certifiedAt: null;
   createdAt: Date;
@@ -27,6 +27,7 @@ type TestConnection = {
   parserReleaseId: string;
   secretHash: string | null;
   status: "observation" | "production" | "paused";
+  productionActivatedAt: Date | null;
   createdByUserId: string | null;
   lastDeliveryAt: Date | null;
   lastSuccessfulParseAt: Date | null;
@@ -41,6 +42,7 @@ function enabledEnvironment() {
     NODE_ENV: "test",
     API_PUBLIC_URL: "http://localhost:3333",
     INBOUND_WEBHOOKS_ENABLED: "true",
+    INBOUND_WEBHOOK_PRODUCTION_ENABLED: "true",
     INBOUND_WEBHOOK_ENCRYPTION_KEY: Buffer.alloc(32, 11).toString("base64"),
   };
 }
@@ -114,6 +116,7 @@ function createHarness() {
         parserReleaseId: data.parserReleaseId,
         secretHash: data.secretHash,
         status: data.status,
+        productionActivatedAt: null,
         createdByUserId: data.createdByUserId,
         lastDeliveryAt: null,
         lastSuccessfulParseAt: null,
@@ -166,6 +169,17 @@ function createHarness() {
       findMany: vi.fn(async () => parserReleases),
     },
     inboundWebhookConnection,
+    inboundWebhookChannel: {
+      findMany: vi.fn(
+        async (): Promise<
+          Array<{ id: string; routes: Array<{ id: string }> }>
+        > => [],
+      ),
+      updateMany: vi.fn(async () => ({ count: 0 })),
+    },
+    inboundWebhookReplayBatch: {
+      count: vi.fn(async () => 0),
+    },
     auditLog: {
       create: vi.fn(async ({ data }) => {
         audits.push(data);
@@ -199,6 +213,7 @@ function createHarness() {
   return {
     audits,
     connections,
+    parserReleases,
     prisma,
     service,
     failNextMutationClaim() {
@@ -393,7 +408,7 @@ describe("inbound webhook connections service", () => {
     expect(harness.audits.map((audit) => audit.action)).toEqual([
       "inbound_webhook.connection_created",
       "inbound_webhook.connection_paused",
-      "inbound_webhook.connection_resumed",
+      "inbound_webhook.connection_observation",
       "inbound_webhook.connection_removed",
     ]);
   });
@@ -476,6 +491,57 @@ describe("inbound webhook connections service", () => {
     expect(harness.connections.get(created.connection.id)?.status).toBe(
       "observation",
     );
+  });
+
+  it("activates production only for validated active channels and stamps their live boundary", async () => {
+    const harness = createHarness();
+    const created = await harness.service.createConnection(
+      "workspace_1",
+      {
+        provider: "umbler",
+        displayName: "Umbler Producao",
+      },
+      "user_1",
+    );
+    harness.parserReleases[0]!.status = "certified";
+    harness.prisma.inboundWebhookChannel.findMany.mockResolvedValueOnce([
+      {
+        id: "channel_validated",
+        routes: [{ id: "route_validated" }],
+      },
+    ]);
+
+    const activated = await harness.service.updateStatus(
+      "workspace_1",
+      created.connection.id,
+      { status: "production" },
+      "user_1",
+    );
+
+    expect(activated.status).toBe("production");
+    expect(activated.productionActivatedAt).not.toBeNull();
+    expect(harness.prisma.inboundWebhookChannel.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: "active" }),
+      }),
+    );
+    expect(
+      harness.prisma.inboundWebhookChannel.updateMany,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          connectionId: created.connection.id,
+          status: "active",
+        }),
+        data: expect.objectContaining({
+          productionActivatedAt: expect.any(Date),
+        }),
+      }),
+    );
+    expect(harness.audits.at(-1)).toMatchObject({
+      action: "inbound_webhook.connection_promoted",
+      resultStatus: "production",
+    });
   });
 
   it("does not return a secret when a concurrent mutation wins", async () => {

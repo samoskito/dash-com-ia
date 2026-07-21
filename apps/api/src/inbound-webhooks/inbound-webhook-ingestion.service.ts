@@ -225,7 +225,7 @@ export class InboundWebhookIngestionService {
       !connection ||
       !tokenMatches ||
       connection.removedAt !== null ||
-      connection.status !== "observation"
+      !["observation", "production"].includes(connection.status)
     ) {
       throw new NotFoundException(publicConnectionNotFoundMessage);
     }
@@ -394,7 +394,7 @@ export class InboundWebhookIngestionService {
         id: connection.id,
         workspaceId: connection.workspaceId,
         secretHash: connection.secretHash,
-        status: "observation",
+        status: { in: ["observation", "production"] },
         removedAt: null,
       },
       select: {
@@ -417,7 +417,7 @@ export class InboundWebhookIngestionService {
         id: connection.id,
         workspaceId: connection.workspaceId,
         secretHash: connection.secretHash,
-        status: "observation",
+        status: { in: ["observation", "production"] },
         removedAt: null,
       },
       data: {

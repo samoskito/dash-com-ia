@@ -13,6 +13,7 @@ export const inboundWebhookConnectionStatuses = [
 ] as const;
 export const inboundWebhookMutableConnectionStatuses = [
   "observation",
+  "production",
   "paused",
 ] as const;
 export const inboundWebhookChannelStatuses = [
@@ -178,6 +179,7 @@ export const inboundWebhookConnectionSchema = z.object({
   parserVersion: parserVersionSchema,
   parserReleaseStatus: inboundWebhookParserReleaseStatusSchema.optional(),
   status: inboundWebhookConnectionStatusSchema,
+  productionActivatedAt: dateTimeSchema.nullable(),
   lastDeliveryAt: dateTimeSchema.nullable(),
   lastSuccessfulParseAt: dateTimeSchema.nullable(),
   createdAt: dateTimeSchema,
@@ -211,6 +213,7 @@ export const inboundWebhookCapabilityProviderSchema = z.object({
 
 export const inboundWebhookCapabilitiesSchema = z.object({
   enabled: z.boolean(),
+  productionEnabled: z.boolean(),
   providers: z.array(inboundWebhookCapabilityProviderSchema),
 });
 
@@ -314,6 +317,7 @@ export const inboundWebhookChannelSchema = z.object({
   connectedPhone: z.string().trim().min(1).max(32),
   channelName: z.string().trim().min(1).max(160).nullable(),
   status: inboundWebhookChannelStatusSchema,
+  productionActivatedAt: dateTimeSchema.nullable(),
   firstSeenAt: dateTimeSchema,
   lastSeenAt: dateTimeSchema,
   routes: z.array(inboundWebhookChannelRouteSchema),

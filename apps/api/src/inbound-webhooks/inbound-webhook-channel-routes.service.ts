@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
   InboundWebhookChannelDto,
@@ -50,6 +55,11 @@ const channelReadinessEventSelect = {
   deliveryId: true,
   classification: true,
   replayItem: {
+    select: {
+      status: true,
+    },
+  },
+  productionItem: {
     select: {
       status: true,
     },
@@ -332,6 +342,22 @@ export class InboundWebhookChannelRoutesService {
         workspaceId,
         channelId,
       );
+
+      if (
+        input.status === "active" &&
+        !current.routes.some(
+          (route) =>
+            route.validationStatus === validRouteStatus &&
+            route.metaBusinessConnectionId !== null &&
+            route.metaReportingAccountId !== null &&
+            route.metaConversionDestinationId !== null,
+        )
+      ) {
+        throw new ConflictException(
+          "Configure uma rota Meta valida antes de ativar o canal",
+        );
+      }
+
       const updatedAt = new Date(
         Math.max(Date.now(), current.updatedAt.getTime() + 1),
       );
@@ -343,6 +369,13 @@ export class InboundWebhookChannelRoutesService {
         },
         data: {
           status: input.status,
+          productionActivatedAt:
+            input.status === "active" &&
+            current.connection.status === "production"
+              ? current.status === "active"
+                ? (current.productionActivatedAt ?? updatedAt)
+                : updatedAt
+              : null,
           updatedAt,
         },
       });
@@ -419,6 +452,7 @@ export class InboundWebhookChannelRoutesService {
               in: ["eligible_route_resolved", "eligible_route_unresolved"],
             },
             replayItem: null,
+            productionItem: null,
           },
         },
       },
@@ -464,6 +498,7 @@ export class InboundWebhookChannelRoutesService {
         channelId,
         classification: { in: classifications },
         replayItem: null,
+        productionItem: null,
       },
       select: {
         id: true,
@@ -507,6 +542,7 @@ export class InboundWebhookChannelRoutesService {
               channelId,
               classification: { in: classifications },
               replayItem: null,
+              productionItem: null,
             },
             data: this.eventRouteUpdate(workspaceId, decision),
           });
@@ -1156,19 +1192,32 @@ export class InboundWebhookChannelRoutesService {
     const unresolvedEvents = events.filter(
       (event) => event.classification === "eligible_route_unresolved",
     );
-    const alreadyMaterializedEvents = events.filter((event) =>
-      ["materialized", "duplicate"].includes(event.replayItem?.status ?? ""),
+    const alreadyMaterializedEvents = events.filter(
+      (event) =>
+        ["materialized", "duplicate"].includes(
+          event.replayItem?.status ?? "",
+        ) ||
+        ["materialized", "duplicate"].includes(
+          event.productionItem?.status ?? "",
+        ),
     );
     const openEvents = events.filter(
       (event) =>
-        !["materialized", "duplicate"].includes(event.replayItem?.status ?? ""),
+        !["materialized", "duplicate"].includes(
+          event.replayItem?.status ?? "",
+        ) &&
+        !["materialized", "duplicate"].includes(
+          event.productionItem?.status ?? "",
+        ),
     );
     const retainedEvents = openEvents.filter((event) =>
       availableDeliveryIds.has(event.deliveryId),
     );
     const retainedRoutedEvents = routedEvents.filter(
       (event) =>
-        event.replayItem === null && availableDeliveryIds.has(event.deliveryId),
+        event.replayItem === null &&
+        event.productionItem === null &&
+        availableDeliveryIds.has(event.deliveryId),
     );
     const nextPayloadExpiresAt = retainedEvents
       .map((event) => event.delivery.payloadExpiresAt)
@@ -1246,6 +1295,8 @@ export class InboundWebhookChannelRoutesService {
       connectedPhone: channel.connectedPhone,
       channelName: channel.channelName,
       status: channel.status,
+      productionActivatedAt:
+        channel.productionActivatedAt?.toISOString() ?? null,
       firstSeenAt: channel.firstSeenAt.toISOString(),
       lastSeenAt: channel.lastSeenAt.toISOString(),
       routes: channel.routes.map((route) => this.toRouteDto(route)),
@@ -1286,12 +1337,17 @@ export class InboundWebhookChannelRoutesService {
   }
 
   private channelStatusAuditSummary(
-    channel: Pick<PersistedChannel, "id" | "connectionId" | "status">,
+    channel: Pick<
+      PersistedChannel,
+      "id" | "connectionId" | "status" | "productionActivatedAt"
+    >,
   ): Prisma.InputJsonObject {
     return {
       channelId: channel.id,
       connectionId: channel.connectionId,
       status: channel.status,
+      productionActivatedAt:
+        channel.productionActivatedAt?.toISOString() ?? null,
     };
   }
 

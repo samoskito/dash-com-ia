@@ -14,6 +14,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Send,
   ShieldCheck,
   Trash2,
   Webhook,
@@ -177,8 +178,8 @@ export function InboundWebhookPanel({
           <span className="eyebrow">Fontes de mensagens</span>
           <h2>Webhooks de plataformas WhatsApp</h2>
           <p className="muted">
-            Receba e classifique mensagens de campanha em modo de observacao.
-            Esta etapa nao cria leads nem envia conversoes.
+            Receba mensagens de campanha, valide as rotas e controle quais
+            canais enviam conversoes automaticamente.
           </p>
         </div>
         {canManage && capabilities.enabled ? (
@@ -308,14 +309,11 @@ export function InboundWebhookPanel({
             const connectionPending = pendingAction?.includes(connection.id);
 
             return (
-              <details
-                className="inbound-connection"
-                key={connection.id}
-              >
+              <details className="inbound-connection" key={connection.id}>
                 <summary>
                   <div className="inbound-connection-identity">
                     <span
-                      className={`status-dot ${connection.status === "observation" ? "active" : ""}`}
+                      className={`status-dot ${connection.status !== "paused" ? "active" : ""}`}
                       aria-hidden="true"
                     />
                     <div>
@@ -326,9 +324,7 @@ export function InboundWebhookPanel({
                       </strong>
                       <span>
                         {inboundWebhookProviderLabel(connection.provider)} -{" "}
-                        {connection.status === "observation"
-                          ? "Observando"
-                          : "Pausada"}
+                        {connectionStatusLabel(connection.status)}
                       </span>
                     </div>
                   </div>
@@ -350,6 +346,14 @@ export function InboundWebhookPanel({
                 </summary>
 
                 <div className="inbound-connection-body">
+                  {connection.status === "production" ? (
+                    <div className="feedback-banner success" role="status">
+                      <Send size={16} aria-hidden="true" />
+                      <span>
+                        Envio automatico ativo somente nos canais habilitados.
+                      </span>
+                    </div>
+                  ) : null}
                   {detailState === "error" ? (
                     <p className="action-note warn">
                       Parte dos dados desta conexao esta temporariamente
@@ -384,6 +388,59 @@ export function InboundWebhookPanel({
 
                   {canManage ? (
                     <div className="inbound-connection-actions">
+                      {connection.status === "observation" &&
+                      capabilities.productionEnabled ? (
+                        <button
+                          className="button primary"
+                          type="button"
+                          disabled={Boolean(connectionPending)}
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                "Ativar o envio automatico? Apenas canais habilitados e com rota valida enviarao novos eventos.",
+                              )
+                            ) {
+                              void runConnectionAction(
+                                `production-${connection.id}`,
+                                setConnectionStatusAction,
+                                {
+                                  connectionId: connection.id,
+                                  status: "production",
+                                },
+                              );
+                            }
+                          }}
+                        >
+                          <Send size={15} aria-hidden="true" />
+                          Ativar envios automaticos
+                        </button>
+                      ) : null}
+                      {connection.status === "production" ? (
+                        <button
+                          className="button"
+                          type="button"
+                          disabled={Boolean(connectionPending)}
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                "Voltar para observacao? Novas mensagens continuarao registradas, mas nao gerarao conversoes automaticas.",
+                              )
+                            ) {
+                              void runConnectionAction(
+                                `observation-${connection.id}`,
+                                setConnectionStatusAction,
+                                {
+                                  connectionId: connection.id,
+                                  status: "observation",
+                                },
+                              );
+                            }
+                          }}
+                        >
+                          <Pause size={15} aria-hidden="true" />
+                          Voltar para observacao
+                        </button>
+                      ) : null}
                       <button
                         className="button"
                         type="button"
@@ -407,7 +464,9 @@ export function InboundWebhookPanel({
                         ) : (
                           <Pause size={15} aria-hidden="true" />
                         )}
-                        {connection.status === "paused" ? "Retomar" : "Pausar"}
+                        {connection.status === "paused"
+                          ? "Retomar observacao"
+                          : "Pausar conexao"}
                       </button>
                       <button
                         className="button"
@@ -504,28 +563,41 @@ export function InboundWebhookPanel({
                                     disabled={Boolean(
                                       pendingAction?.includes(channel.id),
                                     )}
-                                    onClick={() =>
-                                      runConnectionAction(
+                                    onClick={() => {
+                                      const activating =
+                                        channel.status !== "active";
+
+                                      if (
+                                        activating &&
+                                        connection.status === "production" &&
+                                        !window.confirm(
+                                          "Ativar o envio deste canal? Novos CTWA com rota valida poderao ser enviados automaticamente.",
+                                        )
+                                      ) {
+                                        return;
+                                      }
+
+                                      void runConnectionAction(
                                         `channel-${channel.id}`,
                                         setChannelStatusAction,
                                         {
                                           channelId: channel.id,
                                           status:
-                                            channel.status === "paused"
-                                              ? "active"
-                                              : "paused",
+                                            channel.status === "active"
+                                              ? "paused"
+                                              : "active",
                                         },
-                                      )
-                                    }
+                                      );
+                                    }}
                                   >
-                                    {channel.status === "paused" ? (
-                                      <Play size={15} aria-hidden="true" />
-                                    ) : (
+                                    {channel.status === "active" ? (
                                       <Pause size={15} aria-hidden="true" />
+                                    ) : (
+                                      <Play size={15} aria-hidden="true" />
                                     )}
-                                    {channel.status === "paused"
-                                      ? "Ativar canal"
-                                      : "Pausar canal"}
+                                    {channel.status === "active"
+                                      ? "Pausar envio"
+                                      : "Ativar envio"}
                                   </button>
                                 </div>
                               ) : null}
@@ -707,7 +779,7 @@ function readinessBlockerLabel(
 
 function channelStatusLabel(status: InboundWebhookChannelDto["status"]) {
   if (status === "active") {
-    return "ativo";
+    return "habilitado";
   }
 
   if (status === "paused") {
@@ -715,6 +787,20 @@ function channelStatusLabel(status: InboundWebhookChannelDto["status"]) {
   }
 
   return "descoberto";
+}
+
+function connectionStatusLabel(
+  status: InboundWebhookConnectionOverviewDto["connection"]["status"],
+) {
+  if (status === "production") {
+    return "Envio automatico";
+  }
+
+  if (status === "observation") {
+    return "Observando";
+  }
+
+  return "Pausada";
 }
 
 function formatDateTime(value: string | null): string {

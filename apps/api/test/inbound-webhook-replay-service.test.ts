@@ -146,6 +146,7 @@ describe("inbound webhook replay service", () => {
           },
         ],
       },
+      productionItem: null,
     };
     const events = [
       {

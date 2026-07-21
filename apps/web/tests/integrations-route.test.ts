@@ -1405,7 +1405,7 @@ describe("integrations route", () => {
       if (canManage) {
         expect(html).toContain("Adicionar conexao");
         expect(html).toContain("Gerar nova URL");
-        expect(html).toContain("Pausar canal");
+        expect(html).toContain("Pausar envio");
         expect(html).toContain("Adicionar rota");
         expect(html).toContain("2 rota(s) preparada(s).");
       } else {

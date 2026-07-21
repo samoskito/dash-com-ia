@@ -22,6 +22,7 @@ vi.mock("next/navigation", () => ({
 
 const capabilities = {
   enabled: true,
+  productionEnabled: true,
   providers: [
     {
       provider: "umbler",
@@ -48,6 +49,7 @@ const connectionView = {
       parserVersion: "umbler/v1",
       parserReleaseStatus: "observation_only",
       status: "observation",
+      productionActivatedAt: null,
       lastDeliveryAt: "2026-07-17T19:35:00.000Z",
       lastSuccessfulParseAt: "2026-07-17T19:34:00.000Z",
       createdAt: "2026-07-17T18:00:00.000Z",
@@ -70,6 +72,7 @@ const connectionView = {
       connectedPhone: "+5511999990001",
       channelName: "Comercial Sao Paulo",
       status: "active",
+      productionActivatedAt: null,
       firstSeenAt: "2026-07-17T18:15:00.000Z",
       lastSeenAt: "2026-07-17T19:30:00.000Z",
       routes: [
@@ -190,7 +193,7 @@ describe("inbound webhook panel", () => {
     );
   });
 
-  it("shows Umbler and Gupshup in an extensible observation-only selector", () => {
+  it("shows Umbler and Gupshup in an extensible provider selector", () => {
     const html = renderPanel({ connections: [] });
 
     expect(inboundWebhookProviderLabel("umbler")).toBe("Umbler Talk");
@@ -201,10 +204,7 @@ describe("inbound webhook panel", () => {
     expect(html).toContain('<select name="provider"');
     expect(html).toContain('<option value="umbler" selected="">Umbler Talk');
     expect(html).toContain('<option value="gupshup">Gupshup</option>');
-    expect(html).toContain("modo de observacao");
-    expect(html).toContain("Esta etapa nao cria leads nem envia conversoes.");
-    expect(html.toLocaleLowerCase("pt-BR")).not.toContain("producao");
-    expect(html.toLocaleLowerCase("pt-BR")).not.toContain("production");
+    expect(html).toContain("controle quais canais enviam conversoes");
   });
 
   it("renders all five counters, channel metadata, and several N:N routes", () => {
@@ -302,10 +302,11 @@ describe("inbound webhook panel", () => {
 
     for (const command of [
       "Adicionar conexao",
-      "Pausar",
+      "Ativar envios automaticos",
+      "Pausar conexao",
       "Gerar nova URL",
       "Remover",
-      "Pausar canal",
+      "Pausar envio",
       "Adicionar rota",
       "Salvar rotas",
     ]) {
@@ -320,7 +321,7 @@ describe("inbound webhook panel", () => {
     expect(analystHtml).toContain('aria-readonly="true"');
     expect(analystHtml).not.toContain("Adicionar conexao");
     expect(analystHtml).not.toContain("Gerar nova URL");
-    expect(analystHtml).not.toContain("Pausar canal");
+    expect(analystHtml).not.toContain("Pausar envio");
     expect(analystHtml).not.toContain("Adicionar rota");
     expect(analystHtml).not.toContain("Salvar rotas");
   });
