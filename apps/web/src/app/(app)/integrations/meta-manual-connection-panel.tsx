@@ -1548,18 +1548,20 @@ export function MetaManualConnectionPanel({
                                       draft.allowedIds.length === 0 ||
                                       pendingAction !== null
                                     }
-                                    onChange={(event) =>
+                                    onChange={(event) => {
+                                      const defaultId =
+                                        event.currentTarget.value;
+
                                       setAccountDestinationDrafts(
                                         (current) => ({
                                           ...current,
                                           [account.id]: {
                                             ...draft,
-                                            defaultId:
-                                              event.currentTarget.value,
+                                            defaultId,
                                           },
                                         }),
-                                      )
-                                    }
+                                      );
+                                    }}
                                     data-presentation-sensitive-field="true"
                                   >
                                     {allowedDestinations.map((item) => (
@@ -1637,13 +1639,15 @@ export function MetaManualConnectionPanel({
                                       value={
                                         adRoutingSearches[account.id] ?? ""
                                       }
-                                      onChange={(event) =>
+                                      onChange={(event) => {
+                                        const searchValue =
+                                          event.currentTarget.value;
+
                                         setAdRoutingSearches((current) => ({
                                           ...current,
-                                          [account.id]:
-                                            event.currentTarget.value,
-                                        }))
-                                      }
+                                          [account.id]: searchValue,
+                                        }));
+                                      }}
                                       placeholder="Buscar anuncio por nome ou ID"
                                       aria-label={`Buscar anuncios de ${account.adAccountName}`}
                                       data-presentation-sensitive-field="true"
@@ -1853,7 +1857,11 @@ export function MetaManualConnectionPanel({
                                                         disabled={
                                                           pendingAction !== null
                                                         }
-                                                        onChange={(event) =>
+                                                        onChange={(event) => {
+                                                          const destinationId =
+                                                            event.currentTarget
+                                                              .value;
+
                                                           setAdDestinationDrafts(
                                                             (current) => ({
                                                               ...current,
@@ -1861,12 +1869,10 @@ export function MetaManualConnectionPanel({
                                                                 account.id,
                                                                 ad.adId,
                                                               )]:
-                                                                event
-                                                                  .currentTarget
-                                                                  .value,
+                                                                destinationId,
                                                             }),
-                                                          )
-                                                        }
+                                                          );
+                                                        }}
                                                         data-presentation-sensitive-field="true"
                                                       >
                                                         <option value="">
