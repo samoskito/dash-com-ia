@@ -266,7 +266,31 @@ export class MetaConnectionResolverService {
       }
 
       this.assertNormalizedConnectionActive(connection);
+      const adDestinationAssignment = input.adId?.trim()
+        ? await this.prisma.metaAd.findFirst({
+            where: {
+              workspaceId: input.workspaceId,
+              adId: input.adId.trim(),
+              adAccountId: account.adAccountId,
+            },
+            select: {
+              destinationAssignment: {
+                select: {
+                  reportingAccountId: true,
+                  conversionDestinationId: true,
+                },
+              },
+            },
+          })
+        : null;
+      const currentAdDestinationId =
+        adDestinationAssignment?.destinationAssignment?.reportingAccountId ===
+        account.id
+          ? adDestinationAssignment.destinationAssignment
+              .conversionDestinationId
+          : null;
       const destinationId =
+        currentAdDestinationId ??
         input.conversionDestinationId ??
         account.conversionDestinationId ??
         connection.defaultConversionDestinationId;

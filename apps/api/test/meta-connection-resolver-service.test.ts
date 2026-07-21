@@ -383,6 +383,30 @@ describe("MetaConnectionResolverService", () => {
     });
   });
 
+  it("uses the current ad assignment when a retry carries a stale destination", async () => {
+    const { prisma, service } = createHarness();
+    prisma.metaAd.findFirst.mockResolvedValueOnce({
+      adAccountId: "act_manual",
+      destinationAssignment: {
+        reportingAccountId: "reporting_manual",
+        conversionDestinationId: "destination_exact",
+      },
+    });
+
+    await expect(
+      service.resolveCapiRoute({
+        workspaceId: "workspace_manual",
+        metaAccountId: "act_manual",
+        adId: "ad_manual",
+        conversionDestinationId: "destination_override",
+      }),
+    ).resolves.toMatchObject({
+      conversionDestinationId: "destination_exact",
+      pixelId: "pixel_exact",
+      pageId: "page_exact",
+    });
+  });
+
   it("previews an exact CAPI route without token access, decrypt, fingerprint or delivery resolution", async () => {
     const { encryption, prisma, routeReader, service } = createHarness();
     const decryptSpy = vi.spyOn(encryption, "decrypt");
