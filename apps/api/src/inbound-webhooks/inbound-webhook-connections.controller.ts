@@ -16,6 +16,7 @@ import {
   inboundWebhookChannelStatusUpdateInputSchema,
   inboundWebhookConnectionCreateInputSchema,
   inboundWebhookConnectionStatusUpdateInputSchema,
+  providerConversionAutomationReprocessBatchInputSchema,
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
@@ -136,6 +137,57 @@ export class InboundWebhookConnectionsController {
     return this.conversionAutomation.reprocessLatestObserved(
       context.workspaceId,
       ruleId,
+      context.userId,
+    );
+  }
+
+  @Get("provider-rules/:ruleId/callbacks")
+  async listProviderRuleCallbacks(
+    @AuthToken() refreshToken: string,
+    @Param("ruleId") ruleId: string,
+  ) {
+    const context = await this.requireManager(refreshToken);
+
+    return this.conversionAutomation.listAutomationCallbacks(
+      context.workspaceId,
+      ruleId,
+    );
+  }
+
+  @Get("provider-rules/:ruleId/callbacks/:deliveryId/payload")
+  async getProviderRuleCallbackPayload(
+    @AuthToken() refreshToken: string,
+    @Param("ruleId") ruleId: string,
+    @Param("deliveryId") deliveryId: string,
+  ) {
+    const context = await this.requireManager(refreshToken);
+
+    return this.conversionAutomation.readAutomationPayload(
+      context.workspaceId,
+      ruleId,
+      deliveryId,
+      context.userId,
+    );
+  }
+
+  @Post("provider-rules/:ruleId/callbacks/reprocess")
+  @HttpCode(200)
+  async reprocessProviderRuleCallbacks(
+    @AuthToken() refreshToken: string,
+    @Param("ruleId") ruleId: string,
+    @Body() body: unknown,
+  ) {
+    const context = await this.requireManager(refreshToken);
+    const parsed =
+      providerConversionAutomationReprocessBatchInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten());
+    }
+
+    return this.conversionAutomation.reprocessSelectedCallbacks(
+      context.workspaceId,
+      ruleId,
+      parsed.data.deliveryIds,
       context.userId,
     );
   }

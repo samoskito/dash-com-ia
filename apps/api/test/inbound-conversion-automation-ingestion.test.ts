@@ -57,6 +57,8 @@ function createHarness(options?: {
     id: "channel_1",
     workspaceId: "workspace_safe",
     connectionId: "connection_1",
+    channelName: "Comercial",
+    connectedPhone: "+5511999999999",
     status: "active" as const,
     productionActivatedAt: activatedAt,
   };
@@ -145,6 +147,38 @@ function createHarness(options?: {
   const purchaseReviews = new Map<string, Record<string, any>>();
   const deliveryByIdentity = (connectionId: string, ingressKey: string) =>
     `${connectionId}:${ingressKey}`;
+  const hydrateDelivery = (delivery: Record<string, any>) => ({
+    ...delivery,
+    providerConversionExecutions: [...executions.values()]
+      .filter((execution) => execution.sourceDeliveryId === delivery.id)
+      .sort(
+        (left, right) =>
+          (right.createdAt?.getTime?.() ?? 0) -
+          (left.createdAt?.getTime?.() ?? 0),
+      )
+      .slice(0, 1)
+      .map((execution) => ({
+        ...execution,
+        channel:
+          execution.channelId === channel.id
+            ? {
+                id: channel.id,
+                channelName: channel.channelName,
+                connectedPhone: channel.connectedPhone,
+              }
+            : null,
+      })),
+  });
+  const deliveryMatchesScope = (
+    delivery: Record<string, any>,
+    where: Record<string, any>,
+  ) =>
+    (!where.id || delivery.id === where.id) &&
+    (!where.workspaceId || delivery.workspaceId === where.workspaceId) &&
+    (!where.connectionId || delivery.connectionId === where.connectionId) &&
+    (!where.providerRuleEndpointId ||
+      delivery.providerRuleEndpointId === where.providerRuleEndpointId) &&
+    (!where.purpose || delivery.purpose === where.purpose);
 
   const providerConversionRuleEndpoint = {
     findUnique: vi.fn(async ({ where }) =>
@@ -191,6 +225,7 @@ function createHarness(options?: {
     findFirst: vi.fn(async ({ where }: any) => {
       const candidates = [...deliveries.values()]
         .filter((delivery) => {
+          if (!deliveryMatchesScope(delivery, where)) return false;
           const related = [...executions.values()].filter(
             (execution) =>
               execution.sourceDeliveryId === delivery.id &&
@@ -218,8 +253,24 @@ function createHarness(options?: {
           (left, right) =>
             right.lastReceivedAt.getTime() - left.lastReceivedAt.getTime(),
         );
-      return candidates[0] ?? null;
+      return candidates[0] ? hydrateDelivery(candidates[0]) : null;
     }),
+    findMany: vi.fn(async ({ where, take }: any) =>
+      [...deliveries.values()]
+        .filter((delivery) => deliveryMatchesScope(delivery, where))
+        .sort(
+          (left, right) =>
+            right.lastReceivedAt.getTime() - left.lastReceivedAt.getTime(),
+        )
+        .slice(0, take)
+        .map(hydrateDelivery),
+    ),
+    count: vi.fn(
+      async ({ where }: any) =>
+        [...deliveries.values()].filter((delivery) =>
+          deliveryMatchesScope(delivery, where),
+        ).length,
+    ),
     create: vi.fn(async ({ data }) => {
       const delivery = { attemptCount: 1, ...data };
       deliveries.set(
@@ -257,7 +308,12 @@ function createHarness(options?: {
         where.providerRuleId_externalExecutionKey.externalExecutionKey;
       const existing = executions.get(key);
       if (existing) return { id: existing.id, status: existing.status };
-      const execution = { id: "execution_1", ...create };
+      const execution = {
+        id: `execution_${executions.size + 1}`,
+        createdAt: now,
+        updatedAt: now,
+        ...create,
+      };
       executions.set(key, execution);
       return { id: execution.id, status: execution.status };
     }),
@@ -266,14 +322,63 @@ function createHarness(options?: {
         ([, execution]) => execution.id === where.id,
       );
       if (!entry) throw new Error("execution not found");
-      Object.assign(entry[1], data);
+      if (data.attemptCount?.increment) {
+        entry[1].attemptCount += data.attemptCount.increment;
+      }
+      for (const [key, value] of Object.entries(data)) {
+        if (key !== "attemptCount") entry[1][key] = value;
+      }
       return entry[1];
     }),
     create: vi.fn(async ({ data }) => {
-      const execution = { id: "execution_reprocessed", ...data };
+      const execution = {
+        id: `execution_${executions.size + 1}`,
+        createdAt: now,
+        updatedAt: now,
+        ...data,
+      };
       executions.set(data.externalExecutionKey, execution);
       return execution;
     }),
+    groupBy: vi.fn(async ({ where }: any) => {
+      const counts = new Map<string, number>();
+      for (const execution of executions.values()) {
+        if (
+          execution.workspaceId !== where.workspaceId ||
+          execution.providerRuleId !== where.providerRuleId
+        ) {
+          continue;
+        }
+        counts.set(execution.status, (counts.get(execution.status) ?? 0) + 1);
+      }
+      return [...counts.entries()].map(([status, count]) => ({
+        status,
+        _count: { _all: count },
+      }));
+    }),
+    count: vi.fn(
+      async ({ where }: any) =>
+        [...executions.values()].filter((execution) => {
+          if (
+            execution.workspaceId !== where.workspaceId ||
+            execution.providerRuleId !== where.providerRuleId ||
+            !where.status.in.includes(execution.status)
+          ) {
+            return false;
+          }
+          const delivery = [...deliveries.values()].find(
+            (candidate) => candidate.id === execution.sourceDeliveryId,
+          );
+          return Boolean(
+            delivery &&
+            delivery.payloadExpiresAt > new Date() &&
+            delivery.encryptedPayload &&
+            delivery.payloadIv &&
+            delivery.payloadTag &&
+            delivery.encryptionKeyVersion,
+          );
+        }).length,
+    ),
   };
   const purchaseReview = {
     upsert: vi.fn(async ({ where, create }) => {
@@ -574,6 +679,84 @@ describe("inbound conversion automation ingestion", () => {
       status: "eligible",
       reasonCode: "automation_manual_reprocess_approved",
     });
+  });
+
+  it("audits every callback and reprocesses a valid selection without a blocked callback stopping the batch", async () => {
+    const harness = createHarness();
+    const valid = await harness.service.ingest(
+      input(Buffer.from(JSON.stringify(automationPayload()))),
+    );
+    const mismatchedPayload = automationPayload("compra_aprovada");
+    mismatchedPayload.conversation.id = "conversation_purchase";
+    const mismatched = await harness.service.ingest(
+      input(Buffer.from(JSON.stringify(mismatchedPayload))),
+    );
+
+    const audit = await harness.service.listAutomationCallbacks(
+      "workspace_safe",
+      "provider_rule_1",
+    );
+    const retainedPayload = await harness.service.readAutomationPayload(
+      "workspace_safe",
+      "provider_rule_1",
+      valid.deliveryId,
+      "manager_1",
+    );
+
+    expect(audit.summary).toMatchObject({
+      total: 2,
+      observed: 1,
+      blocked: 1,
+      recoverable: 2,
+    });
+    expect(audit.items.map((item) => item.deliveryId)).toEqual(
+      expect.arrayContaining([valid.deliveryId, mismatched.deliveryId]),
+    );
+    expect(retainedPayload.payload).toMatchObject({
+      schema: "wpptrack.umbler.automation.v1",
+      automation: "lead_qualificado",
+    });
+
+    harness.env.INBOUND_WEBHOOK_PRODUCTION_ENABLED = "true";
+    harness.env.INBOUND_CONVERSION_PRODUCTION_ENABLED = "true";
+    harness.endpoint.providerRule.mode = "production";
+    harness.endpoint.providerRule.productionActivatedAt = new Date(
+      "2026-07-22T18:00:00.000Z",
+    );
+    harness.endpoint.providerRule.connection.status = "production";
+    harness.endpoint.providerRule.connection.productionActivatedAt = new Date(
+      "2026-07-22T18:00:00.000Z",
+    );
+
+    const replay = await harness.service.reprocessSelectedCallbacks(
+      "workspace_safe",
+      "provider_rule_1",
+      [mismatched.deliveryId, valid.deliveryId],
+      "manager_1",
+    );
+
+    expect(replay).toMatchObject({
+      requested: 2,
+      queued: 1,
+      blocked: 1,
+      skipped: 0,
+    });
+    expect(replay.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          deliveryId: mismatched.deliveryId,
+          status: "blocked",
+          reasonCode: "automation_event_mismatch",
+        }),
+        expect.objectContaining({
+          deliveryId: valid.deliveryId,
+          status: "queued",
+        }),
+      ]),
+    );
+    expect(
+      harness.productionQueue.enqueueProviderConversion,
+    ).toHaveBeenCalledTimes(1);
   });
 
   it("stores an invalid contract for audit without creating an execution", async () => {

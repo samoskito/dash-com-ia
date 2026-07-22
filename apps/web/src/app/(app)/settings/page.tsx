@@ -39,8 +39,10 @@ import { ProviderConversionRulePanel } from "../integrations/provider-conversion
 import {
   adaptProviderConversionRuleAction,
   createProviderConversionRuleAction,
-  reprocessLatestProviderConversionAutomationAction,
+  loadProviderConversionAutomationAuditAction,
+  loadProviderConversionAutomationPayloadAction,
   removeProviderConversionRuleAction,
+  reprocessProviderConversionAutomationCallbacksAction,
   rotateProviderConversionRuleEndpointAction,
   testProviderCatalogMessageAction,
   updateProviderConversionRuleAction,
@@ -1724,8 +1726,14 @@ export default async function SettingsPage() {
                               rotateEndpointAction={
                                 rotateProviderConversionRuleEndpointAction
                               }
-                              reprocessLatestAction={
-                                reprocessLatestProviderConversionAutomationAction
+                              loadAutomationAuditAction={
+                                loadProviderConversionAutomationAuditAction
+                              }
+                              loadAutomationPayloadAction={
+                                loadProviderConversionAutomationPayloadAction
+                              }
+                              reprocessAutomationCallbacksAction={
+                                reprocessProviderConversionAutomationCallbacksAction
                               }
                               removeAction={removeProviderConversionRuleAction}
                               testMessageAction={

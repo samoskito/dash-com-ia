@@ -2,6 +2,9 @@
 
 import type {
   InboundWebhookChannelDto,
+  ProviderConversionAutomationAuditDto,
+  ProviderConversionAutomationAuditItemDto,
+  ProviderConversionAutomationPayloadDto,
   ProviderConversionRuleDto,
   StructuredCatalogMatchReasonCodeDto,
   StructuredCatalogTestMessageResultDto,
@@ -10,7 +13,9 @@ import {
   BookOpen,
   Check,
   Copy,
+  Eye,
   FlaskConical,
+  ListChecks,
   MessageSquareText,
   Pause,
   Pencil,
@@ -26,7 +31,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { FormEvent, ReactNode } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PresentationMask } from "../../../components/presentation-mask";
 import type {
   ProviderConversionRuleActionResult,
@@ -70,7 +75,9 @@ export type ProviderConversionRulePanelProps = {
   createAction: ProviderRuleAction;
   updateAction: ProviderRuleAction;
   rotateEndpointAction: ProviderRuleAction;
-  reprocessLatestAction: ProviderRuleAction;
+  loadAutomationAuditAction: ProviderRuleAction;
+  loadAutomationPayloadAction: ProviderRuleAction;
+  reprocessAutomationCallbacksAction: ProviderRuleAction;
   removeAction: ProviderRuleAction;
   testMessageAction: ProviderRuleAction;
 };
@@ -84,7 +91,9 @@ export function ProviderConversionRulePanel({
   createAction,
   updateAction,
   rotateEndpointAction,
-  reprocessLatestAction,
+  loadAutomationAuditAction,
+  loadAutomationPayloadAction,
+  reprocessAutomationCallbacksAction,
   removeAction,
   testMessageAction,
 }: ProviderConversionRulePanelProps) {
@@ -701,13 +710,6 @@ export function ProviderConversionRulePanel({
             const automation =
               rule.conversionRule.triggerType === "provider_automation";
             const active = rule.conversionRule.active;
-            const observedCallbackAvailable = Boolean(
-              automation &&
-              active &&
-              rule.mode === "production" &&
-              rule.endpoint?.lastDeliveryAt,
-            );
-
             return (
               <article className="provider-conversion-rule" key={rule.id}>
                 <div className="provider-conversion-rule-main">
@@ -835,30 +837,6 @@ export function ProviderConversionRulePanel({
                         <RefreshCw size={15} aria-hidden="true" />
                       </button>
                     ) : null}
-                    {observedCallbackAvailable ? (
-                      <button
-                        className="icon-button"
-                        type="button"
-                        title="Reprocessar ultimo callback observado"
-                        aria-label="Reprocessar ultimo callback observado"
-                        disabled={Boolean(pending)}
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              "Reprocessar somente o ultimo callback observado desta regra e encaminha-lo para a fila normal?",
-                            )
-                          ) {
-                            void runRuleAction(
-                              `reprocess-${rule.id}`,
-                              reprocessLatestAction,
-                              { ruleId: rule.id },
-                            );
-                          }
-                        }}
-                      >
-                        <RotateCcw size={15} aria-hidden="true" />
-                      </button>
-                    ) : null}
                     <button
                       className="icon-button danger"
                       type="button"
@@ -892,6 +870,15 @@ export function ProviderConversionRulePanel({
                   onResult={applyResult}
                 />
 
+                {automation && canManage ? (
+                  <AutomationCallbackAudit
+                    rule={rule}
+                    loadAuditAction={loadAutomationAuditAction}
+                    loadPayloadAction={loadAutomationPayloadAction}
+                    reprocessAction={reprocessAutomationCallbacksAction}
+                  />
+                ) : null}
+
                 {!automation ? (
                   <MessageRuleEditor
                     rule={rule}
@@ -916,6 +903,451 @@ export function ProviderConversionRulePanel({
         )}
       </div>
     </section>
+  );
+}
+
+type AutomationAuditFilter = "all" | "recoverable" | "blocked" | "materialized";
+
+function AutomationCallbackAudit({
+  rule,
+  loadAuditAction,
+  loadPayloadAction,
+  reprocessAction,
+}: {
+  rule: ProviderConversionRuleDto;
+  loadAuditAction: ProviderRuleAction;
+  loadPayloadAction: ProviderRuleAction;
+  reprocessAction: ProviderRuleAction;
+}) {
+  const payloadDialogRef = useRef<HTMLDialogElement>(null);
+  const [audit, setAudit] =
+    useState<ProviderConversionAutomationAuditDto | null>(null);
+  const [payload, setPayload] =
+    useState<ProviderConversionAutomationPayloadDto | null>(null);
+  const [filter, setFilter] = useState<AutomationAuditFilter>("recoverable");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [reprocessing, setReprocessing] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
+
+  async function loadAudit(showSuccess = false, clearNotice = true) {
+    if (loading) return;
+    const formData = new FormData();
+    formData.set("ruleId", rule.id);
+    setLoading(true);
+    if (!showSuccess && clearNotice) setNotice(null);
+    const result = await loadAuditAction(formData);
+    if (result.ok && result.automationAudit) {
+      setAudit(result.automationAudit);
+      const recoverableIds = new Set(
+        result.automationAudit.items
+          .filter((item) => item.reprocessable)
+          .map((item) => item.deliveryId),
+      );
+      setSelected((current) =>
+        current.filter((deliveryId) => recoverableIds.has(deliveryId)),
+      );
+      if (showSuccess) {
+        setNotice({ tone: "success", message: result.message });
+      }
+    } else {
+      setNotice({ tone: "error", message: result.message });
+    }
+    setLoading(false);
+  }
+
+  async function openPayload(deliveryId: string) {
+    const formData = new FormData();
+    formData.set("ruleId", rule.id);
+    formData.set("deliveryId", deliveryId);
+    setLoading(true);
+    setNotice(null);
+    const result = await loadPayloadAction(formData);
+    if (result.ok && result.automationPayload) {
+      setPayload(result.automationPayload);
+      payloadDialogRef.current?.showModal();
+    } else {
+      setNotice({ tone: "error", message: result.message });
+    }
+    setLoading(false);
+  }
+
+  async function reprocess(deliveryIds: string[]) {
+    if (reprocessing || deliveryIds.length === 0) return;
+    if (
+      !window.confirm(
+        `Reavaliar ${deliveryIds.length} callback(s) selecionado(s) e encaminhar somente os que possuem lead pago com CTWA?`,
+      )
+    ) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("ruleId", rule.id);
+    formData.set(
+      "payload",
+      JSON.stringify({
+        confirmation: "REPROCESSAR_CALLBACKS_SELECIONADOS",
+        deliveryIds,
+      }),
+    );
+    setReprocessing(true);
+    setNotice(null);
+    const result = await reprocessAction(formData);
+    if (result.ok) {
+      setSelected([]);
+      await loadAudit(false, false);
+    }
+    setNotice({
+      tone: result.ok ? "success" : "error",
+      message: result.message,
+    });
+    setReprocessing(false);
+  }
+
+  const visibleItems = audit
+    ? audit.items.filter((item) => {
+        if (filter === "recoverable") return item.reprocessable;
+        if (filter === "blocked") return item.status === "blocked";
+        if (filter === "materialized") return item.status === "materialized";
+        return true;
+      })
+    : [];
+  const recoverableIds = audit
+    ? audit.items
+        .filter((item) => item.reprocessable)
+        .map((item) => item.deliveryId)
+        .slice(0, 50)
+    : [];
+
+  return (
+    <details
+      className="provider-callback-audit"
+      onToggle={(event) => {
+        if (event.currentTarget.open && !audit && !loading) {
+          void loadAudit();
+        }
+      }}
+    >
+      <summary>
+        <span className="provider-callback-audit-heading">
+          <ListChecks size={17} aria-hidden="true" />
+          <span>
+            <strong>Auditar eventos recebidos</strong>
+            <small>Payload, diagnostico e reprocessamento por callback</small>
+          </span>
+        </span>
+        <span className="status-chip">
+          {audit ? `${audit.summary.recoverable} recuperavel(is)` : "Abrir"}
+        </span>
+      </summary>
+
+      <div className="provider-callback-audit-body">
+        {notice ? (
+          <div className={`inline-notice ${notice.tone}`}>{notice.message}</div>
+        ) : null}
+
+        {loading && !audit ? (
+          <div className="provider-conversion-empty">
+            <RefreshCw size={17} aria-hidden="true" />
+            <span>Carregando callbacks preservados...</span>
+          </div>
+        ) : audit ? (
+          <>
+            <div
+              className="provider-callback-summary"
+              aria-label="Resumo dos callbacks"
+            >
+              <AuditMetric label="Recebidos" value={audit.summary.total} />
+              <AuditMetric label="Observados" value={audit.summary.observed} />
+              <AuditMetric
+                label="Bloqueados"
+                value={audit.summary.blocked}
+                tone="warn"
+              />
+              <AuditMetric
+                label="Na fila"
+                value={audit.summary.queued}
+                tone="info"
+              />
+              <AuditMetric
+                label="Eventos criados"
+                value={audit.summary.materialized}
+                tone="success"
+              />
+              <AuditMetric
+                label="Recuperaveis"
+                value={audit.summary.recoverable}
+                tone="accent"
+              />
+            </div>
+
+            <div className="provider-callback-toolbar">
+              <div
+                className="provider-callback-filters"
+                aria-label="Filtrar callbacks"
+              >
+                {(
+                  [
+                    ["recoverable", "Recuperaveis"],
+                    ["blocked", "Bloqueados"],
+                    ["materialized", "Eventos criados"],
+                    ["all", "Todos"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    className={filter === value ? "active" : undefined}
+                    type="button"
+                    key={value}
+                    onClick={() => setFilter(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="provider-callback-toolbar-actions">
+                <button
+                  className="button ghost compact-button"
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void loadAudit(true)}
+                >
+                  <RefreshCw size={14} aria-hidden="true" />
+                  Atualizar
+                </button>
+                {recoverableIds.length > 0 ? (
+                  <button
+                    className="button ghost compact-button"
+                    type="button"
+                    onClick={() =>
+                      setSelected(
+                        selected.length === recoverableIds.length
+                          ? []
+                          : recoverableIds,
+                      )
+                    }
+                  >
+                    <Check size={14} aria-hidden="true" />
+                    {selected.length === recoverableIds.length
+                      ? "Limpar selecao"
+                      : "Selecionar ate 50"}
+                  </button>
+                ) : null}
+                <button
+                  className="button primary compact-button"
+                  type="button"
+                  disabled={selected.length === 0 || reprocessing}
+                  onClick={() => void reprocess(selected)}
+                >
+                  <RotateCcw size={14} aria-hidden="true" />
+                  {reprocessing
+                    ? "Reprocessando..."
+                    : `Reprocessar ${selected.length || "selecionados"}`}
+                </button>
+              </div>
+            </div>
+
+            <div className="provider-callback-table" role="table">
+              <div
+                className="provider-callback-row provider-callback-row-head"
+                role="row"
+              >
+                <span aria-label="Selecionar" />
+                <span>Recebido</span>
+                <span>Evento e canal</span>
+                <span>Diagnostico</span>
+                <span>Payload</span>
+                <span>Acao</span>
+              </div>
+              {visibleItems.length > 0 ? (
+                visibleItems.map((item) => (
+                  <AutomationCallbackRow
+                    key={item.deliveryId}
+                    item={item}
+                    selected={selected.includes(item.deliveryId)}
+                    busy={loading || reprocessing}
+                    onSelect={(checked) =>
+                      setSelected((current) =>
+                        checked
+                          ? [...new Set([...current, item.deliveryId])]
+                          : current.filter(
+                              (deliveryId) => deliveryId !== item.deliveryId,
+                            ),
+                      )
+                    }
+                    onPayload={() => void openPayload(item.deliveryId)}
+                    onReprocess={() => void reprocess([item.deliveryId])}
+                  />
+                ))
+              ) : (
+                <div className="provider-callback-empty">
+                  Nenhum callback encontrado neste filtro.
+                </div>
+              )}
+            </div>
+            {audit.summary.total > audit.items.length ? (
+              <p className="action-note">
+                Exibindo os 100 callbacks mais recentes de {audit.summary.total}
+                .
+              </p>
+            ) : null}
+            {audit.summary.recoverable > recoverableIds.length ? (
+              <p className="action-note">
+                Reprocesse em lotes de ate 50 callbacks. Depois de concluir o
+                lote atual, atualize a auditoria para selecionar os proximos.
+              </p>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+
+      <dialog
+        className="event-audit-dialog provider-callback-payload-dialog"
+        ref={payloadDialogRef}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) event.currentTarget.close();
+        }}
+      >
+        <div className="event-audit-dialog-shell">
+          <header className="event-audit-dialog-header">
+            <div>
+              <span className="micro-label">Auditoria do callback</span>
+              <h3>Payload recebido da Umbler</h3>
+              <small>
+                {payload
+                  ? `Recebido em ${formatDateTime(payload.receivedAt)}`
+                  : "Carregando payload"}
+              </small>
+            </div>
+            <button
+              className="meta-dialog-close"
+              type="button"
+              title="Fechar payload"
+              aria-label="Fechar payload"
+              onClick={() => payloadDialogRef.current?.close()}
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+          </header>
+          <div className="event-audit-dialog-body">
+            {payload ? (
+              <>
+                <p className="action-note">
+                  Payload criptografado em repouso e disponivel ate{" "}
+                  {formatDateTime(payload.payloadExpiresAt)}.
+                </p>
+                <pre
+                  className="payload-block provider-callback-raw-payload"
+                  data-presentation-sensitive-field="true"
+                >
+                  {JSON.stringify(payload.payload, null, 2)}
+                </pre>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </dialog>
+    </details>
+  );
+}
+
+function AuditMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "warn" | "info" | "success" | "accent";
+}) {
+  return (
+    <div className={tone ? `tone-${tone}` : undefined}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function AutomationCallbackRow({
+  item,
+  selected,
+  busy,
+  onSelect,
+  onPayload,
+  onReprocess,
+}: {
+  item: ProviderConversionAutomationAuditItemDto;
+  selected: boolean;
+  busy: boolean;
+  onSelect: (checked: boolean) => void;
+  onPayload: () => void;
+  onReprocess: () => void;
+}) {
+  return (
+    <div className="provider-callback-row" role="row">
+      <span>
+        {item.reprocessable ? (
+          <input
+            type="checkbox"
+            checked={selected}
+            aria-label={`Selecionar callback de ${formatDateTime(item.receivedAt)}`}
+            onChange={(event) => onSelect(event.target.checked)}
+          />
+        ) : null}
+      </span>
+      <span className="provider-callback-time">
+        <strong>{formatDateTime(item.receivedAt)}</strong>
+        <small>{item.attemptCount} entrega(s)</small>
+      </span>
+      <span className="provider-callback-source">
+        <strong>{automationEventLabel(item.eventName)}</strong>
+        <small>{item.channel?.name ?? "Canal nao localizado"}</small>
+        {item.channel ? (
+          <PresentationMask placeholder="Numero oculto">
+            {item.channel.connectedPhone}
+          </PresentationMask>
+        ) : null}
+      </span>
+      <span className="provider-callback-diagnosis">
+        <span className={`event-chip ${automationAuditTone(item.status)}`}>
+          {automationAuditStatusLabel(item.status)}
+        </span>
+        <strong>{executionReasonLabel(item.reasonCode)}</strong>
+        <small>
+          Lead pago: {item.leadResolved ? "localizado" : "nao localizado"}
+        </small>
+      </span>
+      <span className="provider-callback-payload-state">
+        <strong>{item.payloadAvailable ? "Disponivel" : "Indisponivel"}</strong>
+        <small>Ate {formatDateTime(item.payloadExpiresAt)}</small>
+      </span>
+      <span className="provider-callback-row-actions">
+        {item.payloadAvailable ? (
+          <button
+            className="icon-button"
+            type="button"
+            title="Ver payload"
+            aria-label={`Ver payload de ${formatDateTime(item.receivedAt)}`}
+            disabled={busy}
+            onClick={onPayload}
+          >
+            <Eye size={15} aria-hidden="true" />
+          </button>
+        ) : null}
+        {item.reprocessable ? (
+          <button
+            className="icon-button"
+            type="button"
+            title="Reprocessar este callback"
+            aria-label={`Reprocessar callback de ${formatDateTime(item.receivedAt)}`}
+            disabled={busy}
+            onClick={onReprocess}
+          >
+            <RotateCcw size={15} aria-hidden="true" />
+          </button>
+        ) : null}
+      </span>
+    </div>
   );
 }
 
@@ -1661,6 +2093,42 @@ function executionStatusLabel(
   >;
 
   return labels[status];
+}
+
+function automationEventLabel(
+  eventName: ProviderConversionAutomationAuditItemDto["eventName"],
+): string {
+  if (eventName === "QualifiedLead") return "Lead qualificado";
+  if (eventName === "Purchase") return "Compra";
+  return "Evento nao identificado";
+}
+
+function automationAuditStatusLabel(
+  status: ProviderConversionAutomationAuditItemDto["status"],
+): string {
+  const labels = {
+    observed: "Observado",
+    eligible: "Na fila",
+    materialized: "Evento criado",
+    duplicate: "Duplicado",
+    blocked: "Bloqueado",
+    failed: "Falhou",
+    invalid_payload: "Payload invalido",
+  } satisfies Record<
+    ProviderConversionAutomationAuditItemDto["status"],
+    string
+  >;
+
+  return labels[status];
+}
+
+function automationAuditTone(
+  status: ProviderConversionAutomationAuditItemDto["status"],
+): "" | "warn" | "bad" | "neutral" {
+  if (status === "materialized") return "";
+  if (status === "observed" || status === "eligible") return "neutral";
+  if (status === "blocked" || status === "duplicate") return "warn";
+  return "bad";
 }
 
 function executionReasonLabel(reasonCode: string | null): string {

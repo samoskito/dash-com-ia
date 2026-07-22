@@ -423,6 +423,86 @@ export const providerConversionAutomationReprocessResultSchema = z.object({
   queueStatus: z.enum(["queued", "existing"]),
 });
 
+export const providerConversionAutomationAuditStatusSchema = z.enum([
+  "observed",
+  "eligible",
+  "materialized",
+  "duplicate",
+  "blocked",
+  "failed",
+  "invalid_payload",
+]);
+
+export const providerConversionAutomationAuditItemSchema = z.object({
+  deliveryId: idSchema,
+  executionId: idSchema.nullable(),
+  receivedAt: z.string().datetime(),
+  lastReceivedAt: z.string().datetime(),
+  providerEventType: z.string().trim().min(1).max(120).nullable(),
+  eventName: conversionEventNameSchema.nullable(),
+  automation: z.string().trim().min(1).max(120).nullable(),
+  status: providerConversionAutomationAuditStatusSchema,
+  reasonCode: z.string().trim().min(1).max(160).nullable(),
+  attemptCount: z.number().int().positive(),
+  executionAttemptCount: z.number().int().nonnegative(),
+  channel: z
+    .object({
+      id: idSchema,
+      name: z.string().trim().min(1).max(160).nullable(),
+      connectedPhone: z.string().trim().min(1).max(32),
+    })
+    .nullable(),
+  leadResolved: z.boolean(),
+  payloadAvailable: z.boolean(),
+  payloadExpiresAt: z.string().datetime(),
+  reprocessable: z.boolean(),
+});
+
+export const providerConversionAutomationAuditSchema = z.object({
+  providerRuleId: idSchema,
+  summary: z.object({
+    total: z.number().int().nonnegative(),
+    observed: z.number().int().nonnegative(),
+    blocked: z.number().int().nonnegative(),
+    queued: z.number().int().nonnegative(),
+    materialized: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+    invalid: z.number().int().nonnegative(),
+    recoverable: z.number().int().nonnegative(),
+  }),
+  items: z.array(providerConversionAutomationAuditItemSchema).max(100),
+});
+
+export const providerConversionAutomationPayloadSchema = z.object({
+  providerRuleId: idSchema,
+  deliveryId: idSchema,
+  receivedAt: z.string().datetime(),
+  payloadExpiresAt: z.string().datetime(),
+  payload: z.record(z.unknown()),
+});
+
+export const providerConversionAutomationReprocessBatchInputSchema = z.object({
+  confirmation: z.literal("REPROCESSAR_CALLBACKS_SELECIONADOS"),
+  deliveryIds: z.array(idSchema).min(1).max(50),
+});
+
+export const providerConversionAutomationReprocessBatchItemSchema = z.object({
+  deliveryId: idSchema,
+  executionId: idSchema.nullable(),
+  status: z.enum(["queued", "existing", "eligible", "blocked", "skipped"]),
+  reasonCode: z.string().trim().min(1).max(160).nullable(),
+  message: z.string().trim().min(1).max(500),
+});
+
+export const providerConversionAutomationReprocessBatchResultSchema = z.object({
+  providerRuleId: idSchema,
+  requested: z.number().int().positive().max(50),
+  queued: z.number().int().nonnegative(),
+  blocked: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  items: z.array(providerConversionAutomationReprocessBatchItemSchema).max(50),
+});
+
 export const purchaseReviewStatuses = [
   "recognized",
   "awaiting_data",
@@ -590,6 +670,27 @@ export type ProviderConversionRuleCreateResultDto = z.infer<
 >;
 export type ProviderConversionAutomationReprocessResultDto = z.infer<
   typeof providerConversionAutomationReprocessResultSchema
+>;
+export type ProviderConversionAutomationAuditStatusDto = z.infer<
+  typeof providerConversionAutomationAuditStatusSchema
+>;
+export type ProviderConversionAutomationAuditItemDto = z.infer<
+  typeof providerConversionAutomationAuditItemSchema
+>;
+export type ProviderConversionAutomationAuditDto = z.infer<
+  typeof providerConversionAutomationAuditSchema
+>;
+export type ProviderConversionAutomationPayloadDto = z.infer<
+  typeof providerConversionAutomationPayloadSchema
+>;
+export type ProviderConversionAutomationReprocessBatchInputDto = z.infer<
+  typeof providerConversionAutomationReprocessBatchInputSchema
+>;
+export type ProviderConversionAutomationReprocessBatchItemDto = z.infer<
+  typeof providerConversionAutomationReprocessBatchItemSchema
+>;
+export type ProviderConversionAutomationReprocessBatchResultDto = z.infer<
+  typeof providerConversionAutomationReprocessBatchResultSchema
 >;
 export type ProviderConversionExecutionDto = z.infer<
   typeof providerConversionExecutionSchema

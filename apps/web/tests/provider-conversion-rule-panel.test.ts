@@ -156,7 +156,7 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain('aria-label="Gerar nova URL"');
   });
 
-  it("keeps replay available when a newer callback is blocked", () => {
+  it("exposes event-level audit when a newer callback is blocked", () => {
     const html = renderPanel({
       rules: [
         {
@@ -212,9 +212,11 @@ describe("provider conversion rule panel", () => {
       ],
     });
 
+    expect(html).toContain("Auditar eventos recebidos");
     expect(html).toContain(
-      'aria-label="Reprocessar ultimo callback observado"',
+      "Payload, diagnostico e reprocessamento por callback",
     );
+    expect(html).not.toContain("Reprocessar ultimo callback observado");
   });
 
   it("keeps a scoped alias editor wired to the existing catalog update", () => {
@@ -320,7 +322,9 @@ function renderPanel({
       createAction: action,
       updateAction: action,
       rotateEndpointAction: action,
-      reprocessLatestAction: action,
+      loadAutomationAuditAction: action,
+      loadAutomationPayloadAction: action,
+      reprocessAutomationCallbacksAction: action,
       removeAction: action,
       testMessageAction: action,
     }),

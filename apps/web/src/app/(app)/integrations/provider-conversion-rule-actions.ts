@@ -1,6 +1,10 @@
 "use server";
 
 import {
+  providerConversionAutomationAuditSchema,
+  providerConversionAutomationPayloadSchema,
+  providerConversionAutomationReprocessBatchInputSchema,
+  providerConversionAutomationReprocessBatchResultSchema,
   providerConversionAutomationReprocessResultSchema,
   providerConversionEndpointSecretResultSchema,
   providerConversionRuleAdaptInputSchema,
@@ -10,6 +14,9 @@ import {
   providerConversionRuleUpdateInputSchema,
   structuredCatalogTestMessageInputSchema,
   structuredCatalogTestMessageResultSchema,
+  type ProviderConversionAutomationAuditDto,
+  type ProviderConversionAutomationPayloadDto,
+  type ProviderConversionAutomationReprocessBatchResultDto,
   type StructuredCatalogTestMessageResultDto,
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
@@ -25,6 +32,9 @@ export type ProviderConversionRuleActionResult = {
   message: string;
   oneTimeSecret?: ProviderConversionRuleOneTimeSecret;
   testResult?: StructuredCatalogTestMessageResultDto;
+  automationAudit?: ProviderConversionAutomationAuditDto;
+  automationPayload?: ProviderConversionAutomationPayloadDto;
+  automationReprocess?: ProviderConversionAutomationReprocessBatchResultDto;
 };
 
 const integrationsPath = "/integrations";
@@ -203,6 +213,111 @@ export async function reprocessLatestProviderConversionAutomationAction(
       isApiRequestError(error)
         ? error.message
         : "Nao foi possivel reprocessar o callback observado.",
+    );
+  }
+}
+
+export async function loadProviderConversionAutomationAuditAction(
+  formData: FormData,
+): Promise<ProviderConversionRuleActionResult> {
+  const ruleId = formId(formData, "ruleId");
+  if (!ruleId) return failure(invalidFormMessage);
+
+  try {
+    const response = await serverApiFetch<unknown>(
+      `/integrations/inbound-webhooks/provider-rules/${encodeURIComponent(ruleId)}/callbacks`,
+    );
+    const result = providerConversionAutomationAuditSchema.safeParse(response);
+    if (!result.success || result.data.providerRuleId !== ruleId) {
+      return failure("Nao foi possivel carregar os callbacks desta regra.");
+    }
+
+    return {
+      ok: true,
+      message: "Historico de callbacks atualizado.",
+      automationAudit: result.data,
+    };
+  } catch (error) {
+    return failure(
+      isApiRequestError(error)
+        ? error.message
+        : "Nao foi possivel carregar os callbacks desta regra.",
+    );
+  }
+}
+
+export async function loadProviderConversionAutomationPayloadAction(
+  formData: FormData,
+): Promise<ProviderConversionRuleActionResult> {
+  const ruleId = formId(formData, "ruleId");
+  const deliveryId = formId(formData, "deliveryId");
+  if (!ruleId || !deliveryId) return failure(invalidFormMessage);
+
+  try {
+    const response = await serverApiFetch<unknown>(
+      `/integrations/inbound-webhooks/provider-rules/${encodeURIComponent(ruleId)}/callbacks/${encodeURIComponent(deliveryId)}/payload`,
+    );
+    const result =
+      providerConversionAutomationPayloadSchema.safeParse(response);
+    if (
+      !result.success ||
+      result.data.providerRuleId !== ruleId ||
+      result.data.deliveryId !== deliveryId
+    ) {
+      return failure("Nao foi possivel abrir o payload deste callback.");
+    }
+
+    return {
+      ok: true,
+      message: "Payload carregado para auditoria.",
+      automationPayload: result.data,
+    };
+  } catch (error) {
+    return failure(
+      isApiRequestError(error)
+        ? error.message
+        : "Nao foi possivel abrir o payload deste callback.",
+    );
+  }
+}
+
+export async function reprocessProviderConversionAutomationCallbacksAction(
+  formData: FormData,
+): Promise<ProviderConversionRuleActionResult> {
+  const ruleId = formId(formData, "ruleId");
+  const input = parsePayload(
+    formData,
+    providerConversionAutomationReprocessBatchInputSchema.safeParse,
+  );
+  if (!ruleId || !input) return failure(invalidFormMessage);
+
+  try {
+    const response = await serverApiFetch<unknown>(
+      `/integrations/inbound-webhooks/provider-rules/${encodeURIComponent(ruleId)}/callbacks/reprocess`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+    );
+    const result =
+      providerConversionAutomationReprocessBatchResultSchema.safeParse(
+        response,
+      );
+    if (!result.success || result.data.providerRuleId !== ruleId) {
+      return failure("Nao foi possivel reprocessar os callbacks selecionados.");
+    }
+
+    revalidateConversionRulePaths();
+    return {
+      ok: true,
+      message: `${result.data.queued} encaminhado(s), ${result.data.blocked} bloqueado(s) e ${result.data.skipped} ignorado(s).`,
+      automationReprocess: result.data,
+    };
+  } catch (error) {
+    return failure(
+      isApiRequestError(error)
+        ? error.message
+        : "Nao foi possivel reprocessar os callbacks selecionados.",
     );
   }
 }

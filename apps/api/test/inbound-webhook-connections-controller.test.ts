@@ -184,6 +184,35 @@ async function createApp(role: WorkspaceRole = "owner") {
       sourceDeliveryId: "delivery_1",
       queueStatus: "queued" as const,
     })),
+    listAutomationCallbacks: vi.fn(async () => ({
+      providerRuleId: "provider_rule_1",
+      summary: {
+        total: 2,
+        observed: 1,
+        blocked: 1,
+        queued: 0,
+        materialized: 0,
+        failed: 0,
+        invalid: 0,
+        recoverable: 2,
+      },
+      items: [],
+    })),
+    readAutomationPayload: vi.fn(async () => ({
+      providerRuleId: "provider_rule_1",
+      deliveryId: "delivery_1",
+      receivedAt: "2026-07-22T15:37:00.000Z",
+      payloadExpiresAt: "2026-07-29T15:37:00.000Z",
+      payload: { schema: "wpptrack.umbler.automation.v1" },
+    })),
+    reprocessSelectedCallbacks: vi.fn(async () => ({
+      providerRuleId: "provider_rule_1",
+      requested: 2,
+      queued: 1,
+      blocked: 1,
+      skipped: 0,
+      items: [],
+    })),
   };
 
   const moduleRef = await Test.createTestingModule({
@@ -320,8 +349,12 @@ describe("inbound webhook connections controller", () => {
   );
 
   it("keeps a workspace member read-only", async () => {
-    const { app, channelRoutesService, connectionsService } =
-      await createApp("member");
+    const {
+      app,
+      channelRoutesService,
+      connectionsService,
+      conversionAutomation,
+    } = await createApp("member");
 
     await request(app.getHttpServer())
       .post("/integrations/inbound-webhooks")
@@ -363,12 +396,42 @@ describe("inbound webhook connections controller", () => {
       .set("Authorization", "Bearer refresh-token")
       .expect(403);
 
+    await request(app.getHttpServer())
+      .get(
+        "/integrations/inbound-webhooks/provider-rules/provider_rule_1/callbacks",
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .get(
+        "/integrations/inbound-webhooks/provider-rules/provider_rule_1/callbacks/delivery_1/payload",
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .post(
+        "/integrations/inbound-webhooks/provider-rules/provider_rule_1/callbacks/reprocess",
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        confirmation: "REPROCESSAR_CALLBACKS_SELECIONADOS",
+        deliveryIds: ["delivery_1"],
+      })
+      .expect(403);
+
     expect(connectionsService.createConnection).not.toHaveBeenCalled();
     expect(connectionsService.rotateSecret).not.toHaveBeenCalled();
     expect(connectionsService.removeConnection).not.toHaveBeenCalled();
     expect(channelRoutesService.replaceRoutes).not.toHaveBeenCalled();
     expect(channelRoutesService.updateChannelStatus).not.toHaveBeenCalled();
     expect(channelRoutesService.removeRoute).not.toHaveBeenCalled();
+    expect(conversionAutomation.listAutomationCallbacks).not.toHaveBeenCalled();
+    expect(conversionAutomation.readAutomationPayload).not.toHaveBeenCalled();
+    expect(
+      conversionAutomation.reprocessSelectedCallbacks,
+    ).not.toHaveBeenCalled();
 
     await app.close();
   });
@@ -428,6 +491,41 @@ describe("inbound webhook connections controller", () => {
       });
 
     await request(app.getHttpServer())
+      .get(
+        "/integrations/inbound-webhooks/provider-rules/provider_rule_1/callbacks",
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.summary.recoverable).toBe(2);
+      });
+
+    await request(app.getHttpServer())
+      .get(
+        "/integrations/inbound-webhooks/provider-rules/provider_rule_1/callbacks/delivery_1/payload",
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.deliveryId).toBe("delivery_1");
+      });
+
+    await request(app.getHttpServer())
+      .post(
+        "/integrations/inbound-webhooks/provider-rules/provider_rule_1/callbacks/reprocess",
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        confirmation: "REPROCESSAR_CALLBACKS_SELECIONADOS",
+        deliveryIds: ["delivery_1", "delivery_2"],
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.queued).toBe(1);
+        expect(body.blocked).toBe(1);
+      });
+
+    await request(app.getHttpServer())
       .put("/integrations/inbound-webhooks/inbound_connection_1/status")
       .set("Authorization", "Bearer refresh-token")
       .send({
@@ -451,6 +549,24 @@ describe("inbound webhook connections controller", () => {
     expect(conversionAutomation.reprocessLatestObserved).toHaveBeenCalledWith(
       "workspace_1",
       "provider_rule_1",
+      "user_1",
+    );
+    expect(conversionAutomation.listAutomationCallbacks).toHaveBeenCalledWith(
+      "workspace_1",
+      "provider_rule_1",
+    );
+    expect(conversionAutomation.readAutomationPayload).toHaveBeenCalledWith(
+      "workspace_1",
+      "provider_rule_1",
+      "delivery_1",
+      "user_1",
+    );
+    expect(
+      conversionAutomation.reprocessSelectedCallbacks,
+    ).toHaveBeenCalledWith(
+      "workspace_1",
+      "provider_rule_1",
+      ["delivery_1", "delivery_2"],
       "user_1",
     );
     expect(connectionsService.updateStatus).toHaveBeenCalledWith(

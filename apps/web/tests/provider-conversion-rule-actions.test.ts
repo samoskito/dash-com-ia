@@ -20,7 +20,10 @@ vi.mock("../src/lib/server-api", () => ({
 import {
   adaptProviderConversionRuleAction,
   createProviderConversionRuleAction,
+  loadProviderConversionAutomationAuditAction,
+  loadProviderConversionAutomationPayloadAction,
   removeProviderConversionRuleAction,
+  reprocessProviderConversionAutomationCallbacksAction,
   reprocessLatestProviderConversionAutomationAction,
   rotateProviderConversionRuleEndpointAction,
   testProviderCatalogMessageAction,
@@ -248,6 +251,96 @@ describe("provider conversion rule server actions", () => {
     });
   });
 
+  it("loads callback history and a selected payload through scoped endpoints", async () => {
+    serverApiFetch
+      .mockResolvedValueOnce({
+        providerRuleId: "provider_rule_1",
+        summary: {
+          total: 1,
+          observed: 1,
+          blocked: 0,
+          queued: 0,
+          materialized: 0,
+          failed: 0,
+          invalid: 0,
+          recoverable: 1,
+        },
+        items: [automationAuditItem],
+      })
+      .mockResolvedValueOnce({
+        providerRuleId: "provider_rule_1",
+        deliveryId: "delivery_1",
+        receivedAt: "2026-07-22T15:37:00.000Z",
+        payloadExpiresAt: "2026-07-29T15:37:00.000Z",
+        payload: { schema: "wpptrack.umbler.automation.v1" },
+      });
+
+    const audit = await loadProviderConversionAutomationAuditAction(
+      form({ ruleId: "provider_rule_1" }),
+    );
+    const payload = await loadProviderConversionAutomationPayloadAction(
+      form({ ruleId: "provider_rule_1", deliveryId: "delivery_1" }),
+    );
+
+    expect(serverApiFetch.mock.calls.map(([path]) => path)).toEqual([
+      "/integrations/inbound-webhooks/provider-rules/provider_rule_1/callbacks",
+      "/integrations/inbound-webhooks/provider-rules/provider_rule_1/callbacks/delivery_1/payload",
+    ]);
+    expect(audit.automationAudit?.summary.recoverable).toBe(1);
+    expect(payload.automationPayload?.deliveryId).toBe("delivery_1");
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("reprocesses explicitly selected callbacks as an independent batch", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      providerRuleId: "provider_rule_1",
+      requested: 2,
+      queued: 1,
+      blocked: 1,
+      skipped: 0,
+      items: [
+        {
+          deliveryId: "delivery_1",
+          executionId: "execution_1",
+          status: "queued",
+          reasonCode: "automation_manual_reprocess_approved",
+          message: "Callback encaminhado para a fila da Meta",
+        },
+        {
+          deliveryId: "delivery_2",
+          executionId: "execution_2",
+          status: "blocked",
+          reasonCode: "automation_paid_lead_missing",
+          message: "Lead pago nao localizado",
+        },
+      ],
+    });
+    const payload = {
+      confirmation: "REPROCESSAR_CALLBACKS_SELECIONADOS",
+      deliveryIds: ["delivery_1", "delivery_2"],
+    };
+
+    const result = await reprocessProviderConversionAutomationCallbacksAction(
+      form({
+        ruleId: "provider_rule_1",
+        payload: JSON.stringify(payload),
+      }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/integrations/inbound-webhooks/provider-rules/provider_rule_1/callbacks/reprocess",
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      message: "1 encaminhado(s), 1 bloqueado(s) e 0 ignorado(s).",
+    });
+    expect(revalidatePath.mock.calls.map(([path]) => path)).toEqual([
+      "/integrations",
+      "/settings",
+    ]);
+  });
+
   it("returns a side-effect-free catalog test result without revalidation", async () => {
     serverApiFetch.mockResolvedValueOnce({
       matched: true,
@@ -318,3 +411,26 @@ function form(values: Record<string, string>): FormData {
   }
   return formData;
 }
+
+const automationAuditItem = {
+  deliveryId: "delivery_1",
+  executionId: "execution_1",
+  receivedAt: "2026-07-22T15:37:00.000Z",
+  lastReceivedAt: "2026-07-22T15:37:00.000Z",
+  providerEventType: "lead_qualificado",
+  eventName: "QualifiedLead",
+  automation: "lead_qualificado",
+  status: "observed",
+  reasonCode: "automation_matched_observation",
+  attemptCount: 1,
+  executionAttemptCount: 0,
+  channel: {
+    id: "channel_1",
+    name: "Comercial",
+    connectedPhone: "+5511999999999",
+  },
+  leadResolved: true,
+  payloadAvailable: true,
+  payloadExpiresAt: "2026-07-29T15:37:00.000Z",
+  reprocessable: true,
+} as const;

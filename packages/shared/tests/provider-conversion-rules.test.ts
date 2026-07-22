@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   conversionRuleCreateInputSchema,
   inboundWebhookDeliveryPurposeSchema,
+  providerConversionAutomationAuditSchema,
+  providerConversionAutomationPayloadSchema,
+  providerConversionAutomationReprocessBatchInputSchema,
+  providerConversionAutomationReprocessBatchResultSchema,
   providerConversionRuleAdaptInputSchema,
   providerConversionRuleCreateInputSchema,
   structuredCatalogTestMessageInputSchema,
@@ -176,6 +180,124 @@ describe("provider conversion rule contracts", () => {
     ).toThrow();
   });
 
+  it("validates event-level automation audit without exposing an implicit latest event", () => {
+    const audit = providerConversionAutomationAuditSchema.parse({
+      providerRuleId: "provider_rule_1",
+      summary: {
+        total: 2,
+        observed: 1,
+        blocked: 1,
+        queued: 0,
+        materialized: 0,
+        failed: 0,
+        invalid: 0,
+        recoverable: 2,
+      },
+      items: [
+        {
+          deliveryId: "delivery_older_valid",
+          executionId: "execution_older_valid",
+          receivedAt: "2026-07-22T15:37:00.000Z",
+          lastReceivedAt: "2026-07-22T15:37:00.000Z",
+          providerEventType: "lead_qualificado",
+          eventName: "QualifiedLead",
+          automation: "lead_qualificado",
+          status: "observed",
+          reasonCode: "automation_matched_observation",
+          attemptCount: 1,
+          executionAttemptCount: 0,
+          channel: {
+            id: "channel_1",
+            name: "Comercial",
+            connectedPhone: "+5511999999999",
+          },
+          leadResolved: true,
+          payloadAvailable: true,
+          payloadExpiresAt: "2026-07-29T15:37:00.000Z",
+          reprocessable: true,
+        },
+        {
+          deliveryId: "delivery_newer_blocked",
+          executionId: "execution_newer_blocked",
+          receivedAt: "2026-07-22T16:37:00.000Z",
+          lastReceivedAt: "2026-07-22T16:37:00.000Z",
+          providerEventType: "lead_qualificado",
+          eventName: "QualifiedLead",
+          automation: "lead_qualificado",
+          status: "blocked",
+          reasonCode: "automation_paid_lead_missing",
+          attemptCount: 1,
+          executionAttemptCount: 1,
+          channel: null,
+          leadResolved: false,
+          payloadAvailable: true,
+          payloadExpiresAt: "2026-07-29T16:37:00.000Z",
+          reprocessable: true,
+        },
+      ],
+    });
+
+    expect(audit.items.map((item) => item.deliveryId)).toEqual([
+      "delivery_older_valid",
+      "delivery_newer_blocked",
+    ]);
+  });
+
+  it("requires explicit confirmation for selected callback replay batches", () => {
+    expect(
+      providerConversionAutomationReprocessBatchInputSchema.safeParse({
+        confirmation: "REPROCESSAR_CALLBACKS_SELECIONADOS",
+        deliveryIds: ["delivery_1", "delivery_2"],
+      }).success,
+    ).toBe(true);
+    expect(
+      providerConversionAutomationReprocessBatchInputSchema.safeParse({
+        confirmation: "REPROCESSAR_TUDO",
+        deliveryIds: ["delivery_1"],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      providerConversionAutomationReprocessBatchResultSchema.parse({
+        providerRuleId: "provider_rule_1",
+        requested: 2,
+        queued: 1,
+        blocked: 1,
+        skipped: 0,
+        items: [
+          {
+            deliveryId: "delivery_1",
+            executionId: "execution_1",
+            status: "queued",
+            reasonCode: "automation_manual_reprocess_approved",
+            message: "Callback encaminhado para a fila da Meta",
+          },
+          {
+            deliveryId: "delivery_2",
+            executionId: "execution_2",
+            status: "blocked",
+            reasonCode: "automation_paid_lead_missing",
+            message: "Lead pago nao localizado",
+          },
+        ],
+      }).requested,
+    ).toBe(2);
+  });
+
+  it("keeps raw automation payload behind a scoped audit response", () => {
+    const result = providerConversionAutomationPayloadSchema.parse({
+      providerRuleId: "provider_rule_1",
+      deliveryId: "delivery_1",
+      receivedAt: "2026-07-22T15:37:00.000Z",
+      payloadExpiresAt: "2026-07-29T15:37:00.000Z",
+      payload: automationPayloadFixture(),
+    });
+
+    expect(result.payload).toMatchObject({
+      schema: "wpptrack.umbler.automation.v1",
+    });
+  });
+
   it("validates side-effect-free structured catalog test messages", () => {
     expect(
       structuredCatalogTestMessageInputSchema.parse({
@@ -218,3 +340,13 @@ describe("provider conversion rule contracts", () => {
     ).toMatchObject({ matched: true, parsedValueCents: 359700 });
   });
 });
+
+function automationPayloadFixture() {
+  return {
+    schema: "wpptrack.umbler.automation.v1",
+    source: "umbler_tag_automation",
+    automation: "lead_qualificado",
+    contact: { phone: "+5511999999999" },
+    conversation: { id: "conversation_1" },
+  };
+}
