@@ -36,6 +36,8 @@ export type InboundWebhooksConfig =
       enabled: false;
       replayEnabled: false;
       productionEnabled: false;
+      conversionRulesEnabled: false;
+      conversionProductionEnabled: false;
       apiPublicUrl: null;
       encryptionKey: null;
       rawPayloadRetentionDays: typeof INBOUND_WEBHOOK_RAW_RETENTION_DAYS;
@@ -44,6 +46,8 @@ export type InboundWebhooksConfig =
       enabled: true;
       replayEnabled: boolean;
       productionEnabled: boolean;
+      conversionRulesEnabled: boolean;
+      conversionProductionEnabled: boolean;
       apiPublicUrl: string;
       encryptionKey: Buffer;
       rawPayloadRetentionDays: typeof INBOUND_WEBHOOK_RAW_RETENTION_DAYS;
@@ -364,10 +368,30 @@ export function parseInboundWebhooksConfig(
       enabled: false,
       replayEnabled: false,
       productionEnabled: false,
+      conversionRulesEnabled: false,
+      conversionProductionEnabled: false,
       apiPublicUrl: null,
       encryptionKey: null,
       rawPayloadRetentionDays: INBOUND_WEBHOOK_RAW_RETENTION_DAYS,
     };
+  }
+
+  const conversionRulesEnabled = parseBoolean(
+    "INBOUND_CONVERSION_RULES_ENABLED",
+    env.INBOUND_CONVERSION_RULES_ENABLED,
+    false,
+  );
+  const conversionProductionEnabled = parseBoolean(
+    "INBOUND_CONVERSION_PRODUCTION_ENABLED",
+    env.INBOUND_CONVERSION_PRODUCTION_ENABLED,
+    false,
+  );
+
+  if (conversionProductionEnabled && !conversionRulesEnabled) {
+    invalid(
+      "INBOUND_CONVERSION_PRODUCTION_ENABLED",
+      "requires INBOUND_CONVERSION_RULES_ENABLED=true",
+    );
   }
 
   return {
@@ -382,6 +406,8 @@ export function parseInboundWebhooksConfig(
       env.INBOUND_WEBHOOK_PRODUCTION_ENABLED,
       false,
     ),
+    conversionRulesEnabled,
+    conversionProductionEnabled,
     apiPublicUrl: parseApiPublicUrl(env),
     encryptionKey: parseInboundWebhookEncryptionKey(env),
     rawPayloadRetentionDays: INBOUND_WEBHOOK_RAW_RETENTION_DAYS,

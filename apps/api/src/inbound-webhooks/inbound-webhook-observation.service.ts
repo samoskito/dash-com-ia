@@ -3,10 +3,12 @@ import { Prisma } from "@prisma/client";
 import type { InboundWebhookJobPayload } from "../common/queue/queue.constants";
 import { hashPhoneIdentity } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { ProviderConversionObservationService } from "../conversion-rules/provider-conversion-observation.service";
 import { InboundWebhookChannelRoutesService } from "./inbound-webhook-channel-routes.service";
 import { InboundWebhookDiagnosticsService } from "./inbound-webhook-diagnostics.service";
 import { InboundWebhookPayloadEncryptionService } from "./inbound-webhook-payload-encryption.service";
 import { InboundWebhookProductionIntakeService } from "./inbound-webhook-production-intake.service";
+import { InboundWebhookProductionQueueService } from "./inbound-webhook-production-queue.service";
 import type {
   InboundWebhookDeliveryNormalizedSummary,
   InboundWebhookEventClassification,
@@ -126,6 +128,10 @@ export class InboundWebhookObservationService {
     private readonly channelRoutes: InboundWebhookChannelRoutesService,
     @Inject(InboundWebhookProductionIntakeService)
     private readonly productionIntake: InboundWebhookProductionIntakeService,
+    @Inject(ProviderConversionObservationService)
+    private readonly providerConversions: ProviderConversionObservationService,
+    @Inject(InboundWebhookProductionQueueService)
+    private readonly productionQueue: InboundWebhookProductionQueueService,
   ) {}
 
   async processDelivery(
@@ -253,6 +259,7 @@ export class InboundWebhookObservationService {
       delivery,
       persisted.routableChannelIds,
     );
+    await this.prepareProviderConversions(delivery, result);
 
     await this.recordDiagnostic(delivery, "processed", result);
 
@@ -532,6 +539,17 @@ export class InboundWebhookObservationService {
           event.channel.name.length <= 160)) &&
       this.isIdentifier(event.contact.externalContactId) &&
       this.isIdentifier(event.contact.phoneNumber) &&
+      ["inbound", "outbound", "unknown"].includes(event.message.direction) &&
+      ["contact", "organization_member", "bot", "unknown"].includes(
+        event.message.authorType,
+      ) &&
+      (event.message.messageType === null ||
+        (typeof event.message.messageType === "string" &&
+          event.message.messageType.length <= 120)) &&
+      (event.message.text === null ||
+        (typeof event.message.text === "string" &&
+          event.message.text.length <= 16_384)) &&
+      typeof event.message.isPrivate === "boolean" &&
       (event.adId === null || this.isIdentifier(event.adId)) &&
       typeof event.hasCtwa === "boolean" &&
       supportedClassifications.has(event.classification) &&
@@ -555,6 +573,9 @@ export class InboundWebhookObservationService {
       summary.occurredAt === event.occurredAt.toISOString() &&
       summary.adId === event.adId &&
       summary.hasCtwa === event.hasCtwa &&
+      summary.messageDirection === event.message.direction &&
+      summary.messageAuthorType === event.message.authorType &&
+      summary.messageType === event.message.messageType &&
       summary.classification === event.classification &&
       summary.classificationReason === event.classificationReason
     );
@@ -763,6 +784,49 @@ export class InboundWebhookObservationService {
     }
   }
 
+  private async prepareProviderConversions(
+    delivery: LoadedDelivery,
+    parsedResult?: InboundWebhookParserResult,
+  ): Promise<void> {
+    try {
+      const parser = this.parserRegistry.resolve({
+        provider: delivery.connection.provider,
+        parserVersion: delivery.connection.parserRelease.version,
+        parserReleaseStatus: delivery.connection.parserRelease.status,
+      });
+      const result =
+        parsedResult ?? this.parseEncryptedPayload(delivery, parser);
+
+      this.validateParserResult(result, parser);
+      if (result.error || result.classification === "invalid_payload") return;
+
+      const observed = await this.providerConversions.observeDelivery({
+        workspaceId: delivery.workspaceId,
+        connectionId: delivery.connectionId,
+        deliveryId: delivery.id,
+        deliveryReceivedAt: delivery.firstReceivedAt,
+        events: result.events,
+      });
+
+      for (const providerConversionExecutionId of observed.eligibleExecutionIds) {
+        try {
+          await this.productionQueue.enqueueProviderConversion({
+            providerConversionExecutionId,
+            workspaceId: delivery.workspaceId,
+          });
+        } catch {
+          this.logger.warn(
+            `Provider conversion enqueue deferred for execution ${providerConversionExecutionId}`,
+          );
+        }
+      }
+    } catch {
+      this.logger.warn(
+        `Provider conversion observation deferred for delivery ${delivery.id}`,
+      );
+    }
+  }
+
   private async finishFailure(
     delivery: LoadedDelivery,
     failure: DeterministicFailure,
@@ -903,6 +967,9 @@ export class InboundWebhookObservationService {
       occurredAt: summary.occurredAt,
       adId: summary.adId,
       hasCtwa: summary.hasCtwa,
+      messageDirection: summary.messageDirection,
+      messageAuthorType: summary.messageAuthorType,
+      messageType: summary.messageType,
       classification: summary.classification,
       classificationReason: summary.classificationReason,
     };

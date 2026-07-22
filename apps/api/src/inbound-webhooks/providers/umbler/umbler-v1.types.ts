@@ -14,7 +14,9 @@ export type UmblerV1Ad = {
 export type UmblerV1LastMessage = {
   Id: string;
   Content?: string | null;
+  MessageType?: string | null;
   SentByOrganizationMember?: unknown | null;
+  BotInstance?: unknown | null;
   IsPrivate: boolean;
   Source: string;
   EventAtUTC: string | null;

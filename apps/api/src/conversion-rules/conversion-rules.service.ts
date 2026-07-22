@@ -4,7 +4,7 @@ import type {
   ConversionRuleCreateInputDto,
   ConversionRuleDto,
   ConversionRuleUpdateInputDto,
-  ConversionTriggerEvaluationInputDto
+  ConversionTriggerEvaluationInputDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 
@@ -12,7 +12,7 @@ type PersistedConversionRule = {
   id: string;
   workspaceId: string;
   name: string;
-  triggerType: "keyword" | "whatsapp_label";
+  triggerType: ConversionRuleDto["triggerType"];
   triggerValue: string;
   matchMode: "contains" | "exact";
   eventName: string;
@@ -21,10 +21,7 @@ type PersistedConversionRule = {
   defaultCurrency: string | null;
   defaultContentName: string | null;
   defaultItems:
-    | Prisma.JsonValue
-    | typeof Prisma.DbNull
-    | typeof Prisma.JsonNull
-    | null;
+    Prisma.JsonValue | typeof Prisma.DbNull | typeof Prisma.JsonNull | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -37,7 +34,7 @@ export class ConversionRulesService {
   async listRules(workspaceId: string): Promise<ConversionRuleDto[]> {
     const rules = await this.prisma.conversionRule.findMany({
       where: { workspaceId },
-      orderBy: { createdAt: "desc" }
+      orderBy: { createdAt: "desc" },
     });
 
     return rules.map((rule) => this.toDto(rule));
@@ -46,7 +43,7 @@ export class ConversionRulesService {
   async createRule(
     workspaceId: string,
     input: ConversionRuleCreateInputDto,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<ConversionRuleDto> {
     const rule = await this.prisma.conversionRule.create({
       data: {
@@ -61,10 +58,10 @@ export class ConversionRulesService {
         defaultCurrency: input.defaultCurrency ?? null,
         defaultContentName: input.defaultContentName ?? null,
         defaultItems: this.toDefaultItemsInput(input.defaultItems, {
-          useDbNullForUndefined: true
+          useDbNullForUndefined: true,
         }),
-        active: input.active
-      }
+        active: input.active,
+      },
     });
     await this.recordRuleAudit({
       workspaceId,
@@ -72,7 +69,7 @@ export class ConversionRulesService {
       action: "conversion_rule.created",
       targetId: rule.id,
       resultStatus: rule.active ? "active" : "inactive",
-      afterSummary: this.ruleAuditSummary(rule)
+      afterSummary: this.ruleAuditSummary(rule),
     });
 
     return this.toDto(rule);
@@ -82,18 +79,18 @@ export class ConversionRulesService {
     workspaceId: string,
     ruleId: string,
     input: ConversionRuleUpdateInputDto,
-    actorUserId?: string | null
+    actorUserId?: string | null,
   ): Promise<ConversionRuleDto> {
     const rule = await this.prisma.conversionRule.update({
       where: {
         id: ruleId,
-        workspaceId
+        workspaceId,
       },
       data: {
         ...input,
         pixelId: input.pixelId === undefined ? undefined : input.pixelId,
-        defaultItems: this.toDefaultItemsInput(input.defaultItems)
-      }
+        defaultItems: this.toDefaultItemsInput(input.defaultItems),
+      },
     });
     await this.recordRuleAudit({
       workspaceId,
@@ -101,7 +98,7 @@ export class ConversionRulesService {
       action: "conversion_rule.updated",
       targetId: rule.id,
       resultStatus: rule.active ? "active" : "inactive",
-      afterSummary: this.ruleAuditSummary(rule)
+      afterSummary: this.ruleAuditSummary(rule),
     });
 
     return this.toDto(rule);
@@ -128,15 +125,17 @@ export class ConversionRulesService {
           sourceIp: null,
           resultStatus: input.resultStatus,
           beforeSummary: undefined,
-          afterSummary: input.afterSummary
-        }
+          afterSummary: input.afterSummary,
+        },
       });
     } catch {
       return;
     }
   }
 
-  private ruleAuditSummary(rule: PersistedConversionRule): Prisma.InputJsonValue {
+  private ruleAuditSummary(
+    rule: PersistedConversionRule,
+  ): Prisma.InputJsonValue {
     return {
       name: rule.name,
       triggerType: rule.triggerType,
@@ -145,25 +144,27 @@ export class ConversionRulesService {
       pixelConfigured: Boolean(rule.pixelId),
       valueConfigured: rule.defaultValueCents !== null,
       currency: rule.defaultCurrency,
-      active: rule.active
+      active: rule.active,
     } as Prisma.InputJsonValue;
   }
 
   async evaluateTriggers(
     workspaceId: string,
-    input: ConversionTriggerEvaluationInputDto
+    input: ConversionTriggerEvaluationInputDto,
   ): Promise<ConversionRuleDto[]> {
     const rules = await this.prisma.conversionRule.findMany({
       where: {
         workspaceId,
-        active: true
+        active: true,
       },
       orderBy: {
-        createdAt: "asc"
-      }
+        createdAt: "asc",
+      },
     });
     const messageText = (input.messageText ?? "").toLocaleLowerCase("pt-BR");
-    const labels = new Set(input.labels.map((label) => label.toLocaleLowerCase("pt-BR")));
+    const labels = new Set(
+      input.labels.map((label) => label.toLocaleLowerCase("pt-BR")),
+    );
 
     return rules
       .filter((rule) => this.matchesRule(rule, messageText, labels))
@@ -173,12 +174,16 @@ export class ConversionRulesService {
   private matchesRule(
     rule: PersistedConversionRule,
     messageText: string,
-    labels: Set<string>
+    labels: Set<string>,
   ): boolean {
     const trigger = rule.triggerValue.toLocaleLowerCase("pt-BR");
 
     if (rule.triggerType === "whatsapp_label") {
       return labels.has(trigger);
+    }
+
+    if (rule.triggerType !== "keyword") {
+      return false;
     }
 
     if (rule.matchMode === "exact") {
@@ -204,7 +209,7 @@ export class ConversionRulesService {
       defaultItems: this.toDefaultItemsDto(rule.defaultItems),
       active: rule.active,
       createdAt: rule.createdAt.toISOString(),
-      updatedAt: rule.updatedAt.toISOString()
+      updatedAt: rule.updatedAt.toISOString(),
     };
   }
 
@@ -212,7 +217,7 @@ export class ConversionRulesService {
     value:
       | ConversionRuleCreateInputDto["defaultItems"]
       | ConversionRuleUpdateInputDto["defaultItems"],
-    options?: { useDbNullForUndefined?: boolean }
+    options?: { useDbNullForUndefined?: boolean },
   ): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
     if (value === undefined) {
       return options?.useDbNullForUndefined ? Prisma.DbNull : undefined;
@@ -227,10 +232,7 @@ export class ConversionRulesService {
 
   private toDefaultItemsDto(
     value:
-      | Prisma.JsonValue
-      | typeof Prisma.DbNull
-      | typeof Prisma.JsonNull
-      | null
+      Prisma.JsonValue | typeof Prisma.DbNull | typeof Prisma.JsonNull | null,
   ): ConversionRuleDto["defaultItems"] {
     if (!Array.isArray(value)) {
       return null;

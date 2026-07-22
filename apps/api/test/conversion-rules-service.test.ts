@@ -6,7 +6,8 @@ type Rule = {
   id: string;
   workspaceId: string;
   name: string;
-  triggerType: "keyword" | "whatsapp_label";
+  triggerType:
+    "keyword" | "whatsapp_label" | "provider_automation" | "structured_catalog";
   triggerValue: string;
   matchMode: "contains" | "exact";
   eventName: string;
@@ -50,7 +51,7 @@ function createHarness() {
         defaultItems: [{ id: "consulta", quantity: 1, item_price: 99 }],
         active: true,
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
       },
       {
         id: "rule_2",
@@ -67,7 +68,7 @@ function createHarness() {
         defaultItems: [{ id: "plano_mensal", quantity: 1, item_price: 199 }],
         active: true,
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
       },
       {
         id: "rule_3",
@@ -84,59 +85,67 @@ function createHarness() {
         defaultItems: null,
         active: false,
         createdAt: now,
-        updatedAt: now
-      }
+        updatedAt: now,
+      },
     ] as Rule[],
-    auditLogs: [] as Array<Record<string, unknown>>
+    auditLogs: [] as Array<Record<string, unknown>>,
   };
   const prisma: FakePrisma = {
     conversionRule: {
       findMany: async (args) => {
         const { where } = args as { where: Partial<Rule> };
         return db.rules.filter((rule) =>
-          Object.entries(where).every(([key, value]) => rule[key as keyof Rule] === value)
+          Object.entries(where).every(
+            ([key, value]) => rule[key as keyof Rule] === value,
+          ),
         );
       },
       create: async (args) => {
-        const { data } = args as { data: Omit<Rule, "id" | "createdAt" | "updatedAt"> };
+        const { data } = args as {
+          data: Omit<Rule, "id" | "createdAt" | "updatedAt">;
+        };
         const rule = {
           id: `rule_${db.rules.length + 1}`,
           ...data,
           createdAt: now,
-          updatedAt: now
+          updatedAt: now,
         };
         db.rules.push(rule);
         return rule;
       },
       update: async (args) => {
-        const { data, where } = args as { data: Partial<Rule>; where: { id: string; workspaceId: string } };
+        const { data, where } = args as {
+          data: Partial<Rule>;
+          where: { id: string; workspaceId: string };
+        };
         const index = db.rules.findIndex(
-          (rule) => rule.id === where.id && rule.workspaceId === where.workspaceId
+          (rule) =>
+            rule.id === where.id && rule.workspaceId === where.workspaceId,
         );
         db.rules[index] = {
           ...db.rules[index],
           ...data,
-          updatedAt: now
+          updatedAt: now,
         };
         return db.rules[index];
-      }
+      },
     },
     auditLog: {
       create: async (args) => {
         const { data } = args as { data: Record<string, unknown> };
         const log = {
           id: `audit_${db.auditLogs.length + 1}`,
-          ...data
+          ...data,
         };
         db.auditLogs.push(log);
         return log;
-      }
-    }
+      },
+    },
   };
 
   return {
     db,
-    service: new ConversionRulesService(prisma as never)
+    service: new ConversionRulesService(prisma as never),
   };
 }
 
@@ -157,9 +166,9 @@ describe("conversion rules service", () => {
         defaultCurrency: "BRL",
         defaultContentName: "Pacote VIP",
         defaultItems: [{ id: "vip", quantity: 1, item_price: 299 }],
-        active: true
+        active: true,
       },
-      "user_1"
+      "user_1",
     );
 
     expect(created).toMatchObject({
@@ -170,13 +179,13 @@ describe("conversion rules service", () => {
       defaultCurrency: "BRL",
       defaultContentName: "Pacote VIP",
       defaultItems: [{ id: "vip", quantity: 1, item_price: 299 }],
-      active: true
+      active: true,
     });
     expect(db.rules[3]).toMatchObject({
       defaultValueCents: 29900,
       defaultCurrency: "BRL",
       defaultContentName: "Pacote VIP",
-      defaultItems: [{ id: "vip", quantity: 1, item_price: 299 }]
+      defaultItems: [{ id: "vip", quantity: 1, item_price: 299 }],
     });
     expect(db.rules).toHaveLength(4);
     expect(db.auditLogs).toContainEqual(
@@ -190,9 +199,9 @@ describe("conversion rules service", () => {
         resultStatus: "active",
         afterSummary: expect.objectContaining({
           valueConfigured: true,
-          currency: "BRL"
-        })
-      })
+          currency: "BRL",
+        }),
+      }),
     );
   });
 
@@ -211,9 +220,9 @@ describe("conversion rules service", () => {
         defaultValueCents: 0,
         defaultCurrency: "BRL",
         defaultContentName: "Diagnostico",
-        active: true
+        active: true,
       },
-      "user_1"
+      "user_1",
     );
 
     expect(created.defaultItems).toBeNull();
@@ -224,9 +233,9 @@ describe("conversion rules service", () => {
         targetId: created.id,
         afterSummary: expect.objectContaining({
           valueConfigured: true,
-          currency: "BRL"
-        })
-      })
+          currency: "BRL",
+        }),
+      }),
     );
   });
 
@@ -242,9 +251,9 @@ describe("conversion rules service", () => {
           defaultValueCents: 9900,
           defaultCurrency: "BRL",
           defaultContentName: "Consulta inicial",
-          defaultItems: [{ id: "consulta", quantity: 1, item_price: 99 }]
-        })
-      ])
+          defaultItems: [{ id: "consulta", quantity: 1, item_price: 99 }],
+        }),
+      ]),
     );
   });
 
@@ -253,25 +262,58 @@ describe("conversion rules service", () => {
 
     const matches = await service.evaluateTriggers("workspace_1", {
       messageText: "Oi, eu quero comprar agora",
-      labels: ["Venda fechada", "Ignorar"]
+      labels: ["Venda fechada", "Ignorar"],
     });
 
     expect(matches.map((rule) => rule.id)).toEqual(["rule_1", "rule_2"]);
-    expect(matches.map((rule) => rule.eventName)).toEqual(["QualifiedLead", "Purchase"]);
+    expect(matches.map((rule) => rule.eventName)).toEqual([
+      "QualifiedLead",
+      "Purchase",
+    ]);
     expect(matches).toEqual([
       expect.objectContaining({
         defaultValueCents: 9900,
         defaultCurrency: "BRL",
         defaultContentName: "Consulta inicial",
-        defaultItems: [{ id: "consulta", quantity: 1, item_price: 99 }]
+        defaultItems: [{ id: "consulta", quantity: 1, item_price: 99 }],
       }),
       expect.objectContaining({
         defaultValueCents: 19900,
         defaultCurrency: "BRL",
         defaultContentName: "Plano mensal",
-        defaultItems: [{ id: "plano_mensal", quantity: 1, item_price: 199 }]
-      })
+        defaultItems: [{ id: "plano_mensal", quantity: 1, item_price: 199 }],
+      }),
     ]);
+  });
+
+  it("keeps provider conversion rules out of the legacy trigger evaluator", async () => {
+    const { db, service } = createHarness();
+    const now = new Date("2026-07-02T03:00:00.000Z");
+
+    db.rules.push({
+      id: "rule_provider",
+      workspaceId: "workspace_1",
+      name: "Compra por automacao Umbler",
+      triggerType: "provider_automation",
+      triggerValue: "provider-rule",
+      matchMode: "contains",
+      eventName: "Purchase",
+      pixelId: null,
+      defaultValueCents: 25000,
+      defaultCurrency: "BRL",
+      defaultContentName: "Compra Umbler",
+      defaultItems: null,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const matches = await service.evaluateTriggers("workspace_1", {
+      messageText: "provider-rule quero comprar",
+      labels: [],
+    });
+
+    expect(matches.map((rule) => rule.id)).toEqual(["rule_1"]);
   });
 
   it("updates only the requested workspace rule", async () => {
@@ -285,9 +327,9 @@ describe("conversion rules service", () => {
         defaultValueCents: null,
         defaultCurrency: null,
         defaultContentName: null,
-        defaultItems: null
+        defaultItems: null,
       },
-      "user_1"
+      "user_1",
     );
 
     expect(updated.active).toBe(false);
@@ -296,7 +338,7 @@ describe("conversion rules service", () => {
       defaultValueCents: null,
       defaultCurrency: null,
       defaultContentName: null,
-      defaultItems: null
+      defaultItems: null,
     });
     expect(db.auditLogs).toContainEqual(
       expect.objectContaining({
@@ -309,9 +351,9 @@ describe("conversion rules service", () => {
         resultStatus: "inactive",
         afterSummary: expect.objectContaining({
           valueConfigured: false,
-          currency: null
-        })
-      })
+          currency: null,
+        }),
+      }),
     );
   });
 });

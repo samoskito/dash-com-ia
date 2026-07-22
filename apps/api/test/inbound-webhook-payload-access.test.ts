@@ -107,6 +107,7 @@ function deliveryRecord(
     externalDeliveryId: "umbler_event_1",
     providerEventType: "Message",
     parserVersion: "v1",
+    purpose: "message_observation" as const,
     status: "processed" as const,
     classification: "eligible_route_resolved" as const,
     firstReceivedAt: new Date("2026-07-17T20:00:00.000Z"),
@@ -174,6 +175,7 @@ function createHarness(state: PayloadState = "available") {
             (!where.connectionId ||
               candidate.connectionId === where.connectionId) &&
             (!where.provider || candidate.provider === where.provider) &&
+            (!where.purpose || candidate.purpose === where.purpose) &&
             (!where.status || candidate.status === where.status) &&
             (!where.classification ||
               candidate.classification === where.classification) &&
@@ -198,18 +200,21 @@ function createHarness(state: PayloadState = "available") {
         )
         .slice(0, take),
     ),
-    count: vi.fn(async ({ where }) =>
-      [...deliveries.values()].filter(
-        (candidate) =>
-          (!where.workspaceId ||
-            candidate.workspaceId === where.workspaceId) &&
-          (!where.connectionId ||
-            candidate.connectionId === where.connectionId) &&
-          (!where.provider || candidate.provider === where.provider) &&
-          (!where.status || candidate.status === where.status) &&
-          (!where.classification ||
-            candidate.classification === where.classification),
-      ).length,
+    count: vi.fn(
+      async ({ where }) =>
+        [...deliveries.values()].filter(
+          (candidate) =>
+            (!where.workspaceId ||
+              candidate.workspaceId === where.workspaceId) &&
+            (!where.connectionId ||
+              candidate.connectionId === where.connectionId) &&
+            (!where.provider || candidate.provider === where.provider) &&
+            (!where.purpose || candidate.purpose === where.purpose) &&
+            (!where.id || candidate.id === where.id) &&
+            (!where.status || candidate.status === where.status) &&
+            (!where.classification ||
+              candidate.classification === where.classification),
+        ).length,
     ),
     findUnique: vi.fn(async ({ where, select }) => {
       const found = deliveries.get(where.id);
@@ -222,19 +227,20 @@ function createHarness(state: PayloadState = "available") {
     }),
   };
   const inboundWebhookEvent = {
-    count: vi.fn(async ({ where }) =>
-      [...deliveries.values()]
-        .flatMap((candidate) => candidate.events)
-        .filter(
-          (candidate) =>
-            (!where.workspaceId ||
-              candidate.workspaceId === where.workspaceId) &&
-            (!where.connectionId ||
-              candidate.connectionId === where.connectionId) &&
-            (!where.provider || candidate.provider === where.provider) &&
-            (!where.classification ||
-              candidate.classification === where.classification),
-        ).length,
+    count: vi.fn(
+      async ({ where }) =>
+        [...deliveries.values()]
+          .flatMap((candidate) => candidate.events)
+          .filter(
+            (candidate) =>
+              (!where.workspaceId ||
+                candidate.workspaceId === where.workspaceId) &&
+              (!where.connectionId ||
+                candidate.connectionId === where.connectionId) &&
+              (!where.provider || candidate.provider === where.provider) &&
+              (!where.classification ||
+                candidate.classification === where.classification),
+          ).length,
     ),
   };
   const prisma = {
@@ -297,6 +303,7 @@ describe("inbound webhook payload access", () => {
         parserReleaseStatus: "observation_only",
         payloadAvailable: true,
         eventCount: 1,
+        purpose: "message_observation",
       }),
     ]);
     const serialized = JSON.stringify(result);
@@ -372,9 +379,12 @@ describe("inbound webhook payload access", () => {
       ctwaRouted: 1,
       failed: 0,
       noCtwa: 0,
+      automationCallbacks: 0,
     });
     expect(harness.prisma.inboundWebhookEvent.count).toHaveBeenCalledTimes(4);
-    expect(harness.prisma.inboundWebhookDelivery.count).toHaveBeenCalledTimes(1);
+    expect(harness.prisma.inboundWebhookDelivery.count).toHaveBeenCalledTimes(
+      2,
+    );
   });
 
   it.each([

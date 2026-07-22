@@ -67,6 +67,13 @@ class DiscoveryParser implements InboundWebhookParser {
             phoneNumber: "+15550001111",
             name: null,
           },
+          message: {
+            direction: "inbound",
+            authorType: "contact",
+            messageType: "Text",
+            text: null,
+            isPrivate: false,
+          },
           adId: null,
           ad: null,
           ctwaClid: null,
@@ -84,6 +91,9 @@ class DiscoveryParser implements InboundWebhookParser {
             occurredAt: occurredAt.toISOString(),
             adId: null,
             hasCtwa: false,
+            messageDirection: "inbound",
+            messageAuthorType: "contact",
+            messageType: "Text",
             classification,
             classificationReason,
           },
@@ -279,6 +289,18 @@ function createHarness() {
   const productionIntake = {
     enqueueDelivery: vi.fn(async () => undefined),
   };
+  const providerConversions = {
+    observeDelivery: vi.fn(async () => ({
+      executionIds: [],
+      eligibleExecutionIds: [],
+    })),
+  };
+  const productionQueue = {
+    enqueueProviderConversion: vi.fn(async () => ({
+      jobId: "provider-conversion-test",
+      status: "queued" as const,
+    })),
+  };
   const service = new InboundWebhookObservationService(
     prisma as unknown as PrismaService,
     encryption as unknown as InboundWebhookPayloadEncryptionService,
@@ -286,6 +308,8 @@ function createHarness() {
     diagnostics as unknown as InboundWebhookDiagnosticsService,
     channelRoutes as unknown as InboundWebhookChannelRoutesService,
     productionIntake as unknown as InboundWebhookProductionIntakeService,
+    providerConversions as never,
+    productionQueue as never,
   );
 
   return {

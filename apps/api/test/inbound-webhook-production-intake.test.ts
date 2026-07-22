@@ -94,6 +94,10 @@ describe("inbound webhook production intake", () => {
       queued: 1,
       existing: 0,
       queueFailures: 0,
+      providerEligible: 0,
+      providerQueued: 0,
+      providerExisting: 0,
+      providerQueueFailures: 0,
     });
     expect(createMany).toHaveBeenCalledWith({
       data: [
@@ -140,8 +144,70 @@ describe("inbound webhook production intake", () => {
       queued: 0,
       existing: 0,
       queueFailures: 0,
+      providerEligible: 0,
+      providerQueued: 0,
+      providerExisting: 0,
+      providerQueueFailures: 0,
     });
     expect(prisma.inboundWebhookEvent.findMany).not.toHaveBeenCalled();
     expect(queue.enqueueItem).not.toHaveBeenCalled();
+  });
+
+  it("recovers eligible provider conversions with deterministic queue jobs", async () => {
+    const prisma = {
+      inboundWebhookProductionItem: {
+        findMany: vi.fn(async () => []),
+      },
+      providerConversionRuleExecution: {
+        findMany: vi.fn(async () => [
+          { id: "provider_execution_1", workspaceId: "workspace_1" },
+          { id: "provider_execution_2", workspaceId: "workspace_2" },
+        ]),
+      },
+    };
+    const queue = {
+      enqueueItem: vi.fn(),
+      enqueueProviderConversion: vi
+        .fn()
+        .mockResolvedValueOnce({ status: "queued" as const })
+        .mockResolvedValueOnce({ status: "existing" as const }),
+    };
+    const service = new InboundWebhookProductionIntakeService(
+      prisma as unknown as PrismaService,
+      queue as unknown as InboundWebhookProductionQueueService,
+      {
+        ...productionEnvironment(),
+        INBOUND_CONVERSION_RULES_ENABLED: "true",
+        INBOUND_CONVERSION_PRODUCTION_ENABLED: "true",
+      },
+    );
+
+    const result = await service.recoverPendingItems(
+      new Date("2026-07-21T15:00:00.000Z"),
+    );
+
+    expect(result).toMatchObject({
+      eligible: 0,
+      providerEligible: 2,
+      providerQueued: 1,
+      providerExisting: 1,
+      providerQueueFailures: 0,
+    });
+    expect(queue.enqueueProviderConversion).toHaveBeenNthCalledWith(1, {
+      providerConversionExecutionId: "provider_execution_1",
+      workspaceId: "workspace_1",
+    });
+    expect(queue.enqueueProviderConversion).toHaveBeenNthCalledWith(2, {
+      providerConversionExecutionId: "provider_execution_2",
+      workspaceId: "workspace_2",
+    });
+    expect(
+      prisma.providerConversionRuleExecution.findMany,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: "eligible" }),
+        take: 100,
+      }),
+    );
   });
 });

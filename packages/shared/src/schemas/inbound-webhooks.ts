@@ -32,6 +32,10 @@ export const inboundWebhookDeliveryStatuses = [
   "processed",
   "failed",
 ] as const;
+export const inboundWebhookDeliveryPurposes = [
+  "message_observation",
+  "conversion_automation",
+] as const;
 export const inboundWebhookEventClassifications = [
   "eligible_route_resolved",
   "eligible_route_unresolved",
@@ -98,6 +102,9 @@ export const inboundWebhookMutableChannelStatusSchema = z.enum(
 );
 export const inboundWebhookDeliveryStatusSchema = z.enum(
   inboundWebhookDeliveryStatuses,
+);
+export const inboundWebhookDeliveryPurposeSchema = z.enum(
+  inboundWebhookDeliveryPurposes,
 );
 export const inboundWebhookEventClassificationSchema = z.enum(
   inboundWebhookEventClassifications,
@@ -234,6 +241,7 @@ export const backofficeInboundWebhookDeliveryQuerySchema = z.object({
   workspaceId: idSchema.optional(),
   connectionId: idSchema.optional(),
   provider: inboundWebhookProviderSchema.optional(),
+  purpose: inboundWebhookDeliveryPurposeSchema.optional(),
   status: inboundWebhookDeliveryStatusSchema.optional(),
   classification: inboundWebhookEventClassificationSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -244,6 +252,7 @@ export const backofficeInboundWebhookDeliverySummaryQuerySchema =
     workspaceId: true,
     connectionId: true,
     provider: true,
+    purpose: true,
   });
 
 export const backofficeInboundWebhookDeliverySummarySchema = z.object({
@@ -252,6 +261,7 @@ export const backofficeInboundWebhookDeliverySummarySchema = z.object({
   ctwaRouted: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative(),
   noCtwa: z.number().int().nonnegative(),
+  automationCallbacks: z.number().int().nonnegative(),
 });
 
 export const backofficeInboundWebhookDeliverySchema = z.object({
@@ -263,6 +273,7 @@ export const backofficeInboundWebhookDeliverySchema = z.object({
   providerEventType: z.string().trim().min(1).max(120).nullable(),
   parserVersion: parserVersionSchema,
   parserReleaseStatus: inboundWebhookParserReleaseStatusSchema,
+  purpose: inboundWebhookDeliveryPurposeSchema,
   status: inboundWebhookDeliveryStatusSchema,
   classification: inboundWebhookEventClassificationSchema.nullable(),
   firstReceivedAt: dateTimeSchema,
@@ -451,6 +462,9 @@ export type InboundWebhookMutableChannelStatusDto = z.infer<
 >;
 export type InboundWebhookDeliveryStatusDto = z.infer<
   typeof inboundWebhookDeliveryStatusSchema
+>;
+export type InboundWebhookDeliveryPurposeDto = z.infer<
+  typeof inboundWebhookDeliveryPurposeSchema
 >;
 export type InboundWebhookEventClassificationDto = z.infer<
   typeof inboundWebhookEventClassificationSchema

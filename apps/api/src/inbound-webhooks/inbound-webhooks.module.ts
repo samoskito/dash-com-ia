@@ -7,10 +7,12 @@ import {
   INBOUND_WEBHOOK_QUEUE,
 } from "../common/queue/queue.constants";
 import { RuntimeModule } from "../common/runtime/runtime.module";
+import { ConversionRulesModule } from "../conversion-rules/conversion-rules.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { BackofficeInboundWebhooksController } from "./backoffice-inbound-webhooks.controller";
 import { BackofficeInboundWebhooksService } from "./backoffice-inbound-webhooks.service";
 import { InboundWebhookChannelRoutesService } from "./inbound-webhook-channel-routes.service";
+import { InboundConversionAutomationIngestionService } from "./inbound-conversion-automation-ingestion.service";
 import { InboundWebhookConnectionsController } from "./inbound-webhook-connections.controller";
 import { InboundWebhookConnectionsService } from "./inbound-webhook-connections.service";
 import { InboundWebhookDiagnosticsService } from "./inbound-webhook-diagnostics.service";
@@ -31,6 +33,7 @@ import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser
     AuthModule,
     PrismaModule,
     RuntimeModule,
+    ConversionRulesModule,
     WorkspacesModule,
     BullModule.registerQueue({
       name: INBOUND_WEBHOOK_QUEUE,
@@ -46,6 +49,7 @@ import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser
   ],
   providers: [
     BackofficeInboundWebhooksService,
+    InboundConversionAutomationIngestionService,
     InboundWebhookChannelRoutesService,
     InboundWebhookConnectionsService,
     InboundWebhookDiagnosticsService,
@@ -63,6 +67,7 @@ import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser
   exports: [
     InboundWebhookChannelRoutesService,
     InboundWebhookConnectionsService,
+    InboundWebhookMetaRouteReaderService,
     InboundWebhookPayloadEncryptionService,
     InboundWebhookProductionIntakeService,
     InboundWebhookProductionQueueService,

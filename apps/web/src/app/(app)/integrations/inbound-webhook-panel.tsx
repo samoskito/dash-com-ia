@@ -5,6 +5,7 @@ import type {
   InboundWebhookChannelDto,
   InboundWebhookConnectionOverviewDto,
   MetaManualConfigurationDto,
+  ProviderConversionRuleDto,
 } from "@wpptrack/shared";
 import {
   AlertTriangle,
@@ -29,10 +30,16 @@ import type {
   InboundWebhookOneTimeSecret,
 } from "./inbound-webhook-actions";
 import { InboundWebhookRouteEditor } from "./inbound-webhook-route-editor";
+import type { ProviderConversionRuleActionResult } from "./provider-conversion-rule-actions";
+import { ProviderConversionRulePanel } from "./provider-conversion-rule-panel";
 
 type InboundWebhookAction = (
   formData: FormData,
 ) => Promise<InboundWebhookActionResult>;
+
+type ProviderConversionRuleAction = (
+  formData: FormData,
+) => Promise<ProviderConversionRuleActionResult>;
 
 export type InboundWebhookConnectionView = {
   overview: InboundWebhookConnectionOverviewDto;
@@ -43,6 +50,8 @@ export type InboundWebhookConnectionView = {
 export type InboundWebhookPanelProps = {
   capabilities: InboundWebhookCapabilitiesDto;
   connections: InboundWebhookConnectionView[];
+  providerRules: ProviderConversionRuleDto[];
+  providerRulesEnabled: boolean;
   metaConfiguration: MetaManualConfigurationDto | null;
   canManage: boolean;
   createAction: InboundWebhookAction;
@@ -51,6 +60,11 @@ export type InboundWebhookPanelProps = {
   removeConnectionAction: InboundWebhookAction;
   setChannelStatusAction: InboundWebhookAction;
   saveRoutesAction: InboundWebhookAction;
+  createProviderRuleAction: ProviderConversionRuleAction;
+  updateProviderRuleAction: ProviderConversionRuleAction;
+  rotateProviderRuleEndpointAction: ProviderConversionRuleAction;
+  removeProviderRuleAction: ProviderConversionRuleAction;
+  testProviderCatalogMessageAction: ProviderConversionRuleAction;
 };
 
 type PanelNotice = {
@@ -70,6 +84,8 @@ export function inboundWebhookProviderLabel(provider: string): string {
 export function InboundWebhookPanel({
   capabilities,
   connections,
+  providerRules,
+  providerRulesEnabled,
   metaConfiguration,
   canManage,
   createAction,
@@ -78,6 +94,11 @@ export function InboundWebhookPanel({
   removeConnectionAction,
   setChannelStatusAction,
   saveRoutesAction,
+  createProviderRuleAction,
+  updateProviderRuleAction,
+  rotateProviderRuleEndpointAction,
+  removeProviderRuleAction,
+  testProviderCatalogMessageAction,
 }: InboundWebhookPanelProps) {
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(connections.length === 0);
@@ -619,6 +640,23 @@ export function InboundWebhookPanel({
                       })
                     )}
                   </div>
+
+                  {connection.provider === "umbler" ? (
+                    <ProviderConversionRulePanel
+                      connectionId={connection.id}
+                      channels={channels}
+                      rules={providerRules.filter(
+                        (rule) => rule.connectionId === connection.id,
+                      )}
+                      enabled={providerRulesEnabled}
+                      canManage={canManage}
+                      createAction={createProviderRuleAction}
+                      updateAction={updateProviderRuleAction}
+                      rotateEndpointAction={rotateProviderRuleEndpointAction}
+                      removeAction={removeProviderRuleAction}
+                      testMessageAction={testProviderCatalogMessageAction}
+                    />
+                  ) : null}
                 </div>
               </details>
             );

@@ -13,6 +13,10 @@ export type InboundWebhookProductionEnqueueResult = {
   queued: number;
   existing: number;
   queueFailures: number;
+  providerEligible: number;
+  providerQueued: number;
+  providerExisting: number;
+  providerQueueFailures: number;
 };
 
 function emptyResult(): InboundWebhookProductionEnqueueResult {
@@ -22,6 +26,10 @@ function emptyResult(): InboundWebhookProductionEnqueueResult {
     queued: 0,
     existing: 0,
     queueFailures: 0,
+    providerEligible: 0,
+    providerQueued: 0,
+    providerExisting: 0,
+    providerQueueFailures: 0,
   };
 }
 
@@ -159,7 +167,59 @@ export class InboundWebhookProductionIntakeService {
     result.eligible = items.length;
 
     await this.enqueueItems(items, result);
+    await this.recoverProviderConversions(result);
     return result;
+  }
+
+  private async recoverProviderConversions(
+    result: InboundWebhookProductionEnqueueResult,
+  ): Promise<void> {
+    if (!this.conversionProductionEnabled()) {
+      return;
+    }
+
+    const executions =
+      await this.prisma.providerConversionRuleExecution.findMany({
+        where: {
+          status: "eligible",
+          providerRule: {
+            mode: "production",
+            removedAt: null,
+            productionActivatedAt: { not: null },
+            conversionRule: { active: true },
+            parserRelease: { status: "certified" },
+            connection: {
+              status: "production",
+              removedAt: null,
+            },
+          },
+        },
+        select: {
+          id: true,
+          workspaceId: true,
+        },
+        orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+        take: INBOUND_WEBHOOK_PRODUCTION_RECOVERY_BATCH_SIZE,
+      });
+
+    result.providerEligible = executions.length;
+
+    for (const execution of executions) {
+      try {
+        const queued = await this.queue.enqueueProviderConversion({
+          providerConversionExecutionId: execution.id,
+          workspaceId: execution.workspaceId,
+        });
+
+        if (queued.status === "existing") {
+          result.providerExisting += 1;
+        } else {
+          result.providerQueued += 1;
+        }
+      } catch {
+        result.providerQueueFailures += 1;
+      }
+    }
   }
 
   private async enqueueItems(
@@ -216,5 +276,16 @@ export class InboundWebhookProductionIntakeService {
     const config = parseInboundWebhooksConfig(this.env);
 
     return config.enabled && config.productionEnabled;
+  }
+
+  private conversionProductionEnabled(): boolean {
+    const config = parseInboundWebhooksConfig(this.env);
+
+    return (
+      config.enabled &&
+      config.productionEnabled &&
+      config.conversionRulesEnabled &&
+      config.conversionProductionEnabled
+    );
   }
 }

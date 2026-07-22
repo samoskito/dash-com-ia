@@ -1,6 +1,7 @@
 import type {
   BackofficeInboundWebhookDeliveryDto,
   BackofficeInboundWebhookDeliverySummaryDto,
+  InboundWebhookDeliveryPurposeDto,
   InboundWebhookDeliveryStatusDto,
   InboundWebhookEventClassificationDto,
 } from "@wpptrack/shared";
@@ -21,6 +22,7 @@ type DeliveryFilters = {
   classification?: string;
   connectionId?: string;
   provider?: string;
+  purpose?: InboundWebhookDeliveryPurposeDto;
   status?: string;
   workspaceId?: string;
 };
@@ -36,7 +38,7 @@ type DeliverySummaryResult = {
 };
 
 type QuickFilterKey =
-  "all" | "ctwa_pending" | "ctwa_routed" | "failed" | "no_ctwa";
+  "all" | "automation" | "ctwa_pending" | "ctwa_routed" | "failed" | "no_ctwa";
 
 const deliveryStatuses: Array<{
   label: string;
@@ -83,6 +85,10 @@ function deliveryScopeParams(filters: DeliveryFilters): URLSearchParams {
 
   if (filters.provider) {
     params.set("provider", filters.provider);
+  }
+
+  if (filters.purpose) {
+    params.set("purpose", filters.purpose);
   }
 
   return params;
@@ -149,6 +155,12 @@ function quickFilterHref(
 ): string {
   const params = deliveryScopeParams(filters);
 
+  if (quickFilter === "automation") {
+    params.set("purpose", "conversion_automation");
+  } else {
+    params.delete("purpose");
+  }
+
   if (quickFilter === "ctwa_pending") {
     params.set("classification", "eligible_route_unresolved");
   } else if (quickFilter === "ctwa_routed") {
@@ -207,6 +219,30 @@ function classificationDescription(
   }
 }
 
+function deliveryPurposeLabel(
+  purpose: InboundWebhookDeliveryPurposeDto,
+): string {
+  return purpose === "conversion_automation"
+    ? "Automacao de conversao"
+    : "Mensagem WhatsApp";
+}
+
+function deliveryResultLabel(
+  delivery: BackofficeInboundWebhookDeliveryDto,
+): string {
+  return delivery.purpose === "conversion_automation"
+    ? "Callback preservado"
+    : classificationLabel(delivery.classification);
+}
+
+function deliveryResultDescription(
+  delivery: BackofficeInboundWebhookDeliveryDto,
+): string {
+  return delivery.purpose === "conversion_automation"
+    ? "Payload da automacao retido para validar e certificar o parser."
+    : classificationDescription(delivery.classification);
+}
+
 function payloadLabel(delivery: BackofficeInboundWebhookDeliveryDto): string {
   if (delivery.payloadAvailable) {
     return "Payload disponivel";
@@ -218,6 +254,10 @@ function payloadLabel(delivery: BackofficeInboundWebhookDeliveryDto): string {
 }
 
 function activeQuickFilter(filters: DeliveryFilters): QuickFilterKey | null {
+  if (filters.purpose === "conversion_automation") {
+    return "automation";
+  }
+
   if (filters.status === "failed") {
     return "failed";
   }
@@ -272,6 +312,8 @@ export default async function InboundWebhookDeliveriesPage({
     workspaceId: asStringParam(resolvedSearchParams.workspaceId),
     connectionId: asStringParam(resolvedSearchParams.connectionId),
     provider: asStringParam(resolvedSearchParams.provider),
+    purpose: asStringParam(resolvedSearchParams.purpose) as
+      InboundWebhookDeliveryPurposeDto | undefined,
     status: asStringParam(resolvedSearchParams.status),
     classification: asStringParam(resolvedSearchParams.classification),
   };
@@ -285,6 +327,7 @@ export default async function InboundWebhookDeliveriesPage({
     filters.workspaceId ||
     filters.connectionId ||
     filters.provider ||
+    filters.purpose === "message_observation" ||
     quickFilter === null,
   );
   const totals = summaryResult.data;
@@ -299,6 +342,12 @@ export default async function InboundWebhookDeliveriesPage({
       label: "Todos eventos",
       count: totals?.all ?? null,
       href: quickFilterHref(filters, "all"),
+    },
+    {
+      key: "automation",
+      label: "Automacoes",
+      count: totals?.automationCallbacks ?? null,
+      href: quickFilterHref(filters, "automation"),
     },
     {
       key: "ctwa_pending",
@@ -330,19 +379,23 @@ export default async function InboundWebhookDeliveriesPage({
       ? "Resultados filtrados"
       : quickFilter === "all"
         ? "Ultimas entregas"
-        : quickFilters.find((filter) => filter.key === quickFilter)?.label;
+        : quickFilter === "automation"
+          ? "Callbacks de automacao"
+          : quickFilters.find((filter) => filter.key === quickFilter)?.label;
   const activeTotal =
     quickFilter === "all"
       ? totals?.all
-      : quickFilter === "ctwa_pending"
-        ? totals?.ctwaPending
-        : quickFilter === "ctwa_routed"
-          ? totals?.ctwaRouted
-          : quickFilter === "no_ctwa"
-            ? totals?.noCtwa
-            : quickFilter === "failed"
-              ? totals?.failed
-              : undefined;
+      : quickFilter === "automation"
+        ? totals?.automationCallbacks
+        : quickFilter === "ctwa_pending"
+          ? totals?.ctwaPending
+          : quickFilter === "ctwa_routed"
+            ? totals?.ctwaRouted
+            : quickFilter === "no_ctwa"
+              ? totals?.noCtwa
+              : quickFilter === "failed"
+                ? totals?.failed
+                : undefined;
 
   return (
     <section className="page-stack standalone-page inbound-deliveries-page">
@@ -433,6 +486,16 @@ export default async function InboundWebhookDeliveriesPage({
             </select>
           </label>
           <label className="filter-field">
+            <span>Tipo de entrada</span>
+            <select name="purpose" defaultValue={filters.purpose ?? ""}>
+              <option value="">Todos</option>
+              <option value="message_observation">Mensagens WhatsApp</option>
+              <option value="conversion_automation">
+                Automacoes de conversao
+              </option>
+            </select>
+          </label>
+          <label className="filter-field">
             <span>Status</span>
             <select name="status" defaultValue={filters.status ?? ""}>
               <option value="">Todos</option>
@@ -475,7 +538,9 @@ export default async function InboundWebhookDeliveriesPage({
           <span className="event-chip neutral">
             {activeTotal === undefined
               ? `${deliveries.length} entrega(s) exibida(s)`
-              : `${deliveries.length} entrega(s) / ${activeTotal} evento(s)`}
+              : `${deliveries.length} entrega(s) / ${activeTotal} ${
+                  quickFilter === "automation" ? "callback(s)" : "evento(s)"
+                }`}
           </span>
         </div>
 
@@ -527,18 +592,15 @@ export default async function InboundWebhookDeliveriesPage({
                     <span className="micro-label">Conexao</span>
                     <strong>{delivery.connectionName}</strong>
                     <span>
+                      {deliveryPurposeLabel(delivery.purpose)} /{" "}
                       {delivery.providerEventType ?? "Tipo nao informado"}
                     </span>
                   </div>
 
                   <div className="inbound-delivery-result">
                     <span className="micro-label">Resultado</span>
-                    <strong>
-                      {classificationLabel(delivery.classification)}
-                    </strong>
-                    <span>
-                      {classificationDescription(delivery.classification)}
-                    </span>
+                    <strong>{deliveryResultLabel(delivery)}</strong>
+                    <span>{deliveryResultDescription(delivery)}</span>
                   </div>
 
                   <div className="inbound-delivery-payload">

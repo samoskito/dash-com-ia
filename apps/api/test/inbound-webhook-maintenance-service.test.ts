@@ -332,6 +332,10 @@ function createHarness() {
       queued: 0,
       existing: 0,
       queueFailures: 0,
+      providerEligible: 0,
+      providerQueued: 0,
+      providerExisting: 0,
+      providerQueueFailures: 0,
     })),
   };
   const createService = () =>

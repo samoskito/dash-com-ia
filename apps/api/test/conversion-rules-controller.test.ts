@@ -2,9 +2,11 @@ import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { AuthService } from "../src/auth/auth.service";
+import { ConversionCatalogService } from "../src/conversion-rules/conversion-catalog.service";
 import { ConversionRulesController } from "../src/conversion-rules/conversion-rules.controller";
 import { ConversionRulesService } from "../src/conversion-rules/conversion-rules.service";
 import { FunnelConfigurationService } from "../src/conversion-rules/funnel-configuration.service";
+import { ProviderConversionRulesService } from "../src/conversion-rules/provider-conversion-rules.service";
 import { WorkspacesService } from "../src/workspaces/workspaces.service";
 
 const session = {
@@ -13,16 +15,16 @@ const session = {
     email: "owner@wpptrack.com",
     name: "Owner",
     authProvider: "email",
-    emailVerifiedAt: null
+    emailVerifiedAt: null,
   },
   workspaces: [
     {
       id: "workspace_1",
       name: "Comunidade NOD",
       slug: "comunidade-nod",
-      role: "owner"
-    }
-  ]
+      role: "owner",
+    },
+  ],
 };
 
 async function createApp(role: "owner" | "admin" | "member" = "owner") {
@@ -32,10 +34,10 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       workspaces: [
         {
           ...session.workspaces[0],
-          role
-        }
-      ]
-    }))
+          role,
+        },
+      ],
+    })),
   };
   const workspacesService = {
     getCurrentWorkspace: vi.fn(() => ({
@@ -50,9 +52,9 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
         canManageWorkspaceSettings: role === "owner" || role === "admin",
         canTransferOwnership: role === "owner",
         canViewReports: true,
-        canExportReports: true
-      }
-    }))
+        canExportReports: true,
+      },
+    })),
   };
   const conversionRulesService = {
     listRules: vi.fn(async () => []),
@@ -67,7 +69,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       pixelId: null,
       active: true,
       createdAt: "2026-07-02T03:00:00.000Z",
-      updatedAt: "2026-07-02T03:00:00.000Z"
+      updatedAt: "2026-07-02T03:00:00.000Z",
     })),
     updateRule: vi.fn(async () => ({
       id: "rule_1",
@@ -80,9 +82,9 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       pixelId: null,
       active: false,
       createdAt: "2026-07-02T03:00:00.000Z",
-      updatedAt: "2026-07-02T03:00:00.000Z"
+      updatedAt: "2026-07-02T03:00:00.000Z",
     })),
-    evaluateTriggers: vi.fn(async () => [])
+    evaluateTriggers: vi.fn(async () => []),
   };
   const funnelConfigurationService = {
     getConfiguration: vi.fn(async () => ({
@@ -91,11 +93,42 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           eventName: "LeadSubmitted",
           label: "Conversas reais iniciadas",
           position: 1,
-          visible: true
-        }
-      ]
+          visible: true,
+        },
+      ],
     })),
-    updateConfiguration: vi.fn(async (_workspaceId: string, input: unknown) => input)
+    updateConfiguration: vi.fn(
+      async (_workspaceId: string, input: unknown) => input,
+    ),
+  };
+  const providerConversionRulesService = {
+    listRules: vi.fn(async () => []),
+    createRule: vi.fn(async () => ({
+      rule: { id: "provider_rule_1" },
+      webhookUrl:
+        "https://api.wpptrack.test/webhooks/inbound/conversions/endpoint_1?token=secret",
+    })),
+    updateRule: vi.fn(async () => ({ id: "provider_rule_1" })),
+    rotateEndpoint: vi.fn(async () => ({
+      endpoint: { id: "endpoint_1" },
+      webhookUrl:
+        "https://api.wpptrack.test/webhooks/inbound/conversions/endpoint_1?token=rotated",
+    })),
+    removeRule: vi.fn(async () => undefined),
+  };
+  const conversionCatalogService = {
+    testMessage: vi.fn(async () => ({
+      matched: true,
+      reasonCode: "matched",
+      parsedAttributes: [
+        { key: "tamanho", label: "Tamanho", value: "4,90" },
+        { key: "modelo", label: "Modelo", value: "Nacional" },
+      ],
+      parsedValueCents: 359_700,
+      catalogVariantId: "variant_1",
+      contentName: "Cama elastica | Tamanho: 4,90 | Modelo: Nacional",
+      currency: "BRL",
+    })),
   };
 
   const moduleRef = await Test.createTestingModule({
@@ -104,17 +137,111 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       { provide: AuthService, useValue: authService },
       { provide: WorkspacesService, useValue: workspacesService },
       { provide: ConversionRulesService, useValue: conversionRulesService },
-      { provide: FunnelConfigurationService, useValue: funnelConfigurationService }
-    ]
+      {
+        provide: FunnelConfigurationService,
+        useValue: funnelConfigurationService,
+      },
+      {
+        provide: ProviderConversionRulesService,
+        useValue: providerConversionRulesService,
+      },
+      {
+        provide: ConversionCatalogService,
+        useValue: conversionCatalogService,
+      },
+    ],
   }).compile();
 
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, conversionRulesService, funnelConfigurationService };
+  return {
+    app,
+    conversionRulesService,
+    funnelConfigurationService,
+    providerConversionRulesService,
+    conversionCatalogService,
+  };
 }
 
 describe("conversion rules controller", () => {
+  it("creates a workspace-scoped provider automation rule", async () => {
+    const { app, providerConversionRulesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/conversion-rules/providers")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        name: "Lead qualificado Umbler",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        triggerType: "provider_automation",
+        eventName: "QualifiedLead",
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.webhookUrl).toContain("/webhooks/inbound/conversions/");
+      });
+
+    expect(providerConversionRulesService.createRule).toHaveBeenCalledWith(
+      "workspace_1",
+      expect.objectContaining({
+        mode: "observation",
+        eventName: "QualifiedLead",
+      }),
+      "user_1",
+    );
+
+    await app.close();
+  });
+
+  it("blocks provider rule mutations for read-only workspace members", async () => {
+    const { app, providerConversionRulesService } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .post("/conversion-rules/providers")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        name: "Lead qualificado Umbler",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        triggerType: "provider_automation",
+        eventName: "QualifiedLead",
+      })
+      .expect(403);
+
+    expect(providerConversionRulesService.createRule).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("tests a structured catalog message without requiring mutation access", async () => {
+    const { app, conversionCatalogService } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .post("/conversion-rules/providers/provider_rule_1/test-message")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        messageText: "Tamanho: 4,90\nModelo: Nacional\n3.597,00",
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          matched: true,
+          reasonCode: "matched",
+          parsedValueCents: 359_700,
+        });
+      });
+
+    expect(conversionCatalogService.testMessage).toHaveBeenCalledWith(
+      "workspace_1",
+      "provider_rule_1",
+      {
+        messageText: "Tamanho: 4,90\nModelo: Nacional\n3.597,00",
+      },
+    );
+    await app.close();
+  });
+
   it("creates keyword rules for the current workspace", async () => {
     const { app, conversionRulesService } = await createApp();
 
@@ -127,7 +254,7 @@ describe("conversion rules controller", () => {
         triggerValue: "quero comprar",
         matchMode: "contains",
         eventName: "QualifiedLead",
-        active: true
+        active: true,
       })
       .expect(201)
       .expect(({ body }) => {
@@ -143,9 +270,9 @@ describe("conversion rules controller", () => {
         triggerValue: "quero comprar",
         matchMode: "contains",
         eventName: "QualifiedLead",
-        active: true
+        active: true,
       },
-      "user_1"
+      "user_1",
     );
 
     await app.close();
@@ -163,7 +290,7 @@ describe("conversion rules controller", () => {
         triggerValue: "quero comprar",
         matchMode: "contains",
         eventName: "QualifiedLead",
-        active: true
+        active: true,
       })
       .expect(403);
 
@@ -179,7 +306,7 @@ describe("conversion rules controller", () => {
       .patch("/conversion-rules/rule_1")
       .set("Authorization", "Bearer refresh-token")
       .send({
-        active: false
+        active: false,
       })
       .expect(403);
 
@@ -196,14 +323,17 @@ describe("conversion rules controller", () => {
       .set("Authorization", "Bearer refresh-token")
       .send({
         messageText: "Quero comprar",
-        labels: ["Venda fechada"]
+        labels: ["Venda fechada"],
       })
       .expect(201);
 
-    expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith("workspace_1", {
-      messageText: "Quero comprar",
-      labels: ["Venda fechada"]
-    });
+    expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        messageText: "Quero comprar",
+        labels: ["Venda fechada"],
+      },
+    );
 
     await app.close();
   });
@@ -224,14 +354,14 @@ describe("conversion rules controller", () => {
         eventName: "QualifiedLead",
         label: "Oportunidade",
         position: 1,
-        visible: true
+        visible: true,
       },
       {
         eventName: "Purchase",
         label: "Vendas",
         position: 2,
-        visible: false
-      }
+        visible: false,
+      },
     ];
 
     await request(app.getHttpServer())
@@ -243,7 +373,7 @@ describe("conversion rules controller", () => {
     expect(funnelConfigurationService.updateConfiguration).toHaveBeenCalledWith(
       "workspace_1",
       { stages },
-      "user_1"
+      "user_1",
     );
 
     await app.close();
@@ -261,13 +391,15 @@ describe("conversion rules controller", () => {
             eventName: "QualifiedLead",
             label: "Oportunidade",
             position: 1,
-            visible: true
-          }
-        ]
+            visible: true,
+          },
+        ],
       })
       .expect(403);
 
-    expect(funnelConfigurationService.updateConfiguration).not.toHaveBeenCalled();
+    expect(
+      funnelConfigurationService.updateConfiguration,
+    ).not.toHaveBeenCalled();
 
     await app.close();
   });

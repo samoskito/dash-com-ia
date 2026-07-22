@@ -5,10 +5,12 @@ import { INBOUND_WEBHOOK_PRODUCTION_QUEUE } from "../common/queue/queue.constant
 import { QueueModule } from "../common/queue/queue.module";
 import { RuntimeModule } from "../common/runtime/runtime.module";
 import { ConversionEventsModule } from "../conversion-events/conversion-events.module";
+import { ConversionRulesModule } from "../conversion-rules/conversion-rules.module";
 import { InboundWebhooksModule } from "../inbound-webhooks/inbound-webhooks.module";
 import { LeadsModule } from "../leads/leads.module";
 import { InboundWebhookProductionProcessor } from "./inbound-webhook-production.processor";
 import { InboundWebhookProductionService } from "./inbound-webhook-production.service";
+import { ProviderConversionProductionService } from "./provider-conversion-production.service";
 
 @Module({
   imports: [
@@ -17,6 +19,7 @@ import { InboundWebhookProductionService } from "./inbound-webhook-production.se
     QueueModule,
     LeadsModule,
     ConversionEventsModule,
+    ConversionRulesModule,
     InboundWebhooksModule,
     BullModule.registerQueue({
       name: INBOUND_WEBHOOK_PRODUCTION_QUEUE,
@@ -25,6 +28,7 @@ import { InboundWebhookProductionService } from "./inbound-webhook-production.se
   providers: [
     InboundWebhookProductionProcessor,
     InboundWebhookProductionService,
+    ProviderConversionProductionService,
   ],
 })
 export class InboundWebhookProductionModule {}

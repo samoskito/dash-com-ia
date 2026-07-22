@@ -4,6 +4,8 @@ import type { Queue } from "bullmq";
 import {
   INBOUND_WEBHOOK_PRODUCTION_QUEUE,
   type InboundWebhookProductionJobPayload,
+  type InboundWebhookProductionQueueJobPayload,
+  type ProviderConversionProductionJobPayload,
 } from "../common/queue/queue.constants";
 import { createBullJobId } from "../common/queue/job-id";
 
@@ -11,7 +13,7 @@ import { createBullJobId } from "../common/queue/job-id";
 export class InboundWebhookProductionQueueService {
   constructor(
     @InjectQueue(INBOUND_WEBHOOK_PRODUCTION_QUEUE)
-    private readonly queue: Queue<InboundWebhookProductionJobPayload>,
+    private readonly queue: Queue<InboundWebhookProductionQueueJobPayload>,
   ) {}
 
   async enqueueItem(
@@ -43,6 +45,48 @@ export class InboundWebhookProductionQueueService {
     }
 
     await this.queue.add("process-inbound-webhook-production", payload, {
+      jobId,
+      attempts: 3,
+      backoff: {
+        type: "exponential",
+        delay: 30_000,
+      },
+      removeOnComplete: true,
+      removeOnFail: false,
+    });
+
+    return { jobId, status: "queued" };
+  }
+
+  async enqueueProviderConversion(
+    input: ProviderConversionProductionJobPayload,
+  ): Promise<{ jobId: string; status: "queued" | "existing" }> {
+    const payload = {
+      providerConversionExecutionId: input.providerConversionExecutionId.trim(),
+      workspaceId: input.workspaceId.trim(),
+    };
+
+    if (!payload.providerConversionExecutionId || !payload.workspaceId) {
+      throw new Error("ProviderConversionProductionContextRequired");
+    }
+
+    const jobId = createBullJobId(
+      "provider-conversion-production",
+      payload.providerConversionExecutionId,
+    );
+    const existing = await this.queue.getJob(jobId);
+
+    if (existing) {
+      const state = await existing.getState();
+
+      if (!["completed", "failed"].includes(state)) {
+        return { jobId, status: "existing" };
+      }
+
+      await existing.remove();
+    }
+
+    await this.queue.add("process-provider-conversion-production", payload, {
       jobId,
       attempts: 3,
       backoff: {

@@ -9,6 +9,7 @@ import type {
   MetaConnectionCapabilitiesDto,
   MetaConnectionDto,
   MetaManualConfigurationDto,
+  ProviderConversionRuleDto,
   CurrentWorkspaceDto,
   WhatsappInstanceCheckoutDto,
   WhatsappInstanceConnectionDto,
@@ -44,6 +45,13 @@ import {
   InboundWebhookPanel,
   type InboundWebhookConnectionView,
 } from "./inbound-webhook-panel";
+import {
+  createProviderConversionRuleAction,
+  removeProviderConversionRuleAction,
+  rotateProviderConversionRuleEndpointAction,
+  testProviderCatalogMessageAction,
+  updateProviderConversionRuleAction,
+} from "./provider-conversion-rule-actions";
 import {
   createMetaManualConnectionAction,
   createMetaManualCredentialAction,
@@ -340,18 +348,28 @@ async function getMetaOAuthAdvancedConfiguration(): Promise<
 type InboundWebhookPageData = {
   capabilities: InboundWebhookCapabilitiesDto;
   connections: InboundWebhookConnectionView[];
+  providerRules: ProviderConversionRuleDto[];
+  providerRulesEnabled: boolean;
 };
 
 async function getInboundWebhookData(): Promise<
   ResourceResult<InboundWebhookPageData | null>
 > {
   try {
-    const capabilities = await serverApiFetch<InboundWebhookCapabilitiesDto>(
-      "/integrations/inbound-webhooks/capabilities",
-    );
-    const connections = await serverApiFetch<InboundWebhookConnectionDto[]>(
-      "/integrations/inbound-webhooks",
-    );
+    const [capabilities, connections, providerRulesResult] = await Promise.all([
+      serverApiFetch<InboundWebhookCapabilitiesDto>(
+        "/integrations/inbound-webhooks/capabilities",
+      ),
+      serverApiFetch<InboundWebhookConnectionDto[]>(
+        "/integrations/inbound-webhooks",
+      ),
+      serverApiFetch<ProviderConversionRuleDto[]>(
+        "/conversion-rules/providers",
+      ).then(
+        (providerRules) => ({ enabled: true as const, providerRules }),
+        () => ({ enabled: false as const, providerRules: [] }),
+      ),
+    ]);
     let detailError = false;
     const views = await Promise.all(
       connections.map(async (connection) => {
@@ -400,6 +418,8 @@ async function getInboundWebhookData(): Promise<
       data: {
         capabilities,
         connections: views,
+        providerRules: providerRulesResult.providerRules,
+        providerRulesEnabled: providerRulesResult.enabled,
       },
       state: detailError ? "error" : connections.length > 0 ? "real" : "empty",
     };
@@ -1545,6 +1565,8 @@ export default async function IntegrationsPage({
             <InboundWebhookPanel
               capabilities={inboundWebhookData.capabilities}
               connections={inboundWebhookData.connections}
+              providerRules={inboundWebhookData.providerRules}
+              providerRulesEnabled={inboundWebhookData.providerRulesEnabled}
               metaConfiguration={metaManualResult.data}
               canManage={canManageIntegrations}
               createAction={createInboundWebhookConnectionAction}
@@ -1555,6 +1577,15 @@ export default async function IntegrationsPage({
               removeConnectionAction={removeInboundWebhookConnectionAction}
               setChannelStatusAction={setInboundWebhookChannelStatusAction}
               saveRoutesAction={saveInboundWebhookChannelRoutesAction}
+              createProviderRuleAction={createProviderConversionRuleAction}
+              updateProviderRuleAction={updateProviderConversionRuleAction}
+              rotateProviderRuleEndpointAction={
+                rotateProviderConversionRuleEndpointAction
+              }
+              removeProviderRuleAction={removeProviderConversionRuleAction}
+              testProviderCatalogMessageAction={
+                testProviderCatalogMessageAction
+              }
             />
           ) : null}
 

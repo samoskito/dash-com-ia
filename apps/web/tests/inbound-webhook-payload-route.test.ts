@@ -13,6 +13,7 @@ const availableDelivery = {
   providerEventType: "message.received",
   parserVersion: "umbler-v1.3.0",
   parserReleaseStatus: "observation_only",
+  purpose: "message_observation",
   status: "processed",
   classification: "eligible_route_resolved",
   firstReceivedAt: "2026-07-17T12:00:00.000Z",
@@ -63,6 +64,7 @@ describe("inbound webhook payload routes", () => {
           ctwaRouted: 0,
           failed: 1,
           noCtwa: 373,
+          automationCallbacks: 12,
         }),
       );
 
@@ -132,6 +134,7 @@ describe("inbound webhook payload routes", () => {
           ctwaRouted: 0,
           failed: 0,
           noCtwa: 373,
+          automationCallbacks: 12,
         }),
       );
 
@@ -153,6 +156,55 @@ describe("inbound webhook payload routes", () => {
       'href="/backoffice/inbound-webhooks/delivery_pending/payload"',
     );
     expect(html).toContain('aria-current="page"');
+  });
+
+  it("separates retained conversion automation callbacks from message events", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            ...availableDelivery,
+            id: "delivery_automation",
+            purpose: "conversion_automation",
+            providerEventType: "automation_callback",
+            classification: "unsupported_event",
+            eventCount: 0,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          all: 423,
+          ctwaPending: 0,
+          ctwaRouted: 0,
+          failed: 0,
+          noCtwa: 373,
+          automationCallbacks: 12,
+        }),
+      );
+
+    const element = await InboundWebhookDeliveriesPage({
+      searchParams: Promise.resolve({
+        purpose: "conversion_automation",
+      }),
+    });
+    const html = render(element);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/inbound-webhooks/deliveries?purpose=conversion_automation&limit=50",
+      expect.anything(),
+    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/inbound-webhooks/summary?purpose=conversion_automation",
+      expect.anything(),
+    );
+    expect(html).toContain("Callbacks de automacao");
+    expect(html).toContain("Automacao de conversao / automation_callback");
+    expect(html).toContain("Callback preservado");
+    expect(html).toContain(
+      "Payload da automacao retido para validar e certificar o parser.",
+    );
+    expect(html).not.toContain("Preparar replay");
   });
 
   it("renders escaped raw JSON beside normalized parser events", async () => {
@@ -256,9 +308,7 @@ describe("inbound webhook payload routes", () => {
     vi.spyOn(globalThis, "fetch")
       .mockRejectedValueOnce(new Error(sensitiveFailure))
       .mockRejectedValueOnce(new Error(sensitiveFailure))
-      .mockResolvedValueOnce(
-        jsonResponse({ message: sensitiveDenial }, 403),
-      );
+      .mockResolvedValueOnce(jsonResponse({ message: sensitiveDenial }, 403));
 
     const listElement = await InboundWebhookDeliveriesPage({});
     const payloadElement = await InboundWebhookPayloadPage({

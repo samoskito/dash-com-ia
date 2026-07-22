@@ -80,11 +80,27 @@ enum WhatsappInstanceActivationStatus {
 enum ConversionTriggerType {
   keyword
   whatsapp_label
+  provider_automation
+  structured_catalog
 }
 
 enum ConversionMatchMode {
   contains
   exact
+}
+
+enum ProviderConversionRuleMode {
+  observation
+  production
+}
+
+enum ProviderConversionExecutionStatus {
+  observed
+  eligible
+  materialized
+  duplicate
+  blocked
+  failed
 }
 
 enum LeadStatus {
@@ -186,6 +202,11 @@ enum InboundWebhookDeliveryStatus {
   failed
 }
 
+enum InboundWebhookDeliveryPurpose {
+  message_observation
+  conversion_automation
+}
+
 enum InboundWebhookEventClassification {
   eligible_route_resolved
   eligible_route_unresolved
@@ -256,6 +277,7 @@ model User {
   createdInboundWebhookConnections InboundWebhookConnection[]        @relation("InboundWebhookConnectionCreator")
   createdInboundWebhookRoutes      InboundWebhookChannelRoute[]      @relation("InboundWebhookChannelRouteCreator")
   requestedInboundWebhookReplays   InboundWebhookReplayBatch[]       @relation("InboundWebhookReplayRequester")
+  createdProviderConversionRules   ProviderConversionRuleConfig[]    @relation("ProviderConversionRuleCreator")
 
   @@index([lastWorkspaceId])
 }
@@ -313,6 +335,13 @@ model Workspace {
   inboundWebhookReplayBatches      InboundWebhookReplayBatch[]
   inboundWebhookReplayItems        InboundWebhookReplayItem[]
   inboundWebhookProductionItems    InboundWebhookProductionItem[]
+  providerConversionRules          ProviderConversionRuleConfig[]
+  providerConversionRuleChannels   ProviderConversionRuleChannel[]
+  providerConversionRuleEndpoints  ProviderConversionRuleEndpoint[]
+  providerConversionExecutions     ProviderConversionRuleExecution[]
+  conversionCatalogs               ConversionCatalog[]
+  conversionCatalogAttributes      ConversionCatalogAttribute[]
+  conversionCatalogVariants        ConversionCatalogVariant[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
@@ -843,10 +872,182 @@ model ConversionRule {
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace      Workspace                     @relation(fields: [workspaceId], references: [id])
+  providerConfig ProviderConversionRuleConfig?
 
+  @@unique([workspaceId, id])
   @@index([workspaceId, active])
   @@index([workspaceId, triggerType, triggerValue])
+}
+
+model ProviderConversionRuleConfig {
+  id                    String                     @id @default(cuid())
+  workspaceId           String
+  conversionRuleId      String
+  connectionId          String
+  parserReleaseId       String
+  mode                  ProviderConversionRuleMode @default(observation)
+  productionActivatedAt DateTime?
+  removedAt             DateTime?
+  createdByUserId       String?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  workspace      Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  conversionRule ConversionRule                    @relation(fields: [workspaceId, conversionRuleId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleConfig_conversionRuleId_fkey")
+  connection     InboundWebhookConnection          @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleConfig_connectionId_fkey")
+  parserRelease  InboundWebhookParserRelease       @relation(fields: [parserReleaseId], references: [id], onDelete: Restrict)
+  createdBy      User?                             @relation("ProviderConversionRuleCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  channels       ProviderConversionRuleChannel[]
+  endpoint       ProviderConversionRuleEndpoint?
+  catalog        ConversionCatalog?
+  executions     ProviderConversionRuleExecution[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, conversionRuleId])
+  @@index([workspaceId, connectionId, mode])
+  @@index([workspaceId, removedAt])
+  @@index([parserReleaseId])
+  @@index([createdByUserId])
+}
+
+model ProviderConversionRuleChannel {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  providerRuleId String
+  channelId      String
+  createdAt      DateTime @default(now())
+
+  workspace    Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  providerRule ProviderConversionRuleConfig @relation(fields: [workspaceId, providerRuleId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleChannel_providerRuleId_fkey")
+  channel      InboundWebhookChannel        @relation(fields: [workspaceId, channelId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleChannel_channelId_fkey")
+
+  @@unique([providerRuleId, channelId])
+  @@index([workspaceId, channelId])
+}
+
+model ProviderConversionRuleEndpoint {
+  id                    String    @id @default(cuid())
+  workspaceId           String
+  providerRuleId        String
+  secretHash            String
+  secretVersion         Int       @default(1)
+  lastDeliveryAt        DateTime?
+  lastSuccessfulParseAt DateTime?
+  rotatedAt             DateTime?
+  removedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  workspace    Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  providerRule ProviderConversionRuleConfig @relation(fields: [workspaceId, providerRuleId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleEndpoint_providerRuleId_fkey")
+  deliveries   InboundWebhookDelivery[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, providerRuleId])
+  @@index([workspaceId, removedAt])
+}
+
+model ConversionCatalog {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  providerRuleId String
+  name           String
+  productName    String
+  currency       String   @default("BRL")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace    Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  providerRule ProviderConversionRuleConfig @relation(fields: [workspaceId, providerRuleId], references: [workspaceId, id], onDelete: Restrict, map: "ConversionCatalog_providerRuleId_fkey")
+  attributes   ConversionCatalogAttribute[]
+  variants     ConversionCatalogVariant[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, providerRuleId])
+  @@index([workspaceId, active])
+}
+
+model ConversionCatalogAttribute {
+  id          String   @id @default(cuid())
+  workspaceId String
+  catalogId   String
+  position    Int
+  key         String
+  label       String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  catalog   ConversionCatalog @relation(fields: [workspaceId, catalogId], references: [workspaceId, id], onDelete: Restrict, map: "ConversionCatalogAttribute_catalogId_fkey")
+
+  @@unique([catalogId, position])
+  @@unique([catalogId, key])
+  @@index([workspaceId, catalogId])
+}
+
+model ConversionCatalogVariant {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  catalogId       String
+  normalizedKey   String
+  attributeValues Json
+  aliases         Json?
+  valueCents      Int
+  contentName     String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace  Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  catalog    ConversionCatalog                 @relation(fields: [workspaceId, catalogId], references: [workspaceId, id], onDelete: Restrict, map: "ConversionCatalogVariant_catalogId_fkey")
+  executions ProviderConversionRuleExecution[]
+
+  @@unique([workspaceId, id])
+  @@unique([catalogId, normalizedKey])
+  @@index([workspaceId, catalogId, active])
+}
+
+model ProviderConversionRuleExecution {
+  id                               String                            @id @default(cuid())
+  workspaceId                      String
+  providerRuleId                   String
+  sourceDeliveryId                 String
+  channelWorkspaceId               String?
+  channelId                        String?
+  matchedCatalogVariantWorkspaceId String?
+  matchedCatalogVariantId          String?
+  externalExecutionKey             String
+  occurredAt                       DateTime
+  contactIdentityHash              String?
+  status                           ProviderConversionExecutionStatus @default(observed)
+  reasonCode                       String?
+  normalizedResult                 Json?
+  valueCents                       Int?
+  currency                         String?
+  leadId                           String?
+  conversionEventLogId             String?
+  attemptCount                     Int                               @default(0)
+  lastAttemptedAt                  DateTime?
+  processedAt                      DateTime?
+  createdAt                        DateTime                          @default(now())
+  updatedAt                        DateTime                          @updatedAt
+
+  workspace             Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  providerRule          ProviderConversionRuleConfig @relation(fields: [workspaceId, providerRuleId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleExecution_providerRuleId_fkey")
+  sourceDelivery        InboundWebhookDelivery       @relation(fields: [workspaceId, sourceDeliveryId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleExecution_sourceDeliveryId_fkey")
+  channel               InboundWebhookChannel?       @relation(fields: [channelWorkspaceId, channelId], references: [workspaceId, id], onDelete: SetNull, map: "ProviderConversionRuleExecution_channelId_fkey")
+  matchedCatalogVariant ConversionCatalogVariant?    @relation(fields: [matchedCatalogVariantWorkspaceId, matchedCatalogVariantId], references: [workspaceId, id], onDelete: SetNull, map: "ProviderConversionRuleExecution_catalogVariantId_fkey")
+
+  @@unique([providerRuleId, externalExecutionKey])
+  @@index([workspaceId, status, occurredAt])
+  @@index([workspaceId, contactIdentityHash, occurredAt])
+  @@index([sourceDeliveryId])
+  @@index([channelId])
+  @@index([matchedCatalogVariantId])
+  @@index([leadId])
+  @@index([conversionEventLogId])
 }
 
 model FunnelStageConfiguration {
@@ -1151,8 +1352,9 @@ model InboundWebhookParserRelease {
   createdAt         DateTime                          @default(now())
   updatedAt         DateTime                          @updatedAt
 
-  certifiedBy User?                      @relation("InboundWebhookParserReleaseCertifier", fields: [certifiedByUserId], references: [id], onDelete: SetNull)
-  connections InboundWebhookConnection[]
+  certifiedBy             User?                          @relation("InboundWebhookParserReleaseCertifier", fields: [certifiedByUserId], references: [id], onDelete: SetNull)
+  connections             InboundWebhookConnection[]
+  providerConversionRules ProviderConversionRuleConfig[]
 
   @@unique([provider, version], map: "InboundWebhookParserRelease_provider_version_key")
   @@index([provider, status])
@@ -1175,13 +1377,14 @@ model InboundWebhookConnection {
   createdAt             DateTime                       @default(now())
   updatedAt             DateTime                       @updatedAt
 
-  workspace     Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  parserRelease InboundWebhookParserRelease @relation(fields: [parserReleaseId], references: [id], onDelete: Restrict)
-  createdBy     User?                       @relation("InboundWebhookConnectionCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  channels      InboundWebhookChannel[]
-  deliveries    InboundWebhookDelivery[]
-  events        InboundWebhookEvent[]
-  replayBatches InboundWebhookReplayBatch[]
+  workspace               Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  parserRelease           InboundWebhookParserRelease    @relation(fields: [parserReleaseId], references: [id], onDelete: Restrict)
+  createdBy               User?                          @relation("InboundWebhookConnectionCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  channels                InboundWebhookChannel[]
+  deliveries              InboundWebhookDelivery[]
+  events                  InboundWebhookEvent[]
+  replayBatches           InboundWebhookReplayBatch[]
+  providerConversionRules ProviderConversionRuleConfig[]
 
   @@unique([workspaceId, id])
   @@index([workspaceId, removedAt])
@@ -1191,25 +1394,27 @@ model InboundWebhookConnection {
 }
 
 model InboundWebhookChannel {
-  id                String                      @id @default(cuid())
-  workspaceId       String
-  connectionId      String
-  organizationId    String
-  providerChannelId String
-  connectedPhone    String
-  channelName       String?
-  status            InboundWebhookChannelStatus @default(discovered)
+  id                    String                      @id @default(cuid())
+  workspaceId           String
+  connectionId          String
+  organizationId        String
+  providerChannelId     String
+  connectedPhone        String
+  channelName           String?
+  status                InboundWebhookChannelStatus @default(discovered)
   productionActivatedAt DateTime?
-  firstSeenAt       DateTime                    @default(now())
-  lastSeenAt        DateTime                    @default(now())
-  createdAt         DateTime                    @default(now())
-  updatedAt         DateTime                    @updatedAt
+  firstSeenAt           DateTime                    @default(now())
+  lastSeenAt            DateTime                    @default(now())
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
 
-  workspace     Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  connection    InboundWebhookConnection     @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookChannel_connectionId_fkey")
-  routes        InboundWebhookChannelRoute[]
-  events        InboundWebhookEvent[]
-  replayBatches InboundWebhookReplayBatch[]
+  workspace                    Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  connection                   InboundWebhookConnection          @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookChannel_connectionId_fkey")
+  routes                       InboundWebhookChannelRoute[]
+  events                       InboundWebhookEvent[]
+  replayBatches                InboundWebhookReplayBatch[]
+  providerConversionRuleScopes ProviderConversionRuleChannel[]
+  providerConversionExecutions ProviderConversionRuleExecution[]
 
   @@unique([workspaceId, id])
   @@unique([connectionId, organizationId, providerChannelId], map: "InboundWebhookChannel_identity_key")
@@ -1252,42 +1457,49 @@ model InboundWebhookChannelRoute {
 }
 
 model InboundWebhookDelivery {
-  id                   String                             @id @default(cuid())
-  workspaceId          String
-  connectionId         String
-  provider             InboundWebhookProvider
-  ingressKey           String
-  externalDeliveryId   String?
-  providerEventType    String?
-  parserVersion        String
-  status               InboundWebhookDeliveryStatus       @default(pending)
-  classification       InboundWebhookEventClassification?
-  firstReceivedAt      DateTime                           @default(now())
-  lastReceivedAt       DateTime                           @default(now())
-  attemptCount         Int                                @default(1)
-  providerAttempt      Int?
-  encryptedPayload     String?
-  payloadIv            String?
-  payloadTag           String?
-  encryptionKeyVersion Int?
-  payloadExpiresAt     DateTime
-  normalizedSummary    Json?
-  parseErrorCode       String?
-  routingErrorCode     String?
-  queuedAt             DateTime?
-  processedAt          DateTime?
-  createdAt            DateTime                           @default(now())
-  updatedAt            DateTime                           @updatedAt
+  id                              String                             @id @default(cuid())
+  workspaceId                     String
+  connectionId                    String
+  provider                        InboundWebhookProvider
+  ingressKey                      String
+  externalDeliveryId              String?
+  providerEventType               String?
+  parserVersion                   String
+  purpose                         InboundWebhookDeliveryPurpose      @default(message_observation)
+  providerRuleEndpointWorkspaceId String?
+  providerRuleEndpointId          String?
+  status                          InboundWebhookDeliveryStatus       @default(pending)
+  classification                  InboundWebhookEventClassification?
+  firstReceivedAt                 DateTime                           @default(now())
+  lastReceivedAt                  DateTime                           @default(now())
+  attemptCount                    Int                                @default(1)
+  providerAttempt                 Int?
+  encryptedPayload                String?
+  payloadIv                       String?
+  payloadTag                      String?
+  encryptionKeyVersion            Int?
+  payloadExpiresAt                DateTime
+  normalizedSummary               Json?
+  parseErrorCode                  String?
+  routingErrorCode                String?
+  queuedAt                        DateTime?
+  processedAt                     DateTime?
+  createdAt                       DateTime                           @default(now())
+  updatedAt                       DateTime                           @updatedAt
 
-  workspace  Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  connection InboundWebhookConnection @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookDelivery_connectionId_fkey")
-  events     InboundWebhookEvent[]
+  workspace                    Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  connection                   InboundWebhookConnection          @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookDelivery_connectionId_fkey")
+  providerRuleEndpoint         ProviderConversionRuleEndpoint?   @relation(fields: [providerRuleEndpointWorkspaceId, providerRuleEndpointId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookDelivery_providerRuleEndpointId_fkey")
+  events                       InboundWebhookEvent[]
+  providerConversionExecutions ProviderConversionRuleExecution[]
 
   @@unique([workspaceId, id])
   @@unique([connectionId, ingressKey], map: "InboundWebhookDelivery_connection_ingress_key")
   @@index([workspaceId, status, createdAt])
   @@index([workspaceId, payloadExpiresAt])
   @@index([connectionId, lastReceivedAt])
+  @@index([workspaceId, purpose, createdAt])
+  @@index([providerRuleEndpointId])
   @@index([payloadExpiresAt], map: "InboundWebhookDelivery_payloadExpiresAt_idx")
   @@index([status, lastReceivedAt, queuedAt], map: "InboundWebhookDelivery_recovery_idx")
   @@index([externalDeliveryId])
@@ -1319,13 +1531,13 @@ model InboundWebhookEvent {
   createdAt                                DateTime                          @default(now())
   updatedAt                                DateTime                          @updatedAt
 
-  workspace                     Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  connection                    InboundWebhookConnection   @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookEvent_connectionId_fkey")
-  delivery                      InboundWebhookDelivery     @relation(fields: [workspaceId, deliveryId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookEvent_deliveryId_fkey")
-  channel                       InboundWebhookChannel      @relation(fields: [workspaceId, channelId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookEvent_channelId_fkey")
-  resolvedBusinessConnection    MetaBusinessConnection?    @relation("InboundWebhookEventResolvedBusiness", fields: [resolvedBusinessConnectionWorkspaceId, resolvedBusinessConnectionId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedBusinessConnectionId_fkey")
-  resolvedReportingAccount      MetaReportingAccount?      @relation("InboundWebhookEventResolvedReportingAccount", fields: [resolvedReportingAccountWorkspaceId, resolvedReportingAccountId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedReportingAccountId_fkey")
-  resolvedConversionDestination MetaConversionDestination? @relation("InboundWebhookEventResolvedDestination", fields: [resolvedConversionDestinationWorkspaceId, resolvedConversionDestinationId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedConversionDestinationId_fkey")
+  workspace                     Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  connection                    InboundWebhookConnection      @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookEvent_connectionId_fkey")
+  delivery                      InboundWebhookDelivery        @relation(fields: [workspaceId, deliveryId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookEvent_deliveryId_fkey")
+  channel                       InboundWebhookChannel         @relation(fields: [workspaceId, channelId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookEvent_channelId_fkey")
+  resolvedBusinessConnection    MetaBusinessConnection?       @relation("InboundWebhookEventResolvedBusiness", fields: [resolvedBusinessConnectionWorkspaceId, resolvedBusinessConnectionId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedBusinessConnectionId_fkey")
+  resolvedReportingAccount      MetaReportingAccount?         @relation("InboundWebhookEventResolvedReportingAccount", fields: [resolvedReportingAccountWorkspaceId, resolvedReportingAccountId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedReportingAccountId_fkey")
+  resolvedConversionDestination MetaConversionDestination?    @relation("InboundWebhookEventResolvedDestination", fields: [resolvedConversionDestinationWorkspaceId, resolvedConversionDestinationId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookEvent_resolvedConversionDestinationId_fkey")
   replayItem                    InboundWebhookReplayItem?
   productionItem                InboundWebhookProductionItem?
 

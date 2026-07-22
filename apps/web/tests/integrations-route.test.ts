@@ -1385,10 +1385,13 @@ describe("integrations route", () => {
       expect(requestedPaths).toContain(
         "/integrations/inbound-webhooks/capabilities",
       );
+      expect(requestedPaths).toContain("/conversion-rules/providers");
       expect(requestedPaths).toContain(
         "/integrations/inbound-webhooks/connection_wave7/channels",
       );
       expect(html).toContain("Webhooks de plataformas WhatsApp");
+      expect(html).toContain("Eventos de conversao");
+      expect(html).toContain("Observacao disponivel");
       expect(html).toContain("Umbler Talk");
       expect(html).toContain("Umbler Workspace Atual");
       expect(html).toContain("Canal Workspace Atual");
@@ -1533,6 +1536,7 @@ function mockWave7IntegrationsFetch({
       ],
     },
     "/integrations/inbound-webhooks": [wave7Connection],
+    "/conversion-rules/providers": [],
     "/integrations/inbound-webhooks/connection_wave7/overview": {
       connection: wave7Connection,
       counters: {

@@ -35,8 +35,25 @@ export type InboundWebhookEventNormalizedSummary = {
   occurredAt: string;
   adId: string | null;
   hasCtwa: boolean;
+  messageDirection: ParsedInboundWebhookMessageDirection;
+  messageAuthorType: ParsedInboundWebhookMessageAuthorType;
+  messageType: string | null;
   classification: InboundWebhookEventClassification;
   classificationReason: string;
+};
+
+export type ParsedInboundWebhookMessageDirection =
+  "inbound" | "outbound" | "unknown";
+
+export type ParsedInboundWebhookMessageAuthorType =
+  "contact" | "organization_member" | "bot" | "unknown";
+
+export type ParsedInboundWebhookMessage = {
+  direction: ParsedInboundWebhookMessageDirection;
+  authorType: ParsedInboundWebhookMessageAuthorType;
+  messageType: string | null;
+  text: string | null;
+  isPrivate: boolean;
 };
 
 export type ParsedInboundWebhookChannel = {
@@ -70,6 +87,7 @@ export type ParsedInboundWebhookEvent = {
   occurredAt: Date;
   channel: ParsedInboundWebhookChannel;
   contact: ParsedInboundWebhookContact;
+  message: ParsedInboundWebhookMessage;
   adId: string | null;
   ad: ParsedInboundWebhookAd | null;
   ctwaClid: string | null;

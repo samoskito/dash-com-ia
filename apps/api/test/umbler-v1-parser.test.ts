@@ -52,6 +52,13 @@ describe("Umbler v1 inbound webhook parser", () => {
         phoneNumber: body.Payload.Content.Contact.PhoneNumber,
         name: body.Payload.Content.Contact.Name,
       },
+      message: {
+        direction: "inbound",
+        authorType: "contact",
+        messageType: "Text",
+        text: body.Payload.Content.LastMessage.Content,
+        isPrivate: false,
+      },
       adId: body.Payload.Content.LastMessage.Ad?.SourceId,
       ctwaClid: body.Payload.Content.LastMessage.Ad?.CTWaCLId,
       hasCtwa: true,
@@ -83,6 +90,11 @@ describe("Umbler v1 inbound webhook parser", () => {
     expect(result.normalizedSummary).not.toHaveProperty("ctwaClid");
     expect(event.normalizedSummary).not.toHaveProperty("ctwaClid");
     expect(event.normalizedSummary.hasCtwa).toBe(true);
+    expect(event.normalizedSummary).toMatchObject({
+      messageDirection: "inbound",
+      messageAuthorType: "contact",
+      messageType: "Text",
+    });
 
     for (const sensitiveValue of [
       body.Payload.Content.LastMessage.Ad?.CTWaCLId,
@@ -129,6 +141,10 @@ describe("Umbler v1 inbound webhook parser", () => {
         {
           classification: "ignored_outbound",
           classificationReason: "message_not_from_contact",
+          message: {
+            direction: "outbound",
+            authorType: "organization_member",
+          },
         },
       ],
     });
@@ -141,6 +157,29 @@ describe("Umbler v1 inbound webhook parser", () => {
         },
       ],
     });
+  });
+
+  it("identifies outbound bot messages without persisting their text", () => {
+    const body = loadFixture();
+    body.Payload.Content.LastMessage.Source = "Bot";
+    body.Payload.Content.LastMessage.BotInstance = { Id: "bot_fixture_001" };
+    body.Payload.Content.LastMessage.SentByOrganizationMember = null;
+    body.Payload.Content.LastMessage.Content =
+      "Tamanho: 4,90\nModelo: Nacional\n3.597,00";
+
+    const result = parser.parse(body);
+    const event = result.events[0]!;
+
+    expect(event.message).toMatchObject({
+      direction: "outbound",
+      authorType: "bot",
+      messageType: "Text",
+      text: body.Payload.Content.LastMessage.Content,
+      isPrivate: false,
+    });
+    expect(JSON.stringify(event.normalizedSummary)).not.toContain(
+      body.Payload.Content.LastMessage.Content,
+    );
   });
 
   it("classifies unsupported event types without emitting a canonical event", () => {

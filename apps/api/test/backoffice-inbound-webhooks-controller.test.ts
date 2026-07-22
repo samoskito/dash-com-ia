@@ -16,6 +16,7 @@ const delivery = {
   providerEventType: "Message",
   parserVersion: "v1",
   parserReleaseStatus: "observation_only",
+  purpose: "message_observation",
   status: "processed",
   classification: "eligible_route_resolved",
   firstReceivedAt: "2026-07-17T20:00:00.000Z",
@@ -118,6 +119,7 @@ async function createApp() {
       ctwaRouted: 0,
       failed: 0,
       noCtwa: 373,
+      automationCallbacks: 12,
     })),
     getPayload: vi.fn(async () => payloadResult),
     recordDeniedPayloadAccess: vi.fn(async () => undefined),
@@ -147,7 +149,7 @@ describe("backoffice inbound webhooks controller", () => {
 
     await request(app.getHttpServer())
       .get(
-        "/backoffice/inbound-webhooks/deliveries?workspaceId=workspace_1&connectionId=connection_1&provider=umbler&status=processed&classification=eligible_route_resolved&limit=25",
+        "/backoffice/inbound-webhooks/deliveries?workspaceId=workspace_1&connectionId=connection_1&provider=umbler&purpose=message_observation&status=processed&classification=eligible_route_resolved&limit=25",
       )
       .set("Authorization", "Bearer owner-token")
       .expect(200)
@@ -171,6 +173,7 @@ describe("backoffice inbound webhooks controller", () => {
       workspaceId: "workspace_1",
       connectionId: "connection_1",
       provider: "umbler",
+      purpose: "message_observation",
       status: "processed",
       classification: "eligible_route_resolved",
       limit: 25,
@@ -209,6 +212,7 @@ describe("backoffice inbound webhooks controller", () => {
         ctwaRouted: 0,
         failed: 0,
         noCtwa: 373,
+        automationCallbacks: 12,
       });
 
     expect(service.summarizeDeliveries).toHaveBeenCalledWith({

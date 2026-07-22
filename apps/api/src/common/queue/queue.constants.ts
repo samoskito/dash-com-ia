@@ -24,6 +24,14 @@ export interface InboundWebhookProductionJobPayload {
   workspaceId: string;
 }
 
+export interface ProviderConversionProductionJobPayload {
+  providerConversionExecutionId: string;
+  workspaceId: string;
+}
+
+export type InboundWebhookProductionQueueJobPayload =
+  InboundWebhookProductionJobPayload | ProviderConversionProductionJobPayload;
+
 export interface DiagnosticJobPayload {
   diagnosticEventId: string;
   workspaceId: string;

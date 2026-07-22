@@ -31,6 +31,7 @@ const deliveryListSelect = {
   provider: true,
   providerEventType: true,
   parserVersion: true,
+  purpose: true,
   status: true,
   classification: true,
   firstReceivedAt: true,
@@ -114,7 +115,7 @@ export class BackofficeInboundWebhooksService {
   ): Promise<BackofficeInboundWebhookDeliverySummaryDto> {
     const deliveryScope = this.deliveryScope(query);
     const eventScope = this.eventScope(query);
-    const [all, ctwaPending, ctwaRouted, failed, noCtwa] =
+    const [all, ctwaPending, ctwaRouted, failed, noCtwa, automationCallbacks] =
       await this.prisma.$transaction([
         this.prisma.inboundWebhookEvent.count({ where: eventScope }),
         this.prisma.inboundWebhookEvent.count({
@@ -141,6 +142,9 @@ export class BackofficeInboundWebhooksService {
             classification: "ignored_no_ctwa",
           },
         }),
+        this.prisma.inboundWebhookDelivery.count({
+          where: this.automationDeliveryScope(query),
+        }),
       ]);
 
     return {
@@ -149,6 +153,7 @@ export class BackofficeInboundWebhooksService {
       ctwaRouted,
       failed,
       noCtwa,
+      automationCallbacks,
     };
   }
 
@@ -302,6 +307,7 @@ export class BackofficeInboundWebhooksService {
       providerEventType: delivery.providerEventType,
       parserVersion: delivery.parserVersion,
       parserReleaseStatus: delivery.connection.parserRelease.status,
+      purpose: delivery.purpose,
       status: delivery.status,
       classification: delivery.classification,
       firstReceivedAt: delivery.firstReceivedAt.toISOString(),
@@ -323,6 +329,21 @@ export class BackofficeInboundWebhooksService {
       ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
       ...(query.connectionId ? { connectionId: query.connectionId } : {}),
       ...(query.provider ? { provider: query.provider } : {}),
+      ...(query.purpose ? { purpose: query.purpose } : {}),
+    };
+  }
+
+  private automationDeliveryScope(
+    query: BackofficeInboundWebhookDeliverySummaryQueryDto,
+  ): Prisma.InboundWebhookDeliveryWhereInput {
+    return {
+      ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
+      ...(query.connectionId ? { connectionId: query.connectionId } : {}),
+      ...(query.provider ? { provider: query.provider } : {}),
+      purpose: "conversion_automation",
+      ...(query.purpose === "message_observation"
+        ? { id: "__purpose_excluded__" }
+        : {}),
     };
   }
 
@@ -333,6 +354,13 @@ export class BackofficeInboundWebhooksService {
       ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
       ...(query.connectionId ? { connectionId: query.connectionId } : {}),
       ...(query.provider ? { provider: query.provider } : {}),
+      ...(query.purpose
+        ? {
+            delivery: {
+              purpose: query.purpose,
+            },
+          }
+        : {}),
     };
   }
 
@@ -410,6 +438,7 @@ export class BackofficeInboundWebhooksService {
       provider: delivery.provider,
       parserVersion: delivery.parserVersion,
       parserReleaseStatus: delivery.parserReleaseStatus,
+      purpose: delivery.purpose,
       classification: delivery.classification,
       payloadAvailable: delivery.payloadAvailable,
       eventCount: delivery.eventCount,

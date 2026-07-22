@@ -304,6 +304,18 @@ function createHarness(parser?: InboundWebhookParser) {
   const productionIntake = {
     enqueueDelivery: vi.fn(async () => undefined),
   };
+  const providerConversions = {
+    observeDelivery: vi.fn(async () => ({
+      executionIds: [],
+      eligibleExecutionIds: [],
+    })),
+  };
+  const productionQueue = {
+    enqueueProviderConversion: vi.fn(async () => ({
+      jobId: "provider-conversion-test",
+      status: "queued" as const,
+    })),
+  };
   const service = new InboundWebhookObservationService(
     prisma as unknown as PrismaService,
     encryption as unknown as InboundWebhookPayloadEncryptionService,
@@ -311,6 +323,8 @@ function createHarness(parser?: InboundWebhookParser) {
     diagnostics as unknown as InboundWebhookDiagnosticsService,
     channelRoutes as unknown as InboundWebhookChannelRoutesService,
     productionIntake as unknown as InboundWebhookProductionIntakeService,
+    providerConversions as never,
+    productionQueue as never,
   );
 
   return {

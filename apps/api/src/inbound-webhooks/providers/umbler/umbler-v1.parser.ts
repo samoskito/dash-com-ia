@@ -7,6 +7,7 @@ import {
   type InboundWebhookParser,
   type InboundWebhookParserResult,
   type ParsedInboundWebhookAd,
+  type ParsedInboundWebhookMessage,
 } from "../inbound-webhook-parser";
 
 export const UMBLER_V1_PROVIDER = "umbler";
@@ -300,6 +301,43 @@ function classificationForMessage(input: {
   };
 }
 
+function parseMessage(input: {
+  source: string;
+  sentByOrganizationMember: unknown;
+  botInstance: unknown;
+  isPrivate: boolean;
+  messageType: string | null;
+  text: string | null;
+}): ParsedInboundWebhookMessage {
+  const normalizedSource = input.source.trim().toLocaleLowerCase("en-US");
+  const hasMember =
+    input.sentByOrganizationMember !== null &&
+    input.sentByOrganizationMember !== undefined;
+  const hasBot = input.botInstance !== null && input.botInstance !== undefined;
+  const authorType =
+    hasBot || normalizedSource.includes("bot")
+      ? "bot"
+      : hasMember || normalizedSource === "organizationmember"
+        ? "organization_member"
+        : normalizedSource === "contact"
+          ? "contact"
+          : "unknown";
+  const direction =
+    authorType === "contact"
+      ? "inbound"
+      : authorType === "organization_member" || authorType === "bot"
+        ? "outbound"
+        : "unknown";
+
+  return {
+    direction,
+    authorType,
+    messageType: input.messageType,
+    text: input.text,
+    isPrivate: input.isPrivate,
+  };
+}
+
 function parsePayload(payload: unknown): InboundWebhookParserResult {
   const envelope = asRecord(payload);
 
@@ -358,6 +396,8 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
   const contactName = optionalText(contact.Name, 160);
   const externalMessageId = boundedString(lastMessage.Id, 255);
   const source = boundedString(lastMessage.Source, 120);
+  const messageType = optionalString(lastMessage.MessageType, 120);
+  const messageText = optionalText(lastMessage.Content, 16_384);
   const isPrivate =
     typeof lastMessage.IsPrivate === "boolean" ? lastMessage.IsPrivate : null;
   const preferredTimestamp = lastMessage.EventAtUTC;
@@ -383,6 +423,8 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
     !contactName.valid ||
     !externalMessageId ||
     !source ||
+    !messageType.valid ||
+    !messageText.valid ||
     isPrivate === null ||
     !occurredAt ||
     !parsedAd.valid
@@ -396,6 +438,14 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
     sentByOrganizationMember: lastMessage.SentByOrganizationMember,
     ctwaClid: parsedAd.ctwaClid,
   });
+  const message = parseMessage({
+    source,
+    sentByOrganizationMember: lastMessage.SentByOrganizationMember,
+    botInstance: lastMessage.BotInstance,
+    isPrivate,
+    messageType: messageType.value,
+    text: messageText.value,
+  });
   const hasCtwa = parsedAd.ctwaClid !== null;
   const normalizedSummary: InboundWebhookEventNormalizedSummary = {
     provider: UMBLER_V1_PROVIDER,
@@ -408,6 +458,9 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
     occurredAt: occurredAt.toISOString(),
     adId: parsedAd.adId,
     hasCtwa,
+    messageDirection: message.direction,
+    messageAuthorType: message.authorType,
+    messageType: message.messageType,
     classification,
     classificationReason,
   };
@@ -434,6 +487,7 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
       phoneNumber: contactPhone,
       name: contactName.value,
     },
+    message,
     adId: parsedAd.adId,
     ad: parsedAd.ad,
     ctwaClid: parsedAd.ctwaClid,

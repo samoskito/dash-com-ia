@@ -66,6 +66,10 @@ export type InboundWebhookMaintenanceResult = {
   productionEnqueued: number;
   productionExistingJobs: number;
   productionQueueFailures: number;
+  providerConversionCandidates: number;
+  providerConversionEnqueued: number;
+  providerConversionExistingJobs: number;
+  providerConversionQueueFailures: number;
 };
 
 function emptyResult(enabled: boolean): InboundWebhookMaintenanceResult {
@@ -83,6 +87,10 @@ function emptyResult(enabled: boolean): InboundWebhookMaintenanceResult {
     productionEnqueued: 0,
     productionExistingJobs: 0,
     productionQueueFailures: 0,
+    providerConversionCandidates: 0,
+    providerConversionEnqueued: 0,
+    providerConversionExistingJobs: 0,
+    providerConversionQueueFailures: 0,
   };
 }
 
@@ -167,6 +175,12 @@ export class InboundWebhookMaintenanceService
       result.productionEnqueued = productionRecovery.queued;
       result.productionExistingJobs = productionRecovery.existing;
       result.productionQueueFailures = productionRecovery.queueFailures;
+      result.providerConversionCandidates = productionRecovery.providerEligible;
+      result.providerConversionEnqueued = productionRecovery.providerQueued;
+      result.providerConversionExistingJobs =
+        productionRecovery.providerExisting;
+      result.providerConversionQueueFailures =
+        productionRecovery.providerQueueFailures;
 
       return result;
     } catch {
@@ -205,6 +219,10 @@ export class InboundWebhookMaintenanceService
             `productionEnqueued=${result.productionEnqueued}`,
             `productionExisting=${result.productionExistingJobs}`,
             `productionQueueFailures=${result.productionQueueFailures}`,
+            `providerConversionCandidates=${result.providerConversionCandidates}`,
+            `providerConversionEnqueued=${result.providerConversionEnqueued}`,
+            `providerConversionExisting=${result.providerConversionExistingJobs}`,
+            `providerConversionQueueFailures=${result.providerConversionQueueFailures}`,
           ].join("; "),
         );
       })

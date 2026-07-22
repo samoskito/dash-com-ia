@@ -40,6 +40,8 @@ describe("parseDeploymentConfig", () => {
         enabled: false,
         replayEnabled: false,
         productionEnabled: false,
+        conversionRulesEnabled: false,
+        conversionProductionEnabled: false,
         apiPublicUrl: null,
         encryptionKey: null,
         rawPayloadRetentionDays: 7,
@@ -60,6 +62,8 @@ describe("parseDeploymentConfig", () => {
           INBOUND_WEBHOOKS_ENABLED: "true",
           INBOUND_WEBHOOK_REPLAY_ENABLED: "true",
           INBOUND_WEBHOOK_PRODUCTION_ENABLED: "true",
+          INBOUND_CONVERSION_RULES_ENABLED: "true",
+          INBOUND_CONVERSION_PRODUCTION_ENABLED: "true",
           INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
           SMTP_HOST: "smtp-relay.brevo.com",
           SMTP_SECURE: "false",
@@ -87,6 +91,8 @@ describe("parseDeploymentConfig", () => {
         enabled: true,
         replayEnabled: true,
         productionEnabled: true,
+        conversionRulesEnabled: true,
+        conversionProductionEnabled: true,
         apiPublicUrl: "https://api.example.com",
         encryptionKey: Buffer.from(inboundWebhookEncryptionKey, "base64"),
         rawPayloadRetentionDays: 7,
@@ -108,6 +114,8 @@ describe("parseDeploymentConfig", () => {
       enabled: false,
       replayEnabled: false,
       productionEnabled: false,
+      conversionRulesEnabled: false,
+      conversionProductionEnabled: false,
       apiPublicUrl: null,
       encryptionKey: null,
       rawPayloadRetentionDays: 7,
@@ -124,6 +132,52 @@ describe("parseDeploymentConfig", () => {
         }),
       ).inboundWebhooks.replayEnabled,
     ).toBe(false);
+  });
+
+  it("keeps provider conversion processing disabled by default", () => {
+    expect(
+      parseDeploymentConfig(
+        testEnv({
+          API_PUBLIC_URL: "http://localhost:3333",
+          INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
+        }),
+      ).inboundWebhooks,
+    ).toMatchObject({
+      conversionRulesEnabled: false,
+      conversionProductionEnabled: false,
+    });
+  });
+
+  it("requires conversion observation before production", () => {
+    expect(() =>
+      parseDeploymentConfig(
+        testEnv({
+          API_PUBLIC_URL: "http://localhost:3333",
+          INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
+          INBOUND_CONVERSION_PRODUCTION_ENABLED: "true",
+        }),
+      ),
+    ).toThrowError(
+      "Invalid INBOUND_CONVERSION_PRODUCTION_ENABLED: requires INBOUND_CONVERSION_RULES_ENABLED=true",
+    );
+  });
+
+  it.each([
+    "INBOUND_CONVERSION_RULES_ENABLED",
+    "INBOUND_CONVERSION_PRODUCTION_ENABLED",
+  ])("validates provider conversion flag %s", (field) => {
+    expect(() =>
+      parseDeploymentConfig(
+        testEnv({
+          API_PUBLIC_URL: "http://localhost:3333",
+          INBOUND_WEBHOOKS_ENABLED: "true",
+          INBOUND_WEBHOOK_ENCRYPTION_KEY: inboundWebhookEncryptionKey,
+          [field]: "sometimes",
+        }),
+      ),
+    ).toThrowError(`Invalid ${field}: expected true or false`);
   });
 
   it("validates the controlled inbound replay flag", () => {

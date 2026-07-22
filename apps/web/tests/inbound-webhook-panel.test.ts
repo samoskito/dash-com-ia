@@ -360,6 +360,8 @@ function renderPanel({
     createElement(InboundWebhookPanel, {
       capabilities,
       connections,
+      providerRules: [],
+      providerRulesEnabled: true,
       metaConfiguration,
       canManage,
       createAction: action,
@@ -368,6 +370,11 @@ function renderPanel({
       removeConnectionAction: action,
       setChannelStatusAction: action,
       saveRoutesAction: action,
+      createProviderRuleAction: action,
+      updateProviderRuleAction: action,
+      rotateProviderRuleEndpointAction: action,
+      removeProviderRuleAction: action,
+      testProviderCatalogMessageAction: action,
     }),
   );
 }

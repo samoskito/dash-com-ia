@@ -27,6 +27,7 @@ const connection = {
   displayName: "Umbler Comercial",
   parserVersion: "v1",
   status: "observation",
+  productionActivatedAt: null,
   lastDeliveryAt: null,
   lastSuccessfulParseAt: null,
   createdAt: timestamp,
@@ -61,7 +62,7 @@ describe("inbound webhook contracts", () => {
     ).toThrow();
   });
 
-  it("never accepts production in the observation release update contract", () => {
+  it("accepts controlled observation, production and pause status updates", () => {
     expect(
       inboundWebhookConnectionStatusUpdateInputSchema.parse({
         status: "observation",
@@ -72,11 +73,11 @@ describe("inbound webhook contracts", () => {
         status: "paused",
       }),
     ).toEqual({ status: "paused" });
-    expect(() =>
+    expect(
       inboundWebhookConnectionStatusUpdateInputSchema.parse({
         status: "production",
       }),
-    ).toThrow();
+    ).toEqual({ status: "production" });
   });
 
   it("supports many BMs per channel and the same BM on many channels", () => {
@@ -152,6 +153,7 @@ describe("inbound webhook contracts", () => {
       connectedPhone: "+551143377011",
       channelName: "Central de Vendas",
       status: "discovered",
+      productionActivatedAt: null,
       firstSeenAt: timestamp,
       lastSeenAt: timestamp,
       routes: [],
@@ -221,6 +223,7 @@ describe("inbound webhook contracts", () => {
   it("exposes only safe feature capabilities and observation counters", () => {
     const capabilities = inboundWebhookCapabilitiesSchema.parse({
       enabled: true,
+      productionEnabled: false,
       providers: [
         {
           provider: "umbler",
@@ -306,6 +309,7 @@ describe("inbound webhook contracts", () => {
       providerEventType: "Message",
       parserVersion: "v1",
       parserReleaseStatus: "observation_only",
+      purpose: "message_observation",
       status: "processed",
       classification: "eligible_route_unresolved",
       firstReceivedAt: timestamp,
@@ -349,6 +353,7 @@ describe("inbound webhook contracts", () => {
         ctwaRouted: 0,
         failed: 0,
         noCtwa: 373,
+        automationCallbacks: 12,
       }),
     ).toEqual({
       all: 423,
@@ -356,6 +361,7 @@ describe("inbound webhook contracts", () => {
       ctwaRouted: 0,
       failed: 0,
       noCtwa: 373,
+      automationCallbacks: 12,
     });
   });
 });
