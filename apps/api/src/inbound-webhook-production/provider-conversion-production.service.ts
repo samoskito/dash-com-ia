@@ -1,12 +1,17 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import type { StructuredCatalogTestMessageResultDto } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
 import type { ProviderConversionProductionJobPayload } from "../common/queue/queue.constants";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
 import { ConversionCatalogService } from "../conversion-rules/conversion-catalog.service";
+import {
+  matchProviderMessageTrigger,
+  providerMessageAuthorAllowed,
+} from "../conversion-rules/structured-catalog-message.parser";
 import { ConversionEventsService } from "../conversion-events/conversion-events.service";
 import { InboundWebhookMetaRouteReaderService } from "../inbound-webhooks/inbound-webhook-meta-route-reader.service";
 import { InboundWebhookPayloadEncryptionService } from "../inbound-webhooks/inbound-webhook-payload-encryption.service";
@@ -26,10 +31,20 @@ const executionInclude = {
         },
       },
       channels: true,
+      catalog: {
+        include: {
+          variants: true,
+        },
+      },
     },
   },
   sourceDelivery: true,
   channel: true,
+  purchaseReview: {
+    include: {
+      items: { orderBy: { position: "asc" } },
+    },
+  },
 } satisfies Prisma.ProviderConversionRuleExecutionInclude;
 
 type ExecutionRecord = Prisma.ProviderConversionRuleExecutionGetPayload<{
@@ -125,6 +140,18 @@ export class ProviderConversionProductionService {
           processedAt: new Date(),
         },
       });
+      await this.prisma.purchaseReview.updateMany({
+        where: {
+          providerExecutionId: execution.id,
+          workspaceId: execution.workspaceId,
+          status: { in: ["recognized", "approved", "failed"] },
+        },
+        data: {
+          status: "failed",
+          reasonCode: code,
+          version: { increment: 1 },
+        },
+      });
       throw new ProviderConversionProductionFailure(code);
     }
   }
@@ -139,17 +166,15 @@ export class ProviderConversionProductionService {
   > {
     this.assertProductionContext(execution);
     const parsedEvent = this.reparseEvent(execution);
-    const match = await this.catalogs.matchRuleMessage(
-      execution.workspaceId,
-      execution.providerRuleId,
-      parsedEvent.message.text!,
-    );
+    const match = await this.matchExecution(execution, parsedEvent);
+    const manualOverride = execution.purchaseReview?.status === "approved";
+    const purchase = manualOverride
+      ? this.reviewPurchase(execution)
+      : this.matchedPurchase(match);
 
     if (
-      !match.matched ||
-      match.catalogVariantId !== execution.matchedCatalogVariantId ||
-      match.parsedValueCents !== execution.valueCents ||
-      match.currency !== execution.currency
+      !purchase ||
+      (!manualOverride && !this.matchConsistent(execution, match))
     ) {
       throw new ProviderConversionProductionFailure(
         "provider_conversion_catalog_mismatch",
@@ -259,6 +284,19 @@ export class ProviderConversionProductionService {
             processedAt: new Date(),
           },
         });
+        if (execution.purchaseReview) {
+          await transaction.purchaseReview.update({
+            where: { id: execution.purchaseReview.id },
+            data: {
+              status: "duplicate",
+              reasonCode: "purchase_within_24h",
+              leadWorkspaceId: execution.workspaceId,
+              leadId: lead.id,
+              decidedAt: new Date(),
+              version: { increment: 1 },
+            },
+          });
+        }
         return { status: "duplicate" as const };
       }
 
@@ -266,7 +304,7 @@ export class ProviderConversionProductionService {
         workspaceId: execution.workspaceId,
         externalConnectorId: null,
         sourceEventId: parsedEvent.externalMessageId,
-        sourceTrigger: "inbound_webhook:umbler:structured_catalog",
+        sourceTrigger: `inbound_webhook:umbler:${execution.providerRule.conversionRule.triggerType}`,
         eventName: "Purchase",
         eventId: this.metaEventId(execution.id),
         dedupeKey: `provider-conversion:${execution.id}`,
@@ -280,10 +318,10 @@ export class ProviderConversionProductionService {
         adSetId: lead.adSetId,
         adId: lead.adId,
         ctwaClid: lead.ctwaClid,
-        valueCents: match.parsedValueCents,
+        valueCents: purchase.valueCents,
         valueSource: "actual",
-        currency: match.currency,
-        contentName: match.contentName,
+        currency: purchase.currency,
+        contentName: purchase.contentName,
         eventOccurredAt: execution.occurredAt,
         sourcePayload: {
           provider: "umbler",
@@ -292,6 +330,9 @@ export class ProviderConversionProductionService {
           sourceDeliveryId: execution.sourceDeliveryId,
           channelId: execution.channelId,
           catalogVariantId: match.catalogVariantId,
+          purchaseReviewId: execution.purchaseReview?.id ?? null,
+          items: purchase.items,
+          manualReviewOverride: manualOverride,
           processingMode: "live_provider_conversion",
         },
       });
@@ -306,6 +347,21 @@ export class ProviderConversionProductionService {
           processedAt: new Date(),
         },
       });
+      if (execution.purchaseReview) {
+        await transaction.purchaseReview.update({
+          where: { id: execution.purchaseReview.id },
+          data: {
+            status: "approved",
+            leadWorkspaceId: execution.workspaceId,
+            leadId: lead.id,
+            conversionEventLogId: conversion.conversionEventLogId,
+            effectiveValueCents: purchase.valueCents,
+            currency: purchase.currency,
+            reasonCode: null,
+            version: { increment: 1 },
+          },
+        });
+      }
 
       return {
         status: "materialized" as const,
@@ -317,10 +373,157 @@ export class ProviderConversionProductionService {
     return result;
   }
 
+  private async matchExecution(
+    execution: ExecutionRecord,
+    event: ParsedInboundWebhookEvent,
+  ): Promise<StructuredCatalogTestMessageResultDto> {
+    if (
+      execution.providerRule.conversionRule.triggerType === "structured_catalog"
+    ) {
+      return this.catalogs.matchRuleMessage(
+        execution.workspaceId,
+        execution.providerRuleId,
+        event.message.text!,
+      );
+    }
+
+    const rule = execution.providerRule;
+    const matchedTriggerPhrase = matchProviderMessageTrigger(
+      event.message.text!,
+      rule.messageTriggerPhrases,
+    );
+    const valueCents = rule.conversionRule.defaultValueCents;
+    const currency = rule.conversionRule.defaultCurrency;
+    const matched = Boolean(matchedTriggerPhrase && valueCents && currency);
+
+    return {
+      matched,
+      reasonCode: matched ? "matched" : "trigger_missing",
+      classification: matched ? "recognized" : "ignored",
+      matchedTriggerPhrase,
+      parsedAttributes: [],
+      items: [],
+      parsedValueCents: matched ? valueCents : null,
+      calculatedValueCents: matched ? valueCents : null,
+      observedPaymentValueCents: null,
+      catalogVariantId: null,
+      contentName: rule.conversionRule.defaultContentName,
+      currency,
+    };
+  }
+
+  private matchConsistent(
+    execution: ExecutionRecord,
+    match: StructuredCatalogTestMessageResultDto,
+  ): boolean {
+    if (
+      !match.matched ||
+      match.calculatedValueCents !== execution.valueCents ||
+      match.currency !== execution.currency
+    ) {
+      return false;
+    }
+
+    const normalized = this.jsonObject(execution.normalizedResult);
+    return this.jsonEquals(normalized?.items, match.items);
+  }
+
+  private matchedPurchase(match: StructuredCatalogTestMessageResultDto): {
+    valueCents: number;
+    currency: string;
+    contentName: string | null;
+    items: unknown[];
+  } | null {
+    if (!match.matched || !match.calculatedValueCents || !match.currency) {
+      return null;
+    }
+
+    return {
+      valueCents: match.calculatedValueCents,
+      currency: match.currency,
+      contentName: match.contentName,
+      items: match.items,
+    };
+  }
+
+  private reviewPurchase(execution: ExecutionRecord): {
+    valueCents: number;
+    currency: string;
+    contentName: string | null;
+    items: unknown[];
+  } | null {
+    const review = execution.purchaseReview;
+    const catalogPurchase =
+      execution.providerRule.conversionRule.triggerType ===
+      "structured_catalog";
+    if (
+      !review?.effectiveValueCents ||
+      (catalogPurchase && review.items.length === 0)
+    ) {
+      return null;
+    }
+
+    const items = review.items.map((item) => ({
+      catalogVariantId: item.catalogVariantId,
+      attributeValues: this.stringArray(item.attributeValues),
+      quantity: item.quantity,
+      unitValueCents: item.unitValueCents,
+      subtotalValueCents: item.subtotalValueCents,
+      contentName: item.contentName,
+    }));
+    if (
+      catalogPurchase &&
+      items.some(
+        (item) =>
+          !item.catalogVariantId ||
+          !item.unitValueCents ||
+          !item.subtotalValueCents,
+      )
+    ) {
+      return null;
+    }
+
+    const names = [
+      ...new Set(
+        items
+          .map((item) => item.contentName)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ];
+    return {
+      valueCents: review.effectiveValueCents,
+      currency: review.currency,
+      contentName:
+        names.length === 1
+          ? names[0]
+          : execution.providerRule.conversionRule.defaultContentName,
+      items,
+    };
+  }
+
+  private jsonObject(
+    value: Prisma.JsonValue | null,
+  ): Record<string, unknown> | null {
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  }
+
+  private jsonEquals(left: unknown, right: unknown): boolean {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  }
+
+  private stringArray(value: Prisma.JsonValue): string[] {
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
+  }
+
   private assertProductionContext(execution: ExecutionRecord): void {
     const rule = execution.providerRule;
     const delivery = execution.sourceDelivery;
     const channel = execution.channel;
+    const manuallyApproved = execution.purchaseReview?.status === "approved";
     const channelScoped = rule.channels.some(
       (scope) => scope.channelId === execution.channelId,
     );
@@ -328,10 +531,12 @@ export class ProviderConversionProductionService {
     if (
       rule.removedAt ||
       !rule.conversionRule.active ||
-      rule.conversionRule.triggerType !== "structured_catalog" ||
+      !["structured_catalog", "message_phrase"].includes(
+        rule.conversionRule.triggerType,
+      ) ||
       rule.conversionRule.eventName !== "Purchase" ||
-      rule.mode !== "production" ||
-      !rule.productionActivatedAt ||
+      (!manuallyApproved && rule.mode !== "production") ||
+      (!manuallyApproved && !rule.productionActivatedAt) ||
       rule.parserRelease.status !== "certified" ||
       rule.connection.removedAt ||
       rule.connection.status !== "production" ||
@@ -343,7 +548,9 @@ export class ProviderConversionProductionService {
       channel.status !== "active" ||
       !channel.productionActivatedAt ||
       !channelScoped ||
-      delivery.firstReceivedAt < rule.productionActivatedAt ||
+      (!manuallyApproved &&
+        rule.productionActivatedAt !== null &&
+        delivery.firstReceivedAt < rule.productionActivatedAt) ||
       delivery.firstReceivedAt < channel.productionActivatedAt
     ) {
       throw new ProviderConversionProductionFailure(
@@ -403,8 +610,8 @@ export class ProviderConversionProductionService {
       result.error ||
       !parsedEvent ||
       parsedEvent.provider !== "umbler" ||
-      parsedEvent.message.direction !== "outbound" ||
-      !["organization_member", "bot"].includes(
+      !providerMessageAuthorAllowed(
+        rule.messageAuthorScope ?? "team",
         parsedEvent.message.authorType,
       ) ||
       parsedEvent.message.isPrivate ||

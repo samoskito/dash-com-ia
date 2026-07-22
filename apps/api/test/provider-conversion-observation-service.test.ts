@@ -20,7 +20,7 @@ function outboundCatalogEvent() {
   body.Payload.Content.LastMessage.BotInstance = { Id: "bot_1" };
   body.Payload.Content.LastMessage.SentByOrganizationMember = null;
   body.Payload.Content.LastMessage.Content =
-    "Tamanho: 4,90\nModelo: Nacional\n3.597,00";
+    "Dados para confirmar o pedido\nTamanho: 4,90\nModelo: Nacional\n3.597,00";
   return new UmblerV1Parser().parse(body).events[0]!;
 }
 
@@ -45,6 +45,8 @@ function createHarness(mode: "observation" | "production") {
     updatedAt: activatedAt,
     conversionRuleId: "conversion_rule_1",
     createdByUserId: "user_1",
+    messageTriggerPhrases: ["Dados para confirmar o pedido"],
+    messageAuthorScope: "team",
     conversionRule: {
       id: "conversion_rule_1",
       workspaceId,
@@ -151,7 +153,14 @@ function createHarness(mode: "observation" | "production") {
     providerConversionRuleConfig: {
       findMany: vi.fn(async () => [rule]),
     },
+    lead: {
+      findMany: vi.fn(async () => []),
+    },
     providerConversionRuleExecution: { upsert },
+    purchaseReview: {
+      upsert: vi.fn(async () => ({ id: "review_1" })),
+      updateMany: vi.fn(async () => ({ count: 0 })),
+    },
   };
   const service = new ProviderConversionObservationService(prisma as never, {
     NODE_ENV: "test",

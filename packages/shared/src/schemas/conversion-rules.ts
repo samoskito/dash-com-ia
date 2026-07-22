@@ -10,6 +10,7 @@ export const legacyConversionTriggerTypes = [
 ] as const;
 export const providerConversionTriggerTypes = [
   "provider_automation",
+  "message_phrase",
   "structured_catalog",
 ] as const;
 export const conversionTriggerTypes = [
@@ -35,6 +36,15 @@ export const providerConversionRuleModeSchema = z.enum(
   providerConversionRuleModes,
 );
 
+export const providerConversionMessageAuthorScopes = [
+  "team",
+  "contact",
+  "both",
+] as const;
+export const providerConversionMessageAuthorScopeSchema = z.enum(
+  providerConversionMessageAuthorScopes,
+);
+
 export const providerConversionExecutionStatuses = [
   "observed",
   "eligible",
@@ -54,6 +64,7 @@ const currencySchema = z
   .regex(/^[A-Za-z]{3}$/)
   .transform((value) => value.toUpperCase());
 const catalogTextSchema = z.string().trim().min(1).max(180);
+const messageTriggerPhraseSchema = z.string().trim().min(3).max(240);
 const catalogAttributeKeySchema = z
   .string()
   .trim()
@@ -180,6 +191,20 @@ const providerConversionRuleBaseSchema = z.object({
 
 const providerConversionRuleBaseShape = providerConversionRuleBaseSchema.shape;
 
+const providerConversionMessageRuleShape = {
+  triggerPhrases: z
+    .array(messageTriggerPhraseSchema)
+    .min(1)
+    .max(20)
+    .refine(
+      (phrases) =>
+        new Set(phrases.map((phrase) => phrase.toLocaleLowerCase("pt-BR")))
+          .size === phrases.length,
+      { message: "Cada frase gatilho deve ser informada uma unica vez" },
+    ),
+  messageAuthorScope: providerConversionMessageAuthorScopeSchema,
+};
+
 export const providerConversionRuleCreateInputSchema = z.union([
   z.object({
     ...providerConversionRuleBaseShape,
@@ -196,6 +221,16 @@ export const providerConversionRuleCreateInputSchema = z.union([
   }),
   z.object({
     ...providerConversionRuleBaseShape,
+    ...providerConversionMessageRuleShape,
+    triggerType: z.literal("message_phrase"),
+    eventName: z.literal("Purchase"),
+    defaultValueCents: z.number().int().positive(),
+    defaultCurrency: currencySchema.default("BRL"),
+    defaultContentName: catalogTextSchema.nullable().optional(),
+  }),
+  z.object({
+    ...providerConversionRuleBaseShape,
+    ...providerConversionMessageRuleShape,
     triggerType: z.literal("structured_catalog"),
     eventName: z.literal("Purchase"),
     catalog: providerConversionCatalogInputSchema,
@@ -210,6 +245,12 @@ export const providerConversionRuleUpdateInputSchema = z
     defaultValueCents: z.number().int().positive().nullable().optional(),
     defaultCurrency: currencySchema.nullable().optional(),
     defaultContentName: catalogTextSchema.nullable().optional(),
+    triggerPhrases: z
+      .array(messageTriggerPhraseSchema)
+      .min(1)
+      .max(20)
+      .optional(),
+    messageAuthorScope: providerConversionMessageAuthorScopeSchema.optional(),
     catalog: providerConversionCatalogInputSchema.optional(),
     active: z.boolean().optional(),
   })
@@ -262,10 +303,14 @@ export const structuredCatalogMatchReasonCodes = [
   "matched",
   "rule_inactive",
   "catalog_inactive",
+  "trigger_missing",
+  "awaiting_data",
   "missing_attribute",
+  "incomplete_item",
   "ambiguous_attribute",
   "unknown_combination",
   "ambiguous_variant",
+  "invalid_quantity",
   "missing_price",
   "ambiguous_price",
   "price_mismatch",
@@ -285,11 +330,34 @@ export const structuredCatalogParsedAttributeSchema = z.object({
   value: catalogTextSchema,
 });
 
+export const structuredCatalogParsedItemSchema = z.object({
+  position: z.number().int().positive(),
+  quantity: z.number().int().positive().max(100),
+  parsedAttributes: z.array(structuredCatalogParsedAttributeSchema).max(2),
+  catalogVariantId: idSchema.nullable(),
+  unitValueCents: z.number().int().positive().nullable(),
+  subtotalValueCents: z.number().int().positive().nullable(),
+  contentName: catalogTextSchema.nullable(),
+  reasonCode: structuredCatalogMatchReasonCodeSchema,
+});
+
+export const structuredCatalogMatchClassificationSchema = z.enum([
+  "recognized",
+  "awaiting_data",
+  "review_required",
+  "ignored",
+]);
+
 export const structuredCatalogTestMessageResultSchema = z.object({
   matched: z.boolean(),
   reasonCode: structuredCatalogMatchReasonCodeSchema,
+  classification: structuredCatalogMatchClassificationSchema,
+  matchedTriggerPhrase: messageTriggerPhraseSchema.nullable(),
   parsedAttributes: z.array(structuredCatalogParsedAttributeSchema).max(2),
+  items: z.array(structuredCatalogParsedItemSchema).max(100),
   parsedValueCents: z.number().int().positive().nullable(),
+  calculatedValueCents: z.number().int().positive().nullable(),
+  observedPaymentValueCents: z.number().int().positive().nullable(),
   catalogVariantId: idSchema.nullable(),
   contentName: catalogTextSchema.nullable(),
   currency: currencySchema.nullable(),
@@ -324,6 +392,8 @@ export const providerConversionRuleSchema = z.object({
   parserReleaseId: idSchema,
   productionActivatedAt: z.string().datetime().nullable(),
   channelIds: z.array(idSchema),
+  triggerPhrases: z.array(messageTriggerPhraseSchema),
+  messageAuthorScope: providerConversionMessageAuthorScopeSchema.nullable(),
   endpoint: providerConversionEndpointSchema.nullable(),
   catalog: providerConversionCatalogSchema.nullable(),
   lastExecution: providerConversionExecutionSchema.nullable(),
@@ -339,6 +409,104 @@ export const providerConversionRuleCreateResultSchema = z.object({
   rule: providerConversionRuleSchema,
   webhookUrl: z.string().url().nullable(),
 });
+
+export const purchaseReviewStatuses = [
+  "recognized",
+  "awaiting_data",
+  "review_required",
+  "approved",
+  "sent",
+  "duplicate",
+  "rejected",
+  "failed",
+  "corrected_after_send",
+] as const;
+export const purchaseReviewStatusSchema = z.enum(purchaseReviewStatuses);
+
+export const purchaseReviewSourceTypes = [
+  "provider_message",
+  "provider_automation",
+] as const;
+export const purchaseReviewSourceTypeSchema = z.enum(purchaseReviewSourceTypes);
+
+export const purchaseReviewItemSchema = z.object({
+  id: idSchema,
+  position: z.number().int().positive(),
+  catalogVariantId: idSchema.nullable(),
+  attributeValues: z.array(catalogTextSchema).max(2),
+  quantity: z.number().int().positive().max(100),
+  unitValueCents: z.number().int().positive().nullable(),
+  subtotalValueCents: z.number().int().positive().nullable(),
+  contentName: catalogTextSchema.nullable(),
+});
+
+export const purchaseReviewSchema = z.object({
+  id: idSchema,
+  workspaceId: idSchema,
+  providerRuleId: idSchema,
+  ruleName: z.string().min(1),
+  sourceDeliveryId: idSchema,
+  channelId: idSchema.nullable(),
+  channelName: z.string().nullable(),
+  occurredAt: z.string().datetime(),
+  sourceType: purchaseReviewSourceTypeSchema,
+  messageAuthorType: z.string().nullable(),
+  matchedTriggerPhrase: z.string().nullable(),
+  status: purchaseReviewStatusSchema,
+  classificationCode: z.string().min(1).max(120),
+  reasonCode: z.string().max(160).nullable(),
+  leadId: idSchema.nullable(),
+  leadName: z.string().nullable(),
+  phoneDisplay: z.string().nullable(),
+  items: z.array(purchaseReviewItemSchema),
+  calculatedValueCents: z.number().int().positive().nullable(),
+  effectiveValueCents: z.number().int().positive().nullable(),
+  observedPaymentValueCents: z.number().int().positive().nullable(),
+  currency: currencySchema,
+  conversionEventLogId: idSchema.nullable(),
+  decisionReason: z.string().nullable(),
+  decidedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const purchaseReviewListQuerySchema = z.object({
+  status: purchaseReviewStatusSchema.optional(),
+  providerRuleId: idSchema.optional(),
+  channelId: idSchema.optional(),
+  since: z.string().date().optional(),
+  until: z.string().date().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+export const purchaseReviewListSchema = z.object({
+  reviews: z.array(purchaseReviewSchema),
+  pendingCount: z.number().int().nonnegative(),
+  pagination: z.object({
+    page: z.number().int().positive(),
+    pageSize: z.number().int().positive(),
+    totalItems: z.number().int().nonnegative(),
+    totalPages: z.number().int().nonnegative(),
+  }),
+});
+
+export const purchaseReviewLineItemInputSchema = z.object({
+  catalogVariantId: idSchema,
+  quantity: z.number().int().positive().max(100),
+});
+
+export const purchaseReviewItemsUpdateInputSchema = z.object({
+  items: z.array(purchaseReviewLineItemInputSchema).min(1).max(100),
+  reason: z.string().trim().min(3).max(500),
+});
+
+export const purchaseReviewDecisionInputSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
+
+export const purchaseReviewCorrectionInputSchema =
+  purchaseReviewItemsUpdateInputSchema;
 
 export const conversionRuleListSchema = z.array(conversionRuleSchema);
 
@@ -364,6 +532,9 @@ export type ProviderConversionTriggerTypeDto = z.infer<
 >;
 export type ProviderConversionRuleModeDto = z.infer<
   typeof providerConversionRuleModeSchema
+>;
+export type ProviderConversionMessageAuthorScopeDto = z.infer<
+  typeof providerConversionMessageAuthorScopeSchema
 >;
 export type ProviderConversionExecutionStatusDto = z.infer<
   typeof providerConversionExecutionStatusSchema
@@ -403,4 +574,24 @@ export type ProviderConversionRuleCreateResultDto = z.infer<
 >;
 export type ProviderConversionExecutionDto = z.infer<
   typeof providerConversionExecutionSchema
+>;
+export type StructuredCatalogParsedItemDto = z.infer<
+  typeof structuredCatalogParsedItemSchema
+>;
+export type PurchaseReviewStatusDto = z.infer<
+  typeof purchaseReviewStatusSchema
+>;
+export type PurchaseReviewDto = z.infer<typeof purchaseReviewSchema>;
+export type PurchaseReviewListQueryDto = z.infer<
+  typeof purchaseReviewListQuerySchema
+>;
+export type PurchaseReviewListDto = z.infer<typeof purchaseReviewListSchema>;
+export type PurchaseReviewItemsUpdateInputDto = z.infer<
+  typeof purchaseReviewItemsUpdateInputSchema
+>;
+export type PurchaseReviewDecisionInputDto = z.infer<
+  typeof purchaseReviewDecisionInputSchema
+>;
+export type PurchaseReviewCorrectionInputDto = z.infer<
+  typeof purchaseReviewCorrectionInputSchema
 >;

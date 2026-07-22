@@ -26,6 +26,7 @@ function createHarness(
     cutovers: [] as Array<Record<string, unknown>>,
     countQueries: [] as Array<Record<string, unknown>>,
     funnelDefaults: [] as Array<Record<string, unknown>>,
+    purchaseReviewUpdates: [] as Array<Record<string, unknown>>,
   };
   const prisma = {
     externalCapiCutover: {
@@ -167,6 +168,18 @@ function createHarness(
           return log;
         });
         return { count };
+      },
+    },
+    purchaseReview: {
+      updateMany: async ({
+        data,
+        where,
+      }: {
+        data: Record<string, unknown>;
+        where: Record<string, unknown>;
+      }) => {
+        db.purchaseReviewUpdates.push({ data, where });
+        return { count: 1 };
       },
     },
     integrationLog: {
@@ -894,6 +907,16 @@ describe("conversion events service", () => {
       errorMessage: null,
     });
     expect(db.logs[0].sentAt).toBeInstanceOf(Date);
+    expect(db.purchaseReviewUpdates).toContainEqual({
+      where: expect.objectContaining({
+        workspaceId: "workspace_1",
+        conversionEventLogId: "conversion_1",
+      }),
+      data: expect.objectContaining({
+        status: "sent",
+        reasonCode: null,
+      }),
+    });
     expect(adapter.calls[0]).toMatchObject({
       accessToken: "workspace-oauth-token",
       pixelId: "pixel_1",

@@ -70,6 +70,8 @@ const catalogRule = {
   parserReleaseId: "parser_1",
   productionActivatedAt: null,
   channelIds: ["channel_1"],
+  triggerPhrases: ["Dados para confirmar o pedido"],
+  messageAuthorScope: "both",
   endpoint: null,
   catalog: {
     id: "catalog_1",
@@ -104,7 +106,7 @@ describe("provider conversion rule panel", () => {
 
     expect(html).toContain("Eventos de conversao");
     expect(html).toContain("Compra por catalogo");
-    expect(html).toContain("Mensagem estruturada");
+    expect(html).toContain("Mensagem com catalogo");
     expect(html).toContain("Camas elasticas");
     expect(html).toContain("Tamanho");
     expect(html).toContain("Modelo");

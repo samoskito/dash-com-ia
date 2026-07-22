@@ -11,6 +11,7 @@ import {
   Check,
   Copy,
   FlaskConical,
+  MessageSquareText,
   Pause,
   Play,
   Plus,
@@ -35,7 +36,10 @@ type ProviderRuleAction = (
 ) => Promise<ProviderConversionRuleActionResult>;
 
 type RuleKind =
-  "qualified_automation" | "purchase_automation" | "purchase_catalog";
+  | "qualified_automation"
+  | "purchase_automation"
+  | "purchase_message"
+  | "purchase_catalog";
 
 type CatalogAttributeDraft = {
   id: number;
@@ -89,6 +93,10 @@ export function ProviderConversionRulePanel({
   );
   const [averageValue, setAverageValue] = useState("");
   const [contentName, setContentName] = useState("");
+  const [triggerPhrases, setTriggerPhrases] = useState("");
+  const [messageAuthorScope, setMessageAuthorScope] = useState<
+    "team" | "contact" | "both"
+  >("team");
   const [catalogName, setCatalogName] = useState("");
   const [productName, setProductName] = useState("");
   const [attributes, setAttributes] = useState<CatalogAttributeDraft[]>([
@@ -117,6 +125,8 @@ export function ProviderConversionRulePanel({
       selectedChannelIds,
       averageValue,
       contentName,
+      triggerPhrases,
+      messageAuthorScope,
       catalogName,
       productName,
       attributes,
@@ -354,7 +364,19 @@ export function ProviderConversionRulePanel({
               active={kind === "purchase_catalog"}
               icon={<BookOpen size={15} aria-hidden="true" />}
               label="Compra por catalogo"
-              onClick={() => setKind("purchase_catalog")}
+              onClick={() => {
+                setKind("purchase_catalog");
+                setMessageAuthorScope("both");
+              }}
+            />
+            <RuleKindButton
+              active={kind === "purchase_message"}
+              icon={<MessageSquareText size={15} aria-hidden="true" />}
+              label="Compra por mensagem"
+              onClick={() => {
+                setKind("purchase_message");
+                setMessageAuthorScope("team");
+              }}
             />
           </div>
 
@@ -370,7 +392,7 @@ export function ProviderConversionRulePanel({
                 required
               />
             </label>
-            {kind === "purchase_automation" ? (
+            {["purchase_automation", "purchase_message"].includes(kind) ? (
               <>
                 <label>
                   <span className="field-label">Valor medio (R$)</span>
@@ -394,6 +416,41 @@ export function ProviderConversionRulePanel({
               </>
             ) : null}
           </div>
+
+          {["purchase_message", "purchase_catalog"].includes(kind) ? (
+            <div className="provider-conversion-base-fields">
+              <label>
+                <span className="field-label">Frases gatilho</span>
+                <textarea
+                  value={triggerPhrases}
+                  onChange={(event) => setTriggerPhrases(event.target.value)}
+                  rows={3}
+                  maxLength={4_800}
+                  placeholder={
+                    kind === "purchase_catalog"
+                      ? "Uma por linha. Ex.: Dados para confirmar o pedido"
+                      : "Uma por linha. Ex.: Aviso de compra"
+                  }
+                  required
+                />
+              </label>
+              <label>
+                <span className="field-label">Quem pode enviar</span>
+                <select
+                  value={messageAuthorScope}
+                  onChange={(event) =>
+                    setMessageAuthorScope(
+                      event.target.value as "team" | "contact" | "both",
+                    )
+                  }
+                >
+                  <option value="team">Equipe ou bot</option>
+                  <option value="contact">Somente contato</option>
+                  <option value="both">Equipe, bot ou contato</option>
+                </select>
+              </label>
+            </div>
+          ) : null}
 
           <ChannelSelector
             channels={channels}
@@ -801,6 +858,15 @@ export function ProviderConversionRulePanel({
                   onResult={applyResult}
                 />
 
+                {!automation ? (
+                  <MessageRuleEditor
+                    rule={rule}
+                    canManage={canManage}
+                    updateAction={updateAction}
+                    onResult={applyResult}
+                  />
+                ) : null}
+
                 {rule.catalog ? (
                   <CatalogRuleDetails
                     rule={rule}
@@ -813,6 +879,97 @@ export function ProviderConversionRulePanel({
         )}
       </div>
     </section>
+  );
+}
+
+function MessageRuleEditor({
+  rule,
+  canManage,
+  updateAction,
+  onResult,
+}: {
+  rule: ProviderConversionRuleDto;
+  canManage: boolean;
+  updateAction: ProviderRuleAction;
+  onResult: (result: ProviderConversionRuleActionResult) => void;
+}) {
+  const router = useRouter();
+  const [phrases, setPhrases] = useState(rule.triggerPhrases.join("\n"));
+  const [authorScope, setAuthorScope] = useState<"team" | "contact" | "both">(
+    rule.messageAuthorScope ?? "team",
+  );
+  const [pending, setPending] = useState(false);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+
+    const triggerPhrases = parseTriggerPhrases(phrases);
+    if (triggerPhrases.length === 0) {
+      onResult({
+        ok: false,
+        message: "Informe ao menos uma frase gatilho.",
+      });
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("ruleId", rule.id);
+    formData.set(
+      "payload",
+      JSON.stringify({ triggerPhrases, messageAuthorScope: authorScope }),
+    );
+    setPending(true);
+    const result = await updateAction(formData);
+    onResult(result);
+    if (result.ok) router.refresh();
+    setPending(false);
+  }
+
+  return (
+    <details className="provider-conversion-rule-scope">
+      <summary>
+        <span>Reconhecimento da mensagem</span>
+        <strong>{rule.triggerPhrases.length} frase(s)</strong>
+      </summary>
+      <form onSubmit={save}>
+        <div className="provider-conversion-base-fields">
+          <label>
+            <span className="field-label">Frases gatilho</span>
+            <textarea
+              value={phrases}
+              onChange={(event) => setPhrases(event.target.value)}
+              rows={3}
+              maxLength={4_800}
+              readOnly={!canManage}
+              required
+            />
+          </label>
+          <label>
+            <span className="field-label">Quem pode enviar</span>
+            <select
+              value={authorScope}
+              disabled={!canManage}
+              onChange={(event) =>
+                setAuthorScope(
+                  event.target.value as "team" | "contact" | "both",
+                )
+              }
+            >
+              <option value="team">Equipe ou bot</option>
+              <option value="contact">Somente contato</option>
+              <option value="both">Equipe, bot ou contato</option>
+            </select>
+          </label>
+        </div>
+        {canManage ? (
+          <button className="button subtle" type="submit" disabled={pending}>
+            <Check size={14} aria-hidden="true" />
+            {pending ? "Salvando..." : "Salvar reconhecimento"}
+          </button>
+        ) : null}
+      </form>
+    </details>
   );
 }
 
@@ -1075,6 +1232,8 @@ function buildCreatePayload(input: {
   selectedChannelIds: string[];
   averageValue: string;
   contentName: string;
+  triggerPhrases: string;
+  messageAuthorScope: "team" | "contact" | "both";
   catalogName: string;
   productName: string;
   attributes: CatalogAttributeDraft[];
@@ -1106,22 +1265,49 @@ function buildCreatePayload(input: {
     };
   }
 
-  if (input.kind === "purchase_automation") {
+  if (
+    input.kind === "purchase_automation" ||
+    input.kind === "purchase_message"
+  ) {
     const defaultValueCents = parseMoneyToCents(input.averageValue);
     if (!defaultValueCents) {
       return { ok: false, message: "Informe um valor medio valido." };
+    }
+    const messagePhrases = parseTriggerPhrases(input.triggerPhrases);
+    if (input.kind === "purchase_message" && messagePhrases.length === 0) {
+      return {
+        ok: false,
+        message: "Informe ao menos uma frase gatilho para reconhecer a compra.",
+      };
     }
 
     return {
       ok: true,
       value: {
         ...base,
-        triggerType: "provider_automation",
+        triggerType:
+          input.kind === "purchase_automation"
+            ? "provider_automation"
+            : "message_phrase",
         eventName: "Purchase",
         defaultValueCents,
         defaultCurrency: "BRL",
         defaultContentName: input.contentName.trim() || null,
+        ...(input.kind === "purchase_message"
+          ? {
+              triggerPhrases: messagePhrases,
+              messageAuthorScope: input.messageAuthorScope,
+            }
+          : {}),
       },
+    };
+  }
+
+  const triggerPhrases = parseTriggerPhrases(input.triggerPhrases);
+  if (triggerPhrases.length === 0) {
+    return {
+      ok: false,
+      message: "Informe ao menos uma frase gatilho para reconhecer a compra.",
     };
   }
 
@@ -1167,6 +1353,8 @@ function buildCreatePayload(input: {
       ...base,
       triggerType: "structured_catalog",
       eventName: "Purchase",
+      triggerPhrases,
+      messageAuthorScope: input.messageAuthorScope,
       catalog: {
         name: input.catalogName.trim(),
         productName: input.productName.trim(),
@@ -1179,6 +1367,17 @@ function buildCreatePayload(input: {
       },
     },
   };
+}
+
+function parseTriggerPhrases(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(/\r?\n/u)
+        .map((phrase) => phrase.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function emptyVariant(id: number, attributeCount: number): CatalogVariantDraft {
@@ -1242,9 +1441,13 @@ function eventLabel(rule: ProviderConversionRuleDto): string {
 }
 
 function triggerLabel(rule: ProviderConversionRuleDto): string {
-  return rule.conversionRule.triggerType === "structured_catalog"
-    ? "Mensagem estruturada"
-    : "Automacao por tag";
+  if (rule.conversionRule.triggerType === "structured_catalog") {
+    return "Mensagem com catalogo";
+  }
+  if (rule.conversionRule.triggerType === "message_phrase") {
+    return "Mensagem com valor medio";
+  }
+  return "Automacao por tag";
 }
 
 function executionStatusLabel(
@@ -1299,6 +1502,10 @@ function catalogReasonLabelSafe(reasonCode: string): string {
     missing_price: "Valor ausente",
     ambiguous_price: "Mais de um valor encontrado",
     price_mismatch: "Valor diferente do catalogo",
+    trigger_missing: "Frase gatilho ausente",
+    awaiting_data: "Aguardando dados completos",
+    incomplete_item: "Produto incompleto",
+    invalid_quantity: "Quantidade invalida",
   };
 
   return labels[reasonCode] ?? "Requer revisao";
@@ -1318,6 +1525,10 @@ function catalogReasonLabel(
     missing_price: "Nenhum preco foi encontrado na mensagem.",
     ambiguous_price: "Mais de um preco foi encontrado na mensagem.",
     price_mismatch: "O preco da mensagem difere do catalogo.",
+    trigger_missing: "A frase gatilho nao foi encontrada.",
+    awaiting_data: "A mensagem ainda nao contem os dados da compra.",
+    incomplete_item: "Um produto esta sem tamanho ou modelo.",
+    invalid_quantity: "A quantidade informada nao e valida.",
   };
 
   return labels[reasonCode];

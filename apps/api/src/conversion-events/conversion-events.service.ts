@@ -424,8 +424,7 @@ export class ConversionEventsService {
           pixelId: null,
           eventId: input.eventId,
           metaAccountId: input.metaAccountId ?? null,
-          metaBusinessConnectionId:
-            input.metaBusinessConnectionId ?? null,
+          metaBusinessConnectionId: input.metaBusinessConnectionId ?? null,
           metaConversionDestinationId:
             input.metaConversionDestinationId ?? null,
           campaignId: input.campaignId ?? null,
@@ -498,8 +497,7 @@ export class ConversionEventsService {
         campaignId: existing.campaignId ?? input.campaignId ?? null,
         adSetId: existing.adSetId ?? input.adSetId ?? null,
         adId,
-        metaAccountId:
-          existing.metaAccountId ?? input.metaAccountId ?? null,
+        metaAccountId: existing.metaAccountId ?? input.metaAccountId ?? null,
         metaBusinessConnectionId:
           existing.metaBusinessConnectionId ??
           input.metaBusinessConnectionId ??
@@ -723,6 +721,25 @@ export class ConversionEventsService {
         errorMessage: result.errorMessage,
       },
     });
+    if (log.eventName === "Purchase" && log.workspaceId) {
+      await this.prisma.purchaseReview.updateMany({
+        where: {
+          workspaceId: log.workspaceId,
+          conversionEventLogId: log.id,
+          status: {
+            in: ["approved", "failed"],
+          },
+        },
+        data: {
+          status: result.status === "sent" ? "sent" : "failed",
+          reasonCode:
+            result.status === "sent"
+              ? null
+              : (result.errorCode ?? "meta_delivery_failed"),
+          version: { increment: 1 },
+        },
+      });
+    }
     await this.recordMetaCapiDiagnosticEvent(
       log,
       result,

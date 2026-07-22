@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
   ProviderConversionCatalogDto,
+  ProviderConversionMessageAuthorScopeDto,
   StructuredCatalogTestMessageResultDto,
 } from "@wpptrack/shared";
 import { hashPhoneIdentity } from "../common/phone/phone-identity";
@@ -9,7 +10,11 @@ import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
 import type { ParsedInboundWebhookEvent } from "../inbound-webhooks/providers/inbound-webhook-parser";
-import { matchStructuredCatalogMessage } from "./structured-catalog-message.parser";
+import {
+  matchProviderMessageTrigger,
+  matchStructuredCatalogMessage,
+  providerMessageAuthorAllowed,
+} from "./structured-catalog-message.parser";
 
 const observedRuleInclude = {
   conversionRule: true,
@@ -60,8 +65,6 @@ export class ProviderConversionObservationService {
       (event) =>
         event.provider === "umbler" &&
         !event.message.isPrivate &&
-        event.message.direction === "outbound" &&
-        ["organization_member", "bot"].includes(event.message.authorType) &&
         event.message.text !== null,
     );
     if (candidates.length === 0) {
@@ -93,7 +96,7 @@ export class ProviderConversionObservationService {
         removedAt: null,
         conversionRule: {
           active: true,
-          triggerType: "structured_catalog",
+          triggerType: { in: ["structured_catalog", "message_phrase"] },
           eventName: "Purchase",
         },
         channels: {
@@ -105,6 +108,23 @@ export class ProviderConversionObservationService {
       include: observedRuleInclude,
       orderBy: { createdAt: "asc" },
     });
+    const identityHashes = [
+      ...new Set(
+        candidates
+          .map((event) => hashPhoneIdentity(event.contact.phoneNumber))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ];
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        phoneHash: { in: identityHashes },
+      },
+      select: { id: true, phoneHash: true },
+    });
+    const leadByPhoneHash = new Map(
+      leads.map((lead) => [lead.phoneHash, lead.id]),
+    );
     const executionIds: string[] = [];
     const eligibleExecutionIds: string[] = [];
 
@@ -116,12 +136,23 @@ export class ProviderConversionObservationService {
       );
       if (!channel) continue;
 
+      const contactIdentityHash = hashPhoneIdentity(event.contact.phoneNumber);
+      if (!contactIdentityHash) continue;
+
+      const leadId = leadByPhoneHash.get(contactIdentityHash) ?? null;
       for (const rule of rules.filter((candidate) =>
         candidate.channels.some((scope) => scope.channelId === channel.id),
       )) {
-        if (!rule.catalog) continue;
+        const authorScope = this.authorScope(rule);
+        if (
+          !providerMessageAuthorAllowed(authorScope, event.message.authorType)
+        ) {
+          continue;
+        }
 
         const match = this.match(rule, event.message.text!);
+        if (match.classification === "ignored") continue;
+
         const readiness = this.readiness({
           config,
           rule,
@@ -149,22 +180,24 @@ export class ProviderConversionObservationService {
               matchedCatalogVariantId: match.catalogVariantId,
               externalExecutionKey: event.dedupeKey,
               occurredAt: event.occurredAt,
-              contactIdentityHash: hashPhoneIdentity(event.contact.phoneNumber),
+              contactIdentityHash,
               status: readiness.status,
               reasonCode: readiness.reasonCode,
               normalizedResult: this.toJson({
                 matched: match.matched,
+                classification: match.classification,
                 reasonCode: match.reasonCode,
-                parsedAttributes: match.parsedAttributes,
-                parsedValueCents: match.parsedValueCents,
-                catalogVariantId: match.catalogVariantId,
+                matchedTriggerPhrase: match.matchedTriggerPhrase,
+                items: match.items,
+                calculatedValueCents: match.calculatedValueCents,
+                observedPaymentValueCents: match.observedPaymentValueCents,
                 contentName: match.contentName,
                 currency: match.currency,
                 messageDirection: event.message.direction,
                 messageAuthorType: event.message.authorType,
                 messageType: event.message.messageType,
               }),
-              valueCents: match.matched ? match.parsedValueCents : null,
+              valueCents: match.matched ? match.calculatedValueCents : null,
               currency: match.currency,
             },
             update: {},
@@ -173,6 +206,20 @@ export class ProviderConversionObservationService {
               status: true,
             },
           });
+
+        await this.persistPurchaseReview({
+          workspaceId: input.workspaceId,
+          providerRuleId: rule.id,
+          sourceDeliveryId: input.deliveryId,
+          channelId: channel.id,
+          executionId: execution.id,
+          externalOccurrenceKey: event.dedupeKey,
+          occurredAt: event.occurredAt,
+          contactIdentityHash,
+          leadId,
+          messageAuthorType: event.message.authorType,
+          match,
+        });
 
         executionIds.push(execution.id);
         if (execution.status === "eligible") {
@@ -191,7 +238,130 @@ export class ProviderConversionObservationService {
     rule: ObservedRule,
     messageText: string,
   ): StructuredCatalogTestMessageResultDto {
-    return matchStructuredCatalogMessage(this.catalogDto(rule), messageText);
+    if (rule.conversionRule.triggerType === "structured_catalog") {
+      return matchStructuredCatalogMessage(this.catalogDto(rule), messageText, {
+        triggerPhrases: rule.messageTriggerPhrases,
+      });
+    }
+
+    const matchedTriggerPhrase = matchProviderMessageTrigger(
+      messageText,
+      rule.messageTriggerPhrases,
+    );
+    const matched = Boolean(
+      matchedTriggerPhrase &&
+      rule.conversionRule.defaultValueCents &&
+      rule.conversionRule.defaultCurrency,
+    );
+
+    return {
+      matched,
+      reasonCode: matched ? "matched" : "trigger_missing",
+      classification: matched ? "recognized" : "ignored",
+      matchedTriggerPhrase,
+      parsedAttributes: [],
+      items: [],
+      parsedValueCents: matched ? rule.conversionRule.defaultValueCents : null,
+      calculatedValueCents: matched
+        ? rule.conversionRule.defaultValueCents
+        : null,
+      observedPaymentValueCents: null,
+      catalogVariantId: null,
+      contentName: rule.conversionRule.defaultContentName,
+      currency: rule.conversionRule.defaultCurrency,
+    };
+  }
+
+  private async persistPurchaseReview(input: {
+    workspaceId: string;
+    providerRuleId: string;
+    sourceDeliveryId: string;
+    channelId: string;
+    executionId: string;
+    externalOccurrenceKey: string;
+    occurredAt: Date;
+    contactIdentityHash: string;
+    leadId: string | null;
+    messageAuthorType: string;
+    match: StructuredCatalogTestMessageResultDto;
+  }): Promise<void> {
+    const reviewStatus = input.match.matched
+      ? "recognized"
+      : input.match.classification === "awaiting_data"
+        ? "awaiting_data"
+        : "review_required";
+    const review = await this.prisma.purchaseReview.upsert({
+      where: {
+        providerRuleId_externalOccurrenceKey: {
+          providerRuleId: input.providerRuleId,
+          externalOccurrenceKey: input.externalOccurrenceKey,
+        },
+      },
+      create: {
+        workspaceId: input.workspaceId,
+        providerRuleId: input.providerRuleId,
+        sourceDeliveryId: input.sourceDeliveryId,
+        channelWorkspaceId: input.workspaceId,
+        channelId: input.channelId,
+        providerExecutionWorkspaceId: input.workspaceId,
+        providerExecutionId: input.executionId,
+        externalOccurrenceKey: input.externalOccurrenceKey,
+        occurredAt: input.occurredAt,
+        contactIdentityHash: input.contactIdentityHash,
+        sourceType: "provider_message",
+        messageAuthorType: input.messageAuthorType,
+        matchedTriggerPhrase: input.match.matchedTriggerPhrase,
+        status: reviewStatus,
+        classificationCode: input.match.classification,
+        reasonCode: input.match.reasonCode,
+        observedPaymentValueCents: input.match.observedPaymentValueCents,
+        calculatedValueCents: input.match.calculatedValueCents,
+        effectiveValueCents: input.match.calculatedValueCents,
+        currency: input.match.currency ?? "BRL",
+        leadWorkspaceId: input.leadId ? input.workspaceId : null,
+        leadId: input.leadId,
+        items: {
+          create: input.match.items.map((item) => ({
+            workspaceId: input.workspaceId,
+            position: item.position,
+            catalogVariantWorkspaceId: item.catalogVariantId
+              ? input.workspaceId
+              : null,
+            catalogVariantId: item.catalogVariantId,
+            attributeValues: item.parsedAttributes.map(
+              (attribute) => attribute.value,
+            ),
+            quantity: item.quantity,
+            unitValueCents: item.unitValueCents,
+            subtotalValueCents: item.subtotalValueCents,
+            contentName: item.contentName,
+          })),
+        },
+      },
+      update: {},
+      select: { id: true },
+    });
+
+    if (reviewStatus === "recognized") {
+      await this.prisma.purchaseReview.updateMany({
+        where: {
+          id: { not: review.id },
+          workspaceId: input.workspaceId,
+          providerRuleId: input.providerRuleId,
+          channelId: input.channelId,
+          contactIdentityHash: input.contactIdentityHash,
+          status: "awaiting_data",
+          occurredAt: { lte: input.occurredAt },
+        },
+        data: {
+          status: "rejected",
+          reasonCode: "superseded_by_complete_message",
+          decisionReason: "Substituido pela resposta completa recebida depois",
+          decidedAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+    }
   }
 
   private readiness(input: {
@@ -212,7 +382,13 @@ export class ProviderConversionObservationService {
       !input.config.conversionProductionEnabled ||
       input.rule.mode !== "production"
     ) {
-      return { status: "observed", reasonCode: "catalog_matched_observation" };
+      return {
+        status: "observed",
+        reasonCode:
+          input.rule.conversionRule.triggerType === "structured_catalog"
+            ? "catalog_matched_observation"
+            : "message_matched_observation",
+      };
     }
     if (
       input.rule.parserRelease.status !== "certified" ||
@@ -233,7 +409,19 @@ export class ProviderConversionObservationService {
       return { status: "observed", reasonCode: "before_production_activation" };
     }
 
-    return { status: "eligible", reasonCode: "catalog_matched" };
+    return {
+      status: "eligible",
+      reasonCode:
+        input.rule.conversionRule.triggerType === "structured_catalog"
+          ? "catalog_matched"
+          : "message_matched",
+    };
+  }
+
+  private authorScope(
+    rule: ObservedRule,
+  ): ProviderConversionMessageAuthorScopeDto {
+    return rule.messageAuthorScope ?? "team";
   }
 
   private catalogDto(rule: ObservedRule): ProviderConversionCatalogDto {

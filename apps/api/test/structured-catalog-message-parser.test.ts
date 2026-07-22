@@ -53,6 +53,7 @@ describe("structured catalog message parser", () => {
       expect(result).toMatchObject({
         matched: true,
         reasonCode: "matched",
+        classification: "recognized",
         parsedValueCents: valueCents,
         currency: "BRL",
       });
@@ -105,61 +106,117 @@ describe("structured catalog message parser", () => {
     });
   });
 
-  it("blocks a matched product without a monetary value", () => {
+  it("uses the catalog price when the message does not contain a payment value", () => {
     const result = matchStructuredCatalogMessage(
       catalog(),
       "Tamanho: 4,90\nModelo: Nacional",
     );
 
     expect(result).toMatchObject({
-      matched: false,
-      reasonCode: "missing_price",
+      matched: true,
+      reasonCode: "matched",
       catalogVariantId: "variant_1",
+      calculatedValueCents: 359_700,
+      observedPaymentValueCents: null,
     });
   });
 
-  it("blocks a monetary value that differs from the catalog", () => {
+  it("keeps a different payment value as a non-authoritative diagnostic", () => {
     const result = matchStructuredCatalogMessage(
       catalog(),
       "Tamanho: 4,90\nModelo: Nacional\n3.497,00",
     );
 
     expect(result).toMatchObject({
-      matched: false,
-      reasonCode: "price_mismatch",
-      parsedValueCents: 349_700,
+      matched: true,
+      reasonCode: "matched",
+      parsedValueCents: 359_700,
+      calculatedValueCents: 359_700,
+      observedPaymentValueCents: 349_700,
       catalogVariantId: "variant_1",
     });
   });
 
-  it("blocks a message containing more than one product", () => {
+  it("sums repeated products and quantities using catalog values", () => {
     const result = matchStructuredCatalogMessage(
       catalog(),
       [
-        "Tamanho: 4,90",
+        "Dados para confirmar o pedido:",
+        "Tamanho: 3,05",
         "Modelo: Nacional",
-        "3.597,00",
-        "Tamanho: 2,44",
-        "Modelo: Europa",
-        "1.397,00",
+        "Tamanho: 2x 2,44",
+        "Modelo: Nacional",
+        "3 bolsas de transporte",
+        "Forma de pagamento: 5.594,00 pix",
       ].join("\n"),
+      { triggerPhrases: ["Dados para confirmar o pedido"] },
     );
 
     expect(result).toMatchObject({
-      matched: false,
-      reasonCode: "ambiguous_attribute",
+      matched: true,
+      reasonCode: "matched",
+      classification: "recognized",
+      matchedTriggerPhrase: "Dados para confirmar o pedido",
+      calculatedValueCents: 519_100,
+      observedPaymentValueCents: 559_400,
+      catalogVariantId: null,
     });
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        position: 1,
+        quantity: 1,
+        catalogVariantId: "variant_3",
+        subtotalValueCents: 199_700,
+      }),
+      expect.objectContaining({
+        position: 2,
+        quantity: 2,
+        catalogVariantId: "variant_4",
+        subtotalValueCents: 319_400,
+      }),
+    ]);
   });
 
-  it("blocks a matched product when more than one price is present", () => {
+  it("ignores ambiguous payment amounts when the catalog items are exact", () => {
     const result = matchStructuredCatalogMessage(
       catalog(),
       "Tamanho: 4,90\nModelo: Nacional\nDe 3.797,00 por 3.597,00",
     );
 
     expect(result).toMatchObject({
+      matched: true,
+      reasonCode: "matched",
+      calculatedValueCents: 359_700,
+      observedPaymentValueCents: null,
+    });
+  });
+
+  it("requires the configured trigger phrase without fuzzy matching", () => {
+    const result = matchStructuredCatalogMessage(
+      catalog(),
+      "Pedido confirmado\nTamanho: 4,90\nModelo: Nacional",
+      { triggerPhrases: ["Dados para confirmar o pedido"] },
+    );
+
+    expect(result).toMatchObject({
       matched: false,
-      reasonCode: "ambiguous_price",
+      reasonCode: "trigger_missing",
+      classification: "ignored",
+    });
+  });
+
+  it("recognizes a blank template as awaiting data", () => {
+    const result = matchStructuredCatalogMessage(
+      catalog(),
+      "COMPROVANTE DE ENCOMENDA\nTamanho:\nModelo:",
+      { triggerPhrases: ["Comprovante de encomenda"] },
+    );
+
+    expect(result).toMatchObject({
+      matched: false,
+      reasonCode: "awaiting_data",
+      classification: "awaiting_data",
+      matchedTriggerPhrase: "Comprovante de encomenda",
     });
   });
 });

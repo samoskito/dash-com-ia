@@ -13,6 +13,12 @@ const channelScope = {
   channelIds: ["channel_1"],
 };
 
+const messageScope = {
+  ...channelScope,
+  triggerPhrases: ["Dados para confirmar o pedido"],
+  messageAuthorScope: "both" as const,
+};
+
 const trampolineCatalog = {
   name: "Catalogo de camas elasticas",
   productName: "Cama elastica",
@@ -83,7 +89,7 @@ describe("provider conversion rule contracts", () => {
 
   it("accepts the approved two-attribute trampoline catalog", () => {
     const parsed = providerConversionRuleCreateInputSchema.parse({
-      ...channelScope,
+      ...messageScope,
       triggerType: "structured_catalog",
       eventName: "Purchase",
       catalog: trampolineCatalog,
@@ -100,7 +106,7 @@ describe("provider conversion rule contracts", () => {
   it("rejects incomplete, duplicate, and non-Purchase catalogs", () => {
     expect(
       providerConversionRuleCreateInputSchema.safeParse({
-        ...channelScope,
+        ...messageScope,
         triggerType: "structured_catalog",
         eventName: "Purchase",
         catalog: {
@@ -112,7 +118,7 @@ describe("provider conversion rule contracts", () => {
 
     expect(
       providerConversionRuleCreateInputSchema.safeParse({
-        ...channelScope,
+        ...messageScope,
         triggerType: "structured_catalog",
         eventName: "Purchase",
         catalog: {
@@ -127,7 +133,7 @@ describe("provider conversion rule contracts", () => {
 
     expect(
       providerConversionRuleCreateInputSchema.safeParse({
-        ...channelScope,
+        ...messageScope,
         triggerType: "structured_catalog",
         eventName: "QualifiedLead",
         catalog: trampolineCatalog,
@@ -158,11 +164,30 @@ describe("provider conversion rule contracts", () => {
       structuredCatalogTestMessageResultSchema.parse({
         matched: true,
         reasonCode: "matched",
+        classification: "recognized",
+        matchedTriggerPhrase: "Dados para confirmar o pedido",
         parsedAttributes: [
           { key: "tamanho", label: "Tamanho", value: "4,90" },
           { key: "modelo", label: "Modelo", value: "Nacional" },
         ],
+        items: [
+          {
+            position: 1,
+            quantity: 1,
+            parsedAttributes: [
+              { key: "tamanho", label: "Tamanho", value: "4,90" },
+              { key: "modelo", label: "Modelo", value: "Nacional" },
+            ],
+            catalogVariantId: "variant_1",
+            unitValueCents: 359700,
+            subtotalValueCents: 359700,
+            contentName: "Cama elastica | Tamanho: 4,90 | Modelo: Nacional",
+            reasonCode: "matched",
+          },
+        ],
         parsedValueCents: 359700,
+        calculatedValueCents: 359700,
+        observedPaymentValueCents: 359700,
         catalogVariantId: "variant_1",
         contentName: "Cama elastica | Tamanho: 4,90 | Modelo: Nacional",
         currency: "BRL",

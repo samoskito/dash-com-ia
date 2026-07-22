@@ -89,15 +89,22 @@ export class ConversionCatalogService {
       return {
         matched: false,
         reasonCode: "rule_inactive",
+        classification: "review_required",
+        matchedTriggerPhrase: null,
         parsedAttributes: [],
+        items: [],
         parsedValueCents: null,
+        calculatedValueCents: null,
+        observedPaymentValueCents: null,
         catalogVariantId: null,
         contentName: null,
         currency: catalog.currency,
       };
     }
 
-    return matchStructuredCatalogMessage(catalog, messageText);
+    return matchStructuredCatalogMessage(catalog, messageText, {
+      triggerPhrases: rule.messageTriggerPhrases,
+    });
   }
 
   private requireRulesEnabled(): void {

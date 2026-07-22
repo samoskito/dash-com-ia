@@ -136,35 +136,38 @@ export class ProviderConversionRulesService {
       }
 
       this.assertModeAllowed(input.mode, parserRelease.status);
+      let defaultValueCents: number | null = null;
+      let defaultCurrency: string | null = null;
+      let defaultContentName: string | null = null;
+
+      if (
+        input.triggerType === "message_phrase" ||
+        (input.triggerType === "provider_automation" &&
+          input.eventName === "Purchase")
+      ) {
+        defaultValueCents = input.defaultValueCents;
+        defaultCurrency = input.defaultCurrency;
+        defaultContentName = input.defaultContentName ?? null;
+      } else if (input.triggerType === "structured_catalog") {
+        defaultCurrency = input.catalog.currency;
+        defaultContentName = input.catalog.productName;
+      }
 
       const conversionRule = await transaction.conversionRule.create({
         data: {
           workspaceId,
           name: input.name,
           triggerType: input.triggerType,
-          triggerValue: input.triggerType,
+          triggerValue:
+            input.triggerType === "provider_automation"
+              ? input.triggerType
+              : input.triggerPhrases[0],
           matchMode: "exact",
           eventName: input.eventName,
           pixelId: null,
-          defaultValueCents:
-            input.triggerType === "provider_automation" &&
-            input.eventName === "Purchase"
-              ? input.defaultValueCents
-              : null,
-          defaultCurrency:
-            input.triggerType === "provider_automation" &&
-            input.eventName === "Purchase"
-              ? input.defaultCurrency
-              : input.triggerType === "structured_catalog"
-                ? input.catalog.currency
-                : null,
-          defaultContentName:
-            input.triggerType === "provider_automation" &&
-            input.eventName === "Purchase"
-              ? (input.defaultContentName ?? null)
-              : input.triggerType === "structured_catalog"
-                ? input.catalog.productName
-                : null,
+          defaultValueCents,
+          defaultCurrency,
+          defaultContentName,
           defaultItems: Prisma.DbNull,
           active: true,
         },
@@ -178,6 +181,14 @@ export class ProviderConversionRulesService {
             connectionId: connection.id,
             parserReleaseId: parserRelease.id,
             mode: input.mode,
+            messageTriggerPhrases:
+              input.triggerType === "provider_automation"
+                ? []
+                : input.triggerPhrases,
+            messageAuthorScope:
+              input.triggerType === "provider_automation"
+                ? null
+                : input.messageAuthorScope,
             productionActivatedAt:
               input.mode === "production" ? new Date() : null,
             createdByUserId: actorUserId,
@@ -297,6 +308,9 @@ export class ProviderConversionRulesService {
       if (input.defaultContentName !== undefined) {
         conversionRuleData.defaultContentName = input.defaultContentName;
       }
+      if (input.triggerPhrases !== undefined) {
+        conversionRuleData.triggerValue = input.triggerPhrases[0];
+      }
 
       if (Object.keys(conversionRuleData).length > 0) {
         await transaction.conversionRule.update({
@@ -305,12 +319,23 @@ export class ProviderConversionRulesService {
         });
       }
 
-      if (input.mode !== undefined || input.active === false) {
+      if (
+        input.mode !== undefined ||
+        input.active === false ||
+        input.triggerPhrases !== undefined ||
+        input.messageAuthorScope !== undefined
+      ) {
         const mode = nextMode ?? current.mode;
         await transaction.providerConversionRuleConfig.update({
           where: { id: current.id },
           data: {
             mode,
+            ...(input.triggerPhrases !== undefined
+              ? { messageTriggerPhrases: input.triggerPhrases }
+              : {}),
+            ...(input.messageAuthorScope !== undefined
+              ? { messageAuthorScope: input.messageAuthorScope }
+              : {}),
             productionActivatedAt:
               mode === "production"
                 ? (current.productionActivatedAt ?? new Date())
@@ -536,22 +561,23 @@ export class ProviderConversionRulesService {
     current: PersistedProviderRule,
     input: ProviderConversionRuleUpdateInputDto,
   ): void {
-    const isAutomationPurchase =
-      current.conversionRule.triggerType === "provider_automation" &&
-      current.conversionRule.eventName === "Purchase";
+    const isFixedPurchase =
+      ["provider_automation", "message_phrase"].includes(
+        current.conversionRule.triggerType,
+      ) && current.conversionRule.eventName === "Purchase";
     const hasValueUpdate =
       input.defaultValueCents !== undefined ||
       input.defaultCurrency !== undefined ||
       input.defaultContentName !== undefined;
 
-    if (hasValueUpdate && !isAutomationPurchase) {
+    if (hasValueUpdate && !isFixedPurchase) {
       throw new BadRequestException(
-        "Valores padrao pertencem apenas a automacoes de compra",
+        "Valores padrao pertencem apenas a regras de compra com valor fixo",
       );
     }
-    if (isAutomationPurchase && input.defaultValueCents === null) {
+    if (isFixedPurchase && input.defaultValueCents === null) {
       throw new BadRequestException(
-        "Automacoes de compra precisam manter um valor positivo",
+        "Regras de compra com valor fixo precisam manter um valor positivo",
       );
     }
     if (
@@ -560,6 +586,18 @@ export class ProviderConversionRulesService {
     ) {
       throw new BadRequestException(
         "Catalogos pertencem apenas a regras de compra estruturada",
+      );
+    }
+    const isMessageRule = ["message_phrase", "structured_catalog"].includes(
+      current.conversionRule.triggerType,
+    );
+    if (
+      (input.triggerPhrases !== undefined ||
+        input.messageAuthorScope !== undefined) &&
+      !isMessageRule
+    ) {
+      throw new BadRequestException(
+        "Frases gatilho pertencem apenas a regras baseadas em mensagem",
       );
     }
     if (
@@ -751,6 +789,8 @@ export class ProviderConversionRulesService {
       parserReleaseId: rule.parserReleaseId,
       productionActivatedAt: rule.productionActivatedAt?.toISOString() ?? null,
       channelIds: rule.channels.map((channel) => channel.channelId),
+      triggerPhrases: rule.messageTriggerPhrases,
+      messageAuthorScope: rule.messageAuthorScope,
       endpoint: rule.endpoint ? this.endpointToDto(rule.endpoint) : null,
       catalog: rule.catalog ? this.catalogToDto(rule.catalog) : null,
       lastExecution: rule.executions[0]

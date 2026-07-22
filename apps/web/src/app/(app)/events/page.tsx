@@ -416,6 +416,16 @@ export default async function EventsPage({
         </div>
       </header>
 
+      <nav
+        className="report-view-tabs audit-view-tabs"
+        aria-label="Visoes de eventos Meta"
+      >
+        <Link className="active" href="/events">
+          Conversoes
+        </Link>
+        <Link href="/events/purchase-reviews">Revisao de compras</Link>
+      </nav>
+
       <section
         className="surface-panel audit-command-panel"
         aria-label="Controles da auditoria Meta"
@@ -717,7 +727,6 @@ export default async function EventsPage({
           )}
         </div>
       </nav>
-
     </section>
   );
 }

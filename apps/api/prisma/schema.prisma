@@ -81,6 +81,7 @@ enum ConversionTriggerType {
   keyword
   whatsapp_label
   provider_automation
+  message_phrase
   structured_catalog
 }
 
@@ -94,6 +95,12 @@ enum ProviderConversionRuleMode {
   production
 }
 
+enum ProviderConversionMessageAuthorScope {
+  team
+  contact
+  both
+}
+
 enum ProviderConversionExecutionStatus {
   observed
   eligible
@@ -101,6 +108,23 @@ enum ProviderConversionExecutionStatus {
   duplicate
   blocked
   failed
+}
+
+enum PurchaseReviewStatus {
+  recognized
+  awaiting_data
+  review_required
+  approved
+  sent
+  duplicate
+  rejected
+  failed
+  corrected_after_send
+}
+
+enum PurchaseReviewSourceType {
+  provider_message
+  provider_automation
 }
 
 enum LeadStatus {
@@ -278,6 +302,8 @@ model User {
   createdInboundWebhookRoutes      InboundWebhookChannelRoute[]      @relation("InboundWebhookChannelRouteCreator")
   requestedInboundWebhookReplays   InboundWebhookReplayBatch[]       @relation("InboundWebhookReplayRequester")
   createdProviderConversionRules   ProviderConversionRuleConfig[]    @relation("ProviderConversionRuleCreator")
+  decidedPurchaseReviews           PurchaseReview[]                   @relation("PurchaseReviewDecisionActor")
+  purchaseValueAdjustments         PurchaseValueAdjustment[]          @relation("PurchaseValueAdjustmentActor")
 
   @@index([lastWorkspaceId])
 }
@@ -342,6 +368,9 @@ model Workspace {
   conversionCatalogs               ConversionCatalog[]
   conversionCatalogAttributes      ConversionCatalogAttribute[]
   conversionCatalogVariants        ConversionCatalogVariant[]
+  purchaseReviews                  PurchaseReview[]
+  purchaseReviewItems              PurchaseReviewItem[]
+  purchaseValueAdjustments         PurchaseValueAdjustment[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
@@ -554,6 +583,8 @@ model ConversionEventLog {
 
   workspace                 Workspace?                 @relation(fields: [workspaceId], references: [id])
   externalConnector         ExternalDataConnector?     @relation(fields: [externalConnectorId], references: [id], onDelete: SetNull)
+  purchaseReview            PurchaseReview?
+  purchaseValueAdjustments  PurchaseValueAdjustment[]
   metaBusinessConnection    MetaBusinessConnection?    @relation(fields: [metaBusinessConnectionId], references: [id], onDelete: SetNull)
   metaConversionDestination MetaConversionDestination? @relation(fields: [metaConversionDestinationId], references: [id], onDelete: SetNull)
   diagnosticEvents          DiagnosticEvent[]
@@ -887,6 +918,8 @@ model ProviderConversionRuleConfig {
   connectionId          String
   parserReleaseId       String
   mode                  ProviderConversionRuleMode @default(observation)
+  messageTriggerPhrases String[]                   @default([])
+  messageAuthorScope    ProviderConversionMessageAuthorScope?
   productionActivatedAt DateTime?
   removedAt             DateTime?
   createdByUserId       String?
@@ -902,6 +935,7 @@ model ProviderConversionRuleConfig {
   endpoint       ProviderConversionRuleEndpoint?
   catalog        ConversionCatalog?
   executions     ProviderConversionRuleExecution[]
+  purchaseReviews PurchaseReview[]
 
   @@unique([workspaceId, id])
   @@unique([workspaceId, conversionRuleId])
@@ -1003,6 +1037,7 @@ model ConversionCatalogVariant {
   workspace  Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   catalog    ConversionCatalog                 @relation(fields: [workspaceId, catalogId], references: [workspaceId, id], onDelete: Restrict, map: "ConversionCatalogVariant_catalogId_fkey")
   executions ProviderConversionRuleExecution[]
+  purchaseReviewItems PurchaseReviewItem[]
 
   @@unique([workspaceId, id])
   @@unique([catalogId, normalizedKey])
@@ -1039,7 +1074,9 @@ model ProviderConversionRuleExecution {
   sourceDelivery        InboundWebhookDelivery       @relation(fields: [workspaceId, sourceDeliveryId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleExecution_sourceDeliveryId_fkey")
   channel               InboundWebhookChannel?       @relation(fields: [channelWorkspaceId, channelId], references: [workspaceId, id], onDelete: SetNull, map: "ProviderConversionRuleExecution_channelId_fkey")
   matchedCatalogVariant ConversionCatalogVariant?    @relation(fields: [matchedCatalogVariantWorkspaceId, matchedCatalogVariantId], references: [workspaceId, id], onDelete: SetNull, map: "ProviderConversionRuleExecution_catalogVariantId_fkey")
+  purchaseReview        PurchaseReview?
 
+  @@unique([workspaceId, id])
   @@unique([providerRuleId, externalExecutionKey])
   @@index([workspaceId, status, occurredAt])
   @@index([workspaceId, contactIdentityHash, occurredAt])
@@ -1092,7 +1129,9 @@ model Lead {
 
   workspace        Workspace         @relation(fields: [workspaceId], references: [id])
   whatsappInstance WhatsappInstance? @relation(fields: [whatsappInstanceId], references: [id])
+  purchaseReviews   PurchaseReview[]
 
+  @@unique([workspaceId, id])
   @@unique([workspaceId, phoneHash])
   @@index([workspaceId, status, lastMessageAt])
   @@index([workspaceId, firstMessageAt])
@@ -1415,6 +1454,7 @@ model InboundWebhookChannel {
   replayBatches                InboundWebhookReplayBatch[]
   providerConversionRuleScopes ProviderConversionRuleChannel[]
   providerConversionExecutions ProviderConversionRuleExecution[]
+  purchaseReviews              PurchaseReview[]
 
   @@unique([workspaceId, id])
   @@unique([connectionId, organizationId, providerChannelId], map: "InboundWebhookChannel_identity_key")
@@ -1492,6 +1532,7 @@ model InboundWebhookDelivery {
   providerRuleEndpoint         ProviderConversionRuleEndpoint?   @relation(fields: [providerRuleEndpointWorkspaceId, providerRuleEndpointId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookDelivery_providerRuleEndpointId_fkey")
   events                       InboundWebhookEvent[]
   providerConversionExecutions ProviderConversionRuleExecution[]
+  purchaseReviews              PurchaseReview[]
 
   @@unique([workspaceId, id])
   @@unique([connectionId, ingressKey], map: "InboundWebhookDelivery_connection_ingress_key")
@@ -1503,6 +1544,105 @@ model InboundWebhookDelivery {
   @@index([payloadExpiresAt], map: "InboundWebhookDelivery_payloadExpiresAt_idx")
   @@index([status, lastReceivedAt, queuedAt], map: "InboundWebhookDelivery_recovery_idx")
   @@index([externalDeliveryId])
+}
+
+model PurchaseReview {
+  id                         String                   @id @default(cuid())
+  workspaceId                String
+  providerRuleId             String
+  sourceDeliveryId           String
+  channelWorkspaceId         String?
+  channelId                  String?
+  providerExecutionWorkspaceId String?
+  providerExecutionId        String?                  @unique
+  externalOccurrenceKey      String
+  occurredAt                 DateTime
+  contactIdentityHash        String?
+  sourceType                 PurchaseReviewSourceType
+  messageAuthorType          String?
+  matchedTriggerPhrase       String?
+  status                     PurchaseReviewStatus
+  classificationCode         String
+  reasonCode                 String?
+  observedPaymentValueCents  Int?
+  calculatedValueCents       Int?
+  effectiveValueCents        Int?
+  currency                   String                   @default("BRL")
+  leadWorkspaceId            String?
+  leadId                     String?
+  conversionEventLogId       String?                  @unique
+  decisionReason             String?
+  decidedByUserId            String?
+  decidedAt                  DateTime?
+  version                    Int                      @default(1)
+  createdAt                  DateTime                 @default(now())
+  updatedAt                  DateTime                 @updatedAt
+
+  workspace          Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  providerRule       ProviderConversionRuleConfig      @relation(fields: [workspaceId, providerRuleId], references: [workspaceId, id], onDelete: Restrict, map: "PurchaseReview_providerRuleId_fkey")
+  sourceDelivery     InboundWebhookDelivery            @relation(fields: [workspaceId, sourceDeliveryId], references: [workspaceId, id], onDelete: Restrict, map: "PurchaseReview_sourceDeliveryId_fkey")
+  channel            InboundWebhookChannel?            @relation(fields: [channelWorkspaceId, channelId], references: [workspaceId, id], onDelete: SetNull, map: "PurchaseReview_channelId_fkey")
+  providerExecution  ProviderConversionRuleExecution?  @relation(fields: [providerExecutionWorkspaceId, providerExecutionId], references: [workspaceId, id], onDelete: SetNull, map: "PurchaseReview_providerExecutionId_fkey")
+  lead               Lead?                             @relation(fields: [leadWorkspaceId, leadId], references: [workspaceId, id], onDelete: SetNull, map: "PurchaseReview_leadId_fkey")
+  conversionEventLog ConversionEventLog?               @relation(fields: [conversionEventLogId], references: [id], onDelete: SetNull)
+  decidedBy          User?                             @relation("PurchaseReviewDecisionActor", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  items              PurchaseReviewItem[]
+  adjustments        PurchaseValueAdjustment[]
+
+  @@unique([workspaceId, id])
+  @@unique([providerRuleId, externalOccurrenceKey])
+  @@unique([providerExecutionWorkspaceId, providerExecutionId])
+  @@index([workspaceId, status, occurredAt])
+  @@index([workspaceId, contactIdentityHash, occurredAt])
+  @@index([sourceDeliveryId])
+  @@index([channelId])
+  @@index([leadId])
+  @@index([conversionEventLogId])
+}
+
+model PurchaseReviewItem {
+  id                        String   @id @default(cuid())
+  workspaceId               String
+  purchaseReviewId          String
+  position                  Int
+  catalogVariantWorkspaceId String?
+  catalogVariantId          String?
+  attributeValues           Json
+  quantity                  Int
+  unitValueCents            Int?
+  subtotalValueCents        Int?
+  contentName               String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  workspace      Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  purchaseReview PurchaseReview            @relation(fields: [workspaceId, purchaseReviewId], references: [workspaceId, id], onDelete: Cascade, map: "PurchaseReviewItem_purchaseReviewId_fkey")
+  catalogVariant ConversionCatalogVariant? @relation(fields: [catalogVariantWorkspaceId, catalogVariantId], references: [workspaceId, id], onDelete: SetNull, map: "PurchaseReviewItem_catalogVariantId_fkey")
+
+  @@unique([purchaseReviewId, position])
+  @@index([workspaceId, purchaseReviewId])
+  @@index([catalogVariantId])
+}
+
+model PurchaseValueAdjustment {
+  id                   String   @id @default(cuid())
+  workspaceId          String
+  purchaseReviewId     String
+  conversionEventLogId String
+  previousValueCents   Int
+  effectiveValueCents  Int
+  actorUserId          String?
+  reason               String
+  createdAt            DateTime @default(now())
+
+  workspace          Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  purchaseReview     PurchaseReview     @relation(fields: [workspaceId, purchaseReviewId], references: [workspaceId, id], onDelete: Restrict, map: "PurchaseValueAdjustment_purchaseReviewId_fkey")
+  conversionEventLog ConversionEventLog @relation(fields: [conversionEventLogId], references: [id], onDelete: Restrict)
+  actor              User?              @relation("PurchaseValueAdjustmentActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, conversionEventLogId, createdAt])
+  @@index([purchaseReviewId, createdAt])
+  @@index([actorUserId])
 }
 
 model InboundWebhookEvent {

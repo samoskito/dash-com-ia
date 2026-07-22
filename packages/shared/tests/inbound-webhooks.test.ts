@@ -303,6 +303,7 @@ describe("inbound webhook contracts", () => {
     const delivery = {
       id: "delivery_1",
       workspaceId: "workspace_1",
+      workspaceName: "Workspace de teste",
       connectionId: "connection_1",
       connectionName: "Umbler Comercial",
       provider: "umbler",
@@ -321,6 +322,13 @@ describe("inbound webhook contracts", () => {
       routingErrorCode: "route_not_configured",
       normalizedSummary: { eventCount: 1 },
       eventCount: 1,
+      channels: [
+        {
+          id: "channel_1",
+          displayName: "Atendimento",
+          connectedPhone: "+5511999999999",
+        },
+      ],
       secretHash: "must-be-removed",
       webhookUrl:
         "https://api.example.test/webhooks/inbound/connection_1?token=secret",
@@ -354,6 +362,7 @@ describe("inbound webhook contracts", () => {
         failed: 0,
         noCtwa: 373,
         automationCallbacks: 12,
+        awaitingParser: 3,
       }),
     ).toEqual({
       all: 423,
@@ -362,6 +371,7 @@ describe("inbound webhook contracts", () => {
       failed: 0,
       noCtwa: 373,
       automationCallbacks: 12,
+      awaitingParser: 3,
     });
   });
 });

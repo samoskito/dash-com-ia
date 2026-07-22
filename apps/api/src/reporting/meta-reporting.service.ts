@@ -3595,7 +3595,7 @@ export class MetaReportingService {
     }) as ReportRowMetrics;
   }
 
-  private getMetricConversionEvents(
+  private async getMetricConversionEvents(
     input: {
       workspaceId: string;
       since?: string;
@@ -3607,7 +3607,7 @@ export class MetaReportingService {
       return Promise.resolve([]);
     }
 
-    return this.prisma.conversionEventLog.findMany({
+    const events = await this.prisma.conversionEventLog.findMany({
       where: {
         workspaceId: input.workspaceId,
         status: { not: "skipped" },
@@ -3630,8 +3630,19 @@ export class MetaReportingService {
         valueSource: true,
         currency: true,
         purchaseKind: true,
+        purchaseValueAdjustments: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: 1,
+          select: { effectiveValueCents: true },
+        },
       },
-    }) as Promise<ConversionEventRecord[]>;
+    });
+
+    return events.map(({ purchaseValueAdjustments, ...event }) => ({
+      ...event,
+      valueCents:
+        purchaseValueAdjustments?.[0]?.effectiveValueCents ?? event.valueCents,
+    })) as ConversionEventRecord[];
   }
 
   private getLeads(

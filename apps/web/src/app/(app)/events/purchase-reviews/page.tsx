@@ -1,0 +1,202 @@
+import type {
+  CurrentWorkspaceDto,
+  ProviderConversionRuleDto,
+  PurchaseReviewListDto,
+  PurchaseReviewStatusDto,
+} from "@wpptrack/shared";
+import { Filter, ShoppingCart } from "lucide-react";
+import Link from "next/link";
+import { serverApiFetch } from "../../../../lib/server-api";
+import { PurchaseReviewPanel } from "./purchase-review-panel";
+
+type SearchParams = Record<string, string | string[] | undefined>;
+
+function param(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function period() {
+  const until = dateOnlyInSaoPaulo(new Date());
+  const since = new Date(`${until}T12:00:00.000Z`);
+  since.setUTCDate(since.getUTCDate() - 6);
+  return {
+    since: since.toISOString().slice(0, 10),
+    until,
+  };
+}
+
+function dateOnlyInSaoPaulo(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+  return `${values.get("year")}-${values.get("month")}-${values.get("day")}`;
+}
+
+export default async function PurchaseReviewsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<SearchParams>;
+}) {
+  const params = searchParams ? await searchParams : {};
+  const defaults = period();
+  const since = param(params.since) ?? defaults.since;
+  const until = param(params.until) ?? defaults.until;
+  const status = param(params.status) as PurchaseReviewStatusDto | undefined;
+  const page = Math.max(1, Number(param(params.page)) || 1);
+  const query = new URLSearchParams({
+    since,
+    until,
+    page: String(page),
+    pageSize: "25",
+  });
+  if (status) query.set("status", status);
+
+  let data: PurchaseReviewListDto | null = null;
+  let rules: ProviderConversionRuleDto[] = [];
+  let workspace: CurrentWorkspaceDto | null = null;
+  try {
+    [data, rules, workspace] = await Promise.all([
+      serverApiFetch<PurchaseReviewListDto>(`/purchase-reviews?${query}`),
+      serverApiFetch<ProviderConversionRuleDto[]>(
+        "/conversion-rules/providers",
+      ),
+      serverApiFetch<CurrentWorkspaceDto>("/workspaces/current"),
+    ]);
+  } catch {
+    data = null;
+  }
+
+  const pagination = data?.pagination ?? {
+    page,
+    pageSize: 25,
+    totalItems: 0,
+    totalPages: 0,
+  };
+
+  return (
+    <section className="page-stack page-wide audit-page purchase-review-page">
+      <header className="page-header audit-page-header">
+        <div>
+          <span className="eyebrow">Eventos Meta</span>
+          <h1>Auditoria de conversoes</h1>
+          <p>
+            Revise compras reconhecidas antes do envio e corrija valores do
+            painel com historico.
+          </p>
+        </div>
+        <span
+          className={data?.pendingCount ? "status-chip warn" : "status-chip"}
+        >
+          {data
+            ? `${data.pendingCount} aguardando decisao`
+            : "API indisponivel"}
+        </span>
+      </header>
+
+      <nav
+        className="report-view-tabs audit-view-tabs"
+        aria-label="Visoes de eventos Meta"
+      >
+        <Link href="/events">Conversoes</Link>
+        <Link className="active" href="/events/purchase-reviews">
+          Revisao de compras
+        </Link>
+      </nav>
+
+      <section className="surface-panel purchase-review-command-panel">
+        <form
+          action="/events/purchase-reviews"
+          className="purchase-review-filter-form"
+        >
+          <div className="purchase-review-filter-title">
+            <ShoppingCart aria-hidden="true" size={18} />
+            <span>
+              <strong>Fila operacional</strong>
+              <small>{pagination.totalItems} compra(s) no periodo</small>
+            </span>
+          </div>
+          <label className="filter-field">
+            <span>Inicio</span>
+            <input defaultValue={since} name="since" type="date" />
+          </label>
+          <label className="filter-field">
+            <span>Fim</span>
+            <input defaultValue={until} name="until" type="date" />
+          </label>
+          <label className="filter-field">
+            <span>Estado</span>
+            <select
+              className="filter-control"
+              defaultValue={status ?? ""}
+              name="status"
+            >
+              <option value="">Todos</option>
+              <option value="review_required">Revisao necessaria</option>
+              <option value="awaiting_data">Aguardando dados</option>
+              <option value="recognized">Reconhecidas</option>
+              <option value="approved">Na fila</option>
+              <option value="sent">Enviadas</option>
+              <option value="failed">Falhas</option>
+              <option value="corrected_after_send">Corrigidas no painel</option>
+            </select>
+          </label>
+          <button className="button" type="submit">
+            <Filter aria-hidden="true" size={15} />
+            Aplicar
+          </button>
+        </form>
+      </section>
+
+      {data ? (
+        <PurchaseReviewPanel
+          canManage={Boolean(workspace?.permissions.canManageIntegrations)}
+          providerRules={rules}
+          reviews={data.reviews}
+        />
+      ) : (
+        <div className="surface-panel purchase-review-empty">
+          <strong>Nao foi possivel carregar a revisao</strong>
+          <span>
+            A API nao respondeu. Atualize a pagina depois de conferir o deploy.
+          </span>
+        </div>
+      )}
+
+      <nav
+        className="report-pagination"
+        aria-label="Paginacao da revisao de compras"
+      >
+        <span>
+          Pagina {pagination.page} de {Math.max(pagination.totalPages, 1)} /{" "}
+          {pagination.totalItems} compras
+        </span>
+        <div>
+          {pagination.page > 1 ? (
+            <Link
+              className="button ghost"
+              href={`/events/purchase-reviews?${new URLSearchParams({ ...Object.fromEntries(query), page: String(pagination.page - 1) })}`}
+            >
+              Anterior
+            </Link>
+          ) : (
+            <span className="button ghost disabled">Anterior</span>
+          )}
+          {pagination.page < pagination.totalPages ? (
+            <Link
+              className="button ghost"
+              href={`/events/purchase-reviews?${new URLSearchParams({ ...Object.fromEntries(query), page: String(pagination.page + 1) })}`}
+            >
+              Proxima
+            </Link>
+          ) : (
+            <span className="button ghost disabled">Proxima</span>
+          )}
+        </div>
+      </nav>
+    </section>
+  );
+}

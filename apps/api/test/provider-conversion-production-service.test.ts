@@ -21,7 +21,7 @@ function createHarness(
   body.Payload.Content.LastMessage.BotInstance = { Id: "bot_1" };
   body.Payload.Content.LastMessage.SentByOrganizationMember = null;
   body.Payload.Content.LastMessage.Content =
-    "Tamanho: 4,90\nModelo: Nacional\n3.597,00";
+    "Dados para confirmar o pedido\nTamanho: 4,90\nModelo: Nacional\n3.597,00";
   const parserRegistry = new InboundWebhookParserRegistry();
   const parsed = parserRegistry
     .resolve({
@@ -45,7 +45,22 @@ function createHarness(
     contactIdentityHash: hashPhoneIdentity(parsed.contact.phoneNumber),
     status: "eligible",
     reasonCode: "catalog_matched",
-    normalizedResult: {},
+    normalizedResult: {
+      items: [
+        {
+          position: 1,
+          parsedAttributes: [
+            { key: "tamanho", label: "Tamanho", value: "4,90" },
+            { key: "modelo", label: "Modelo", value: "Nacional" },
+          ],
+          quantity: 1,
+          catalogVariantId: "variant_1",
+          unitValueCents: 359_700,
+          subtotalValueCents: 359_700,
+          contentName: "Cama elastica 4,90 Nacional",
+        },
+      ],
+    },
     valueCents: 359_700,
     currency: "BRL",
     leadId: null,
@@ -63,6 +78,8 @@ function createHarness(
       mode: "production",
       productionActivatedAt: activatedAt,
       removedAt: null,
+      messageTriggerPhrases: ["Dados para confirmar o pedido"],
+      messageAuthorScope: "team",
       conversionRule: {
         active: true,
         triggerType: "structured_catalog",
@@ -86,6 +103,7 @@ function createHarness(
         },
       },
       channels: [{ channelId: "channel_1" }],
+      catalog: null,
     },
     sourceDelivery: {
       id: "delivery_1",
@@ -104,6 +122,7 @@ function createHarness(
       status: "active",
       productionActivatedAt: activatedAt,
     },
+    purchaseReview: null,
   };
   const duplicateOccurredAt = input.duplicateHoursAgo
     ? new Date(
@@ -139,12 +158,18 @@ function createHarness(
       findFirst: executionFindFirst,
       update: executionUpdate,
     },
+    purchaseReview: {
+      update: vi.fn(async () => ({})),
+    },
   };
   const prisma = {
     providerConversionRuleExecution: {
       findFirst: vi.fn(async () => execution),
       update: executionUpdate,
       updateMany: vi.fn(async () => ({ count: 1 })),
+    },
+    purchaseReview: {
+      updateMany: vi.fn(async () => ({ count: 0 })),
     },
     lead: {
       findFirst: vi.fn(async () => ({
@@ -173,9 +198,27 @@ function createHarness(
         { key: "modelo", label: "Modelo", value: "Nacional" },
       ],
       parsedValueCents: 359_700,
+      calculatedValueCents: 359_700,
+      observedPaymentValueCents: 359_700,
       catalogVariantId: "variant_1",
       contentName: "Cama elastica 4,90 Nacional",
       currency: "BRL",
+      matchedTriggerPhrase: "Dados para confirmar o pedido",
+      classification: "recognized",
+      items: [
+        {
+          position: 1,
+          parsedAttributes: [
+            { key: "tamanho", label: "Tamanho", value: "4,90" },
+            { key: "modelo", label: "Modelo", value: "Nacional" },
+          ],
+          quantity: 1,
+          catalogVariantId: "variant_1",
+          unitValueCents: 359_700,
+          subtotalValueCents: 359_700,
+          contentName: "Cama elastica 4,90 Nacional",
+        },
+      ],
     })),
   };
   const routes = {
@@ -312,5 +355,47 @@ describe("provider conversion production service", () => {
 
     expect(harness.conversions.recordExternalConversion).toHaveBeenCalledOnce();
     expect(harness.conversionQueue.enqueueSend).not.toHaveBeenCalled();
+  });
+
+  it("materializes a manually approved average-value purchase without catalog items", async () => {
+    const harness = createHarness();
+    harness.execution.providerRule.conversionRule = {
+      active: true,
+      triggerType: "message_phrase",
+      eventName: "Purchase",
+      defaultValueCents: 29_990,
+      defaultCurrency: "BRL",
+      defaultContentName: "Pedido medio",
+    };
+    harness.execution.valueCents = 29_990;
+    harness.execution.currency = "BRL";
+    harness.execution.matchedCatalogVariantId = null;
+    harness.execution.purchaseReview = {
+      id: "review_1",
+      status: "approved",
+      effectiveValueCents: 29_990,
+      currency: "BRL",
+      items: [],
+    };
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "materialized" });
+
+    expect(harness.conversions.recordExternalConversion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "Purchase",
+        sourceTrigger: "inbound_webhook:umbler:message_phrase",
+        valueCents: 29_990,
+        valueSource: "actual",
+      }),
+    );
+    expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledWith(
+      "conversion_1",
+      workspaceId,
+    );
   });
 });
