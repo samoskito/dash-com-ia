@@ -502,80 +502,94 @@ export function ProviderConversionRulePanel({
                       <span className="provider-catalog-variant-index">
                         {variantIndex + 1}
                       </span>
-                      <div className="provider-catalog-variant-fields">
-                        {attributes.map((attribute, attributeIndex) => (
-                          <div
-                            className="provider-catalog-variant-attribute"
-                            key={attribute.id}
-                          >
-                            <label>
-                              <span className="field-label">
-                                {attribute.label ||
-                                  `Atributo ${attributeIndex + 1}`}
-                              </span>
-                              <input
-                                value={variant.values[attributeIndex] ?? ""}
-                                onChange={(event) =>
-                                  updateVariant(variant.id, (current) => ({
-                                    ...current,
-                                    values: replaceAt(
-                                      current.values,
-                                      attributeIndex,
-                                      event.target.value,
-                                    ),
-                                  }))
-                                }
-                                placeholder="Valor exato"
-                                required
-                              />
-                            </label>
-                            <label>
-                              <span className="field-label">Aliases</span>
-                              <input
-                                value={variant.aliases[attributeIndex] ?? ""}
-                                onChange={(event) =>
-                                  updateVariant(variant.id, (current) => ({
-                                    ...current,
-                                    aliases: replaceAt(
-                                      current.aliases,
-                                      attributeIndex,
-                                      event.target.value,
-                                    ),
-                                  }))
-                                }
-                                placeholder="Opcional, separados por virgula"
-                              />
-                            </label>
-                          </div>
-                        ))}
-                        <label>
-                          <span className="field-label">Valor (R$)</span>
-                          <input
-                            value={variant.value}
-                            onChange={(event) =>
-                              updateVariant(variant.id, (current) => ({
-                                ...current,
-                                value: event.target.value,
-                              }))
-                            }
-                            inputMode="decimal"
-                            placeholder="Ex.: 1.597,00"
-                            required
-                          />
-                        </label>
-                        <label>
-                          <span className="field-label">Nome no evento</span>
-                          <input
-                            value={variant.contentName}
-                            onChange={(event) =>
-                              updateVariant(variant.id, (current) => ({
-                                ...current,
-                                contentName: event.target.value,
-                              }))
-                            }
-                            placeholder="Opcional"
-                          />
-                        </label>
+                      <div
+                        className={`provider-catalog-variant-fields attributes-${attributes.length}`}
+                      >
+                        <div className="provider-catalog-variant-attributes">
+                          {attributes.map((attribute, attributeIndex) => (
+                            <div
+                              className="provider-catalog-variant-attribute"
+                              key={attribute.id}
+                            >
+                              <label>
+                                <span className="field-label">
+                                  {attribute.label ||
+                                    `Atributo ${attributeIndex + 1}`}
+                                </span>
+                                <input
+                                  value={variant.values[attributeIndex] ?? ""}
+                                  onChange={(event) =>
+                                    updateVariant(variant.id, (current) => ({
+                                      ...current,
+                                      values: replaceAt(
+                                        current.values,
+                                        attributeIndex,
+                                        event.target.value,
+                                      ),
+                                    }))
+                                  }
+                                  placeholder="Valor exato"
+                                  required
+                                />
+                              </label>
+                              <label>
+                                <span className="field-label">
+                                  Outras formas aceitas (opcional)
+                                </span>
+                                <input
+                                  value={variant.aliases[attributeIndex] ?? ""}
+                                  onChange={(event) =>
+                                    updateVariant(variant.id, (current) => ({
+                                      ...current,
+                                      aliases: replaceAt(
+                                        current.aliases,
+                                        attributeIndex,
+                                        event.target.value,
+                                      ),
+                                    }))
+                                  }
+                                  placeholder="Ex.: abreviacao, outra escrita"
+                                  title="Separe por virgulas apenas quando o mesmo valor puder chegar escrito de outra forma."
+                                />
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="provider-catalog-variant-commerce">
+                          <label>
+                            <span className="field-label">
+                              Preco da combinacao (R$)
+                            </span>
+                            <input
+                              value={variant.value}
+                              onChange={(event) =>
+                                updateVariant(variant.id, (current) => ({
+                                  ...current,
+                                  value: event.target.value,
+                                }))
+                              }
+                              inputMode="decimal"
+                              placeholder="Ex.: 1.597,00"
+                              required
+                            />
+                          </label>
+                          <label>
+                            <span className="field-label">
+                              Nome da variante na Meta (opcional)
+                            </span>
+                            <input
+                              value={variant.contentName}
+                              onChange={(event) =>
+                                updateVariant(variant.id, (current) => ({
+                                  ...current,
+                                  contentName: event.target.value,
+                                }))
+                              }
+                              placeholder="Automatico: produto + atributos"
+                              title="Se ficar vazio, o nome sera montado automaticamente com o produto e os atributos desta variante."
+                            />
+                          </label>
+                        </div>
                       </div>
                       {variants.length > 1 ? (
                         <button

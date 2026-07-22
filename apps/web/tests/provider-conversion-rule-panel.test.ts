@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -153,6 +154,27 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain("Ultimo resultado: Bloqueado");
     expect(html).toContain("Valor diferente do catalogo");
     expect(html).not.toContain("provider-event:1");
+  });
+
+  it("keeps two-attribute catalog fields readable and explains optional values", () => {
+    const source = readFileSync(
+      new URL(
+        "../src/app/(app)/integrations/provider-conversion-rule-panel.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const css = readFileSync(
+      new URL("../src/styles/globals.css", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("Outras formas aceitas (opcional)");
+    expect(source).toContain("Nome da variante na Meta (opcional)");
+    expect(source).toContain("Automatico: produto + atributos");
+    expect(css).toContain(".provider-catalog-variant-attributes");
+    expect(css).toContain("minmax(min(100%, 360px), 1fr)");
+    expect(css).toContain(".provider-catalog-variant-commerce");
   });
 
   it.each([
