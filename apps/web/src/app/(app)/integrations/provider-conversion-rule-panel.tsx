@@ -13,6 +13,7 @@ import {
   FlaskConical,
   MessageSquareText,
   Pause,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
@@ -870,7 +871,10 @@ export function ProviderConversionRulePanel({
                 {rule.catalog ? (
                   <CatalogRuleDetails
                     rule={rule}
+                    canManage={canManage}
+                    updateAction={updateAction}
                     testMessageAction={testMessageAction}
+                    onResult={applyResult}
                   />
                 ) : null}
               </article>
@@ -1108,18 +1112,30 @@ function RuleChannelEditor({
 
 function CatalogRuleDetails({
   rule,
+  canManage,
+  updateAction,
   testMessageAction,
+  onResult,
 }: {
   rule: ProviderConversionRuleDto;
+  canManage: boolean;
+  updateAction: ProviderRuleAction;
   testMessageAction: ProviderRuleAction;
+  onResult: (result: ProviderConversionRuleActionResult) => void;
 }) {
+  const router = useRouter();
   const [pending, setPending] = useState(false);
+  const [editingAliases, setEditingAliases] = useState(false);
+  const [aliasDrafts, setAliasDrafts] = useState<Record<string, string[]>>(() =>
+    catalogAliasDrafts(rule.catalog),
+  );
   const [result, setResult] =
     useState<StructuredCatalogTestMessageResultDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const catalog = rule.catalog;
 
   if (!catalog) return null;
+  const editableCatalog = catalog;
 
   async function handleTest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1140,6 +1156,54 @@ function CatalogRuleDetails({
     setPending(false);
   }
 
+  async function handleAliasSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+
+    const formData = new FormData();
+    formData.set("ruleId", rule.id);
+    formData.set(
+      "payload",
+      JSON.stringify({
+        catalog: {
+          name: editableCatalog.name,
+          productName: editableCatalog.productName,
+          currency: editableCatalog.currency,
+          attributes: editableCatalog.attributes.map((attribute) => ({
+            key: attribute.key,
+            label: attribute.label,
+          })),
+          variants: editableCatalog.variants.map((variant) => ({
+            attributeValues: variant.attributeValues,
+            aliases: editableCatalog.attributes.map((_, attributeIndex) =>
+              splitAliases(aliasDrafts[variant.id]?.[attributeIndex] ?? ""),
+            ),
+            valueCents: variant.valueCents,
+            contentName: variant.contentName,
+          })),
+        },
+      }),
+    );
+
+    setPending(true);
+    setError(null);
+    const response = await updateAction(formData);
+    onResult(response);
+    if (response.ok) {
+      setEditingAliases(false);
+      router.refresh();
+    } else {
+      setError(response.message);
+    }
+    setPending(false);
+  }
+
+  function resetAliases() {
+    setAliasDrafts(catalogAliasDrafts(editableCatalog));
+    setEditingAliases(false);
+    setError(null);
+  }
+
   return (
     <details className="provider-catalog-details">
       <summary>
@@ -1147,6 +1211,89 @@ function CatalogRuleDetails({
         <strong>{catalog.variants.length} variante(s)</strong>
       </summary>
       <div className="provider-catalog-details-body">
+        {canManage ? (
+          <div className="provider-catalog-alias-heading">
+            <div>
+              <span className="micro-label">Reconhecimento de escrita</span>
+              <span className="muted">
+                Cadastre sinonimos sem alterar combinacoes ou precos.
+              </span>
+            </div>
+            {!editingAliases ? (
+              <button
+                className="button subtle"
+                type="button"
+                onClick={() => setEditingAliases(true)}
+              >
+                <Pencil size={14} aria-hidden="true" />
+                Editar aliases
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {editingAliases ? (
+          <form
+            className="provider-catalog-alias-editor"
+            onSubmit={handleAliasSave}
+          >
+            <div className="provider-catalog-alias-list">
+              {catalog.variants.map((variant) => (
+                <div
+                  className={`provider-catalog-alias-row attributes-${catalog.attributes.length}`}
+                  key={variant.id}
+                >
+                  <strong>{variant.attributeValues.join(" / ")}</strong>
+                  {catalog.attributes.map((attribute, attributeIndex) => (
+                    <label key={attribute.id}>
+                      <span className="field-label">
+                        Alias de {attribute.label}
+                      </span>
+                      <input
+                        value={aliasDrafts[variant.id]?.[attributeIndex] ?? ""}
+                        onChange={(event) =>
+                          setAliasDrafts((current) => ({
+                            ...current,
+                            [variant.id]: replaceAt(
+                              current[variant.id] ?? [],
+                              attributeIndex,
+                              event.target.value,
+                            ),
+                          }))
+                        }
+                        placeholder="Opcional, separado por virgulas"
+                      />
+                    </label>
+                  ))}
+                </div>
+              ))}
+            </div>
+            <span className="action-note">
+              A edicao e permitida enquanto a regra ainda nao possui historico
+              real.
+            </span>
+            <div className="provider-catalog-alias-actions">
+              <button
+                className="button subtle"
+                type="button"
+                disabled={pending}
+                onClick={resetAliases}
+              >
+                <X size={14} aria-hidden="true" />
+                Cancelar
+              </button>
+              <button
+                className="button primary"
+                type="submit"
+                disabled={pending}
+              >
+                <Check size={14} aria-hidden="true" />
+                {pending ? "Salvando..." : "Salvar aliases"}
+              </button>
+            </div>
+          </form>
+        ) : null}
+
         <div className="provider-catalog-table" role="table">
           <div
             className={`provider-catalog-table-row heading attributes-${catalog.attributes.length}`}
@@ -1222,6 +1369,21 @@ function CatalogRuleDetails({
         </form>
       </div>
     </details>
+  );
+}
+
+function catalogAliasDrafts(
+  catalog: ProviderConversionRuleDto["catalog"],
+): Record<string, string[]> {
+  if (!catalog) return {};
+
+  return Object.fromEntries(
+    catalog.variants.map((variant) => [
+      variant.id,
+      catalog.attributes.map((_, index) =>
+        (variant.aliases[index] ?? []).join(", "),
+      ),
+    ]),
   );
 }
 

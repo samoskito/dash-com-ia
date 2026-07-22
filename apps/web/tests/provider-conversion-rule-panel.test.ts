@@ -112,6 +112,7 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain("Modelo");
     expect(html).toContain("R$\u00a03.597,00");
     expect(html).toContain("Testar sem enviar");
+    expect(html).toContain("Editar aliases");
     expect(html).toContain('aria-label="Ativar envio automatico"');
   });
 
@@ -123,6 +124,22 @@ describe("provider conversion rule panel", () => {
     expect(html).not.toContain('aria-label="Remover regra"');
     expect(html).not.toContain('aria-label="Ativar envio automatico"');
     expect(html).not.toContain("Salvar canais");
+    expect(html).not.toContain("Editar aliases");
+  });
+
+  it("keeps a scoped alias editor wired to the existing catalog update", () => {
+    const source = readFileSync(
+      new URL(
+        "../src/app/(app)/integrations/provider-conversion-rule-panel.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(source).toContain("Reconhecimento de escrita");
+    expect(source).toContain("Salvar aliases");
+    expect(source).toContain("splitAliases(aliasDrafts");
+    expect(source).toContain("valueCents: variant.valueCents");
   });
 
   it("shows the latest execution outcome without exposing raw message content", () => {

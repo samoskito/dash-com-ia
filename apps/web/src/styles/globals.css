@@ -8005,6 +8005,63 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   padding: 4px 0 12px;
 }
 
+.provider-catalog-alias-heading,
+.provider-catalog-alias-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.provider-catalog-alias-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.provider-catalog-alias-editor {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: rgba(4, 14, 12, 0.44);
+}
+
+.provider-catalog-alias-list {
+  display: grid;
+  gap: 8px;
+}
+
+.provider-catalog-alias-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.65fr) repeat(2, minmax(220px, 1fr));
+  align-items: end;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(142, 173, 164, 0.13);
+}
+
+.provider-catalog-alias-row.attributes-1 {
+  grid-template-columns: minmax(150px, 0.65fr) minmax(220px, 1fr);
+}
+
+.provider-catalog-alias-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.provider-catalog-alias-row > strong {
+  align-self: center;
+  overflow-wrap: anywhere;
+}
+
+.provider-catalog-alias-row label {
+  min-width: 0;
+}
+
+.provider-catalog-alias-actions {
+  justify-content: flex-end;
+}
+
 .provider-conversion-rule-scope .button {
   justify-self: end;
 }
@@ -8101,6 +8158,11 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
 }
 
 @media (max-width: 900px) {
+  .provider-catalog-alias-row,
+  .provider-catalog-alias-row.attributes-1 {
+    grid-template-columns: 1fr;
+  }
+
   .inbound-webhook-create {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
