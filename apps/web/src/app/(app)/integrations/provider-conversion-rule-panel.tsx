@@ -6,6 +6,8 @@ import type {
   ProviderConversionAutomationAuditItemDto,
   ProviderConversionAutomationPayloadDto,
   ProviderConversionRuleDto,
+  PurchaseReviewDto,
+  PurchaseReviewListDto,
   StructuredCatalogMatchReasonCodeDto,
   StructuredCatalogTestMessageResultDto,
 } from "@wpptrack/shared";
@@ -29,6 +31,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent, ReactNode } from "react";
 import { useRef, useState } from "react";
@@ -77,6 +80,7 @@ export type ProviderConversionRulePanelProps = {
   rotateEndpointAction: ProviderRuleAction;
   loadAutomationAuditAction: ProviderRuleAction;
   loadAutomationPayloadAction: ProviderRuleAction;
+  loadPurchaseAuditAction: ProviderRuleAction;
   reprocessAutomationCallbacksAction: ProviderRuleAction;
   removeAction: ProviderRuleAction;
   testMessageAction: ProviderRuleAction;
@@ -93,6 +97,7 @@ export function ProviderConversionRulePanel({
   rotateEndpointAction,
   loadAutomationAuditAction,
   loadAutomationPayloadAction,
+  loadPurchaseAuditAction,
   reprocessAutomationCallbacksAction,
   removeAction,
   testMessageAction,
@@ -897,6 +902,13 @@ export function ProviderConversionRulePanel({
                     onResult={applyResult}
                   />
                 ) : null}
+
+                {!automation && canManage ? (
+                  <PurchaseRuleAudit
+                    rule={rule}
+                    loadAuditAction={loadPurchaseAuditAction}
+                  />
+                ) : null}
               </article>
             );
           })
@@ -1063,6 +1075,11 @@ function AutomationCallbackAudit({
               <AuditMetric
                 label="Bloqueados"
                 value={audit.summary.blocked}
+                tone="warn"
+              />
+              <AuditMetric
+                label="Falhas"
+                value={audit.summary.failed}
                 tone="warn"
               />
               <AuditMetric
@@ -1346,6 +1363,243 @@ function AutomationCallbackRow({
             <RotateCcw size={15} aria-hidden="true" />
           </button>
         ) : null}
+      </span>
+    </div>
+  );
+}
+
+type PurchaseAuditFilter = "actionable" | "sent" | "all";
+
+function PurchaseRuleAudit({
+  rule,
+  loadAuditAction,
+}: {
+  rule: ProviderConversionRuleDto;
+  loadAuditAction: ProviderRuleAction;
+}) {
+  const [audit, setAudit] = useState<PurchaseReviewListDto | null>(null);
+  const [filter, setFilter] = useState<PurchaseAuditFilter>("actionable");
+  const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
+
+  async function loadAudit(showSuccess = false) {
+    if (loading) return;
+    const formData = new FormData();
+    formData.set("ruleId", rule.id);
+    setLoading(true);
+    if (!showSuccess) setNotice(null);
+    const result = await loadAuditAction(formData);
+    if (result.ok && result.purchaseAudit) {
+      setAudit(result.purchaseAudit);
+      setNotice(
+        showSuccess ? { tone: "success", message: result.message } : null,
+      );
+    } else {
+      setNotice({ tone: "error", message: result.message });
+    }
+    setLoading(false);
+  }
+
+  const reviews = audit?.reviews ?? [];
+  const actionableStatuses = new Set<PurchaseReviewDto["status"]>([
+    "recognized",
+    "awaiting_data",
+    "review_required",
+    "failed",
+  ]);
+  const visibleReviews = reviews.filter((review) => {
+    if (filter === "actionable") return actionableStatuses.has(review.status);
+    if (filter === "sent") {
+      return ["approved", "sent", "corrected_after_send"].includes(
+        review.status,
+      );
+    }
+    return true;
+  });
+  const actionableCount = reviews.filter((review) =>
+    actionableStatuses.has(review.status),
+  ).length;
+  const queuedCount = reviews.filter(
+    (review) => review.status === "approved",
+  ).length;
+  const sentCount = reviews.filter((review) =>
+    ["sent", "corrected_after_send"].includes(review.status),
+  ).length;
+
+  return (
+    <details
+      className="provider-callback-audit provider-purchase-audit"
+      onToggle={(event) => {
+        if (event.currentTarget.open && !audit && !loading) {
+          void loadAudit();
+        }
+      }}
+    >
+      <summary>
+        <span className="provider-callback-audit-heading">
+          <ListChecks size={17} aria-hidden="true" />
+          <span>
+            <strong>Auditar compras reconhecidas</strong>
+            <small>Diagnostico, valor e acesso a revisao desta regra</small>
+          </span>
+        </span>
+        <span
+          className={actionableCount > 0 ? "status-chip warn" : "status-chip"}
+        >
+          {audit ? `${actionableCount} para revisar` : "Abrir"}
+        </span>
+      </summary>
+
+      <div className="provider-callback-audit-body">
+        {notice ? (
+          <div className={`inline-notice ${notice.tone}`}>{notice.message}</div>
+        ) : null}
+
+        {loading && !audit ? (
+          <div className="provider-conversion-empty">
+            <RefreshCw size={17} aria-hidden="true" />
+            <span>Carregando compras reconhecidas...</span>
+          </div>
+        ) : audit ? (
+          <>
+            <div
+              className="provider-callback-summary provider-purchase-summary"
+              aria-label="Resumo das compras reconhecidas"
+            >
+              <AuditMetric
+                label="Registradas"
+                value={audit.pagination.totalItems}
+              />
+              <AuditMetric
+                label="Para revisar"
+                value={actionableCount}
+                tone="warn"
+              />
+              <AuditMetric label="Na fila" value={queuedCount} tone="info" />
+              <AuditMetric label="Enviadas" value={sentCount} tone="success" />
+            </div>
+
+            <div className="provider-callback-toolbar">
+              <div
+                className="provider-callback-filters"
+                aria-label="Filtrar compras reconhecidas"
+              >
+                {(
+                  [
+                    ["actionable", "Para revisar"],
+                    ["sent", "Na fila e enviadas"],
+                    ["all", "Todas"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    className={filter === value ? "active" : undefined}
+                    key={value}
+                    type="button"
+                    onClick={() => setFilter(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="provider-callback-toolbar-actions">
+                <button
+                  className="button ghost compact-button"
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void loadAudit(true)}
+                >
+                  <RefreshCw size={14} aria-hidden="true" />
+                  Atualizar
+                </button>
+                <Link
+                  className="button primary compact-button"
+                  href={`/events/purchase-reviews?providerRuleId=${encodeURIComponent(rule.id)}`}
+                >
+                  <Eye size={14} aria-hidden="true" />
+                  Abrir central de revisao
+                </Link>
+              </div>
+            </div>
+
+            <div className="provider-purchase-table" role="table">
+              <div
+                className="provider-purchase-row provider-callback-row-head"
+                role="row"
+              >
+                <span>Recebido</span>
+                <span>Canal</span>
+                <span>Diagnostico</span>
+                <span>Compra</span>
+                <span>Acao</span>
+              </div>
+              {visibleReviews.length > 0 ? (
+                visibleReviews.map((review) => (
+                  <PurchaseAuditRow key={review.id} review={review} />
+                ))
+              ) : (
+                <div className="provider-callback-empty">
+                  Nenhuma compra encontrada neste filtro.
+                </div>
+              )}
+            </div>
+
+            {audit.pagination.totalItems === 0 ? (
+              <p className="action-note">
+                Nenhuma mensagem desta regra foi reconhecida. Confira a frase
+                gatilho, o autor permitido e os canais vinculados.
+              </p>
+            ) : null}
+            {audit.pagination.totalItems > reviews.length ? (
+              <p className="action-note">
+                Exibindo as 50 compras mais recentes. A central de revisao
+                possui o historico completo desta regra.
+              </p>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function PurchaseAuditRow({ review }: { review: PurchaseReviewDto }) {
+  const valueCents = review.effectiveValueCents ?? review.calculatedValueCents;
+
+  return (
+    <div className="provider-purchase-row" role="row">
+      <span>
+        <strong>{formatDateTime(review.occurredAt)}</strong>
+        <small>
+          {review.sourceType === "provider_message" ? "Mensagem" : "Automacao"}
+        </small>
+      </span>
+      <span>
+        <strong>{review.channelName ?? "Canal nao localizado"}</strong>
+        <small>{review.matchedTriggerPhrase ?? "Sem frase identificada"}</small>
+      </span>
+      <span className="provider-callback-diagnosis">
+        <span className={`event-chip ${purchaseReviewTone(review.status)}`}>
+          {purchaseReviewStatusLabel(review.status)}
+        </span>
+        <small>{purchaseReviewReasonLabel(review.reasonCode)}</small>
+      </span>
+      <span>
+        <strong>
+          {valueCents
+            ? formatMoney(valueCents, review.currency)
+            : "Valor pendente"}
+        </strong>
+        <small>{review.items.length} item(ns) reconhecido(s)</small>
+      </span>
+      <span className="provider-callback-row-actions">
+        <Link
+          className="icon-button"
+          href={`/events/purchase-reviews?providerRuleId=${encodeURIComponent(review.providerRuleId)}`}
+          title="Abrir compra na central de revisao"
+          aria-label={`Abrir compra de ${formatDateTime(review.occurredAt)} na central de revisao`}
+        >
+          <Eye size={15} aria-hidden="true" />
+        </Link>
       </span>
     </div>
   );
@@ -2131,6 +2385,52 @@ function automationAuditTone(
   return "bad";
 }
 
+function purchaseReviewStatusLabel(
+  status: PurchaseReviewDto["status"],
+): string {
+  const labels = {
+    recognized: "Reconhecida",
+    awaiting_data: "Aguardando dados",
+    review_required: "Revisao necessaria",
+    approved: "Na fila",
+    sent: "Enviada",
+    duplicate: "Duplicada",
+    rejected: "Rejeitada",
+    failed: "Falhou",
+    corrected_after_send: "Corrigida no painel",
+  } satisfies Record<PurchaseReviewDto["status"], string>;
+
+  return labels[status];
+}
+
+function purchaseReviewTone(
+  status: PurchaseReviewDto["status"],
+): "" | "warn" | "bad" | "neutral" {
+  if (status === "sent" || status === "recognized") return "";
+  if (status === "failed" || status === "rejected") return "bad";
+  if (["awaiting_data", "review_required", "approved"].includes(status)) {
+    return "warn";
+  }
+  return "neutral";
+}
+
+function purchaseReviewReasonLabel(reasonCode: string | null): string {
+  if (!reasonCode) return "Pronta para revisao";
+
+  const labels: Record<string, string> = {
+    awaiting_complete_purchase_data: "Mensagem sem dados completos",
+    catalog_combination_not_found: "Combinacao fora do catalogo",
+    catalog_message_ambiguous: "Mensagem com combinacao ambigua",
+    provider_conversion_paid_lead_missing: "Lead pago nao localizado",
+    provider_conversion_route_missing: "Rota Meta nao localizada",
+    provider_conversion_value_missing: "Valor da compra nao localizado",
+    provider_conversion_production_context_invalid:
+      "Contexto de producao incompleto",
+  };
+
+  return labels[reasonCode] ?? executionReasonLabel(reasonCode);
+}
+
 function executionReasonLabel(reasonCode: string | null): string {
   if (!reasonCode) return "Processado";
 
@@ -2154,6 +2454,14 @@ function executionReasonLabel(reasonCode: string | null): string {
     provider_conversion_payload_unavailable: "Payload nao esta mais disponivel",
     provider_conversion_source_event_mismatch: "Mensagem de origem invalida",
     provider_conversion_value_missing: "Valor medio nao configurado",
+    provider_conversion_production_context_invalid:
+      "Contexto de producao incompleto",
+    provider_conversion_production_disabled: "Envio de conversoes desativado",
+    provider_conversion_execution_not_found: "Execucao nao localizada",
+    provider_conversion_identity_missing: "Identidade do lead incompleta",
+    provider_conversion_execution_state_changed:
+      "Estado da execucao foi alterado",
+    queue_recovery_pending: "Aguardando recuperacao da fila",
     qualified_lead_already_materialized: "Lead ja qualificado anteriormente",
   };
 

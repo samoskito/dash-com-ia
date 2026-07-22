@@ -22,6 +22,7 @@ import {
   createProviderConversionRuleAction,
   loadProviderConversionAutomationAuditAction,
   loadProviderConversionAutomationPayloadAction,
+  loadProviderConversionPurchaseAuditAction,
   removeProviderConversionRuleAction,
   reprocessProviderConversionAutomationCallbacksAction,
   reprocessLatestProviderConversionAutomationAction,
@@ -288,6 +289,59 @@ describe("provider conversion rule server actions", () => {
     ]);
     expect(audit.automationAudit?.summary.recoverable).toBe(1);
     expect(payload.automationPayload?.deliveryId).toBe("delivery_1");
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("loads purchase reviews scoped to the selected provider rule", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      reviews: [
+        {
+          id: "review_1",
+          workspaceId: "workspace_1",
+          providerRuleId: "provider_rule_1",
+          ruleName: "Compra por mensagem",
+          sourceDeliveryId: "delivery_1",
+          channelId: "channel_1",
+          channelName: "Comercial",
+          occurredAt: "2026-07-22T18:00:00.000Z",
+          sourceType: "provider_message",
+          messageAuthorType: "team",
+          matchedTriggerPhrase: "aviso de compra",
+          status: "recognized",
+          classificationCode: "message_matched",
+          reasonCode: null,
+          leadId: "lead_1",
+          leadName: "Cliente",
+          phoneDisplay: "+5511999990000",
+          items: [],
+          calculatedValueCents: 9990,
+          effectiveValueCents: 9990,
+          observedPaymentValueCents: null,
+          currency: "BRL",
+          conversionEventLogId: null,
+          decisionReason: null,
+          decidedAt: null,
+          createdAt: "2026-07-22T18:00:00.000Z",
+          updatedAt: "2026-07-22T18:00:00.000Z",
+        },
+      ],
+      pendingCount: 1,
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        totalItems: 1,
+        totalPages: 1,
+      },
+    });
+
+    const result = await loadProviderConversionPurchaseAuditAction(
+      form({ ruleId: "provider_rule_1" }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/purchase-reviews?providerRuleId=provider_rule_1&page=1&pageSize=50",
+    );
+    expect(result.purchaseAudit?.pagination.totalItems).toBe(1);
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 

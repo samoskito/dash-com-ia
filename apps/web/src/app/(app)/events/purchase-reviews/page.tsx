@@ -46,6 +46,7 @@ export default async function PurchaseReviewsPage({
   const since = param(params.since) ?? defaults.since;
   const until = param(params.until) ?? defaults.until;
   const status = param(params.status) as PurchaseReviewStatusDto | undefined;
+  const providerRuleId = param(params.providerRuleId);
   const page = Math.max(1, Number(param(params.page)) || 1);
   const query = new URLSearchParams({
     since,
@@ -54,6 +55,7 @@ export default async function PurchaseReviewsPage({
     pageSize: "25",
   });
   if (status) query.set("status", status);
+  if (providerRuleId) query.set("providerRuleId", providerRuleId);
 
   let data: PurchaseReviewListDto | null = null;
   let rules: ProviderConversionRuleDto[] = [];
@@ -142,6 +144,23 @@ export default async function PurchaseReviewsPage({
               <option value="sent">Enviadas</option>
               <option value="failed">Falhas</option>
               <option value="corrected_after_send">Corrigidas no painel</option>
+            </select>
+          </label>
+          <label className="filter-field">
+            <span>Regra</span>
+            <select
+              className="filter-control"
+              defaultValue={providerRuleId ?? ""}
+              name="providerRuleId"
+            >
+              <option value="">Todas as regras</option>
+              {rules
+                .filter((rule) => rule.conversionRule.eventName === "Purchase")
+                .map((rule) => (
+                  <option key={rule.id} value={rule.id}>
+                    {rule.conversionRule.name}
+                  </option>
+                ))}
             </select>
           </label>
           <button className="button" type="submit">

@@ -759,6 +759,75 @@ describe("inbound conversion automation ingestion", () => {
     ).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a failed callback recoverable and records a fresh manual approval before retrying", async () => {
+    const harness = createHarness();
+    const callback = await harness.service.ingest(
+      input(Buffer.from(JSON.stringify(automationPayload()))),
+    );
+    const execution = [...harness.executions.values()].find(
+      (candidate) => candidate.sourceDeliveryId === callback.deliveryId,
+    )!;
+    execution.status = "failed";
+    execution.reasonCode = "provider_conversion_production_context_invalid";
+    execution.normalizedResult = {
+      ...execution.normalizedResult,
+      manualReplayApproval: {
+        approved: true,
+        attemptedAt: "2026-07-22T18:00:00.000Z",
+        actorUserId: "manager_1",
+      },
+    };
+    harness.env.INBOUND_WEBHOOK_PRODUCTION_ENABLED = "true";
+    harness.env.INBOUND_CONVERSION_PRODUCTION_ENABLED = "true";
+    harness.endpoint.providerRule.mode = "production";
+    harness.endpoint.providerRule.productionActivatedAt = new Date(
+      "2026-07-22T18:00:00.000Z",
+    );
+    harness.endpoint.providerRule.connection.status = "production";
+    harness.endpoint.providerRule.connection.productionActivatedAt = new Date(
+      "2026-07-22T18:00:00.000Z",
+    );
+
+    const audit = await harness.service.listAutomationCallbacks(
+      "workspace_safe",
+      "provider_rule_1",
+    );
+    const replay = await harness.service.reprocessSelectedCallbacks(
+      "workspace_safe",
+      "provider_rule_1",
+      [callback.deliveryId],
+      "manager_2",
+    );
+
+    expect(audit.summary).toMatchObject({
+      failed: 1,
+      recoverable: 1,
+    });
+    expect(audit.items[0]).toMatchObject({
+      status: "failed",
+      reprocessable: true,
+    });
+    expect(replay).toMatchObject({
+      requested: 1,
+      queued: 1,
+      blocked: 0,
+      skipped: 0,
+    });
+    expect(execution.normalizedResult.manualReplayApproval).toMatchObject({
+      approved: true,
+      actorUserId: "manager_2",
+    });
+    expect(execution.normalizedResult.manualReplayApproval.approvedAt).toEqual(
+      expect.any(String),
+    );
+    expect(
+      harness.productionQueue.enqueueProviderConversion,
+    ).toHaveBeenCalledWith({
+      providerConversionExecutionId: execution.id,
+      workspaceId: "workspace_safe",
+    });
+  });
+
   it("stores an invalid contract for audit without creating an execution", async () => {
     const harness = createHarness();
     const rawBody = Buffer.from(

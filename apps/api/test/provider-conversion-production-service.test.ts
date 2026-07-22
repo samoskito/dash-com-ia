@@ -505,7 +505,7 @@ describe("provider conversion production service", () => {
     );
   });
 
-  it("honors an explicit audited replay of a callback observed before activation", async () => {
+  it("honors a legacy audited replay recorded with attemptedAt", async () => {
     const harness = createHarness({ automationEventName: "QualifiedLead" });
     const activatedAfterCallback = new Date("2026-07-18T13:00:00.000Z");
     harness.execution.providerRule.productionActivatedAt =
@@ -513,7 +513,7 @@ describe("provider conversion production service", () => {
     harness.execution.channel.productionActivatedAt = activatedAfterCallback;
     harness.execution.normalizedResult.manualReplayApproval = {
       approved: true,
-      approvedAt: "2026-07-22T18:00:00.000Z",
+      attemptedAt: "2026-07-22T18:00:00.000Z",
       actorUserId: "manager_1",
     };
 

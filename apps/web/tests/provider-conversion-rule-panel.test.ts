@@ -113,6 +113,7 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain("R$\u00a03.597,00");
     expect(html).toContain("Testar sem enviar");
     expect(html).toContain("Editar aliases");
+    expect(html).toContain("Auditar compras reconhecidas");
     expect(html).toContain('aria-label="Ativar envio automatico"');
   });
 
@@ -125,6 +126,7 @@ describe("provider conversion rule panel", () => {
     expect(html).not.toContain('aria-label="Ativar envio automatico"');
     expect(html).not.toContain("Salvar canais");
     expect(html).not.toContain("Editar aliases");
+    expect(html).not.toContain("Auditar compras reconhecidas");
   });
 
   it("offers explicit production activation for a certified automation rule", () => {
@@ -324,6 +326,7 @@ function renderPanel({
       rotateEndpointAction: action,
       loadAutomationAuditAction: action,
       loadAutomationPayloadAction: action,
+      loadPurchaseAuditAction: action,
       reprocessAutomationCallbacksAction: action,
       removeAction: action,
       testMessageAction: action,

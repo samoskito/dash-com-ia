@@ -5167,7 +5167,7 @@ button.meta-budget-control:focus-visible {
 
 .purchase-review-filter-form {
   display: grid;
-  grid-template-columns: minmax(190px, 1fr) repeat(3, minmax(150px, 210px)) auto;
+  grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(135px, 190px)) auto;
   align-items: end;
   gap: 12px;
 }
@@ -8115,7 +8115,7 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
 
 .provider-callback-summary {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
@@ -8199,6 +8199,50 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   overflow-x: auto;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
+}
+
+.provider-purchase-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.provider-purchase-table {
+  min-width: 0;
+  overflow-x: auto;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.provider-purchase-row {
+  display: grid;
+  grid-template-columns:
+    minmax(130px, 0.8fr) minmax(170px, 1fr) minmax(190px, 1.15fr)
+    minmax(145px, 0.8fr) 54px;
+  min-width: 790px;
+  align-items: center;
+  border-top: 1px solid rgba(142, 173, 164, 0.13);
+}
+
+.provider-purchase-row:first-child {
+  border-top: 0;
+}
+
+.provider-purchase-row > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  padding: 10px;
+  overflow-wrap: anywhere;
+}
+
+.provider-purchase-row strong {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.provider-purchase-row small {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
 }
 
 .provider-callback-row {
@@ -8365,7 +8409,7 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .provider-callback-summary > div:nth-child(4) {
+  .provider-callback-summary > div:nth-child(3n + 1) {
     border-left: 0;
   }
 

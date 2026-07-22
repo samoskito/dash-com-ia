@@ -357,7 +357,7 @@ export class InboundConversionAutomationIngestionService {
         where: {
           workspaceId,
           providerRuleId,
-          status: { in: ["observed", "blocked"] },
+          status: { in: ["observed", "blocked", "failed"] },
           sourceDelivery: {
             payloadExpiresAt: { gt: now },
             encryptedPayload: { not: null },
@@ -644,7 +644,7 @@ export class InboundConversionAutomationIngestionService {
       payloadAvailable,
       payloadExpiresAt: delivery.payloadExpiresAt.toISOString(),
       reprocessable:
-        payloadAvailable && ["observed", "blocked"].includes(status),
+        payloadAvailable && ["observed", "blocked", "failed"].includes(status),
     };
   }
 
@@ -668,19 +668,37 @@ export class InboundConversionAutomationIngestionService {
           "Este callback ja criou um evento; acompanhe a entrega em Eventos Meta",
       };
     }
-    if (["duplicate", "failed"].includes(currentExecution?.status ?? "")) {
+    if (currentExecution?.status === "duplicate") {
       return {
         deliveryId,
         executionId: currentExecution?.id ?? null,
         status: "skipped",
-        reasonCode: `execution_${currentExecution?.status}`,
-        message:
-          currentExecution?.status === "failed"
-            ? "Use Eventos Meta para repetir uma falha de envio"
-            : "Este callback foi identificado como duplicado",
+        reasonCode: "execution_duplicate",
+        message: "Este callback foi identificado como duplicado",
       };
     }
-    if (currentExecution?.status === "eligible") {
+    if (
+      currentExecution?.status === "eligible" ||
+      currentExecution?.status === "failed"
+    ) {
+      if (currentExecution.status === "failed") {
+        const normalizedResult = this.jsonRecord(
+          currentExecution.normalizedResult,
+        );
+        await this.prisma.providerConversionRuleExecution.update({
+          where: { id: currentExecution.id },
+          data: {
+            normalizedResult: {
+              ...(normalizedResult ?? {}),
+              manualReplayApproval: {
+                approved: true,
+                approvedAt: new Date().toISOString(),
+                actorUserId,
+              },
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
       const queued = await this.productionQueue.enqueueProviderConversion({
         providerConversionExecutionId: currentExecution.id,
         workspaceId,
@@ -692,7 +710,9 @@ export class InboundConversionAutomationIngestionService {
         reasonCode: currentExecution.reasonCode,
         message:
           queued.status === "queued"
-            ? "Callback encaminhado para a fila da Meta"
+            ? currentExecution.status === "failed"
+              ? "Falha anterior encaminhada para uma nova tentativa"
+              : "Callback encaminhado para a fila da Meta"
             : "Callback ja estava na fila da Meta",
       };
     }
@@ -1026,7 +1046,7 @@ export class InboundConversionAutomationIngestionService {
       paidLeadResolved: Boolean(prepared.lead?.adId && prepared.lead.ctwaClid),
       manualReplayApproval: {
         approved,
-        attemptedAt: attemptedAt.toISOString(),
+        approvedAt: attemptedAt.toISOString(),
         actorUserId,
       },
     });

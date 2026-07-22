@@ -12,11 +12,13 @@ import {
   providerConversionRuleCreateResultSchema,
   providerConversionRuleSchema,
   providerConversionRuleUpdateInputSchema,
+  purchaseReviewListSchema,
   structuredCatalogTestMessageInputSchema,
   structuredCatalogTestMessageResultSchema,
   type ProviderConversionAutomationAuditDto,
   type ProviderConversionAutomationPayloadDto,
   type ProviderConversionAutomationReprocessBatchResultDto,
+  type PurchaseReviewListDto,
   type StructuredCatalogTestMessageResultDto,
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
@@ -35,6 +37,7 @@ export type ProviderConversionRuleActionResult = {
   automationAudit?: ProviderConversionAutomationAuditDto;
   automationPayload?: ProviderConversionAutomationPayloadDto;
   automationReprocess?: ProviderConversionAutomationReprocessBatchResultDto;
+  purchaseAudit?: PurchaseReviewListDto;
 };
 
 const integrationsPath = "/integrations";
@@ -242,6 +245,40 @@ export async function loadProviderConversionAutomationAuditAction(
       isApiRequestError(error)
         ? error.message
         : "Nao foi possivel carregar os callbacks desta regra.",
+    );
+  }
+}
+
+export async function loadProviderConversionPurchaseAuditAction(
+  formData: FormData,
+): Promise<ProviderConversionRuleActionResult> {
+  const ruleId = formId(formData, "ruleId");
+  if (!ruleId) return failure(invalidFormMessage);
+
+  try {
+    const query = new URLSearchParams({
+      providerRuleId: ruleId,
+      page: "1",
+      pageSize: "50",
+    });
+    const response = await serverApiFetch<unknown>(
+      `/purchase-reviews?${query.toString()}`,
+    );
+    const result = purchaseReviewListSchema.safeParse(response);
+    if (!result.success) {
+      return failure("Nao foi possivel carregar as compras desta regra.");
+    }
+
+    return {
+      ok: true,
+      message: "Auditoria de compras atualizada.",
+      purchaseAudit: result.data,
+    };
+  } catch (error) {
+    return failure(
+      isApiRequestError(error)
+        ? error.message
+        : "Nao foi possivel carregar as compras desta regra.",
     );
   }
 }

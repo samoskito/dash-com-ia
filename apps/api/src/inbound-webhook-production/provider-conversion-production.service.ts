@@ -764,11 +764,12 @@ export class ProviderConversionProductionService {
     const approval = this.jsonObject(
       (normalized?.manualReplayApproval ?? null) as Prisma.JsonValue | null,
     );
+    const approvedAt = approval?.approvedAt ?? approval?.attemptedAt;
 
     return (
       approval?.approved === true &&
       this.identifier(approval.actorUserId) &&
-      typeof approval.approvedAt === "string"
+      typeof approvedAt === "string"
     );
   }
 
