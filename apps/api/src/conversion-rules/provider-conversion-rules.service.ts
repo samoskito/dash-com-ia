@@ -486,21 +486,47 @@ export class ProviderConversionRulesService {
       }
 
       if (input.catalog) {
-        const executions =
-          await transaction.providerConversionRuleExecution.count({
-            where: { workspaceId, providerRuleId },
-          });
-        if (executions > 0) {
-          throw new ConflictException(
-            "O catalogo com historico nao pode ser substituido; crie uma nova regra",
+        const currentCatalog = current.catalog;
+        const aliasUpdates = currentCatalog
+          ? this.catalogAliasUpdates(currentCatalog, input.catalog)
+          : null;
+
+        if (aliasUpdates && currentCatalog) {
+          for (const update of aliasUpdates) {
+            const result =
+              await transaction.conversionCatalogVariant.updateMany({
+                where: {
+                  id: update.id,
+                  workspaceId,
+                  catalogId: currentCatalog.id,
+                },
+                data: {
+                  aliases: update.aliases as Prisma.InputJsonValue,
+                },
+              });
+            if (result.count !== 1) {
+              throw new ConflictException(
+                "Uma variante do catalogo mudou durante a atualizacao",
+              );
+            }
+          }
+        } else {
+          const executions =
+            await transaction.providerConversionRuleExecution.count({
+              where: { workspaceId, providerRuleId },
+            });
+          if (executions > 0) {
+            throw new ConflictException(
+              "O catalogo com historico aceita apenas alteracoes de aliases",
+            );
+          }
+          await this.replaceCatalog(
+            transaction,
+            workspaceId,
+            providerRuleId,
+            input.catalog,
           );
         }
-        await this.replaceCatalog(
-          transaction,
-          workspaceId,
-          providerRuleId,
-          input.catalog,
-        );
       }
 
       const result = await this.requireRule(
@@ -848,6 +874,74 @@ export class ProviderConversionRulesService {
         contentName: variant.contentName ?? null,
       })),
     });
+  }
+
+  private catalogAliasUpdates(
+    current: NonNullable<PersistedProviderRule["catalog"]>,
+    next: ProviderConversionCatalogInputDto,
+  ): Array<{ id: string; aliases: string[][] }> | null {
+    const currentDto = this.catalogToDto(current);
+    if (
+      currentDto.name !== next.name ||
+      currentDto.productName !== next.productName ||
+      currentDto.currency !== next.currency ||
+      currentDto.attributes.length !== next.attributes.length ||
+      currentDto.variants.length !== next.variants.length
+    ) {
+      return null;
+    }
+
+    const attributesUnchanged = currentDto.attributes.every(
+      (attribute, index) =>
+        attribute.key === next.attributes[index]?.key &&
+        attribute.label === next.attributes[index]?.label,
+    );
+    if (!attributesUnchanged) return null;
+
+    const currentByKey = new Map(
+      currentDto.variants.map((variant) => [variant.normalizedKey, variant]),
+    );
+    const updates: Array<{ id: string; aliases: string[][] }> = [];
+
+    for (const variant of next.variants) {
+      const currentVariant = currentByKey.get(
+        this.catalogVariantKey(variant.attributeValues),
+      );
+      if (
+        !currentVariant ||
+        currentVariant.valueCents !== variant.valueCents ||
+        (currentVariant.contentName ?? null) !==
+          (variant.contentName ?? null) ||
+        !this.sameStrings(
+          currentVariant.attributeValues,
+          variant.attributeValues,
+        )
+      ) {
+        return null;
+      }
+
+      if (!this.sameNestedStrings(currentVariant.aliases, variant.aliases)) {
+        updates.push({ id: currentVariant.id, aliases: variant.aliases });
+      }
+    }
+
+    return updates;
+  }
+
+  private sameStrings(current: string[], next: string[]): boolean {
+    return (
+      current.length === next.length &&
+      current.every((value, index) => value === next[index])
+    );
+  }
+
+  private sameNestedStrings(current: string[][], next: string[][]): boolean {
+    return (
+      current.length === next.length &&
+      current.every((values, index) =>
+        this.sameStrings(values, next[index] ?? []),
+      )
+    );
   }
 
   private catalogVariantKey(values: string[]): string {

@@ -140,6 +140,7 @@ describe("provider conversion rule panel", () => {
     expect(source).toContain("Salvar aliases");
     expect(source).toContain("splitAliases(aliasDrafts");
     expect(source).toContain("valueCents: variant.valueCents");
+    expect(source).toContain('timeZone: "America/Sao_Paulo"');
   });
 
   it("shows the latest execution outcome without exposing raw message content", () => {

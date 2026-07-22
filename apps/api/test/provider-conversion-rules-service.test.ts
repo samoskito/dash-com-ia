@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ProviderConversionCatalogInputDto } from "@wpptrack/shared";
 import { describe, expect, it, vi } from "vitest";
 import { PrismaService } from "../src/common/prisma/prisma.service";
 import { ProviderConversionRulesService } from "../src/conversion-rules/provider-conversion-rules.service";
@@ -54,6 +55,7 @@ function createHarness(
   let conversionRule: Record<string, any> | null = initialConversionRule;
   let providerRule: Record<string, any> | null = null;
   let endpoint: Record<string, any> | null = null;
+  let catalog: Record<string, any> | null = null;
   const channels: Array<Record<string, any>> = [];
   const executions: Array<Record<string, any>> = [];
   const audits: Array<Record<string, any>> = [];
@@ -67,7 +69,7 @@ function createHarness(
           parserRelease,
           channels,
           endpoint,
-          catalog: null,
+          catalog,
           executions,
         }
       : null;
@@ -172,6 +174,86 @@ function createHarness(
         return endpoint;
       }),
     },
+    conversionCatalog: {
+      create: vi.fn(async ({ data }) => {
+        catalog = {
+          id: "catalog_1",
+          active: true,
+          attributes: [],
+          variants: [],
+          createdAt: now,
+          updatedAt: now,
+          ...data,
+        };
+        return catalog;
+      }),
+      findFirst: vi.fn(async ({ where }) =>
+        catalog &&
+        where.workspaceId === catalog.workspaceId &&
+        where.providerRuleId === catalog.providerRuleId
+          ? catalog
+          : null,
+      ),
+      update: vi.fn(async ({ where, data }) => {
+        if (!catalog || where.id !== catalog.id) {
+          throw new Error("catalog not found");
+        }
+        catalog = { ...catalog, ...data, updatedAt: now };
+        return catalog;
+      }),
+    },
+    conversionCatalogAttribute: {
+      createMany: vi.fn(async ({ data }) => {
+        if (!catalog) throw new Error("catalog not found");
+        catalog.attributes = data.map(
+          (item: Record<string, any>, index: number) => ({
+            id: `attribute_${index + 1}`,
+            createdAt: now,
+            updatedAt: now,
+            ...item,
+          }),
+        );
+        return { count: data.length };
+      }),
+      deleteMany: vi.fn(async () => {
+        if (catalog) catalog.attributes = [];
+        return { count: 0 };
+      }),
+    },
+    conversionCatalogVariant: {
+      createMany: vi.fn(async ({ data }) => {
+        if (!catalog) throw new Error("catalog not found");
+        catalog.variants = data.map(
+          (item: Record<string, any>, index: number) => ({
+            id: `variant_${index + 1}`,
+            active: true,
+            createdAt: now,
+            updatedAt: now,
+            ...item,
+          }),
+        );
+        return { count: data.length };
+      }),
+      updateMany: vi.fn(async ({ where, data }) => {
+        if (!catalog) return { count: 0 };
+        const variant = catalog.variants.find(
+          (item: Record<string, any>) =>
+            item.id === where.id &&
+            item.workspaceId === where.workspaceId &&
+            item.catalogId === where.catalogId,
+        );
+        if (!variant) return { count: 0 };
+        Object.assign(variant, data, { updatedAt: now });
+        return { count: 1 };
+      }),
+      deleteMany: vi.fn(async () => {
+        if (catalog) catalog.variants = [];
+        return { count: 0 };
+      }),
+    },
+    providerConversionRuleExecution: {
+      count: vi.fn(async () => executions.length),
+    },
     auditLog: {
       create: vi.fn(async ({ data }) => {
         audits.push(data);
@@ -191,10 +273,65 @@ function createHarness(
     get endpoint() {
       return endpoint;
     },
+    get catalog() {
+      return catalog;
+    },
     executions,
     prisma,
     service,
   };
+}
+
+function catalogInput(): ProviderConversionCatalogInputDto {
+  return {
+    name: "Camas elasticas",
+    productName: "Cama elastica",
+    currency: "BRL",
+    attributes: [
+      { key: "tamanho", label: "Tamanho" },
+      { key: "modelo", label: "Modelo" },
+    ],
+    variants: [
+      {
+        attributeValues: ["4,90", "Nacional"],
+        aliases: [[], []],
+        valueCents: 359_700,
+        contentName: "Cama elastica 4,90 Nacional",
+      },
+      {
+        attributeValues: ["3,05", "Europa"],
+        aliases: [[], []],
+        valueCents: 179_700,
+        contentName: "Cama elastica 3,05 Europa",
+      },
+    ],
+  };
+}
+
+function addCatalogExecution(
+  executions: Array<Record<string, any>>,
+  providerRuleId: string,
+): void {
+  const occurredAt = new Date("2026-07-22T13:50:00.000Z");
+  executions.push({
+    id: "execution_catalog_1",
+    workspaceId: "workspace_1",
+    providerRuleId,
+    sourceDeliveryId: "delivery_catalog_1",
+    channelId: "channel_1",
+    externalExecutionKey: "catalog-message:1",
+    occurredAt,
+    status: "blocked",
+    reasonCode: "awaiting_data",
+    matchedCatalogVariantId: null,
+    valueCents: null,
+    currency: null,
+    leadId: null,
+    conversionEventLogId: null,
+    attemptCount: 0,
+    createdAt: occurredAt,
+    updatedAt: occurredAt,
+  });
 }
 
 describe("provider conversion rules service", () => {
@@ -435,5 +572,107 @@ describe("provider conversion rules service", () => {
       occurredAt: "2026-07-21T21:30:00.000Z",
     });
     expect(JSON.stringify(listed)).not.toContain("normalizedResult");
+  });
+
+  it("updates only catalog aliases in place after the rule has history", async () => {
+    const harness = createHarness();
+    const inputCatalog = catalogInput();
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Compra confirmada - Cama elastica",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "structured_catalog",
+        eventName: "Purchase",
+        triggerPhrases: ["Dados para confirmar o pedido"],
+        messageAuthorScope: "both",
+        catalog: inputCatalog,
+      },
+      "user_1",
+    );
+    const originalVariantIds = created.rule.catalog?.variants.map(
+      (variant) => variant.id,
+    );
+    addCatalogExecution(harness.executions, created.rule.id);
+
+    const updated = await harness.service.updateRule(
+      "workspace_1",
+      created.rule.id,
+      {
+        catalog: {
+          ...inputCatalog,
+          variants: inputCatalog.variants.map((variant) => ({
+            ...variant,
+            aliases:
+              variant.attributeValues[1] === "Nacional"
+                ? [["4.9", "4,90"], ["Tradicional"]]
+                : variant.aliases,
+          })),
+        },
+      },
+      "user_1",
+    );
+
+    expect(updated.catalog?.variants.map((variant) => variant.id)).toEqual(
+      originalVariantIds,
+    );
+    expect(updated.catalog?.variants[0]?.aliases).toEqual([
+      ["4.9", "4,90"],
+      ["Tradicional"],
+    ]);
+    expect(
+      harness.prisma.conversionCatalogVariant.deleteMany,
+    ).not.toHaveBeenCalled();
+    expect(
+      harness.prisma.conversionCatalogVariant.updateMany,
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps catalog prices immutable after the rule has history", async () => {
+    const harness = createHarness();
+    const inputCatalog = catalogInput();
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Compra confirmada - Cama elastica",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "structured_catalog",
+        eventName: "Purchase",
+        triggerPhrases: ["Dados para confirmar o pedido"],
+        messageAuthorScope: "both",
+        catalog: inputCatalog,
+      },
+      "user_1",
+    );
+    addCatalogExecution(harness.executions, created.rule.id);
+
+    await expect(
+      harness.service.updateRule(
+        "workspace_1",
+        created.rule.id,
+        {
+          catalog: {
+            ...inputCatalog,
+            variants: inputCatalog.variants.map((variant, index) => ({
+              ...variant,
+              valueCents:
+                index === 0 ? variant.valueCents + 100 : variant.valueCents,
+            })),
+          },
+        },
+        "user_1",
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      message: "O catalogo com historico aceita apenas alteracoes de aliases",
+    });
+
+    expect(
+      harness.prisma.conversionCatalogVariant.updateMany,
+    ).not.toHaveBeenCalled();
   });
 });

@@ -1269,8 +1269,8 @@ function CatalogRuleDetails({
               ))}
             </div>
             <span className="action-note">
-              A edicao e permitida enquanto a regra ainda nao possui historico
-              real.
+              Os aliases preservam combinacoes, precos e todo o historico da
+              regra.
             </span>
             <div className="provider-catalog-alias-actions">
               <button
@@ -1709,5 +1709,6 @@ function formatDateTime(value: string | null): string {
   return new Date(value).toLocaleString("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
+    timeZone: "America/Sao_Paulo",
   });
 }
