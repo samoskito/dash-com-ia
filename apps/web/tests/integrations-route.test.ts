@@ -1390,8 +1390,11 @@ describe("integrations route", () => {
         "/integrations/inbound-webhooks/connection_wave7/channels",
       );
       expect(html).toContain("Webhooks de plataformas WhatsApp");
-      expect(html).toContain("Eventos de conversao");
-      expect(html).toContain("Observacao disponivel");
+      expect(html).toContain("Gatilhos do WhatsApp");
+      expect(html).toContain("Central disponivel");
+      expect(html).toContain('href="/settings#whatsapp-triggers"');
+      expect(html).toContain("Gerenciar gatilhos");
+      expect(html).not.toContain("Qualificados e compras");
       expect(html).toContain("Umbler Talk");
       expect(html).toContain("Umbler Workspace Atual");
       expect(html).toContain("Canal Workspace Atual");

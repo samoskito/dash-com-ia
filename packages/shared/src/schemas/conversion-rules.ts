@@ -205,6 +205,13 @@ const providerConversionMessageRuleShape = {
   messageAuthorScope: providerConversionMessageAuthorScopeSchema,
 };
 
+export const providerConversionRuleAdaptInputSchema = z.object({
+  connectionId: providerConversionRuleBaseShape.connectionId,
+  channelIds: providerConversionRuleBaseShape.channelIds,
+  triggerPhrases: providerConversionMessageRuleShape.triggerPhrases,
+  messageAuthorScope: providerConversionMessageRuleShape.messageAuthorScope,
+});
+
 export const providerConversionRuleCreateInputSchema = z.union([
   z.object({
     ...providerConversionRuleBaseShape,
@@ -544,6 +551,9 @@ export type ProviderConversionCatalogInputDto = z.infer<
 >;
 export type ProviderConversionRuleCreateInputDto = z.infer<
   typeof providerConversionRuleCreateInputSchema
+>;
+export type ProviderConversionRuleAdaptInputDto = z.infer<
+  typeof providerConversionRuleAdaptInputSchema
 >;
 export type ProviderConversionRuleUpdateInputDto = z.infer<
   typeof providerConversionRuleUpdateInputSchema

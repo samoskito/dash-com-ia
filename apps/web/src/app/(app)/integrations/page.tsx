@@ -46,13 +46,6 @@ import {
   type InboundWebhookConnectionView,
 } from "./inbound-webhook-panel";
 import {
-  createProviderConversionRuleAction,
-  removeProviderConversionRuleAction,
-  rotateProviderConversionRuleEndpointAction,
-  testProviderCatalogMessageAction,
-  updateProviderConversionRuleAction,
-} from "./provider-conversion-rule-actions";
-import {
   createMetaManualConnectionAction,
   createMetaManualCredentialAction,
   createMetaOAuthAdvancedConnectionAction,
@@ -1577,15 +1570,6 @@ export default async function IntegrationsPage({
               removeConnectionAction={removeInboundWebhookConnectionAction}
               setChannelStatusAction={setInboundWebhookChannelStatusAction}
               saveRoutesAction={saveInboundWebhookChannelRoutesAction}
-              createProviderRuleAction={createProviderConversionRuleAction}
-              updateProviderRuleAction={updateProviderConversionRuleAction}
-              rotateProviderRuleEndpointAction={
-                rotateProviderConversionRuleEndpointAction
-              }
-              removeProviderRuleAction={removeProviderConversionRuleAction}
-              testProviderCatalogMessageAction={
-                testProviderCatalogMessageAction
-              }
             />
           ) : null}
 

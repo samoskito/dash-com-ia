@@ -7,6 +7,7 @@ import type {
   MetaManualConfigurationDto,
   ProviderConversionRuleDto,
 } from "@wpptrack/shared";
+import Link from "next/link";
 import {
   AlertTriangle,
   Check,
@@ -16,6 +17,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  Settings2,
   ShieldCheck,
   Trash2,
   Webhook,
@@ -30,16 +32,10 @@ import type {
   InboundWebhookOneTimeSecret,
 } from "./inbound-webhook-actions";
 import { InboundWebhookRouteEditor } from "./inbound-webhook-route-editor";
-import type { ProviderConversionRuleActionResult } from "./provider-conversion-rule-actions";
-import { ProviderConversionRulePanel } from "./provider-conversion-rule-panel";
 
 type InboundWebhookAction = (
   formData: FormData,
 ) => Promise<InboundWebhookActionResult>;
-
-type ProviderConversionRuleAction = (
-  formData: FormData,
-) => Promise<ProviderConversionRuleActionResult>;
 
 export type InboundWebhookConnectionView = {
   overview: InboundWebhookConnectionOverviewDto;
@@ -60,11 +56,6 @@ export type InboundWebhookPanelProps = {
   removeConnectionAction: InboundWebhookAction;
   setChannelStatusAction: InboundWebhookAction;
   saveRoutesAction: InboundWebhookAction;
-  createProviderRuleAction: ProviderConversionRuleAction;
-  updateProviderRuleAction: ProviderConversionRuleAction;
-  rotateProviderRuleEndpointAction: ProviderConversionRuleAction;
-  removeProviderRuleAction: ProviderConversionRuleAction;
-  testProviderCatalogMessageAction: ProviderConversionRuleAction;
 };
 
 type PanelNotice = {
@@ -94,11 +85,6 @@ export function InboundWebhookPanel({
   removeConnectionAction,
   setChannelStatusAction,
   saveRoutesAction,
-  createProviderRuleAction,
-  updateProviderRuleAction,
-  rotateProviderRuleEndpointAction,
-  removeProviderRuleAction,
-  testProviderCatalogMessageAction,
 }: InboundWebhookPanelProps) {
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(connections.length === 0);
@@ -642,20 +628,42 @@ export function InboundWebhookPanel({
                   </div>
 
                   {connection.provider === "umbler" ? (
-                    <ProviderConversionRulePanel
-                      connectionId={connection.id}
-                      channels={channels}
-                      rules={providerRules.filter(
-                        (rule) => rule.connectionId === connection.id,
-                      )}
-                      enabled={providerRulesEnabled}
-                      canManage={canManage}
-                      createAction={createProviderRuleAction}
-                      updateAction={updateProviderRuleAction}
-                      rotateEndpointAction={rotateProviderRuleEndpointAction}
-                      removeAction={removeProviderRuleAction}
-                      testMessageAction={testProviderCatalogMessageAction}
-                    />
+                    <section className="provider-conversion-summary">
+                      <div className="provider-conversion-summary-icon">
+                        <Settings2 size={18} aria-hidden="true" />
+                      </div>
+                      <div className="provider-conversion-summary-copy">
+                        <span className="eyebrow">Gatilhos do WhatsApp</span>
+                        <strong>
+                          {
+                            providerRules.filter(
+                              (rule) => rule.connectionId === connection.id,
+                            ).length
+                          }{" "}
+                          regra(s) nesta conexao
+                        </strong>
+                        <span>
+                          Crie e revise conversoes por canal na Central de
+                          Configuracoes.
+                        </span>
+                      </div>
+                      <span
+                        className={`event-chip ${
+                          providerRulesEnabled ? "success" : "warn"
+                        }`}
+                      >
+                        {providerRulesEnabled
+                          ? "Central disponivel"
+                          : "Regras indisponiveis"}
+                      </span>
+                      <Link
+                        className="button"
+                        href="/settings#whatsapp-triggers"
+                      >
+                        <Settings2 size={15} aria-hidden="true" />
+                        Gerenciar gatilhos
+                      </Link>
+                    </section>
                   ) : null}
                 </div>
               </details>

@@ -108,6 +108,11 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       webhookUrl:
         "https://api.wpptrack.test/webhooks/inbound/conversions/endpoint_1?token=secret",
     })),
+    adaptLegacyMessageRule: vi.fn(async () => ({
+      id: "provider_rule_1",
+      conversionRule: { id: "legacy_rule_1" },
+      mode: "observation",
+    })),
     updateRule: vi.fn(async () => ({ id: "provider_rule_1" })),
     rotateEndpoint: vi.fn(async () => ({
       endpoint: { id: "endpoint_1" },
@@ -165,6 +170,63 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
 }
 
 describe("conversion rules controller", () => {
+  it("adapts a legacy purchase rule for selected Umbler channels", async () => {
+    const { app, providerConversionRulesService } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/conversion-rules/providers/adapt/legacy_rule_1")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        triggerPhrases: ["Aviso de compra"],
+        messageAuthorScope: "team",
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          conversionRule: { id: "legacy_rule_1" },
+          mode: "observation",
+        });
+      });
+
+    expect(
+      providerConversionRulesService.adaptLegacyMessageRule,
+    ).toHaveBeenCalledWith(
+      "workspace_1",
+      "legacy_rule_1",
+      {
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        triggerPhrases: ["Aviso de compra"],
+        messageAuthorScope: "team",
+      },
+      "user_1",
+    );
+
+    await app.close();
+  });
+
+  it("blocks legacy rule adaptation for read-only members", async () => {
+    const { app, providerConversionRulesService } = await createApp("member");
+
+    await request(app.getHttpServer())
+      .post("/conversion-rules/providers/adapt/legacy_rule_1")
+      .set("Authorization", "Bearer refresh-token")
+      .send({
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        triggerPhrases: ["Aviso de compra"],
+        messageAuthorScope: "team",
+      })
+      .expect(403);
+
+    expect(
+      providerConversionRulesService.adaptLegacyMessageRule,
+    ).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it("creates a workspace-scoped provider automation rule", async () => {
     const { app, providerConversionRulesService } = await createApp();
 

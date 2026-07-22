@@ -17,6 +17,7 @@ import {
   conversionRuleUpdateInputSchema,
   conversionTriggerEvaluationInputSchema,
   funnelConfigurationUpdateInputSchema,
+  providerConversionRuleAdaptInputSchema,
   providerConversionRuleCreateInputSchema,
   providerConversionRuleUpdateInputSchema,
   structuredCatalogTestMessageInputSchema,
@@ -77,6 +78,27 @@ export class ConversionRulesController {
 
     return this.providerConversionRulesService.createRule(
       context.workspaceId,
+      parsed.data,
+      context.userId,
+    );
+  }
+
+  @Post("providers/adapt/:ruleId")
+  async adaptProviderRule(
+    @AuthToken() refreshToken: string,
+    @Param("ruleId") ruleId: string,
+    @Body() body: unknown,
+  ) {
+    const context = await this.requireIntegrationManager(refreshToken);
+    const parsed = providerConversionRuleAdaptInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten());
+    }
+
+    return this.providerConversionRulesService.adaptLegacyMessageRule(
+      context.workspaceId,
+      ruleId,
       parsed.data,
       context.userId,
     );

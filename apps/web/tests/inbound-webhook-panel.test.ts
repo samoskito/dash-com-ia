@@ -207,6 +207,16 @@ describe("inbound webhook panel", () => {
     expect(html).toContain("controle quais canais enviam conversoes");
   });
 
+  it("keeps integrations focused on connection health and links to trigger settings", () => {
+    const html = renderPanel();
+
+    expect(html).toContain("Gatilhos do WhatsApp");
+    expect(html).toContain("0 regra(s) nesta conexao");
+    expect(html).toContain('href="/settings#whatsapp-triggers"');
+    expect(html).toContain("Gerenciar gatilhos");
+    expect(html).not.toContain("Qualificados e compras");
+  });
+
   it("renders all five counters, channel metadata, and several N:N routes", () => {
     const html = renderPanel();
     const channel = connectionView.channels[0];
@@ -370,11 +380,6 @@ function renderPanel({
       removeConnectionAction: action,
       setChannelStatusAction: action,
       saveRoutesAction: action,
-      createProviderRuleAction: action,
-      updateProviderRuleAction: action,
-      rotateProviderRuleEndpointAction: action,
-      removeProviderRuleAction: action,
-      testProviderCatalogMessageAction: action,
     }),
   );
 }

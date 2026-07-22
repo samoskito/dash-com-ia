@@ -3,6 +3,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import SettingsPage from "../src/app/(app)/settings/page";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => undefined }),
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -58,6 +62,9 @@ function workspacePermissions(
 function mockSettingsFetch(options: {
   rulesBody: unknown;
   rulesStatus?: number;
+  providerConnections?: unknown[];
+  providerRules?: unknown[];
+  providerChannels?: Record<string, unknown[]>;
   workspaceStatus?: number;
   workspaceRole?: "owner" | "admin" | "member";
   workspaceCanManageMembers?: boolean;
@@ -69,6 +76,37 @@ function mockSettingsFetch(options: {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
     const role = options.workspaceRole ?? "owner";
+
+    if (url.endsWith("/integrations/inbound-webhooks")) {
+      return new Response(JSON.stringify(options.providerConnections ?? []), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const providerChannelMatch = url.match(
+      /\/integrations\/inbound-webhooks\/([^/]+)\/channels$/u,
+    );
+    if (providerChannelMatch) {
+      return new Response(
+        JSON.stringify(
+          options.providerChannels?.[
+            decodeURIComponent(providerChannelMatch[1])
+          ] ?? [],
+        ),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    if (url.endsWith("/conversion-rules/providers")) {
+      return new Response(JSON.stringify(options.providerRules ?? []), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     if (url.endsWith("/conversion-rules")) {
       return new Response(JSON.stringify(options.rulesBody), {
@@ -297,13 +335,11 @@ describe("settings route", () => {
     expect(html).toContain('id="configuracao-conversoes"');
     expect(html.match(/class="settings-domain-section/g)).toHaveLength(3);
     expect(
-      html.match(
-        /class="surface-panel settings-automation-details [^"]+"/g,
-      ),
+      html.match(/class="surface-panel settings-automation-details [^"]+"/g),
     ).toHaveLength(2);
-    expect(html).not.toMatch(
-      /<details[^>]*class="[^"]*settings-automation-details[^"]*"[^>]*open/,
-    );
+    expect(html).toMatch(/<details[^>]*id="whatsapp-triggers"[^>]*open=""/);
+    expect(html).toContain("Regras por conexao e canal");
+    expect(html).toContain("WhatsApp direto e regras anteriores");
     expect(html).toContain("Jornada do funil");
     expect(html).toContain("Salvar jornada");
     expect(html.match(/name="stageProduct:/g)).toHaveLength(1);
@@ -393,6 +429,90 @@ describe("settings route", () => {
       '<option value="CompleteRegistration">CompleteRegistration</option>',
     );
     expect(html).toContain("Pausar");
+  });
+
+  it("centralizes Umbler rules by connection and offers assisted legacy adaptation", async () => {
+    mockSettingsFetch({
+      rulesBody: [
+        {
+          id: "legacy_purchase_1",
+          workspaceId: "workspace_1",
+          name: "Compra por aviso",
+          triggerType: "keyword",
+          triggerValue: "AVISO DE COMPRA",
+          matchMode: "exact",
+          eventName: "Purchase",
+          pixelId: null,
+          defaultValueCents: 9990,
+          defaultCurrency: "BRL",
+          defaultContentName: "Pedido medio",
+          defaultItems: null,
+          active: true,
+          createdAt: "2026-07-22T12:00:00.000Z",
+          updatedAt: "2026-07-22T12:00:00.000Z",
+        },
+      ],
+      providerConnections: [
+        {
+          id: "connection_umbler_1",
+          workspaceId: "workspace_1",
+          provider: "umbler",
+          displayName: "Umbler Comercial",
+          parserVersion: "umbler/v1",
+          parserReleaseStatus: "certified",
+          status: "production",
+          productionActivatedAt: "2026-07-22T12:00:00.000Z",
+          lastDeliveryAt: "2026-07-22T12:00:00.000Z",
+          lastSuccessfulParseAt: "2026-07-22T12:00:00.000Z",
+          createdAt: "2026-07-22T12:00:00.000Z",
+          updatedAt: "2026-07-22T12:00:00.000Z",
+        },
+      ],
+      providerChannels: {
+        connection_umbler_1: [
+          {
+            id: "channel_umbler_1",
+            connectionId: "connection_umbler_1",
+            organizationId: "organization_1",
+            providerChannelId: "provider_channel_1",
+            connectedPhone: "+5511999990001",
+            channelName: "Vendas",
+            status: "active",
+            productionActivatedAt: "2026-07-22T12:00:00.000Z",
+            firstSeenAt: "2026-07-22T12:00:00.000Z",
+            lastSeenAt: "2026-07-22T12:00:00.000Z",
+            routes: [],
+            readiness: {
+              state: "ready",
+              blockers: [],
+              routeCount: 1,
+              validRouteCount: 1,
+              totalCtwa: 1,
+              routedCtwa: 1,
+              unresolvedCtwa: 0,
+              retainedCtwa: 1,
+              retainedRoutedCtwa: 1,
+              payloadUnavailableCtwa: 0,
+              alreadyMaterializedCtwa: 0,
+              nextPayloadExpiresAt: null,
+            },
+            createdAt: "2026-07-22T12:00:00.000Z",
+            updatedAt: "2026-07-22T12:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Umbler Comercial");
+    expect(html).toContain("1 canal(is) descoberto(s)");
+    expect(html).toContain("Regras por conexao e canal");
+    expect(html).toContain("Compra por aviso");
+    expect(html).toContain("Adaptar para Umbler");
+    expect(html).toContain("WhatsApp direto e regras anteriores");
+    expect(html).toContain('href="/integrations"');
   });
 
   it("renders WhatsApp label suggestions from active Uazapi instances", async () => {

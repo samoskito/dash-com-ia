@@ -13,6 +13,7 @@ import type {
   ProviderConversionCatalogInputDto,
   ProviderConversionEndpointDto,
   ProviderConversionEndpointSecretResultDto,
+  ProviderConversionRuleAdaptInputDto,
   ProviderConversionRuleCreateInputDto,
   ProviderConversionRuleCreateResultDto,
   ProviderConversionRuleDto,
@@ -252,6 +253,133 @@ export class ProviderConversionRulesService {
             )
           : null,
     };
+  }
+
+  async adaptLegacyMessageRule(
+    workspaceId: string,
+    legacyRuleId: string,
+    input: ProviderConversionRuleAdaptInputDto,
+    actorUserId: string,
+  ): Promise<ProviderConversionRuleDto> {
+    this.requireRulesEnabled();
+
+    const adapted = await this.prisma.$transaction(async (transaction) => {
+      const legacyRule = await transaction.conversionRule.findFirst({
+        where: {
+          id: legacyRuleId,
+          workspaceId,
+        },
+        include: {
+          providerConfig: true,
+        },
+      });
+
+      if (!legacyRule) {
+        throw new NotFoundException("Regra de conversao nao encontrada");
+      }
+      if (legacyRule.providerConfig) {
+        throw new ConflictException(
+          "Esta regra ja esta vinculada a um provedor",
+        );
+      }
+      if (
+        legacyRule.triggerType !== "keyword" ||
+        legacyRule.eventName !== "Purchase"
+      ) {
+        throw new ConflictException(
+          "Somente regras antigas de compra por palavra-chave podem ser adaptadas",
+        );
+      }
+      if (
+        !legacyRule.defaultValueCents ||
+        legacyRule.defaultValueCents <= 0 ||
+        !legacyRule.defaultCurrency
+      ) {
+        throw new ConflictException(
+          "Configure produto, valor e moeda antes de adaptar esta regra",
+        );
+      }
+
+      const connection = await transaction.inboundWebhookConnection.findFirst({
+        where: {
+          id: input.connectionId,
+          workspaceId,
+          provider: "umbler",
+          removedAt: null,
+        },
+        include: { parserRelease: true },
+      });
+
+      if (!connection) {
+        throw new NotFoundException(connectionNotFoundMessage);
+      }
+
+      await this.assertChannelsBelongToConnection(
+        transaction,
+        workspaceId,
+        connection.id,
+        input.channelIds,
+      );
+
+      if (!connection.parserRelease) {
+        throw new ConflictException("Parser Umbler ainda nao esta disponivel");
+      }
+      this.assertModeAllowed("observation", connection.parserRelease.status);
+
+      await transaction.conversionRule.update({
+        where: { id: legacyRule.id },
+        data: {
+          triggerType: "message_phrase",
+          triggerValue: input.triggerPhrases[0],
+          matchMode: "contains",
+          active: true,
+        },
+      });
+
+      const providerRule =
+        await transaction.providerConversionRuleConfig.create({
+          data: {
+            workspaceId,
+            conversionRuleId: legacyRule.id,
+            connectionId: connection.id,
+            parserReleaseId: connection.parserRelease.id,
+            mode: "observation",
+            messageTriggerPhrases: input.triggerPhrases,
+            messageAuthorScope: input.messageAuthorScope,
+            productionActivatedAt: null,
+            createdByUserId: actorUserId,
+          },
+        });
+
+      await transaction.providerConversionRuleChannel.createMany({
+        data: input.channelIds.map((channelId) => ({
+          workspaceId,
+          providerRuleId: providerRule.id,
+          channelId,
+        })),
+      });
+
+      await this.createAudit(transaction, {
+        workspaceId,
+        actorUserId,
+        action: "provider_conversion_rule.adapted",
+        targetId: providerRule.id,
+        resultStatus: "observation",
+        afterSummary: {
+          conversionRuleId: legacyRule.id,
+          previousTriggerType: legacyRule.triggerType,
+          previousMatchMode: legacyRule.matchMode,
+          eventName: legacyRule.eventName,
+          connectionId: connection.id,
+          channelCount: input.channelIds.length,
+          mode: "observation",
+        },
+      });
+
+      return this.requireRule(transaction, workspaceId, providerRule.id);
+    });
+
+    return this.toDto(adapted);
   }
 
   async updateRule(

@@ -14,7 +14,10 @@ function runtimeEnvironment() {
   };
 }
 
-function createHarness(channelCount = 1) {
+function createHarness(
+  channelCount = 1,
+  initialConversionRule: Record<string, any> | null = null,
+) {
   const now = new Date("2026-07-21T21:00:00.000Z");
   const parserRelease = {
     id: "inbound_parser_umbler_automation_v1",
@@ -48,7 +51,7 @@ function createHarness(channelCount = 1) {
       status: "certified" as const,
     },
   };
-  let conversionRule: Record<string, any> | null = null;
+  let conversionRule: Record<string, any> | null = initialConversionRule;
   let providerRule: Record<string, any> | null = null;
   let endpoint: Record<string, any> | null = null;
   const channels: Array<Record<string, any>> = [];
@@ -85,6 +88,16 @@ function createHarness(channelCount = 1) {
       findFirst: vi.fn(async () => parserRelease),
     },
     conversionRule: {
+      findFirst: vi.fn(async ({ where }) =>
+        conversionRule &&
+        where.id === conversionRule.id &&
+        where.workspaceId === conversionRule.workspaceId
+          ? {
+              ...conversionRule,
+              providerConfig: providerRule,
+            }
+          : null,
+      ),
       create: vi.fn(async ({ data }) => {
         conversionRule = {
           id: "rule_1",
@@ -92,6 +105,17 @@ function createHarness(channelCount = 1) {
           updatedAt: now,
           ...data,
           defaultItems: null,
+        };
+        return conversionRule;
+      }),
+      update: vi.fn(async ({ where, data }) => {
+        if (!conversionRule || where.id !== conversionRule.id) {
+          throw new Error("conversion rule not found");
+        }
+        conversionRule = {
+          ...conversionRule,
+          ...data,
+          updatedAt: now,
         };
         return conversionRule;
       }),
@@ -174,6 +198,106 @@ function createHarness(channelCount = 1) {
 }
 
 describe("provider conversion rules service", () => {
+  it("promotes a legacy purchase rule to an Umbler message rule in observation", async () => {
+    const now = new Date("2026-07-21T20:00:00.000Z");
+    const harness = createHarness(1, {
+      id: "legacy_rule_1",
+      workspaceId: "workspace_1",
+      name: "Compra por aviso",
+      triggerType: "keyword",
+      triggerValue: "AVISO DE COMPRA",
+      matchMode: "exact",
+      eventName: "Purchase",
+      pixelId: null,
+      defaultValueCents: 9_990,
+      defaultCurrency: "BRL",
+      defaultContentName: "Banda larga",
+      defaultItems: null,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const adapted = await harness.service.adaptLegacyMessageRule(
+      "workspace_1",
+      "legacy_rule_1",
+      {
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        triggerPhrases: ["Aviso de compra"],
+        messageAuthorScope: "team",
+      },
+      "user_1",
+    );
+
+    expect(adapted).toMatchObject({
+      connectionId: "connection_1",
+      mode: "observation",
+      channelIds: ["channel_1"],
+      triggerPhrases: ["Aviso de compra"],
+      messageAuthorScope: "team",
+      conversionRule: {
+        id: "legacy_rule_1",
+        triggerType: "message_phrase",
+        triggerValue: "Aviso de compra",
+        matchMode: "contains",
+        eventName: "Purchase",
+        defaultValueCents: 9_990,
+      },
+    });
+    expect(adapted.endpoint).toBeNull();
+    expect(harness.audits.at(-1)).toMatchObject({
+      action: "provider_conversion_rule.adapted",
+      resultStatus: "observation",
+    });
+  });
+
+  it("does not adapt the same legacy rule more than once", async () => {
+    const now = new Date("2026-07-21T20:00:00.000Z");
+    const harness = createHarness(1, {
+      id: "legacy_rule_1",
+      workspaceId: "workspace_1",
+      name: "Compra por aviso",
+      triggerType: "keyword",
+      triggerValue: "AVISO DE COMPRA",
+      matchMode: "contains",
+      eventName: "Purchase",
+      pixelId: null,
+      defaultValueCents: 9_990,
+      defaultCurrency: "BRL",
+      defaultContentName: "Banda larga",
+      defaultItems: null,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const input = {
+      connectionId: "connection_1",
+      channelIds: ["channel_1"],
+      triggerPhrases: ["Aviso de compra"],
+      messageAuthorScope: "team" as const,
+    };
+
+    await harness.service.adaptLegacyMessageRule(
+      "workspace_1",
+      "legacy_rule_1",
+      input,
+      "user_1",
+    );
+
+    await expect(
+      harness.service.adaptLegacyMessageRule(
+        "workspace_1",
+        "legacy_rule_1",
+        input,
+        "user_1",
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      message: "Esta regra ja esta vinculada a um provedor",
+    });
+  });
+
   it("creates a workspace-scoped rule and returns its signed URL only once", async () => {
     const harness = createHarness();
 

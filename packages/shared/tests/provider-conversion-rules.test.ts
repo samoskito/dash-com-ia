@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   conversionRuleCreateInputSchema,
   inboundWebhookDeliveryPurposeSchema,
+  providerConversionRuleAdaptInputSchema,
   providerConversionRuleCreateInputSchema,
   structuredCatalogTestMessageInputSchema,
   structuredCatalogTestMessageResultSchema,
@@ -38,6 +39,28 @@ const trampolineCatalog = {
 };
 
 describe("provider conversion rule contracts", () => {
+  it("accepts only an observation-safe channel scope when adapting a legacy rule", () => {
+    const parsed = providerConversionRuleAdaptInputSchema.parse({
+      connectionId: "connection_1",
+      channelIds: ["channel_1"],
+      triggerPhrases: ["Aviso de compra"],
+      messageAuthorScope: "team",
+    });
+
+    expect(parsed).toEqual({
+      connectionId: "connection_1",
+      channelIds: ["channel_1"],
+      triggerPhrases: ["Aviso de compra"],
+      messageAuthorScope: "team",
+    });
+    expect(
+      providerConversionRuleAdaptInputSchema.safeParse({
+        ...parsed,
+        channelIds: [],
+      }).success,
+    ).toBe(false);
+  });
+
   it("keeps provider triggers out of the legacy conversion rule endpoint", () => {
     expect(
       conversionRuleCreateInputSchema.safeParse({
