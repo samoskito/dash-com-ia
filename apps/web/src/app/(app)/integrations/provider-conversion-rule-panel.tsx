@@ -740,7 +740,7 @@ export function ProviderConversionRulePanel({
 
                 {canManage ? (
                   <div className="provider-conversion-rule-actions">
-                    {!automation && active ? (
+                    {active ? (
                       <button
                         className="icon-button"
                         type="button"
@@ -760,7 +760,7 @@ export function ProviderConversionRulePanel({
                           if (
                             !activating ||
                             window.confirm(
-                              "Ativar o envio automatico das novas compras reconhecidas por este catalogo? O historico anterior permanecera apenas observado.",
+                              `Ativar o envio automatico dos novos eventos de ${eventLabel(rule).toLocaleLowerCase("pt-BR")} reconhecidos por esta regra? O historico anterior permanecera apenas observado.`,
                             )
                           ) {
                             void runRuleAction(
@@ -1636,6 +1636,14 @@ function executionReasonLabel(reasonCode: string | null): string {
   const labels: Record<string, string> = {
     catalog_matched: "Catalogo reconhecido",
     catalog_matched_observation: "Reconhecido em observacao",
+    message_matched: "Mensagem reconhecida",
+    message_matched_observation: "Reconhecido em observacao",
+    automation_matched: "Automacao reconhecida",
+    automation_matched_observation: "Reconhecido em observacao",
+    automation_event_mismatch: "Evento diferente da regra",
+    automation_channel_unresolved: "Canal nao localizado",
+    automation_paid_lead_missing: "Lead pago nao localizado",
+    automation_value_missing: "Valor medio nao configurado",
     before_production_activation: "Historico preservado",
     production_context_invalid: "Configuracao incompleta",
     purchase_within_24h: "Compra repetida em menos de 24h",
@@ -1643,6 +1651,8 @@ function executionReasonLabel(reasonCode: string | null): string {
     provider_conversion_catalog_mismatch: "Mensagem divergiu do catalogo",
     provider_conversion_payload_unavailable: "Payload nao esta mais disponivel",
     provider_conversion_source_event_mismatch: "Mensagem de origem invalida",
+    provider_conversion_value_missing: "Valor medio nao configurado",
+    qualified_lead_already_materialized: "Lead ja qualificado anteriormente",
   };
 
   if (reasonCode.startsWith("provider_conversion_route_")) {

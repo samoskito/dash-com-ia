@@ -9,8 +9,9 @@ function runtimeEnvironment() {
     NODE_ENV: "test",
     API_PUBLIC_URL: "https://api.wpptrack.test",
     INBOUND_WEBHOOKS_ENABLED: "true",
+    INBOUND_WEBHOOK_PRODUCTION_ENABLED: "true",
     INBOUND_CONVERSION_RULES_ENABLED: "true",
-    INBOUND_CONVERSION_PRODUCTION_ENABLED: "false",
+    INBOUND_CONVERSION_PRODUCTION_ENABLED: "true",
     INBOUND_WEBHOOK_ENCRYPTION_KEY: Buffer.alloc(32, 31).toString("base64"),
   };
 }
@@ -24,9 +25,9 @@ function createHarness(
     id: "inbound_parser_umbler_automation_v1",
     provider: "umbler" as const,
     version: "automation-v1",
-    status: "observation_only" as const,
-    certifiedByUserId: null,
-    certifiedAt: null,
+    status: "certified" as const,
+    certifiedByUserId: "user_1",
+    certifiedAt: now,
     createdAt: now,
     updatedAt: now,
   };
@@ -144,6 +145,13 @@ function createHarness(
       findMany: vi.fn(async ({ where }) => {
         const rule = fullRule();
         return rule && where.workspaceId === rule.workspaceId ? [rule] : [];
+      }),
+      update: vi.fn(async ({ where, data }) => {
+        if (!providerRule || where.id !== providerRule.id) {
+          throw new Error("provider rule not found");
+        }
+        providerRule = { ...providerRule, ...data, updatedAt: now };
+        return providerRule;
       }),
     },
     providerConversionRuleChannel: {
@@ -497,7 +505,7 @@ describe("provider conversion rules service", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("keeps tag automations in observation until a real payload parser is certified", async () => {
+  it("activates a certified provider automation only after an explicit update", async () => {
     const harness = createHarness();
     const created = await harness.service.createRule(
       "workspace_1",
@@ -514,18 +522,16 @@ describe("provider conversion rules service", () => {
       "user_1",
     );
 
-    await expect(
-      harness.service.updateRule(
-        "workspace_1",
-        created.rule.id,
-        { mode: "production" },
-        "user_1",
-      ),
-    ).rejects.toMatchObject({
-      status: 409,
-      message:
-        "Automacoes por tag permanecem em observacao ate a certificacao do payload real",
-    });
+    const activated = await harness.service.updateRule(
+      "workspace_1",
+      created.rule.id,
+      { mode: "production" },
+      "user_1",
+    );
+
+    expect(created.rule.mode).toBe("observation");
+    expect(activated.mode).toBe("production");
+    expect(activated.productionActivatedAt).toBeTruthy();
   });
 
   it("returns the latest redacted execution with the rule", async () => {

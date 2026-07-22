@@ -27,7 +27,7 @@ async function createApp() {
         status: "accepted",
         deliveryId: "delivery_conversion_1",
         duplicate: false,
-        observationStatus: "parser_pending_certification",
+        observationStatus: "observed",
       }),
     ),
   };
@@ -69,7 +69,7 @@ describe("inbound webhook public controller", () => {
         status: "accepted",
         deliveryId: "delivery_conversion_1",
         duplicate: false,
-        observationStatus: "parser_pending_certification",
+        observationStatus: "observed",
       });
 
     const input = conversionAutomationIngestion.ingest.mock.calls[0][0];

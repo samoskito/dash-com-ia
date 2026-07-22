@@ -127,6 +127,35 @@ describe("provider conversion rule panel", () => {
     expect(html).not.toContain("Editar aliases");
   });
 
+  it("offers explicit production activation for a certified automation rule", () => {
+    const html = renderPanel({
+      rules: [
+        {
+          ...catalogRule,
+          id: "provider_rule_automation",
+          conversionRule: {
+            ...catalogRule.conversionRule,
+            id: "conversion_rule_automation",
+            name: "Lead qualificado",
+            triggerType: "provider_automation",
+            triggerValue: "provider_automation",
+            eventName: "QualifiedLead",
+            defaultCurrency: null,
+            defaultContentName: null,
+          },
+          triggerPhrases: [],
+          messageAuthorScope: null,
+          catalog: null,
+        },
+      ],
+    });
+
+    expect(html).toContain("Lead qualificado");
+    expect(html).toContain("Observando");
+    expect(html).toContain('aria-label="Ativar envio automatico"');
+    expect(html).toContain('aria-label="Gerar nova URL"');
+  });
+
   it("keeps a scoped alias editor wired to the existing catalog update", () => {
     const source = readFileSync(
       new URL(

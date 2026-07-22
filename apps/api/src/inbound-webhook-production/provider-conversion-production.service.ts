@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type { StructuredCatalogTestMessageResultDto } from "@wpptrack/shared";
+import { hashPhoneIdentity } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
 import type { ProviderConversionProductionJobPayload } from "../common/queue/queue.constants";
@@ -17,6 +18,11 @@ import { InboundWebhookMetaRouteReaderService } from "../inbound-webhooks/inboun
 import { InboundWebhookPayloadEncryptionService } from "../inbound-webhooks/inbound-webhook-payload-encryption.service";
 import type { ParsedInboundWebhookEvent } from "../inbound-webhooks/providers/inbound-webhook-parser";
 import { InboundWebhookParserRegistry } from "../inbound-webhooks/providers/inbound-webhook-parser.registry";
+import {
+  parseUmblerAutomationV1,
+  type ParsedUmblerAutomationV1,
+  UMBLER_AUTOMATION_V1_PARSER_VERSION,
+} from "../inbound-webhooks/providers/umbler/umbler-automation-v1.parser";
 
 const PURCHASE_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const terminalStatuses = new Set(["materialized", "duplicate", "blocked"]);
@@ -164,6 +170,13 @@ export class ProviderConversionProductionService {
         queueRequired: boolean;
       }
   > {
+    if (
+      execution.providerRule.conversionRule.triggerType ===
+      "provider_automation"
+    ) {
+      return this.materializeAutomation(execution);
+    }
+
     this.assertProductionContext(execution);
     const parsedEvent = this.reparseEvent(execution);
     const match = await this.matchExecution(execution, parsedEvent);
@@ -222,7 +235,11 @@ export class ProviderConversionProductionService {
       );
     }
 
-    const lock = this.lockKeys(execution.workspaceId, lead.phoneHash);
+    const lock = this.lockKeys(
+      execution.workspaceId,
+      lead.phoneHash,
+      "Purchase",
+    );
     const result = await this.prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`
         SELECT pg_advisory_xact_lock(${lock.first}, ${lock.second})
@@ -306,7 +323,7 @@ export class ProviderConversionProductionService {
         sourceEventId: parsedEvent.externalMessageId,
         sourceTrigger: `inbound_webhook:umbler:${execution.providerRule.conversionRule.triggerType}`,
         eventName: "Purchase",
-        eventId: this.metaEventId(execution.id),
+        eventId: this.metaEventId(execution.id, "Purchase"),
         dedupeKey: `provider-conversion:${execution.id}`,
         leadId: lead.id,
         phoneHash: lead.phoneHash,
@@ -371,6 +388,235 @@ export class ProviderConversionProductionService {
     });
 
     return result;
+  }
+
+  private async materializeAutomation(execution: ExecutionRecord): Promise<
+    | { status: "duplicate" }
+    | {
+        status: "materialized";
+        conversionEventLogId: string;
+        queueRequired: boolean;
+      }
+  > {
+    this.assertAutomationProductionContext(execution);
+    const parsed = this.reparseAutomation(execution);
+    const rule = execution.providerRule.conversionRule;
+    const contactIdentityHash = hashPhoneIdentity(parsed.phone);
+
+    if (
+      parsed.externalExecutionKey !== execution.externalExecutionKey ||
+      parsed.eventName !== rule.eventName ||
+      !contactIdentityHash ||
+      contactIdentityHash !== execution.contactIdentityHash
+    ) {
+      throw new ProviderConversionProductionFailure(
+        "provider_conversion_source_event_mismatch",
+      );
+    }
+
+    const lead = await this.prisma.lead.findFirst({
+      where: {
+        workspaceId: execution.workspaceId,
+        phoneHash: contactIdentityHash,
+      },
+      select: {
+        id: true,
+        phoneHash: true,
+        campaignId: true,
+        adSetId: true,
+        adId: true,
+        ctwaClid: true,
+      },
+    });
+    if (!lead?.adId || !lead.ctwaClid) {
+      throw new ProviderConversionProductionFailure(
+        "provider_conversion_paid_lead_missing",
+      );
+    }
+
+    const route = await this.routes.previewRoute({
+      workspaceId: execution.workspaceId,
+      adId: lead.adId,
+    });
+    if (
+      route.status !== "resolved" ||
+      !route.reportingAccountId ||
+      !route.adAccountId ||
+      !route.businessConnectionId ||
+      !route.conversionDestinationId
+    ) {
+      throw new ProviderConversionProductionFailure(
+        `provider_conversion_route_${route.reason}`,
+      );
+    }
+
+    const isPurchase = parsed.eventName === "Purchase";
+    const valueCents = isPurchase ? rule.defaultValueCents : null;
+    const currency = isPurchase ? rule.defaultCurrency : null;
+    if (isPurchase && (!valueCents || !currency)) {
+      throw new ProviderConversionProductionFailure(
+        "provider_conversion_value_missing",
+      );
+    }
+
+    const lock = this.lockKeys(
+      execution.workspaceId,
+      lead.phoneHash,
+      parsed.eventName,
+    );
+    return this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT pg_advisory_xact_lock(${lock.first}, ${lock.second})
+      `;
+
+      const current =
+        await transaction.providerConversionRuleExecution.findFirst({
+          where: {
+            id: execution.id,
+            workspaceId: execution.workspaceId,
+          },
+          select: { status: true },
+        });
+      if (current?.status === "materialized") {
+        return {
+          status: "materialized" as const,
+          conversionEventLogId: execution.conversionEventLogId!,
+          queueRequired: false,
+        };
+      }
+      if (current?.status === "duplicate") {
+        return { status: "duplicate" as const };
+      }
+      if (!current || !["eligible", "failed"].includes(current.status)) {
+        throw new ProviderConversionProductionFailure(
+          "provider_conversion_execution_state_changed",
+        );
+      }
+
+      const duplicate =
+        await transaction.providerConversionRuleExecution.findFirst({
+          where: {
+            id: { not: execution.id },
+            workspaceId: execution.workspaceId,
+            contactIdentityHash: lead.phoneHash,
+            status: "materialized",
+            ...(isPurchase
+              ? {
+                  occurredAt: {
+                    gt: new Date(
+                      execution.occurredAt.getTime() -
+                        PURCHASE_DEDUPE_WINDOW_MS,
+                    ),
+                    lt: new Date(
+                      execution.occurredAt.getTime() +
+                        PURCHASE_DEDUPE_WINDOW_MS,
+                    ),
+                  },
+                }
+              : {}),
+            providerRule: {
+              conversionRule: { eventName: parsed.eventName },
+            },
+          },
+          select: { id: true },
+        });
+
+      if (duplicate) {
+        const reasonCode = isPurchase
+          ? "purchase_within_24h"
+          : "qualified_lead_already_materialized";
+        await transaction.providerConversionRuleExecution.update({
+          where: { id: execution.id },
+          data: {
+            status: "duplicate",
+            reasonCode,
+            leadId: lead.id,
+            processedAt: new Date(),
+          },
+        });
+        if (execution.purchaseReview) {
+          await transaction.purchaseReview.update({
+            where: { id: execution.purchaseReview.id },
+            data: {
+              status: "duplicate",
+              reasonCode,
+              leadWorkspaceId: execution.workspaceId,
+              leadId: lead.id,
+              decidedAt: new Date(),
+              version: { increment: 1 },
+            },
+          });
+        }
+        return { status: "duplicate" as const };
+      }
+
+      const conversion = await this.conversions.recordExternalConversion({
+        workspaceId: execution.workspaceId,
+        externalConnectorId: null,
+        sourceEventId: parsed.externalExecutionKey,
+        sourceTrigger: "inbound_webhook:umbler:provider_automation",
+        eventName: parsed.eventName,
+        eventId: this.metaEventId(execution.id, parsed.eventName),
+        dedupeKey: `provider-conversion:${execution.id}`,
+        leadId: lead.id,
+        phoneHash: lead.phoneHash,
+        businessSource: "paid",
+        metaAccountId: route.adAccountId,
+        metaBusinessConnectionId: route.businessConnectionId,
+        metaConversionDestinationId: route.conversionDestinationId,
+        campaignId: lead.campaignId,
+        adSetId: lead.adSetId,
+        adId: lead.adId,
+        ctwaClid: lead.ctwaClid,
+        valueCents,
+        valueSource: isPurchase ? "configured_average" : null,
+        currency,
+        contentName: isPurchase ? rule.defaultContentName : null,
+        eventOccurredAt: execution.occurredAt,
+        sourcePayload: {
+          provider: "umbler",
+          providerRuleId: execution.providerRuleId,
+          providerConversionExecutionId: execution.id,
+          sourceDeliveryId: execution.sourceDeliveryId,
+          channelId: execution.channelId,
+          automation: parsed.automation,
+          purchaseReviewId: execution.purchaseReview?.id ?? null,
+          processingMode: "live_provider_automation",
+        },
+      });
+
+      await transaction.providerConversionRuleExecution.update({
+        where: { id: execution.id },
+        data: {
+          status: "materialized",
+          reasonCode: null,
+          leadId: lead.id,
+          conversionEventLogId: conversion.conversionEventLogId,
+          processedAt: new Date(),
+        },
+      });
+      if (execution.purchaseReview) {
+        await transaction.purchaseReview.update({
+          where: { id: execution.purchaseReview.id },
+          data: {
+            status: "approved",
+            leadWorkspaceId: execution.workspaceId,
+            leadId: lead.id,
+            conversionEventLogId: conversion.conversionEventLogId,
+            effectiveValueCents: valueCents,
+            currency: currency ?? "BRL",
+            reasonCode: null,
+            version: { increment: 1 },
+          },
+        });
+      }
+
+      return {
+        status: "materialized" as const,
+        conversionEventLogId: conversion.conversionEventLogId,
+        queueRequired: conversion.deliveryStatus === "ready_to_send",
+      };
+    });
   }
 
   private async matchExecution(
@@ -559,41 +805,57 @@ export class ProviderConversionProductionService {
     }
   }
 
-  private reparseEvent(execution: ExecutionRecord): ParsedInboundWebhookEvent {
+  private assertAutomationProductionContext(execution: ExecutionRecord): void {
+    const rule = execution.providerRule;
     const delivery = execution.sourceDelivery;
+    const channel = execution.channel;
+    const channelScoped = rule.channels.some(
+      (scope) => scope.channelId === execution.channelId,
+    );
+
     if (
-      delivery.payloadExpiresAt <= new Date() ||
-      !delivery.encryptedPayload ||
-      !delivery.payloadIv ||
-      !delivery.payloadTag ||
-      delivery.encryptionKeyVersion === null
+      rule.removedAt ||
+      !rule.conversionRule.active ||
+      rule.conversionRule.triggerType !== "provider_automation" ||
+      !["QualifiedLead", "Purchase"].includes(rule.conversionRule.eventName) ||
+      rule.mode !== "production" ||
+      !rule.productionActivatedAt ||
+      rule.parserRelease.status !== "certified" ||
+      rule.parserRelease.version !== UMBLER_AUTOMATION_V1_PARSER_VERSION ||
+      rule.connection.removedAt ||
+      rule.connection.status !== "production" ||
+      rule.connection.parserRelease.status !== "certified" ||
+      rule.connectionId !== delivery.connectionId ||
+      delivery.parserVersion !== UMBLER_AUTOMATION_V1_PARSER_VERSION ||
+      delivery.purpose !== "conversion_automation" ||
+      delivery.providerRuleEndpointId === null ||
+      !channel ||
+      channel.status !== "active" ||
+      !channel.productionActivatedAt ||
+      !channelScoped ||
+      delivery.firstReceivedAt < rule.productionActivatedAt ||
+      delivery.firstReceivedAt < channel.productionActivatedAt
     ) {
       throw new ProviderConversionProductionFailure(
-        "provider_conversion_payload_unavailable",
+        "provider_conversion_production_context_invalid",
       );
     }
+  }
 
-    const decrypted = this.payloadEncryption.decrypt(
-      {
-        encryptedPayload: delivery.encryptedPayload,
-        payloadIv: delivery.payloadIv,
-        payloadTag: delivery.payloadTag,
-        encryptionKeyVersion: delivery.encryptionKeyVersion,
-      },
-      {
-        workspaceId: delivery.workspaceId,
-        connectionId: delivery.connectionId,
-        deliveryId: delivery.id,
-      },
-    );
-    let payload: unknown;
-    try {
-      payload = JSON.parse(decrypted.toString("utf8"));
-    } catch {
+  private reparseAutomation(
+    execution: ExecutionRecord,
+  ): ParsedUmblerAutomationV1 {
+    const parsed = parseUmblerAutomationV1(this.decryptedPayload(execution));
+    if (!parsed.ok) {
       throw new ProviderConversionProductionFailure(
         "provider_conversion_payload_invalid",
       );
     }
+    return parsed.value;
+  }
+
+  private reparseEvent(execution: ExecutionRecord): ParsedInboundWebhookEvent {
+    const payload = this.decryptedPayload(execution);
 
     const rule = execution.providerRule;
     const parser = this.parserRegistry.resolve({
@@ -623,6 +885,42 @@ export class ProviderConversionProductionService {
     }
 
     return parsedEvent;
+  }
+
+  private decryptedPayload(execution: ExecutionRecord): unknown {
+    const delivery = execution.sourceDelivery;
+    if (
+      delivery.payloadExpiresAt <= new Date() ||
+      !delivery.encryptedPayload ||
+      !delivery.payloadIv ||
+      !delivery.payloadTag ||
+      delivery.encryptionKeyVersion === null
+    ) {
+      throw new ProviderConversionProductionFailure(
+        "provider_conversion_payload_unavailable",
+      );
+    }
+
+    const decrypted = this.payloadEncryption.decrypt(
+      {
+        encryptedPayload: delivery.encryptedPayload,
+        payloadIv: delivery.payloadIv,
+        payloadTag: delivery.payloadTag,
+        encryptionKeyVersion: delivery.encryptionKeyVersion,
+      },
+      {
+        workspaceId: delivery.workspaceId,
+        connectionId: delivery.connectionId,
+        deliveryId: delivery.id,
+      },
+    );
+    try {
+      return JSON.parse(decrypted.toString("utf8")) as unknown;
+    } catch {
+      throw new ProviderConversionProductionFailure(
+        "provider_conversion_payload_invalid",
+      );
+    }
   }
 
   private loadExecution(
@@ -657,12 +955,13 @@ export class ProviderConversionProductionService {
   private lockKeys(
     workspaceId: string,
     phoneHash: string,
+    eventName: string,
   ): {
     first: number;
     second: number;
   } {
     const digest = createHash("sha256")
-      .update(`${workspaceId}\0${phoneHash}\0purchase`, "utf8")
+      .update(`${workspaceId}\0${phoneHash}\0${eventName}`, "utf8")
       .digest();
 
     return {
@@ -671,9 +970,10 @@ export class ProviderConversionProductionService {
     };
   }
 
-  private metaEventId(executionId: string): string {
+  private metaEventId(executionId: string, eventName: string): string {
     const digest = createHash("sha256").update(executionId).digest("hex");
-    return `umbler_purchase_${digest}`;
+    const prefix = eventName === "QualifiedLead" ? "qualified" : "purchase";
+    return `umbler_${prefix}_${digest}`;
   }
 
   private productionEnabled(): boolean {

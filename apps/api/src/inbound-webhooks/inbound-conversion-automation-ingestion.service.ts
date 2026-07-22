@@ -3,12 +3,14 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   PayloadTooLargeException,
   ServiceUnavailableException,
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { hashPhoneIdentity } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import {
@@ -21,6 +23,12 @@ import {
   parseInboundWebhookProviderAttempt,
 } from "./inbound-webhook-ingestion.service";
 import { InboundWebhookPayloadEncryptionService } from "./inbound-webhook-payload-encryption.service";
+import { InboundWebhookProductionQueueService } from "./inbound-webhook-production-queue.service";
+import {
+  parseUmblerAutomationV1,
+  type ParsedUmblerAutomationV1,
+  UMBLER_AUTOMATION_V1_PARSER_VERSION,
+} from "./providers/umbler/umbler-automation-v1.parser";
 
 const publicEndpointNotFoundMessage = "Webhook nao encontrado";
 const publicPersistenceFailureMessage = "Webhook temporariamente indisponivel";
@@ -30,8 +38,17 @@ const publicEndpointInclude = {
   providerRule: {
     include: {
       conversionRule: true,
-      connection: true,
+      connection: {
+        include: {
+          parserRelease: true,
+        },
+      },
       parserRelease: true,
+      channels: {
+        include: {
+          channel: true,
+        },
+      },
     },
   },
 } satisfies Prisma.ProviderConversionRuleEndpointInclude;
@@ -40,6 +57,32 @@ type PublicConversionEndpoint =
   Prisma.ProviderConversionRuleEndpointGetPayload<{
     include: typeof publicEndpointInclude;
   }>;
+
+type AutomationObservationStatus =
+  "observed" | "eligible" | "blocked" | "invalid_payload" | "duplicate";
+
+type AutomationChannel = {
+  id: string;
+  status: string;
+  productionActivatedAt: Date | null;
+};
+
+type AutomationLead = {
+  id: string;
+  adId: string | null;
+  ctwaClid: string | null;
+};
+
+type PreparedAutomation = {
+  parsed: ParsedUmblerAutomationV1;
+  contactIdentityHash: string;
+  channel: AutomationChannel | null;
+  lead: AutomationLead | null;
+  status: "observed" | "eligible" | "blocked";
+  reasonCode: string;
+  valueCents: number | null;
+  currency: string | null;
+};
 
 export type InboundConversionAutomationIngestionInput = {
   endpointId: string;
@@ -53,16 +96,22 @@ export type InboundConversionAutomationIngestionResult = {
   status: "accepted";
   deliveryId: string;
   duplicate: boolean;
-  observationStatus: "parser_pending_certification";
+  observationStatus: AutomationObservationStatus;
 };
 
 @Injectable()
 export class InboundConversionAutomationIngestionService {
+  private readonly logger = new Logger(
+    InboundConversionAutomationIngestionService.name,
+  );
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(RUNTIME_ENV) private readonly env: RuntimeEnv,
     @Inject(InboundWebhookPayloadEncryptionService)
     private readonly encryption: InboundWebhookPayloadEncryptionService,
+    @Inject(InboundWebhookProductionQueueService)
+    private readonly productionQueue: InboundWebhookProductionQueueService,
   ) {}
 
   async ingest(
@@ -74,15 +123,15 @@ export class InboundConversionAutomationIngestionService {
       input.token,
     );
     const rawBody = this.requireJsonBody(input.contentType, input.rawBody);
+    const payload = JSON.parse(rawBody.toString("utf8")) as unknown;
+    const parsed = parseUmblerAutomationV1(payload);
     const providerAttempt = parseInboundWebhookProviderAttempt(
       input.providerAttempt,
     );
     const receivedAt = new Date();
-    const ingressKey = this.fallbackIngressKey(
-      endpoint.id,
-      rawBody,
-      receivedAt,
-    );
+    const ingressKey = parsed.ok
+      ? this.parsedIngressKey(endpoint.id, parsed.value.externalExecutionKey)
+      : this.fallbackIngressKey(endpoint.id, rawBody, receivedAt);
     const existing = await this.findExistingDelivery(
       endpoint.providerRule.connectionId,
       ingressKey,
@@ -99,7 +148,7 @@ export class InboundConversionAutomationIngestionService {
         status: "accepted",
         deliveryId: existing.id,
         duplicate: true,
-        observationStatus: "parser_pending_certification",
+        observationStatus: "duplicate",
       };
     }
 
@@ -109,9 +158,16 @@ export class InboundConversionAutomationIngestionService {
       connectionId: endpoint.providerRule.connectionId,
       deliveryId,
     });
+    const prepared = parsed.ok
+      ? await this.prepareAutomation(endpoint, parsed.value, receivedAt)
+      : null;
 
+    let persisted: {
+      observationStatus: Exclude<AutomationObservationStatus, "duplicate">;
+      executionId: string | null;
+    };
     try {
-      await this.persistDelivery({
+      persisted = await this.persistDelivery({
         endpoint,
         deliveryId,
         ingressKey,
@@ -119,6 +175,8 @@ export class InboundConversionAutomationIngestionService {
         rawBodyLength: rawBody.length,
         receivedAt,
         encrypted,
+        prepared,
+        parseErrorCode: parsed.ok ? null : parsed.errorCode,
       });
     } catch (error) {
       if (this.isUniqueConstraintError(error)) {
@@ -137,7 +195,7 @@ export class InboundConversionAutomationIngestionService {
             status: "accepted",
             deliveryId: duplicate.id,
             duplicate: true,
-            observationStatus: "parser_pending_certification",
+            observationStatus: "duplicate",
           };
         }
       }
@@ -145,11 +203,24 @@ export class InboundConversionAutomationIngestionService {
       throw new ServiceUnavailableException(publicPersistenceFailureMessage);
     }
 
+    if (persisted.observationStatus === "eligible" && persisted.executionId) {
+      try {
+        await this.productionQueue.enqueueProviderConversion({
+          providerConversionExecutionId: persisted.executionId,
+          workspaceId: endpoint.workspaceId,
+        });
+      } catch {
+        this.logger.warn(
+          `Automation execution ${persisted.executionId} remains eligible for recovery`,
+        );
+      }
+    }
+
     return {
       status: "accepted",
       deliveryId,
       duplicate: false,
-      observationStatus: "parser_pending_certification",
+      observationStatus: persisted.observationStatus,
     };
   }
 
@@ -223,6 +294,18 @@ export class InboundConversionAutomationIngestionService {
     return rawBody;
   }
 
+  private parsedIngressKey(
+    endpointId: string,
+    externalExecutionKey: string,
+  ): string {
+    return createHash("sha256")
+      .update("umbler-automation-v1\0", "utf8")
+      .update(endpointId, "utf8")
+      .update("\0", "utf8")
+      .update(externalExecutionKey, "utf8")
+      .digest("hex");
+  }
+
   private fallbackIngressKey(
     endpointId: string,
     rawBody: Buffer,
@@ -237,6 +320,143 @@ export class InboundConversionAutomationIngestionService {
       .update("\0", "utf8")
       .update(rawBody)
       .digest("hex");
+  }
+
+  private async prepareAutomation(
+    endpoint: PublicConversionEndpoint,
+    parsed: ParsedUmblerAutomationV1,
+    receivedAt: Date,
+  ): Promise<PreparedAutomation> {
+    const contactIdentityHash = hashPhoneIdentity(parsed.phone)!;
+    const scopedChannelIds = endpoint.providerRule.channels.map(
+      (scope) => scope.channelId,
+    );
+
+    try {
+      const recentEvent =
+        scopedChannelIds.length > 0
+          ? await this.prisma.inboundWebhookEvent.findFirst({
+              where: {
+                workspaceId: endpoint.workspaceId,
+                connectionId: endpoint.providerRule.connectionId,
+                channelId: { in: scopedChannelIds },
+                contactIdentityHash,
+                occurredAt: {
+                  lte: new Date(receivedAt.getTime() + 5 * 60 * 1_000),
+                },
+              },
+              orderBy: { occurredAt: "desc" },
+              select: {
+                channel: {
+                  select: {
+                    id: true,
+                    status: true,
+                    productionActivatedAt: true,
+                  },
+                },
+              },
+            })
+          : null;
+      const fallbackChannel =
+        endpoint.providerRule.channels.length === 1
+          ? endpoint.providerRule.channels[0].channel
+          : null;
+      const channel = recentEvent?.channel ?? fallbackChannel;
+      const lead = await this.prisma.lead.findFirst({
+        where: {
+          workspaceId: endpoint.workspaceId,
+          phoneHash: contactIdentityHash,
+        },
+        select: {
+          id: true,
+          adId: true,
+          ctwaClid: true,
+        },
+      });
+      const readiness = this.readiness({
+        endpoint,
+        parsed,
+        channel,
+        lead,
+        receivedAt,
+      });
+
+      return {
+        parsed,
+        contactIdentityHash,
+        channel,
+        lead,
+        ...readiness,
+        valueCents:
+          parsed.eventName === "Purchase"
+            ? endpoint.providerRule.conversionRule.defaultValueCents
+            : null,
+        currency:
+          parsed.eventName === "Purchase"
+            ? endpoint.providerRule.conversionRule.defaultCurrency
+            : null,
+      };
+    } catch {
+      throw new ServiceUnavailableException(publicPersistenceFailureMessage);
+    }
+  }
+
+  private readiness(input: {
+    endpoint: PublicConversionEndpoint;
+    parsed: ParsedUmblerAutomationV1;
+    channel: AutomationChannel | null;
+    lead: AutomationLead | null;
+    receivedAt: Date;
+  }): { status: "observed" | "eligible" | "blocked"; reasonCode: string } {
+    const rule = input.endpoint.providerRule;
+    const config = parseInboundWebhooksConfig(this.env);
+
+    if (input.parsed.eventName !== rule.conversionRule.eventName) {
+      return { status: "blocked", reasonCode: "automation_event_mismatch" };
+    }
+    if (!input.channel) {
+      return { status: "blocked", reasonCode: "automation_channel_unresolved" };
+    }
+    if (!input.lead?.adId || !input.lead.ctwaClid) {
+      return { status: "blocked", reasonCode: "automation_paid_lead_missing" };
+    }
+    if (
+      input.parsed.eventName === "Purchase" &&
+      (!rule.conversionRule.defaultValueCents ||
+        !rule.conversionRule.defaultCurrency)
+    ) {
+      return { status: "blocked", reasonCode: "automation_value_missing" };
+    }
+    if (
+      !config.enabled ||
+      !config.productionEnabled ||
+      !config.conversionProductionEnabled ||
+      rule.mode !== "production"
+    ) {
+      return {
+        status: "observed",
+        reasonCode: "automation_matched_observation",
+      };
+    }
+    if (
+      rule.parserRelease.status !== "certified" ||
+      rule.connection.parserRelease.status !== "certified" ||
+      rule.connection.status !== "production" ||
+      rule.connection.removedAt !== null ||
+      input.channel.status !== "active"
+    ) {
+      return { status: "blocked", reasonCode: "production_context_invalid" };
+    }
+    if (
+      !rule.productionActivatedAt ||
+      !input.channel.productionActivatedAt ||
+      input.receivedAt < rule.productionActivatedAt ||
+      input.receivedAt < input.channel.productionActivatedAt
+    ) {
+      return { status: "observed", reasonCode: "before_production_activation" };
+    }
+
+    return { status: "eligible", reasonCode: "automation_matched" };
   }
 
   private async findExistingDelivery(
@@ -268,9 +488,15 @@ export class InboundConversionAutomationIngestionService {
       payloadTag: string;
       encryptionKeyVersion: number;
     };
-  }): Promise<void> {
-    await this.prisma.$transaction(async (transaction) => {
+    prepared: PreparedAutomation | null;
+    parseErrorCode: string | null;
+  }): Promise<{
+    observationStatus: Exclude<AutomationObservationStatus, "duplicate">;
+    executionId: string | null;
+  }> {
+    return this.prisma.$transaction(async (transaction) => {
       await this.revalidateEndpoint(transaction, input.endpoint);
+      const prepared = input.prepared;
       await transaction.inboundWebhookDelivery.create({
         data: {
           id: input.deliveryId,
@@ -278,14 +504,19 @@ export class InboundConversionAutomationIngestionService {
           connectionId: input.endpoint.providerRule.connectionId,
           provider: "umbler",
           ingressKey: input.ingressKey,
-          externalDeliveryId: null,
-          providerEventType: "automation_callback",
-          parserVersion: input.endpoint.providerRule.parserRelease.version,
+          externalDeliveryId: prepared?.parsed.externalExecutionKey ?? null,
+          providerEventType:
+            prepared?.parsed.automation ?? "automation_callback",
+          parserVersion: UMBLER_AUTOMATION_V1_PARSER_VERSION,
           purpose: "conversion_automation",
           providerRuleEndpointWorkspaceId: input.endpoint.workspaceId,
           providerRuleEndpointId: input.endpoint.id,
-          status: "processed",
-          classification: "unsupported_event",
+          status: prepared ? "processed" : "failed",
+          classification: prepared
+            ? prepared.channel && prepared.lead?.adId && prepared.lead.ctwaClid
+              ? "eligible_route_resolved"
+              : "eligible_route_unresolved"
+            : "invalid_payload",
           firstReceivedAt: input.receivedAt,
           lastReceivedAt: input.receivedAt,
           providerAttempt: input.providerAttempt,
@@ -294,20 +525,127 @@ export class InboundConversionAutomationIngestionService {
             input.receivedAt.getTime() +
               INBOUND_WEBHOOK_RAW_RETENTION_DAYS * 24 * 60 * 60 * 1_000,
           ),
-          normalizedSummary: {
-            purpose: "conversion_automation",
-            parserStatus: "pending_certification",
-            rawBodyLength: input.rawBodyLength,
-          },
-          parseErrorCode: "automation_parser_pending_certification",
+          normalizedSummary: this.toJson(
+            prepared
+              ? {
+                  purpose: "conversion_automation",
+                  parserStatus: "parsed",
+                  automation: prepared.parsed.automation,
+                  eventName: prepared.parsed.eventName,
+                  executionStatus: prepared.status,
+                  reasonCode: prepared.reasonCode,
+                  channelResolved: Boolean(prepared.channel),
+                  paidLeadResolved: Boolean(
+                    prepared.lead?.adId && prepared.lead.ctwaClid,
+                  ),
+                  rawBodyLength: input.rawBodyLength,
+                }
+              : {
+                  purpose: "conversion_automation",
+                  parserStatus: "invalid_payload",
+                  rawBodyLength: input.rawBodyLength,
+                },
+          ),
+          parseErrorCode: input.parseErrorCode,
+          routingErrorCode:
+            prepared?.status === "blocked" ? prepared.reasonCode : null,
           processedAt: input.receivedAt,
         },
       });
+
+      let execution: { id: string; status: string } | null = null;
+      if (prepared) {
+        execution = await transaction.providerConversionRuleExecution.upsert({
+          where: {
+            providerRuleId_externalExecutionKey: {
+              providerRuleId: input.endpoint.providerRule.id,
+              externalExecutionKey: prepared.parsed.externalExecutionKey,
+            },
+          },
+          create: {
+            workspaceId: input.endpoint.workspaceId,
+            providerRuleId: input.endpoint.providerRule.id,
+            sourceDeliveryId: input.deliveryId,
+            channelWorkspaceId: prepared.channel
+              ? input.endpoint.workspaceId
+              : null,
+            channelId: prepared.channel?.id ?? null,
+            externalExecutionKey: prepared.parsed.externalExecutionKey,
+            occurredAt: input.receivedAt,
+            contactIdentityHash: prepared.contactIdentityHash,
+            status: prepared.status,
+            reasonCode: prepared.reasonCode,
+            normalizedResult: this.toJson({
+              schema: prepared.parsed.schema,
+              source: prepared.parsed.source,
+              automation: prepared.parsed.automation,
+              eventName: prepared.parsed.eventName,
+              sourceConversationCreatedAt:
+                prepared.parsed.occurredAt.toISOString(),
+              channelResolved: Boolean(prepared.channel),
+              paidLeadResolved: Boolean(
+                prepared.lead?.adId && prepared.lead.ctwaClid,
+              ),
+            }),
+            valueCents: prepared.valueCents,
+            currency: prepared.currency,
+            leadId: prepared.lead?.id ?? null,
+          },
+          update: {},
+          select: { id: true, status: true },
+        });
+
+        if (prepared.parsed.eventName === "Purchase") {
+          await transaction.purchaseReview.upsert({
+            where: {
+              providerRuleId_externalOccurrenceKey: {
+                providerRuleId: input.endpoint.providerRule.id,
+                externalOccurrenceKey: prepared.parsed.externalExecutionKey,
+              },
+            },
+            create: {
+              workspaceId: input.endpoint.workspaceId,
+              providerRuleId: input.endpoint.providerRule.id,
+              sourceDeliveryId: input.deliveryId,
+              channelWorkspaceId: prepared.channel
+                ? input.endpoint.workspaceId
+                : null,
+              channelId: prepared.channel?.id ?? null,
+              providerExecutionWorkspaceId: input.endpoint.workspaceId,
+              providerExecutionId: execution.id,
+              externalOccurrenceKey: prepared.parsed.externalExecutionKey,
+              occurredAt: input.receivedAt,
+              contactIdentityHash: prepared.contactIdentityHash,
+              sourceType: "provider_automation",
+              status: "recognized",
+              classificationCode: "automation_callback_recognized",
+              reasonCode: prepared.reasonCode,
+              calculatedValueCents: prepared.valueCents,
+              effectiveValueCents: prepared.valueCents,
+              currency: prepared.currency ?? "BRL",
+              leadWorkspaceId: prepared.lead
+                ? input.endpoint.workspaceId
+                : null,
+              leadId: prepared.lead?.id ?? null,
+            },
+            update: {},
+          });
+        }
+      }
+
       await this.touchEndpointAndConnection(
         transaction,
         input.endpoint,
         input.receivedAt,
+        Boolean(prepared),
       );
+
+      return {
+        observationStatus: prepared
+          ? (execution!.status as "observed" | "eligible" | "blocked")
+          : "invalid_payload",
+        executionId: execution?.id ?? null,
+      };
     });
   }
 
@@ -341,6 +679,7 @@ export class InboundConversionAutomationIngestionService {
           transaction,
           endpoint,
           receivedAt,
+          false,
         );
       });
     } catch (error) {
@@ -361,6 +700,7 @@ export class InboundConversionAutomationIngestionService {
         removedAt: null,
         providerRule: {
           removedAt: null,
+          parserRelease: { status: { not: "retired" } },
           conversionRule: {
             active: true,
             triggerType: "provider_automation",
@@ -382,7 +722,12 @@ export class InboundConversionAutomationIngestionService {
     transaction: Prisma.TransactionClient,
     endpoint: PublicConversionEndpoint,
     receivedAt: Date,
+    parsedSuccessfully: boolean,
   ): Promise<void> {
+    const data = {
+      lastDeliveryAt: receivedAt,
+      ...(parsedSuccessfully ? { lastSuccessfulParseAt: receivedAt } : {}),
+    };
     const [endpointUpdate, connectionUpdate] = await Promise.all([
       transaction.providerConversionRuleEndpoint.updateMany({
         where: {
@@ -391,7 +736,7 @@ export class InboundConversionAutomationIngestionService {
           secretHash: endpoint.secretHash,
           removedAt: null,
         },
-        data: { lastDeliveryAt: receivedAt },
+        data,
       }),
       transaction.inboundWebhookConnection.updateMany({
         where: {
@@ -400,13 +745,17 @@ export class InboundConversionAutomationIngestionService {
           removedAt: null,
           status: { in: ["observation", "production"] },
         },
-        data: { lastDeliveryAt: receivedAt },
+        data,
       }),
     ]);
 
     if (endpointUpdate.count !== 1 || connectionUpdate.count !== 1) {
       throw new NotFoundException(publicEndpointNotFoundMessage);
     }
+  }
+
+  private toJson(value: object): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 
   private isUniqueConstraintError(error: unknown): boolean {

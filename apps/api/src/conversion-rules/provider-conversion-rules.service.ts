@@ -127,15 +127,6 @@ export class ProviderConversionRulesService {
         );
       }
 
-      if (
-        input.mode === "production" &&
-        input.triggerType === "provider_automation"
-      ) {
-        throw new ConflictException(
-          "Automacoes por tag permanecem em observacao ate a certificacao do payload real",
-        );
-      }
-
       this.assertModeAllowed(input.mode, parserRelease.status);
       let defaultValueCents: number | null = null;
       let defaultCurrency: string | null = null;
@@ -416,11 +407,6 @@ export class ProviderConversionRulesService {
 
       const nextMode = input.active === false ? "observation" : input.mode;
       if (nextMode === "production") {
-        if (current.conversionRule.triggerType === "provider_automation") {
-          throw new ConflictException(
-            "Automacoes por tag permanecem em observacao ate a certificacao do payload real",
-          );
-        }
         this.assertModeAllowed("production", current.parserRelease.status);
       }
 
