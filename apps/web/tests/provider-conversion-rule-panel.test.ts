@@ -156,7 +156,7 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain('aria-label="Gerar nova URL"');
   });
 
-  it("offers one explicit replay for the latest callback observed before activation", () => {
+  it("keeps replay available when a newer callback is blocked", () => {
     const html = renderPanel({
       rules: [
         {
@@ -189,6 +189,25 @@ describe("provider conversion rule panel", () => {
             updatedAt: "2026-07-22T15:34:00.000Z",
           },
           catalog: null,
+          lastExecution: {
+            id: "execution_blocked",
+            workspaceId: "workspace_1",
+            providerRuleId: "provider_rule_automation",
+            sourceDeliveryId: "delivery_blocked",
+            channelId: "channel_1",
+            externalExecutionKey: "blocked_1",
+            occurredAt: "2026-07-22T16:37:00.000Z",
+            status: "blocked",
+            reasonCode: "automation_paid_lead_missing",
+            matchedCatalogVariantId: null,
+            valueCents: null,
+            currency: null,
+            leadId: null,
+            conversionEventLogId: null,
+            attemptCount: 0,
+            createdAt: "2026-07-22T16:37:00.000Z",
+            updatedAt: "2026-07-22T16:37:00.000Z",
+          },
         },
       ],
     });

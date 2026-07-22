@@ -13,7 +13,7 @@ import {
   type StructuredCatalogTestMessageResultDto,
 } from "@wpptrack/shared";
 import { revalidatePath } from "next/cache";
-import { serverApiFetch } from "../../../lib/server-api";
+import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
 
 export type ProviderConversionRuleOneTimeSecret = {
   ruleId: string;
@@ -116,8 +116,12 @@ export async function updateProviderConversionRuleAction(
         ? "Regra de conversao atualizada."
         : "Regra de conversao pausada.",
     };
-  } catch {
-    return failure("Nao foi possivel atualizar a regra de conversao.");
+  } catch (error) {
+    return failure(
+      isApiRequestError(error)
+        ? error.message
+        : "Nao foi possivel atualizar a regra de conversao.",
+    );
   }
 }
 
@@ -194,8 +198,12 @@ export async function reprocessLatestProviderConversionAutomationAction(
           ? "Callback observado encaminhado para processamento."
           : "O callback ja estava aguardando processamento.",
     };
-  } catch {
-    return failure("Nao foi possivel reprocessar o callback observado.");
+  } catch (error) {
+    return failure(
+      isApiRequestError(error)
+        ? error.message
+        : "Nao foi possivel reprocessar o callback observado.",
+    );
   }
 }
 

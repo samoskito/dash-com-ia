@@ -276,15 +276,42 @@ export class InboundConversionAutomationIngestionService {
       );
     }
 
-    const delivery = await this.prisma.inboundWebhookDelivery.findFirst({
-      where: {
-        workspaceId,
-        connectionId: rule.connectionId,
-        providerRuleEndpointId: endpoint.id,
-        purpose: "conversion_automation",
+    const deliveryScope = {
+      workspaceId,
+      connectionId: rule.connectionId,
+      providerRuleEndpointId: endpoint.id,
+      purpose: "conversion_automation" as const,
+      payloadExpiresAt: { gt: new Date() },
+    };
+    const deliveryOrder = [
+      { lastReceivedAt: "desc" as const },
+      { id: "desc" as const },
+    ];
+    const observedDelivery = await this.prisma.inboundWebhookDelivery.findFirst(
+      {
+        where: {
+          ...deliveryScope,
+          providerConversionExecutions: {
+            some: {
+              providerRuleId: rule.id,
+              status: "observed",
+            },
+          },
+        },
+        orderBy: deliveryOrder,
       },
-      orderBy: [{ lastReceivedAt: "desc" }, { id: "desc" }],
-    });
+    );
+    const delivery =
+      observedDelivery ??
+      (await this.prisma.inboundWebhookDelivery.findFirst({
+        where: {
+          ...deliveryScope,
+          providerConversionExecutions: {
+            none: { providerRuleId: rule.id },
+          },
+        },
+        orderBy: deliveryOrder,
+      }));
     if (!delivery) {
       throw new ConflictException("Nenhum callback observado foi encontrado");
     }

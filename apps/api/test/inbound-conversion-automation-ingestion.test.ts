@@ -188,13 +188,38 @@ function createHarness(options?: {
       );
       return delivery ? { id: delivery.id } : null;
     }),
-    findFirst: vi.fn(
-      async () =>
-        [...deliveries.values()].sort(
+    findFirst: vi.fn(async ({ where }: any) => {
+      const candidates = [...deliveries.values()]
+        .filter((delivery) => {
+          const related = [...executions.values()].filter(
+            (execution) =>
+              execution.sourceDeliveryId === delivery.id &&
+              (!where.providerConversionExecutions?.some?.providerRuleId ||
+                execution.providerRuleId ===
+                  where.providerConversionExecutions.some.providerRuleId),
+          );
+          if (where.providerConversionExecutions?.some) {
+            return related.some(
+              (execution) =>
+                execution.status ===
+                where.providerConversionExecutions.some.status,
+            );
+          }
+          if (where.providerConversionExecutions?.none) {
+            return !related.some(
+              (execution) =>
+                execution.providerRuleId ===
+                where.providerConversionExecutions.none.providerRuleId,
+            );
+          }
+          return true;
+        })
+        .sort(
           (left, right) =>
             right.lastReceivedAt.getTime() - left.lastReceivedAt.getTime(),
-        )[0] ?? null,
-    ),
+        );
+      return candidates[0] ?? null;
+    }),
     create: vi.fn(async ({ data }) => {
       const delivery = { attemptCount: 1, ...data };
       deliveries.set(
@@ -500,6 +525,55 @@ describe("inbound conversion automation ingestion", () => {
     expect(
       harness.productionQueue.enqueueProviderConversion,
     ).toHaveBeenCalledTimes(1);
+  });
+
+  it("reprocesses an older observed callback when a newer callback is blocked", async () => {
+    const harness = createHarness();
+    const observed = await harness.service.ingest(
+      input(Buffer.from(JSON.stringify(automationPayload()))),
+    );
+    const observedDelivery = [...harness.deliveries.values()].find(
+      (delivery) => delivery.id === observed.deliveryId,
+    )!;
+    observedDelivery.lastReceivedAt = new Date("2026-07-22T16:20:00.000Z");
+
+    harness.env.INBOUND_WEBHOOK_PRODUCTION_ENABLED = "true";
+    harness.env.INBOUND_CONVERSION_PRODUCTION_ENABLED = "true";
+    harness.endpoint.providerRule.mode = "production";
+    harness.endpoint.providerRule.productionActivatedAt = new Date(
+      "2026-07-22T16:30:00.000Z",
+    );
+    harness.endpoint.providerRule.connection.status = "production";
+    harness.endpoint.providerRule.connection.productionActivatedAt = new Date(
+      "2026-07-22T16:30:00.000Z",
+    );
+    harness.prisma.lead.findFirst.mockResolvedValueOnce(null);
+    const newerPayload = automationPayload();
+    newerPayload.conversation.id = "conversation_2";
+    const blocked = await harness.service.ingest(
+      input(Buffer.from(JSON.stringify(newerPayload))),
+    );
+    const blockedDelivery = [...harness.deliveries.values()].find(
+      (delivery) => delivery.id === blocked.deliveryId,
+    )!;
+    blockedDelivery.lastReceivedAt = new Date("2026-07-22T16:37:00.000Z");
+
+    const result = await harness.service.reprocessLatestObserved(
+      "workspace_safe",
+      "provider_rule_1",
+      "manager_1",
+    );
+
+    expect(blocked.observationStatus).toBe("blocked");
+    expect(result.sourceDeliveryId).toBe(observed.deliveryId);
+    expect(
+      [...harness.executions.values()].find(
+        (execution) => execution.sourceDeliveryId === observed.deliveryId,
+      ),
+    ).toMatchObject({
+      status: "eligible",
+      reasonCode: "automation_manual_reprocess_approved",
+    });
   });
 
   it("stores an invalid contract for audit without creating an execution", async () => {

@@ -705,13 +705,7 @@ export function ProviderConversionRulePanel({
               automation &&
               active &&
               rule.mode === "production" &&
-              rule.endpoint?.lastDeliveryAt &&
-              (!rule.lastExecution ||
-                (rule.lastExecution.status === "observed" &&
-                  [
-                    "automation_matched_observation",
-                    "before_production_activation",
-                  ].includes(rule.lastExecution.reasonCode ?? ""))),
+              rule.endpoint?.lastDeliveryAt,
             );
 
             return (

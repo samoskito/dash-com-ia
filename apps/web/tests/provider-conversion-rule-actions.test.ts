@@ -1,12 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { revalidatePath, serverApiFetch } = vi.hoisted(() => ({
-  revalidatePath: vi.fn(),
-  serverApiFetch: vi.fn(),
-}));
+const { isApiRequestError, revalidatePath, serverApiFetch } = vi.hoisted(
+  () => ({
+    isApiRequestError: vi.fn(
+      (error: unknown) =>
+        error instanceof Error && error.name === "ApiRequestError",
+    ),
+    revalidatePath: vi.fn(),
+    serverApiFetch: vi.fn(),
+  }),
+);
 
 vi.mock("next/cache", () => ({ revalidatePath }));
-vi.mock("../src/lib/server-api", () => ({ serverApiFetch }));
+vi.mock("../src/lib/server-api", () => ({
+  isApiRequestError,
+  serverApiFetch,
+}));
 
 import {
   adaptProviderConversionRuleAction,
@@ -222,6 +231,21 @@ describe("provider conversion rule server actions", () => {
       "/integrations",
       "/settings",
     ]);
+  });
+
+  it("shows the API reason when an observed callback cannot be reprocessed", async () => {
+    const error = new Error("Nenhum callback observado foi encontrado");
+    error.name = "ApiRequestError";
+    serverApiFetch.mockRejectedValueOnce(error);
+
+    const result = await reprocessLatestProviderConversionAutomationAction(
+      form({ ruleId: "provider_rule_1" }),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Nenhum callback observado foi encontrado",
+    });
   });
 
   it("returns a side-effect-free catalog test result without revalidation", async () => {
