@@ -30,6 +30,12 @@ export class BackofficeInboundWebhooksController {
     private readonly inboundWebhooks: BackofficeInboundWebhooksService,
   ) {}
 
+  @Get("scope")
+  async getOperationsScope(@AuthToken() refreshToken: string) {
+    await this.platformAdminService.assertPlatformOwner(refreshToken);
+    return this.inboundWebhooks.getOperationsScope();
+  }
+
   @Get("deliveries")
   async listDeliveries(
     @AuthToken() refreshToken: string,

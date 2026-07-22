@@ -10,6 +10,7 @@ import { BackofficeInboundWebhooksService } from "../src/inbound-webhooks/backof
 const delivery = {
   id: "delivery_1",
   workspaceId: "workspace_1",
+  workspaceName: "Cliente Teste",
   connectionId: "connection_1",
   connectionName: "Umbler Comercial",
   provider: "umbler",
@@ -31,6 +32,13 @@ const delivery = {
     eventCount: 1,
   },
   eventCount: 1,
+  channels: [
+    {
+      id: "channel_1",
+      displayName: "Comercial",
+      connectedPhone: "+5511999999999",
+    },
+  ],
 };
 
 const payloadResult = {
@@ -112,6 +120,32 @@ async function createApp() {
     }),
   };
   const service = {
+    getOperationsScope: vi.fn(async () => ({
+      workspaces: [
+        {
+          id: "workspace_1",
+          name: "Cliente Teste",
+          connections: [
+            {
+              id: "connection_1",
+              displayName: "Umbler Comercial",
+              provider: "umbler",
+              status: "production",
+              lastDeliveryAt: "2026-07-17T20:00:01.000Z",
+              channels: [
+                {
+                  id: "channel_1",
+                  displayName: "Comercial",
+                  connectedPhone: "+5511999999999",
+                  status: "active",
+                  lastSeenAt: "2026-07-17T20:00:01.000Z",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })),
     listDeliveries: vi.fn(async () => [delivery]),
     summarizeDeliveries: vi.fn(async () => ({
       all: 423,
@@ -120,6 +154,7 @@ async function createApp() {
       failed: 0,
       noCtwa: 373,
       automationCallbacks: 12,
+      awaitingParser: 4,
     })),
     getPayload: vi.fn(async () => payloadResult),
     recordDeniedPayloadAccess: vi.fn(async () => undefined),
@@ -144,12 +179,34 @@ async function createApp() {
 }
 
 describe("backoffice inbound webhooks controller", () => {
+  it("returns a human-readable workspace, connection and channel scope to the platform owner", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/backoffice/inbound-webhooks/scope")
+      .set("Authorization", "Bearer owner-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.workspaces[0].name).toBe("Cliente Teste");
+        expect(body.workspaces[0].connections[0].displayName).toBe(
+          "Umbler Comercial",
+        );
+        expect(body.workspaces[0].connections[0].channels[0]).toMatchObject({
+          displayName: "Comercial",
+          connectedPhone: "+5511999999999",
+        });
+      });
+
+    expect(service.getOperationsScope).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
   it("lets only a platform owner list cross-workspace deliveries with parser status", async () => {
     const { app, platformAdminService, service } = await createApp();
 
     await request(app.getHttpServer())
       .get(
-        "/backoffice/inbound-webhooks/deliveries?workspaceId=workspace_1&connectionId=connection_1&provider=umbler&purpose=message_observation&status=processed&classification=eligible_route_resolved&limit=25",
+        "/backoffice/inbound-webhooks/deliveries?workspaceId=workspace_1&connectionId=connection_1&channelId=channel_1&provider=umbler&purpose=message_observation&status=processed&classification=eligible_route_resolved&limit=25",
       )
       .set("Authorization", "Bearer owner-token")
       .expect(200)
@@ -172,6 +229,7 @@ describe("backoffice inbound webhooks controller", () => {
     expect(service.listDeliveries).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       connectionId: "connection_1",
+      channelId: "channel_1",
       provider: "umbler",
       purpose: "message_observation",
       status: "processed",
@@ -202,7 +260,7 @@ describe("backoffice inbound webhooks controller", () => {
 
     await request(app.getHttpServer())
       .get(
-        "/backoffice/inbound-webhooks/summary?workspaceId=workspace_1&connectionId=connection_1&provider=umbler",
+        "/backoffice/inbound-webhooks/summary?workspaceId=workspace_1&connectionId=connection_1&channelId=channel_1&provider=umbler",
       )
       .set("Authorization", "Bearer owner-token")
       .expect(200)
@@ -213,11 +271,13 @@ describe("backoffice inbound webhooks controller", () => {
         failed: 0,
         noCtwa: 373,
         automationCallbacks: 12,
+        awaitingParser: 4,
       });
 
     expect(service.summarizeDeliveries).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       connectionId: "connection_1",
+      channelId: "channel_1",
       provider: "umbler",
     });
     await app.close();

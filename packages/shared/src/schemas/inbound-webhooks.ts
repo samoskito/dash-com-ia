@@ -240,6 +240,7 @@ export const inboundWebhookConnectionOverviewSchema = z.object({
 export const backofficeInboundWebhookDeliveryQuerySchema = z.object({
   workspaceId: idSchema.optional(),
   connectionId: idSchema.optional(),
+  channelId: idSchema.optional(),
   provider: inboundWebhookProviderSchema.optional(),
   purpose: inboundWebhookDeliveryPurposeSchema.optional(),
   status: inboundWebhookDeliveryStatusSchema.optional(),
@@ -251,6 +252,7 @@ export const backofficeInboundWebhookDeliverySummaryQuerySchema =
   backofficeInboundWebhookDeliveryQuerySchema.pick({
     workspaceId: true,
     connectionId: true,
+    channelId: true,
     provider: true,
     purpose: true,
   });
@@ -262,11 +264,46 @@ export const backofficeInboundWebhookDeliverySummarySchema = z.object({
   failed: z.number().int().nonnegative(),
   noCtwa: z.number().int().nonnegative(),
   automationCallbacks: z.number().int().nonnegative(),
+  awaitingParser: z.number().int().nonnegative(),
+});
+
+export const backofficeInboundWebhookScopeChannelSchema = z.object({
+  id: idSchema,
+  displayName: inboundWebhookDisplayNameSchema,
+  connectedPhone: z.string().trim().min(1).max(32),
+  status: inboundWebhookChannelStatusSchema,
+  lastSeenAt: dateTimeSchema,
+});
+
+export const backofficeInboundWebhookScopeConnectionSchema = z.object({
+  id: idSchema,
+  displayName: inboundWebhookDisplayNameSchema,
+  provider: inboundWebhookProviderSchema,
+  status: inboundWebhookConnectionStatusSchema,
+  lastDeliveryAt: dateTimeSchema.nullable(),
+  channels: z.array(backofficeInboundWebhookScopeChannelSchema),
+});
+
+export const backofficeInboundWebhookScopeWorkspaceSchema = z.object({
+  id: idSchema,
+  name: z.string().trim().min(1).max(160),
+  connections: z.array(backofficeInboundWebhookScopeConnectionSchema),
+});
+
+export const backofficeInboundWebhookOperationsScopeSchema = z.object({
+  workspaces: z.array(backofficeInboundWebhookScopeWorkspaceSchema),
+});
+
+export const backofficeInboundWebhookDeliveryChannelSchema = z.object({
+  id: idSchema,
+  displayName: inboundWebhookDisplayNameSchema,
+  connectedPhone: z.string().trim().min(1).max(32),
 });
 
 export const backofficeInboundWebhookDeliverySchema = z.object({
   id: idSchema,
   workspaceId: idSchema,
+  workspaceName: z.string().trim().min(1).max(160),
   connectionId: idSchema,
   connectionName: inboundWebhookDisplayNameSchema,
   provider: inboundWebhookProviderSchema,
@@ -285,6 +322,7 @@ export const backofficeInboundWebhookDeliverySchema = z.object({
   routingErrorCode: normalizedCodeSchema.nullable(),
   normalizedSummary: z.record(z.unknown()).nullable(),
   eventCount: z.number().int().nonnegative(),
+  channels: z.array(backofficeInboundWebhookDeliveryChannelSchema),
 });
 
 export const backofficeInboundWebhookDeliveryListSchema = z.array(
@@ -442,6 +480,59 @@ export const backofficeInboundWebhookReplayPreviewSchema = z.object({
   recentBatches: z.array(backofficeInboundWebhookReplayBatchSchema).max(10),
 });
 
+export const backofficeInboundWebhookProductionRecoveryInputSchema = z.object({
+  confirmation: inboundWebhookDisplayNameSchema,
+  selection: inboundWebhookReplaySelectionSchema.default("canary_1"),
+  channelId: idSchema,
+});
+
+export const backofficeInboundWebhookProductionRecoveryChannelSchema = z.object(
+  {
+    id: idSchema,
+    displayName: inboundWebhookDisplayNameSchema,
+    connectedPhone: z.string().trim().min(1).max(32),
+    status: inboundWebhookChannelStatusSchema,
+    productionActivatedAt: dateTimeSchema.nullable(),
+    totalCtwa: z.number().int().nonnegative(),
+    historical: z.number().int().nonnegative(),
+    routeUnresolved: z.number().int().nonnegative(),
+    unavailable: z.number().int().nonnegative(),
+    alreadyQueued: z.number().int().nonnegative(),
+    eligible: z.number().int().nonnegative(),
+  },
+);
+
+export const backofficeInboundWebhookProductionRecoveryPreviewSchema = z.object(
+  {
+    workspace: z.object({
+      id: idSchema,
+      name: z.string().trim().min(1).max(160),
+    }),
+    connection: inboundWebhookConnectionSchema,
+    productionEnabled: z.boolean(),
+    counts: z.object({
+      totalCtwa: z.number().int().nonnegative(),
+      historical: z.number().int().nonnegative(),
+      routeUnresolved: z.number().int().nonnegative(),
+      unavailable: z.number().int().nonnegative(),
+      alreadyQueued: z.number().int().nonnegative(),
+      eligible: z.number().int().nonnegative(),
+    }),
+    channels: z.array(backofficeInboundWebhookProductionRecoveryChannelSchema),
+  },
+);
+
+export const backofficeInboundWebhookProductionRecoveryResultSchema = z.object({
+  connectionId: idSchema,
+  channelId: idSchema,
+  selection: inboundWebhookReplaySelectionSchema,
+  selected: z.number().int().nonnegative(),
+  persisted: z.number().int().nonnegative(),
+  queued: z.number().int().nonnegative(),
+  existing: z.number().int().nonnegative(),
+  queueFailures: z.number().int().nonnegative(),
+});
+
 export type InboundWebhookProviderDto = z.infer<
   typeof inboundWebhookProviderSchema
 >;
@@ -529,6 +620,21 @@ export type BackofficeInboundWebhookDeliverySummaryQueryDto = z.infer<
 export type BackofficeInboundWebhookDeliverySummaryDto = z.infer<
   typeof backofficeInboundWebhookDeliverySummarySchema
 >;
+export type BackofficeInboundWebhookScopeChannelDto = z.infer<
+  typeof backofficeInboundWebhookScopeChannelSchema
+>;
+export type BackofficeInboundWebhookScopeConnectionDto = z.infer<
+  typeof backofficeInboundWebhookScopeConnectionSchema
+>;
+export type BackofficeInboundWebhookScopeWorkspaceDto = z.infer<
+  typeof backofficeInboundWebhookScopeWorkspaceSchema
+>;
+export type BackofficeInboundWebhookOperationsScopeDto = z.infer<
+  typeof backofficeInboundWebhookOperationsScopeSchema
+>;
+export type BackofficeInboundWebhookDeliveryChannelDto = z.infer<
+  typeof backofficeInboundWebhookDeliveryChannelSchema
+>;
 export type BackofficeInboundWebhookDeliveryDto = z.infer<
   typeof backofficeInboundWebhookDeliverySchema
 >;
@@ -576,4 +682,16 @@ export type BackofficeInboundWebhookReplayChannelDto = z.infer<
 >;
 export type BackofficeInboundWebhookReplayPreviewDto = z.infer<
   typeof backofficeInboundWebhookReplayPreviewSchema
+>;
+export type BackofficeInboundWebhookProductionRecoveryInputDto = z.infer<
+  typeof backofficeInboundWebhookProductionRecoveryInputSchema
+>;
+export type BackofficeInboundWebhookProductionRecoveryChannelDto = z.infer<
+  typeof backofficeInboundWebhookProductionRecoveryChannelSchema
+>;
+export type BackofficeInboundWebhookProductionRecoveryPreviewDto = z.infer<
+  typeof backofficeInboundWebhookProductionRecoveryPreviewSchema
+>;
+export type BackofficeInboundWebhookProductionRecoveryResultDto = z.infer<
+  typeof backofficeInboundWebhookProductionRecoveryResultSchema
 >;

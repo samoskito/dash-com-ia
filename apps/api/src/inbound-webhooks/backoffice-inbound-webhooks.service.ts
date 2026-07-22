@@ -14,6 +14,7 @@ import type {
   BackofficeInboundWebhookDeliveryQueryDto,
   BackofficeInboundWebhookDeliverySummaryDto,
   BackofficeInboundWebhookDeliverySummaryQueryDto,
+  BackofficeInboundWebhookOperationsScopeDto,
   BackofficeInboundWebhookPayloadDto,
   InboundWebhookNormalizedObservationDto,
 } from "@wpptrack/shared";
@@ -52,6 +53,24 @@ const deliveryListSelect = {
       },
     },
   },
+  workspace: {
+    select: {
+      name: true,
+    },
+  },
+  events: {
+    select: {
+      channel: {
+        select: {
+          id: true,
+          channelName: true,
+          connectedPhone: true,
+        },
+      },
+    },
+    orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+    take: 20,
+  },
   _count: {
     select: {
       events: true,
@@ -76,6 +95,63 @@ export class BackofficeInboundWebhooksService {
     @Inject(InboundWebhookPayloadEncryptionService)
     private readonly payloadEncryption: InboundWebhookPayloadEncryptionService,
   ) {}
+
+  async getOperationsScope(): Promise<BackofficeInboundWebhookOperationsScopeDto> {
+    const workspaces = await this.prisma.workspace.findMany({
+      where: {
+        inboundWebhookConnections: {
+          some: { removedAt: null },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        inboundWebhookConnections: {
+          where: { removedAt: null },
+          select: {
+            id: true,
+            displayName: true,
+            provider: true,
+            status: true,
+            lastDeliveryAt: true,
+            channels: {
+              select: {
+                id: true,
+                channelName: true,
+                connectedPhone: true,
+                status: true,
+                lastSeenAt: true,
+              },
+              orderBy: [{ channelName: "asc" }, { connectedPhone: "asc" }],
+            },
+          },
+          orderBy: [{ displayName: "asc" }, { id: "asc" }],
+        },
+      },
+      orderBy: [{ name: "asc" }, { id: "asc" }],
+    });
+
+    return {
+      workspaces: workspaces.map((workspace) => ({
+        id: workspace.id,
+        name: workspace.name,
+        connections: workspace.inboundWebhookConnections.map((connection) => ({
+          id: connection.id,
+          displayName: connection.displayName,
+          provider: connection.provider,
+          status: connection.status,
+          lastDeliveryAt: connection.lastDeliveryAt?.toISOString() ?? null,
+          channels: connection.channels.map((channel) => ({
+            id: channel.id,
+            displayName: this.channelDisplayName(channel),
+            connectedPhone: channel.connectedPhone,
+            status: channel.status,
+            lastSeenAt: channel.lastSeenAt.toISOString(),
+          })),
+        })),
+      })),
+    };
+  }
 
   async listDeliveries(
     query: BackofficeInboundWebhookDeliveryQueryDto,
@@ -115,37 +191,50 @@ export class BackofficeInboundWebhooksService {
   ): Promise<BackofficeInboundWebhookDeliverySummaryDto> {
     const deliveryScope = this.deliveryScope(query);
     const eventScope = this.eventScope(query);
-    const [all, ctwaPending, ctwaRouted, failed, noCtwa, automationCallbacks] =
-      await this.prisma.$transaction([
-        this.prisma.inboundWebhookEvent.count({ where: eventScope }),
-        this.prisma.inboundWebhookEvent.count({
-          where: {
-            ...eventScope,
-            classification: "eligible_route_unresolved",
-          },
-        }),
-        this.prisma.inboundWebhookEvent.count({
-          where: {
-            ...eventScope,
-            classification: "eligible_route_resolved",
-          },
-        }),
-        this.prisma.inboundWebhookDelivery.count({
-          where: {
-            ...deliveryScope,
-            status: "failed",
-          },
-        }),
-        this.prisma.inboundWebhookEvent.count({
-          where: {
-            ...eventScope,
-            classification: "ignored_no_ctwa",
-          },
-        }),
-        this.prisma.inboundWebhookDelivery.count({
-          where: this.automationDeliveryScope(query),
-        }),
-      ]);
+    const [
+      all,
+      ctwaPending,
+      ctwaRouted,
+      failed,
+      noCtwa,
+      automationCallbacks,
+      awaitingParser,
+    ] = await this.prisma.$transaction([
+      this.prisma.inboundWebhookEvent.count({ where: eventScope }),
+      this.prisma.inboundWebhookEvent.count({
+        where: {
+          ...eventScope,
+          classification: "eligible_route_unresolved",
+        },
+      }),
+      this.prisma.inboundWebhookEvent.count({
+        where: {
+          ...eventScope,
+          classification: "eligible_route_resolved",
+        },
+      }),
+      this.prisma.inboundWebhookDelivery.count({
+        where: {
+          ...deliveryScope,
+          status: "failed",
+        },
+      }),
+      this.prisma.inboundWebhookEvent.count({
+        where: {
+          ...eventScope,
+          classification: "ignored_no_ctwa",
+        },
+      }),
+      this.prisma.inboundWebhookDelivery.count({
+        where: this.automationDeliveryScope(query),
+      }),
+      this.prisma.inboundWebhookDelivery.count({
+        where: {
+          ...deliveryScope,
+          classification: "unsupported_event",
+        },
+      }),
+    ]);
 
     return {
       all,
@@ -154,6 +243,7 @@ export class BackofficeInboundWebhooksService {
       failed,
       noCtwa,
       automationCallbacks,
+      awaitingParser,
     };
   }
 
@@ -164,6 +254,11 @@ export class BackofficeInboundWebhooksService {
     const delivery = await this.prisma.inboundWebhookDelivery.findUnique({
       where: { id: deliveryId },
       include: {
+        workspace: {
+          select: {
+            name: true,
+          },
+        },
         connection: {
           select: {
             displayName: true,
@@ -175,6 +270,15 @@ export class BackofficeInboundWebhooksService {
           },
         },
         events: {
+          include: {
+            channel: {
+              select: {
+                id: true,
+                channelName: true,
+                connectedPhone: true,
+              },
+            },
+          },
           orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
         },
         _count: {
@@ -301,6 +405,7 @@ export class BackofficeInboundWebhooksService {
     return {
       id: delivery.id,
       workspaceId: delivery.workspaceId,
+      workspaceName: delivery.workspace.name,
       connectionId: delivery.connectionId,
       connectionName: delivery.connection.displayName,
       provider: delivery.provider,
@@ -319,6 +424,18 @@ export class BackofficeInboundWebhooksService {
       routingErrorCode: delivery.routingErrorCode,
       normalizedSummary: this.recordValue(delivery.normalizedSummary),
       eventCount: delivery._count.events,
+      channels: Array.from(
+        new Map(
+          delivery.events.map(({ channel }) => [
+            channel.id,
+            {
+              id: channel.id,
+              displayName: this.channelDisplayName(channel),
+              connectedPhone: channel.connectedPhone,
+            },
+          ]),
+        ).values(),
+      ),
     };
   }
 
@@ -328,6 +445,9 @@ export class BackofficeInboundWebhooksService {
     return {
       ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
       ...(query.connectionId ? { connectionId: query.connectionId } : {}),
+      ...(query.channelId
+        ? { events: { some: { channelId: query.channelId } } }
+        : {}),
       ...(query.provider ? { provider: query.provider } : {}),
       ...(query.purpose ? { purpose: query.purpose } : {}),
     };
@@ -339,6 +459,9 @@ export class BackofficeInboundWebhooksService {
     return {
       ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
       ...(query.connectionId ? { connectionId: query.connectionId } : {}),
+      ...(query.channelId
+        ? { events: { some: { channelId: query.channelId } } }
+        : {}),
       ...(query.provider ? { provider: query.provider } : {}),
       purpose: "conversion_automation",
       ...(query.purpose === "message_observation"
@@ -353,6 +476,7 @@ export class BackofficeInboundWebhooksService {
     return {
       ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
       ...(query.connectionId ? { connectionId: query.connectionId } : {}),
+      ...(query.channelId ? { channelId: query.channelId } : {}),
       ...(query.provider ? { provider: query.provider } : {}),
       ...(query.purpose
         ? {
@@ -396,6 +520,13 @@ export class BackofficeInboundWebhooksService {
       resolvedConversionDestinationId: event.resolvedConversionDestinationId,
       createdAt: event.createdAt.toISOString(),
     };
+  }
+
+  private channelDisplayName(channel: {
+    channelName: string | null;
+    connectedPhone: string;
+  }): string {
+    return channel.channelName?.trim() || channel.connectedPhone;
   }
 
   private payloadAvailable(

@@ -7,6 +7,7 @@ import InboundWebhookPayloadPage from "../src/app/(backoffice)/backoffice/inboun
 const availableDelivery = {
   id: "delivery_available",
   workspaceId: "workspace_1",
+  workspaceName: "Cliente Teste",
   connectionId: "connection_1",
   connectionName: "Umbler Comercial",
   provider: "umbler",
@@ -28,6 +29,40 @@ const availableDelivery = {
     hasCtwa: true,
   },
   eventCount: 1,
+  channels: [
+    {
+      id: "channel_1",
+      displayName: "Comercial",
+      connectedPhone: "+5511999999999",
+    },
+  ],
+};
+
+const operationsScope = {
+  workspaces: [
+    {
+      id: "workspace_1",
+      name: "Cliente Teste",
+      connections: [
+        {
+          id: "connection_1",
+          displayName: "Umbler Comercial",
+          provider: "umbler",
+          status: "production",
+          lastDeliveryAt: "2026-07-17T12:00:01.000Z",
+          channels: [
+            {
+              id: "channel_1",
+              displayName: "Comercial",
+              connectedPhone: "+5511999999999",
+              status: "active",
+              lastSeenAt: "2026-07-17T12:00:01.000Z",
+            },
+          ],
+        },
+      ],
+    },
+  ],
 };
 
 afterEach(() => {
@@ -65,8 +100,10 @@ describe("inbound webhook payload routes", () => {
           failed: 1,
           noCtwa: 373,
           automationCallbacks: 12,
+          awaitingParser: 4,
         }),
-      );
+      )
+      .mockResolvedValueOnce(jsonResponse(operationsScope));
 
     const element = await InboundWebhookDeliveriesPage({});
     const html = render(element);
@@ -89,6 +126,8 @@ describe("inbound webhook payload routes", () => {
     expect(html).toContain("<strong>50</strong>");
     expect(html).toContain("<strong>373</strong>");
     expect(html).toContain("Entregas do WhatsApp");
+    expect(html).toContain("Cliente, conexao e canal");
+    expect(html).toContain("Cliente Teste");
     expect(html).toContain("Filtros avancados");
     expect(html).toContain(
       'href="/backoffice/inbound-webhooks?classification=eligible_route_unresolved"',
@@ -106,11 +145,13 @@ describe("inbound webhook payload routes", () => {
     expect(html).toContain(
       'href="/backoffice/inbound-webhooks/delivery_available/payload"',
     );
-    expect(html).toContain("Preparar replay");
+    expect(html).toContain("Replay historico");
+    expect(html).toContain("Recuperar producao");
     expect(html).toContain(
       'href="/backoffice/inbound-webhooks/replay/connection_1"',
     );
-    expect(html).not.toContain("workspace_1");
+    expect(html).not.toContain("Workspace ID");
+    expect(html).not.toContain("Conexao ID");
     expect(html).not.toContain("umbler-v1.3.0");
     expectNoReleaseAction(html);
   });
@@ -135,8 +176,10 @@ describe("inbound webhook payload routes", () => {
           failed: 0,
           noCtwa: 373,
           automationCallbacks: 12,
+          awaitingParser: 4,
         }),
-      );
+      )
+      .mockResolvedValueOnce(jsonResponse(operationsScope));
 
     const element = await InboundWebhookDeliveriesPage({
       searchParams: Promise.resolve({
@@ -180,8 +223,10 @@ describe("inbound webhook payload routes", () => {
           failed: 0,
           noCtwa: 373,
           automationCallbacks: 12,
+          awaitingParser: 12,
         }),
-      );
+      )
+      .mockResolvedValueOnce(jsonResponse(operationsScope));
 
     const element = await InboundWebhookDeliveriesPage({
       searchParams: Promise.resolve({
@@ -204,7 +249,7 @@ describe("inbound webhook payload routes", () => {
     expect(html).toContain(
       "Payload da automacao retido para validar e certificar o parser.",
     );
-    expect(html).not.toContain("Preparar replay");
+    expect(html).not.toContain("Replay historico");
   });
 
   it("renders escaped raw JSON beside normalized parser events", async () => {
@@ -306,6 +351,7 @@ describe("inbound webhook payload routes", () => {
     const sensitiveDenial = "workspace manager cannot decrypt delivery_secret";
 
     vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new Error(sensitiveFailure))
       .mockRejectedValueOnce(new Error(sensitiveFailure))
       .mockRejectedValueOnce(new Error(sensitiveFailure))
       .mockResolvedValueOnce(jsonResponse({ message: sensitiveDenial }, 403));

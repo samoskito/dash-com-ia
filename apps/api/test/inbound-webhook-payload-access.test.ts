@@ -62,6 +62,11 @@ function eventRecord(deliveryId: string) {
     resolvedReportingAccountId: "meta_account_1",
     resolvedConversionDestinationWorkspaceId: "workspace_1",
     resolvedConversionDestinationId: "meta_destination_1",
+    channel: {
+      id: "channel_1",
+      channelName: "Comercial",
+      connectedPhone: "+5511999999999",
+    },
     normalizedSummary: {
       provider: "umbler",
       providerEventType: "Message",
@@ -150,6 +155,9 @@ function deliveryRecord(
         id: "inbound_parser_umbler_v1",
         status: "observation_only" as const,
       },
+    },
+    workspace: {
+      name: "Cliente Teste",
     },
     events,
     _count: {
@@ -380,10 +388,11 @@ describe("inbound webhook payload access", () => {
       failed: 0,
       noCtwa: 0,
       automationCallbacks: 0,
+      awaitingParser: 0,
     });
     expect(harness.prisma.inboundWebhookEvent.count).toHaveBeenCalledTimes(4);
     expect(harness.prisma.inboundWebhookDelivery.count).toHaveBeenCalledTimes(
-      2,
+      3,
     );
   });
 

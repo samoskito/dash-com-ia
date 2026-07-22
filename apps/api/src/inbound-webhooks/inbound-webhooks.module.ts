@@ -11,6 +11,8 @@ import { ConversionRulesModule } from "../conversion-rules/conversion-rules.modu
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { BackofficeInboundWebhooksController } from "./backoffice-inbound-webhooks.controller";
 import { BackofficeInboundWebhooksService } from "./backoffice-inbound-webhooks.service";
+import { BackofficeInboundWebhookRecoveryController } from "./backoffice-inbound-webhook-recovery.controller";
+import { BackofficeInboundWebhookRecoveryService } from "./backoffice-inbound-webhook-recovery.service";
 import { InboundWebhookChannelRoutesService } from "./inbound-webhook-channel-routes.service";
 import { InboundConversionAutomationIngestionService } from "./inbound-conversion-automation-ingestion.service";
 import { InboundWebhookConnectionsController } from "./inbound-webhook-connections.controller";
@@ -43,11 +45,13 @@ import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser
     }),
   ],
   controllers: [
+    BackofficeInboundWebhookRecoveryController,
     BackofficeInboundWebhooksController,
     InboundWebhookConnectionsController,
     InboundWebhookPublicController,
   ],
   providers: [
+    BackofficeInboundWebhookRecoveryService,
     BackofficeInboundWebhooksService,
     InboundConversionAutomationIngestionService,
     InboundWebhookChannelRoutesService,

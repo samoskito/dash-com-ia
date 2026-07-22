@@ -1,14 +1,19 @@
 import type {
   BackofficeInboundWebhookDeliveryDto,
   BackofficeInboundWebhookDeliverySummaryDto,
+  BackofficeInboundWebhookOperationsScopeDto,
   InboundWebhookDeliveryPurposeDto,
   InboundWebhookDeliveryStatusDto,
   InboundWebhookEventClassificationDto,
 } from "@wpptrack/shared";
 import {
   AlertTriangle,
+  Building2,
   Eye,
+  History,
   Inbox,
+  LifeBuoy,
+  Radio,
   RotateCcw,
   SlidersHorizontal,
 } from "lucide-react";
@@ -19,6 +24,7 @@ import { serverApiFetch } from "../../../../lib/server-api";
 type InboundWebhookSearchParams = Record<string, string | string[] | undefined>;
 
 type DeliveryFilters = {
+  channelId?: string;
   classification?: string;
   connectionId?: string;
   provider?: string;
@@ -37,8 +43,19 @@ type DeliverySummaryResult = {
   state: "real" | "error";
 };
 
+type OperationsScopeResult = {
+  data: BackofficeInboundWebhookOperationsScopeDto | null;
+  state: "real" | "error";
+};
+
 type QuickFilterKey =
-  "all" | "automation" | "ctwa_pending" | "ctwa_routed" | "failed" | "no_ctwa";
+  | "all"
+  | "automation"
+  | "awaiting_parser"
+  | "ctwa_pending"
+  | "ctwa_routed"
+  | "failed"
+  | "no_ctwa";
 
 const deliveryStatuses: Array<{
   label: string;
@@ -83,6 +100,10 @@ function deliveryScopeParams(filters: DeliveryFilters): URLSearchParams {
     params.set("connectionId", filters.connectionId);
   }
 
+  if (filters.channelId) {
+    params.set("channelId", filters.channelId);
+  }
+
   if (filters.provider) {
     params.set("provider", filters.provider);
   }
@@ -92,6 +113,19 @@ function deliveryScopeParams(filters: DeliveryFilters): URLSearchParams {
   }
 
   return params;
+}
+
+async function getOperationsScope(): Promise<OperationsScopeResult> {
+  try {
+    const data =
+      await serverApiFetch<BackofficeInboundWebhookOperationsScopeDto>(
+        "/backoffice/inbound-webhooks/scope",
+      );
+
+    return { data, state: "real" };
+  } catch {
+    return { data: null, state: "error" };
+  }
 }
 
 async function getDeliveries(
@@ -165,6 +199,8 @@ function quickFilterHref(
     params.set("classification", "eligible_route_unresolved");
   } else if (quickFilter === "ctwa_routed") {
     params.set("classification", "eligible_route_resolved");
+  } else if (quickFilter === "awaiting_parser") {
+    params.set("classification", "unsupported_event");
   } else if (quickFilter === "no_ctwa") {
     params.set("classification", "ignored_no_ctwa");
   } else if (quickFilter === "failed") {
@@ -274,6 +310,10 @@ function activeQuickFilter(filters: DeliveryFilters): QuickFilterKey | null {
     return "no_ctwa";
   }
 
+  if (filters.classification === "unsupported_event") {
+    return "awaiting_parser";
+  }
+
   if (filters.status || filters.classification) {
     return null;
   }
@@ -311,21 +351,60 @@ export default async function InboundWebhookDeliveriesPage({
   const filters: DeliveryFilters = {
     workspaceId: asStringParam(resolvedSearchParams.workspaceId),
     connectionId: asStringParam(resolvedSearchParams.connectionId),
+    channelId: asStringParam(resolvedSearchParams.channelId),
     provider: asStringParam(resolvedSearchParams.provider),
     purpose: asStringParam(resolvedSearchParams.purpose) as
       InboundWebhookDeliveryPurposeDto | undefined,
     status: asStringParam(resolvedSearchParams.status),
     classification: asStringParam(resolvedSearchParams.classification),
   };
-  const [result, summaryResult] = await Promise.all([
+  const [result, summaryResult, scopeResult] = await Promise.all([
     getDeliveries(filters),
     getDeliverySummary(filters),
+    getOperationsScope(),
   ]);
   const deliveries = result.data;
+  const scope = scopeResult.data?.workspaces ?? [];
+  const connectionEntries = scope.flatMap((workspace) =>
+    workspace.connections.map((connection) => ({ workspace, connection })),
+  );
+  const selectedWorkspace = scope.find(
+    (workspace) => workspace.id === filters.workspaceId,
+  );
+  const selectedConnectionEntry =
+    connectionEntries.find(
+      ({ connection }) => connection.id === filters.connectionId,
+    ) ??
+    connectionEntries.find(({ connection }) =>
+      connection.channels.some((channel) => channel.id === filters.channelId),
+    );
+  const selectedConnection = selectedConnectionEntry?.connection;
+  const activeWorkspace =
+    selectedWorkspace ?? selectedConnectionEntry?.workspace;
+  const connectionOptions = selectedWorkspace
+    ? selectedWorkspace.connections.map((connection) => ({
+        workspace: selectedWorkspace,
+        connection,
+      }))
+    : connectionEntries;
+  const channelOptions = selectedConnection
+    ? selectedConnection.channels.map((channel) => ({
+        workspace: selectedConnectionEntry!.workspace,
+        connection: selectedConnection,
+        channel,
+      }))
+    : connectionOptions.flatMap(({ workspace, connection }) =>
+        connection.channels.map((channel) => ({
+          workspace,
+          connection,
+          channel,
+        })),
+      );
+  const selectedChannel = channelOptions.find(
+    ({ channel }) => channel.id === filters.channelId,
+  )?.channel;
   const quickFilter = activeQuickFilter(filters);
   const hasAdvancedFilters = Boolean(
-    filters.workspaceId ||
-    filters.connectionId ||
     filters.provider ||
     filters.purpose === "message_observation" ||
     quickFilter === null,
@@ -348,6 +427,12 @@ export default async function InboundWebhookDeliveriesPage({
       label: "Automacoes",
       count: totals?.automationCallbacks ?? null,
       href: quickFilterHref(filters, "automation"),
+    },
+    {
+      key: "awaiting_parser",
+      label: "Aguardando parser",
+      count: totals?.awaitingParser ?? null,
+      href: quickFilterHref(filters, "awaiting_parser"),
     },
     {
       key: "ctwa_pending",
@@ -387,15 +472,17 @@ export default async function InboundWebhookDeliveriesPage({
       ? totals?.all
       : quickFilter === "automation"
         ? totals?.automationCallbacks
-        : quickFilter === "ctwa_pending"
-          ? totals?.ctwaPending
-          : quickFilter === "ctwa_routed"
-            ? totals?.ctwaRouted
-            : quickFilter === "no_ctwa"
-              ? totals?.noCtwa
-              : quickFilter === "failed"
-                ? totals?.failed
-                : undefined;
+        : quickFilter === "awaiting_parser"
+          ? totals?.awaitingParser
+          : quickFilter === "ctwa_pending"
+            ? totals?.ctwaPending
+            : quickFilter === "ctwa_routed"
+              ? totals?.ctwaRouted
+              : quickFilter === "no_ctwa"
+                ? totals?.noCtwa
+                : quickFilter === "failed"
+                  ? totals?.failed
+                  : undefined;
 
   return (
     <section className="page-stack standalone-page inbound-deliveries-page">
@@ -410,8 +497,137 @@ export default async function InboundWebhookDeliveriesPage({
             recebido.
           </p>
         </div>
-        <span className="status-chip warn">Somente observacao</span>
+        <span className="status-chip neutral">Auditoria e recuperacao</span>
       </header>
+
+      <section
+        className="inbound-operator-scope"
+        aria-labelledby="operator-scope-title"
+      >
+        <div className="section-heading-row">
+          <div>
+            <span className="eyebrow">Navegacao operacional</span>
+            <h2 id="operator-scope-title">Cliente, conexao e canal</h2>
+            <p>
+              Escolha o contexto pelo nome para auditar callbacks, CTWAs e
+              operacoes de recuperacao.
+            </p>
+          </div>
+          {activeWorkspace ? (
+            <span className="event-chip neutral">
+              {activeWorkspace.name}
+              {selectedConnection ? ` / ${selectedConnection.displayName}` : ""}
+              {selectedChannel ? ` / ${selectedChannel.displayName}` : ""}
+            </span>
+          ) : null}
+        </div>
+
+        {scopeResult.state === "error" ? (
+          <div className="inbound-scope-error">
+            <AlertTriangle aria-hidden="true" size={18} strokeWidth={2} />
+            Nao foi possivel carregar os nomes dos clientes. Os filtros tecnicos
+            continuam protegidos.
+          </div>
+        ) : (
+          <form
+            action="/backoffice/inbound-webhooks"
+            className="inbound-scope-form"
+          >
+            <label>
+              <span>
+                <Building2 aria-hidden="true" size={15} strokeWidth={2} />
+                Workspace
+              </span>
+              <select
+                name="workspaceId"
+                defaultValue={activeWorkspace?.id ?? ""}
+              >
+                <option value="">Todos os clientes</option>
+                {scope.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>
+                <Radio aria-hidden="true" size={15} strokeWidth={2} />
+                Conexao
+              </span>
+              <select
+                name="connectionId"
+                defaultValue={selectedConnection?.id ?? ""}
+              >
+                <option value="">Todas as conexoes</option>
+                {connectionOptions.map(({ workspace, connection }) => (
+                  <option key={connection.id} value={connection.id}>
+                    {selectedWorkspace ? "" : `${workspace.name} / `}
+                    {connection.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>
+                <Radio aria-hidden="true" size={15} strokeWidth={2} />
+                Canal WhatsApp
+              </span>
+              <select name="channelId" defaultValue={selectedChannel?.id ?? ""}>
+                <option value="">Todos os canais</option>
+                {channelOptions.map(({ workspace, connection, channel }) => (
+                  <option key={channel.id} value={channel.id}>
+                    {selectedConnection
+                      ? ""
+                      : `${workspace.name} / ${connection.displayName} / `}
+                    {channel.displayName} / {channel.connectedPhone}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button className="button" type="submit">
+              Abrir escopo
+            </button>
+            <a className="button ghost" href="/backoffice/inbound-webhooks">
+              Limpar
+            </a>
+          </form>
+        )}
+
+        {selectedConnection ? (
+          <div className="inbound-scope-actions">
+            <span>
+              <strong>{selectedConnection.displayName}</strong>
+              <small>
+                {selectedConnection.status === "production"
+                  ? "Envio automatico ativo"
+                  : "Conexao fora da producao automatica"}
+              </small>
+            </span>
+            <a
+              className="button ghost compact-button"
+              href={`/backoffice/inbound-webhooks/replay/${selectedConnection.id}`}
+            >
+              <History aria-hidden="true" size={16} strokeWidth={2} />
+              Replay historico
+            </a>
+            {selectedConnection.status === "production" ? (
+              <a
+                className="button ghost compact-button"
+                href={`/backoffice/inbound-webhooks/recovery/${selectedConnection.id}${
+                  selectedChannel ? `?channelId=${selectedChannel.id}` : ""
+                }`}
+              >
+                <LifeBuoy aria-hidden="true" size={16} strokeWidth={2} />
+                Recuperar producao
+              </a>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
 
       {(totals?.ctwaPending ?? 0) > 0 ? (
         <div className="inbound-attention-banner">
@@ -428,7 +644,7 @@ export default async function InboundWebhookDeliveriesPage({
           </span>
           <a
             className="button compact-button"
-            href="/backoffice/inbound-webhooks?classification=eligible_route_unresolved"
+            href={quickFilterHref(filters, "ctwa_pending")}
           >
             Ver agora
           </a>
@@ -461,22 +677,23 @@ export default async function InboundWebhookDeliveriesPage({
           className="filter-bar inbound-backoffice-filter"
           action="/backoffice/inbound-webhooks"
         >
-          <label className="filter-field">
-            <span>Workspace ID</span>
+          {filters.workspaceId ? (
             <input
+              type="hidden"
               name="workspaceId"
-              defaultValue={filters.workspaceId}
-              placeholder="Todos os workspaces"
+              value={filters.workspaceId}
             />
-          </label>
-          <label className="filter-field">
-            <span>Conexao ID</span>
+          ) : null}
+          {filters.connectionId ? (
             <input
+              type="hidden"
               name="connectionId"
-              defaultValue={filters.connectionId}
-              placeholder="Todas as conexoes"
+              value={filters.connectionId}
             />
-          </label>
+          ) : null}
+          {filters.channelId ? (
+            <input type="hidden" name="channelId" value={filters.channelId} />
+          ) : null}
           <label className="filter-field">
             <span>Plataforma</span>
             <select name="provider" defaultValue={filters.provider ?? ""}>
@@ -575,6 +792,17 @@ export default async function InboundWebhookDeliveriesPage({
           <div className="inbound-delivery-list" role="list">
             {deliveries.map((delivery) => {
               const tone = deliveryTone(delivery);
+              const deliveryConnection = connectionEntries.find(
+                ({ connection }) => connection.id === delivery.connectionId,
+              )?.connection;
+              const channelSummary = delivery.channels.length
+                ? delivery.channels
+                    .map(
+                      (channel) =>
+                        `${channel.displayName} / ${channel.connectedPhone}`,
+                    )
+                    .join(", ")
+                : "Callback sem canal normalizado";
 
               return (
                 <article
@@ -589,8 +817,10 @@ export default async function InboundWebhookDeliveriesPage({
                   </div>
 
                   <div className="inbound-delivery-source">
-                    <span className="micro-label">Conexao</span>
-                    <strong>{delivery.connectionName}</strong>
+                    <span className="micro-label">Cliente / conexao</span>
+                    <strong>{delivery.workspaceName}</strong>
+                    <span>{delivery.connectionName}</span>
+                    <small>{channelSummary}</small>
                     <span>
                       {deliveryPurposeLabel(delivery.purpose)} /{" "}
                       {delivery.providerEventType ?? "Tipo nao informado"}
@@ -631,7 +861,27 @@ export default async function InboundWebhookDeliveriesPage({
                           size={16}
                           strokeWidth={2}
                         />
-                        Preparar replay
+                        Replay historico
+                      </a>
+                    ) : null}
+                    {deliveryConnection?.status === "production" &&
+                    (delivery.classification === "eligible_route_resolved" ||
+                      delivery.classification ===
+                        "eligible_route_unresolved") ? (
+                      <a
+                        className="button ghost compact-button inbound-replay-link"
+                        href={`/backoffice/inbound-webhooks/recovery/${delivery.connectionId}${
+                          delivery.channels.length === 1
+                            ? `?channelId=${delivery.channels[0].id}`
+                            : ""
+                        }`}
+                      >
+                        <LifeBuoy
+                          aria-hidden="true"
+                          size={16}
+                          strokeWidth={2}
+                        />
+                        Recuperar producao
                       </a>
                     ) : null}
                   </div>
