@@ -17,6 +17,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Send,
   ShoppingBag,
   Tag,
@@ -69,6 +70,7 @@ export type ProviderConversionRulePanelProps = {
   createAction: ProviderRuleAction;
   updateAction: ProviderRuleAction;
   rotateEndpointAction: ProviderRuleAction;
+  reprocessLatestAction: ProviderRuleAction;
   removeAction: ProviderRuleAction;
   testMessageAction: ProviderRuleAction;
 };
@@ -82,6 +84,7 @@ export function ProviderConversionRulePanel({
   createAction,
   updateAction,
   rotateEndpointAction,
+  reprocessLatestAction,
   removeAction,
   testMessageAction,
 }: ProviderConversionRulePanelProps) {
@@ -698,6 +701,18 @@ export function ProviderConversionRulePanel({
             const automation =
               rule.conversionRule.triggerType === "provider_automation";
             const active = rule.conversionRule.active;
+            const observedCallbackAvailable = Boolean(
+              automation &&
+              active &&
+              rule.mode === "production" &&
+              rule.endpoint?.lastDeliveryAt &&
+              (!rule.lastExecution ||
+                (rule.lastExecution.status === "observed" &&
+                  [
+                    "automation_matched_observation",
+                    "before_production_activation",
+                  ].includes(rule.lastExecution.reasonCode ?? ""))),
+            );
 
             return (
               <article className="provider-conversion-rule" key={rule.id}>
@@ -824,6 +839,30 @@ export function ProviderConversionRulePanel({
                         }}
                       >
                         <RefreshCw size={15} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                    {observedCallbackAvailable ? (
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title="Reprocessar ultimo callback observado"
+                        aria-label="Reprocessar ultimo callback observado"
+                        disabled={Boolean(pending)}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              "Reprocessar somente o ultimo callback observado desta regra e encaminha-lo para a fila normal?",
+                            )
+                          ) {
+                            void runRuleAction(
+                              `reprocess-${rule.id}`,
+                              reprocessLatestAction,
+                              { ruleId: rule.id },
+                            );
+                          }
+                        }}
+                      >
+                        <RotateCcw size={15} aria-hidden="true" />
                       </button>
                     ) : null}
                     <button
@@ -1640,6 +1679,7 @@ function executionReasonLabel(reasonCode: string | null): string {
     message_matched_observation: "Reconhecido em observacao",
     automation_matched: "Automacao reconhecida",
     automation_matched_observation: "Reconhecido em observacao",
+    automation_manual_reprocess_approved: "Reprocessamento autorizado",
     automation_event_mismatch: "Evento diferente da regra",
     automation_channel_unresolved: "Canal nao localizado",
     automation_paid_lead_missing: "Lead pago nao localizado",

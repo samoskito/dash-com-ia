@@ -505,6 +505,50 @@ describe("provider conversion production service", () => {
     );
   });
 
+  it("honors an explicit audited replay of a callback observed before activation", async () => {
+    const harness = createHarness({ automationEventName: "QualifiedLead" });
+    const activatedAfterCallback = new Date("2026-07-18T13:00:00.000Z");
+    harness.execution.providerRule.productionActivatedAt =
+      activatedAfterCallback;
+    harness.execution.channel.productionActivatedAt = activatedAfterCallback;
+    harness.execution.normalizedResult.manualReplayApproval = {
+      approved: true,
+      approvedAt: "2026-07-22T18:00:00.000Z",
+      actorUserId: "manager_1",
+    };
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "materialized" });
+
+    expect(harness.conversions.recordExternalConversion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "QualifiedLead",
+        leadId: "lead_1",
+      }),
+    );
+  });
+
+  it("keeps pre-activation automation callbacks blocked without manual approval", async () => {
+    const harness = createHarness({ automationEventName: "QualifiedLead" });
+    const activatedAfterCallback = new Date("2026-07-18T13:00:00.000Z");
+    harness.execution.providerRule.productionActivatedAt =
+      activatedAfterCallback;
+    harness.execution.channel.productionActivatedAt = activatedAfterCallback;
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).rejects.toMatchObject({
+      code: "provider_conversion_production_context_invalid",
+    });
+  });
+
   it("materializes a certified purchase automation with the configured average", async () => {
     const harness = createHarness({ automationEventName: "Purchase" });
 

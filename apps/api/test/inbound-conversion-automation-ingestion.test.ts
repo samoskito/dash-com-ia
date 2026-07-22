@@ -150,11 +150,18 @@ function createHarness(options?: {
     findUnique: vi.fn(async ({ where }) =>
       where.id === endpoint.id ? endpoint : null,
     ),
-    findFirst: vi.fn(async () =>
-      endpoint.removedAt === null && endpoint.providerRule.conversionRule.active
+    findFirst: vi.fn(async ({ where }: any) => {
+      if (where.providerRuleId) {
+        return where.providerRuleId === endpoint.providerRuleId &&
+          endpoint.removedAt === null
+          ? endpoint
+          : null;
+      }
+      return endpoint.removedAt === null &&
+        endpoint.providerRule.conversionRule.active
         ? { id: endpoint.id }
-        : null,
-    ),
+        : null;
+    }),
     updateMany: vi.fn(async ({ data }) => {
       endpoint.lastDeliveryAt = data.lastDeliveryAt;
       if (data.lastSuccessfulParseAt) {
@@ -181,6 +188,13 @@ function createHarness(options?: {
       );
       return delivery ? { id: delivery.id } : null;
     }),
+    findFirst: vi.fn(
+      async () =>
+        [...deliveries.values()].sort(
+          (left, right) =>
+            right.lastReceivedAt.getTime() - left.lastReceivedAt.getTime(),
+        )[0] ?? null,
+    ),
     create: vi.fn(async ({ data }) => {
       const delivery = { attemptCount: 1, ...data };
       deliveries.set(
@@ -198,12 +212,21 @@ function createHarness(options?: {
           candidate.providerRuleEndpointId === where.providerRuleEndpointId,
       );
       if (!delivery) return { count: 0 };
-      delivery.attemptCount += data.attemptCount.increment;
-      delivery.lastReceivedAt = data.lastReceivedAt;
+      if (data.attemptCount?.increment) {
+        delivery.attemptCount += data.attemptCount.increment;
+      }
+      for (const [key, value] of Object.entries(data)) {
+        if (key !== "attemptCount") delivery[key] = value;
+      }
       return { count: 1 };
     }),
   };
   const providerConversionRuleExecution = {
+    findUnique: vi.fn(async ({ where }) => {
+      const key =
+        where.providerRuleId_externalExecutionKey.externalExecutionKey;
+      return executions.get(key) ?? null;
+    }),
     upsert: vi.fn(async ({ where, create }) => {
       const key =
         where.providerRuleId_externalExecutionKey.externalExecutionKey;
@@ -212,6 +235,19 @@ function createHarness(options?: {
       const execution = { id: "execution_1", ...create };
       executions.set(key, execution);
       return { id: execution.id, status: execution.status };
+    }),
+    update: vi.fn(async ({ where, data }) => {
+      const entry = [...executions.entries()].find(
+        ([, execution]) => execution.id === where.id,
+      );
+      if (!entry) throw new Error("execution not found");
+      Object.assign(entry[1], data);
+      return entry[1];
+    }),
+    create: vi.fn(async ({ data }) => {
+      const execution = { id: "execution_reprocessed", ...data };
+      executions.set(data.externalExecutionKey, execution);
+      return execution;
     }),
   };
   const purchaseReview = {
@@ -243,6 +279,9 @@ function createHarness(options?: {
     },
     providerConversionRuleExecution,
     purchaseReview,
+    auditLog: {
+      create: vi.fn(async ({ data }) => data),
+    },
   };
   prisma.$transaction = vi.fn(async (operation) => operation(prisma));
 
@@ -268,6 +307,7 @@ function createHarness(options?: {
     deliveries,
     encryption,
     endpoint,
+    env,
     executions,
     prisma,
     productionQueue,
@@ -412,6 +452,54 @@ describe("inbound conversion automation ingestion", () => {
       providerConversionExecutionId: "execution_1",
       workspaceId: "workspace_safe",
     });
+  });
+
+  it("reprocesses the latest preserved callback without another Umbler request", async () => {
+    const harness = createHarness();
+    const rawBody = Buffer.from(JSON.stringify(automationPayload()));
+    const observed = await harness.service.ingest(input(rawBody));
+
+    harness.env.INBOUND_WEBHOOK_PRODUCTION_ENABLED = "true";
+    harness.env.INBOUND_CONVERSION_PRODUCTION_ENABLED = "true";
+    harness.endpoint.providerRule.mode = "production";
+    harness.endpoint.providerRule.productionActivatedAt = new Date(
+      "2026-07-22T18:00:00.000Z",
+    );
+    harness.endpoint.providerRule.connection.status = "production";
+    harness.endpoint.providerRule.connection.productionActivatedAt = new Date(
+      "2026-07-22T18:00:00.000Z",
+    );
+
+    const result = await harness.service.reprocessLatestObserved(
+      "workspace_safe",
+      "provider_rule_1",
+      "manager_1",
+    );
+
+    expect(result).toEqual({
+      executionId: "execution_1",
+      sourceDeliveryId: observed.deliveryId,
+      queueStatus: "queued",
+    });
+    expect([...harness.executions.values()][0]).toMatchObject({
+      status: "eligible",
+      reasonCode: "automation_manual_reprocess_approved",
+      normalizedResult: {
+        manualReplayApproval: {
+          approved: true,
+          actorUserId: "manager_1",
+        },
+      },
+    });
+    expect([...harness.deliveries.values()][0]).toMatchObject({
+      parserVersion: "automation-v1",
+      status: "processed",
+      parseErrorCode: null,
+      routingErrorCode: null,
+    });
+    expect(
+      harness.productionQueue.enqueueProviderConversion,
+    ).toHaveBeenCalledTimes(1);
   });
 
   it("stores an invalid contract for audit without creating an execution", async () => {

@@ -12,6 +12,7 @@ import {
   adaptProviderConversionRuleAction,
   createProviderConversionRuleAction,
   removeProviderConversionRuleAction,
+  reprocessLatestProviderConversionAutomationAction,
   rotateProviderConversionRuleEndpointAction,
   testProviderCatalogMessageAction,
   updateProviderConversionRuleAction,
@@ -191,6 +192,36 @@ describe("provider conversion rule server actions", () => {
       ok: true,
       message: "Regra removida. O historico observado foi preservado.",
     });
+  });
+
+  it("reprocesses the latest observed automation callback with explicit confirmation", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      executionId: "execution_1",
+      sourceDeliveryId: "delivery_1",
+      queueStatus: "queued",
+    });
+
+    const result = await reprocessLatestProviderConversionAutomationAction(
+      form({ ruleId: "provider_rule_1" }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/integrations/inbound-webhooks/provider-rules/provider_rule_1/reprocess-latest",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          confirmation: "REPROCESSAR_CALLBACK_OBSERVADO",
+        }),
+      },
+    );
+    expect(result).toEqual({
+      ok: true,
+      message: "Callback observado encaminhado para processamento.",
+    });
+    expect(revalidatePath.mock.calls.map(([path]) => path)).toEqual([
+      "/integrations",
+      "/settings",
+    ]);
   });
 
   it("returns a side-effect-free catalog test result without revalidation", async () => {

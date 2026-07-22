@@ -2,6 +2,7 @@ import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { AuthService } from "../src/auth/auth.service";
+import { InboundConversionAutomationIngestionService } from "../src/inbound-webhooks/inbound-conversion-automation-ingestion.service";
 import { InboundWebhookChannelRoutesService } from "../src/inbound-webhooks/inbound-webhook-channel-routes.service";
 import { InboundWebhookConnectionsController } from "../src/inbound-webhooks/inbound-webhook-connections.controller";
 import { InboundWebhookConnectionsService } from "../src/inbound-webhooks/inbound-webhook-connections.service";
@@ -177,6 +178,13 @@ async function createApp(role: WorkspaceRole = "owner") {
       status: input.status,
     })),
   };
+  const conversionAutomation = {
+    reprocessLatestObserved: vi.fn(async () => ({
+      executionId: "execution_1",
+      sourceDeliveryId: "delivery_1",
+      queueStatus: "queued" as const,
+    })),
+  };
 
   const moduleRef = await Test.createTestingModule({
     controllers: [InboundWebhookConnectionsController],
@@ -191,6 +199,10 @@ async function createApp(role: WorkspaceRole = "owner") {
         provide: InboundWebhookChannelRoutesService,
         useValue: channelRoutesService,
       },
+      {
+        provide: InboundConversionAutomationIngestionService,
+        useValue: conversionAutomation,
+      },
     ],
   }).compile();
   const app = moduleRef.createNestApplication();
@@ -201,6 +213,7 @@ async function createApp(role: WorkspaceRole = "owner") {
     authService,
     channelRoutesService,
     connectionsService,
+    conversionAutomation,
   };
 }
 
@@ -395,12 +408,24 @@ describe("inbound webhook connections controller", () => {
   });
 
   it("rotates, pauses and removes using the authenticated actor", async () => {
-    const { app, connectionsService } = await createApp("admin");
+    const { app, connectionsService, conversionAutomation } =
+      await createApp("admin");
 
     await request(app.getHttpServer())
       .post("/integrations/inbound-webhooks/inbound_connection_1/rotate-secret")
       .set("Authorization", "Bearer refresh-token")
       .expect(200);
+
+    await request(app.getHttpServer())
+      .post(
+        "/integrations/inbound-webhooks/provider-rules/provider_rule_1/reprocess-latest",
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .send({ confirmation: "REPROCESSAR_CALLBACK_OBSERVADO" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.queueStatus).toBe("queued");
+      });
 
     await request(app.getHttpServer())
       .put("/integrations/inbound-webhooks/inbound_connection_1/status")
@@ -421,6 +446,11 @@ describe("inbound webhook connections controller", () => {
     expect(connectionsService.rotateSecret).toHaveBeenCalledWith(
       "workspace_1",
       "inbound_connection_1",
+      "user_1",
+    );
+    expect(conversionAutomation.reprocessLatestObserved).toHaveBeenCalledWith(
+      "workspace_1",
+      "provider_rule_1",
       "user_1",
     );
     expect(connectionsService.updateStatus).toHaveBeenCalledWith(

@@ -156,6 +156,48 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain('aria-label="Gerar nova URL"');
   });
 
+  it("offers one explicit replay for the latest callback observed before activation", () => {
+    const html = renderPanel({
+      rules: [
+        {
+          ...catalogRule,
+          id: "provider_rule_automation",
+          mode: "production",
+          productionActivatedAt: "2026-07-22T18:00:00.000Z",
+          conversionRule: {
+            ...catalogRule.conversionRule,
+            id: "conversion_rule_automation",
+            name: "Lead qualificado",
+            triggerType: "provider_automation",
+            triggerValue: "provider_automation",
+            eventName: "QualifiedLead",
+            defaultCurrency: null,
+            defaultContentName: null,
+          },
+          triggerPhrases: [],
+          messageAuthorScope: null,
+          endpoint: {
+            id: "endpoint_1",
+            workspaceId: "workspace_1",
+            providerRuleId: "provider_rule_automation",
+            secretVersion: 1,
+            lastDeliveryAt: "2026-07-22T15:34:00.000Z",
+            lastSuccessfulParseAt: "2026-07-22T15:34:00.000Z",
+            rotatedAt: null,
+            removedAt: null,
+            createdAt: "2026-07-22T12:00:00.000Z",
+            updatedAt: "2026-07-22T15:34:00.000Z",
+          },
+          catalog: null,
+        },
+      ],
+    });
+
+    expect(html).toContain(
+      'aria-label="Reprocessar ultimo callback observado"',
+    );
+  });
+
   it("keeps a scoped alias editor wired to the existing catalog update", () => {
     const source = readFileSync(
       new URL(
@@ -259,6 +301,7 @@ function renderPanel({
       createAction: action,
       updateAction: action,
       rotateEndpointAction: action,
+      reprocessLatestAction: action,
       removeAction: action,
       testMessageAction: action,
     }),

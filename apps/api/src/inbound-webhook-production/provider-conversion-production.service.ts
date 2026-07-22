@@ -759,6 +759,19 @@ export class ProviderConversionProductionService {
     return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
   }
 
+  private automationManualReplayApproved(execution: ExecutionRecord): boolean {
+    const normalized = this.jsonObject(execution.normalizedResult);
+    const approval = this.jsonObject(
+      (normalized?.manualReplayApproval ?? null) as Prisma.JsonValue | null,
+    );
+
+    return (
+      approval?.approved === true &&
+      this.identifier(approval.actorUserId) &&
+      typeof approval.approvedAt === "string"
+    );
+  }
+
   private stringArray(value: Prisma.JsonValue): string[] {
     return Array.isArray(value)
       ? value.filter((item): item is string => typeof item === "string")
@@ -809,6 +822,7 @@ export class ProviderConversionProductionService {
     const rule = execution.providerRule;
     const delivery = execution.sourceDelivery;
     const channel = execution.channel;
+    const manuallyApproved = this.automationManualReplayApproved(execution);
     const channelScoped = rule.channels.some(
       (scope) => scope.channelId === execution.channelId,
     );
@@ -833,8 +847,10 @@ export class ProviderConversionProductionService {
       channel.status !== "active" ||
       !channel.productionActivatedAt ||
       !channelScoped ||
-      delivery.firstReceivedAt < rule.productionActivatedAt ||
-      delivery.firstReceivedAt < channel.productionActivatedAt
+      (!manuallyApproved &&
+        delivery.firstReceivedAt < rule.productionActivatedAt) ||
+      (!manuallyApproved &&
+        delivery.firstReceivedAt < channel.productionActivatedAt)
     ) {
       throw new ProviderConversionProductionFailure(
         "provider_conversion_production_context_invalid",

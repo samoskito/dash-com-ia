@@ -417,6 +417,12 @@ export const providerConversionRuleCreateResultSchema = z.object({
   webhookUrl: z.string().url().nullable(),
 });
 
+export const providerConversionAutomationReprocessResultSchema = z.object({
+  executionId: idSchema,
+  sourceDeliveryId: idSchema,
+  queueStatus: z.enum(["queued", "existing"]),
+});
+
 export const purchaseReviewStatuses = [
   "recognized",
   "awaiting_data",
@@ -581,6 +587,9 @@ export type ProviderConversionRuleDto = z.infer<
 >;
 export type ProviderConversionRuleCreateResultDto = z.infer<
   typeof providerConversionRuleCreateResultSchema
+>;
+export type ProviderConversionAutomationReprocessResultDto = z.infer<
+  typeof providerConversionAutomationReprocessResultSchema
 >;
 export type ProviderConversionExecutionDto = z.infer<
   typeof providerConversionExecutionSchema

@@ -20,6 +20,7 @@ import {
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
+import { InboundConversionAutomationIngestionService } from "./inbound-conversion-automation-ingestion.service";
 import { InboundWebhookConnectionsService } from "./inbound-webhook-connections.service";
 import { InboundWebhookChannelRoutesService } from "./inbound-webhook-channel-routes.service";
 
@@ -33,6 +34,8 @@ export class InboundWebhookConnectionsController {
     private readonly connectionsService: InboundWebhookConnectionsService,
     @Inject(InboundWebhookChannelRoutesService)
     private readonly channelRoutesService: InboundWebhookChannelRoutesService,
+    @Inject(InboundConversionAutomationIngestionService)
+    private readonly conversionAutomation: InboundConversionAutomationIngestionService,
   ) {}
 
   @Get()
@@ -109,6 +112,30 @@ export class InboundWebhookConnectionsController {
     return this.connectionsService.rotateSecret(
       context.workspaceId,
       connectionId,
+      context.userId,
+    );
+  }
+
+  @Post("provider-rules/:ruleId/reprocess-latest")
+  @HttpCode(200)
+  async reprocessLatestObservedAutomation(
+    @AuthToken() refreshToken: string,
+    @Param("ruleId") ruleId: string,
+    @Body() body: unknown,
+  ) {
+    const context = await this.requireManager(refreshToken);
+    if (
+      !body ||
+      typeof body !== "object" ||
+      (body as Record<string, unknown>).confirmation !==
+        "REPROCESSAR_CALLBACK_OBSERVADO"
+    ) {
+      throw new BadRequestException("Confirmacao invalida");
+    }
+
+    return this.conversionAutomation.reprocessLatestObserved(
+      context.workspaceId,
+      ruleId,
       context.userId,
     );
   }

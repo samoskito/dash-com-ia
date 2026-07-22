@@ -1,6 +1,7 @@
 "use server";
 
 import {
+  providerConversionAutomationReprocessResultSchema,
   providerConversionEndpointSecretResultSchema,
   providerConversionRuleAdaptInputSchema,
   providerConversionRuleCreateInputSchema,
@@ -156,6 +157,45 @@ export async function rotateProviderConversionRuleEndpointAction(
     };
   } catch {
     return failure("Nao foi possivel gerar uma nova URL de automacao.");
+  }
+}
+
+export async function reprocessLatestProviderConversionAutomationAction(
+  formData: FormData,
+): Promise<ProviderConversionRuleActionResult> {
+  const ruleId = formId(formData, "ruleId");
+
+  if (!ruleId) {
+    return failure(invalidFormMessage);
+  }
+
+  try {
+    const response = await serverApiFetch<unknown>(
+      `/integrations/inbound-webhooks/provider-rules/${encodeURIComponent(ruleId)}/reprocess-latest`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          confirmation: "REPROCESSAR_CALLBACK_OBSERVADO",
+        }),
+      },
+    );
+    const result =
+      providerConversionAutomationReprocessResultSchema.safeParse(response);
+
+    if (!result.success) {
+      return failure("Nao foi possivel reprocessar o callback observado.");
+    }
+
+    revalidateConversionRulePaths();
+    return {
+      ok: true,
+      message:
+        result.data.queueStatus === "queued"
+          ? "Callback observado encaminhado para processamento."
+          : "O callback ja estava aguardando processamento.",
+    };
+  } catch {
+    return failure("Nao foi possivel reprocessar o callback observado.");
   }
 }
 
