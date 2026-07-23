@@ -145,15 +145,15 @@ Persist a frozen decision before any review or Meta side effect.
 
 ### Prisma work
 
-- [ ] Add an append-only provider-conversion decision audit model.
-- [ ] Link decisions to workspace, delivery, rule and channel.
-- [ ] Store normalized occurrence, rule snapshot, catalog snapshot, value,
+- [x] Add an append-only provider-conversion decision audit model.
+- [x] Link decisions to workspace, delivery, rule and channel.
+- [x] Store normalized occurrence, rule snapshot, catalog snapshot, value,
       items, lead resolution and deterministic keys.
-- [ ] Add decision-engine and parser versions.
-- [ ] Add optional decision links to `ProviderConversionRuleExecution` and
+- [x] Add decision-engine and parser versions.
+- [x] Add optional decision links to `ProviderConversionRuleExecution` and
       `PurchaseReview`.
-- [ ] Add indexes for trace, workspace/date and decision filters.
-- [ ] Add an idempotent migration and migration contract test.
+- [x] Add indexes for trace, workspace/date and decision filters.
+- [x] Add an idempotent migration and migration contract test.
 
 ### Service work
 
@@ -163,14 +163,34 @@ Persist a frozen decision before any review or Meta side effect.
 
 ### Invariants
 
-- [ ] Ignored decisions create audit only.
-- [ ] Review decisions create at most one review.
-- [ ] Eligible decisions create at most one technical execution.
-- [ ] A reevaluation appends a version; it never overwrites history.
+- [x] Ignored decisions create audit only.
+- [x] Review decisions create at most one review.
+- [x] Eligible decisions create at most one technical execution.
+- [x] A reevaluation appends a version; it never overwrites history.
 
 ### Exit criterion
 
 A decision can be stored and queried without changing production side effects.
+
+### Wave 2 checkpoint
+
+- Canonical decisions are frozen in an append-only audit table before later
+  waves connect the engine to operational side effects.
+- Repeating the same initial evaluation returns the existing frozen decision.
+- A new version requires an explicit reevaluation request and must supersede
+  the latest version; implicit and stale reevaluations are rejected.
+- An advisory transaction lock serializes concurrent decisions for the same
+  workspace, rule and occurrence.
+- Optional one-to-one links constrain one review and one technical execution
+  per persisted decision.
+- The trace service returns ordered decision versions while keeping source
+  delivery, review and technical execution states separate.
+- The migration is idempotent, does not rewrite existing conversions and
+  enforces append-only storage at the database layer.
+- Focused result: 47 tests passed.
+- Full API result: 146 test files and 1,105 tests passed.
+- Prisma validation, API typecheck, API build and `git diff --check` passed.
+- The current live, replay and production paths are still unchanged.
 
 ## 7. Wave 3 - One Observation and Orchestration Path
 

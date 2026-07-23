@@ -303,8 +303,8 @@ model User {
   createdInboundWebhookRoutes      InboundWebhookChannelRoute[]      @relation("InboundWebhookChannelRouteCreator")
   requestedInboundWebhookReplays   InboundWebhookReplayBatch[]       @relation("InboundWebhookReplayRequester")
   createdProviderConversionRules   ProviderConversionRuleConfig[]    @relation("ProviderConversionRuleCreator")
-  decidedPurchaseReviews           PurchaseReview[]                   @relation("PurchaseReviewDecisionActor")
-  purchaseValueAdjustments         PurchaseValueAdjustment[]          @relation("PurchaseValueAdjustmentActor")
+  decidedPurchaseReviews           PurchaseReview[]                  @relation("PurchaseReviewDecisionActor")
+  purchaseValueAdjustments         PurchaseValueAdjustment[]         @relation("PurchaseValueAdjustmentActor")
 
   @@index([lastWorkspaceId])
 }
@@ -366,6 +366,7 @@ model Workspace {
   providerConversionRuleChannels   ProviderConversionRuleChannel[]
   providerConversionRuleEndpoints  ProviderConversionRuleEndpoint[]
   providerConversionExecutions     ProviderConversionRuleExecution[]
+  providerConversionDecisions      ProviderConversionDecisionAudit[]
   conversionCatalogs               ConversionCatalog[]
   conversionCatalogAttributes      ConversionCatalogAttribute[]
   conversionCatalogVariants        ConversionCatalogVariant[]
@@ -913,29 +914,30 @@ model ConversionRule {
 }
 
 model ProviderConversionRuleConfig {
-  id                    String                     @id @default(cuid())
+  id                    String                                @id @default(cuid())
   workspaceId           String
   conversionRuleId      String
   connectionId          String
   parserReleaseId       String
-  mode                  ProviderConversionRuleMode @default(observation)
-  messageTriggerPhrases String[]                   @default([])
+  mode                  ProviderConversionRuleMode            @default(observation)
+  messageTriggerPhrases String[]                              @default([])
   messageAuthorScope    ProviderConversionMessageAuthorScope?
   productionActivatedAt DateTime?
   removedAt             DateTime?
   createdByUserId       String?
-  createdAt             DateTime                   @default(now())
-  updatedAt             DateTime                   @updatedAt
+  createdAt             DateTime                              @default(now())
+  updatedAt             DateTime                              @updatedAt
 
-  workspace      Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  conversionRule ConversionRule                    @relation(fields: [workspaceId, conversionRuleId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleConfig_conversionRuleId_fkey")
-  connection     InboundWebhookConnection          @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleConfig_connectionId_fkey")
-  parserRelease  InboundWebhookParserRelease       @relation(fields: [parserReleaseId], references: [id], onDelete: Restrict)
-  createdBy      User?                             @relation("ProviderConversionRuleCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  channels       ProviderConversionRuleChannel[]
-  endpoint       ProviderConversionRuleEndpoint?
-  catalog        ConversionCatalog?
-  executions     ProviderConversionRuleExecution[]
+  workspace       Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  conversionRule  ConversionRule                    @relation(fields: [workspaceId, conversionRuleId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleConfig_conversionRuleId_fkey")
+  connection      InboundWebhookConnection          @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleConfig_connectionId_fkey")
+  parserRelease   InboundWebhookParserRelease       @relation(fields: [parserReleaseId], references: [id], onDelete: Restrict)
+  createdBy       User?                             @relation("ProviderConversionRuleCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  channels        ProviderConversionRuleChannel[]
+  endpoint        ProviderConversionRuleEndpoint?
+  catalog         ConversionCatalog?
+  executions      ProviderConversionRuleExecution[]
+  decisions       ProviderConversionDecisionAudit[]
   purchaseReviews PurchaseReview[]
 
   @@unique([workspaceId, id])
@@ -1035,9 +1037,9 @@ model ConversionCatalogVariant {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  workspace  Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  catalog    ConversionCatalog                 @relation(fields: [workspaceId, catalogId], references: [workspaceId, id], onDelete: Restrict, map: "ConversionCatalogVariant_catalogId_fkey")
-  executions ProviderConversionRuleExecution[]
+  workspace           Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  catalog             ConversionCatalog                 @relation(fields: [workspaceId, catalogId], references: [workspaceId, id], onDelete: Restrict, map: "ConversionCatalogVariant_catalogId_fkey")
+  executions          ProviderConversionRuleExecution[]
   purchaseReviewItems PurchaseReviewItem[]
 
   @@unique([workspaceId, id])
@@ -1064,21 +1066,25 @@ model ProviderConversionRuleExecution {
   currency                         String?
   leadId                           String?
   conversionEventLogId             String?
+  providerDecisionWorkspaceId      String?
+  providerDecisionId               String?
   attemptCount                     Int                               @default(0)
   lastAttemptedAt                  DateTime?
   processedAt                      DateTime?
   createdAt                        DateTime                          @default(now())
   updatedAt                        DateTime                          @updatedAt
 
-  workspace             Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  providerRule          ProviderConversionRuleConfig @relation(fields: [workspaceId, providerRuleId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleExecution_providerRuleId_fkey")
-  sourceDelivery        InboundWebhookDelivery       @relation(fields: [workspaceId, sourceDeliveryId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleExecution_sourceDeliveryId_fkey")
-  channel               InboundWebhookChannel?       @relation(fields: [channelWorkspaceId, channelId], references: [workspaceId, id], onDelete: SetNull, map: "ProviderConversionRuleExecution_channelId_fkey")
-  matchedCatalogVariant ConversionCatalogVariant?    @relation(fields: [matchedCatalogVariantWorkspaceId, matchedCatalogVariantId], references: [workspaceId, id], onDelete: SetNull, map: "ProviderConversionRuleExecution_catalogVariantId_fkey")
+  workspace             Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  providerRule          ProviderConversionRuleConfig     @relation(fields: [workspaceId, providerRuleId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleExecution_providerRuleId_fkey")
+  sourceDelivery        InboundWebhookDelivery           @relation(fields: [workspaceId, sourceDeliveryId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionRuleExecution_sourceDeliveryId_fkey")
+  channel               InboundWebhookChannel?           @relation(fields: [channelWorkspaceId, channelId], references: [workspaceId, id], onDelete: SetNull, map: "ProviderConversionRuleExecution_channelId_fkey")
+  matchedCatalogVariant ConversionCatalogVariant?        @relation(fields: [matchedCatalogVariantWorkspaceId, matchedCatalogVariantId], references: [workspaceId, id], onDelete: SetNull, map: "ProviderConversionRuleExecution_catalogVariantId_fkey")
+  providerDecision      ProviderConversionDecisionAudit? @relation(fields: [providerDecisionWorkspaceId, providerDecisionId], references: [workspaceId, id], onDelete: SetNull, map: "ProviderConversionRuleExecution_providerDecisionId_fkey")
   purchaseReview        PurchaseReview?
 
   @@unique([workspaceId, id])
   @@unique([providerRuleId, externalExecutionKey])
+  @@unique([providerDecisionWorkspaceId, providerDecisionId], map: "ProviderConversionRuleExecution_decision_key")
   @@index([workspaceId, status, occurredAt])
   @@index([workspaceId, contactIdentityHash, occurredAt])
   @@index([sourceDeliveryId])
@@ -1086,6 +1092,64 @@ model ProviderConversionRuleExecution {
   @@index([matchedCatalogVariantId])
   @@index([leadId])
   @@index([conversionEventLogId])
+}
+
+model ProviderConversionDecisionAudit {
+  id                            String   @id @default(cuid())
+  workspaceId                   String
+  providerRuleId                String
+  sourceDeliveryId              String
+  channelWorkspaceId            String?
+  channelId                     String?
+  leadWorkspaceId               String?
+  leadId                        String?
+  supersedesDecisionWorkspaceId String?
+  supersedesDecisionId          String?
+  decisionCode                  String
+  reasonCode                    String
+  eventName                     String
+  occurredAt                    DateTime
+  occurrenceKey                 String
+  evaluationKey                 String
+  decisionFingerprint           String
+  decisionVersion               Int
+  engineVersion                 String
+  parserVersion                 String
+  contactIdentityHash           String?
+  businessDedupeMode            String?
+  businessDedupeScopeKey        String?
+  businessDedupeWindowSeconds   Int?
+  valueCents                    Int?
+  currency                      String?
+  normalizedOccurrence          Json
+  ruleSnapshot                  Json
+  catalogSnapshot               Json?
+  conversionSnapshot            Json
+  leadResolution                Json
+  decisionJson                  Json
+  createdAt                     DateTime @default(now())
+
+  workspace          Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  providerRule       ProviderConversionRuleConfig      @relation(fields: [workspaceId, providerRuleId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionDecisionAudit_providerRuleId_fkey")
+  sourceDelivery     InboundWebhookDelivery            @relation(fields: [workspaceId, sourceDeliveryId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionDecisionAudit_sourceDeliveryId_fkey")
+  channel            InboundWebhookChannel?            @relation(fields: [channelWorkspaceId, channelId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionDecisionAudit_channelId_fkey")
+  lead               Lead?                             @relation(fields: [leadWorkspaceId, leadId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionDecisionAudit_leadId_fkey")
+  supersedesDecision ProviderConversionDecisionAudit?  @relation("ProviderConversionDecisionVersions", fields: [supersedesDecisionWorkspaceId, supersedesDecisionId], references: [workspaceId, id], onDelete: Restrict, map: "ProviderConversionDecisionAudit_supersedesDecisionId_fkey")
+  supersededBy       ProviderConversionDecisionAudit[] @relation("ProviderConversionDecisionVersions")
+  providerExecution  ProviderConversionRuleExecution?
+  purchaseReview     PurchaseReview?
+
+  @@unique([workspaceId, id], map: "ProviderConversionDecisionAudit_workspace_id_key")
+  @@unique([providerRuleId, occurrenceKey, evaluationKey], map: "ProviderConversionDecisionAudit_evaluation_key")
+  @@unique([providerRuleId, occurrenceKey, decisionVersion], map: "ProviderConversionDecisionAudit_version_key")
+  @@unique([supersedesDecisionWorkspaceId, supersedesDecisionId], map: "ProviderConversionDecisionAudit_supersedes_key")
+  @@index([workspaceId, occurredAt], map: "ProviderConversionDecisionAudit_workspace_date_idx")
+  @@index([workspaceId, decisionCode, occurredAt], map: "ProviderConversionDecisionAudit_decision_date_idx")
+  @@index([sourceDeliveryId], map: "ProviderConversionDecisionAudit_delivery_idx")
+  @@index([channelId], map: "ProviderConversionDecisionAudit_channel_idx")
+  @@index([leadId], map: "ProviderConversionDecisionAudit_lead_idx")
+  @@index([businessDedupeScopeKey, occurredAt], map: "ProviderConversionDecisionAudit_dedupe_date_idx")
+  @@index([supersedesDecisionId], map: "ProviderConversionDecisionAudit_supersedes_idx")
 }
 
 model FunnelStageConfiguration {
@@ -1128,9 +1192,10 @@ model Lead {
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
-  workspace        Workspace         @relation(fields: [workspaceId], references: [id])
-  whatsappInstance WhatsappInstance? @relation(fields: [whatsappInstanceId], references: [id])
-  purchaseReviews   PurchaseReview[]
+  workspace                   Workspace                         @relation(fields: [workspaceId], references: [id])
+  whatsappInstance            WhatsappInstance?                 @relation(fields: [whatsappInstanceId], references: [id])
+  purchaseReviews             PurchaseReview[]
+  providerConversionDecisions ProviderConversionDecisionAudit[]
 
   @@unique([workspaceId, id])
   @@unique([workspaceId, phoneHash])
@@ -1455,6 +1520,7 @@ model InboundWebhookChannel {
   replayBatches                InboundWebhookReplayBatch[]
   providerConversionRuleScopes ProviderConversionRuleChannel[]
   providerConversionExecutions ProviderConversionRuleExecution[]
+  providerConversionDecisions  ProviderConversionDecisionAudit[]
   purchaseReviews              PurchaseReview[]
 
   @@unique([workspaceId, id])
@@ -1525,7 +1591,7 @@ model InboundWebhookDelivery {
   routingErrorCode                String?
   queuedAt                        DateTime?
   processedAt                     DateTime?
-  providerConversionsObservedAt  DateTime?
+  providerConversionsObservedAt   DateTime?
   createdAt                       DateTime                           @default(now())
   updatedAt                       DateTime                           @updatedAt
 
@@ -1534,6 +1600,7 @@ model InboundWebhookDelivery {
   providerRuleEndpoint         ProviderConversionRuleEndpoint?   @relation(fields: [providerRuleEndpointWorkspaceId, providerRuleEndpointId], references: [workspaceId, id], onDelete: SetNull, map: "InboundWebhookDelivery_providerRuleEndpointId_fkey")
   events                       InboundWebhookEvent[]
   providerConversionExecutions ProviderConversionRuleExecution[]
+  providerConversionDecisions  ProviderConversionDecisionAudit[]
   purchaseReviews              PurchaseReview[]
 
   @@unique([workspaceId, id])
@@ -1549,51 +1616,55 @@ model InboundWebhookDelivery {
 }
 
 model PurchaseReview {
-  id                         String                   @id @default(cuid())
-  workspaceId                String
-  providerRuleId             String
-  sourceDeliveryId           String
-  channelWorkspaceId         String?
-  channelId                  String?
+  id                           String                   @id @default(cuid())
+  workspaceId                  String
+  providerRuleId               String
+  sourceDeliveryId             String
+  channelWorkspaceId           String?
+  channelId                    String?
   providerExecutionWorkspaceId String?
-  providerExecutionId        String?                  @unique
-  externalOccurrenceKey      String
-  occurredAt                 DateTime
-  contactIdentityHash        String?
-  sourceType                 PurchaseReviewSourceType
-  messageAuthorType          String?
-  matchedTriggerPhrase       String?
-  status                     PurchaseReviewStatus
-  classificationCode         String
-  reasonCode                 String?
-  observedPaymentValueCents  Int?
-  calculatedValueCents       Int?
-  effectiveValueCents        Int?
-  currency                   String                   @default("BRL")
-  leadWorkspaceId            String?
-  leadId                     String?
-  conversionEventLogId       String?                  @unique
-  decisionReason             String?
-  decidedByUserId            String?
-  decidedAt                  DateTime?
-  version                    Int                      @default(1)
-  createdAt                  DateTime                 @default(now())
-  updatedAt                  DateTime                 @updatedAt
+  providerExecutionId          String?                  @unique
+  providerDecisionWorkspaceId  String?
+  providerDecisionId           String?
+  externalOccurrenceKey        String
+  occurredAt                   DateTime
+  contactIdentityHash          String?
+  sourceType                   PurchaseReviewSourceType
+  messageAuthorType            String?
+  matchedTriggerPhrase         String?
+  status                       PurchaseReviewStatus
+  classificationCode           String
+  reasonCode                   String?
+  observedPaymentValueCents    Int?
+  calculatedValueCents         Int?
+  effectiveValueCents          Int?
+  currency                     String                   @default("BRL")
+  leadWorkspaceId              String?
+  leadId                       String?
+  conversionEventLogId         String?                  @unique
+  decisionReason               String?
+  decidedByUserId              String?
+  decidedAt                    DateTime?
+  version                      Int                      @default(1)
+  createdAt                    DateTime                 @default(now())
+  updatedAt                    DateTime                 @updatedAt
 
-  workspace          Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  providerRule       ProviderConversionRuleConfig      @relation(fields: [workspaceId, providerRuleId], references: [workspaceId, id], onDelete: Restrict, map: "PurchaseReview_providerRuleId_fkey")
-  sourceDelivery     InboundWebhookDelivery            @relation(fields: [workspaceId, sourceDeliveryId], references: [workspaceId, id], onDelete: Restrict, map: "PurchaseReview_sourceDeliveryId_fkey")
-  channel            InboundWebhookChannel?            @relation(fields: [channelWorkspaceId, channelId], references: [workspaceId, id], onDelete: SetNull, map: "PurchaseReview_channelId_fkey")
-  providerExecution  ProviderConversionRuleExecution?  @relation(fields: [providerExecutionWorkspaceId, providerExecutionId], references: [workspaceId, id], onDelete: SetNull, map: "PurchaseReview_providerExecutionId_fkey")
-  lead               Lead?                             @relation(fields: [leadWorkspaceId, leadId], references: [workspaceId, id], onDelete: SetNull, map: "PurchaseReview_leadId_fkey")
-  conversionEventLog ConversionEventLog?               @relation(fields: [conversionEventLogId], references: [id], onDelete: SetNull)
-  decidedBy          User?                             @relation("PurchaseReviewDecisionActor", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  workspace          Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  providerRule       ProviderConversionRuleConfig     @relation(fields: [workspaceId, providerRuleId], references: [workspaceId, id], onDelete: Restrict, map: "PurchaseReview_providerRuleId_fkey")
+  sourceDelivery     InboundWebhookDelivery           @relation(fields: [workspaceId, sourceDeliveryId], references: [workspaceId, id], onDelete: Restrict, map: "PurchaseReview_sourceDeliveryId_fkey")
+  channel            InboundWebhookChannel?           @relation(fields: [channelWorkspaceId, channelId], references: [workspaceId, id], onDelete: SetNull, map: "PurchaseReview_channelId_fkey")
+  providerExecution  ProviderConversionRuleExecution? @relation(fields: [providerExecutionWorkspaceId, providerExecutionId], references: [workspaceId, id], onDelete: SetNull, map: "PurchaseReview_providerExecutionId_fkey")
+  providerDecision   ProviderConversionDecisionAudit? @relation(fields: [providerDecisionWorkspaceId, providerDecisionId], references: [workspaceId, id], onDelete: SetNull, map: "PurchaseReview_providerDecisionId_fkey")
+  lead               Lead?                            @relation(fields: [leadWorkspaceId, leadId], references: [workspaceId, id], onDelete: SetNull, map: "PurchaseReview_leadId_fkey")
+  conversionEventLog ConversionEventLog?              @relation(fields: [conversionEventLogId], references: [id], onDelete: SetNull)
+  decidedBy          User?                            @relation("PurchaseReviewDecisionActor", fields: [decidedByUserId], references: [id], onDelete: SetNull)
   items              PurchaseReviewItem[]
   adjustments        PurchaseValueAdjustment[]
 
   @@unique([workspaceId, id])
   @@unique([providerRuleId, externalOccurrenceKey])
   @@unique([providerExecutionWorkspaceId, providerExecutionId])
+  @@unique([providerDecisionWorkspaceId, providerDecisionId], map: "PurchaseReview_decision_key")
   @@index([workspaceId, status, occurredAt])
   @@index([workspaceId, contactIdentityHash, occurredAt])
   @@index([sourceDeliveryId])

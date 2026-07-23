@@ -10,7 +10,9 @@ import { FunnelConfigurationService } from "./funnel-configuration.service";
 import { ProviderConversionRulesService } from "./provider-conversion-rules.service";
 import { ProviderConversionObservationService } from "./provider-conversion-observation.service";
 import { ProviderConversionDecisionEngine } from "./provider-conversion-decision.engine";
+import { ProviderConversionDecisionRepository } from "./provider-conversion-decision.repository";
 import { ProviderConversionPaidLeadResolver } from "./provider-conversion-paid-lead-resolver.service";
+import { ProviderConversionTraceService } from "./provider-conversion-trace.service";
 
 @Module({
   imports: [AuthModule, PrismaModule, RuntimeModule, WorkspacesModule],
@@ -22,7 +24,9 @@ import { ProviderConversionPaidLeadResolver } from "./provider-conversion-paid-l
     ProviderConversionRulesService,
     ProviderConversionObservationService,
     ProviderConversionDecisionEngine,
+    ProviderConversionDecisionRepository,
     ProviderConversionPaidLeadResolver,
+    ProviderConversionTraceService,
   ],
   exports: [
     ConversionRulesService,
@@ -31,7 +35,9 @@ import { ProviderConversionPaidLeadResolver } from "./provider-conversion-paid-l
     ProviderConversionRulesService,
     ProviderConversionObservationService,
     ProviderConversionDecisionEngine,
+    ProviderConversionDecisionRepository,
     ProviderConversionPaidLeadResolver,
+    ProviderConversionTraceService,
   ],
 })
 export class ConversionRulesModule {}
