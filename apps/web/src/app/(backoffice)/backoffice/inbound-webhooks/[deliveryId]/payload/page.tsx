@@ -21,6 +21,7 @@ const classificationLabels: Record<
   ignored_no_ctwa: "Ignorado sem CTWA",
   ignored_outbound: "Ignorado por ser mensagem de saida",
   ignored_private: "Ignorado por ser evento privado",
+  ignored_untracked_lead: "Ignorado: fora da base paga",
   unsupported_event: "Evento nao suportado",
   invalid_payload: "Payload invalido",
 };

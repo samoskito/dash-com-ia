@@ -155,6 +155,8 @@ export class ProviderConversionObservationService {
       if (!contactIdentityHash) continue;
 
       const leadId = leadByPhoneHash.get(contactIdentityHash) ?? null;
+      if (!leadId) continue;
+
       for (const rule of rules.filter((candidate) =>
         candidate.channels.some((scope) => scope.channelId === channel.id),
       )) {

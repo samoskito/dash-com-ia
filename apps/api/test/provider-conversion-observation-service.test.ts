@@ -24,7 +24,11 @@ function outboundCatalogEvent() {
   return new UmblerV1Parser().parse(body).events[0]!;
 }
 
-function createHarness(mode: "observation" | "production") {
+function createHarness(
+  mode: "observation" | "production",
+  messageAuthorScope: "team" | "contact" | "both" = "team",
+  paidLeadExists = true,
+) {
   const activatedAt = new Date("2026-07-18T00:00:00.000Z");
   const channel = {
     id: channelId,
@@ -46,7 +50,7 @@ function createHarness(mode: "observation" | "production") {
     conversionRuleId: "conversion_rule_1",
     createdByUserId: "user_1",
     messageTriggerPhrases: ["Dados para confirmar o pedido"],
-    messageAuthorScope: "team",
+    messageAuthorScope,
     conversionRule: {
       id: "conversion_rule_1",
       workspaceId,
@@ -205,7 +209,16 @@ function createHarness(mode: "observation" | "production") {
       findMany: vi.fn(async () => [rule]),
     },
     lead: {
-      findMany: vi.fn(async () => []),
+      findMany: vi.fn(async ({ where }: any) =>
+        paidLeadExists
+          ? [
+              {
+                id: "lead_1",
+                phoneHash: where.phoneHash.in[0],
+              },
+            ]
+          : [],
+      ),
     },
     providerConversionRuleExecution: { upsert },
     purchaseReview,
@@ -346,6 +359,86 @@ describe("provider conversion observation service", () => {
     });
     expect(harness.prisma.$transaction).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    {
+      authorType: "organization_member" as const,
+      direction: "outbound" as const,
+    },
+    {
+      authorType: "bot" as const,
+      direction: "outbound" as const,
+    },
+    {
+      authorType: "contact" as const,
+      direction: "inbound" as const,
+    },
+  ])(
+    "ignores an empty purchase template sent by $authorType",
+    async ({ authorType, direction }) => {
+      const harness = createHarness("production", "both");
+      const event = outboundCatalogEvent();
+      event.message.authorType = authorType;
+      event.message.direction = direction;
+      event.message.text = [
+        "Dados para confirmar o pedido:",
+        "Tamanho:",
+        "Modelo:",
+      ].join("\n");
+
+      const result = await harness.service.observeDelivery({
+        workspaceId,
+        connectionId,
+        deliveryId: `delivery_empty_${authorType}`,
+        deliveryReceivedAt: new Date("2026-07-23T13:36:00.000Z"),
+        events: [event],
+      });
+
+      expect(result).toEqual({ executionIds: [], eligibleExecutionIds: [] });
+      expect(harness.upsert).not.toHaveBeenCalled();
+      expect(harness.purchaseReview.upsert).not.toHaveBeenCalled();
+      expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      caseName: "complete catalog order",
+      message: [
+        "Dados para confirmar o pedido:",
+        "Tamanho: 4,90",
+        "Modelo: Nacional",
+      ].join("\n"),
+    },
+    {
+      caseName: "partial catalog order",
+      message: [
+        "Dados para confirmar o pedido:",
+        "Tamanho: 4,90",
+        "Modelo:",
+      ].join("\n"),
+    },
+  ])(
+    "ignores an untracked paid lead for a $caseName",
+    async ({ message }) => {
+      const harness = createHarness("production", "both", false);
+      const event = outboundCatalogEvent();
+      event.message.text = message;
+
+      const result = await harness.service.observeDelivery({
+        workspaceId,
+        connectionId,
+        deliveryId: "delivery_untracked_lead",
+        deliveryReceivedAt: new Date("2026-07-23T13:36:00.000Z"),
+        events: [event],
+      });
+
+      expect(result).toEqual({ executionIds: [], eligibleExecutionIds: [] });
+      expect(harness.upsert).not.toHaveBeenCalled();
+      expect(harness.purchaseReview.upsert).not.toHaveBeenCalled();
+      expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+    },
+  );
 
   it("refreshes a historical execution and purchase review during manual recovery", async () => {
     const harness = createHarness("production");

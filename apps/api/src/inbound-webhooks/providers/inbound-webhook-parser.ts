@@ -6,6 +6,7 @@ export type InboundWebhookEventClassification =
   | "ignored_no_ctwa"
   | "ignored_outbound"
   | "ignored_private"
+  | "ignored_untracked_lead"
   | "unsupported_event"
   | "invalid_payload";
 

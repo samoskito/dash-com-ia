@@ -232,7 +232,7 @@ describe("structured catalog message parser", () => {
     });
   });
 
-  it("recognizes a blank template as awaiting data", () => {
+  it("ignores a blank template with no purchase data", () => {
     const result = matchStructuredCatalogMessage(
       catalog(),
       "COMPROVANTE DE ENCOMENDA\nTamanho:\nModelo:",
@@ -241,9 +241,31 @@ describe("structured catalog message parser", () => {
 
     expect(result).toMatchObject({
       matched: false,
+      reasonCode: "empty_template",
+      classification: "ignored",
+      matchedTriggerPhrase: "Comprovante de encomenda",
+    });
+    expect(result.items).toEqual([]);
+  });
+
+  it("keeps a partially filled purchase available for review", () => {
+    const result = matchStructuredCatalogMessage(
+      catalog(),
+      ["Dados para confirmar o pedido:", "Tamanho: 4,90", "Modelo:"].join("\n"),
+      { triggerPhrases: ["Dados para confirmar o pedido"] },
+    );
+
+    expect(result).toMatchObject({
+      matched: false,
       reasonCode: "awaiting_data",
       classification: "awaiting_data",
-      matchedTriggerPhrase: "Comprovante de encomenda",
+      matchedTriggerPhrase: "Dados para confirmar o pedido",
+      parsedAttributes: [
+        {
+          key: "tamanho",
+          value: "4,90",
+        },
+      ],
     });
   });
 });

@@ -361,18 +361,21 @@ export function matchStructuredCatalogMessage(
     lines,
     parsed.attributeLineIndexes,
   );
-  if (parsed.items.length === 0) {
+  const items = parsed.items.map((item, index) =>
+    parseItem(catalog, item, index + 1),
+  );
+  const hasAnyCatalogValue = items.some(
+    (item) => item.parsedAttributes.length > 0,
+  );
+  if (!hasAnyCatalogValue) {
     return emptyResult(catalog, {
-      reasonCode: "awaiting_data",
-      classification: "awaiting_data",
+      reasonCode: "empty_template",
+      classification: "ignored",
       matchedTriggerPhrase,
       observedPaymentValueCents,
     });
   }
 
-  const items = parsed.items.map((item, index) =>
-    parseItem(catalog, item, index + 1),
-  );
   const invalidItem = items.find((item) => item.reasonCode !== "matched");
   if (invalidItem) {
     const awaiting = items.every((item) =>

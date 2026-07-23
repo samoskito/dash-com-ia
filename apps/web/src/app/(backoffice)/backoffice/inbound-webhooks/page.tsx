@@ -87,6 +87,7 @@ const eventClassifications: Array<{
   { value: "ignored_no_ctwa", label: "Sem CTWA" },
   { value: "ignored_outbound", label: "Mensagem de saida" },
   { value: "ignored_private", label: "Mensagem privada" },
+  { value: "ignored_untracked_lead", label: "Fora da base paga" },
   { value: "unsupported_event", label: "Evento nao suportado" },
   { value: "invalid_payload", label: "Payload invalido" },
 ];
@@ -297,6 +298,8 @@ function classificationDescription(
       return "Mensagem enviada pela equipe; nao conta como nova conversa.";
     case "ignored_private":
       return "Evento privado preservado apenas para observacao.";
+    case "ignored_untracked_lead":
+      return "Contato nao encontrado na base paga; preservado apenas para auditoria interna.";
     case "unsupported_event":
       return "O parser ainda nao reconhece este tipo de evento.";
     case "invalid_payload":

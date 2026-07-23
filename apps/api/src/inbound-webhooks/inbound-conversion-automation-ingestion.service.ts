@@ -42,11 +42,19 @@ import {
 const publicEndpointNotFoundMessage = "Webhook nao encontrado";
 const publicPersistenceFailureMessage = "Webhook temporariamente indisponivel";
 const fallbackDedupeWindowMs = 5 * 60 * 1_000;
-const missingPaidLeadRecoveryWindowMs = 24 * 60 * 60 * 1_000;
-const missingPaidLeadReasonCodes = [
-  "automation_paid_lead_missing",
-  "provider_conversion_paid_lead_missing",
-] as const;
+const ignoredUntrackedLeadReason = "ignored_untracked_lead";
+const visibleAutomationDeliveryWhere = {
+  OR: [
+    { classification: null },
+    { classification: { not: ignoredUntrackedLeadReason } },
+  ],
+} satisfies Prisma.InboundWebhookDeliveryWhereInput;
+const visibleAutomationExecutionWhere = {
+  OR: [
+    { reasonCode: null },
+    { reasonCode: { not: ignoredUntrackedLeadReason } },
+  ],
+} satisfies Prisma.ProviderConversionRuleExecutionWhereInput;
 
 const publicEndpointInclude = {
   providerRule: {
@@ -93,7 +101,12 @@ type AutomationAuditDelivery = Prisma.InboundWebhookDeliveryGetPayload<{
 }>;
 
 type AutomationObservationStatus =
-  "observed" | "eligible" | "blocked" | "invalid_payload" | "duplicate";
+  | "observed"
+  | "eligible"
+  | "blocked"
+  | "ignored"
+  | "invalid_payload"
+  | "duplicate";
 
 type AutomationChannel = {
   id: string;
@@ -112,7 +125,7 @@ type PreparedAutomation = {
   contactIdentityHash: string;
   channel: AutomationChannel | null;
   lead: AutomationLead | null;
-  status: "observed" | "eligible" | "blocked";
+  status: "observed" | "eligible" | "blocked" | "ignored";
   reasonCode: string;
   valueCents: number | null;
   currency: string | null;
@@ -277,6 +290,7 @@ export class InboundConversionAutomationIngestionService {
       connectionId: rule.connectionId,
       providerRuleEndpointId: endpoint.id,
       purpose: "conversion_automation" as const,
+      AND: [visibleAutomationDeliveryWhere],
       payloadExpiresAt: { gt: new Date() },
     };
     const deliveryOrder = [
@@ -339,14 +353,12 @@ export class InboundConversionAutomationIngestionService {
       providerRuleId,
     );
     const now = new Date();
-    const missingPaidLeadRecoveryCutoff = new Date(
-      now.getTime() - missingPaidLeadRecoveryWindowMs,
-    );
     const scope = {
       workspaceId,
       connectionId: endpoint.providerRule.connectionId,
       providerRuleEndpointId: endpoint.id,
       purpose: "conversion_automation" as const,
+      AND: [visibleAutomationDeliveryWhere],
     };
     const [deliveries, total, grouped, recoverable] = await Promise.all([
       this.prisma.inboundWebhookDelivery.findMany({
@@ -358,25 +370,21 @@ export class InboundConversionAutomationIngestionService {
       this.prisma.inboundWebhookDelivery.count({ where: scope }),
       this.prisma.providerConversionRuleExecution.groupBy({
         by: ["status"],
-        where: { workspaceId, providerRuleId },
+        where: {
+          workspaceId,
+          providerRuleId,
+          AND: [visibleAutomationExecutionWhere],
+        },
         _count: { _all: true },
       }),
       this.prisma.providerConversionRuleExecution.count({
         where: {
           workspaceId,
           providerRuleId,
+          AND: [visibleAutomationExecutionWhere],
           status: { in: ["observed", "blocked", "failed"] },
-          OR: [
-            { reasonCode: null },
-            { reasonCode: { notIn: [...missingPaidLeadReasonCodes] } },
-            {
-              reasonCode: { in: [...missingPaidLeadReasonCodes] },
-              sourceDelivery: {
-                firstReceivedAt: { gt: missingPaidLeadRecoveryCutoff },
-              },
-            },
-          ],
           sourceDelivery: {
+            AND: [visibleAutomationDeliveryWhere],
             payloadExpiresAt: { gt: now },
             encryptedPayload: { not: null },
             payloadIv: { not: null },
@@ -632,14 +640,6 @@ export class InboundConversionAutomationIngestionService {
       delivery.encryptionKeyVersion,
     );
     const status = execution?.status ?? "invalid_payload";
-    const missingPaidLeadRecoveryExpired = Boolean(
-      execution?.reasonCode &&
-        missingPaidLeadReasonCodes.includes(
-          execution.reasonCode as (typeof missingPaidLeadReasonCodes)[number],
-        ) &&
-        delivery.firstReceivedAt.getTime() <=
-          now.getTime() - missingPaidLeadRecoveryWindowMs,
-    );
 
     return {
       deliveryId: delivery.id,
@@ -670,9 +670,7 @@ export class InboundConversionAutomationIngestionService {
       payloadAvailable,
       payloadExpiresAt: delivery.payloadExpiresAt.toISOString(),
       reprocessable:
-        payloadAvailable &&
-        !missingPaidLeadRecoveryExpired &&
-        ["observed", "blocked", "failed"].includes(status),
+        payloadAvailable && ["observed", "blocked", "failed"].includes(status),
     };
   }
 
@@ -775,6 +773,61 @@ export class InboundConversionAutomationIngestionService {
       delivery.firstReceivedAt,
     );
     const attemptedAt = new Date();
+
+    if (prepared.status === "ignored") {
+      await this.prisma.$transaction(async (transaction) => {
+        await transaction.inboundWebhookDelivery.updateMany({
+          where: {
+            id: delivery.id,
+            workspaceId,
+            connectionId: rule.connectionId,
+            providerRuleEndpointId: endpoint.id,
+            purpose: "conversion_automation",
+          },
+          data: {
+            parserVersion: UMBLER_AUTOMATION_V1_PARSER_VERSION,
+            status: "processed",
+            classification: "ignored_untracked_lead",
+            normalizedSummary: this.automationDeliverySummary(
+              prepared,
+              "ignored",
+              ignoredUntrackedLeadReason,
+              attemptedAt,
+            ),
+            parseErrorCode: null,
+            routingErrorCode: null,
+            processedAt: attemptedAt,
+          },
+        });
+        await transaction.auditLog.create({
+          data: {
+            workspaceId,
+            actorUserId,
+            actorType: "user",
+            action: "provider_conversion_automation.manual_reprocess",
+            targetType: "InboundWebhookDelivery",
+            targetId: delivery.id,
+            reason: "Explicit callback re-evaluation",
+            sourceIp: null,
+            resultStatus: "ignored",
+            afterSummary: this.toJson({
+              providerRuleId: rule.id,
+              sourceDeliveryId: delivery.id,
+              reasonCode: ignoredUntrackedLeadReason,
+            }),
+          },
+        });
+      });
+
+      return {
+        deliveryId,
+        executionId: null,
+        status: "skipped",
+        reasonCode: ignoredUntrackedLeadReason,
+        message:
+          "Callback ignorado porque o contato nao pertence aos leads pagos rastreados",
+      };
+    }
 
     if (prepared.status === "blocked") {
       const blocked = await this.prisma.$transaction(async (transaction) => {
@@ -1053,7 +1106,7 @@ export class InboundConversionAutomationIngestionService {
 
   private automationDeliverySummary(
     prepared: PreparedAutomation,
-    status: "eligible" | "blocked",
+    status: "eligible" | "blocked" | "ignored",
     reasonCode: string,
     attemptedAt: Date,
   ): Prisma.InputJsonValue {
@@ -1290,7 +1343,10 @@ export class InboundConversionAutomationIngestionService {
     channel: AutomationChannel | null;
     lead: AutomationLead | null;
     receivedAt: Date;
-  }): { status: "observed" | "eligible" | "blocked"; reasonCode: string } {
+  }): {
+    status: "observed" | "eligible" | "blocked" | "ignored";
+    reasonCode: string;
+  } {
     const rule = input.endpoint.providerRule;
     const config = parseInboundWebhooksConfig(this.env);
 
@@ -1301,7 +1357,7 @@ export class InboundConversionAutomationIngestionService {
       return { status: "blocked", reasonCode: "automation_channel_unresolved" };
     }
     if (!input.lead?.adId || !input.lead.ctwaClid) {
-      return { status: "blocked", reasonCode: "automation_paid_lead_missing" };
+      return { status: "ignored", reasonCode: ignoredUntrackedLeadReason };
     }
     if (
       input.parsed.eventName === "Purchase" &&
@@ -1396,9 +1452,13 @@ export class InboundConversionAutomationIngestionService {
           providerRuleEndpointId: input.endpoint.id,
           status: prepared ? "processed" : "failed",
           classification: prepared
-            ? prepared.channel && prepared.lead?.adId && prepared.lead.ctwaClid
-              ? "eligible_route_resolved"
-              : "eligible_route_unresolved"
+            ? prepared.status === "ignored"
+              ? "ignored_untracked_lead"
+              : prepared.channel &&
+                  prepared.lead?.adId &&
+                  prepared.lead.ctwaClid
+                ? "eligible_route_resolved"
+                : "eligible_route_unresolved"
             : "invalid_payload",
           firstReceivedAt: input.receivedAt,
           lastReceivedAt: input.receivedAt,
@@ -1437,7 +1497,7 @@ export class InboundConversionAutomationIngestionService {
       });
 
       let execution: { id: string; status: string } | null = null;
-      if (prepared) {
+      if (prepared && prepared.status !== "ignored") {
         execution = await transaction.providerConversionRuleExecution.upsert({
           where: {
             providerRuleId_externalExecutionKey: {
@@ -1525,7 +1585,9 @@ export class InboundConversionAutomationIngestionService {
 
       return {
         observationStatus: prepared
-          ? (execution!.status as "observed" | "eligible" | "blocked")
+          ? prepared.status === "ignored"
+            ? "ignored"
+            : (execution!.status as "observed" | "eligible" | "blocked")
           : "invalid_payload",
         executionId: execution?.id ?? null,
       };

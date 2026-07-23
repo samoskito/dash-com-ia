@@ -17,6 +17,16 @@ import { PrismaService } from "../common/prisma/prisma.service";
 import { dateRangeInTimezone } from "../external-data/external-event-policy";
 
 const purchaseReviewTimezone = "America/Sao_Paulo";
+const hiddenReviewReasonCodes = [
+  "empty_template_ignored",
+  "ignored_untracked_lead",
+] as const;
+const visibleReviewReasonWhere = {
+  OR: [
+    { reasonCode: null },
+    { reasonCode: { notIn: [...hiddenReviewReasonCodes] } },
+  ],
+} satisfies Prisma.PurchaseReviewWhereInput;
 
 const actionableStatuses = [
   "recognized",
@@ -73,6 +83,7 @@ export class PurchaseReviewsService {
           : {};
     const where: Prisma.PurchaseReviewWhereInput = {
       workspaceId,
+      AND: [visibleReviewReasonWhere],
       ...statusWhere,
       ...(query.providerRuleId ? { providerRuleId: query.providerRuleId } : {}),
       ...(query.channelId ? { channelId: query.channelId } : {}),
@@ -91,6 +102,7 @@ export class PurchaseReviewsService {
       this.prisma.purchaseReview.count({
         where: {
           workspaceId,
+          AND: [visibleReviewReasonWhere],
           status: { in: [...actionableStatuses] },
         },
       }),

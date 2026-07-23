@@ -54,13 +54,13 @@ changes.
 
 ### Tasks
 
-- [ ] Review the existing diff against the approved empty-template invariant.
-- [ ] Add the unknown paid-lead ignore invariant to the same behavior matrix.
-- [ ] Confirm ignored rows never create `PurchaseReview` or
+- [x] Review the existing diff against the approved empty-template invariant.
+- [x] Add the unknown paid-lead ignore invariant to the same behavior matrix.
+- [x] Confirm ignored rows never create `PurchaseReview` or
       `ConversionEventLog`.
-- [ ] Confirm existing sent events are untouched by the migration.
-- [ ] Run focused tests, full API tests and API/web/shared builds.
-- [ ] Commit the safety baseline separately from the architecture waves.
+- [x] Confirm existing sent events are untouched by the migration.
+- [x] Run focused tests, full API tests and API/web/shared builds.
+- [x] Commit the safety baseline separately from the architecture waves.
 
 ### Verification
 

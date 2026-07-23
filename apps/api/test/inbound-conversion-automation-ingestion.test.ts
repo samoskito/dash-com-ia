@@ -169,6 +169,29 @@ function createHarness(options?: {
             : null,
       })),
   });
+  const matchesNullableNotFilter = (
+    record: Record<string, any>,
+    where: Record<string, any> | undefined,
+    field: "classification" | "reasonCode",
+  ): boolean => {
+    if (!where) return true;
+    if (where.AND) {
+      return where.AND.every((part: Record<string, any>) =>
+        matchesNullableNotFilter(record, part, field),
+      );
+    }
+    if (where.OR) {
+      return where.OR.some((part: Record<string, any>) =>
+        matchesNullableNotFilter(record, part, field),
+      );
+    }
+    if (!(field in where)) return true;
+
+    const expected = where[field];
+    if (expected === null) return record[field] == null;
+    if (expected?.not) return record[field] !== expected.not;
+    return record[field] === expected;
+  };
   const deliveryMatchesScope = (
     delivery: Record<string, any>,
     where: Record<string, any>,
@@ -178,7 +201,8 @@ function createHarness(options?: {
     (!where.connectionId || delivery.connectionId === where.connectionId) &&
     (!where.providerRuleEndpointId ||
       delivery.providerRuleEndpointId === where.providerRuleEndpointId) &&
-    (!where.purpose || delivery.purpose === where.purpose);
+    (!where.purpose || delivery.purpose === where.purpose) &&
+    matchesNullableNotFilter(delivery, where, "classification");
 
   const providerConversionRuleEndpoint = {
     findUnique: vi.fn(async ({ where }) =>
@@ -345,7 +369,8 @@ function createHarness(options?: {
       for (const execution of executions.values()) {
         if (
           execution.workspaceId !== where.workspaceId ||
-          execution.providerRuleId !== where.providerRuleId
+          execution.providerRuleId !== where.providerRuleId ||
+          !matchesNullableNotFilter(execution, where, "reasonCode")
         ) {
           continue;
         }
@@ -362,6 +387,7 @@ function createHarness(options?: {
           if (
             execution.workspaceId !== where.workspaceId ||
             execution.providerRuleId !== where.providerRuleId ||
+            !matchesNullableNotFilter(execution, where, "reasonCode") ||
             !where.status.in.includes(execution.status)
           ) {
             return false;
@@ -369,17 +395,13 @@ function createHarness(options?: {
           const delivery = [...deliveries.values()].find(
             (candidate) => candidate.id === execution.sourceDeliveryId,
           );
-          const missingLeadCutoff = where.OR?.find(
-            (condition: Record<string, any>) =>
-              condition.sourceDelivery?.firstReceivedAt?.gt,
-          )?.sourceDelivery.firstReceivedAt.gt as Date | undefined;
           if (
-            missingLeadCutoff &&
-            [
-              "automation_paid_lead_missing",
-              "provider_conversion_paid_lead_missing",
-            ].includes(execution.reasonCode) &&
-            delivery?.firstReceivedAt <= missingLeadCutoff
+            delivery &&
+            !matchesNullableNotFilter(
+              delivery,
+              where.sourceDelivery,
+              "classification",
+            )
           ) {
             return false;
           }
@@ -646,7 +668,7 @@ describe("inbound conversion automation ingestion", () => {
     ).toHaveBeenCalledTimes(1);
   });
 
-  it("reprocesses an older observed callback when a newer callback is blocked", async () => {
+  it("reprocesses an older observed callback when a newer untracked callback is ignored", async () => {
     const harness = createHarness();
     const observed = await harness.service.ingest(
       input(Buffer.from(JSON.stringify(automationPayload()))),
@@ -669,13 +691,13 @@ describe("inbound conversion automation ingestion", () => {
     harness.prisma.lead.findFirst.mockResolvedValueOnce(null);
     const newerPayload = automationPayload();
     newerPayload.conversation.id = "conversation_2";
-    const blocked = await harness.service.ingest(
+    const ignored = await harness.service.ingest(
       input(Buffer.from(JSON.stringify(newerPayload))),
     );
-    const blockedDelivery = [...harness.deliveries.values()].find(
-      (delivery) => delivery.id === blocked.deliveryId,
+    const ignoredDelivery = [...harness.deliveries.values()].find(
+      (delivery) => delivery.id === ignored.deliveryId,
     )!;
-    blockedDelivery.lastReceivedAt = new Date("2026-07-22T16:37:00.000Z");
+    ignoredDelivery.lastReceivedAt = new Date("2026-07-22T16:37:00.000Z");
 
     const result = await harness.service.reprocessLatestObserved(
       "workspace_safe",
@@ -683,7 +705,7 @@ describe("inbound conversion automation ingestion", () => {
       "manager_1",
     );
 
-    expect(blocked.observationStatus).toBe("blocked");
+    expect(ignored.observationStatus).toBe("ignored");
     expect(result.sourceDeliveryId).toBe(observed.deliveryId);
     expect(
       [...harness.executions.values()].find(
@@ -852,29 +874,105 @@ describe("inbound conversion automation ingestion", () => {
     );
   });
 
-  it("moves a missing-paid-lead callback out of the recoverable queue after 24 hours", async () => {
-    const harness = createHarness({ paidLeadResolved: false });
+  it.each([
+    {
+      eventName: "QualifiedLead" as const,
+      payload: automationPayload("lead_qualificado"),
+    },
+    {
+      eventName: "Purchase" as const,
+      payload: automationPayload("compra_aprovada"),
+    },
+  ])(
+    "keeps an untracked $eventName callback only in the internal raw delivery audit",
+    async ({ eventName, payload }) => {
+      const harness = createHarness({
+        eventName,
+        paidLeadResolved: false,
+        production: true,
+      });
+      const callback = await harness.service.ingest(
+        input(Buffer.from(JSON.stringify(payload))),
+      );
+      const audit = await harness.service.listAutomationCallbacks(
+        "workspace_safe",
+        "provider_rule_1",
+      );
+      const replay = await harness.service.reprocessSelectedCallbacks(
+        "workspace_safe",
+        "provider_rule_1",
+        [callback.deliveryId],
+        "manager_1",
+      );
+
+      expect(callback).toMatchObject({
+        duplicate: false,
+        observationStatus: "ignored",
+      });
+      expect(replay).toMatchObject({
+        requested: 1,
+        queued: 0,
+        blocked: 0,
+        skipped: 1,
+        items: [
+          expect.objectContaining({
+            deliveryId: callback.deliveryId,
+            executionId: null,
+            status: "skipped",
+            reasonCode: "ignored_untracked_lead",
+          }),
+        ],
+      });
+      expect(harness.executions.size).toBe(0);
+      expect(harness.purchaseReviews.size).toBe(0);
+      expect(
+        harness.productionQueue.enqueueProviderConversion,
+      ).not.toHaveBeenCalled();
+      expect([...harness.deliveries.values()][0]).toMatchObject({
+        status: "processed",
+        classification: "ignored_untracked_lead",
+        routingErrorCode: null,
+        normalizedSummary: expect.objectContaining({
+          executionStatus: "ignored",
+          reasonCode: "ignored_untracked_lead",
+          paidLeadResolved: false,
+        }),
+      });
+      expect(audit.summary).toMatchObject({
+        total: 0,
+        blocked: 0,
+        recoverable: 0,
+      });
+      expect(audit.items).toEqual([]);
+    },
+  );
+
+  it("excludes migrated untracked executions from customer audit counters", async () => {
+    const harness = createHarness();
     const callback = await harness.service.ingest(
       input(Buffer.from(JSON.stringify(automationPayload()))),
     );
+    const execution = [...harness.executions.values()].find(
+      (candidate) => candidate.sourceDeliveryId === callback.deliveryId,
+    )!;
     const delivery = [...harness.deliveries.values()].find(
       (candidate) => candidate.id === callback.deliveryId,
     )!;
-    delivery.firstReceivedAt = new Date(Date.now() - 25 * 60 * 60 * 1_000);
-    delivery.lastReceivedAt = delivery.firstReceivedAt;
-    delivery.payloadExpiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1_000);
+    execution.status = "blocked";
+    execution.reasonCode = "ignored_untracked_lead";
+    delivery.classification = "ignored_untracked_lead";
 
     const audit = await harness.service.listAutomationCallbacks(
       "workspace_safe",
       "provider_rule_1",
     );
 
-    expect(audit.summary).toMatchObject({ blocked: 1, recoverable: 0 });
-    expect(audit.items[0]).toMatchObject({
-      status: "blocked",
-      reasonCode: "automation_paid_lead_missing",
-      reprocessable: false,
+    expect(audit.summary).toMatchObject({
+      total: 0,
+      blocked: 0,
+      recoverable: 0,
     });
+    expect(audit.items).toEqual([]);
   });
 
   it("stores an invalid contract for audit without creating an execution", async () => {

@@ -29,13 +29,20 @@ describe("purchase reviews service", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           workspaceId: "workspace_1",
+          AND: [
+            {
+              OR: [
+                { reasonCode: null },
+                {
+                  reasonCode: {
+                    notIn: ["empty_template_ignored", "ignored_untracked_lead"],
+                  },
+                },
+              ],
+            },
+          ],
           status: {
-            in: [
-              "recognized",
-              "awaiting_data",
-              "review_required",
-              "failed",
-            ],
+            in: ["recognized", "awaiting_data", "review_required", "failed"],
           },
         }),
       }),
@@ -54,6 +61,18 @@ describe("purchase reviews service", () => {
     expect(purchaseReview.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
+          AND: [
+            {
+              OR: [
+                { reasonCode: null },
+                {
+                  reasonCode: {
+                    notIn: ["empty_template_ignored", "ignored_untracked_lead"],
+                  },
+                },
+              ],
+            },
+          ],
           status: {
             in: [
               "approved",

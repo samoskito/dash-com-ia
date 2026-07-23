@@ -311,6 +311,7 @@ export const structuredCatalogMatchReasonCodes = [
   "rule_inactive",
   "catalog_inactive",
   "trigger_missing",
+  "empty_template",
   "awaiting_data",
   "missing_attribute",
   "incomplete_item",
