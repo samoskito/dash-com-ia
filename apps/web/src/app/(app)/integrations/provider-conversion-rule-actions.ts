@@ -260,6 +260,7 @@ export async function loadProviderConversionPurchaseAuditAction(
       providerRuleId: ruleId,
       page: "1",
       pageSize: "50",
+      view: "all",
     });
     const response = await serverApiFetch<unknown>(
       `/purchase-reviews?${query.toString()}`,

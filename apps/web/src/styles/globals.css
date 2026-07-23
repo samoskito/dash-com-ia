@@ -5167,7 +5167,7 @@ button.meta-budget-control:focus-visible {
 
 .purchase-review-filter-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(135px, 190px)) auto;
+  grid-template-columns: minmax(180px, 1fr) repeat(5, minmax(125px, 175px)) auto;
   align-items: end;
   gap: 12px;
 }

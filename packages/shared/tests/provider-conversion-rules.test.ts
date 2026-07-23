@@ -8,6 +8,7 @@ import {
   providerConversionAutomationReprocessBatchResultSchema,
   providerConversionRuleAdaptInputSchema,
   providerConversionRuleCreateInputSchema,
+  purchaseReviewListQuerySchema,
   structuredCatalogTestMessageInputSchema,
   structuredCatalogTestMessageResultSchema,
 } from "../src";
@@ -43,6 +44,17 @@ const trampolineCatalog = {
 };
 
 describe("provider conversion rule contracts", () => {
+  it("defaults purchase review lists to the actionable queue", () => {
+    expect(purchaseReviewListQuerySchema.parse({})).toMatchObject({
+      view: "actionable",
+      page: 1,
+      pageSize: 25,
+    });
+    expect(
+      purchaseReviewListQuerySchema.parse({ view: "history" }).view,
+    ).toBe("history");
+  });
+
   it("accepts only an observation-safe channel scope when adapting a legacy rule", () => {
     const parsed = providerConversionRuleAdaptInputSchema.parse({
       connectionId: "connection_1",

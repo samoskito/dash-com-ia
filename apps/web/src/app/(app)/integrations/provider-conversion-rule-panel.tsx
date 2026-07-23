@@ -1214,6 +1214,11 @@ function AutomationCallbackAudit({
                 lote atual, atualize a auditoria para selecionar os proximos.
               </p>
             ) : null}
+            <p className="action-note">
+              Callbacks sem lead pago ficam recuperaveis por 24 horas. Depois
+              permanecem apenas em Bloqueados ou Todos para consulta do
+              historico.
+            </p>
           </>
         ) : null}
       </div>

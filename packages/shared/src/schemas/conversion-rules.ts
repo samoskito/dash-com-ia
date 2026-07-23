@@ -516,6 +516,13 @@ export const purchaseReviewStatuses = [
 ] as const;
 export const purchaseReviewStatusSchema = z.enum(purchaseReviewStatuses);
 
+export const purchaseReviewViews = [
+  "actionable",
+  "history",
+  "all",
+] as const;
+export const purchaseReviewViewSchema = z.enum(purchaseReviewViews);
+
 export const purchaseReviewSourceTypes = [
   "provider_message",
   "provider_automation",
@@ -564,6 +571,7 @@ export const purchaseReviewSchema = z.object({
 });
 
 export const purchaseReviewListQuerySchema = z.object({
+  view: purchaseReviewViewSchema.default("actionable"),
   status: purchaseReviewStatusSchema.optional(),
   providerRuleId: idSchema.optional(),
   channelId: idSchema.optional(),
@@ -701,6 +709,7 @@ export type StructuredCatalogParsedItemDto = z.infer<
 export type PurchaseReviewStatusDto = z.infer<
   typeof purchaseReviewStatusSchema
 >;
+export type PurchaseReviewViewDto = z.infer<typeof purchaseReviewViewSchema>;
 export type PurchaseReviewDto = z.infer<typeof purchaseReviewSchema>;
 export type PurchaseReviewListQueryDto = z.infer<
   typeof purchaseReviewListQuerySchema

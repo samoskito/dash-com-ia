@@ -42,6 +42,11 @@ import {
 const publicEndpointNotFoundMessage = "Webhook nao encontrado";
 const publicPersistenceFailureMessage = "Webhook temporariamente indisponivel";
 const fallbackDedupeWindowMs = 5 * 60 * 1_000;
+const missingPaidLeadRecoveryWindowMs = 24 * 60 * 60 * 1_000;
+const missingPaidLeadReasonCodes = [
+  "automation_paid_lead_missing",
+  "provider_conversion_paid_lead_missing",
+] as const;
 
 const publicEndpointInclude = {
   providerRule: {
@@ -334,6 +339,9 @@ export class InboundConversionAutomationIngestionService {
       providerRuleId,
     );
     const now = new Date();
+    const missingPaidLeadRecoveryCutoff = new Date(
+      now.getTime() - missingPaidLeadRecoveryWindowMs,
+    );
     const scope = {
       workspaceId,
       connectionId: endpoint.providerRule.connectionId,
@@ -358,6 +366,16 @@ export class InboundConversionAutomationIngestionService {
           workspaceId,
           providerRuleId,
           status: { in: ["observed", "blocked", "failed"] },
+          OR: [
+            { reasonCode: null },
+            { reasonCode: { notIn: [...missingPaidLeadReasonCodes] } },
+            {
+              reasonCode: { in: [...missingPaidLeadReasonCodes] },
+              sourceDelivery: {
+                firstReceivedAt: { gt: missingPaidLeadRecoveryCutoff },
+              },
+            },
+          ],
           sourceDelivery: {
             payloadExpiresAt: { gt: now },
             encryptedPayload: { not: null },
@@ -614,6 +632,14 @@ export class InboundConversionAutomationIngestionService {
       delivery.encryptionKeyVersion,
     );
     const status = execution?.status ?? "invalid_payload";
+    const missingPaidLeadRecoveryExpired = Boolean(
+      execution?.reasonCode &&
+        missingPaidLeadReasonCodes.includes(
+          execution.reasonCode as (typeof missingPaidLeadReasonCodes)[number],
+        ) &&
+        delivery.firstReceivedAt.getTime() <=
+          now.getTime() - missingPaidLeadRecoveryWindowMs,
+    );
 
     return {
       deliveryId: delivery.id,
@@ -644,7 +670,9 @@ export class InboundConversionAutomationIngestionService {
       payloadAvailable,
       payloadExpiresAt: delivery.payloadExpiresAt.toISOString(),
       reprocessable:
-        payloadAvailable && ["observed", "blocked", "failed"].includes(status),
+        payloadAvailable &&
+        !missingPaidLeadRecoveryExpired &&
+        ["observed", "blocked", "failed"].includes(status),
     };
   }
 

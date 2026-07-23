@@ -25,6 +25,14 @@ const actionableStatuses = [
   "failed",
 ] as const;
 
+const historyStatuses = [
+  "approved",
+  "sent",
+  "duplicate",
+  "rejected",
+  "corrected_after_send",
+] as const;
+
 const reviewInclude = {
   providerRule: {
     include: {
@@ -56,9 +64,16 @@ export class PurchaseReviewsService {
     workspaceId: string,
     query: PurchaseReviewListQueryDto,
   ): Promise<PurchaseReviewListDto> {
+    const statusWhere: Prisma.PurchaseReviewWhereInput = query.status
+      ? { status: query.status }
+      : query.view === "actionable"
+        ? { status: { in: [...actionableStatuses] } }
+        : query.view === "history"
+          ? { status: { in: [...historyStatuses] } }
+          : {};
     const where: Prisma.PurchaseReviewWhereInput = {
       workspaceId,
-      ...(query.status ? { status: query.status } : {}),
+      ...statusWhere,
       ...(query.providerRuleId ? { providerRuleId: query.providerRuleId } : {}),
       ...(query.channelId ? { channelId: query.channelId } : {}),
       ...this.dateWhere(query.since, query.until),

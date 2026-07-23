@@ -369,6 +369,20 @@ function createHarness(options?: {
           const delivery = [...deliveries.values()].find(
             (candidate) => candidate.id === execution.sourceDeliveryId,
           );
+          const missingLeadCutoff = where.OR?.find(
+            (condition: Record<string, any>) =>
+              condition.sourceDelivery?.firstReceivedAt?.gt,
+          )?.sourceDelivery.firstReceivedAt.gt as Date | undefined;
+          if (
+            missingLeadCutoff &&
+            [
+              "automation_paid_lead_missing",
+              "provider_conversion_paid_lead_missing",
+            ].includes(execution.reasonCode) &&
+            delivery?.firstReceivedAt <= missingLeadCutoff
+          ) {
+            return false;
+          }
           return Boolean(
             delivery &&
             delivery.payloadExpiresAt > new Date() &&
@@ -836,6 +850,31 @@ describe("inbound conversion automation ingestion", () => {
         attemptKey: expect.stringMatching(/^manual-\d+$/u),
       },
     );
+  });
+
+  it("moves a missing-paid-lead callback out of the recoverable queue after 24 hours", async () => {
+    const harness = createHarness({ paidLeadResolved: false });
+    const callback = await harness.service.ingest(
+      input(Buffer.from(JSON.stringify(automationPayload()))),
+    );
+    const delivery = [...harness.deliveries.values()].find(
+      (candidate) => candidate.id === callback.deliveryId,
+    )!;
+    delivery.firstReceivedAt = new Date(Date.now() - 25 * 60 * 60 * 1_000);
+    delivery.lastReceivedAt = delivery.firstReceivedAt;
+    delivery.payloadExpiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1_000);
+
+    const audit = await harness.service.listAutomationCallbacks(
+      "workspace_safe",
+      "provider_rule_1",
+    );
+
+    expect(audit.summary).toMatchObject({ blocked: 1, recoverable: 0 });
+    expect(audit.items[0]).toMatchObject({
+      status: "blocked",
+      reasonCode: "automation_paid_lead_missing",
+      reprocessable: false,
+    });
   });
 
   it("stores an invalid contract for audit without creating an execution", async () => {

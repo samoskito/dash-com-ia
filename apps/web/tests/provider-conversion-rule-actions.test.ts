@@ -339,7 +339,7 @@ describe("provider conversion rule server actions", () => {
     );
 
     expect(serverApiFetch).toHaveBeenCalledWith(
-      "/purchase-reviews?providerRuleId=provider_rule_1&page=1&pageSize=50",
+      "/purchase-reviews?providerRuleId=provider_rule_1&page=1&pageSize=50&view=all",
     );
     expect(result.purchaseAudit?.pagination.totalItems).toBe(1);
     expect(revalidatePath).not.toHaveBeenCalled();

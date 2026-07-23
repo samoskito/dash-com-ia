@@ -3,6 +3,7 @@ import type {
   ProviderConversionRuleDto,
   PurchaseReviewListDto,
   PurchaseReviewStatusDto,
+  PurchaseReviewViewDto,
 } from "@wpptrack/shared";
 import { Filter, ShoppingCart } from "lucide-react";
 import Link from "next/link";
@@ -13,6 +14,12 @@ type SearchParams = Record<string, string | string[] | undefined>;
 
 function param(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function purchaseReviewView(
+  value: string | undefined,
+): PurchaseReviewViewDto {
+  return value === "history" || value === "all" ? value : "actionable";
 }
 
 function period() {
@@ -46,6 +53,7 @@ export default async function PurchaseReviewsPage({
   const since = param(params.since) ?? defaults.since;
   const until = param(params.until) ?? defaults.until;
   const status = param(params.status) as PurchaseReviewStatusDto | undefined;
+  const view = purchaseReviewView(param(params.view));
   const providerRuleId = param(params.providerRuleId);
   const page = Math.max(1, Number(param(params.page)) || 1);
   const query = new URLSearchParams({
@@ -53,6 +61,7 @@ export default async function PurchaseReviewsPage({
     until,
     page: String(page),
     pageSize: "25",
+    view,
   });
   if (status) query.set("status", status);
   if (providerRuleId) query.set("providerRuleId", providerRuleId);
@@ -130,6 +139,18 @@ export default async function PurchaseReviewsPage({
             <input defaultValue={until} name="until" type="date" />
           </label>
           <label className="filter-field">
+            <span>Visualizacao</span>
+            <select
+              className="filter-control"
+              defaultValue={view}
+              name="view"
+            >
+              <option value="actionable">Pendencias</option>
+              <option value="history">Historico concluido</option>
+              <option value="all">Todas</option>
+            </select>
+          </label>
+          <label className="filter-field">
             <span>Estado</span>
             <select
               className="filter-control"
@@ -143,6 +164,8 @@ export default async function PurchaseReviewsPage({
               <option value="approved">Na fila</option>
               <option value="sent">Enviadas</option>
               <option value="failed">Falhas</option>
+              <option value="duplicate">Duplicadas</option>
+              <option value="rejected">Rejeitadas</option>
               <option value="corrected_after_send">Corrigidas no painel</option>
             </select>
           </label>
