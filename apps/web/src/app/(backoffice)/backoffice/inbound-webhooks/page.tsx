@@ -34,6 +34,8 @@ type DeliveryFilters = {
   connectionId?: string;
   provider?: string;
   purpose?: InboundWebhookDeliveryPurposeDto;
+  receivedFrom?: string;
+  receivedUntil?: string;
   status?: string;
   workspaceId?: string;
 };
@@ -118,6 +120,14 @@ function deliveryScopeParams(filters: DeliveryFilters): URLSearchParams {
 
   if (filters.purpose) {
     params.set("purpose", filters.purpose);
+  }
+
+  if (filters.receivedFrom) {
+    params.set("receivedFrom", filters.receivedFrom);
+  }
+
+  if (filters.receivedUntil) {
+    params.set("receivedUntil", filters.receivedUntil);
   }
 
   return params;
@@ -396,6 +406,8 @@ export default async function InboundWebhookDeliveriesPage({
     provider: asStringParam(resolvedSearchParams.provider),
     purpose: asStringParam(resolvedSearchParams.purpose) as
       InboundWebhookDeliveryPurposeDto | undefined,
+    receivedFrom: asStringParam(resolvedSearchParams.receivedFrom),
+    receivedUntil: asStringParam(resolvedSearchParams.receivedUntil),
     status: asStringParam(resolvedSearchParams.status),
     classification: asStringParam(resolvedSearchParams.classification),
   };
@@ -448,6 +460,8 @@ export default async function InboundWebhookDeliveriesPage({
   const quickFilter = activeQuickFilter(filters);
   const hasAdvancedFilters = Boolean(
     filters.provider ||
+    filters.receivedFrom ||
+    filters.receivedUntil ||
     filters.purpose === "message_observation" ||
     quickFilter === null,
   );
@@ -575,6 +589,20 @@ export default async function InboundWebhookDeliveriesPage({
             action="/backoffice/inbound-webhooks"
             className="inbound-scope-form"
           >
+            {filters.receivedFrom ? (
+              <input
+                type="hidden"
+                name="receivedFrom"
+                value={filters.receivedFrom}
+              />
+            ) : null}
+            {filters.receivedUntil ? (
+              <input
+                type="hidden"
+                name="receivedUntil"
+                value={filters.receivedUntil}
+              />
+            ) : null}
             <label>
               <span>
                 <Building2 aria-hidden="true" size={15} strokeWidth={2} />
@@ -737,6 +765,25 @@ export default async function InboundWebhookDeliveriesPage({
             <input type="hidden" name="channelId" value={filters.channelId} />
           ) : null}
           <label className="filter-field">
+            <span>Recebido a partir de</span>
+            <input
+              type="datetime-local"
+              name="receivedFrom"
+              defaultValue={filters.receivedFrom ?? ""}
+              step="60"
+            />
+          </label>
+          <label className="filter-field">
+            <span>Recebido ate</span>
+            <input
+              type="datetime-local"
+              name="receivedUntil"
+              defaultValue={filters.receivedUntil ?? ""}
+              step="60"
+              title="O minuto selecionado e incluido por completo"
+            />
+          </label>
+          <label className="filter-field">
             <span>Plataforma</span>
             <select name="provider" defaultValue={filters.provider ?? ""}>
               <option value="">Todas</option>
@@ -894,32 +941,35 @@ export default async function InboundWebhookDeliveriesPage({
                     </a>
                     {delivery.purpose === "message_observation" &&
                     delivery.status === "processed" ? (
-                      delivery.providerConversionsObservedAt ? (
-                        <span
-                          className="event-chip good"
-                          title={`Conversoes lidas em ${formatDateTime(
-                            delivery.providerConversionsObservedAt,
-                          )}`}
-                        >
-                          Conversoes lidas
-                        </span>
-                      ) : delivery.payloadAvailable ? (
-                        <BackofficeActionForm
-                          action={reprocessInboundProviderConversionsAction}
-                          className="inbound-inline-action-form"
-                        >
-                          <input
-                            name="deliveryId"
-                            type="hidden"
-                            value={delivery.id}
-                          />
-                          <InboundProviderConversionRecoveryButton />
-                        </BackofficeActionForm>
-                      ) : (
-                        <span className="event-chip warn">
-                          Payload expirado
-                        </span>
-                      )
+                      <>
+                        {delivery.providerConversionsObservedAt ? (
+                          <span
+                            className="event-chip good"
+                            title={`Conversoes lidas em ${formatDateTime(
+                              delivery.providerConversionsObservedAt,
+                            )}`}
+                          >
+                            Conversoes lidas
+                          </span>
+                        ) : null}
+                        {delivery.payloadAvailable ? (
+                          <BackofficeActionForm
+                            action={reprocessInboundProviderConversionsAction}
+                            className="inbound-inline-action-form"
+                          >
+                            <input
+                              name="deliveryId"
+                              type="hidden"
+                              value={delivery.id}
+                            />
+                            <InboundProviderConversionRecoveryButton />
+                          </BackofficeActionForm>
+                        ) : (
+                          <span className="event-chip warn">
+                            Payload expirado
+                          </span>
+                        )}
+                      </>
                     ) : null}
                     {delivery.classification === "eligible_route_resolved" ||
                     delivery.classification === "eligible_route_unresolved" ? (

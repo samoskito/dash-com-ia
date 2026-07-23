@@ -237,7 +237,11 @@ export const inboundWebhookConnectionOverviewSchema = z.object({
   counters: inboundWebhookObservationCountersSchema,
 });
 
-export const backofficeInboundWebhookDeliveryQuerySchema = z.object({
+const backofficeInboundWebhookReceivedAtSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/u);
+
+const backofficeInboundWebhookDeliveryFilterShape = {
   workspaceId: idSchema.optional(),
   connectionId: idSchema.optional(),
   channelId: idSchema.optional(),
@@ -245,18 +249,46 @@ export const backofficeInboundWebhookDeliveryQuerySchema = z.object({
   purpose: inboundWebhookDeliveryPurposeSchema.optional(),
   status: inboundWebhookDeliveryStatusSchema.optional(),
   classification: inboundWebhookEventClassificationSchema.optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  offset: z.coerce.number().int().min(0).max(100_000).default(0),
-});
+  receivedFrom: backofficeInboundWebhookReceivedAtSchema.optional(),
+  receivedUntil: backofficeInboundWebhookReceivedAtSchema.optional(),
+};
 
-export const backofficeInboundWebhookDeliverySummaryQuerySchema =
-  backofficeInboundWebhookDeliveryQuerySchema.pick({
-    workspaceId: true,
-    connectionId: true,
-    channelId: true,
-    provider: true,
-    purpose: true,
-  });
+function validateBackofficeInboundWebhookPeriod(
+  input: { receivedFrom?: string; receivedUntil?: string },
+  context: z.RefinementCtx,
+): void {
+  if (
+    input.receivedFrom &&
+    input.receivedUntil &&
+    input.receivedFrom > input.receivedUntil
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["receivedUntil"],
+      message: "O fim do periodo deve ser posterior ao inicio",
+    });
+  }
+}
+
+export const backofficeInboundWebhookDeliveryQuerySchema = z
+  .object({
+    ...backofficeInboundWebhookDeliveryFilterShape,
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).max(100_000).default(0),
+  })
+  .superRefine(validateBackofficeInboundWebhookPeriod);
+
+export const backofficeInboundWebhookDeliverySummaryQuerySchema = z
+  .object({
+    workspaceId: backofficeInboundWebhookDeliveryFilterShape.workspaceId,
+    connectionId: backofficeInboundWebhookDeliveryFilterShape.connectionId,
+    channelId: backofficeInboundWebhookDeliveryFilterShape.channelId,
+    provider: backofficeInboundWebhookDeliveryFilterShape.provider,
+    purpose: backofficeInboundWebhookDeliveryFilterShape.purpose,
+    receivedFrom: backofficeInboundWebhookDeliveryFilterShape.receivedFrom,
+    receivedUntil: backofficeInboundWebhookDeliveryFilterShape.receivedUntil,
+  })
+  .superRefine(validateBackofficeInboundWebhookPeriod);
 
 export const backofficeInboundWebhookDeliverySummarySchema = z.object({
   all: z.number().int().nonnegative(),

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   backofficeInboundWebhookDeliveryListSchema,
   backofficeInboundWebhookDeliveryQuerySchema,
+  backofficeInboundWebhookDeliverySummaryQuerySchema,
   backofficeInboundWebhookDeliverySummarySchema,
   backofficeInboundWebhookPayloadSchema,
   inboundWebhookChannelSchema,
@@ -55,6 +56,28 @@ describe("inbound webhook contracts", () => {
     expect(() =>
       backofficeInboundWebhookDeliveryQuerySchema.parse({ offset: "-1" }),
     ).toThrow();
+  });
+
+  it("accepts an exact-minute backoffice period and rejects reversed ranges", () => {
+    const period = {
+      receivedFrom: "2026-07-23T10:36",
+      receivedUntil: "2026-07-23T10:36",
+    };
+
+    expect(backofficeInboundWebhookDeliveryQuerySchema.parse(period)).toEqual({
+      ...period,
+      limit: 50,
+      offset: 0,
+    });
+    expect(
+      backofficeInboundWebhookDeliverySummaryQuerySchema.parse(period),
+    ).toEqual(period);
+    expect(() =>
+      backofficeInboundWebhookDeliveryQuerySchema.parse({
+        receivedFrom: "2026-07-23T10:37",
+        receivedUntil: "2026-07-23T10:36",
+      }),
+    ).toThrow("O fim do periodo deve ser posterior ao inicio");
   });
 
   it("accepts the registered observation providers", () => {

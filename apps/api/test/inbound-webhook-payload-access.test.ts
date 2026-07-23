@@ -175,6 +175,14 @@ function createHarness(state: PayloadState = "available") {
   const delivery = deliveryRecord(encryption, state);
   const deliveries = new Map([[delivery.id, delivery]]);
   const audits: Array<Record<string, unknown>> = [];
+  const receivedAtMatches = (
+    candidate: typeof delivery,
+    filter?: { gte?: Date; lte?: Date },
+  ) =>
+    (!filter?.gte ||
+      candidate.lastReceivedAt.getTime() >= filter.gte.getTime()) &&
+    (!filter?.lte ||
+      candidate.lastReceivedAt.getTime() <= filter.lte.getTime());
   const inboundWebhookDelivery = {
     findMany: vi.fn(async ({ where, skip = 0, take }) =>
       [...deliveries.values()]
@@ -186,6 +194,7 @@ function createHarness(state: PayloadState = "available") {
               candidate.connectionId === where.connectionId) &&
             (!where.provider || candidate.provider === where.provider) &&
             (!where.purpose || candidate.purpose === where.purpose) &&
+            receivedAtMatches(candidate, where.lastReceivedAt) &&
             (!where.status || candidate.status === where.status) &&
             (!where.classification ||
               candidate.classification === where.classification) &&
@@ -236,6 +245,23 @@ function createHarness(state: PayloadState = "available") {
       return select?.workspaceId && Object.keys(select).length === 1
         ? { workspaceId: found.workspaceId }
         : found;
+    }),
+    updateMany: vi.fn(async ({ where, data }) => {
+      let count = 0;
+
+      for (const candidate of deliveries.values()) {
+        if (
+          candidate.id === where.id &&
+          candidate.workspaceId === where.workspaceId &&
+          candidate.connectionId === where.connectionId &&
+          candidate.status === where.status
+        ) {
+          Object.assign(candidate, data);
+          count += 1;
+        }
+      }
+
+      return { count };
     }),
   };
   const inboundWebhookEvent = {
@@ -317,6 +343,20 @@ describe("inbound webhook payload access", () => {
       deliveryId: harness.delivery.id,
       connectionId: harness.delivery.connectionId,
       workspaceId: harness.delivery.workspaceId,
+      forceProviderConversions: true,
+    });
+    expect(
+      harness.prisma.inboundWebhookDelivery.updateMany,
+    ).toHaveBeenCalledWith({
+      where: {
+        id: harness.delivery.id,
+        workspaceId: harness.delivery.workspaceId,
+        connectionId: harness.delivery.connectionId,
+        status: "processed",
+      },
+      data: {
+        providerConversionsObservedAt: null,
+      },
     });
     expect(harness.prisma.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -330,14 +370,12 @@ describe("inbound webhook payload access", () => {
     });
   });
 
-  it("does not enqueue a delivery whose provider conversions were already observed", async () => {
+  it("forces a new conversion read even when the delivery was already observed", async () => {
     const harness = createHarness();
     Reflect.set(
       harness.delivery,
       "providerConversionsObservedAt",
-      new Date(
-      "2026-07-23T13:00:00.000Z",
-      ),
+      new Date("2026-07-23T13:00:00.000Z"),
     );
 
     const result = await harness.service.reprocessProviderConversions(
@@ -345,8 +383,13 @@ describe("inbound webhook payload access", () => {
       owner,
     );
 
-    expect(result.status).toBe("already_observed");
-    expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
+    expect(result.status).toBe("queued");
+    expect(harness.delivery.providerConversionsObservedAt).toBeNull();
+    expect(harness.queue.enqueueDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        forceProviderConversions: true,
+      }),
+    );
   });
 
   it("refuses conversion recovery after the retained payload expires", async () => {
@@ -390,15 +433,46 @@ describe("inbound webhook payload access", () => {
     expect(serialized).not.toContain("secretHash");
     expect(serialized).not.toContain("webhookUrl");
     expect(serialized).not.toContain("encryptedPayload");
-    expect(
-      harness.prisma.inboundWebhookDelivery.findMany,
-    ).toHaveBeenCalledWith(
+    expect(harness.prisma.inboundWebhookDelivery.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         skip: 0,
         take: 25,
       }),
     );
     expect(harness.audits).toHaveLength(0);
+  });
+
+  it("filters deliveries by the exact Sao Paulo minute", async () => {
+    const harness = createHarness();
+
+    const matching = await harness.service.listDeliveries({
+      receivedFrom: "2026-07-17T17:00",
+      receivedUntil: "2026-07-17T17:00",
+      limit: 25,
+      offset: 0,
+    });
+    const previousMinute = await harness.service.listDeliveries({
+      receivedFrom: "2026-07-17T16:59",
+      receivedUntil: "2026-07-17T16:59",
+      limit: 25,
+      offset: 0,
+    });
+
+    expect(matching).toHaveLength(1);
+    expect(previousMinute).toHaveLength(0);
+    expect(
+      harness.prisma.inboundWebhookDelivery.findMany,
+    ).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          lastReceivedAt: {
+            gte: new Date("2026-07-17T20:00:00.000Z"),
+            lte: new Date("2026-07-17T20:00:59.999Z"),
+          },
+        }),
+      }),
+    );
   });
 
   it("decrypts a valid non-expired JSON payload and audits the owner access", async () => {

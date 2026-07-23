@@ -152,7 +152,11 @@ export class InboundWebhookObservationService {
     if (terminalDeliveryStatuses.has(delivery.status)) {
       if (delivery.status === "processed") {
         await this.prepareProductionDelivery(delivery);
-        await this.prepareProviderConversions(delivery);
+        await this.prepareProviderConversions(
+          delivery,
+          undefined,
+          input.forceProviderConversions === true,
+        );
       }
 
       return this.terminalResult(delivery);
@@ -183,7 +187,11 @@ export class InboundWebhookObservationService {
       if (delivery && terminalDeliveryStatuses.has(delivery.status)) {
         if (delivery.status === "processed") {
           await this.prepareProductionDelivery(delivery);
-          await this.prepareProviderConversions(delivery);
+          await this.prepareProviderConversions(
+            delivery,
+            undefined,
+            input.forceProviderConversions === true,
+          );
         }
 
         return this.terminalResult(delivery);
@@ -264,7 +272,11 @@ export class InboundWebhookObservationService {
       delivery,
       persisted.routableChannelIds,
     );
-    await this.prepareProviderConversions(delivery, result);
+    await this.prepareProviderConversions(
+      delivery,
+      result,
+      input.forceProviderConversions === true,
+    );
 
     await this.recordDiagnostic(delivery, "processed", result);
 
@@ -792,8 +804,9 @@ export class InboundWebhookObservationService {
   private async prepareProviderConversions(
     delivery: LoadedDelivery,
     parsedResult?: InboundWebhookParserResult,
+    force = false,
   ): Promise<void> {
-    if (delivery.providerConversionsObservedAt) return;
+    if (delivery.providerConversionsObservedAt && !force) return;
 
     try {
       const parser = this.parserRegistry.resolve({
@@ -806,7 +819,7 @@ export class InboundWebhookObservationService {
 
       this.validateParserResult(result, parser);
       if (result.error || result.classification === "invalid_payload") {
-        await this.markProviderConversionsObserved(delivery);
+        await this.markProviderConversionsObserved(delivery, force);
         return;
       }
 
@@ -816,6 +829,7 @@ export class InboundWebhookObservationService {
         deliveryId: delivery.id,
         deliveryReceivedAt: delivery.firstReceivedAt,
         events: result.events,
+        manualRecovery: force,
       });
 
       for (const providerConversionExecutionId of observed.eligibleExecutionIds) {
@@ -831,10 +845,10 @@ export class InboundWebhookObservationService {
         }
       }
 
-      await this.markProviderConversionsObserved(delivery);
+      await this.markProviderConversionsObserved(delivery, force);
     } catch (error) {
       this.logger.warn(
-        `Provider conversion observation deferred for delivery ${delivery.id} (${this.safeExceptionName(error)})`,
+        `Provider conversion observation deferred for delivery ${delivery.id} (${this.safeExceptionSummary(error)})`,
       );
       throw new InboundWebhookObservationError(
         "inbound_webhook_provider_conversion_deferred",
@@ -844,6 +858,7 @@ export class InboundWebhookObservationService {
 
   private async markProviderConversionsObserved(
     delivery: LoadedDelivery,
+    force = false,
   ): Promise<void> {
     await this.prisma.inboundWebhookDelivery.updateMany({
       where: {
@@ -851,7 +866,7 @@ export class InboundWebhookObservationService {
         workspaceId: delivery.workspaceId,
         connectionId: delivery.connectionId,
         status: "processed",
-        providerConversionsObservedAt: null,
+        ...(force ? {} : { providerConversionsObservedAt: null }),
       },
       data: {
         providerConversionsObservedAt: new Date(),
@@ -865,6 +880,20 @@ export class InboundWebhookObservationService {
     return /^[A-Za-z][A-Za-z0-9]{0,79}$/u.test(error.name)
       ? error.name
       : "Error";
+  }
+
+  private safeExceptionSummary(error: unknown): string {
+    const name = this.safeExceptionName(error);
+    const code =
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      /^[A-Za-z0-9_]{1,80}$/u.test(error.code)
+        ? error.code
+        : null;
+
+    return code ? `${name}:${code}` : name;
   }
 
   private async finishFailure(

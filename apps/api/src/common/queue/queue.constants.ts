@@ -12,6 +12,7 @@ export interface InboundWebhookJobPayload {
   deliveryId: string;
   connectionId: string;
   workspaceId: string;
+  forceProviderConversions?: boolean;
 }
 
 export interface InboundWebhookReplayJobPayload {

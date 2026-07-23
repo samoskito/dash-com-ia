@@ -116,6 +116,44 @@ describe("inbound webhook queue service", () => {
     expect(currentJob?.remove).not.toHaveBeenCalled();
   });
 
+  it("uses an isolated job for explicit provider conversion recovery", async () => {
+    const queue = {
+      getJob: vi.fn(async () => undefined),
+      add: vi.fn(
+        async (
+          _name: string,
+          _payload: InboundWebhookJobPayload,
+          options: { jobId: string },
+        ) => ({ id: options.jobId }),
+      ),
+    };
+    const service = new InboundWebhookQueueService(queue as never);
+
+    await expect(
+      service.enqueueDelivery({
+        deliveryId: "delivery_1",
+        connectionId: "connection_1",
+        workspaceId: "workspace_1",
+        forceProviderConversions: true,
+      }),
+    ).resolves.toEqual({
+      jobId: "inbound-webhook-provider-conversion-recovery_delivery_1",
+      status: "queued",
+    });
+    expect(queue.add).toHaveBeenCalledWith(
+      "process-inbound-webhook",
+      {
+        deliveryId: "delivery_1",
+        connectionId: "connection_1",
+        workspaceId: "workspace_1",
+        forceProviderConversions: true,
+      },
+      expect.objectContaining({
+        jobId: "inbound-webhook-provider-conversion-recovery_delivery_1",
+      }),
+    );
+  });
+
   it("removes and recreates a failed job for recovery", async () => {
     const failedJob = {
       getState: vi.fn(async () => "failed"),

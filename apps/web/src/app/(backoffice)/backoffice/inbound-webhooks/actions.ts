@@ -2,14 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import type { BackofficeActionState } from "../../../../components/backoffice-action-form";
-import {
-  isApiRequestError,
-  serverApiFetch,
-} from "../../../../lib/server-api";
+import { isApiRequestError, serverApiFetch } from "../../../../lib/server-api";
 
 type ConversionRecoveryResult = {
   deliveryId: string;
-  status: "queued" | "existing" | "already_observed";
+  status: "queued" | "existing";
 };
 
 function actionResult(
@@ -53,11 +50,9 @@ export async function reprocessInboundProviderConversionsAction(
 
     return actionResult(
       "success",
-      result.status === "already_observed"
-        ? "As conversoes desta entrega ja foram lidas."
-        : result.status === "existing"
-          ? "A entrega ja esta aguardando reprocessamento."
-          : "Entrega encaminhada para reprocessar as conversoes.",
+      result.status === "existing"
+        ? "A entrega ja esta aguardando reprocessamento forcado."
+        : "Entrega encaminhada para reler e recuperar as conversoes.",
     );
   } catch (error) {
     const message =

@@ -307,8 +307,8 @@ function createHarness(parser?: InboundWebhookParser) {
   };
   const providerConversions = {
     observeDelivery: vi.fn(async () => ({
-      executionIds: [],
-      eligibleExecutionIds: [],
+      executionIds: [] as string[],
+      eligibleExecutionIds: [] as string[],
     })),
   };
   const productionQueue = {
@@ -806,6 +806,46 @@ describe("inbound webhook observation processor", () => {
       status: "processed",
       providerConversionsObservedAt: expect.any(Date),
     });
+  });
+
+  it("forces provider conversion recovery for an already observed delivery", async () => {
+    const harness = createHarness();
+    const observedAt = new Date("2026-07-23T13:40:00.000Z");
+    harness.addDelivery("delivery_1", loadFixture(), {
+      status: "processed",
+      classification: "eligible_route_resolved",
+      providerConversionsObservedAt: observedAt,
+    });
+    harness.providerConversions.observeDelivery.mockResolvedValueOnce({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: ["execution_1"],
+    });
+
+    await expect(
+      harness.service.processDelivery(
+        jobPayload({ forceProviderConversions: true }),
+      ),
+    ).resolves.toMatchObject({
+      status: "processed",
+      idempotent: true,
+    });
+
+    expect(harness.providerConversions.observeDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deliveryId: "delivery_1",
+        manualRecovery: true,
+      }),
+    );
+    expect(
+      harness.productionQueue.enqueueProviderConversion,
+    ).toHaveBeenCalledWith({
+      providerConversionExecutionId: "execution_1",
+      workspaceId: "workspace_1",
+    });
+    expect(harness.encryption.decrypt).toHaveBeenCalledOnce();
+    expect(
+      harness.deliveries.get("delivery_1")?.providerConversionsObservedAt,
+    ).not.toBe(observedAt);
   });
 
   it("reclaims a processing delivery after a transient database failure", async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { dateTimeRangeInTimezone } from "../src/common/date-time/timezone-range";
 import {
   buildExternalEventIdentity,
   dateRangeInTimezone,
@@ -6,50 +7,48 @@ import {
   ExternalEventIdentityError,
   shouldFilterExternalConversationWithoutCtwa,
   shouldFilterExternalLeadWithoutCtwa,
-  startOfDateInTimezone
+  startOfDateInTimezone,
 } from "../src/external-data/external-event-policy";
 
 const base = {
   connectorId: "connector_1",
   connectorProvider: "kinbox_mysql",
   leadIdentity: "phone_hash_1",
-  timezone: "America/Sao_Paulo"
+  timezone: "America/Sao_Paulo",
 };
 
 describe("external event identity policies", () => {
   it("requires CTWA only for the paid-only Kinbox external flow", () => {
     expect(shouldFilterExternalLeadWithoutCtwa("kinbox_mysql", null)).toBe(
-      true
+      true,
     );
     expect(
       shouldFilterExternalConversationWithoutCtwa(
         "kinbox_mysql",
         "conversation_started",
-        ""
-      )
+        "",
+      ),
     ).toBe(true);
     expect(
       shouldFilterExternalConversationWithoutCtwa(
         "kinbox_mysql",
         "qualified_lead",
-        null
-      )
+        null,
+      ),
     ).toBe(false);
-    expect(shouldFilterExternalLeadWithoutCtwa("direct_api", null)).toBe(
-      false
-    );
+    expect(shouldFilterExternalLeadWithoutCtwa("direct_api", null)).toBe(false);
   });
 
   it("deduplicates Kinbox purchases by lead and local calendar day", () => {
     const first = buildExternalEventIdentity({
       ...base,
       eventType: "purchase",
-      occurredAt: new Date("2026-07-11T02:30:00.000Z")
+      occurredAt: new Date("2026-07-11T02:30:00.000Z"),
     });
     const retry = buildExternalEventIdentity({
       ...base,
       eventType: "purchase",
-      occurredAt: new Date("2026-07-11T02:50:00.000Z")
+      occurredAt: new Date("2026-07-11T02:50:00.000Z"),
     });
 
     expect(first.localDate).toBe("2026-07-10");
@@ -63,12 +62,12 @@ describe("external event identity policies", () => {
     const first = buildExternalEventIdentity({
       ...base,
       eventType: "purchase",
-      occurredAt: new Date("2026-07-11T03:30:00.000Z")
+      occurredAt: new Date("2026-07-11T03:30:00.000Z"),
     });
     const nextDay = buildExternalEventIdentity({
       ...base,
       eventType: "purchase",
-      occurredAt: new Date("2026-07-12T03:30:00.000Z")
+      occurredAt: new Date("2026-07-12T03:30:00.000Z"),
     });
 
     expect(first.localDate).toBe("2026-07-11");
@@ -81,15 +80,15 @@ describe("external event identity policies", () => {
       ...base,
       connectorProvider: "commerce_provider",
       eventType: "purchase" as const,
-      occurredAt: new Date("2026-07-11T12:00:00.000Z")
+      occurredAt: new Date("2026-07-11T12:00:00.000Z"),
     };
     const first = buildExternalEventIdentity({
       ...providerBase,
-      transactionId: "order_1"
+      transactionId: "order_1",
     });
     const second = buildExternalEventIdentity({
       ...providerBase,
-      transactionId: "order_2"
+      transactionId: "order_2",
     });
 
     expect(first.localDate).toBe(second.localDate);
@@ -103,8 +102,8 @@ describe("external event identity policies", () => {
         ...base,
         connectorProvider: "commerce_provider",
         eventType: "purchase",
-        occurredAt: new Date("2026-07-11T12:00:00.000Z")
-      })
+        occurredAt: new Date("2026-07-11T12:00:00.000Z"),
+      }),
     ).toThrowError(ExternalEventIdentityError);
   });
 
@@ -114,7 +113,7 @@ describe("external event identity policies", () => {
       connectorProvider: "meta_cloud_api",
       eventType: "conversation_started",
       occurredAt: new Date("2026-07-11T12:00:00.000Z"),
-      externalEventId: "wamid.message_1"
+      externalEventId: "wamid.message_1",
     });
 
     expect(identity.policy).toBe("provider_event");
@@ -127,17 +126,14 @@ describe("external event identity policies", () => {
       ...base,
       eventType: "qualified_lead",
       occurredAt: new Date("2026-07-11T12:00:00.000Z"),
-      ctwaClid: "ctwa_click_1"
+      ctwaClid: "ctwa_click_1",
     });
 
     expect(identity.eventId).toBe("qualified_ctwa_click_1");
   });
 
   it("converts a date-only Kinbox milestone from Sao Paulo to UTC", () => {
-    const occurredAt = startOfDateInTimezone(
-      "2026-07-11",
-      "America/Sao_Paulo"
-    );
+    const occurredAt = startOfDateInTimezone("2026-07-11", "America/Sao_Paulo");
 
     expect(occurredAt.toISOString()).toBe("2026-07-11T03:00:00.000Z");
     expect(dateInTimezone(occurredAt, "America/Sao_Paulo")).toBe("2026-07-11");
@@ -147,10 +143,21 @@ describe("external event identity policies", () => {
     const range = dateRangeInTimezone(
       "2026-07-12",
       "2026-07-13",
-      "America/Sao_Paulo"
+      "America/Sao_Paulo",
     );
 
     expect(range.gte?.toISOString()).toBe("2026-07-12T03:00:00.000Z");
     expect(range.lte?.toISOString()).toBe("2026-07-14T02:59:59.999Z");
+  });
+
+  it("builds an inclusive exact-minute Sao Paulo period", () => {
+    const range = dateTimeRangeInTimezone(
+      "2026-07-23T10:36",
+      "2026-07-23T10:36",
+      "America/Sao_Paulo",
+    );
+
+    expect(range.gte?.toISOString()).toBe("2026-07-23T13:36:00.000Z");
+    expect(range.lte?.toISOString()).toBe("2026-07-23T13:36:59.999Z");
   });
 });

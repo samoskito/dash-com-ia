@@ -37,6 +37,20 @@ type ObservedRule = Prisma.ProviderConversionRuleConfigGetPayload<{
   include: typeof observedRuleInclude;
 }>;
 
+type ProviderConversionPersistenceClient = Pick<
+  Prisma.TransactionClient,
+  "providerConversionRuleExecution" | "purchaseReview" | "purchaseReviewItem"
+>;
+
+const terminalExecutionStatuses = new Set(["materialized", "duplicate"]);
+const preservedReviewStatuses = new Set([
+  "approved",
+  "sent",
+  "duplicate",
+  "rejected",
+  "corrected_after_send",
+]);
+
 export type ProviderConversionObservationResult = {
   executionIds: string[];
   eligibleExecutionIds: string[];
@@ -55,6 +69,7 @@ export class ProviderConversionObservationService {
     deliveryId: string;
     deliveryReceivedAt: Date;
     events: ParsedInboundWebhookEvent[];
+    manualRecovery?: boolean;
   }): Promise<ProviderConversionObservationResult> {
     const config = parseInboundWebhooksConfig(this.env);
     if (!config.enabled || !config.conversionRulesEnabled) {
@@ -159,67 +174,108 @@ export class ProviderConversionObservationService {
           channel,
           deliveryReceivedAt: input.deliveryReceivedAt,
           match,
+          manualRecovery: input.manualRecovery === true,
         });
-        const execution =
-          await this.prisma.providerConversionRuleExecution.upsert({
-            where: {
-              providerRuleId_externalExecutionKey: {
-                providerRuleId: rule.id,
-                externalExecutionKey: event.dedupeKey,
-              },
-            },
-            create: {
+        const normalizedResult = this.toJson({
+          matched: match.matched,
+          classification: match.classification,
+          reasonCode: match.reasonCode,
+          matchedTriggerPhrase: match.matchedTriggerPhrase,
+          items: match.items,
+          calculatedValueCents: match.calculatedValueCents,
+          observedPaymentValueCents: match.observedPaymentValueCents,
+          contentName: match.contentName,
+          currency: match.currency,
+          messageDirection: event.message.direction,
+          messageAuthorType: event.message.authorType,
+          messageType: event.message.messageType,
+        });
+        const execution = await this.prisma.$transaction(
+          async (transaction) => {
+            const existing =
+              await transaction.providerConversionRuleExecution.findUnique({
+                where: {
+                  providerRuleId_externalExecutionKey: {
+                    providerRuleId: rule.id,
+                    externalExecutionKey: event.dedupeKey,
+                  },
+                },
+                select: {
+                  id: true,
+                  status: true,
+                },
+              });
+            if (existing && terminalExecutionStatuses.has(existing.status)) {
+              return existing;
+            }
+
+            const persisted =
+              await transaction.providerConversionRuleExecution.upsert({
+                where: {
+                  providerRuleId_externalExecutionKey: {
+                    providerRuleId: rule.id,
+                    externalExecutionKey: event.dedupeKey,
+                  },
+                },
+                create: {
+                  workspaceId: input.workspaceId,
+                  providerRuleId: rule.id,
+                  sourceDeliveryId: input.deliveryId,
+                  channelWorkspaceId: input.workspaceId,
+                  channelId: channel.id,
+                  matchedCatalogVariantWorkspaceId: match.catalogVariantId
+                    ? input.workspaceId
+                    : null,
+                  matchedCatalogVariantId: match.catalogVariantId,
+                  externalExecutionKey: event.dedupeKey,
+                  occurredAt: event.occurredAt,
+                  contactIdentityHash,
+                  status: readiness.status,
+                  reasonCode: readiness.reasonCode,
+                  normalizedResult,
+                  valueCents: match.matched ? match.calculatedValueCents : null,
+                  currency: match.currency,
+                },
+                update: {
+                  sourceDeliveryId: input.deliveryId,
+                  channelWorkspaceId: input.workspaceId,
+                  channelId: channel.id,
+                  matchedCatalogVariantWorkspaceId: match.catalogVariantId
+                    ? input.workspaceId
+                    : null,
+                  matchedCatalogVariantId: match.catalogVariantId,
+                  occurredAt: event.occurredAt,
+                  contactIdentityHash,
+                  status: readiness.status,
+                  reasonCode: readiness.reasonCode,
+                  normalizedResult,
+                  valueCents: match.matched ? match.calculatedValueCents : null,
+                  currency: match.currency,
+                  processedAt: null,
+                },
+                select: {
+                  id: true,
+                  status: true,
+                },
+              });
+
+            await this.persistPurchaseReview(transaction, {
               workspaceId: input.workspaceId,
               providerRuleId: rule.id,
               sourceDeliveryId: input.deliveryId,
-              channelWorkspaceId: input.workspaceId,
               channelId: channel.id,
-              matchedCatalogVariantWorkspaceId: match.catalogVariantId
-                ? input.workspaceId
-                : null,
-              matchedCatalogVariantId: match.catalogVariantId,
-              externalExecutionKey: event.dedupeKey,
+              executionId: persisted.id,
+              externalOccurrenceKey: event.dedupeKey,
               occurredAt: event.occurredAt,
               contactIdentityHash,
-              status: readiness.status,
-              reasonCode: readiness.reasonCode,
-              normalizedResult: this.toJson({
-                matched: match.matched,
-                classification: match.classification,
-                reasonCode: match.reasonCode,
-                matchedTriggerPhrase: match.matchedTriggerPhrase,
-                items: match.items,
-                calculatedValueCents: match.calculatedValueCents,
-                observedPaymentValueCents: match.observedPaymentValueCents,
-                contentName: match.contentName,
-                currency: match.currency,
-                messageDirection: event.message.direction,
-                messageAuthorType: event.message.authorType,
-                messageType: event.message.messageType,
-              }),
-              valueCents: match.matched ? match.calculatedValueCents : null,
-              currency: match.currency,
-            },
-            update: {},
-            select: {
-              id: true,
-              status: true,
-            },
-          });
+              leadId,
+              messageAuthorType: event.message.authorType,
+              match,
+            });
 
-        await this.persistPurchaseReview({
-          workspaceId: input.workspaceId,
-          providerRuleId: rule.id,
-          sourceDeliveryId: input.deliveryId,
-          channelId: channel.id,
-          executionId: execution.id,
-          externalOccurrenceKey: event.dedupeKey,
-          occurredAt: event.occurredAt,
-          contactIdentityHash,
-          leadId,
-          messageAuthorType: event.message.authorType,
-          match,
-        });
+            return persisted;
+          },
+        );
 
         executionIds.push(execution.id);
         if (execution.status === "eligible") {
@@ -272,25 +328,41 @@ export class ProviderConversionObservationService {
     };
   }
 
-  private async persistPurchaseReview(input: {
-    workspaceId: string;
-    providerRuleId: string;
-    sourceDeliveryId: string;
-    channelId: string;
-    executionId: string;
-    externalOccurrenceKey: string;
-    occurredAt: Date;
-    contactIdentityHash: string;
-    leadId: string | null;
-    messageAuthorType: string;
-    match: StructuredCatalogTestMessageResultDto;
-  }): Promise<void> {
+  private async persistPurchaseReview(
+    client: ProviderConversionPersistenceClient,
+    input: {
+      workspaceId: string;
+      providerRuleId: string;
+      sourceDeliveryId: string;
+      channelId: string;
+      executionId: string;
+      externalOccurrenceKey: string;
+      occurredAt: Date;
+      contactIdentityHash: string;
+      leadId: string | null;
+      messageAuthorType: string;
+      match: StructuredCatalogTestMessageResultDto;
+    },
+  ): Promise<void> {
     const reviewStatus = input.match.matched
       ? "recognized"
       : input.match.classification === "awaiting_data"
         ? "awaiting_data"
         : "review_required";
-    const review = await this.prisma.purchaseReview.upsert({
+    const existing = await client.purchaseReview.findUnique({
+      where: {
+        providerRuleId_externalOccurrenceKey: {
+          providerRuleId: input.providerRuleId,
+          externalOccurrenceKey: input.externalOccurrenceKey,
+        },
+      },
+      select: { id: true, status: true },
+    });
+    if (existing && preservedReviewStatuses.has(existing.status)) {
+      return;
+    }
+
+    const review = await client.purchaseReview.upsert({
       where: {
         providerRuleId_externalOccurrenceKey: {
           providerRuleId: input.providerRuleId,
@@ -320,30 +392,60 @@ export class ProviderConversionObservationService {
         currency: input.match.currency ?? "BRL",
         leadWorkspaceId: input.leadId ? input.workspaceId : null,
         leadId: input.leadId,
-        items: {
-          create: input.match.items.map((item) => ({
-            workspaceId: input.workspaceId,
-            position: item.position,
-            catalogVariantWorkspaceId: item.catalogVariantId
-              ? input.workspaceId
-              : null,
-            catalogVariantId: item.catalogVariantId,
-            attributeValues: item.parsedAttributes.map(
-              (attribute) => attribute.value,
-            ),
-            quantity: item.quantity,
-            unitValueCents: item.unitValueCents,
-            subtotalValueCents: item.subtotalValueCents,
-            contentName: item.contentName,
-          })),
-        },
       },
-      update: {},
+      update: {
+        sourceDeliveryId: input.sourceDeliveryId,
+        channelWorkspaceId: input.workspaceId,
+        channelId: input.channelId,
+        providerExecutionWorkspaceId: input.workspaceId,
+        providerExecutionId: input.executionId,
+        occurredAt: input.occurredAt,
+        contactIdentityHash: input.contactIdentityHash,
+        messageAuthorType: input.messageAuthorType,
+        matchedTriggerPhrase: input.match.matchedTriggerPhrase,
+        status: reviewStatus,
+        classificationCode: input.match.classification,
+        reasonCode: input.match.reasonCode,
+        observedPaymentValueCents: input.match.observedPaymentValueCents,
+        calculatedValueCents: input.match.calculatedValueCents,
+        effectiveValueCents: input.match.calculatedValueCents,
+        currency: input.match.currency ?? "BRL",
+        leadWorkspaceId: input.leadId ? input.workspaceId : null,
+        leadId: input.leadId,
+        version: { increment: 1 },
+      },
       select: { id: true },
     });
 
+    await client.purchaseReviewItem.deleteMany({
+      where: {
+        workspaceId: input.workspaceId,
+        purchaseReviewId: review.id,
+      },
+    });
+    if (input.match.items.length > 0) {
+      await client.purchaseReviewItem.createMany({
+        data: input.match.items.map((item) => ({
+          workspaceId: input.workspaceId,
+          purchaseReviewId: review.id,
+          position: item.position,
+          catalogVariantWorkspaceId: item.catalogVariantId
+            ? input.workspaceId
+            : null,
+          catalogVariantId: item.catalogVariantId,
+          attributeValues: item.parsedAttributes.map(
+            (attribute) => attribute.value,
+          ),
+          quantity: item.quantity,
+          unitValueCents: item.unitValueCents,
+          subtotalValueCents: item.subtotalValueCents,
+          contentName: item.contentName,
+        })),
+      });
+    }
+
     if (reviewStatus === "recognized") {
-      await this.prisma.purchaseReview.updateMany({
+      await client.purchaseReview.updateMany({
         where: {
           id: { not: review.id },
           workspaceId: input.workspaceId,
@@ -373,6 +475,7 @@ export class ProviderConversionObservationService {
     };
     deliveryReceivedAt: Date;
     match: StructuredCatalogTestMessageResultDto;
+    manualRecovery: boolean;
   }): { status: "observed" | "eligible" | "blocked"; reasonCode: string } {
     if (!input.match.matched) {
       return { status: "blocked", reasonCode: input.match.reasonCode };
@@ -403,10 +506,14 @@ export class ProviderConversionObservationService {
     if (
       !input.rule.productionActivatedAt ||
       !input.channel.productionActivatedAt ||
-      input.deliveryReceivedAt < input.rule.productionActivatedAt ||
-      input.deliveryReceivedAt < input.channel.productionActivatedAt
+      (!input.manualRecovery &&
+        (input.deliveryReceivedAt < input.rule.productionActivatedAt ||
+          input.deliveryReceivedAt < input.channel.productionActivatedAt))
     ) {
-      return { status: "observed", reasonCode: "before_production_activation" };
+      return {
+        status: "observed",
+        reasonCode: "before_production_activation",
+      };
     }
 
     return {

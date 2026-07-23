@@ -28,7 +28,7 @@ export class ExternalEventIdentityError extends Error {
 
 export function shouldFilterExternalLeadWithoutCtwa(
   connectorProvider: string,
-  ctwaClid?: string | null
+  ctwaClid?: string | null,
 ): boolean {
   return connectorProvider === "kinbox_mysql" && !optional(ctwaClid);
 }
@@ -36,7 +36,7 @@ export function shouldFilterExternalLeadWithoutCtwa(
 export function shouldFilterExternalConversationWithoutCtwa(
   connectorProvider: string,
   eventType: string,
-  ctwaClid?: string | null
+  ctwaClid?: string | null,
 ): boolean {
   return (
     eventType === "conversation_started" &&
@@ -45,14 +45,14 @@ export function shouldFilterExternalConversationWithoutCtwa(
 }
 
 export function buildExternalEventIdentity(
-  input: ExternalEventIdentityInput
+  input: ExternalEventIdentityInput,
 ): ExternalEventIdentity {
   const localDate = dateInTimezone(input.occurredAt, input.timezone);
   const base = [
     "external",
     required(input.connectorId, "connectorId"),
     required(input.connectorProvider, "connectorProvider"),
-    input.eventType
+    input.eventType,
   ];
   const externalEventId = optional(input.externalEventId);
   const transactionId = optional(input.transactionId);
@@ -87,9 +87,15 @@ export function buildExternalEventIdentity(
 
   return {
     dedupeKey,
-    eventId: deliveryEventId(input, externalEventId, leadIdentity, localDate, digest),
+    eventId: deliveryEventId(
+      input,
+      externalEventId,
+      leadIdentity,
+      localDate,
+      digest,
+    ),
     localDate,
-    policy
+    policy,
   };
 }
 
@@ -98,7 +104,7 @@ function deliveryEventId(
   externalEventId: string | null,
   leadIdentity: string,
   localDate: string,
-  digest: string
+  digest: string,
 ): string {
   if (input.eventType === "conversation_started" && externalEventId) {
     return `lead_${externalEventId}`;
@@ -129,7 +135,7 @@ export function dateInTimezone(date: Date, timezone: string): string {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
-    day: "2-digit"
+    day: "2-digit",
   }).formatToParts(date);
   const year = parts.find((part) => part.type === "year")?.value;
   const month = parts.find((part) => part.type === "month")?.value;
@@ -144,7 +150,7 @@ export function dateInTimezone(date: Date, timezone: string): string {
 
 export function startOfDateInTimezone(
   dateText: string,
-  timezone: string
+  timezone: string,
 ): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
 
@@ -158,7 +164,7 @@ export function startOfDateInTimezone(
     Number(match[3]),
     0,
     0,
-    0
+    0,
   );
   let candidate = target;
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -169,7 +175,7 @@ export function startOfDateInTimezone(
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hourCycle: "h23"
+    hourCycle: "h23",
   });
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -182,7 +188,7 @@ export function startOfDateInTimezone(
       value("day"),
       value("hour"),
       value("minute"),
-      value("second")
+      value("second"),
     );
     const correction = target - observed;
 
@@ -199,7 +205,7 @@ export function startOfDateInTimezone(
 export function dateRangeInTimezone(
   since: string | undefined,
   until: string | undefined,
-  timezone: string
+  timezone: string,
 ): { gte?: Date; lte?: Date } {
   return {
     ...(since ? { gte: startOfDateInTimezone(since, timezone) } : {}),
@@ -207,10 +213,10 @@ export function dateRangeInTimezone(
       ? {
           lte: new Date(
             startOfDateInTimezone(nextCalendarDate(until), timezone).getTime() -
-              1
-          )
+              1,
+          ),
         }
-      : {})
+      : {}),
   };
 }
 

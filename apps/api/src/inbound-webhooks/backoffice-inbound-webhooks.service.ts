@@ -20,6 +20,7 @@ import type {
   BackofficeInboundWebhookPayloadDto,
   InboundWebhookNormalizedObservationDto,
 } from "@wpptrack/shared";
+import { dateTimeRangeInTimezone } from "../common/date-time/timezone-range";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { InboundWebhookPayloadEncryptionService } from "./inbound-webhook-payload-encryption.service";
 import { InboundWebhookQueueService } from "./inbound-webhook-queue.service";
@@ -29,6 +30,7 @@ const conversionRecoveryAction =
   "inbound_webhook.provider_conversions.reprocess";
 const payloadTargetType = "inbound_webhook_delivery";
 const genericPayloadError = "Payload indisponivel";
+const backofficeTimezone = "America/Sao_Paulo";
 
 const deliveryListSelect = {
   id: true,
@@ -109,7 +111,7 @@ export class BackofficeInboundWebhooksService {
     actor: InboundWebhookPayloadActor,
   ): Promise<{
     deliveryId: string;
-    status: "queued" | "existing" | "already_observed";
+    status: "queued" | "existing";
   }> {
     const delivery = await this.prisma.inboundWebhookDelivery.findUnique({
       where: { id: deliveryId },
@@ -147,13 +149,6 @@ export class BackofficeInboundWebhooksService {
       );
     }
 
-    if (delivery.providerConversionsObservedAt) {
-      return {
-        deliveryId: delivery.id,
-        status: "already_observed",
-      };
-    }
-
     await this.prisma.auditLog.create({
       data: {
         workspaceId: delivery.workspaceId,
@@ -168,16 +163,30 @@ export class BackofficeInboundWebhooksService {
         beforeSummary: undefined,
         afterSummary: {
           connectionId: delivery.connectionId,
-          providerConversionsObserved: false,
+          previousProviderConversionsObservedAt:
+            delivery.providerConversionsObservedAt?.toISOString() ?? null,
+          forceProviderConversions: true,
         },
       },
     });
 
     try {
+      await this.prisma.inboundWebhookDelivery.updateMany({
+        where: {
+          id: delivery.id,
+          workspaceId: delivery.workspaceId,
+          connectionId: delivery.connectionId,
+          status: "processed",
+        },
+        data: {
+          providerConversionsObservedAt: null,
+        },
+      });
       const queued = await this.queue.enqueueDelivery({
         deliveryId: delivery.id,
         connectionId: delivery.connectionId,
         workspaceId: delivery.workspaceId,
+        forceProviderConversions: true,
       });
 
       return {
@@ -540,6 +549,8 @@ export class BackofficeInboundWebhooksService {
   private deliveryScope(
     query: BackofficeInboundWebhookDeliverySummaryQueryDto,
   ): Prisma.InboundWebhookDeliveryWhereInput {
+    const receivedAt = this.receivedAtRange(query);
+
     return {
       ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
       ...(query.connectionId ? { connectionId: query.connectionId } : {}),
@@ -548,12 +559,15 @@ export class BackofficeInboundWebhooksService {
         : {}),
       ...(query.provider ? { provider: query.provider } : {}),
       ...(query.purpose ? { purpose: query.purpose } : {}),
+      ...(receivedAt ? { lastReceivedAt: receivedAt } : {}),
     };
   }
 
   private automationDeliveryScope(
     query: BackofficeInboundWebhookDeliverySummaryQueryDto,
   ): Prisma.InboundWebhookDeliveryWhereInput {
+    const receivedAt = this.receivedAtRange(query);
+
     return {
       ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
       ...(query.connectionId ? { connectionId: query.connectionId } : {}),
@@ -562,6 +576,7 @@ export class BackofficeInboundWebhooksService {
         : {}),
       ...(query.provider ? { provider: query.provider } : {}),
       purpose: "conversion_automation",
+      ...(receivedAt ? { lastReceivedAt: receivedAt } : {}),
       ...(query.purpose === "message_observation"
         ? { id: "__purpose_excluded__" }
         : {}),
@@ -571,19 +586,33 @@ export class BackofficeInboundWebhooksService {
   private eventScope(
     query: BackofficeInboundWebhookDeliverySummaryQueryDto,
   ): Prisma.InboundWebhookEventWhereInput {
+    const receivedAt = this.receivedAtRange(query);
+    const delivery = {
+      ...(query.purpose ? { purpose: query.purpose } : {}),
+      ...(receivedAt ? { lastReceivedAt: receivedAt } : {}),
+    };
+
     return {
       ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
       ...(query.connectionId ? { connectionId: query.connectionId } : {}),
       ...(query.channelId ? { channelId: query.channelId } : {}),
       ...(query.provider ? { provider: query.provider } : {}),
-      ...(query.purpose
-        ? {
-            delivery: {
-              purpose: query.purpose,
-            },
-          }
-        : {}),
+      ...(Object.keys(delivery).length > 0 ? { delivery } : {}),
     };
+  }
+
+  private receivedAtRange(
+    query: BackofficeInboundWebhookDeliverySummaryQueryDto,
+  ): Prisma.DateTimeFilter | null {
+    if (!query.receivedFrom && !query.receivedUntil) {
+      return null;
+    }
+
+    return dateTimeRangeInTimezone(
+      query.receivedFrom,
+      query.receivedUntil,
+      backofficeTimezone,
+    );
   }
 
   private toObservationDto(

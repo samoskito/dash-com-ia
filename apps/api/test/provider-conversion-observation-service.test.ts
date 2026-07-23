@@ -148,22 +148,56 @@ function createHarness(mode: "observation" | "production") {
     },
   };
   const executions = new Map<string, Record<string, unknown>>();
-  const upsert = vi.fn(async ({ where, create }: any) => {
-    const key = `${where.providerRuleId_externalExecutionKey.providerRuleId}:${where.providerRuleId_externalExecutionKey.externalExecutionKey}`;
+  const purchaseReviews = new Map<string, Record<string, unknown>>();
+  const executionKey = (where: any) =>
+    `${where.providerRuleId_externalExecutionKey.providerRuleId}:${where.providerRuleId_externalExecutionKey.externalExecutionKey}`;
+  const reviewKey = (where: any) =>
+    `${where.providerRuleId_externalOccurrenceKey.providerRuleId}:${where.providerRuleId_externalOccurrenceKey.externalOccurrenceKey}`;
+  const upsert = vi.fn(async ({ where, create, update }: any) => {
+    const key = executionKey(where);
     const existing = executions.get(key);
-    if (existing) return existing;
+    if (existing) {
+      Object.assign(existing, update);
+      return { id: existing.id, status: existing.status };
+    }
     const execution = {
       id: `execution_${executions.size + 1}`,
       ...create,
     };
     executions.set(key, execution);
-    return execution;
+    return { id: execution.id, status: execution.status };
   });
+  const purchaseReviewItem = {
+    deleteMany: vi.fn(async () => ({ count: 0 })),
+    createMany: vi.fn(async ({ data }: any) => ({ count: data.length })),
+  };
   const purchaseReview = {
-    upsert: vi.fn(async () => ({ id: "review_1" })),
+    findUnique: vi.fn(async ({ where }: any) => {
+      const existing = purchaseReviews.get(reviewKey(where));
+
+      return existing ? { id: existing.id, status: existing.status } : null;
+    }),
+    upsert: vi.fn(async ({ where, create, update }: any) => {
+      const key = reviewKey(where);
+      const existing = purchaseReviews.get(key);
+      if (existing) {
+        Object.assign(existing, update, {
+          version:
+            typeof existing.version === "number" ? existing.version + 1 : 2,
+        });
+        return { id: existing.id };
+      }
+      const review = {
+        id: `review_${purchaseReviews.size + 1}`,
+        version: 1,
+        ...create,
+      };
+      purchaseReviews.set(key, review);
+      return { id: review.id };
+    }),
     updateMany: vi.fn(async () => ({ count: 0 })),
   };
-  const prisma = {
+  const prisma: Record<string, any> = {
     inboundWebhookChannel: {
       findMany: vi.fn(async () => [channel]),
     },
@@ -175,7 +209,18 @@ function createHarness(mode: "observation" | "production") {
     },
     providerConversionRuleExecution: { upsert },
     purchaseReview,
+    purchaseReviewItem,
   };
+  prisma.providerConversionRuleExecution.findUnique = vi.fn(
+    async ({ where }: any) => {
+      const existing = executions.get(executionKey(where));
+
+      return existing ? { id: existing.id, status: existing.status } : null;
+    },
+  );
+  prisma.$transaction = vi.fn(async (callback: (client: unknown) => unknown) =>
+    callback(prisma),
+  );
   const service = new ProviderConversionObservationService(prisma as never, {
     NODE_ENV: "test",
     API_PUBLIC_URL: "http://localhost:3333",
@@ -186,7 +231,15 @@ function createHarness(mode: "observation" | "production") {
     INBOUND_WEBHOOK_ENCRYPTION_KEY: Buffer.alloc(32, 19).toString("base64"),
   });
 
-  return { executions, purchaseReview, service, upsert };
+  return {
+    executions,
+    prisma,
+    purchaseReview,
+    purchaseReviewItem,
+    purchaseReviews,
+    service,
+    upsert,
+  };
 }
 
 describe("provider conversion observation service", () => {
@@ -279,18 +332,64 @@ describe("provider conversion observation service", () => {
           status: "recognized",
           calculatedValueCents: 179_700,
           effectiveValueCents: 179_700,
-          items: {
-            create: [
-              expect.objectContaining({
-                catalogVariantId: "variant_2",
-                unitValueCents: 179_700,
-                subtotalValueCents: 179_700,
-              }),
-            ],
-          },
         }),
       }),
     );
+    expect(harness.purchaseReviewItem.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          catalogVariantId: "variant_2",
+          unitValueCents: 179_700,
+          subtotalValueCents: 179_700,
+        }),
+      ],
+    });
+    expect(harness.prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes a historical execution and purchase review during manual recovery", async () => {
+    const harness = createHarness("production");
+    const event = outboundCatalogEvent();
+    const historicalReceivedAt = new Date("2026-07-17T12:00:00.000Z");
+
+    const observed = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_historical",
+      deliveryReceivedAt: historicalReceivedAt,
+      events: [event],
+    });
+    const recovered = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_historical",
+      deliveryReceivedAt: historicalReceivedAt,
+      events: [event],
+      manualRecovery: true,
+    });
+
+    expect(observed).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: [],
+    });
+    expect(recovered).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: ["execution_1"],
+    });
+    expect(harness.executions.values().next().value).toEqual(
+      expect.objectContaining({
+        status: "eligible",
+        reasonCode: "catalog_matched",
+      }),
+    );
+    expect(harness.purchaseReviews.values().next().value).toEqual(
+      expect.objectContaining({
+        status: "recognized",
+        calculatedValueCents: 359_700,
+      }),
+    );
+    expect(harness.purchaseReviewItem.deleteMany).toHaveBeenCalledTimes(2);
+    expect(harness.purchaseReviewItem.createMany).toHaveBeenCalledTimes(2);
   });
 
   it("does not evaluate inbound contact messages as purchases", async () => {

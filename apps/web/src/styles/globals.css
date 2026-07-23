@@ -1802,11 +1802,8 @@ td span {
 .inbound-backoffice-filter {
   display: grid;
   grid-template-columns:
-    minmax(170px, 1fr)
-    minmax(170px, 1fr)
-    minmax(132px, 0.6fr)
-    minmax(150px, 0.7fr)
-    minmax(190px, 1fr)
+    repeat(2, minmax(188px, 1.1fr))
+    repeat(4, minmax(132px, 0.8fr))
     auto
     auto;
   gap: 10px;

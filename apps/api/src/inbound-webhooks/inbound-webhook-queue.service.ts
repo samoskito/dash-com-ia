@@ -21,8 +21,16 @@ export class InboundWebhookQueueService {
       deliveryId: input.deliveryId,
       connectionId: input.connectionId,
       workspaceId: input.workspaceId,
+      ...(input.forceProviderConversions
+        ? { forceProviderConversions: true }
+        : {}),
     };
-    const jobId = createBullJobId("inbound-webhook", payload.deliveryId);
+    const jobId = createBullJobId(
+      payload.forceProviderConversions
+        ? "inbound-webhook-provider-conversion-recovery"
+        : "inbound-webhook",
+      payload.deliveryId,
+    );
     const existing = await this.queue.getJob(jobId);
 
     if (existing) {
