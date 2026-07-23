@@ -682,8 +682,8 @@ export class InboundConversionAutomationIngestionService {
       currentExecution?.status === "failed"
     ) {
       const retryingFailure = currentExecution.status === "failed";
+      const approvedAt = new Date();
       if (retryingFailure) {
-        const approvedAt = new Date();
         const normalizedResult = this.jsonRecord(
           currentExecution.normalizedResult,
         );
@@ -705,10 +705,15 @@ export class InboundConversionAutomationIngestionService {
           },
         });
       }
-      const queued = await this.productionQueue.enqueueProviderConversion({
-        providerConversionExecutionId: currentExecution.id,
-        workspaceId,
-      });
+      const queued = await this.productionQueue.enqueueProviderConversion(
+        {
+          providerConversionExecutionId: currentExecution.id,
+          workspaceId,
+        },
+        {
+          attemptKey: `manual-${approvedAt.getTime()}`,
+        },
+      );
       return {
         deliveryId,
         executionId: currentExecution.id,

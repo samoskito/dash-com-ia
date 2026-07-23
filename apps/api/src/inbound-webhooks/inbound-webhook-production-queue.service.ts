@@ -9,6 +9,10 @@ import {
 } from "../common/queue/queue.constants";
 import { createBullJobId } from "../common/queue/job-id";
 
+interface ProviderConversionEnqueueOptions {
+  attemptKey?: string;
+}
+
 @Injectable()
 export class InboundWebhookProductionQueueService {
   constructor(
@@ -60,6 +64,7 @@ export class InboundWebhookProductionQueueService {
 
   async enqueueProviderConversion(
     input: ProviderConversionProductionJobPayload,
+    options: Readonly<ProviderConversionEnqueueOptions> = {},
   ): Promise<{ jobId: string; status: "queued" | "existing" }> {
     const payload = {
       providerConversionExecutionId: input.providerConversionExecutionId.trim(),
@@ -70,9 +75,15 @@ export class InboundWebhookProductionQueueService {
       throw new Error("ProviderConversionProductionContextRequired");
     }
 
+    const attemptKey = options.attemptKey?.trim() || null;
+    if (attemptKey && !/^[a-z0-9_-]{1,100}$/iu.test(attemptKey)) {
+      throw new Error("ProviderConversionProductionAttemptKeyInvalid");
+    }
+
     const jobId = createBullJobId(
       "provider-conversion-production",
       payload.providerConversionExecutionId,
+      attemptKey,
     );
     const existing = await this.queue.getJob(jobId);
 

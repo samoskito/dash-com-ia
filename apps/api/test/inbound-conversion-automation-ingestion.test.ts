@@ -827,10 +827,15 @@ describe("inbound conversion automation ingestion", () => {
     });
     expect(
       harness.productionQueue.enqueueProviderConversion,
-    ).toHaveBeenCalledWith({
-      providerConversionExecutionId: execution.id,
-      workspaceId: "workspace_safe",
-    });
+    ).toHaveBeenCalledWith(
+      {
+        providerConversionExecutionId: execution.id,
+        workspaceId: "workspace_safe",
+      },
+      {
+        attemptKey: expect.stringMatching(/^manual-\d+$/u),
+      },
+    );
   });
 
   it("stores an invalid contract for audit without creating an execution", async () => {
