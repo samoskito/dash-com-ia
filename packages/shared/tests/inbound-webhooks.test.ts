@@ -318,6 +318,7 @@ describe("inbound webhook contracts", () => {
       attemptCount: 1,
       payloadAvailable: true,
       payloadExpiresAt: timestamp,
+      providerConversionsObservedAt: null,
       parseErrorCode: null,
       routingErrorCode: "route_not_configured",
       normalizedSummary: { eventCount: 1 },

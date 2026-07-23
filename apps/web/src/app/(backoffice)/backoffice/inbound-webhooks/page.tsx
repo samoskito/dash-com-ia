@@ -17,9 +17,12 @@ import {
   RotateCcw,
   SlidersHorizontal,
 } from "lucide-react";
+import { BackofficeActionForm } from "../../../../components/backoffice-action-form";
 import { BackofficeNavigation } from "../../../../components/backoffice-navigation";
+import { InboundProviderConversionRecoveryButton } from "../../../../components/inbound-provider-conversion-recovery-button";
 import { formatDateTime } from "../../../../lib/date-time";
 import { serverApiFetch } from "../../../../lib/server-api";
+import { reprocessInboundProviderConversionsAction } from "./actions";
 
 type InboundWebhookSearchParams = Record<string, string | string[] | undefined>;
 
@@ -850,6 +853,35 @@ export default async function InboundWebhookDeliveriesPage({
                       <Eye aria-hidden="true" size={16} strokeWidth={2} />
                       Ver payload
                     </a>
+                    {delivery.purpose === "message_observation" &&
+                    delivery.status === "processed" ? (
+                      delivery.providerConversionsObservedAt ? (
+                        <span
+                          className="event-chip good"
+                          title={`Conversoes lidas em ${formatDateTime(
+                            delivery.providerConversionsObservedAt,
+                          )}`}
+                        >
+                          Conversoes lidas
+                        </span>
+                      ) : delivery.payloadAvailable ? (
+                        <BackofficeActionForm
+                          action={reprocessInboundProviderConversionsAction}
+                          className="inbound-inline-action-form"
+                        >
+                          <input
+                            name="deliveryId"
+                            type="hidden"
+                            value={delivery.id}
+                          />
+                          <InboundProviderConversionRecoveryButton />
+                        </BackofficeActionForm>
+                      ) : (
+                        <span className="event-chip warn">
+                          Payload expirado
+                        </span>
+                      )
+                    ) : null}
                     {delivery.classification === "eligible_route_resolved" ||
                     delivery.classification === "eligible_route_unresolved" ? (
                       <a

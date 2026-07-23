@@ -25,6 +25,7 @@ const delivery = {
   attemptCount: 1,
   payloadAvailable: true,
   payloadExpiresAt: "2099-07-24T20:00:00.000Z",
+  providerConversionsObservedAt: null,
   parseErrorCode: null,
   routingErrorCode: null,
   normalizedSummary: {
@@ -157,6 +158,10 @@ async function createApp() {
       awaitingParser: 4,
     })),
     getPayload: vi.fn(async () => payloadResult),
+    reprocessProviderConversions: vi.fn(async () => ({
+      deliveryId: "delivery_1",
+      status: "queued",
+    })),
     recordDeniedPayloadAccess: vi.fn(async () => undefined),
   };
   const moduleRef = await Test.createTestingModule({
@@ -309,6 +314,49 @@ describe("backoffice inbound webhooks controller", () => {
       }),
     );
 
+    await app.close();
+  });
+
+  it("lets only the platform owner recover conversion observation for one retained delivery", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/deliveries/delivery_1/reprocess-provider-conversions",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .expect(201)
+      .expect({
+        deliveryId: "delivery_1",
+        status: "queued",
+      });
+
+    expect(platformAdminService.assertPlatformOwner).toHaveBeenCalledWith(
+      "owner-token",
+    );
+    expect(service.reprocessProviderConversions).toHaveBeenCalledWith(
+      "delivery_1",
+      expect.objectContaining({
+        id: "platform_owner_1",
+        actorType: "platform_owner",
+        sourceIp: expect.any(String),
+      }),
+    );
+
+    await app.close();
+  });
+
+  it("denies conversion recovery to workspace users", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/deliveries/delivery_1/reprocess-provider-conversions",
+      )
+      .set("Authorization", "Bearer workspace-admin-token")
+      .expect(403);
+
+    expect(service.reprocessProviderConversions).not.toHaveBeenCalled();
     await app.close();
   });
 

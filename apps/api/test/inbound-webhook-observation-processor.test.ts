@@ -117,6 +117,7 @@ function createHarness(parser?: InboundWebhookParser) {
       parseErrorCode: null,
       routingErrorCode: null,
       processedAt: null,
+      providerConversionsObservedAt: null,
       updatedAt: new Date("2026-07-17T20:00:00.000Z"),
       ...overrides,
     };
@@ -337,6 +338,8 @@ function createHarness(parser?: InboundWebhookParser) {
     encryption,
     events,
     prisma,
+    productionQueue,
+    providerConversions,
     service,
   };
 }
@@ -469,6 +472,7 @@ describe("inbound webhook observation processor", () => {
       classification: "eligible_route_unresolved",
       parseErrorCode: null,
       routingErrorCode: null,
+      providerConversionsObservedAt: expect.any(Date),
     });
     expect(delivery.processedAt).toBeInstanceOf(Date);
     expect(delivery.normalizedSummary).toEqual(
@@ -768,6 +772,40 @@ describe("inbound webhook observation processor", () => {
     expect(harness.encryption.decrypt).toHaveBeenCalledOnce();
     expect(harness.events).toHaveLength(1);
     expect(harness.diagnostics.recordObservation).toHaveBeenCalledOnce();
+  });
+
+  it("retries provider conversion observation after the delivery was persisted", async () => {
+    const harness = createHarness();
+    harness.addDelivery("delivery_1", loadFixture());
+    harness.providerConversions.observeDelivery.mockRejectedValueOnce(
+      new Error("temporary provider conversion failure"),
+    );
+
+    await expect(
+      harness.service.processDelivery(jobPayload()),
+    ).rejects.toMatchObject({
+      code: "inbound_webhook_provider_conversion_deferred",
+    });
+    expect(harness.deliveries.get("delivery_1")).toMatchObject({
+      status: "processed",
+      providerConversionsObservedAt: null,
+    });
+
+    await expect(
+      harness.service.processDelivery(jobPayload()),
+    ).resolves.toMatchObject({
+      status: "processed",
+      idempotent: true,
+    });
+
+    expect(harness.providerConversions.observeDelivery).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(harness.encryption.decrypt).toHaveBeenCalledTimes(2);
+    expect(harness.deliveries.get("delivery_1")).toMatchObject({
+      status: "processed",
+      providerConversionsObservedAt: expect.any(Date),
+    });
   });
 
   it("reclaims a processing delivery after a transient database failure", async () => {

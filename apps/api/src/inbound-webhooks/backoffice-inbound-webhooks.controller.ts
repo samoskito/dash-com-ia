@@ -4,6 +4,7 @@ import {
   Get,
   Inject,
   Param,
+  Post,
   Query,
   Req,
 } from "@nestjs/common";
@@ -85,6 +86,25 @@ export class BackofficeInboundWebhooksController {
       actorType: owner.role,
       sourceIp: request.ip ?? null,
     });
+  }
+
+  @Post("deliveries/:deliveryId/reprocess-provider-conversions")
+  async reprocessProviderConversions(
+    @AuthToken() refreshToken: string,
+    @Param("deliveryId") deliveryId: string,
+    @Req() request: InboundBackofficeRequest,
+  ) {
+    const owner =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+
+    return this.inboundWebhooks.reprocessProviderConversions(
+      this.deliveryId(deliveryId),
+      {
+        id: owner.id,
+        actorType: owner.role,
+        sourceIp: request.ip ?? null,
+      },
+    );
   }
 
   private async assertPayloadOwner(

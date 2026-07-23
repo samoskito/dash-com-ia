@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PrismaService } from "../src/common/prisma/prisma.service";
 import { BackofficeInboundWebhooksService } from "../src/inbound-webhooks/backoffice-inbound-webhooks.service";
 import { InboundWebhookPayloadEncryptionService } from "../src/inbound-webhooks/inbound-webhook-payload-encryption.service";
+import { InboundWebhookQueueService } from "../src/inbound-webhooks/inbound-webhook-queue.service";
 
 const connectionSecretHash = "internal-secret-hash-do-not-leak";
 const oneTimeWebhookUrl =
@@ -131,6 +132,7 @@ function deliveryRecord(
       state === "expired"
         ? new Date("2000-07-24T20:00:00.000Z")
         : new Date("2099-07-24T20:00:00.000Z"),
+    providerConversionsObservedAt: null,
     normalizedSummary: {
       provider: "umbler",
       parserVersion: "v1",
@@ -231,7 +233,9 @@ function createHarness(state: PayloadState = "available") {
         return null;
       }
 
-      return select?.workspaceId ? { workspaceId: found.workspaceId } : found;
+      return select?.workspaceId && Object.keys(select).length === 1
+        ? { workspaceId: found.workspaceId }
+        : found;
     }),
   };
   const inboundWebhookEvent = {
@@ -268,9 +272,16 @@ function createHarness(state: PayloadState = "available") {
       }),
     },
   };
+  const queue = {
+    enqueueDelivery: vi.fn(async () => ({
+      jobId: "inbound-webhook-delivery_1",
+      status: "queued" as const,
+    })),
+  };
   const service = new BackofficeInboundWebhooksService(
     prisma as unknown as PrismaService,
     encryption,
+    queue as unknown as InboundWebhookQueueService,
   );
 
   return {
@@ -278,6 +289,7 @@ function createHarness(state: PayloadState = "available") {
     delivery,
     encryption,
     prisma,
+    queue,
     service,
   };
 }
@@ -289,6 +301,63 @@ const owner = {
 };
 
 describe("inbound webhook payload access", () => {
+  it("queues one retained processed delivery to recover provider conversions and audits the request", async () => {
+    const harness = createHarness();
+
+    const result = await harness.service.reprocessProviderConversions(
+      harness.delivery.id,
+      owner,
+    );
+
+    expect(result).toEqual({
+      deliveryId: harness.delivery.id,
+      status: "queued",
+    });
+    expect(harness.queue.enqueueDelivery).toHaveBeenCalledWith({
+      deliveryId: harness.delivery.id,
+      connectionId: harness.delivery.connectionId,
+      workspaceId: harness.delivery.workspaceId,
+    });
+    expect(harness.prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workspaceId: harness.delivery.workspaceId,
+        actorUserId: owner.id,
+        actorType: owner.actorType,
+        action: "inbound_webhook.provider_conversions.reprocess",
+        targetId: harness.delivery.id,
+        resultStatus: "requested",
+      }),
+    });
+  });
+
+  it("does not enqueue a delivery whose provider conversions were already observed", async () => {
+    const harness = createHarness();
+    Reflect.set(
+      harness.delivery,
+      "providerConversionsObservedAt",
+      new Date(
+      "2026-07-23T13:00:00.000Z",
+      ),
+    );
+
+    const result = await harness.service.reprocessProviderConversions(
+      harness.delivery.id,
+      owner,
+    );
+
+    expect(result.status).toBe("already_observed");
+    expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
+  });
+
+  it("refuses conversion recovery after the retained payload expires", async () => {
+    const harness = createHarness("expired");
+
+    await expect(
+      harness.service.reprocessProviderConversions(harness.delivery.id, owner),
+    ).rejects.toThrow("O payload desta entrega nao esta mais disponivel");
+    expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
+  });
+
   it("lists redacted delivery metadata with parser release status", async () => {
     const harness = createHarness();
 

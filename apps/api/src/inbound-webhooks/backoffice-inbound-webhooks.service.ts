@@ -1,8 +1,10 @@
 import {
+  ConflictException,
   Inject,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import type {
   InboundWebhookDelivery,
@@ -20,8 +22,11 @@ import type {
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { InboundWebhookPayloadEncryptionService } from "./inbound-webhook-payload-encryption.service";
+import { InboundWebhookQueueService } from "./inbound-webhook-queue.service";
 
 const payloadReadAction = "inbound_webhook.payload.read";
+const conversionRecoveryAction =
+  "inbound_webhook.provider_conversions.reprocess";
 const payloadTargetType = "inbound_webhook_delivery";
 const genericPayloadError = "Payload indisponivel";
 
@@ -40,6 +45,7 @@ const deliveryListSelect = {
   attemptCount: true,
   encryptionKeyVersion: true,
   payloadExpiresAt: true,
+  providerConversionsObservedAt: true,
   normalizedSummary: true,
   parseErrorCode: true,
   routingErrorCode: true,
@@ -94,7 +100,96 @@ export class BackofficeInboundWebhooksService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(InboundWebhookPayloadEncryptionService)
     private readonly payloadEncryption: InboundWebhookPayloadEncryptionService,
+    @Inject(InboundWebhookQueueService)
+    private readonly queue: InboundWebhookQueueService,
   ) {}
+
+  async reprocessProviderConversions(
+    deliveryId: string,
+    actor: InboundWebhookPayloadActor,
+  ): Promise<{
+    deliveryId: string;
+    status: "queued" | "existing" | "already_observed";
+  }> {
+    const delivery = await this.prisma.inboundWebhookDelivery.findUnique({
+      where: { id: deliveryId },
+      select: {
+        id: true,
+        workspaceId: true,
+        connectionId: true,
+        purpose: true,
+        status: true,
+        payloadExpiresAt: true,
+        encryptedPayload: true,
+        payloadIv: true,
+        payloadTag: true,
+        encryptionKeyVersion: true,
+        providerConversionsObservedAt: true,
+      },
+    });
+
+    if (!delivery) {
+      throw new NotFoundException("Entrega nao encontrada");
+    }
+
+    if (
+      delivery.purpose !== "message_observation" ||
+      delivery.status !== "processed"
+    ) {
+      throw new ConflictException(
+        "A entrega ainda nao pode reprocessar conversoes",
+      );
+    }
+
+    if (!this.payloadAvailable(delivery, new Date())) {
+      throw new ConflictException(
+        "O payload desta entrega nao esta mais disponivel",
+      );
+    }
+
+    if (delivery.providerConversionsObservedAt) {
+      return {
+        deliveryId: delivery.id,
+        status: "already_observed",
+      };
+    }
+
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: delivery.workspaceId,
+        actorUserId: actor.id,
+        actorType: actor.actorType,
+        action: conversionRecoveryAction,
+        targetType: payloadTargetType,
+        targetId: delivery.id,
+        reason: "Explicit provider conversion recovery",
+        sourceIp: this.sourceIp(actor.sourceIp),
+        resultStatus: "requested",
+        beforeSummary: undefined,
+        afterSummary: {
+          connectionId: delivery.connectionId,
+          providerConversionsObserved: false,
+        },
+      },
+    });
+
+    try {
+      const queued = await this.queue.enqueueDelivery({
+        deliveryId: delivery.id,
+        connectionId: delivery.connectionId,
+        workspaceId: delivery.workspaceId,
+      });
+
+      return {
+        deliveryId: delivery.id,
+        status: queued.status,
+      };
+    } catch {
+      throw new ServiceUnavailableException(
+        "A fila nao aceitou o reprocessamento",
+      );
+    }
+  }
 
   async getOperationsScope(): Promise<BackofficeInboundWebhookOperationsScopeDto> {
     const workspaces = await this.prisma.workspace.findMany({
@@ -420,6 +515,8 @@ export class BackofficeInboundWebhooksService {
       attemptCount: delivery.attemptCount,
       payloadAvailable,
       payloadExpiresAt: delivery.payloadExpiresAt.toISOString(),
+      providerConversionsObservedAt:
+        delivery.providerConversionsObservedAt?.toISOString() ?? null,
       parseErrorCode: delivery.parseErrorCode,
       routingErrorCode: delivery.routingErrorCode,
       normalizedSummary: this.recordValue(delivery.normalizedSummary),
@@ -530,7 +627,14 @@ export class BackofficeInboundWebhooksService {
   }
 
   private payloadAvailable(
-    delivery: InboundWebhookDelivery,
+    delivery: Pick<
+      InboundWebhookDelivery,
+      | "payloadExpiresAt"
+      | "encryptedPayload"
+      | "payloadIv"
+      | "payloadTag"
+      | "encryptionKeyVersion"
+    >,
     now: Date,
   ): boolean {
     return Boolean(

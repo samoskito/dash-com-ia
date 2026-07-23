@@ -1524,6 +1524,7 @@ model InboundWebhookDelivery {
   routingErrorCode                String?
   queuedAt                        DateTime?
   processedAt                     DateTime?
+  providerConversionsObservedAt  DateTime?
   createdAt                       DateTime                           @default(now())
   updatedAt                       DateTime                           @updatedAt
 

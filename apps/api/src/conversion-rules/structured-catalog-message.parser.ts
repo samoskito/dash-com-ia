@@ -145,6 +145,18 @@ function acceptedVariantValues(
     .map(normalizeStructuredCatalogText);
 }
 
+function observedVariantValues(value: string): string[] {
+  const normalized = normalizeStructuredCatalogText(value);
+  const candidates = new Set([normalized]);
+  const metricValue = normalized.match(
+    /^(\d+(?:[.,]\d+)?)\s*(?:m|metro|metros)$/u,
+  );
+
+  if (metricValue?.[1]) candidates.add(metricValue[1]);
+
+  return [...candidates];
+}
+
 function matchingVariants(
   catalog: ProviderConversionCatalogDto,
   values: Map<string, string>,
@@ -154,10 +166,11 @@ function matchingVariants(
       variant.active &&
       catalog.attributes.every((attribute, index) => {
         const actual = values.get(attribute.key);
+        const accepted = acceptedVariantValues(variant, index);
         return (
           Boolean(actual) &&
-          acceptedVariantValues(variant, index).includes(
-            normalizeStructuredCatalogText(actual!),
+          observedVariantValues(actual!).some((candidate) =>
+            accepted.includes(candidate),
           )
         );
       }),

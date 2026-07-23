@@ -72,7 +72,8 @@ export type InboundWebhookObservationResult = {
 export type InboundWebhookObservationErrorCode =
   | "inbound_webhook_context_invalid"
   | "inbound_webhook_delivery_not_claimable"
-  | "inbound_webhook_processing_state_changed";
+  | "inbound_webhook_processing_state_changed"
+  | "inbound_webhook_provider_conversion_deferred";
 
 const observationErrorMessages: Record<
   InboundWebhookObservationErrorCode,
@@ -84,6 +85,8 @@ const observationErrorMessages: Record<
     "Inbound webhook delivery cannot be claimed",
   inbound_webhook_processing_state_changed:
     "Inbound webhook processing state changed",
+  inbound_webhook_provider_conversion_deferred:
+    "Inbound webhook provider conversion processing was deferred",
 };
 
 export class InboundWebhookObservationError extends Error {
@@ -149,6 +152,7 @@ export class InboundWebhookObservationService {
     if (terminalDeliveryStatuses.has(delivery.status)) {
       if (delivery.status === "processed") {
         await this.prepareProductionDelivery(delivery);
+        await this.prepareProviderConversions(delivery);
       }
 
       return this.terminalResult(delivery);
@@ -179,6 +183,7 @@ export class InboundWebhookObservationService {
       if (delivery && terminalDeliveryStatuses.has(delivery.status)) {
         if (delivery.status === "processed") {
           await this.prepareProductionDelivery(delivery);
+          await this.prepareProviderConversions(delivery);
         }
 
         return this.terminalResult(delivery);
@@ -788,6 +793,8 @@ export class InboundWebhookObservationService {
     delivery: LoadedDelivery,
     parsedResult?: InboundWebhookParserResult,
   ): Promise<void> {
+    if (delivery.providerConversionsObservedAt) return;
+
     try {
       const parser = this.parserRegistry.resolve({
         provider: delivery.connection.provider,
@@ -798,7 +805,10 @@ export class InboundWebhookObservationService {
         parsedResult ?? this.parseEncryptedPayload(delivery, parser);
 
       this.validateParserResult(result, parser);
-      if (result.error || result.classification === "invalid_payload") return;
+      if (result.error || result.classification === "invalid_payload") {
+        await this.markProviderConversionsObserved(delivery);
+        return;
+      }
 
       const observed = await this.providerConversions.observeDelivery({
         workspaceId: delivery.workspaceId,
@@ -820,11 +830,41 @@ export class InboundWebhookObservationService {
           );
         }
       }
-    } catch {
+
+      await this.markProviderConversionsObserved(delivery);
+    } catch (error) {
       this.logger.warn(
-        `Provider conversion observation deferred for delivery ${delivery.id}`,
+        `Provider conversion observation deferred for delivery ${delivery.id} (${this.safeExceptionName(error)})`,
+      );
+      throw new InboundWebhookObservationError(
+        "inbound_webhook_provider_conversion_deferred",
       );
     }
+  }
+
+  private async markProviderConversionsObserved(
+    delivery: LoadedDelivery,
+  ): Promise<void> {
+    await this.prisma.inboundWebhookDelivery.updateMany({
+      where: {
+        id: delivery.id,
+        workspaceId: delivery.workspaceId,
+        connectionId: delivery.connectionId,
+        status: "processed",
+        providerConversionsObservedAt: null,
+      },
+      data: {
+        providerConversionsObservedAt: new Date(),
+      },
+    });
+  }
+
+  private safeExceptionName(error: unknown): string {
+    if (!(error instanceof Error)) return "UnknownError";
+
+    return /^[A-Za-z][A-Za-z0-9]{0,79}$/u.test(error.name)
+      ? error.name
+      : "Error";
   }
 
   private async finishFailure(

@@ -131,6 +131,19 @@ function createHarness(mode: "observation" | "production") {
           createdAt: activatedAt,
           updatedAt: activatedAt,
         },
+        {
+          id: "variant_2",
+          workspaceId,
+          catalogId: "catalog_1",
+          normalizedKey: "3,05|europa",
+          attributeValues: ["3,05", "Europa"],
+          aliases: [[], []],
+          valueCents: 179_700,
+          contentName: "Cama elastica 3,05 Europa",
+          active: true,
+          createdAt: activatedAt,
+          updatedAt: activatedAt,
+        },
       ],
     },
   };
@@ -146,6 +159,10 @@ function createHarness(mode: "observation" | "production") {
     executions.set(key, execution);
     return execution;
   });
+  const purchaseReview = {
+    upsert: vi.fn(async () => ({ id: "review_1" })),
+    updateMany: vi.fn(async () => ({ count: 0 })),
+  };
   const prisma = {
     inboundWebhookChannel: {
       findMany: vi.fn(async () => [channel]),
@@ -157,10 +174,7 @@ function createHarness(mode: "observation" | "production") {
       findMany: vi.fn(async () => []),
     },
     providerConversionRuleExecution: { upsert },
-    purchaseReview: {
-      upsert: vi.fn(async () => ({ id: "review_1" })),
-      updateMany: vi.fn(async () => ({ count: 0 })),
-    },
+    purchaseReview,
   };
   const service = new ProviderConversionObservationService(prisma as never, {
     NODE_ENV: "test",
@@ -172,7 +186,7 @@ function createHarness(mode: "observation" | "production") {
     INBOUND_WEBHOOK_ENCRYPTION_KEY: Buffer.alloc(32, 19).toString("base64"),
   });
 
-  return { executions, service, upsert };
+  return { executions, purchaseReview, service, upsert };
 }
 
 describe("provider conversion observation service", () => {
@@ -225,6 +239,55 @@ describe("provider conversion observation service", () => {
         create: expect.objectContaining({
           status: "observed",
           reasonCode: "catalog_matched_observation",
+        }),
+      }),
+    );
+  });
+
+  it("persists the real metric-suffixed order as a recognized purchase", async () => {
+    const harness = createHarness("production");
+    const event = outboundCatalogEvent();
+    event.message.text = [
+      "Dados para confirmar o pedido:",
+      "- Tamanho: 3,05 M",
+      "- Modelo: EUROPA",
+      "- Forma de pagamento: CARTAO DE CREDITO 12x de 170,00",
+      "- Numero de telefone principal: 84_99182_9040",
+    ].join("\n");
+
+    const result = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_real_order",
+      deliveryReceivedAt: new Date("2026-07-23T13:36:00.000Z"),
+      events: [event],
+    });
+
+    expect(result.eligibleExecutionIds).toEqual(["execution_1"]);
+    expect(harness.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          status: "eligible",
+          matchedCatalogVariantId: "variant_2",
+          valueCents: 179_700,
+        }),
+      }),
+    );
+    expect(harness.purchaseReview.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          status: "recognized",
+          calculatedValueCents: 179_700,
+          effectiveValueCents: 179_700,
+          items: {
+            create: [
+              expect.objectContaining({
+                catalogVariantId: "variant_2",
+                unitValueCents: 179_700,
+                subtotalValueCents: 179_700,
+              }),
+            ],
+          },
         }),
       }),
     );

@@ -318,6 +318,7 @@ export const backofficeInboundWebhookDeliverySchema = z.object({
   attemptCount: z.number().int().positive(),
   payloadAvailable: z.boolean(),
   payloadExpiresAt: dateTimeSchema,
+  providerConversionsObservedAt: dateTimeSchema.nullable(),
   parseErrorCode: normalizedCodeSchema.nullable(),
   routingErrorCode: normalizedCodeSchema.nullable(),
   normalizedSummary: z.record(z.unknown()).nullable(),

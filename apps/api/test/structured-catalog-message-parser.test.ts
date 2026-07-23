@@ -78,6 +78,33 @@ describe("structured catalog message parser", () => {
     });
   });
 
+  it("recognizes the real order format with a metric size suffix", () => {
+    const result = matchStructuredCatalogMessage(
+      catalog(),
+      [
+        "Dados para confirmar o pedido:",
+        "- Nome: jesse Narcelo Gomes",
+        "- Cidade: Joao Camara_RN",
+        "",
+        "- Tamanho: 3,05 M",
+        "- Modelo: EUROPA",
+        "",
+        "- Forma de pagamento: CARTAO DE CREDITO 12x de 170,00",
+        "- Numero de telefone principal: 84_99182_9040",
+      ].join("\n"),
+      { triggerPhrases: ["Dados para confirmar o pedido"] },
+    );
+
+    expect(result).toMatchObject({
+      matched: true,
+      reasonCode: "matched",
+      classification: "recognized",
+      catalogVariantId: "variant_5",
+      calculatedValueCents: 179_700,
+      observedPaymentValueCents: 17_000,
+    });
+  });
+
   it("blocks an unknown attribute combination", () => {
     const result = matchStructuredCatalogMessage(
       catalog(),
