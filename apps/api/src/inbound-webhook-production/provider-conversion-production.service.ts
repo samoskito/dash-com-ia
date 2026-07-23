@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type { StructuredCatalogTestMessageResultDto } from "@wpptrack/shared";
@@ -66,6 +66,10 @@ class ProviderConversionProductionFailure extends Error {
 
 @Injectable()
 export class ProviderConversionProductionService {
+  private readonly logger = new Logger(
+    ProviderConversionProductionService.name,
+  );
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(InboundWebhookPayloadEncryptionService)
@@ -134,6 +138,8 @@ export class ProviderConversionProductionService {
       return { status: "materialized" };
     } catch (error) {
       const code = this.errorCode(error);
+      const failure = this.failureSummary(error, code);
+      const normalizedResult = this.jsonObject(execution.normalizedResult);
       await this.prisma.providerConversionRuleExecution.updateMany({
         where: {
           id: execution.id,
@@ -144,6 +150,10 @@ export class ProviderConversionProductionService {
           status: "failed",
           reasonCode: code,
           processedAt: new Date(),
+          normalizedResult: {
+            ...(normalizedResult ?? {}),
+            lastProductionFailure: failure,
+          } as Prisma.InputJsonValue,
         },
       });
       await this.prisma.purchaseReview.updateMany({
@@ -158,6 +168,12 @@ export class ProviderConversionProductionService {
           version: { increment: 1 },
         },
       });
+      if (code === "provider_conversion_production_unexpected") {
+        this.logger.error(
+          `Provider conversion ${execution.id} failed with ${code}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
       throw new ProviderConversionProductionFailure(code);
     }
   }
@@ -317,42 +333,45 @@ export class ProviderConversionProductionService {
         return { status: "duplicate" as const };
       }
 
-      const conversion = await this.conversions.recordExternalConversion({
-        workspaceId: execution.workspaceId,
-        externalConnectorId: null,
-        sourceEventId: parsedEvent.externalMessageId,
-        sourceTrigger: `inbound_webhook:umbler:${execution.providerRule.conversionRule.triggerType}`,
-        eventName: "Purchase",
-        eventId: this.metaEventId(execution.id, "Purchase"),
-        dedupeKey: `provider-conversion:${execution.id}`,
-        leadId: lead.id,
-        phoneHash: lead.phoneHash,
-        businessSource: "paid",
-        metaAccountId: route.adAccountId,
-        metaBusinessConnectionId: route.businessConnectionId,
-        metaConversionDestinationId: route.conversionDestinationId,
-        campaignId: lead.campaignId,
-        adSetId: lead.adSetId,
-        adId: lead.adId,
-        ctwaClid: lead.ctwaClid,
-        valueCents: purchase.valueCents,
-        valueSource: "actual",
-        currency: purchase.currency,
-        contentName: purchase.contentName,
-        eventOccurredAt: execution.occurredAt,
-        sourcePayload: {
-          provider: "umbler",
-          providerRuleId: execution.providerRuleId,
-          providerConversionExecutionId: execution.id,
-          sourceDeliveryId: execution.sourceDeliveryId,
-          channelId: execution.channelId,
-          catalogVariantId: match.catalogVariantId,
-          purchaseReviewId: execution.purchaseReview?.id ?? null,
-          items: purchase.items,
-          manualReviewOverride: manualOverride,
-          processingMode: "live_provider_conversion",
+      const conversion = await this.conversions.recordExternalConversion(
+        {
+          workspaceId: execution.workspaceId,
+          externalConnectorId: null,
+          sourceEventId: parsedEvent.externalMessageId,
+          sourceTrigger: `inbound_webhook:umbler:${execution.providerRule.conversionRule.triggerType}`,
+          eventName: "Purchase",
+          eventId: this.metaEventId(execution.id, "Purchase"),
+          dedupeKey: `provider-conversion:${execution.id}`,
+          leadId: lead.id,
+          phoneHash: lead.phoneHash,
+          businessSource: "paid",
+          metaAccountId: route.adAccountId,
+          metaBusinessConnectionId: route.businessConnectionId,
+          metaConversionDestinationId: route.conversionDestinationId,
+          campaignId: lead.campaignId,
+          adSetId: lead.adSetId,
+          adId: lead.adId,
+          ctwaClid: lead.ctwaClid,
+          valueCents: purchase.valueCents,
+          valueSource: "actual",
+          currency: purchase.currency,
+          contentName: purchase.contentName,
+          eventOccurredAt: execution.occurredAt,
+          sourcePayload: {
+            provider: "umbler",
+            providerRuleId: execution.providerRuleId,
+            providerConversionExecutionId: execution.id,
+            sourceDeliveryId: execution.sourceDeliveryId,
+            channelId: execution.channelId,
+            catalogVariantId: match.catalogVariantId,
+            purchaseReviewId: execution.purchaseReview?.id ?? null,
+            items: purchase.items,
+            manualReviewOverride: manualOverride,
+            processingMode: "live_provider_conversion",
+          },
         },
-      });
+        transaction,
+      );
 
       await transaction.providerConversionRuleExecution.update({
         where: { id: execution.id },
@@ -550,40 +569,43 @@ export class ProviderConversionProductionService {
         return { status: "duplicate" as const };
       }
 
-      const conversion = await this.conversions.recordExternalConversion({
-        workspaceId: execution.workspaceId,
-        externalConnectorId: null,
-        sourceEventId: parsed.externalExecutionKey,
-        sourceTrigger: "inbound_webhook:umbler:provider_automation",
-        eventName: parsed.eventName,
-        eventId: this.metaEventId(execution.id, parsed.eventName),
-        dedupeKey: `provider-conversion:${execution.id}`,
-        leadId: lead.id,
-        phoneHash: lead.phoneHash,
-        businessSource: "paid",
-        metaAccountId: route.adAccountId,
-        metaBusinessConnectionId: route.businessConnectionId,
-        metaConversionDestinationId: route.conversionDestinationId,
-        campaignId: lead.campaignId,
-        adSetId: lead.adSetId,
-        adId: lead.adId,
-        ctwaClid: lead.ctwaClid,
-        valueCents,
-        valueSource: isPurchase ? "configured_average" : null,
-        currency,
-        contentName: isPurchase ? rule.defaultContentName : null,
-        eventOccurredAt: execution.occurredAt,
-        sourcePayload: {
-          provider: "umbler",
-          providerRuleId: execution.providerRuleId,
-          providerConversionExecutionId: execution.id,
-          sourceDeliveryId: execution.sourceDeliveryId,
-          channelId: execution.channelId,
-          automation: parsed.automation,
-          purchaseReviewId: execution.purchaseReview?.id ?? null,
-          processingMode: "live_provider_automation",
+      const conversion = await this.conversions.recordExternalConversion(
+        {
+          workspaceId: execution.workspaceId,
+          externalConnectorId: null,
+          sourceEventId: parsed.externalExecutionKey,
+          sourceTrigger: "inbound_webhook:umbler:provider_automation",
+          eventName: parsed.eventName,
+          eventId: this.metaEventId(execution.id, parsed.eventName),
+          dedupeKey: `provider-conversion:${execution.id}`,
+          leadId: lead.id,
+          phoneHash: lead.phoneHash,
+          businessSource: "paid",
+          metaAccountId: route.adAccountId,
+          metaBusinessConnectionId: route.businessConnectionId,
+          metaConversionDestinationId: route.conversionDestinationId,
+          campaignId: lead.campaignId,
+          adSetId: lead.adSetId,
+          adId: lead.adId,
+          ctwaClid: lead.ctwaClid,
+          valueCents,
+          valueSource: isPurchase ? "configured_average" : null,
+          currency,
+          contentName: isPurchase ? rule.defaultContentName : null,
+          eventOccurredAt: execution.occurredAt,
+          sourcePayload: {
+            provider: "umbler",
+            providerRuleId: execution.providerRuleId,
+            providerConversionExecutionId: execution.id,
+            sourceDeliveryId: execution.sourceDeliveryId,
+            channelId: execution.channelId,
+            automation: parsed.automation,
+            purchaseReviewId: execution.purchaseReview?.id ?? null,
+            processingMode: "live_provider_automation",
+          },
         },
-      });
+        transaction,
+      );
 
       await transaction.providerConversionRuleExecution.update({
         where: { id: execution.id },
@@ -1031,5 +1053,21 @@ export class ProviderConversionProductionService {
       /^[a-z0-9_]{1,160}$/u.test(error.code)
       ? error.code
       : "provider_conversion_production_unexpected";
+  }
+
+  private failureSummary(error: unknown, code: string): Prisma.InputJsonValue {
+    const prismaCode =
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      typeof error.code === "string"
+        ? error.code
+        : null;
+
+    return {
+      code,
+      prismaCode,
+      failedAt: new Date().toISOString(),
+    };
   }
 }

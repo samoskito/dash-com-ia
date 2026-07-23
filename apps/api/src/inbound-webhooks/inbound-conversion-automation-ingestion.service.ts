@@ -681,18 +681,24 @@ export class InboundConversionAutomationIngestionService {
       currentExecution?.status === "eligible" ||
       currentExecution?.status === "failed"
     ) {
-      if (currentExecution.status === "failed") {
+      const retryingFailure = currentExecution.status === "failed";
+      if (retryingFailure) {
+        const approvedAt = new Date();
         const normalizedResult = this.jsonRecord(
           currentExecution.normalizedResult,
         );
         await this.prisma.providerConversionRuleExecution.update({
           where: { id: currentExecution.id },
           data: {
+            status: "eligible",
+            reasonCode: "automation_manual_reprocess_approved",
+            processedAt: null,
+            lastAttemptedAt: approvedAt,
             normalizedResult: {
               ...(normalizedResult ?? {}),
               manualReplayApproval: {
                 approved: true,
-                approvedAt: new Date().toISOString(),
+                approvedAt: approvedAt.toISOString(),
                 actorUserId,
               },
             } as Prisma.InputJsonValue,
@@ -707,10 +713,12 @@ export class InboundConversionAutomationIngestionService {
         deliveryId,
         executionId: currentExecution.id,
         status: queued.status,
-        reasonCode: currentExecution.reasonCode,
+        reasonCode: retryingFailure
+          ? "automation_manual_reprocess_approved"
+          : currentExecution.reasonCode,
         message:
           queued.status === "queued"
-            ? currentExecution.status === "failed"
+            ? retryingFailure
               ? "Falha anterior encaminhada para uma nova tentativa"
               : "Callback encaminhado para a fila da Meta"
             : "Callback ja estava na fila da Meta",

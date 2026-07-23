@@ -820,6 +820,11 @@ describe("inbound conversion automation ingestion", () => {
     expect(execution.normalizedResult.manualReplayApproval.approvedAt).toEqual(
       expect.any(String),
     );
+    expect(execution).toMatchObject({
+      status: "eligible",
+      reasonCode: "automation_manual_reprocess_approved",
+      processedAt: null,
+    });
     expect(
       harness.productionQueue.enqueueProviderConversion,
     ).toHaveBeenCalledWith({

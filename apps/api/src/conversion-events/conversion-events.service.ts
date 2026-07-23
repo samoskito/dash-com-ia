@@ -82,6 +82,11 @@ type ConversionEventLogRecord = {
   errorCode: string | null;
 };
 
+type ConversionEventPrismaClient = Pick<
+  Prisma.TransactionClient,
+  "conversionEventLog"
+>;
+
 export type RecordExternalConversionInput = {
   workspaceId: string;
   externalConnectorId?: string | null;
@@ -389,24 +394,28 @@ export class ConversionEventsService {
 
   async recordExternalConversion(
     input: RecordExternalConversionInput,
+    client: ConversionEventPrismaClient = this.prisma,
   ): Promise<RecordExternalConversionResult> {
-    const existing = (await this.prisma.conversionEventLog.findUnique({
+    const existing = (await client.conversionEventLog.findUnique({
       where: { dedupeKey: input.dedupeKey },
     })) as ConversionEventLogRecord | null;
 
     if (existing) {
-      return this.reconcileExistingExternalConversion(existing, input);
+      return this.reconcileExistingExternalConversion(existing, input, client);
     }
 
     const initialStatus = this.resolveExternalInitialStatus(input);
-    const purchaseKind = await this.resolvePurchaseKind({
-      workspaceId: input.workspaceId,
-      eventName: input.eventName,
-      customerIdentityKey: input.phoneHash,
-    });
+    const purchaseKind = await this.resolvePurchaseKind(
+      {
+        workspaceId: input.workspaceId,
+        eventName: input.eventName,
+        customerIdentityKey: input.phoneHash,
+      },
+      client,
+    );
 
     try {
-      const log = await this.prisma.conversionEventLog.create({
+      const log = await client.conversionEventLog.create({
         data: {
           workspaceId: input.workspaceId,
           externalConnectorId: input.externalConnectorId ?? null,
@@ -457,7 +466,7 @@ export class ConversionEventsService {
         throw error;
       }
 
-      const duplicate = (await this.prisma.conversionEventLog.findUnique({
+      const duplicate = (await client.conversionEventLog.findUnique({
         where: { dedupeKey: input.dedupeKey },
       })) as ConversionEventLogRecord | null;
 
@@ -476,6 +485,7 @@ export class ConversionEventsService {
   private async reconcileExistingExternalConversion(
     existing: ConversionEventLogRecord,
     input: RecordExternalConversionInput,
+    client: ConversionEventPrismaClient,
   ): Promise<RecordExternalConversionResult> {
     const promotesHistoricalEvent =
       existing.status === "imported" && input.deliveryStatus !== "imported";
@@ -487,7 +497,7 @@ export class ConversionEventsService {
         ? existing.businessSource
         : "paid";
     const adId = existing.adId ?? input.adId ?? null;
-    const updated = (await this.prisma.conversionEventLog.update({
+    const updated = (await client.conversionEventLog.update({
       where: { id: existing.id },
       data: {
         leadId: existing.leadId ?? input.leadId ?? null,
@@ -1184,16 +1194,19 @@ export class ConversionEventsService {
     );
   }
 
-  private async resolvePurchaseKind(input: {
-    workspaceId: string;
-    eventName: ConversionEventNameDto;
-    customerIdentityKey: string | null;
-  }): Promise<"first_purchase" | "repurchase" | null> {
+  private async resolvePurchaseKind(
+    input: {
+      workspaceId: string;
+      eventName: ConversionEventNameDto;
+      customerIdentityKey: string | null;
+    },
+    client: ConversionEventPrismaClient = this.prisma,
+  ): Promise<"first_purchase" | "repurchase" | null> {
     if (input.eventName !== "Purchase" || !input.customerIdentityKey) {
       return null;
     }
 
-    const previousPurchases = await this.prisma.conversionEventLog.count({
+    const previousPurchases = await client.conversionEventLog.count({
       where: {
         workspaceId: input.workspaceId,
         eventName: "Purchase",

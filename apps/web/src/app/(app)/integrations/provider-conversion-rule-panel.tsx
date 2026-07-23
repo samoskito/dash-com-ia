@@ -2461,6 +2461,8 @@ function executionReasonLabel(reasonCode: string | null): string {
     provider_conversion_identity_missing: "Identidade do lead incompleta",
     provider_conversion_execution_state_changed:
       "Estado da execucao foi alterado",
+    provider_conversion_production_unexpected:
+      "Falha interna ao criar o evento Meta",
     queue_recovery_pending: "Aguardando recuperacao da fila",
     qualified_lead_already_materialized: "Lead ja qualificado anteriormente",
   };

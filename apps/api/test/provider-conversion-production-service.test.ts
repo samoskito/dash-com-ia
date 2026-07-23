@@ -373,6 +373,7 @@ describe("provider conversion production service", () => {
         currency: "BRL",
         metaConversionDestinationId: "destination_1",
       }),
+      harness.transaction,
     );
     expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledWith(
       "conversion_1",
@@ -468,6 +469,7 @@ describe("provider conversion production service", () => {
         valueCents: 29_990,
         valueSource: "actual",
       }),
+      harness.transaction,
     );
     expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledWith(
       "conversion_1",
@@ -498,6 +500,7 @@ describe("provider conversion production service", () => {
         currency: null,
         metaConversionDestinationId: "destination_1",
       }),
+      harness.transaction,
     );
     expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledWith(
       "conversion_1",
@@ -529,6 +532,7 @@ describe("provider conversion production service", () => {
         eventName: "QualifiedLead",
         leadId: "lead_1",
       }),
+      harness.transaction,
     );
   });
 
@@ -569,6 +573,7 @@ describe("provider conversion production service", () => {
         currency: "BRL",
         contentName: "Pedido medio",
       }),
+      harness.transaction,
     );
     expect(harness.execution).toMatchObject({
       status: "materialized",
