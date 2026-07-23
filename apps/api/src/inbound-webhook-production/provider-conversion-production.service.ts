@@ -257,11 +257,13 @@ export class ProviderConversionProductionService {
       "Purchase",
     );
     const result = await this.prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw`
-        SELECT pg_advisory_xact_lock(
-          CAST(${lock.first} AS integer),
-          CAST(${lock.second} AS integer)
-        )
+      await transaction.$queryRaw<Array<{ lockAcquired: string }>>`
+        SELECT CAST(
+          pg_advisory_xact_lock(
+            CAST(${lock.first} AS integer),
+            CAST(${lock.second} AS integer)
+          ) AS text
+        ) AS "lockAcquired"
       `;
 
       const current =
@@ -487,11 +489,13 @@ export class ProviderConversionProductionService {
       parsed.eventName,
     );
     return this.prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw`
-        SELECT pg_advisory_xact_lock(
-          CAST(${lock.first} AS integer),
-          CAST(${lock.second} AS integer)
-        )
+      await transaction.$queryRaw<Array<{ lockAcquired: string }>>`
+        SELECT CAST(
+          pg_advisory_xact_lock(
+            CAST(${lock.first} AS integer),
+            CAST(${lock.second} AS integer)
+          ) AS text
+        ) AS "lockAcquired"
       `;
 
       const current =

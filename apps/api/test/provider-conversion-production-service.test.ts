@@ -229,7 +229,7 @@ function createHarness(
     return execution;
   });
   const transaction = {
-    $queryRaw: vi.fn(async () => [{ pg_advisory_xact_lock: null }]),
+    $queryRaw: vi.fn(async () => [{ lockAcquired: "" }]),
     providerConversionRuleExecution: {
       findFirst: executionFindFirst,
       update: executionUpdate,
@@ -394,6 +394,9 @@ describe("provider conversion production service", () => {
     expect(queryParts.join("?").match(/CAST\(\? AS integer\)/g)).toHaveLength(
       2,
     );
+    expect(queryParts.join("?")).toMatch(
+      /AS text\s*\)\s*AS "lockAcquired"/,
+    );
     expect(Number.isInteger(firstLockKey)).toBe(true);
     expect(Number.isInteger(secondLockKey)).toBe(true);
   });
@@ -485,6 +488,11 @@ describe("provider conversion production service", () => {
     expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledWith(
       "conversion_1",
       workspaceId,
+    );
+    const [queryParts] = harness.transaction.$queryRaw.mock
+      .calls[0] as unknown as [TemplateStringsArray, number, number];
+    expect(queryParts.join("?")).toMatch(
+      /AS text\s*\)\s*AS "lockAcquired"/,
     );
   });
 
