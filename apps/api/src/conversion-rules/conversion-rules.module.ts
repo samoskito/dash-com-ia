@@ -9,6 +9,8 @@ import { ConversionRulesService } from "./conversion-rules.service";
 import { FunnelConfigurationService } from "./funnel-configuration.service";
 import { ProviderConversionRulesService } from "./provider-conversion-rules.service";
 import { ProviderConversionObservationService } from "./provider-conversion-observation.service";
+import { ProviderConversionDecisionEngine } from "./provider-conversion-decision.engine";
+import { ProviderConversionPaidLeadResolver } from "./provider-conversion-paid-lead-resolver.service";
 
 @Module({
   imports: [AuthModule, PrismaModule, RuntimeModule, WorkspacesModule],
@@ -19,6 +21,8 @@ import { ProviderConversionObservationService } from "./provider-conversion-obse
     FunnelConfigurationService,
     ProviderConversionRulesService,
     ProviderConversionObservationService,
+    ProviderConversionDecisionEngine,
+    ProviderConversionPaidLeadResolver,
   ],
   exports: [
     ConversionRulesService,
@@ -26,6 +30,8 @@ import { ProviderConversionObservationService } from "./provider-conversion-obse
     FunnelConfigurationService,
     ProviderConversionRulesService,
     ProviderConversionObservationService,
+    ProviderConversionDecisionEngine,
+    ProviderConversionPaidLeadResolver,
   ],
 })
 export class ConversionRulesModule {}

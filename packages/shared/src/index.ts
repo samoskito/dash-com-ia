@@ -15,3 +15,4 @@ export * from "./schemas/leads";
 export * from "./schemas/external-data-connectors";
 export * from "./schemas/platform-administration";
 export * from "./schemas/inbound-webhooks";
+export * from "./schemas/provider-conversion-decisions";

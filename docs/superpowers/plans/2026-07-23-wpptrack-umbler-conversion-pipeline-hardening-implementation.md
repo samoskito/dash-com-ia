@@ -94,30 +94,48 @@ orchestration.
 
 ### Tasks
 
-- [ ] Define the discriminated decision union.
-- [ ] Define separate technical-delivery states.
-- [ ] Extract catalog, average-value and automation evaluators behind the
+- [x] Define the discriminated decision union.
+- [x] Define separate technical-delivery states.
+- [x] Extract catalog, average-value and automation evaluators behind the
       engine.
-- [ ] Return typed ignored, review, eligible and duplicate results.
-- [ ] Resolve paid leads before creating operational effects.
-- [ ] Preserve current phone normalization and paid attribution requirements.
-- [ ] Add exhaustive compile-time handling for every decision code.
+- [x] Return typed ignored, review, eligible and duplicate results.
+- [x] Resolve paid leads before creating operational effects.
+- [x] Preserve current phone normalization and paid attribution requirements.
+- [x] Add exhaustive compile-time handling for every decision code.
 
 ### Fixture matrix
 
-- [ ] Team-authored empty template.
-- [ ] Bot-authored empty template.
-- [ ] Contact-authored empty template.
-- [ ] Known paid lead with partial catalog attributes.
-- [ ] Unknown lead with partial and complete catalog data.
-- [ ] Known lead with valid single and multi-item catalog data.
-- [ ] Known lead with aliases and quantities.
-- [ ] Qualified-lead automation callback.
-- [ ] Average-value purchase callback and message.
+- [x] Team-authored empty template.
+- [x] Bot-authored empty template.
+- [x] Contact-authored empty template.
+- [x] Known paid lead with partial catalog attributes.
+- [x] Unknown lead with partial and complete catalog data.
+- [x] Known lead with valid single and multi-item catalog data.
+- [x] Known lead with aliases and quantities.
+- [x] Qualified-lead automation callback.
+- [x] Average-value purchase callback and message.
 
 ### Exit criterion
 
 The engine is pure and fully tested; no existing runtime path uses it yet.
+
+### Wave 1 checkpoint
+
+- The shared contract separates canonical business decisions from technical
+  delivery states.
+- The frozen paid-lead attribution includes campaign, ad set, ad and CTWA.
+- Qualified leads carry a lifetime dedupe policy.
+- Purchases carry an explicit rolling 24-hour dedupe policy, preserving later
+  repurchases.
+- The paid-lead resolver reuses the existing phone normalization and requires
+  both ad and CTWA attribution.
+- The engine covers catalog, average-value message and provider-automation
+  rules without database, queue or Meta dependencies.
+- The representative `3,5 / Nacional` typo remains reviewable; exact catalog
+  combinations use catalog prices instead of payment text.
+- Focused result: 34 tests passed.
+- Type validation and builds passed for shared and API.
+- The current live, replay and production paths are still unchanged.
 
 ## 6. Wave 2 - Versioned Decision Persistence
 

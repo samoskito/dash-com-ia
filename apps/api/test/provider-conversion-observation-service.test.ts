@@ -360,6 +360,68 @@ describe("provider conversion observation service", () => {
     expect(harness.prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the representative contact order with an unknown size in review", async () => {
+    const harness = createHarness("production", "both");
+    const event = outboundCatalogEvent();
+    event.message.authorType = "contact";
+    event.message.direction = "inbound";
+    event.message.text = [
+      "COMPROVANTE DE ENCOMENDA",
+      "",
+      "Dados para confirmar o pedido:",
+      "- Nome: Cliente",
+      "- Cidade: Cidade teste",
+      "",
+      "- Tamanho: 3,5",
+      "- Modelo: Nacional",
+      "",
+      "- Forma de pagamento: Pix",
+    ].join("\n");
+
+    const result = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_real_unknown_size",
+      deliveryReceivedAt: new Date("2026-07-22T21:23:47.000Z"),
+      events: [event],
+    });
+
+    expect(result).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: [],
+    });
+    expect(harness.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          status: "blocked",
+          reasonCode: "unknown_combination",
+          valueCents: null,
+        }),
+      }),
+    );
+    expect(harness.purchaseReview.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          status: "review_required",
+          reasonCode: "unknown_combination",
+          leadId: "lead_1",
+          calculatedValueCents: null,
+          effectiveValueCents: null,
+        }),
+      }),
+    );
+    expect(harness.purchaseReviewItem.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          attributeValues: ["3,5", "Nacional"],
+          catalogVariantId: null,
+          unitValueCents: null,
+          subtotalValueCents: null,
+        }),
+      ],
+    });
+  });
+
   it.each([
     {
       authorType: "organization_member" as const,
