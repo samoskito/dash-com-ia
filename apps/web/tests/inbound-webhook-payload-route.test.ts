@@ -109,7 +109,7 @@ describe("inbound webhook payload routes", () => {
     const html = render(element);
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/backoffice/inbound-webhooks/deliveries?limit=50",
+      "http://localhost:3333/backoffice/inbound-webhooks/deliveries?limit=51&offset=0",
       expect.objectContaining({
         cache: "no-store",
         credentials: "include",
@@ -189,7 +189,7 @@ describe("inbound webhook payload routes", () => {
     const html = render(element);
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/backoffice/inbound-webhooks/deliveries?limit=50&classification=eligible_route_unresolved",
+      "http://localhost:3333/backoffice/inbound-webhooks/deliveries?classification=eligible_route_unresolved&limit=51&offset=0",
       expect.anything(),
     );
     expect(html).toContain("50 CTWA aguardando validacao do payload");
@@ -236,7 +236,7 @@ describe("inbound webhook payload routes", () => {
     const html = render(element);
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/backoffice/inbound-webhooks/deliveries?purpose=conversion_automation&limit=50",
+      "http://localhost:3333/backoffice/inbound-webhooks/deliveries?purpose=conversion_automation&limit=51&offset=0",
       expect.anything(),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -250,6 +250,56 @@ describe("inbound webhook payload routes", () => {
       "Payload da automacao retido para validar e certificar o parser.",
     );
     expect(html).not.toContain("Replay historico");
+  });
+
+  it("paginates older deliveries while preserving the active filters", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            ...availableDelivery,
+            id: "delivery_page_2",
+            classification: "ignored_outbound",
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          all: 423,
+          ctwaPending: 0,
+          ctwaRouted: 0,
+          failed: 0,
+          noCtwa: 373,
+          automationCallbacks: 12,
+          awaitingParser: 4,
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(operationsScope));
+
+    const element = await InboundWebhookDeliveriesPage({
+      searchParams: Promise.resolve({
+        workspaceId: "workspace_1",
+        connectionId: "connection_1",
+        channelId: "channel_1",
+        provider: "umbler",
+        purpose: "message_observation",
+        status: "processed",
+        classification: "ignored_outbound",
+        page: "2",
+      }),
+    });
+    const html = render(element);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/inbound-webhooks/deliveries?workspaceId=workspace_1&connectionId=connection_1&channelId=channel_1&provider=umbler&purpose=message_observation&status=processed&classification=ignored_outbound&limit=51&offset=50",
+      expect.anything(),
+    );
+    expect(html).toContain("Pagina 2 - 50 entregas por pagina");
+    expect(html).toContain(
+      'href="/backoffice/inbound-webhooks?workspaceId=workspace_1&amp;connectionId=connection_1&amp;channelId=channel_1&amp;provider=umbler&amp;purpose=message_observation&amp;status=processed&amp;classification=ignored_outbound"',
+    );
+    expect(html).toContain("Anterior");
+    expect(html).toContain("delivery_page_2");
   });
 
   it("renders escaped raw JSON beside normalized parser events", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   backofficeInboundWebhookDeliveryListSchema,
+  backofficeInboundWebhookDeliveryQuerySchema,
   backofficeInboundWebhookDeliverySummarySchema,
   backofficeInboundWebhookPayloadSchema,
   inboundWebhookChannelSchema,
@@ -35,6 +36,27 @@ const connection = {
 };
 
 describe("inbound webhook contracts", () => {
+  it("accepts bounded delivery pagination with safe defaults", () => {
+    expect(backofficeInboundWebhookDeliveryQuerySchema.parse({})).toMatchObject(
+      {
+        limit: 50,
+        offset: 0,
+      },
+    );
+    expect(
+      backofficeInboundWebhookDeliveryQuerySchema.parse({
+        limit: "51",
+        offset: "150",
+      }),
+    ).toMatchObject({
+      limit: 51,
+      offset: 150,
+    });
+    expect(() =>
+      backofficeInboundWebhookDeliveryQuerySchema.parse({ offset: "-1" }),
+    ).toThrow();
+  });
+
   it("accepts the registered observation providers", () => {
     expect(inboundWebhookProviderSchema.parse("umbler")).toBe("umbler");
     expect(inboundWebhookProviderSchema.parse("gupshup")).toBe("gupshup");

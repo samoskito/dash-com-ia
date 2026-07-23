@@ -273,6 +273,7 @@ export class BackofficeInboundWebhooksService {
       select: deliveryListSelect,
       orderBy: [{ lastReceivedAt: "desc" }, { id: "desc" }],
       take: query.limit,
+      skip: query.offset,
     });
     const now = new Date();
 

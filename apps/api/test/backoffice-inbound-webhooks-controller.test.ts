@@ -211,7 +211,7 @@ describe("backoffice inbound webhooks controller", () => {
 
     await request(app.getHttpServer())
       .get(
-        "/backoffice/inbound-webhooks/deliveries?workspaceId=workspace_1&connectionId=connection_1&channelId=channel_1&provider=umbler&purpose=message_observation&status=processed&classification=eligible_route_resolved&limit=25",
+        "/backoffice/inbound-webhooks/deliveries?workspaceId=workspace_1&connectionId=connection_1&channelId=channel_1&provider=umbler&purpose=message_observation&status=processed&classification=eligible_route_resolved&limit=25&offset=50",
       )
       .set("Authorization", "Bearer owner-token")
       .expect(200)
@@ -240,6 +240,7 @@ describe("backoffice inbound webhooks controller", () => {
       status: "processed",
       classification: "eligible_route_resolved",
       limit: 25,
+      offset: 50,
     });
 
     await app.close();
@@ -412,6 +413,18 @@ describe("backoffice inbound webhooks controller", () => {
 
     await request(app.getHttpServer())
       .get("/backoffice/inbound-webhooks/deliveries?limit=0")
+      .set("Authorization", "Bearer owner-token")
+      .expect(400);
+
+    expect(service.listDeliveries).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("rejects a negative delivery offset before querying the database", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/backoffice/inbound-webhooks/deliveries?offset=-1")
       .set("Authorization", "Bearer owner-token")
       .expect(400);
 

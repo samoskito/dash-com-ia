@@ -9,6 +9,8 @@ import type {
 import {
   AlertTriangle,
   Building2,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   History,
   Inbox,
@@ -38,6 +40,7 @@ type DeliveryFilters = {
 
 type DeliveryResult = {
   data: BackofficeInboundWebhookDeliveryDto[];
+  hasNextPage: boolean;
   state: "real" | "empty" | "error";
 };
 
@@ -59,6 +62,8 @@ type QuickFilterKey =
   | "ctwa_routed"
   | "failed"
   | "no_ctwa";
+
+const deliveryPageSize = 50;
 
 const deliveryStatuses: Array<{
   label: string;
@@ -118,6 +123,20 @@ function deliveryScopeParams(filters: DeliveryFilters): URLSearchParams {
   return params;
 }
 
+function deliveryFilterParams(filters: DeliveryFilters): URLSearchParams {
+  const params = deliveryScopeParams(filters);
+
+  if (filters.status) {
+    params.set("status", filters.status);
+  }
+
+  if (filters.classification) {
+    params.set("classification", filters.classification);
+  }
+
+  return params;
+}
+
 async function getOperationsScope(): Promise<OperationsScopeResult> {
   try {
     const data =
@@ -133,30 +152,27 @@ async function getOperationsScope(): Promise<OperationsScopeResult> {
 
 async function getDeliveries(
   filters: DeliveryFilters,
+  page: number,
 ): Promise<DeliveryResult> {
   try {
-    const params = deliveryScopeParams(filters);
-    params.set("limit", "50");
-
-    if (filters.status) {
-      params.set("status", filters.status);
-    }
-
-    if (filters.classification) {
-      params.set("classification", filters.classification);
-    }
+    const params = deliveryFilterParams(filters);
+    params.set("limit", String(deliveryPageSize + 1));
+    params.set("offset", String((page - 1) * deliveryPageSize));
 
     const deliveries = await serverApiFetch<
       BackofficeInboundWebhookDeliveryDto[]
     >(`/backoffice/inbound-webhooks/deliveries?${params.toString()}`);
+    const visibleDeliveries = deliveries.slice(0, deliveryPageSize);
 
     return {
-      data: deliveries,
-      state: deliveries.length > 0 ? "real" : "empty",
+      data: visibleDeliveries,
+      hasNextPage: deliveries.length > deliveryPageSize,
+      state: visibleDeliveries.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
       data: [],
+      hasNextPage: false,
       state: "error",
     };
   }
@@ -213,6 +229,28 @@ function quickFilterHref(
   const query = params.toString();
 
   return `/backoffice/inbound-webhooks${query ? `?${query}` : ""}`;
+}
+
+function deliveryPageHref(filters: DeliveryFilters, page: number): string {
+  const params = deliveryFilterParams(filters);
+
+  if (page > 1) {
+    params.set("page", String(page));
+  }
+
+  const query = params.toString();
+
+  return `/backoffice/inbound-webhooks${query ? `?${query}` : ""}`;
+}
+
+function pageParam(value: string | string[] | undefined): number {
+  const parsed = Number(asStringParam(value));
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return 1;
+  }
+
+  return Math.min(parsed, 2_001);
 }
 
 function classificationLabel(
@@ -361,8 +399,9 @@ export default async function InboundWebhookDeliveriesPage({
     status: asStringParam(resolvedSearchParams.status),
     classification: asStringParam(resolvedSearchParams.classification),
   };
+  const page = pageParam(resolvedSearchParams.page);
   const [result, summaryResult, scopeResult] = await Promise.all([
-    getDeliveries(filters),
+    getDeliveries(filters, page),
     getDeliverySummary(filters),
     getOperationsScope(),
   ]);
@@ -923,6 +962,47 @@ export default async function InboundWebhookDeliveriesPage({
           </div>
         )}
       </section>
+
+      {result.state !== "error" && (page > 1 || result.hasNextPage) ? (
+        <nav
+          className="report-pagination"
+          aria-label="Paginacao das entregas do WhatsApp"
+        >
+          <span>
+            Pagina {page} - {deliveryPageSize} entregas por pagina
+          </span>
+          <div>
+            {page > 1 ? (
+              <a
+                className="button ghost"
+                href={deliveryPageHref(filters, page - 1)}
+              >
+                <ChevronLeft aria-hidden="true" size={16} strokeWidth={2} />
+                Anterior
+              </a>
+            ) : (
+              <span className="button ghost disabled">
+                <ChevronLeft aria-hidden="true" size={16} strokeWidth={2} />
+                Anterior
+              </span>
+            )}
+            {result.hasNextPage ? (
+              <a
+                className="button ghost"
+                href={deliveryPageHref(filters, page + 1)}
+              >
+                Proxima
+                <ChevronRight aria-hidden="true" size={16} strokeWidth={2} />
+              </a>
+            ) : (
+              <span className="button ghost disabled">
+                Proxima
+                <ChevronRight aria-hidden="true" size={16} strokeWidth={2} />
+              </span>
+            )}
+          </div>
+        </nav>
+      ) : null}
     </section>
   );
 }

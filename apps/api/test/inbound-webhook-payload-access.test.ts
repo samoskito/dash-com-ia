@@ -176,7 +176,7 @@ function createHarness(state: PayloadState = "available") {
   const deliveries = new Map([[delivery.id, delivery]]);
   const audits: Array<Record<string, unknown>> = [];
   const inboundWebhookDelivery = {
-    findMany: vi.fn(async ({ where, take }) =>
+    findMany: vi.fn(async ({ where, skip = 0, take }) =>
       [...deliveries.values()]
         .filter(
           (candidate) =>
@@ -208,7 +208,7 @@ function createHarness(state: PayloadState = "available") {
             right.lastReceivedAt.getTime() - left.lastReceivedAt.getTime() ||
             right.id.localeCompare(left.id),
         )
-        .slice(0, take),
+        .slice(skip, skip + take),
     ),
     count: vi.fn(
       async ({ where }) =>
@@ -368,6 +368,7 @@ describe("inbound webhook payload access", () => {
       status: "processed",
       classification: "eligible_route_resolved",
       limit: 25,
+      offset: 0,
     });
 
     expect(
@@ -389,6 +390,14 @@ describe("inbound webhook payload access", () => {
     expect(serialized).not.toContain("secretHash");
     expect(serialized).not.toContain("webhookUrl");
     expect(serialized).not.toContain("encryptedPayload");
+    expect(
+      harness.prisma.inboundWebhookDelivery.findMany,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skip: 0,
+        take: 25,
+      }),
+    );
     expect(harness.audits).toHaveLength(0);
   });
 
