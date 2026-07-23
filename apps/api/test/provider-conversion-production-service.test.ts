@@ -385,6 +385,17 @@ describe("provider conversion production service", () => {
       conversionEventLogId: "conversion_1",
     });
     expect(harness.transaction.$queryRaw).toHaveBeenCalledOnce();
+    const [queryParts, firstLockKey, secondLockKey] = harness.transaction
+      .$queryRaw.mock.calls[0] as unknown as [
+      TemplateStringsArray,
+      number,
+      number,
+    ];
+    expect(queryParts.join("?").match(/CAST\(\? AS integer\)/g)).toHaveLength(
+      2,
+    );
+    expect(Number.isInteger(firstLockKey)).toBe(true);
+    expect(Number.isInteger(secondLockKey)).toBe(true);
   });
 
   it("blocks a second accepted purchase inside the rolling 24-hour window", async () => {

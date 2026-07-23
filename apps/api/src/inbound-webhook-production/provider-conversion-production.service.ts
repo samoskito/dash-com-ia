@@ -258,7 +258,10 @@ export class ProviderConversionProductionService {
     );
     const result = await this.prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`
-        SELECT pg_advisory_xact_lock(${lock.first}, ${lock.second})
+        SELECT pg_advisory_xact_lock(
+          CAST(${lock.first} AS integer),
+          CAST(${lock.second} AS integer)
+        )
       `;
 
       const current =
@@ -485,7 +488,10 @@ export class ProviderConversionProductionService {
     );
     return this.prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`
-        SELECT pg_advisory_xact_lock(${lock.first}, ${lock.second})
+        SELECT pg_advisory_xact_lock(
+          CAST(${lock.first} AS integer),
+          CAST(${lock.second} AS integer)
+        )
       `;
 
       const current =
