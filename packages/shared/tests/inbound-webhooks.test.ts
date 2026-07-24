@@ -5,6 +5,10 @@ import {
   backofficeInboundWebhookDeliverySummaryQuerySchema,
   backofficeInboundWebhookDeliverySummarySchema,
   backofficeInboundWebhookPayloadSchema,
+  backofficeProviderConversionRolloutModeInputSchema,
+  backofficeProviderConversionRolloutQuerySchema,
+  backofficeProviderConversionRolloutSchema,
+  backofficeProviderConversionReevaluationInputSchema,
   inboundWebhookChannelSchema,
   inboundWebhookChannelRouteInputSchema,
   inboundWebhookChannelRouteSchema,
@@ -16,6 +20,7 @@ import {
   inboundWebhookConnectionListSchema,
   inboundWebhookConnectionRotateSecretResultSchema,
   inboundWebhookConnectionStatusUpdateInputSchema,
+  inboundWebhookEventClassificationSchema,
   inboundWebhookNormalizedObservationSchema,
   inboundWebhookProviderSchema,
 } from "../src/schemas/inbound-webhooks";
@@ -37,6 +42,110 @@ const connection = {
 };
 
 describe("inbound webhook contracts", () => {
+  it("accepts the dedicated ignored empty-template classification", () => {
+    expect(
+      inboundWebhookEventClassificationSchema.parse("ignored_empty_template"),
+    ).toBe("ignored_empty_template");
+  });
+
+  it("accepts only bounded provider-conversion reevaluation request keys", () => {
+    expect(
+      backofficeProviderConversionReevaluationInputSchema.parse({
+        requestKey: "backoffice:decision_1:request_123456",
+      }),
+    ).toEqual({
+      requestKey: "backoffice:decision_1:request_123456",
+    });
+    expect(() =>
+      backofficeProviderConversionReevaluationInputSchema.parse({
+        requestKey: "short",
+      }),
+    ).toThrow();
+    expect(() =>
+      backofficeProviderConversionReevaluationInputSchema.parse({
+        requestKey: "backoffice:decision_1:\nrequest_123456",
+      }),
+    ).toThrow();
+  });
+
+  it("accepts protected provider-conversion rollout controls", () => {
+    expect(backofficeProviderConversionRolloutQuerySchema.parse({})).toEqual({
+      onlyMismatches: false,
+      limit: 30,
+    });
+    expect(
+      backofficeProviderConversionRolloutModeInputSchema.parse({
+        mode: "canonical",
+        confirmation: "Central de Vendas",
+        acknowledgedComparisonCount: 25,
+        acknowledgedMismatchCount: 2,
+      }),
+    ).toEqual({
+      mode: "canonical",
+      confirmation: "Central de Vendas",
+      acknowledgedComparisonCount: 25,
+      acknowledgedMismatchCount: 2,
+    });
+    expect(() =>
+      backofficeProviderConversionRolloutModeInputSchema.parse({
+        mode: "enabled",
+        confirmation: "Central de Vendas",
+      }),
+    ).toThrow();
+  });
+
+  it("accepts append-only shadow comparison summaries", () => {
+    const rollout = backofficeProviderConversionRolloutSchema.parse({
+      channel: {
+        id: "channel_1",
+        displayName: "Central de Vendas",
+        connectedPhone: "+5511999999999",
+        mode: "shadow",
+      },
+      counts: {
+        comparisons: 10,
+        matches: 9,
+        mismatches: 1,
+      },
+      mismatchReasons: [
+        {
+          code: "applicability_mismatch",
+          count: 1,
+        },
+      ],
+      latestComparisonAt: timestamp,
+      canActivateCanonical: true,
+      canonicalBlocker: null,
+      comparisons: [
+        {
+          id: "comparison_1",
+          occurrenceKey: "occurrence_1",
+          authoritativeEngine: "legacy",
+          matches: false,
+          mismatchCode: "applicability_mismatch",
+          legacy: {
+            engineVersion: null,
+            decisionCode: null,
+            reasonCode: null,
+          },
+          canonical: {
+            engineVersion: "decision-v1",
+            decisionCode: "ignored_empty_template",
+            reasonCode: "empty_template",
+          },
+          sourceDeliveryId: "delivery_1",
+          createdAt: timestamp,
+        },
+      ],
+    });
+
+    expect(rollout.channel.mode).toBe("shadow");
+    expect(rollout.counts.mismatches).toBe(1);
+    expect(rollout.comparisons[0]?.canonical.decisionCode).toBe(
+      "ignored_empty_template",
+    );
+  });
+
   it("accepts bounded delivery pagination with safe defaults", () => {
     expect(backofficeInboundWebhookDeliveryQuerySchema.parse({})).toMatchObject(
       {

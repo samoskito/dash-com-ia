@@ -8,8 +8,6 @@ import type {
   ProviderConversionRuleDto,
   PurchaseReviewDto,
   PurchaseReviewListDto,
-  StructuredCatalogMatchReasonCodeDto,
-  StructuredCatalogTestMessageResultDto,
 } from "@wpptrack/shared";
 import {
   BookOpen,
@@ -40,6 +38,13 @@ import type {
   ProviderConversionRuleActionResult,
   ProviderConversionRuleOneTimeSecret,
 } from "./provider-conversion-rule-actions";
+import { ProviderCatalogTestConsole } from "../settings/provider-catalog-test-console";
+import {
+  executionReasonLabel,
+  purchaseReviewReasonLabel,
+  purchaseReviewStatusLabel,
+  purchaseReviewTone,
+} from "../settings/provider-conversion-labels";
 
 type ProviderRuleAction = (
   formData: FormData,
@@ -1853,32 +1858,11 @@ function CatalogRuleDetails({
   const [aliasDrafts, setAliasDrafts] = useState<Record<string, string[]>>(() =>
     catalogAliasDrafts(rule.catalog),
   );
-  const [result, setResult] =
-    useState<StructuredCatalogTestMessageResultDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const catalog = rule.catalog;
 
   if (!catalog) return null;
   const editableCatalog = catalog;
-
-  async function handleTest(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (pending) return;
-
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    formData.set("ruleId", rule.id);
-    setPending(true);
-    setError(null);
-    const response = await testMessageAction(formData);
-    if (response.ok && response.testResult) {
-      setResult(response.testResult);
-    } else {
-      setResult(null);
-      setError(response.message);
-    }
-    setPending(false);
-  }
 
   async function handleAliasSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2050,47 +2034,10 @@ function CatalogRuleDetails({
           ))}
         </div>
 
-        <form className="provider-catalog-test" onSubmit={handleTest}>
-          <label>
-            <span className="field-label">Testar mensagem real</span>
-            <textarea
-              name="messageText"
-              rows={4}
-              maxLength={8_192}
-              placeholder="Cole a mensagem estruturada recebida da Umbler"
-              required
-            />
-          </label>
-          <button className="button" type="submit" disabled={pending}>
-            <FlaskConical size={15} aria-hidden="true" />
-            {pending ? "Testando..." : "Testar sem enviar"}
-          </button>
-          {result ? (
-            <div
-              className={`provider-catalog-test-result ${result.matched ? "success" : "warn"}`}
-              role="status"
-            >
-              <strong>
-                {result.matched ? "Variante reconhecida" : "Mensagem bloqueada"}
-              </strong>
-              <span>{catalogReasonLabel(result.reasonCode)}</span>
-              {result.matched && result.parsedValueCents ? (
-                <span>
-                  {result.contentName} /{" "}
-                  {formatMoney(
-                    result.parsedValueCents,
-                    result.currency ?? "BRL",
-                  )}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-          {error ? (
-            <div className="feedback-banner error" role="alert">
-              <span>{error}</span>
-            </div>
-          ) : null}
-        </form>
+        <ProviderCatalogTestConsole
+          ruleId={rule.id}
+          testMessageAction={testMessageAction}
+        />
       </div>
     </details>
   );
@@ -2372,6 +2319,7 @@ function automationAuditStatusLabel(
     duplicate: "Duplicado",
     blocked: "Bloqueado",
     failed: "Falhou",
+    ignored: "Ignorado",
     invalid_payload: "Payload invalido",
   } satisfies Record<
     ProviderConversionAutomationAuditItemDto["status"],
@@ -2385,144 +2333,15 @@ function automationAuditTone(
   status: ProviderConversionAutomationAuditItemDto["status"],
 ): "" | "warn" | "bad" | "neutral" {
   if (status === "materialized") return "";
-  if (status === "observed" || status === "eligible") return "neutral";
+  if (
+    status === "observed" ||
+    status === "eligible" ||
+    status === "ignored"
+  ) {
+    return "neutral";
+  }
   if (status === "blocked" || status === "duplicate") return "warn";
   return "bad";
-}
-
-function purchaseReviewStatusLabel(
-  status: PurchaseReviewDto["status"],
-): string {
-  const labels = {
-    recognized: "Reconhecida",
-    awaiting_data: "Aguardando dados",
-    review_required: "Revisao necessaria",
-    approved: "Na fila",
-    sent: "Enviada",
-    duplicate: "Duplicada",
-    rejected: "Rejeitada",
-    failed: "Falhou",
-    corrected_after_send: "Corrigida no painel",
-  } satisfies Record<PurchaseReviewDto["status"], string>;
-
-  return labels[status];
-}
-
-function purchaseReviewTone(
-  status: PurchaseReviewDto["status"],
-): "" | "warn" | "bad" | "neutral" {
-  if (status === "sent" || status === "recognized") return "";
-  if (status === "failed" || status === "rejected") return "bad";
-  if (["awaiting_data", "review_required", "approved"].includes(status)) {
-    return "warn";
-  }
-  return "neutral";
-}
-
-function purchaseReviewReasonLabel(reasonCode: string | null): string {
-  if (!reasonCode) return "Pronta para revisao";
-
-  const labels: Record<string, string> = {
-    awaiting_complete_purchase_data: "Mensagem sem dados completos",
-    catalog_combination_not_found: "Combinacao fora do catalogo",
-    catalog_message_ambiguous: "Mensagem com combinacao ambigua",
-    provider_conversion_paid_lead_missing: "Lead pago nao localizado",
-    provider_conversion_route_missing: "Rota Meta nao localizada",
-    provider_conversion_value_missing: "Valor da compra nao localizado",
-    provider_conversion_production_context_invalid:
-      "Contexto de producao incompleto",
-  };
-
-  return labels[reasonCode] ?? executionReasonLabel(reasonCode);
-}
-
-function executionReasonLabel(reasonCode: string | null): string {
-  if (!reasonCode) return "Processado";
-
-  const labels: Record<string, string> = {
-    catalog_matched: "Catalogo reconhecido",
-    catalog_matched_observation: "Reconhecido em observacao",
-    message_matched: "Mensagem reconhecida",
-    message_matched_observation: "Reconhecido em observacao",
-    automation_matched: "Automacao reconhecida",
-    automation_matched_observation: "Reconhecido em observacao",
-    automation_manual_reprocess_approved: "Reprocessamento autorizado",
-    automation_event_mismatch: "Evento diferente da regra",
-    automation_channel_unresolved: "Canal nao localizado",
-    automation_paid_lead_missing: "Lead pago nao localizado",
-    automation_value_missing: "Valor medio nao configurado",
-    before_production_activation: "Historico preservado",
-    production_context_invalid: "Configuracao incompleta",
-    purchase_within_24h: "Compra repetida em menos de 24h",
-    provider_conversion_paid_lead_missing: "Lead pago nao localizado",
-    provider_conversion_catalog_mismatch: "Mensagem divergiu do catalogo",
-    provider_conversion_payload_unavailable: "Payload nao esta mais disponivel",
-    provider_conversion_source_event_mismatch: "Mensagem de origem invalida",
-    provider_conversion_value_missing: "Valor medio nao configurado",
-    provider_conversion_production_context_invalid:
-      "Contexto de producao incompleto",
-    provider_conversion_production_disabled: "Envio de conversoes desativado",
-    provider_conversion_execution_not_found: "Execucao nao localizada",
-    provider_conversion_identity_missing: "Identidade do lead incompleta",
-    provider_conversion_execution_state_changed:
-      "Estado da execucao foi alterado",
-    provider_conversion_production_unexpected:
-      "Falha interna ao criar o evento Meta",
-    queue_recovery_pending: "Aguardando recuperacao da fila",
-    qualified_lead_already_materialized: "Lead ja qualificado anteriormente",
-  };
-
-  if (reasonCode.startsWith("provider_conversion_route_")) {
-    return "Rota Meta indisponivel";
-  }
-
-  return labels[reasonCode] ?? catalogReasonLabelSafe(reasonCode);
-}
-
-function catalogReasonLabelSafe(reasonCode: string): string {
-  const labels: Record<string, string> = {
-    matched: "Catalogo reconhecido",
-    rule_inactive: "Regra pausada",
-    catalog_inactive: "Catalogo pausado",
-    missing_attribute: "Atributo ausente",
-    ambiguous_attribute: "Atributo ambiguo",
-    unknown_combination: "Combinacao nao cadastrada",
-    ambiguous_variant: "Variante ambigua",
-    missing_price: "Valor ausente",
-    ambiguous_price: "Mais de um valor encontrado",
-    price_mismatch: "Valor diferente do catalogo",
-    trigger_missing: "Frase gatilho ausente",
-    empty_template: "Template sem dados ignorado",
-    awaiting_data: "Aguardando dados completos",
-    incomplete_item: "Produto incompleto",
-    invalid_quantity: "Quantidade invalida",
-  };
-
-  return labels[reasonCode] ?? "Requer revisao";
-}
-
-function catalogReasonLabel(
-  reasonCode: StructuredCatalogMatchReasonCodeDto,
-): string {
-  const labels: Record<StructuredCatalogMatchReasonCodeDto, string> = {
-    matched: "Combinacao e preco conferidos.",
-    rule_inactive: "A regra esta pausada.",
-    catalog_inactive: "O catalogo esta inativo.",
-    missing_attribute: "A mensagem nao contem todos os atributos.",
-    ambiguous_attribute: "Um atributo apareceu com mais de um valor.",
-    unknown_combination: "A combinacao nao existe no catalogo.",
-    ambiguous_variant: "Mais de uma variante corresponde a mensagem.",
-    missing_price: "Nenhum preco foi encontrado na mensagem.",
-    ambiguous_price: "Mais de um preco foi encontrado na mensagem.",
-    price_mismatch: "O preco da mensagem difere do catalogo.",
-    trigger_missing: "A frase gatilho nao foi encontrada.",
-    empty_template: "O template ainda nao possui tamanho ou modelo preenchido.",
-    awaiting_data: "A mensagem ainda nao contem os dados da compra.",
-    incomplete_item: "Um produto esta sem tamanho ou modelo.",
-    invalid_quantity: "A quantidade informada nao e valida.",
-  };
-
-  return labels[reasonCode];
 }
 
 function formatMoney(valueCents: number, currency: string): string {

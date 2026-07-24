@@ -1,7 +1,12 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
-import type { StructuredCatalogTestMessageResultDto } from "@wpptrack/shared";
+import {
+  providerConversionDecisionSchema,
+  type ProviderConversionDecisionDto,
+  type ProviderConversionTechnicalDeliveryStateDto,
+  type StructuredCatalogTestMessageResultDto,
+} from "@wpptrack/shared";
 import { hashPhoneIdentity } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
@@ -51,14 +56,22 @@ const executionInclude = {
       items: { orderBy: { position: "asc" } },
     },
   },
+  providerDecision: true,
 } satisfies Prisma.ProviderConversionRuleExecutionInclude;
 
 type ExecutionRecord = Prisma.ProviderConversionRuleExecutionGetPayload<{
   include: typeof executionInclude;
 }>;
+type EligibleProviderConversionDecision = Extract<
+  ProviderConversionDecisionDto,
+  { decisionCode: "eligible" }
+>;
 
-class ProviderConversionProductionFailure extends Error {
-  constructor(readonly code: string) {
+export class ProviderConversionProductionFailure extends Error {
+  constructor(
+    readonly code: string,
+    readonly retryable = false,
+  ) {
     super("Provider conversion production failed");
     this.name = "ProviderConversionProductionFailure";
   }
@@ -113,6 +126,13 @@ export class ProviderConversionProductionService {
     if (!["eligible", "failed"].includes(execution.status)) {
       return { status: "unchanged" };
     }
+    if (
+      execution.status === "failed" &&
+      execution.providerDecision &&
+      !this.retryableTechnicalFailure(execution.normalizedResult)
+    ) {
+      return { status: "unchanged" };
+    }
 
     await this.prisma.providerConversionRuleExecution.update({
       where: { id: execution.id },
@@ -120,6 +140,18 @@ export class ProviderConversionProductionService {
         attemptCount: { increment: 1 },
         lastAttemptedAt: new Date(),
         reasonCode: null,
+        ...(execution.providerDecision
+          ? {
+              normalizedResult: this.withTechnicalDelivery(
+                execution.normalizedResult,
+                {
+                  state: "queued",
+                  retryable: false,
+                  reasonCode: null,
+                },
+              ),
+            }
+          : {}),
       },
     });
 
@@ -139,7 +171,7 @@ export class ProviderConversionProductionService {
     } catch (error) {
       const code = this.errorCode(error);
       const failure = this.failureSummary(error, code);
-      const normalizedResult = this.jsonObject(execution.normalizedResult);
+      const disposition = this.failureDisposition(code);
       await this.prisma.providerConversionRuleExecution.updateMany({
         where: {
           id: execution.id,
@@ -147,13 +179,14 @@ export class ProviderConversionProductionService {
           status: { in: ["eligible", "failed"] },
         },
         data: {
-          status: "failed",
+          status: disposition.executionStatus,
           reasonCode: code,
           processedAt: new Date(),
-          normalizedResult: {
-            ...(normalizedResult ?? {}),
-            lastProductionFailure: failure,
-          } as Prisma.InputJsonValue,
+          normalizedResult: this.withProductionFailure(
+            execution.normalizedResult,
+            failure,
+            disposition,
+          ),
         },
       });
       await this.prisma.purchaseReview.updateMany({
@@ -174,7 +207,10 @@ export class ProviderConversionProductionService {
           error instanceof Error ? error.stack : undefined,
         );
       }
-      throw new ProviderConversionProductionFailure(code);
+      throw new ProviderConversionProductionFailure(
+        code,
+        disposition.retryable,
+      );
     }
   }
 
@@ -186,6 +222,13 @@ export class ProviderConversionProductionService {
         queueRequired: boolean;
       }
   > {
+    if (execution.providerDecision) {
+      return this.materializeFrozenDecision(
+        execution,
+        this.frozenDecision(execution),
+      );
+    }
+
     if (
       execution.providerRule.conversionRule.triggerType ===
       "provider_automation"
@@ -412,6 +455,281 @@ export class ProviderConversionProductionService {
     });
 
     return result;
+  }
+
+  private async materializeFrozenDecision(
+    execution: ExecutionRecord,
+    decision: EligibleProviderConversionDecision,
+  ): Promise<
+    | { status: "duplicate" }
+    | {
+        status: "materialized";
+        conversionEventLogId: string;
+        queueRequired: boolean;
+      }
+  > {
+    const lead = decision.leadResolution.lead;
+    const occurrence = decision.occurrence;
+    const eventName = occurrence.eventName;
+    if (eventName !== "Purchase" && eventName !== "QualifiedLead") {
+      throw new ProviderConversionProductionFailure(
+        "provider_conversion_event_unsupported",
+      );
+    }
+    const purchase = eventName === "Purchase";
+    const valueCents = purchase ? decision.conversion.valueCents : null;
+    const currency = purchase ? decision.conversion.currency : null;
+
+    if (
+      (purchase && (!valueCents || !currency)) ||
+      !occurrence.businessDedupePolicy
+    ) {
+      throw new ProviderConversionProductionFailure(
+        "provider_conversion_frozen_decision_invalid",
+      );
+    }
+
+    const route = await this.routes.previewRoute({
+      workspaceId: execution.workspaceId,
+      adId: lead.adId,
+    });
+    if (
+      route.status !== "resolved" ||
+      !route.reportingAccountId ||
+      !route.adAccountId ||
+      !route.businessConnectionId ||
+      !route.conversionDestinationId
+    ) {
+      throw new ProviderConversionProductionFailure(
+        `provider_conversion_route_${route.reason}`,
+      );
+    }
+
+    const dedupePolicy = occurrence.businessDedupePolicy;
+    const lock = this.lockKeys(
+      execution.workspaceId,
+      dedupePolicy.scopeKey,
+      eventName,
+    );
+    return this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw<Array<{ lockAcquired: string }>>`
+        SELECT CAST(
+          pg_advisory_xact_lock(
+            CAST(${lock.first} AS integer),
+            CAST(${lock.second} AS integer)
+          ) AS text
+        ) AS "lockAcquired"
+      `;
+
+      const current =
+        await transaction.providerConversionRuleExecution.findFirst({
+          where: {
+            id: execution.id,
+            workspaceId: execution.workspaceId,
+          },
+          select: {
+            status: true,
+            conversionEventLogId: true,
+          },
+        });
+      if (current?.status === "materialized") {
+        if (!current.conversionEventLogId) {
+          throw new ProviderConversionProductionFailure(
+            "provider_conversion_materialized_event_missing",
+          );
+        }
+        return {
+          status: "materialized" as const,
+          conversionEventLogId: current.conversionEventLogId,
+          queueRequired: false,
+        };
+      }
+      if (current?.status === "duplicate") {
+        return { status: "duplicate" as const };
+      }
+      if (!current || !["eligible", "failed"].includes(current.status)) {
+        throw new ProviderConversionProductionFailure(
+          "provider_conversion_execution_state_changed",
+        );
+      }
+
+      const occurredAt = new Date(occurrence.occurredAt);
+      const duplicateWhere: Prisma.ProviderConversionRuleExecutionWhereInput =
+        {
+          id: { not: execution.id },
+          workspaceId: execution.workspaceId,
+          status: "materialized",
+          OR: [
+            {
+              providerDecision: {
+                is: {
+                  businessDedupeScopeKey: dedupePolicy.scopeKey,
+                },
+              },
+            },
+            {
+              providerDecisionId: null,
+              contactIdentityHash: lead.phoneHash,
+              providerRule: {
+                conversionRule: { eventName },
+              },
+            },
+          ],
+          ...(dedupePolicy.mode === "rolling_window"
+            ? {
+                occurredAt: {
+                  gt: new Date(
+                    occurredAt.getTime() -
+                      dedupePolicy.windowSeconds * 1_000,
+                  ),
+                  lt: new Date(
+                    occurredAt.getTime() +
+                      dedupePolicy.windowSeconds * 1_000,
+                  ),
+                },
+              }
+            : {}),
+        };
+      const duplicate =
+        await transaction.providerConversionRuleExecution.findFirst({
+          where: duplicateWhere,
+          select: { id: true },
+        });
+
+      if (duplicate) {
+        const reasonCode =
+          dedupePolicy.mode === "rolling_window"
+            ? "purchase_within_24h"
+            : "qualified_lead_already_materialized";
+        await transaction.providerConversionRuleExecution.update({
+          where: { id: execution.id },
+          data: {
+            status: "duplicate",
+            reasonCode,
+            leadId: lead.id,
+            processedAt: new Date(),
+            normalizedResult: this.withTechnicalDelivery(
+              execution.normalizedResult,
+              {
+                state: "sent",
+                retryable: false,
+                reasonCode,
+              },
+            ),
+          },
+        });
+        if (execution.purchaseReview) {
+          await transaction.purchaseReview.update({
+            where: { id: execution.purchaseReview.id },
+            data: {
+              status: "duplicate",
+              reasonCode,
+              leadWorkspaceId: execution.workspaceId,
+              leadId: lead.id,
+              decidedAt: new Date(),
+              version: { increment: 1 },
+            },
+          });
+        }
+        return { status: "duplicate" as const };
+      }
+
+      const sourceEventId =
+        occurrence.externalMessageId ??
+        occurrence.externalEventId ??
+        occurrence.occurrenceKey;
+      const conversion = await this.conversions.recordExternalConversion(
+        {
+          workspaceId: execution.workspaceId,
+          externalConnectorId: null,
+          sourceEventId,
+          sourceTrigger: `inbound_webhook:${occurrence.provider}:${decision.rule.triggerType}`,
+          eventName,
+          eventId: this.metaEventId(execution.id, eventName),
+          dedupeKey: `provider-conversion:${execution.id}`,
+          leadId: lead.id,
+          phoneHash: lead.phoneHash,
+          businessSource: "paid",
+          metaAccountId: route.adAccountId,
+          metaBusinessConnectionId: route.businessConnectionId,
+          metaConversionDestinationId: route.conversionDestinationId,
+          campaignId: lead.campaignId,
+          adSetId: lead.adSetId,
+          adId: lead.adId,
+          ctwaClid: lead.ctwaClid,
+          valueCents,
+          valueSource: purchase
+            ? decision.rule.triggerType === "structured_catalog"
+              ? "actual"
+              : "configured_average"
+            : null,
+          currency,
+          contentName: purchase ? decision.conversion.contentName : null,
+          eventOccurredAt: occurredAt,
+          sourcePayload: {
+            provider: occurrence.provider,
+            providerRuleId: execution.providerRuleId,
+            providerConversionExecutionId: execution.id,
+            providerConversionDecisionId: execution.providerDecisionId,
+            providerConversionDecisionVersion:
+              execution.providerDecision?.decisionVersion ?? null,
+            sourceDeliveryId: execution.sourceDeliveryId,
+            channelId: execution.channelId,
+            occurrenceKey: occurrence.occurrenceKey,
+            parserVersion: decision.parserVersion,
+            decisionEngineVersion: decision.engineVersion,
+            triggerType: decision.rule.triggerType,
+            purchaseReviewId: execution.purchaseReview?.id ?? null,
+            items: decision.conversion.items,
+            observedPaymentValueCents:
+              decision.conversion.observedPaymentValueCents,
+            processingMode: "frozen_provider_conversion",
+          },
+        },
+        transaction,
+      );
+
+      const queueRequired = conversion.deliveryStatus === "ready_to_send";
+      await transaction.providerConversionRuleExecution.update({
+        where: { id: execution.id },
+        data: {
+          status: "materialized",
+          reasonCode: null,
+          leadId: lead.id,
+          conversionEventLogId: conversion.conversionEventLogId,
+          processedAt: new Date(),
+          normalizedResult: this.withTechnicalDelivery(
+            execution.normalizedResult,
+            {
+              state: queueRequired ? "queued" : "sent",
+              retryable: false,
+              reasonCode: null,
+            },
+          ),
+        },
+      });
+      if (execution.purchaseReview) {
+        await transaction.purchaseReview.update({
+          where: { id: execution.purchaseReview.id },
+          data: {
+            status: "approved",
+            leadWorkspaceId: execution.workspaceId,
+            leadId: lead.id,
+            conversionEventLogId: conversion.conversionEventLogId,
+            effectiveValueCents: valueCents,
+            currency: currency ?? "BRL",
+            reasonCode: null,
+            version: { increment: 1 },
+          },
+        });
+      }
+
+      return {
+        status: "materialized" as const,
+        conversionEventLogId: conversion.conversionEventLogId,
+        queueRequired,
+      };
+    });
   }
 
   private async materializeAutomation(execution: ExecutionRecord): Promise<
@@ -779,12 +1097,137 @@ export class ProviderConversionProductionService {
     };
   }
 
+  private frozenDecision(
+    execution: ExecutionRecord,
+  ): EligibleProviderConversionDecision {
+    const audit = execution.providerDecision;
+    const parsed = providerConversionDecisionSchema.safeParse(
+      audit?.decisionJson,
+    );
+    if (
+      !audit ||
+      !parsed.success ||
+      parsed.data.decisionCode !== "eligible" ||
+      audit.id !== execution.providerDecisionId ||
+      audit.workspaceId !== execution.workspaceId ||
+      audit.providerRuleId !== execution.providerRuleId ||
+      audit.sourceDeliveryId !== execution.sourceDeliveryId ||
+      audit.decisionCode !== "eligible" ||
+      audit.occurrenceKey !== execution.externalExecutionKey ||
+      audit.eventName !== parsed.data.occurrence.eventName ||
+      audit.occurredAt.getTime() !==
+        new Date(parsed.data.occurrence.occurredAt).getTime() ||
+      parsed.data.occurrence.workspaceId !== execution.workspaceId ||
+      parsed.data.occurrence.occurrenceKey !==
+        execution.externalExecutionKey ||
+      parsed.data.rule.providerRuleId !== execution.providerRuleId ||
+      parsed.data.leadResolution.lead.id !== audit.leadId ||
+      (execution.leadId !== null &&
+        execution.leadId !== parsed.data.leadResolution.lead.id)
+    ) {
+      throw new ProviderConversionProductionFailure(
+        "provider_conversion_frozen_decision_mismatch",
+      );
+    }
+
+    return parsed.data;
+  }
+
   private jsonObject(
     value: Prisma.JsonValue | null,
   ): Record<string, unknown> | null {
     return value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private withTechnicalDelivery(
+    value: Prisma.JsonValue | null,
+    technicalDelivery: {
+      state: ProviderConversionTechnicalDeliveryStateDto;
+      retryable: boolean;
+      reasonCode: string | null;
+    },
+  ): Prisma.InputJsonValue {
+    return {
+      ...(this.jsonObject(value) ?? {}),
+      technicalDelivery: {
+        ...technicalDelivery,
+        updatedAt: new Date().toISOString(),
+      },
+    } as Prisma.InputJsonValue;
+  }
+
+  private withProductionFailure(
+    value: Prisma.JsonValue | null,
+    failure: Prisma.InputJsonValue,
+    disposition: {
+      executionStatus: "blocked" | "failed";
+      state:
+        | "blocked_configuration"
+        | "failed_retryable"
+        | "failed_permanent";
+      retryable: boolean;
+    },
+  ): Prisma.InputJsonValue {
+    const withTechnicalDelivery = this.withTechnicalDelivery(value, {
+      state: disposition.state,
+      retryable: disposition.retryable,
+      reasonCode:
+        this.jsonObject(failure as Prisma.JsonValue)?.code?.toString() ?? null,
+    });
+
+    return {
+      ...(this.jsonObject(withTechnicalDelivery as Prisma.JsonValue) ?? {}),
+      lastProductionFailure: failure,
+    } as Prisma.InputJsonValue;
+  }
+
+  private retryableTechnicalFailure(
+    value: Prisma.JsonValue | null,
+  ): boolean {
+    const normalized = this.jsonObject(value);
+    const technicalDelivery = this.jsonObject(
+      (normalized?.technicalDelivery ?? null) as Prisma.JsonValue | null,
+    );
+
+    return (
+      technicalDelivery?.state === "failed_retryable" &&
+      technicalDelivery.retryable === true
+    );
+  }
+
+  private failureDisposition(code: string): {
+    executionStatus: "blocked" | "failed";
+    state:
+      | "blocked_configuration"
+      | "failed_retryable"
+      | "failed_permanent";
+    retryable: boolean;
+  } {
+    if (
+      code === "provider_conversion_production_context_invalid" ||
+      code.startsWith("provider_conversion_route_")
+    ) {
+      return {
+        executionStatus: "blocked",
+        state: "blocked_configuration",
+        retryable: false,
+      };
+    }
+    if (code === "provider_conversion_production_unexpected") {
+      return {
+        executionStatus: "failed",
+        state: "failed_retryable",
+        retryable: true,
+      };
+    }
+
+    return {
+      executionStatus: "failed",
+      state: "failed_permanent",
+      retryable: false,
+    };
   }
 
   private jsonEquals(left: unknown, right: unknown): boolean {

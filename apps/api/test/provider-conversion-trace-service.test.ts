@@ -66,6 +66,182 @@ function decision(version: string): ProviderConversionDecisionDto {
 }
 
 describe("provider conversion trace service", () => {
+  it("uses the Meta log as the final operational state and keeps counters aligned with the state filter", async () => {
+    const findDecisionAudits = vi.fn(async () => [
+      {
+        id: "decision_retryable",
+        decisionVersion: 1,
+        occurrenceKey: "occurrence_retryable",
+        decisionCode: "eligible",
+        reasonCode: "automation_matched",
+        eventName: "QualifiedLead",
+        occurredAt: new Date("2026-07-23T13:36:10.000Z"),
+        createdAt: new Date("2026-07-23T13:36:11.000Z"),
+        engineVersion: "decision-v1",
+        parserVersion: "umbler-v1",
+        valueCents: null,
+        currency: null,
+        sourceDelivery: {
+          id: "delivery_retryable",
+          purpose: "conversion_automation",
+          status: "processed",
+          classification: null,
+          firstReceivedAt: new Date("2026-07-23T13:36:00.000Z"),
+          lastReceivedAt: new Date("2026-07-23T13:36:10.000Z"),
+          payloadExpiresAt: new Date("2099-07-23T13:36:10.000Z"),
+          encryptionKeyVersion: 1,
+          workspace: {
+            id: "workspace_1",
+            name: "Cliente Teste",
+          },
+          connection: {
+            id: "connection_1",
+            displayName: "Umbler principal",
+            provider: "umbler",
+          },
+        },
+        channel: {
+          id: "channel_1",
+          channelName: "Comercial",
+          connectedPhone: "+5511999999999",
+        },
+        providerRule: {
+          id: "provider_rule_1",
+          mode: "production",
+          conversionRule: {
+            name: "Lead qualificado",
+            eventName: "QualifiedLead",
+          },
+        },
+        providerExecution: {
+          id: "execution_1",
+          status: "materialized",
+          reasonCode: null,
+          conversionEventLogId: "conversion_log_1",
+          normalizedResult: {
+            technicalDelivery: {
+              state: "queued",
+              retryable: false,
+            },
+          },
+          attemptCount: 1,
+          lastAttemptedAt: new Date("2026-07-23T13:36:12.000Z"),
+          processedAt: new Date("2026-07-23T13:36:12.000Z"),
+        },
+        purchaseReview: null,
+      },
+      {
+        id: "decision_internal",
+        decisionVersion: 1,
+        occurrenceKey: "occurrence_internal",
+        decisionCode: "ignored_empty_template",
+        reasonCode: "purchase_template_missing_required_attributes",
+        eventName: "Purchase",
+        occurredAt: new Date("2026-07-23T13:35:10.000Z"),
+        createdAt: new Date("2026-07-23T13:35:11.000Z"),
+        engineVersion: "decision-v1",
+        parserVersion: "umbler-v1",
+        valueCents: null,
+        currency: null,
+        sourceDelivery: {
+          id: "delivery_internal",
+          purpose: "message_observation",
+          status: "processed",
+          classification: "ignored_empty_template",
+          firstReceivedAt: new Date("2026-07-23T13:35:00.000Z"),
+          lastReceivedAt: new Date("2026-07-23T13:35:10.000Z"),
+          payloadExpiresAt: new Date("2099-07-23T13:35:10.000Z"),
+          encryptionKeyVersion: 1,
+          workspace: {
+            id: "workspace_1",
+            name: "Cliente Teste",
+          },
+          connection: {
+            id: "connection_1",
+            displayName: "Umbler principal",
+            provider: "umbler",
+          },
+        },
+        channel: null,
+        providerRule: {
+          id: "provider_rule_2",
+          mode: "production",
+          conversionRule: {
+            name: "Compra por catalogo",
+            eventName: "Purchase",
+          },
+        },
+        providerExecution: null,
+        purchaseReview: null,
+      },
+    ]);
+    const findConversionLogs = vi.fn(async () => [
+      {
+        id: "conversion_log_1",
+        status: "error",
+        eventName: "QualifiedLead",
+        sentAt: null,
+        pixelId: "pixel_1",
+        pageId: "page_1",
+        eventId: "event_1",
+        errorCode: "MetaCapiNetworkError",
+        errorMessage: "Network error",
+        providerRequestPayload: { data: [] },
+        providerResponseSummary: { retryable: true },
+      },
+    ]);
+    const service = new ProviderConversionTraceService({
+      providerConversionDecisionAudit: {
+        findMany: findDecisionAudits,
+      },
+      conversionEventLog: {
+        findMany: findConversionLogs,
+      },
+    } as never);
+
+    const result = await service.listLatestTraces({
+      workspaceId: "workspace_1",
+      connectionId: "connection_1",
+      state: "failed_retryable",
+      receivedFrom: "2026-07-23T10:36",
+      receivedUntil: "2026-07-23T10:36",
+      limit: 50,
+      offset: 0,
+    });
+
+    expect(findDecisionAudits).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          supersededBy: { none: {} },
+          workspaceId: "workspace_1",
+          sourceDelivery: {
+            connectionId: "connection_1",
+            lastReceivedAt: {
+              gte: new Date("2026-07-23T13:36:00.000Z"),
+              lte: new Date("2026-07-23T13:36:59.999Z"),
+            },
+          },
+        }),
+      }),
+    );
+    expect(result.total).toBe(1);
+    expect(result.summary).toMatchObject({
+      all: 1,
+      failedRetryable: 1,
+      internalOutcome: 0,
+    });
+    expect(result.items[0]).toMatchObject({
+      decisionId: "decision_retryable",
+      state: "failed_retryable",
+      retryable: true,
+      meta: {
+        id: "conversion_log_1",
+        status: "error",
+        errorCode: "MetaCapiNetworkError",
+      },
+    });
+  });
+
   it("returns ordered decision versions with separate technical state", async () => {
     const findMany = vi.fn(async () => [
       {

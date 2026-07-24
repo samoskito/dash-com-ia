@@ -5,7 +5,10 @@ import {
 } from "@wpptrack/shared";
 import { describe, expect, it, vi } from "vitest";
 import { PrismaService } from "../src/common/prisma/prisma.service";
+import { ProviderConversionDecisionRepository } from "../src/conversion-rules/provider-conversion-decision.repository";
 import { BackofficeInboundWebhooksService } from "../src/inbound-webhooks/backoffice-inbound-webhooks.service";
+import { InboundConversionAutomationIngestionService } from "../src/inbound-webhooks/inbound-conversion-automation-ingestion.service";
+import { InboundWebhookObservationService } from "../src/inbound-webhooks/inbound-webhook-observation.service";
 import { InboundWebhookPayloadEncryptionService } from "../src/inbound-webhooks/inbound-webhook-payload-encryption.service";
 import { InboundWebhookQueueService } from "../src/inbound-webhooks/inbound-webhook-queue.service";
 
@@ -308,6 +311,9 @@ function createHarness(state: PayloadState = "available") {
     prisma as unknown as PrismaService,
     encryption,
     queue as unknown as InboundWebhookQueueService,
+    {} as ProviderConversionDecisionRepository,
+    {} as InboundWebhookObservationService,
+    {} as InboundConversionAutomationIngestionService,
   );
 
   return {

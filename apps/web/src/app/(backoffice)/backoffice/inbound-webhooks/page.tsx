@@ -2,6 +2,7 @@ import type {
   BackofficeInboundWebhookDeliveryDto,
   BackofficeInboundWebhookDeliverySummaryDto,
   BackofficeInboundWebhookOperationsScopeDto,
+  BackofficeProviderConversionRolloutDto,
   InboundWebhookDeliveryPurposeDto,
   InboundWebhookDeliveryStatusDto,
   InboundWebhookEventClassificationDto,
@@ -12,19 +13,26 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  FileJson,
+  GitCompareArrows,
   History,
   Inbox,
   LifeBuoy,
   Radio,
   RotateCcw,
+  ShieldCheck,
   SlidersHorizontal,
+  Waypoints,
 } from "lucide-react";
 import { BackofficeActionForm } from "../../../../components/backoffice-action-form";
 import { BackofficeNavigation } from "../../../../components/backoffice-navigation";
 import { InboundProviderConversionRecoveryButton } from "../../../../components/inbound-provider-conversion-recovery-button";
 import { formatDateTime } from "../../../../lib/date-time";
 import { serverApiFetch } from "../../../../lib/server-api";
-import { reprocessInboundProviderConversionsAction } from "./actions";
+import {
+  reprocessInboundProviderConversionsAction,
+  updateProviderConversionEngineModeAction,
+} from "./actions";
 
 type InboundWebhookSearchParams = Record<string, string | string[] | undefined>;
 
@@ -53,6 +61,11 @@ type DeliverySummaryResult = {
 
 type OperationsScopeResult = {
   data: BackofficeInboundWebhookOperationsScopeDto | null;
+  state: "real" | "error";
+};
+
+type ProviderConversionRolloutResult = {
+  data: BackofficeProviderConversionRolloutDto | null;
   state: "real" | "error";
 };
 
@@ -148,12 +161,35 @@ function deliveryFilterParams(filters: DeliveryFilters): URLSearchParams {
   return params;
 }
 
+function conversionTraceHref(filters: DeliveryFilters): string {
+  const params = deliveryScopeParams(filters);
+  const query = params.toString();
+
+  return `/backoffice/inbound-webhooks/conversions${
+    query ? `?${query}` : ""
+  }`;
+}
+
 async function getOperationsScope(): Promise<OperationsScopeResult> {
   try {
     const data =
       await serverApiFetch<BackofficeInboundWebhookOperationsScopeDto>(
         "/backoffice/inbound-webhooks/scope",
       );
+
+    return { data, state: "real" };
+  } catch {
+    return { data: null, state: "error" };
+  }
+}
+
+async function getProviderConversionRollout(
+  channelId: string,
+): Promise<ProviderConversionRolloutResult> {
+  try {
+    const data = await serverApiFetch<BackofficeProviderConversionRolloutDto>(
+      `/backoffice/inbound-webhooks/conversion-rollout/channels/${encodeURIComponent(channelId)}?limit=20`,
+    );
 
     return { data, state: "real" };
   } catch {
@@ -396,6 +432,31 @@ function deliveryTone(
   return "neutral";
 }
 
+function engineModeLabel(mode: "legacy" | "shadow" | "canonical"): string {
+  if (mode === "legacy") return "Legado";
+  if (mode === "shadow") return "Comparacao shadow";
+  return "Canonico";
+}
+
+function shadowMismatchLabel(code: string | null): string {
+  switch (code) {
+    case "applicability_mismatch":
+      return "Aplicabilidade diferente";
+    case "decision_code_mismatch":
+      return "Decisao diferente";
+    case "lead_resolution_mismatch":
+      return "Atribuicao diferente";
+    case "conversion_payload_mismatch":
+      return "Valor ou itens diferentes";
+    case "reason_code_mismatch":
+      return "Motivo diferente";
+    case "occurrence_mismatch":
+      return "Ocorrencia diferente";
+    default:
+      return code ?? "Sem divergencia";
+  }
+}
+
 export default async function InboundWebhookDeliveriesPage({
   searchParams,
 }: {
@@ -460,6 +521,10 @@ export default async function InboundWebhookDeliveriesPage({
   const selectedChannel = channelOptions.find(
     ({ channel }) => channel.id === filters.channelId,
   )?.channel;
+  const rolloutResult = selectedChannel
+    ? await getProviderConversionRollout(selectedChannel.id)
+    : null;
+  const rollout = rolloutResult?.data ?? null;
   const quickFilter = activeQuickFilter(filters);
   const hasAdvancedFilters = Boolean(
     filters.provider ||
@@ -558,6 +623,24 @@ export default async function InboundWebhookDeliveriesPage({
         </div>
         <span className="status-chip neutral">Auditoria e recuperacao</span>
       </header>
+
+      <nav
+        className="conversion-trace-view-switch"
+        aria-label="Tipo de auditoria"
+      >
+        <a
+          className="active"
+          href="/backoffice/inbound-webhooks"
+          aria-current="page"
+        >
+          <FileJson aria-hidden="true" size={17} strokeWidth={2} />
+          Entregas e payloads
+        </a>
+        <a href={conversionTraceHref(filters)}>
+          <Waypoints aria-hidden="true" size={17} strokeWidth={2} />
+          Conversoes
+        </a>
+      </nav>
 
       <section
         className="inbound-operator-scope"
@@ -701,6 +784,233 @@ export default async function InboundWebhookDeliveriesPage({
           </div>
         ) : null}
       </section>
+
+      {selectedChannel ? (
+        <section
+          className="provider-engine-rollout"
+          aria-labelledby="provider-engine-rollout-title"
+        >
+          <div className="section-heading-row">
+            <div>
+              <span className="eyebrow">Rollout protegido</span>
+              <h2 id="provider-engine-rollout-title">
+                Motor de conversao deste canal
+              </h2>
+              <p>
+                Compare o comportamento novo sem duplicar eventos e promova
+                somente depois de revisar as divergencias.
+              </p>
+            </div>
+            {rollout ? (
+              <span
+                className={`status-chip ${
+                  rollout.channel.mode === "canonical"
+                    ? "good"
+                    : rollout.channel.mode === "shadow"
+                      ? "warn"
+                      : "neutral"
+                }`}
+              >
+                {engineModeLabel(rollout.channel.mode)}
+              </span>
+            ) : null}
+          </div>
+
+          {rolloutResult?.state === "error" || !rollout ? (
+            <div className="inbound-scope-error">
+              <AlertTriangle aria-hidden="true" size={18} strokeWidth={2} />
+              Nao foi possivel carregar a auditoria shadow deste canal.
+            </div>
+          ) : (
+            <>
+              <div className="provider-engine-metrics">
+                <span>
+                  <small>Comparacoes</small>
+                  <strong>{rollout.counts.comparisons}</strong>
+                </span>
+                <span>
+                  <small>Coincidem</small>
+                  <strong>{rollout.counts.matches}</strong>
+                </span>
+                <span>
+                  <small>Divergem</small>
+                  <strong>{rollout.counts.mismatches}</strong>
+                </span>
+                <span>
+                  <small>Ultima amostra</small>
+                  <strong>
+                    {rollout.latestComparisonAt
+                      ? formatDateTime(rollout.latestComparisonAt)
+                      : "Ainda sem amostra"}
+                  </strong>
+                </span>
+              </div>
+
+              <div className="provider-engine-guidance">
+                <GitCompareArrows
+                  aria-hidden="true"
+                  size={20}
+                  strokeWidth={2}
+                />
+                <span>
+                  <strong>
+                    {rollout.channel.mode === "legacy"
+                      ? "O motor legado continua decidindo."
+                      : rollout.channel.mode === "shadow"
+                        ? "O legado decide; o canonico apenas compara."
+                        : "O motor canonico decide as novas ocorrencias."}
+                  </strong>
+                  <small>
+                    Trocar o modo nao reavalia payloads antigos nem reenvia
+                    eventos ja materializados.
+                  </small>
+                </span>
+              </div>
+
+              {rollout.mismatchReasons.length > 0 ? (
+                <div className="provider-engine-mismatch-list">
+                  {rollout.mismatchReasons.map((reason) => (
+                    <span className="event-chip warn" key={reason.code}>
+                      {shadowMismatchLabel(reason.code)}: {reason.count}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              <BackofficeActionForm
+                action={updateProviderConversionEngineModeAction}
+                className="provider-engine-mode-form"
+              >
+                <input
+                  type="hidden"
+                  name="channelId"
+                  value={rollout.channel.id}
+                />
+                <input
+                  type="hidden"
+                  name="acknowledgedComparisonCount"
+                  value={rollout.counts.comparisons}
+                />
+                <input
+                  type="hidden"
+                  name="acknowledgedMismatchCount"
+                  value={rollout.counts.mismatches}
+                />
+                <label>
+                  <span>Proximo modo</span>
+                  <select name="mode" defaultValue={rollout.channel.mode}>
+                    <option value="legacy">Legado</option>
+                    <option value="shadow">Comparacao shadow</option>
+                    <option
+                      value="canonical"
+                      disabled={!rollout.canActivateCanonical}
+                    >
+                      Canonico
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  <span>Confirmar nome do canal</span>
+                  <input
+                    name="confirmation"
+                    placeholder={rollout.channel.displayName}
+                    autoComplete="off"
+                    required
+                  />
+                </label>
+                <button className="button" type="submit">
+                  <ShieldCheck aria-hidden="true" size={17} strokeWidth={2} />
+                  Aplicar modo
+                </button>
+                {rollout.canonicalBlocker ? (
+                  <small className="provider-engine-blocker">
+                    {rollout.canonicalBlocker}
+                  </small>
+                ) : null}
+              </BackofficeActionForm>
+
+              {rollout.comparisons.length > 0 ? (
+                <div className="provider-engine-comparison-table">
+                  <div className="section-heading-row compact">
+                    <div>
+                      <span className="eyebrow">Amostra recente</span>
+                      <h3>Decisoes comparadas</h3>
+                    </div>
+                    <span className="event-chip neutral">
+                      {rollout.comparisons.length} exibida(s)
+                    </span>
+                  </div>
+                  <div className="table-shell">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Horario</th>
+                          <th>Resultado</th>
+                          <th>Legado</th>
+                          <th>Canonico</th>
+                          <th>Entrega</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rollout.comparisons.map((comparison) => (
+                          <tr key={comparison.id}>
+                            <td>{formatDateTime(comparison.createdAt)}</td>
+                            <td>
+                              <span
+                                className={`event-chip ${
+                                  comparison.matches ? "good" : "warn"
+                                }`}
+                              >
+                                {comparison.matches
+                                  ? "Coincide"
+                                  : shadowMismatchLabel(
+                                      comparison.mismatchCode,
+                                    )}
+                              </span>
+                            </td>
+                            <td>
+                              <strong>
+                                {comparison.legacy.decisionCode ??
+                                  "Sem decisao"}
+                              </strong>
+                              <small>
+                                {comparison.legacy.reasonCode ?? "Nao aplicavel"}
+                              </small>
+                            </td>
+                            <td>
+                              <strong>
+                                {comparison.canonical.decisionCode ??
+                                  "Sem decisao"}
+                              </strong>
+                              <small>
+                                {comparison.canonical.reasonCode ??
+                                  "Nao aplicavel"}
+                              </small>
+                            </td>
+                            <td>
+                              <a
+                                className="button ghost compact-button"
+                                href={`/backoffice/inbound-webhooks/${comparison.sourceDeliveryId}/payload`}
+                              >
+                                <Eye
+                                  aria-hidden="true"
+                                  size={15}
+                                  strokeWidth={2}
+                                />
+                                Payload
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
+      ) : null}
 
       {(totals?.ctwaPending ?? 0) > 0 ? (
         <div className="inbound-attention-banner">

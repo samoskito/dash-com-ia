@@ -8,10 +8,17 @@ function createService() {
     count: vi.fn(async () => 0),
   };
   const prisma = { purchaseReview } as unknown as PrismaService;
+  const canonicalApproval = {
+    prepareApproval: vi.fn(async () => null),
+  };
 
   return {
     purchaseReview,
-    service: new PurchaseReviewsService(prisma),
+    canonicalApproval,
+    service: new PurchaseReviewsService(
+      prisma,
+      canonicalApproval as never,
+    ),
   };
 }
 
@@ -42,7 +49,7 @@ describe("purchase reviews service", () => {
             },
           ],
           status: {
-            in: ["recognized", "awaiting_data", "review_required", "failed"],
+            in: ["review_required"],
           },
         }),
       }),
@@ -79,6 +86,7 @@ describe("purchase reviews service", () => {
               "sent",
               "duplicate",
               "rejected",
+              "failed",
               "corrected_after_send",
             ],
           },
@@ -102,5 +110,23 @@ describe("purchase reviews service", () => {
         where: expect.objectContaining({ status: "sent" }),
       }),
     );
+  });
+
+  it("keeps technical failures out of the actionable counter", async () => {
+    const { purchaseReview, service } = createService();
+
+    await service.list("workspace_1", {
+      view: "history",
+      status: "failed",
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(purchaseReview.count).toHaveBeenNthCalledWith(2, {
+      where: expect.objectContaining({
+        workspaceId: "workspace_1",
+        status: { in: ["review_required"] },
+      }),
+    });
   });
 });

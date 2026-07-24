@@ -14,6 +14,7 @@ import type {
   PurchaseReviewListQueryDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { ProviderConversionReviewApprovalService } from "../conversion-rules/provider-conversion-review-approval.service";
 import { dateRangeInTimezone } from "../external-data/external-event-policy";
 
 const purchaseReviewTimezone = "America/Sao_Paulo";
@@ -28,18 +29,14 @@ const visibleReviewReasonWhere = {
   ],
 } satisfies Prisma.PurchaseReviewWhereInput;
 
-const actionableStatuses = [
-  "recognized",
-  "awaiting_data",
-  "review_required",
-  "failed",
-] as const;
+const actionableStatuses = ["review_required"] as const;
 
 const historyStatuses = [
   "approved",
   "sent",
   "duplicate",
   "rejected",
+  "failed",
   "corrected_after_send",
 ] as const;
 
@@ -68,7 +65,11 @@ type ReviewRecord = Prisma.PurchaseReviewGetPayload<{
 
 @Injectable()
 export class PurchaseReviewsService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(ProviderConversionReviewApprovalService)
+    private readonly canonicalApproval: ProviderConversionReviewApprovalService,
+  ) {}
 
   async list(
     workspaceId: string,
@@ -292,6 +293,14 @@ export class PurchaseReviewsService {
     input: PurchaseReviewDecisionInputDto,
     actorUserId: string,
   ): Promise<{ providerConversionExecutionId: string }> {
+    const canonical = await this.canonicalApproval.prepareApproval({
+      workspaceId,
+      reviewId,
+      decision: input,
+      actorUserId,
+    });
+    if (canonical) return canonical;
+
     return this.prisma.$transaction(async (transaction) => {
       const review = await this.requireReview(
         workspaceId,

@@ -2,6 +2,7 @@ import type {
   BackofficeInboundWebhookPayloadDto,
   InboundWebhookEventClassificationDto,
 } from "@wpptrack/shared";
+import { Waypoints } from "lucide-react";
 import { BackofficeNavigation } from "../../../../../../components/backoffice-navigation";
 import { formatDateTime } from "../../../../../../lib/date-time";
 import { serverApiFetch } from "../../../../../../lib/server-api";
@@ -21,6 +22,7 @@ const classificationLabels: Record<
   ignored_no_ctwa: "Ignorado sem CTWA",
   ignored_outbound: "Ignorado por ser mensagem de saida",
   ignored_private: "Ignorado por ser evento privado",
+  ignored_empty_template: "Ignorado: template sem dados da compra",
   ignored_untracked_lead: "Ignorado: fora da base paga",
   unsupported_event: "Evento nao suportado",
   invalid_payload: "Payload invalido",
@@ -97,6 +99,15 @@ export default async function InboundWebhookPayloadPage({
         </div>
         <div className="header-actions">
           <span className="status-chip warn">Somente observacao</span>
+          <a
+            className="button ghost"
+            href={`/backoffice/inbound-webhooks/conversions?deliveryId=${encodeURIComponent(
+              delivery.id,
+            )}`}
+          >
+            <Waypoints aria-hidden="true" size={16} strokeWidth={2} />
+            Ver rastreio
+          </a>
           <a className="button ghost" href="/backoffice/inbound-webhooks">
             Voltar as entregas
           </a>

@@ -18,16 +18,30 @@ import type {
   BackofficeInboundWebhookDeliverySummaryQueryDto,
   BackofficeInboundWebhookOperationsScopeDto,
   BackofficeInboundWebhookPayloadDto,
+  BackofficeProviderConversionRolloutDto,
+  BackofficeProviderConversionRolloutModeInputDto,
+  BackofficeProviderConversionRolloutQueryDto,
   InboundWebhookNormalizedObservationDto,
 } from "@wpptrack/shared";
+import { backofficeProviderConversionRolloutSchema } from "@wpptrack/shared";
 import { dateTimeRangeInTimezone } from "../common/date-time/timezone-range";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { ProviderConversionDecisionRepository } from "../conversion-rules/provider-conversion-decision.repository";
+import { InboundConversionAutomationIngestionService } from "./inbound-conversion-automation-ingestion.service";
+import {
+  InboundWebhookObservationError,
+  InboundWebhookObservationService,
+} from "./inbound-webhook-observation.service";
 import { InboundWebhookPayloadEncryptionService } from "./inbound-webhook-payload-encryption.service";
 import { InboundWebhookQueueService } from "./inbound-webhook-queue.service";
 
 const payloadReadAction = "inbound_webhook.payload.read";
 const conversionRecoveryAction =
   "inbound_webhook.provider_conversions.reprocess";
+const conversionReevaluationAction =
+  "provider_conversion.decision.reevaluate";
+const conversionEngineModeAction =
+  "provider_conversion.channel_engine_mode.change";
 const payloadTargetType = "inbound_webhook_delivery";
 const genericPayloadError = "Payload indisponivel";
 const backofficeTimezone = "America/Sao_Paulo";
@@ -104,7 +118,204 @@ export class BackofficeInboundWebhooksService {
     private readonly payloadEncryption: InboundWebhookPayloadEncryptionService,
     @Inject(InboundWebhookQueueService)
     private readonly queue: InboundWebhookQueueService,
+    @Inject(ProviderConversionDecisionRepository)
+    private readonly decisions: ProviderConversionDecisionRepository,
+    @Inject(InboundWebhookObservationService)
+    private readonly observation: InboundWebhookObservationService,
+    @Inject(InboundConversionAutomationIngestionService)
+    private readonly automation: InboundConversionAutomationIngestionService,
   ) {}
+
+  async reevaluateProviderConversionDecision(
+    decisionId: string,
+    requestKey: string,
+    actor: InboundWebhookPayloadActor,
+  ): Promise<{
+    previousDecisionId: string;
+    decisionId: string;
+    decisionVersion: number;
+    status: "reevaluated" | "existing";
+    executionIds: string[];
+    eligibleExecutionIds: string[];
+  }> {
+    const decision =
+      await this.prisma.providerConversionDecisionAudit.findUnique({
+        where: { id: decisionId },
+        select: {
+          id: true,
+          workspaceId: true,
+          providerRuleId: true,
+          occurrenceKey: true,
+          evaluationKey: true,
+          decisionVersion: true,
+          decisionCode: true,
+          sourceDelivery: {
+            select: {
+              id: true,
+              connectionId: true,
+              purpose: true,
+              status: true,
+              payloadExpiresAt: true,
+              encryptedPayload: true,
+              payloadIv: true,
+              payloadTag: true,
+              encryptionKeyVersion: true,
+            },
+          },
+        },
+      });
+    if (!decision) {
+      throw new NotFoundException("Decisao de conversao nao encontrada");
+    }
+
+    const latest = await this.decisions.findLatestByOccurrence({
+      workspaceId: decision.workspaceId,
+      providerRuleId: decision.providerRuleId,
+      occurrenceKey: decision.occurrenceKey,
+    });
+    if (!latest) {
+      throw new NotFoundException("Historico da decisao nao encontrado");
+    }
+
+    const expectedEvaluationKey =
+      this.decisions.reevaluationEvaluationKey(requestKey);
+    if (latest.id !== decision.id) {
+      if (latest.evaluationKey === expectedEvaluationKey) {
+        return {
+          previousDecisionId: decision.id,
+          decisionId: latest.id,
+          decisionVersion: latest.decisionVersion,
+          status: "existing",
+          executionIds: [],
+          eligibleExecutionIds: [],
+        };
+      }
+
+      throw new ConflictException(
+        "A decisao foi atualizada; recarregue a auditoria antes de reavaliar",
+      );
+    }
+    if (["eligible", "duplicate"].includes(decision.decisionCode)) {
+      throw new ConflictException(
+        "Esta decisao nao exige reavaliacao de negocio",
+      );
+    }
+    if (
+      !["message_observation", "conversion_automation"].includes(
+        decision.sourceDelivery.purpose,
+      ) ||
+      decision.sourceDelivery.status !== "processed"
+    ) {
+      throw new ConflictException(
+        "A origem desta decisao nao permite reavaliacao",
+      );
+    }
+    if (!this.payloadAvailable(decision.sourceDelivery, new Date())) {
+      throw new ConflictException(
+        "O payload desta decisao nao esta mais disponivel",
+      );
+    }
+
+    let executionIds: string[] = [];
+    let eligibleExecutionIds: string[] = [];
+
+    try {
+      if (decision.sourceDelivery.purpose === "message_observation") {
+        const reevaluated =
+          await this.observation.reevaluateProviderConversionDecision({
+            workspaceId: decision.workspaceId,
+            connectionId: decision.sourceDelivery.connectionId,
+            deliveryId: decision.sourceDelivery.id,
+            providerRuleId: decision.providerRuleId,
+            occurrenceKey: decision.occurrenceKey,
+            requestKey,
+          });
+        executionIds = reevaluated.executionIds;
+        eligibleExecutionIds = reevaluated.eligibleExecutionIds;
+      } else {
+        const reevaluated =
+          await this.automation.reevaluateProviderConversionDecision({
+            workspaceId: decision.workspaceId,
+            providerRuleId: decision.providerRuleId,
+            deliveryId: decision.sourceDelivery.id,
+            occurrenceKey: decision.occurrenceKey,
+            requestKey,
+          });
+        executionIds = reevaluated.executionId
+          ? [reevaluated.executionId]
+          : [];
+        eligibleExecutionIds = reevaluated.eligibleExecutionId
+          ? [reevaluated.eligibleExecutionId]
+          : [];
+      }
+    } catch (error) {
+      if (
+        error instanceof ConflictException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      if (error instanceof InboundWebhookObservationError) {
+        throw new ConflictException(
+          "O payload nao produziu uma nova decisao para esta ocorrencia",
+        );
+      }
+
+      throw new ServiceUnavailableException(
+        "Nao foi possivel reavaliar esta decisao",
+      );
+    }
+
+    const reevaluated = await this.decisions.findLatestByOccurrence({
+      workspaceId: decision.workspaceId,
+      providerRuleId: decision.providerRuleId,
+      occurrenceKey: decision.occurrenceKey,
+    });
+    if (
+      !reevaluated ||
+      reevaluated.evaluationKey !== expectedEvaluationKey ||
+      reevaluated.supersedesDecisionId !== decision.id
+    ) {
+      throw new ConflictException(
+        "A reavaliacao nao gerou uma nova versao da decisao",
+      );
+    }
+
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: decision.workspaceId,
+        actorUserId: actor.id,
+        actorType: actor.actorType,
+        action: conversionReevaluationAction,
+        targetType: "provider_conversion_decision",
+        targetId: reevaluated.id,
+        reason: "Explicit business decision reevaluation",
+        sourceIp: this.sourceIp(actor.sourceIp),
+        resultStatus: "completed",
+        beforeSummary: {
+          decisionId: decision.id,
+          decisionVersion: decision.decisionVersion,
+          decisionCode: decision.decisionCode,
+        },
+        afterSummary: {
+          decisionId: reevaluated.id,
+          decisionVersion: reevaluated.decisionVersion,
+          decisionCode: reevaluated.decisionCode,
+          executionIds,
+          eligibleExecutionIds,
+        },
+      },
+    });
+
+    return {
+      previousDecisionId: decision.id,
+      decisionId: reevaluated.id,
+      decisionVersion: reevaluated.decisionVersion,
+      status: "reevaluated",
+      executionIds,
+      eligibleExecutionIds,
+    };
+  }
 
   async reprocessProviderConversions(
     deliveryId: string,
@@ -224,6 +435,7 @@ export class BackofficeInboundWebhooksService {
                 channelName: true,
                 connectedPhone: true,
                 status: true,
+                conversionEngineMode: true,
                 lastSeenAt: true,
               },
               orderBy: [{ channelName: "asc" }, { connectedPhone: "asc" }],
@@ -250,11 +462,245 @@ export class BackofficeInboundWebhooksService {
             displayName: this.channelDisplayName(channel),
             connectedPhone: channel.connectedPhone,
             status: channel.status,
+            conversionEngineMode: channel.conversionEngineMode,
             lastSeenAt: channel.lastSeenAt.toISOString(),
           })),
         })),
       })),
     };
+  }
+
+  async getProviderConversionRollout(
+    channelId: string,
+    query: BackofficeProviderConversionRolloutQueryDto,
+  ): Promise<BackofficeProviderConversionRolloutDto> {
+    const channel = await this.prisma.inboundWebhookChannel.findUnique({
+      where: { id: channelId },
+      select: {
+        id: true,
+        workspaceId: true,
+        channelName: true,
+        connectedPhone: true,
+        conversionEngineMode: true,
+      },
+    });
+    if (!channel) {
+      throw new NotFoundException("Canal nao encontrado");
+    }
+
+    const comparisonScope = {
+      workspaceId: channel.workspaceId,
+      channelId: channel.id,
+    };
+    const [
+      comparisonCount,
+      matchCount,
+      mismatchCount,
+      mismatchGroups,
+      latest,
+      comparisons,
+    ] = await Promise.all([
+      this.prisma.providerConversionShadowComparison.count({
+        where: comparisonScope,
+      }),
+      this.prisma.providerConversionShadowComparison.count({
+        where: { ...comparisonScope, matches: true },
+      }),
+      this.prisma.providerConversionShadowComparison.count({
+        where: { ...comparisonScope, matches: false },
+      }),
+      this.prisma.providerConversionShadowComparison.groupBy({
+        by: ["mismatchCode"],
+        where: { ...comparisonScope, matches: false },
+        _count: { _all: true },
+        orderBy: { _count: { mismatchCode: "desc" } },
+      }),
+      this.prisma.providerConversionShadowComparison.findFirst({
+        where: comparisonScope,
+        select: { createdAt: true },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+      this.prisma.providerConversionShadowComparison.findMany({
+        where: {
+          ...comparisonScope,
+          ...(query.onlyMismatches ? { matches: false } : {}),
+        },
+        select: {
+          id: true,
+          occurrenceKey: true,
+          authoritativeEngine: true,
+          matches: true,
+          mismatchCode: true,
+          legacyEngineVersion: true,
+          legacyDecisionCode: true,
+          legacyReasonCode: true,
+          canonicalEngineVersion: true,
+          canonicalDecisionCode: true,
+          canonicalReasonCode: true,
+          sourceDeliveryId: true,
+          createdAt: true,
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: query.limit,
+      }),
+    ]);
+    const canonicalBlocker =
+      channel.conversionEngineMode === "canonical"
+        ? null
+        : channel.conversionEngineMode !== "shadow"
+          ? "Ative o modo shadow antes de promover este canal."
+          : comparisonCount === 0
+            ? "Aguarde comparacoes reais antes de promover este canal."
+            : null;
+
+    return backofficeProviderConversionRolloutSchema.parse({
+      channel: {
+        id: channel.id,
+        displayName: this.channelDisplayName(channel),
+        connectedPhone: channel.connectedPhone,
+        mode: channel.conversionEngineMode,
+      },
+      counts: {
+        comparisons: comparisonCount,
+        matches: matchCount,
+        mismatches: mismatchCount,
+      },
+      mismatchReasons: mismatchGroups
+        .filter(
+          (
+            group,
+          ): group is typeof group & {
+            mismatchCode: string;
+          } => Boolean(group.mismatchCode),
+        )
+        .map((group) => ({
+          code: group.mismatchCode,
+          count: group._count._all,
+        })),
+      latestComparisonAt: latest?.createdAt.toISOString() ?? null,
+      canActivateCanonical: canonicalBlocker === null,
+      canonicalBlocker,
+      comparisons: comparisons.map((comparison) => ({
+        id: comparison.id,
+        occurrenceKey: comparison.occurrenceKey,
+        authoritativeEngine: comparison.authoritativeEngine,
+        matches: comparison.matches,
+        mismatchCode: comparison.mismatchCode,
+        legacy: {
+          engineVersion: comparison.legacyEngineVersion,
+          decisionCode: comparison.legacyDecisionCode,
+          reasonCode: comparison.legacyReasonCode,
+        },
+        canonical: {
+          engineVersion: comparison.canonicalEngineVersion,
+          decisionCode: comparison.canonicalDecisionCode,
+          reasonCode: comparison.canonicalReasonCode,
+        },
+        sourceDeliveryId: comparison.sourceDeliveryId,
+        createdAt: comparison.createdAt.toISOString(),
+      })),
+    });
+  }
+
+  async updateProviderConversionEngineMode(
+    channelId: string,
+    input: BackofficeProviderConversionRolloutModeInputDto,
+    actor: InboundWebhookPayloadActor,
+  ): Promise<BackofficeProviderConversionRolloutDto> {
+    const channel = await this.prisma.inboundWebhookChannel.findUnique({
+      where: { id: channelId },
+      select: {
+        id: true,
+        workspaceId: true,
+        channelName: true,
+        connectedPhone: true,
+        conversionEngineMode: true,
+      },
+    });
+    if (!channel) {
+      throw new NotFoundException("Canal nao encontrado");
+    }
+
+    const displayName = this.channelDisplayName(channel);
+    if (input.confirmation !== displayName) {
+      throw new ConflictException(
+        "A confirmacao deve repetir exatamente o nome do canal",
+      );
+    }
+    if (input.mode === channel.conversionEngineMode) {
+      return this.getProviderConversionRollout(channel.id, {
+        onlyMismatches: false,
+        limit: 30,
+      });
+    }
+
+    const comparisonScope = {
+      workspaceId: channel.workspaceId,
+      channelId: channel.id,
+    };
+    const [comparisonCount, mismatchCount] = await Promise.all([
+      this.prisma.providerConversionShadowComparison.count({
+        where: comparisonScope,
+      }),
+      this.prisma.providerConversionShadowComparison.count({
+        where: { ...comparisonScope, matches: false },
+      }),
+    ]);
+    if (input.mode === "canonical") {
+      if (channel.conversionEngineMode !== "shadow") {
+        throw new ConflictException(
+          "Ative o modo shadow antes de promover este canal",
+        );
+      }
+      if (comparisonCount === 0) {
+        throw new ConflictException(
+          "O canal ainda nao possui comparacoes shadow",
+        );
+      }
+      if (
+        input.acknowledgedComparisonCount !== comparisonCount ||
+        input.acknowledgedMismatchCount !== mismatchCount
+      ) {
+        throw new ConflictException(
+          "Os contadores mudaram; atualize a auditoria antes de promover",
+        );
+      }
+    }
+
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.inboundWebhookChannel.update({
+        where: { id: channel.id },
+        data: { conversionEngineMode: input.mode },
+      });
+      await transaction.auditLog.create({
+        data: {
+          workspaceId: channel.workspaceId,
+          actorUserId: actor.id,
+          actorType: actor.actorType,
+          action: conversionEngineModeAction,
+          targetType: "inbound_webhook_channel",
+          targetId: channel.id,
+          reason: "Explicit provider conversion engine rollout change",
+          sourceIp: this.sourceIp(actor.sourceIp),
+          resultStatus: "completed",
+          beforeSummary: {
+            mode: channel.conversionEngineMode,
+            comparisonCount,
+            mismatchCount,
+          },
+          afterSummary: {
+            mode: input.mode,
+            comparisonCount,
+            mismatchCount,
+          },
+        },
+      });
+    });
+
+    return this.getProviderConversionRollout(channel.id, {
+      onlyMismatches: false,
+      limit: 30,
+    });
   }
 
   async listDeliveries(

@@ -10,6 +10,7 @@ import {
   parseMoneyToCents,
   ProviderConversionRulePanel,
 } from "../src/app/(app)/integrations/provider-conversion-rule-panel";
+import { ProviderCatalogTestResult } from "../src/app/(app)/settings/provider-catalog-test-result";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: () => undefined }),
@@ -289,6 +290,57 @@ describe("provider conversion rule panel", () => {
     expect(css).toContain(".provider-catalog-variant-attributes");
     expect(css).toContain("minmax(min(100%, 360px), 1fr)");
     expect(css).toContain(".provider-catalog-variant-commerce");
+  });
+
+  it("explains the simulated catalog decision with extracted items and values", () => {
+    const html = renderToStaticMarkup(
+      createElement(ProviderCatalogTestResult, {
+        result: {
+          matched: true,
+          reasonCode: "matched",
+          classification: "recognized",
+          matchedTriggerPhrase: "Dados para confirmar o pedido",
+          parsedAttributes: [
+            { key: "tamanho", label: "Tamanho", value: "4,90" },
+            { key: "modelo", label: "Modelo", value: "Nacional" },
+          ],
+          items: [
+            {
+              position: 1,
+              quantity: 2,
+              parsedAttributes: [
+                { key: "tamanho", label: "Tamanho", value: "4,90" },
+                { key: "modelo", label: "Modelo", value: "Nacional" },
+              ],
+              catalogVariantId: "variant_1",
+              unitValueCents: 359700,
+              subtotalValueCents: 719400,
+              contentName: "Cama elastica",
+              reasonCode: "matched",
+            },
+          ],
+          parsedValueCents: 719400,
+          calculatedValueCents: 719400,
+          observedPaymentValueCents: 700000,
+          catalogVariantId: null,
+          contentName: "Cama elastica",
+          currency: "BRL",
+        },
+      }),
+    );
+
+    expect(html).toContain("Decisao do simulador");
+    expect(html).toContain("Variante reconhecida");
+    expect(html).toContain("Dados para confirmar o pedido");
+    expect(html).toContain("Tamanho");
+    expect(html).toContain("4,90");
+    expect(html).toContain("Modelo");
+    expect(html).toContain("Nacional");
+    expect(html).toContain("2 un.");
+    expect(html).toContain("R$\u00a07.194,00");
+    expect(html).toContain("Valor pelo catalogo");
+    expect(html).toContain("Valor informado na mensagem");
+    expect(html).toContain("R$\u00a07.000,00");
   });
 
   it.each([

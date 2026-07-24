@@ -10,6 +10,14 @@ const migration = readFileSync(
   "utf8",
 );
 
+const classificationMigration = readFileSync(
+  resolve(
+    __dirname,
+    "../prisma/migrations/20260723200000_add_empty_template_classification/migration.sql",
+  ),
+  "utf8",
+);
+
 describe("empty purchase template cleanup migration", () => {
   it("removes only empty provider-message reviews from the operational queue", () => {
     expect(migration).toContain(
@@ -28,5 +36,19 @@ describe("empty purchase template cleanup migration", () => {
     expect(migration).not.toMatch(/DELETE FROM/u);
     expect(migration).not.toContain('"InboundWebhookDelivery"');
     expect(migration).not.toContain('"InboundWebhookPayload"');
+  });
+});
+
+describe("empty purchase template classification migration", () => {
+  it("adds the dedicated classification idempotently", () => {
+    expect(classificationMigration).toContain(
+      `ADD VALUE IF NOT EXISTS 'ignored_empty_template'`,
+    );
+  });
+
+  it("preserves deliveries and encrypted payloads", () => {
+    expect(classificationMigration).not.toMatch(/DELETE FROM/u);
+    expect(classificationMigration).not.toContain('"InboundWebhookDelivery"');
+    expect(classificationMigration).not.toContain('"InboundWebhookPayload"');
   });
 });

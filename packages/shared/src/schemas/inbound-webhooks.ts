@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { conversionEventNameSchema } from "./conversion-events";
+import { providerConversionDecisionCodeSchema } from "./provider-conversion-decisions";
 
 export const inboundWebhookProviders = ["umbler", "gupshup"] as const;
 export const inboundWebhookParserReleaseStatuses = [
@@ -42,6 +44,7 @@ export const inboundWebhookEventClassifications = [
   "ignored_no_ctwa",
   "ignored_outbound",
   "ignored_private",
+  "ignored_empty_template",
   "ignored_untracked_lead",
   "unsupported_event",
   "invalid_payload",
@@ -301,11 +304,242 @@ export const backofficeInboundWebhookDeliverySummarySchema = z.object({
   awaitingParser: z.number().int().nonnegative(),
 });
 
+export const backofficeProviderConversionTraceStates = [
+  "internal_outcome",
+  "review_required",
+  "observed",
+  "queued",
+  "sent",
+  "duplicate",
+  "blocked_configuration",
+  "failed_retryable",
+  "failed_permanent",
+] as const;
+
+export const backofficeProviderConversionTraceStateSchema = z.enum(
+  backofficeProviderConversionTraceStates,
+);
+
+export const backofficeProviderConversionTraceQuerySchema = z
+  .object({
+    workspaceId: idSchema.optional(),
+    connectionId: idSchema.optional(),
+    channelId: idSchema.optional(),
+    deliveryId: idSchema.optional(),
+    providerRuleId: idSchema.optional(),
+    eventName: conversionEventNameSchema.optional(),
+    decisionCode: providerConversionDecisionCodeSchema.optional(),
+    state: backofficeProviderConversionTraceStateSchema.optional(),
+    receivedFrom: backofficeInboundWebhookReceivedAtSchema.optional(),
+    receivedUntil: backofficeInboundWebhookReceivedAtSchema.optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).max(100_000).default(0),
+  })
+  .superRefine(validateBackofficeInboundWebhookPeriod);
+
+export const backofficeProviderConversionTraceSummarySchema = z.object({
+  all: z.number().int().nonnegative(),
+  internalOutcome: z.number().int().nonnegative(),
+  reviewRequired: z.number().int().nonnegative(),
+  observed: z.number().int().nonnegative(),
+  queued: z.number().int().nonnegative(),
+  sent: z.number().int().nonnegative(),
+  duplicate: z.number().int().nonnegative(),
+  blockedConfiguration: z.number().int().nonnegative(),
+  failedRetryable: z.number().int().nonnegative(),
+  failedPermanent: z.number().int().nonnegative(),
+});
+
+export const backofficeProviderConversionTraceItemSchema = z.object({
+  decisionId: idSchema,
+  decisionVersion: z.number().int().positive(),
+  occurrenceKey: z.string().trim().min(1).max(500),
+  occurredAt: dateTimeSchema,
+  createdAt: dateTimeSchema,
+  workspace: z.object({
+    id: idSchema,
+    name: z.string().trim().min(1).max(160),
+  }),
+  connection: z.object({
+    id: idSchema,
+    name: inboundWebhookDisplayNameSchema,
+    provider: inboundWebhookProviderSchema,
+  }),
+  channel: z
+    .object({
+      id: idSchema,
+      name: inboundWebhookDisplayNameSchema,
+      connectedPhone: z.string().trim().min(1).max(32),
+    })
+    .nullable(),
+  rule: z.object({
+    id: idSchema,
+    name: z.string().trim().min(1).max(160),
+    eventName: conversionEventNameSchema,
+    mode: z.enum(["observation", "production"]),
+  }),
+  decision: z.object({
+    code: providerConversionDecisionCodeSchema,
+    reasonCode: z.string().trim().min(1).max(160),
+    engineVersion: z.string().trim().min(1).max(120),
+    parserVersion: z.string().trim().min(1).max(120),
+    valueCents: z.number().int().nonnegative().nullable(),
+    currency: z.string().trim().min(3).max(3).nullable(),
+  }),
+  delivery: z.object({
+    id: idSchema,
+    purpose: inboundWebhookDeliveryPurposeSchema,
+    status: inboundWebhookDeliveryStatusSchema,
+    classification: inboundWebhookEventClassificationSchema.nullable(),
+    firstReceivedAt: dateTimeSchema,
+    lastReceivedAt: dateTimeSchema,
+    payloadAvailable: z.boolean(),
+    payloadExpiresAt: dateTimeSchema,
+  }),
+  review: z
+    .object({
+      id: idSchema,
+      status: z.string().trim().min(1).max(80),
+      classificationCode: z.string().trim().min(1).max(160),
+      reasonCode: z.string().trim().min(1).max(160).nullable(),
+      decidedAt: dateTimeSchema.nullable(),
+    })
+    .nullable(),
+  execution: z
+    .object({
+      id: idSchema,
+      status: z.string().trim().min(1).max(80),
+      reasonCode: z.string().trim().min(1).max(160).nullable(),
+      conversionEventLogId: idSchema.nullable(),
+      attemptCount: z.number().int().nonnegative(),
+      lastAttemptedAt: dateTimeSchema.nullable(),
+      processedAt: dateTimeSchema.nullable(),
+    })
+    .nullable(),
+  meta: z
+    .object({
+      id: idSchema,
+      status: z.string().trim().min(1).max(80),
+      eventName: conversionEventNameSchema,
+      sentAt: dateTimeSchema.nullable(),
+      pixelId: z.string().trim().min(1).max(255).nullable(),
+      pageId: z.string().trim().min(1).max(255).nullable(),
+      eventId: z.string().trim().min(1).max(500).nullable(),
+      errorCode: z.string().trim().min(1).max(160).nullable(),
+      errorMessage: z.string().trim().min(1).max(2_000).nullable(),
+      requestPayload: z.unknown().nullable(),
+      responseSummary: z.unknown().nullable(),
+    })
+    .nullable(),
+  state: backofficeProviderConversionTraceStateSchema,
+  retryable: z.boolean(),
+  reevaluable: z.boolean(),
+});
+
+export const backofficeProviderConversionTraceListSchema = z.object({
+  items: z.array(backofficeProviderConversionTraceItemSchema),
+  total: z.number().int().nonnegative(),
+  summary: backofficeProviderConversionTraceSummarySchema,
+  facets: z.object({
+    rules: z.array(
+      z.object({
+        id: idSchema,
+        name: z.string().trim().min(1).max(160),
+        eventName: conversionEventNameSchema,
+      }),
+    ),
+  }),
+});
+
+export const backofficeProviderConversionReevaluationInputSchema = z.object({
+  requestKey: z
+    .string()
+    .trim()
+    .min(16)
+    .max(255)
+    .regex(/^[^\u0000-\u001f\u007f]+$/u),
+});
+
+export const backofficeProviderConversionReevaluationResultSchema = z.object({
+  previousDecisionId: idSchema,
+  decisionId: idSchema,
+  decisionVersion: z.number().int().positive(),
+  status: z.enum(["reevaluated", "existing"]),
+  executionIds: z.array(idSchema),
+  eligibleExecutionIds: z.array(idSchema),
+});
+
+export const providerConversionEngineModeSchema = z.enum([
+  "legacy",
+  "shadow",
+  "canonical",
+]);
+
+export const backofficeProviderConversionRolloutQuerySchema = z.object({
+  onlyMismatches: z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .default("false"),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+export const backofficeProviderConversionRolloutModeInputSchema = z.object({
+  mode: providerConversionEngineModeSchema,
+  confirmation: inboundWebhookDisplayNameSchema,
+  acknowledgedComparisonCount: z.number().int().nonnegative().optional(),
+  acknowledgedMismatchCount: z.number().int().nonnegative().optional(),
+});
+
+export const backofficeProviderConversionRolloutComparisonSchema = z.object({
+  id: idSchema,
+  occurrenceKey: z.string().trim().min(1).max(500),
+  authoritativeEngine: providerConversionEngineModeSchema,
+  matches: z.boolean(),
+  mismatchCode: z.string().trim().min(1).max(160).nullable(),
+  legacy: z.object({
+    engineVersion: z.string().trim().min(1).max(120).nullable(),
+    decisionCode: providerConversionDecisionCodeSchema.nullable(),
+    reasonCode: z.string().trim().min(1).max(160).nullable(),
+  }),
+  canonical: z.object({
+    engineVersion: z.string().trim().min(1).max(120).nullable(),
+    decisionCode: providerConversionDecisionCodeSchema.nullable(),
+    reasonCode: z.string().trim().min(1).max(160).nullable(),
+  }),
+  sourceDeliveryId: idSchema,
+  createdAt: dateTimeSchema,
+});
+
+export const backofficeProviderConversionRolloutSchema = z.object({
+  channel: z.object({
+    id: idSchema,
+    displayName: inboundWebhookDisplayNameSchema,
+    connectedPhone: z.string().trim().min(1).max(32),
+    mode: providerConversionEngineModeSchema,
+  }),
+  counts: z.object({
+    comparisons: z.number().int().nonnegative(),
+    matches: z.number().int().nonnegative(),
+    mismatches: z.number().int().nonnegative(),
+  }),
+  mismatchReasons: z.array(
+    z.object({
+      code: z.string().trim().min(1).max(160),
+      count: z.number().int().nonnegative(),
+    }),
+  ),
+  latestComparisonAt: dateTimeSchema.nullable(),
+  canActivateCanonical: z.boolean(),
+  canonicalBlocker: z.string().trim().min(1).max(255).nullable(),
+  comparisons: z.array(backofficeProviderConversionRolloutComparisonSchema),
+});
+
 export const backofficeInboundWebhookScopeChannelSchema = z.object({
   id: idSchema,
   displayName: inboundWebhookDisplayNameSchema,
   connectedPhone: z.string().trim().min(1).max(32),
   status: inboundWebhookChannelStatusSchema,
+  conversionEngineMode: providerConversionEngineModeSchema,
   lastSeenAt: dateTimeSchema,
 });
 
@@ -654,6 +888,42 @@ export type BackofficeInboundWebhookDeliverySummaryQueryDto = z.infer<
 >;
 export type BackofficeInboundWebhookDeliverySummaryDto = z.infer<
   typeof backofficeInboundWebhookDeliverySummarySchema
+>;
+export type BackofficeProviderConversionTraceStateDto = z.infer<
+  typeof backofficeProviderConversionTraceStateSchema
+>;
+export type BackofficeProviderConversionTraceQueryDto = z.infer<
+  typeof backofficeProviderConversionTraceQuerySchema
+>;
+export type BackofficeProviderConversionTraceSummaryDto = z.infer<
+  typeof backofficeProviderConversionTraceSummarySchema
+>;
+export type BackofficeProviderConversionTraceItemDto = z.infer<
+  typeof backofficeProviderConversionTraceItemSchema
+>;
+export type BackofficeProviderConversionTraceListDto = z.infer<
+  typeof backofficeProviderConversionTraceListSchema
+>;
+export type BackofficeProviderConversionReevaluationInputDto = z.infer<
+  typeof backofficeProviderConversionReevaluationInputSchema
+>;
+export type BackofficeProviderConversionReevaluationResultDto = z.infer<
+  typeof backofficeProviderConversionReevaluationResultSchema
+>;
+export type ProviderConversionEngineModeDto = z.infer<
+  typeof providerConversionEngineModeSchema
+>;
+export type BackofficeProviderConversionRolloutQueryDto = z.infer<
+  typeof backofficeProviderConversionRolloutQuerySchema
+>;
+export type BackofficeProviderConversionRolloutModeInputDto = z.infer<
+  typeof backofficeProviderConversionRolloutModeInputSchema
+>;
+export type BackofficeProviderConversionRolloutComparisonDto = z.infer<
+  typeof backofficeProviderConversionRolloutComparisonSchema
+>;
+export type BackofficeProviderConversionRolloutDto = z.infer<
+  typeof backofficeProviderConversionRolloutSchema
 >;
 export type BackofficeInboundWebhookScopeChannelDto = z.infer<
   typeof backofficeInboundWebhookScopeChannelSchema

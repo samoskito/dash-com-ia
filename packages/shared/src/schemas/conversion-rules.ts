@@ -431,6 +431,7 @@ export const providerConversionAutomationAuditStatusSchema = z.enum([
   "duplicate",
   "blocked",
   "failed",
+  "ignored",
   "invalid_payload",
 ]);
 

@@ -10,6 +10,12 @@ import { useMemo, useState } from "react";
 import { PresentationMask } from "../../../../components/presentation-mask";
 import { apiFetch } from "../../../../lib/api";
 import { formatDateTime } from "../../../../lib/date-time";
+import {
+  purchaseReviewReasonLabel,
+  purchaseReviewStatusLabel,
+  purchaseReviewTone,
+} from "../../settings/provider-conversion-labels";
+import { EventAuditDetails } from "../event-audit-details";
 
 type EditableItem = {
   catalogVariantId: string;
@@ -21,31 +27,6 @@ type PurchaseReviewPanelProps = {
   providerRules: ProviderConversionRuleDto[];
   reviews: PurchaseReviewDto[];
 };
-
-const statusLabels: Record<PurchaseReviewDto["status"], string> = {
-  recognized: "Reconhecida",
-  awaiting_data: "Aguardando dados",
-  review_required: "Revisao necessaria",
-  approved: "Na fila",
-  sent: "Enviada",
-  duplicate: "Duplicada",
-  rejected: "Rejeitada",
-  failed: "Falhou",
-  corrected_after_send: "Corrigida no painel",
-};
-
-function statusTone(status: PurchaseReviewDto["status"]): string {
-  if (status === "sent" || status === "recognized") return "";
-  if (status === "failed" || status === "rejected") return "bad";
-  if (
-    status === "awaiting_data" ||
-    status === "review_required" ||
-    status === "approved"
-  ) {
-    return "warn";
-  }
-  return "neutral";
-}
 
 function money(valueCents: number | null, currency = "BRL"): string {
   if (valueCents === null) return "Pendente";
@@ -172,8 +153,10 @@ function ReviewRow({
           </div>
         </div>
         <div className="purchase-review-state">
-          <span className={`status-chip ${statusTone(review.status)}`}>
-            {statusLabels[review.status]}
+          <span
+            className={`status-chip ${purchaseReviewTone(review.status)}`}
+          >
+            {purchaseReviewStatusLabel(review.status)}
           </span>
           <time dateTime={review.occurredAt}>
             {formatDateTime(review.occurredAt)}
@@ -202,6 +185,24 @@ function ReviewRow({
           <span>Valor efetivo</span>
           <strong>{money(review.effectiveValueCents, review.currency)}</strong>
         </div>
+      </div>
+
+      <div className="purchase-review-trace">
+        <div>
+          <span className="micro-label">Diagnostico</span>
+          <strong>{purchaseReviewReasonLabel(review.reasonCode)}</strong>
+        </div>
+        {review.conversionEventLogId ? (
+          <EventAuditDetails
+            canRetry={false}
+            eventId={review.conversionEventLogId}
+            eventLabel={review.ruleName}
+          />
+        ) : (
+          <span className="purchase-review-event-pending">
+            Evento Meta ainda nao criado
+          </span>
+        )}
       </div>
 
       {catalogReview ? (

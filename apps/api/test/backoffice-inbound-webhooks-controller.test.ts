@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { AuthService } from "../src/auth/auth.service";
 import { PlatformAdminService } from "../src/auth/platform-admin.service";
+import { ProviderConversionTraceService } from "../src/conversion-rules/provider-conversion-trace.service";
 import { BackofficeInboundWebhooksController } from "../src/inbound-webhooks/backoffice-inbound-webhooks.controller";
 import { BackofficeInboundWebhooksService } from "../src/inbound-webhooks/backoffice-inbound-webhooks.service";
 
@@ -70,6 +71,30 @@ const payloadResult = {
       createdAt: "2026-07-17T20:00:02.000Z",
     },
   ],
+};
+
+const rolloutResult = {
+  channel: {
+    id: "channel_1",
+    displayName: "Comercial",
+    connectedPhone: "+5511999999999",
+    mode: "shadow",
+  },
+  counts: {
+    comparisons: 20,
+    matches: 19,
+    mismatches: 1,
+  },
+  mismatchReasons: [
+    {
+      code: "applicability_mismatch",
+      count: 1,
+    },
+  ],
+  latestComparisonAt: "2026-07-23T20:00:00.000Z",
+  canActivateCanonical: true,
+  canonicalBlocker: null,
+  comparisons: [],
 };
 
 async function createApp() {
@@ -139,6 +164,7 @@ async function createApp() {
                   displayName: "Comercial",
                   connectedPhone: "+5511999999999",
                   status: "active",
+                  conversionEngineMode: "shadow",
                   lastSeenAt: "2026-07-17T20:00:01.000Z",
                 },
               ],
@@ -162,7 +188,41 @@ async function createApp() {
       deliveryId: "delivery_1",
       status: "queued",
     })),
+    reevaluateProviderConversionDecision: vi.fn(async () => ({
+      previousDecisionId: "decision_1",
+      decisionId: "decision_2",
+      decisionVersion: 2,
+      status: "reevaluated",
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: ["execution_1"],
+    })),
+    getProviderConversionRollout: vi.fn(async () => rolloutResult),
+    updateProviderConversionEngineMode: vi.fn(async () => ({
+      ...rolloutResult,
+      channel: {
+        ...rolloutResult.channel,
+        mode: "canonical",
+      },
+    })),
     recordDeniedPayloadAccess: vi.fn(async () => undefined),
+  };
+  const conversionTraces = {
+    listLatestTraces: vi.fn(async () => ({
+      items: [],
+      total: 0,
+      summary: {
+        all: 0,
+        internalOutcome: 0,
+        reviewRequired: 0,
+        observed: 0,
+        queued: 0,
+        sent: 0,
+        duplicate: 0,
+        blockedConfiguration: 0,
+        failedRetryable: 0,
+        failedPermanent: 0,
+      },
+    })),
   };
   const moduleRef = await Test.createTestingModule({
     controllers: [BackofficeInboundWebhooksController],
@@ -170,6 +230,7 @@ async function createApp() {
       { provide: PlatformAdminService, useValue: platformAdminService },
       { provide: AuthService, useValue: authService },
       { provide: BackofficeInboundWebhooksService, useValue: service },
+      { provide: ProviderConversionTraceService, useValue: conversionTraces },
     ],
   }).compile();
   const app = moduleRef.createNestApplication();
@@ -180,6 +241,7 @@ async function createApp() {
     authService,
     platformAdminService,
     service,
+    conversionTraces,
   };
 }
 
@@ -286,6 +348,209 @@ describe("backoffice inbound webhooks controller", () => {
       channelId: "channel_1",
       provider: "umbler",
     });
+    await app.close();
+  });
+
+  it("lists conversion traces with the same scoped operational filters", async () => {
+    const { app, conversionTraces } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/inbound-webhooks/conversion-traces?workspaceId=workspace_1&connectionId=connection_1&channelId=channel_1&eventName=Purchase&state=failed_retryable&receivedFrom=2026-07-22T10%3A36&receivedUntil=2026-07-22T10%3A36&limit=25&offset=0",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .expect(200);
+
+    expect(conversionTraces.listLatestTraces).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      connectionId: "connection_1",
+      channelId: "channel_1",
+      eventName: "Purchase",
+      state: "failed_retryable",
+      receivedFrom: "2026-07-22T10:36",
+      receivedUntil: "2026-07-22T10:36",
+      limit: 25,
+      offset: 0,
+    });
+
+    await app.close();
+  });
+
+  it("returns channel-scoped shadow evidence only to the platform owner", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/inbound-webhooks/conversion-rollout/channels/channel_1?onlyMismatches=true&limit=20",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.channel.mode).toBe("shadow");
+        expect(body.counts).toEqual({
+          comparisons: 20,
+          matches: 19,
+          mismatches: 1,
+        });
+      });
+
+    expect(service.getProviderConversionRollout).toHaveBeenCalledWith(
+      "channel_1",
+      {
+        onlyMismatches: true,
+        limit: 20,
+      },
+    );
+    await app.close();
+  });
+
+  it("promotes a channel only through the platform-owner rollout endpoint", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/conversion-rollout/channels/channel_1/mode",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .send({
+        mode: "canonical",
+        confirmation: "Comercial",
+        acknowledgedComparisonCount: 20,
+        acknowledgedMismatchCount: 1,
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.channel.mode).toBe("canonical");
+      });
+
+    expect(service.updateProviderConversionEngineMode).toHaveBeenCalledWith(
+      "channel_1",
+      {
+        mode: "canonical",
+        confirmation: "Comercial",
+        acknowledgedComparisonCount: 20,
+        acknowledgedMismatchCount: 1,
+      },
+      expect.objectContaining({
+        id: "platform_owner_1",
+        actorType: "platform_owner",
+        sourceIp: expect.any(String),
+      }),
+    );
+    await app.close();
+  });
+
+  it("denies rollout inspection and mutation to workspace users", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/inbound-webhooks/conversion-rollout/channels/channel_1",
+      )
+      .set("Authorization", "Bearer workspace-admin-token")
+      .expect(403);
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/conversion-rollout/channels/channel_1/mode",
+      )
+      .set("Authorization", "Bearer workspace-admin-token")
+      .send({
+        mode: "shadow",
+        confirmation: "Comercial",
+      })
+      .expect(403);
+
+    expect(service.getProviderConversionRollout).not.toHaveBeenCalled();
+    expect(service.updateProviderConversionEngineMode).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("denies conversion traces to workspace users", async () => {
+    const { app, conversionTraces } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/backoffice/inbound-webhooks/conversion-traces")
+      .set("Authorization", "Bearer workspace-admin-token")
+      .expect(403);
+
+    expect(conversionTraces.listLatestTraces).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("lets only the platform owner request an exact conversion decision reevaluation", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/conversion-traces/decision_1/reevaluate",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .send({
+        requestKey: "backoffice:decision_1:request_123456",
+      })
+      .expect(201)
+      .expect({
+        previousDecisionId: "decision_1",
+        decisionId: "decision_2",
+        decisionVersion: 2,
+        status: "reevaluated",
+        executionIds: ["execution_1"],
+        eligibleExecutionIds: ["execution_1"],
+      });
+
+    expect(platformAdminService.assertPlatformOwner).toHaveBeenCalledWith(
+      "owner-token",
+    );
+    expect(
+      service.reevaluateProviderConversionDecision,
+    ).toHaveBeenCalledWith(
+      "decision_1",
+      "backoffice:decision_1:request_123456",
+      expect.objectContaining({
+        id: "platform_owner_1",
+        actorType: "platform_owner",
+        sourceIp: expect.any(String),
+      }),
+    );
+
+    await app.close();
+  });
+
+  it("denies conversion decision reevaluation to workspace users", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/conversion-traces/decision_1/reevaluate",
+      )
+      .set("Authorization", "Bearer workspace-admin-token")
+      .send({
+        requestKey: "backoffice:decision_1:request_123456",
+      })
+      .expect(403);
+
+    expect(
+      service.reevaluateProviderConversionDecision,
+    ).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("rejects an invalid reevaluation request before mutating a decision", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/conversion-traces/decision_1/reevaluate",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .send({
+        requestKey: "short",
+      })
+      .expect(400);
+
+    expect(
+      service.reevaluateProviderConversionDecision,
+    ).not.toHaveBeenCalled();
     await app.close();
   });
 

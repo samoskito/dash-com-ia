@@ -143,6 +143,7 @@ function createHarness(options?: {
     },
   };
   const deliveries = new Map<string, Record<string, any>>();
+  const decisions = new Map<string, Record<string, any>>();
   const executions = new Map<string, Record<string, any>>();
   const purchaseReviews = new Map<string, Record<string, any>>();
   const deliveryByIdentity = (connectionId: string, ingressKey: string) =>
@@ -161,6 +162,26 @@ function createHarness(options?: {
         ...execution,
         channel:
           execution.channelId === channel.id
+            ? {
+                id: channel.id,
+                channelName: channel.channelName,
+                connectedPhone: channel.connectedPhone,
+              }
+            : null,
+      })),
+    providerConversionDecisions: [...decisions.values()]
+      .filter((decision) => decision.sourceDeliveryId === delivery.id)
+      .sort(
+        (left, right) =>
+          (right.decisionVersion ?? 0) - (left.decisionVersion ?? 0) ||
+          (right.createdAt?.getTime?.() ?? 0) -
+            (left.createdAt?.getTime?.() ?? 0),
+      )
+      .slice(0, 1)
+      .map((decision) => ({
+        ...decision,
+        channel:
+          decision.channelId === channel.id
             ? {
                 id: channel.id,
                 channelName: channel.channelName,
@@ -190,19 +211,69 @@ function createHarness(options?: {
     const expected = where[field];
     if (expected === null) return record[field] == null;
     if (expected?.not) return record[field] !== expected.not;
+    if (expected?.notIn) return !expected.notIn.includes(record[field]);
+    if (expected?.in) return expected.in.includes(record[field]);
     return record[field] === expected;
   };
   const deliveryMatchesScope = (
     delivery: Record<string, any>,
     where: Record<string, any>,
-  ) =>
-    (!where.id || delivery.id === where.id) &&
-    (!where.workspaceId || delivery.workspaceId === where.workspaceId) &&
-    (!where.connectionId || delivery.connectionId === where.connectionId) &&
-    (!where.providerRuleEndpointId ||
-      delivery.providerRuleEndpointId === where.providerRuleEndpointId) &&
-    (!where.purpose || delivery.purpose === where.purpose) &&
-    matchesNullableNotFilter(delivery, where, "classification");
+  ) => {
+    if (
+      (where.id && delivery.id !== where.id) ||
+      (where.workspaceId && delivery.workspaceId !== where.workspaceId) ||
+      (where.connectionId && delivery.connectionId !== where.connectionId) ||
+      (where.providerRuleEndpointId &&
+        delivery.providerRuleEndpointId !== where.providerRuleEndpointId) ||
+      (where.purpose && delivery.purpose !== where.purpose) ||
+      !matchesNullableNotFilter(delivery, where, "classification")
+    ) {
+      return false;
+    }
+    if (
+      where.payloadExpiresAt?.gt &&
+      delivery.payloadExpiresAt <= where.payloadExpiresAt.gt
+    ) {
+      return false;
+    }
+    for (const field of [
+      "encryptedPayload",
+      "payloadIv",
+      "payloadTag",
+      "encryptionKeyVersion",
+    ] as const) {
+      if (where[field]?.not === null && delivery[field] == null) return false;
+    }
+
+    const relatedExecutions = [...executions.values()].filter(
+      (execution) => execution.sourceDeliveryId === delivery.id,
+    );
+    const executionSome = where.providerConversionExecutions?.some;
+    if (
+      executionSome &&
+      !relatedExecutions.some(
+        (execution) =>
+          (!executionSome.providerRuleId ||
+            execution.providerRuleId === executionSome.providerRuleId) &&
+          (!executionSome.status || execution.status === executionSome.status),
+      )
+    ) {
+      return false;
+    }
+    const executionNone = where.providerConversionExecutions?.none;
+    if (
+      executionNone &&
+      relatedExecutions.some(
+        (execution) =>
+          !executionNone.providerRuleId ||
+          execution.providerRuleId === executionNone.providerRuleId,
+      )
+    ) {
+      return false;
+    }
+
+    return true;
+  };
 
   const providerConversionRuleEndpoint = {
     findUnique: vi.fn(async ({ where }) =>
@@ -244,7 +315,9 @@ function createHarness(options?: {
       const delivery = deliveries.get(
         deliveryByIdentity(identity.connectionId, identity.ingressKey),
       );
-      return delivery ? { id: delivery.id } : null;
+      return delivery
+        ? { id: delivery.id, firstReceivedAt: delivery.firstReceivedAt }
+        : null;
     }),
     findFirst: vi.fn(async ({ where }: any) => {
       const candidates = [...deliveries.values()]
@@ -367,10 +440,16 @@ function createHarness(options?: {
     groupBy: vi.fn(async ({ where }: any) => {
       const counts = new Map<string, number>();
       for (const execution of executions.values()) {
+        const delivery = [...deliveries.values()].find(
+          (candidate) => candidate.id === execution.sourceDeliveryId,
+        );
         if (
           execution.workspaceId !== where.workspaceId ||
           execution.providerRuleId !== where.providerRuleId ||
-          !matchesNullableNotFilter(execution, where, "reasonCode")
+          !matchesNullableNotFilter(execution, where, "reasonCode") ||
+          !delivery ||
+          (where.sourceDelivery &&
+            !deliveryMatchesScope(delivery, where.sourceDelivery))
         ) {
           continue;
         }
@@ -384,11 +463,30 @@ function createHarness(options?: {
     count: vi.fn(
       async ({ where }: any) =>
         [...executions.values()].filter((execution) => {
+          const matchesStatus = where.OR
+            ? where.OR.some((condition: Record<string, any>) => {
+                if (condition.status?.in) {
+                  return condition.status.in.includes(execution.status);
+                }
+                if (condition.status && execution.status !== condition.status) {
+                  return false;
+                }
+                if (condition.normalizedResult) {
+                  return (
+                    execution.normalizedResult?.technicalDelivery?.retryable ===
+                    condition.normalizedResult.equals
+                  );
+                }
+                return true;
+              })
+            : where.status?.in
+              ? where.status.in.includes(execution.status)
+              : !where.status || execution.status === where.status;
           if (
             execution.workspaceId !== where.workspaceId ||
             execution.providerRuleId !== where.providerRuleId ||
             !matchesNullableNotFilter(execution, where, "reasonCode") ||
-            !where.status.in.includes(execution.status)
+            !matchesStatus
           ) {
             return false;
           }
@@ -407,13 +505,84 @@ function createHarness(options?: {
           }
           return Boolean(
             delivery &&
-            delivery.payloadExpiresAt > new Date() &&
-            delivery.encryptedPayload &&
-            delivery.payloadIv &&
-            delivery.payloadTag &&
-            delivery.encryptionKeyVersion,
+            (!where.sourceDelivery ||
+              deliveryMatchesScope(delivery, where.sourceDelivery)),
           );
         }).length,
+    ),
+  };
+  const decisionMatchesScope = (
+    decision: Record<string, any>,
+    where: Record<string, any>,
+  ) => {
+    if (
+      (where.workspaceId && decision.workspaceId !== where.workspaceId) ||
+      (where.providerRuleId &&
+        decision.providerRuleId !== where.providerRuleId) ||
+      (where.decisionCode && decision.decisionCode !== where.decisionCode)
+    ) {
+      return false;
+    }
+    if (
+      where.supersededBy?.none &&
+      [...decisions.values()].some(
+        (candidate) => candidate.supersedesDecisionId === decision.id,
+      )
+    ) {
+      return false;
+    }
+    if (
+      where.providerExecution?.is === null &&
+      [...executions.values()].some(
+        (execution) => execution.providerDecisionId === decision.id,
+      )
+    ) {
+      return false;
+    }
+    const delivery = [...deliveries.values()].find(
+      (candidate) => candidate.id === decision.sourceDeliveryId,
+    );
+    return Boolean(
+      delivery &&
+      (!where.sourceDelivery ||
+        deliveryMatchesScope(delivery, where.sourceDelivery)),
+    );
+  };
+  const providerConversionDecisionAudit = {
+    findFirst: vi.fn(async ({ where }: any) => {
+      const candidates = [...decisions.values()]
+        .filter((decision) => decisionMatchesScope(decision, where))
+        .sort(
+          (left, right) =>
+            (right.occurredAt?.getTime?.() ?? 0) -
+              (left.occurredAt?.getTime?.() ?? 0) ||
+            (right.createdAt?.getTime?.() ?? 0) -
+              (left.createdAt?.getTime?.() ?? 0),
+        );
+      const decision = candidates[0] ?? null;
+      return decision && where
+        ? { ...decision }
+        : decision;
+    }),
+    groupBy: vi.fn(async ({ where }: any) => {
+      const counts = new Map<string, number>();
+      for (const decision of decisions.values()) {
+        if (!decisionMatchesScope(decision, where)) continue;
+        counts.set(
+          decision.decisionCode,
+          (counts.get(decision.decisionCode) ?? 0) + 1,
+        );
+      }
+      return [...counts.entries()].map(([decisionCode, count]) => ({
+        decisionCode,
+        _count: { _all: count },
+      }));
+    }),
+    count: vi.fn(
+      async ({ where }: any) =>
+        [...decisions.values()].filter((decision) =>
+          decisionMatchesScope(decision, where),
+        ).length,
     ),
   };
   const purchaseReview = {
@@ -427,6 +596,11 @@ function createHarness(options?: {
       return review;
     }),
   };
+  const leadFindFirst = vi.fn(async () =>
+    options?.paidLeadResolved === false
+      ? null
+      : { id: "lead_1", adId: "ad_1", ctwaClid: "ctwa_1" },
+  );
   const prisma: Record<string, any> = {
     providerConversionRuleEndpoint,
     inboundWebhookConnection,
@@ -437,13 +611,10 @@ function createHarness(options?: {
       ),
     },
     lead: {
-      findFirst: vi.fn(async () =>
-        options?.paidLeadResolved === false
-          ? null
-          : { id: "lead_1", adId: "ad_1", ctwaClid: "ctwa_1" },
-      ),
+      findFirst: leadFindFirst,
     },
     providerConversionRuleExecution,
+    providerConversionDecisionAudit,
     purchaseReview,
     auditLog: {
       create: vi.fn(async ({ data }) => data),
@@ -462,21 +633,162 @@ function createHarness(options?: {
       status: "queued" as const,
     })),
   };
+  const conversionObservation = {
+    observeAutomation: vi.fn(async (input: any) => {
+      const paidLead = await leadFindFirst();
+      const paidLeadResolved = Boolean(paidLead);
+      if (input.automation.eventName !== eventName) {
+        return {
+          decisionId: null,
+          decisionCode: null,
+          reasonCode: "automation_event_mismatch",
+          disposition: "ignored",
+          executionId: null,
+          eligibleExecutionId: null,
+          reviewId: null,
+          channelId:
+            options?.channelResolved === false ? null : channel.id,
+          leadResolved: paidLeadResolved,
+        };
+      }
+
+      const executionKey = input.automation.externalExecutionKey;
+      let decision = [...decisions.values()].find(
+        (candidate) =>
+          candidate.providerRuleId === input.providerRuleId &&
+          candidate.occurrenceKey === executionKey &&
+          ![...decisions.values()].some(
+            (newer) => newer.supersedesDecisionId === candidate.id,
+          ),
+      );
+      const decisionCode =
+        paidLeadResolved ? "eligible" : "ignored_untracked_lead";
+      const reasonCode =
+        paidLeadResolved ? "automation_matched" : "ignored_untracked_lead";
+      if (!decision) {
+        decision = {
+          id: `decision_${decisions.size + 1}`,
+          workspaceId: input.workspaceId,
+          providerRuleId: input.providerRuleId,
+          sourceDeliveryId: input.deliveryId,
+          channelId:
+            options?.channelResolved === false ? null : channel.id,
+          leadId:
+            paidLeadResolved ? "lead_1" : null,
+          supersedesDecisionId: null,
+          decisionCode,
+          reasonCode,
+          eventName: input.automation.eventName,
+          occurredAt: input.deliveryReceivedAt,
+          occurrenceKey: executionKey,
+          decisionVersion: 1,
+          valueCents:
+            input.automation.eventName === "Purchase" ? 250_000 : null,
+          currency:
+            input.automation.eventName === "Purchase" ? "BRL" : null,
+          createdAt: now,
+        };
+        decisions.set(decision.id, decision);
+      }
+
+      if (decisionCode === "ignored_untracked_lead") {
+        return {
+          decisionId: decision.id,
+          decisionCode,
+          reasonCode,
+          disposition: "ignored",
+          executionId: null,
+          eligibleExecutionId: null,
+          reviewId: null,
+          channelId:
+            options?.channelResolved === false ? null : channel.id,
+          leadResolved: false,
+        };
+      }
+
+      const productionEnabled =
+        env.INBOUND_WEBHOOK_PRODUCTION_ENABLED === "true" &&
+        env.INBOUND_CONVERSION_PRODUCTION_ENABLED === "true" &&
+        endpoint.providerRule.mode === "production" &&
+        endpoint.providerRule.connection.status === "production";
+      const beforeActivation =
+        !input.manualRecovery &&
+        ((endpoint.providerRule.productionActivatedAt &&
+          input.deliveryReceivedAt <
+            endpoint.providerRule.productionActivatedAt) ||
+          (channel.productionActivatedAt &&
+            input.deliveryReceivedAt < channel.productionActivatedAt));
+      const disposition =
+        options?.channelResolved === false
+          ? "blocked"
+          : productionEnabled && !beforeActivation
+            ? "eligible"
+            : "observed";
+      let execution: Record<string, any> | null = null;
+      if (disposition !== "observed") {
+        execution = executions.get(executionKey) ?? {
+          id: `execution_${executions.size + 1}`,
+          workspaceId: input.workspaceId,
+          providerRuleId: input.providerRuleId,
+          sourceDeliveryId: input.deliveryId,
+          channelId:
+            options?.channelResolved === false ? null : channel.id,
+          externalExecutionKey: executionKey,
+          status: disposition,
+          reasonCode:
+            disposition === "blocked"
+              ? "automation_channel_unresolved"
+              : "automation_matched",
+          normalizedResult: {
+            eventName: input.automation.eventName,
+            automation: input.automation.automation,
+          },
+          leadId: "lead_1",
+          providerDecisionId: decision.id,
+          valueCents: decision.valueCents,
+          currency: decision.currency,
+          attemptCount: 0,
+          createdAt: now,
+          updatedAt: now,
+        };
+        execution.status = disposition;
+        execution.sourceDeliveryId = input.deliveryId;
+        executions.set(executionKey, execution);
+      }
+
+      return {
+        decisionId: decision.id,
+        decisionCode,
+        reasonCode,
+        disposition,
+        executionId: execution?.id ?? null,
+        eligibleExecutionId:
+          disposition === "eligible" ? execution?.id ?? null : null,
+        reviewId: null,
+        channelId:
+          options?.channelResolved === false ? null : channel.id,
+        leadResolved: true,
+      };
+    }),
+  };
   const service = new InboundConversionAutomationIngestionService(
     prisma as unknown as PrismaService,
     env,
     encryption,
     productionQueue as never,
+    conversionObservation as never,
   );
 
   return {
     deliveries,
+    decisions,
     encryption,
     endpoint,
     env,
     executions,
     prisma,
     productionQueue,
+    conversionObservation,
     purchaseReviews,
     service,
   };
@@ -546,19 +858,20 @@ describe("inbound conversion automation ingestion", () => {
       classification: "eligible_route_resolved",
       parseErrorCode: null,
     });
-    expect(harness.executions.size).toBe(1);
-    const execution = [...harness.executions.values()][0];
-    expect(execution).toMatchObject({
+    expect(harness.decisions.size).toBe(1);
+    expect(harness.executions.size).toBe(0);
+    const decision = [...harness.decisions.values()][0];
+    expect(decision).toMatchObject({
       workspaceId: "workspace_safe",
       channelId: "channel_1",
-      status: "observed",
-      reasonCode: "automation_matched_observation",
+      decisionCode: "eligible",
+      reasonCode: "automation_matched",
       leadId: "lead_1",
       valueCents: null,
     });
     const redacted = JSON.stringify({
       delivery: delivery.normalizedSummary,
-      execution: execution.normalizedResult,
+      decision,
     });
     expect(redacted).not.toContain("workspace_attacker");
     expect(redacted).not.toContain("5511999999999");
@@ -604,14 +917,7 @@ describe("inbound conversion automation ingestion", () => {
       valueCents: 250_000,
       currency: "BRL",
     });
-    expect([...harness.purchaseReviews.values()][0]).toMatchObject({
-      workspaceId: "workspace_safe",
-      sourceType: "provider_automation",
-      status: "recognized",
-      effectiveValueCents: 250_000,
-      currency: "BRL",
-      leadId: "lead_1",
-    });
+    expect(harness.purchaseReviews.size).toBe(0);
     expect(
       harness.productionQueue.enqueueProviderConversion,
     ).toHaveBeenCalledWith({
@@ -649,14 +955,10 @@ describe("inbound conversion automation ingestion", () => {
     });
     expect([...harness.executions.values()][0]).toMatchObject({
       status: "eligible",
-      reasonCode: "automation_manual_reprocess_approved",
-      normalizedResult: {
-        manualReplayApproval: {
-          approved: true,
-          actorUserId: "manager_1",
-        },
-      },
+      reasonCode: "automation_matched",
+      providerDecisionId: "decision_1",
     });
+    expect(harness.decisions.size).toBe(1);
     expect([...harness.deliveries.values()][0]).toMatchObject({
       parserVersion: "automation-v1",
       status: "processed",
@@ -666,6 +968,54 @@ describe("inbound conversion automation ingestion", () => {
     expect(
       harness.productionQueue.enqueueProviderConversion,
     ).toHaveBeenCalledTimes(1);
+  });
+
+  it("reevaluates one exact preserved automation occurrence with an explicit request key", async () => {
+    const harness = createHarness({ production: true });
+    const callback = await harness.service.ingest(
+      input(Buffer.from(JSON.stringify(automationPayload()))),
+    );
+    const decision = [...harness.decisions.values()][0];
+    harness.productionQueue.enqueueProviderConversion.mockClear();
+    harness.conversionObservation.observeAutomation.mockClear();
+
+    const result =
+      await harness.service.reevaluateProviderConversionDecision({
+        workspaceId: "workspace_safe",
+        providerRuleId: "provider_rule_1",
+        deliveryId: callback.deliveryId,
+        occurrenceKey: decision.occurrenceKey,
+        requestKey: "backoffice:decision_1:request_123456",
+      });
+
+    expect(result).toMatchObject({
+      decisionId: decision.id,
+      disposition: "eligible",
+      eligibleExecutionId: "execution_1",
+    });
+    expect(
+      harness.conversionObservation.observeAutomation,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_safe",
+        providerRuleId: "provider_rule_1",
+        deliveryId: callback.deliveryId,
+        manualRecovery: true,
+        automation: expect.objectContaining({
+          externalExecutionKey: decision.occurrenceKey,
+        }),
+        evaluationMode: {
+          type: "reevaluate",
+          requestKey: "backoffice:decision_1:request_123456",
+        },
+      }),
+    );
+    expect(
+      harness.productionQueue.enqueueProviderConversion,
+    ).toHaveBeenCalledWith({
+      providerConversionExecutionId: "execution_1",
+      workspaceId: "workspace_safe",
+    });
   });
 
   it("reprocesses an older observed callback when a newer untracked callback is ignored", async () => {
@@ -688,12 +1038,17 @@ describe("inbound conversion automation ingestion", () => {
     harness.endpoint.providerRule.connection.productionActivatedAt = new Date(
       "2026-07-22T16:30:00.000Z",
     );
-    harness.prisma.lead.findFirst.mockResolvedValueOnce(null);
+    harness.prisma.lead.findFirst.mockResolvedValue(null);
     const newerPayload = automationPayload();
     newerPayload.conversation.id = "conversation_2";
     const ignored = await harness.service.ingest(
       input(Buffer.from(JSON.stringify(newerPayload))),
     );
+    harness.prisma.lead.findFirst.mockResolvedValue({
+      id: "lead_1",
+      adId: "ad_1",
+      ctwaClid: "ctwa_1",
+    });
     const ignoredDelivery = [...harness.deliveries.values()].find(
       (delivery) => delivery.id === ignored.deliveryId,
     )!;
@@ -713,7 +1068,7 @@ describe("inbound conversion automation ingestion", () => {
       ),
     ).toMatchObject({
       status: "eligible",
-      reasonCode: "automation_manual_reprocess_approved",
+      reasonCode: "automation_matched",
     });
   });
 
@@ -742,8 +1097,9 @@ describe("inbound conversion automation ingestion", () => {
     expect(audit.summary).toMatchObject({
       total: 2,
       observed: 1,
-      blocked: 1,
-      recoverable: 2,
+      blocked: 0,
+      invalid: 1,
+      recoverable: 1,
     });
     expect(audit.items.map((item) => item.deliveryId)).toEqual(
       expect.arrayContaining([valid.deliveryId, mismatched.deliveryId]),
@@ -774,14 +1130,14 @@ describe("inbound conversion automation ingestion", () => {
     expect(replay).toMatchObject({
       requested: 2,
       queued: 1,
-      blocked: 1,
-      skipped: 0,
+      blocked: 0,
+      skipped: 1,
     });
     expect(replay.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           deliveryId: mismatched.deliveryId,
-          status: "blocked",
+          status: "skipped",
           reasonCode: "automation_event_mismatch",
         }),
         expect.objectContaining({
@@ -795,8 +1151,8 @@ describe("inbound conversion automation ingestion", () => {
     ).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a failed callback recoverable and records a fresh manual approval before retrying", async () => {
-    const harness = createHarness();
+  it("requeues only a retryable technical failure without changing its frozen decision", async () => {
+    const harness = createHarness({ production: true });
     const callback = await harness.service.ingest(
       input(Buffer.from(JSON.stringify(automationPayload()))),
     );
@@ -804,25 +1160,14 @@ describe("inbound conversion automation ingestion", () => {
       (candidate) => candidate.sourceDeliveryId === callback.deliveryId,
     )!;
     execution.status = "failed";
-    execution.reasonCode = "provider_conversion_production_context_invalid";
+    execution.reasonCode = "meta_transport_unavailable";
     execution.normalizedResult = {
       ...execution.normalizedResult,
-      manualReplayApproval: {
-        approved: true,
-        attemptedAt: "2026-07-22T18:00:00.000Z",
-        actorUserId: "manager_1",
+      technicalDelivery: {
+        state: "failed_retryable",
+        retryable: true,
       },
     };
-    harness.env.INBOUND_WEBHOOK_PRODUCTION_ENABLED = "true";
-    harness.env.INBOUND_CONVERSION_PRODUCTION_ENABLED = "true";
-    harness.endpoint.providerRule.mode = "production";
-    harness.endpoint.providerRule.productionActivatedAt = new Date(
-      "2026-07-22T18:00:00.000Z",
-    );
-    harness.endpoint.providerRule.connection.status = "production";
-    harness.endpoint.providerRule.connection.productionActivatedAt = new Date(
-      "2026-07-22T18:00:00.000Z",
-    );
 
     const audit = await harness.service.listAutomationCallbacks(
       "workspace_safe",
@@ -849,21 +1194,14 @@ describe("inbound conversion automation ingestion", () => {
       blocked: 0,
       skipped: 0,
     });
-    expect(execution.normalizedResult.manualReplayApproval).toMatchObject({
-      approved: true,
-      actorUserId: "manager_2",
-    });
-    expect(execution.normalizedResult.manualReplayApproval.approvedAt).toEqual(
-      expect.any(String),
-    );
     expect(execution).toMatchObject({
-      status: "eligible",
-      reasonCode: "automation_manual_reprocess_approved",
-      processedAt: null,
+      status: "failed",
+      reasonCode: "meta_transport_unavailable",
+      providerDecisionId: "decision_1",
     });
     expect(
       harness.productionQueue.enqueueProviderConversion,
-    ).toHaveBeenCalledWith(
+    ).toHaveBeenLastCalledWith(
       {
         providerConversionExecutionId: execution.id,
         workspaceId: "workspace_safe",
@@ -948,7 +1286,7 @@ describe("inbound conversion automation ingestion", () => {
   );
 
   it("excludes migrated untracked executions from customer audit counters", async () => {
-    const harness = createHarness();
+    const harness = createHarness({ production: true });
     const callback = await harness.service.ingest(
       input(Buffer.from(JSON.stringify(automationPayload()))),
     );
@@ -1008,6 +1346,7 @@ describe("inbound conversion automation ingestion", () => {
     });
     expect(harness.deliveries.size).toBe(1);
     expect([...harness.deliveries.values()][0].attemptCount).toBe(2);
-    expect(harness.executions.size).toBe(1);
+    expect(harness.decisions.size).toBe(1);
+    expect(harness.executions.size).toBe(0);
   });
 });

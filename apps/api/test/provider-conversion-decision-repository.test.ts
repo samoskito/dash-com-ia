@@ -372,6 +372,38 @@ describe("provider conversion decision repository", () => {
     ]);
   });
 
+  it("reads the latest frozen decision for replay without reevaluating it", async () => {
+    const harness = createHarness();
+    const decision = eligibleDecision();
+    const first = await harness.repository.recordInitial({
+      decision,
+      sourceDeliveryId: "delivery_1",
+    });
+    const changed = eligibleDecision();
+    changed.reasonCode = "catalog_matched";
+
+    await harness.repository.appendReevaluation({
+      decision: changed,
+      sourceDeliveryId: "delivery_1",
+      supersedesDecisionId: first.id,
+      reevaluationRequestKey: "operator-command-1",
+    });
+
+    await expect(
+      harness.repository.findLatestByOccurrence({
+        workspaceId: "workspace_1",
+        providerRuleId: "provider_rule_1",
+        occurrenceKey: "occurrence_1",
+      }),
+    ).resolves.toMatchObject({
+      id: "decision_2",
+      decisionVersion: 2,
+      decision: {
+        reasonCode: "catalog_matched",
+      },
+    });
+  });
+
   it("rejects a reevaluation that points to a stale decision version", async () => {
     const harness = createHarness();
     const first = await harness.repository.recordInitial({

@@ -88,13 +88,22 @@ export class ProviderConversionDecisionRepository {
     return this.persist({
       decision: input.decision,
       sourceDeliveryId: input.sourceDeliveryId,
-      evaluationKey: `reevaluation:${this.hash(requestKey)}`,
+      evaluationKey: this.reevaluationEvaluationKey(requestKey),
       supersedesDecisionId: this.requiredIdentifier(
         input.supersedesDecisionId,
         "supersedesDecisionId",
       ),
       reevaluation: true,
     });
+  }
+
+  reevaluationEvaluationKey(reevaluationRequestKey: string): string {
+    const requestKey = this.requiredIdentifier(
+      reevaluationRequestKey,
+      "reevaluationRequestKey",
+    );
+
+    return `reevaluation:${this.hash(requestKey)}`;
   }
 
   private async persist(input: {
@@ -213,6 +222,24 @@ export class ProviderConversionDecisionRepository {
     });
 
     return records.map((record) => this.hydrate(record));
+  }
+
+  async findLatestByOccurrence(input: {
+    workspaceId: string;
+    providerRuleId: string;
+    occurrenceKey: string;
+  }): Promise<PersistedProviderConversionDecision | null> {
+    const record =
+      await this.prisma.providerConversionDecisionAudit.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          providerRuleId: input.providerRuleId,
+          occurrenceKey: input.occurrenceKey,
+        },
+        orderBy: { decisionVersion: "desc" },
+      });
+
+    return record ? this.hydrate(record) : null;
   }
 
   private createData(input: {

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Inject,
@@ -11,10 +12,15 @@ import {
 import {
   backofficeInboundWebhookDeliveryQuerySchema,
   backofficeInboundWebhookDeliverySummaryQuerySchema,
+  backofficeProviderConversionRolloutModeInputSchema,
+  backofficeProviderConversionRolloutQuerySchema,
+  backofficeProviderConversionReevaluationInputSchema,
+  backofficeProviderConversionTraceQuerySchema,
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
 import { PlatformAdminService } from "../auth/platform-admin.service";
+import { ProviderConversionTraceService } from "../conversion-rules/provider-conversion-trace.service";
 import { BackofficeInboundWebhooksService } from "./backoffice-inbound-webhooks.service";
 
 type InboundBackofficeRequest = {
@@ -29,6 +35,8 @@ export class BackofficeInboundWebhooksController {
     @Inject(AuthService) private readonly authService: AuthService,
     @Inject(BackofficeInboundWebhooksService)
     private readonly inboundWebhooks: BackofficeInboundWebhooksService,
+    @Inject(ProviderConversionTraceService)
+    private readonly conversionTraces: ProviderConversionTraceService,
   ) {}
 
   @Get("scope")
@@ -68,6 +76,66 @@ export class BackofficeInboundWebhooksController {
     return this.inboundWebhooks.summarizeDeliveries(parsed.data);
   }
 
+  @Get("conversion-traces")
+  async listConversionTraces(
+    @AuthToken() refreshToken: string,
+    @Query() query: Record<string, unknown>,
+  ) {
+    await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed = backofficeProviderConversionTraceQuerySchema.safeParse(query);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Filtros invalidos");
+    }
+
+    return this.conversionTraces.listLatestTraces(parsed.data);
+  }
+
+  @Get("conversion-rollout/channels/:channelId")
+  async getProviderConversionRollout(
+    @AuthToken() refreshToken: string,
+    @Param("channelId") channelId: string,
+    @Query() query: Record<string, unknown>,
+  ) {
+    await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed =
+      backofficeProviderConversionRolloutQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException("Filtros de rollout invalidos");
+    }
+
+    return this.inboundWebhooks.getProviderConversionRollout(
+      this.identifier(channelId, "Canal invalido"),
+      parsed.data,
+    );
+  }
+
+  @Post("conversion-rollout/channels/:channelId/mode")
+  async updateProviderConversionEngineMode(
+    @AuthToken() refreshToken: string,
+    @Param("channelId") channelId: string,
+    @Body() body: unknown,
+    @Req() request: InboundBackofficeRequest,
+  ) {
+    const owner =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed =
+      backofficeProviderConversionRolloutModeInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Alteracao de rollout invalida");
+    }
+
+    return this.inboundWebhooks.updateProviderConversionEngineMode(
+      this.identifier(channelId, "Canal invalido"),
+      parsed.data,
+      {
+        id: owner.id,
+        actorType: owner.role,
+        sourceIp: request.ip ?? null,
+      },
+    );
+  }
+
   @Get("deliveries/:deliveryId/payload")
   async getPayload(
     @AuthToken() refreshToken: string,
@@ -86,6 +154,32 @@ export class BackofficeInboundWebhooksController {
       actorType: owner.role,
       sourceIp: request.ip ?? null,
     });
+  }
+
+  @Post("conversion-traces/:decisionId/reevaluate")
+  async reevaluateProviderConversionDecision(
+    @AuthToken() refreshToken: string,
+    @Param("decisionId") decisionId: string,
+    @Body() body: unknown,
+    @Req() request: InboundBackofficeRequest,
+  ) {
+    const owner =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed =
+      backofficeProviderConversionReevaluationInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Solicitacao de reavaliacao invalida");
+    }
+
+    return this.inboundWebhooks.reevaluateProviderConversionDecision(
+      this.identifier(decisionId, "Decisao invalida"),
+      parsed.data.requestKey,
+      {
+        id: owner.id,
+        actorType: owner.role,
+        sourceIp: request.ip ?? null,
+      },
+    );
   }
 
   @Post("deliveries/:deliveryId/reprocess-provider-conversions")
@@ -132,6 +226,10 @@ export class BackofficeInboundWebhooksController {
   }
 
   private deliveryId(value: string): string {
+    return this.identifier(value, "Entrega invalida");
+  }
+
+  private identifier(value: string, message: string): string {
     const normalized = value.trim();
 
     if (
@@ -139,7 +237,7 @@ export class BackofficeInboundWebhooksController {
       normalized.length > 255 ||
       /[\u0000-\u001f\u007f]/u.test(normalized)
     ) {
-      throw new BadRequestException("Entrega invalida");
+      throw new BadRequestException(message);
     }
 
     return normalized;

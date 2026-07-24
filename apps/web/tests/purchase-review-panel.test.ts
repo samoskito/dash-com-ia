@@ -114,4 +114,27 @@ describe("purchase review panel", () => {
     expect(html).not.toContain("Aprovar e enviar");
     expect(html).not.toContain(">Rejeitar<");
   });
+
+  it("shows a human diagnosis and links a materialized purchase to its Meta event", () => {
+    const html = renderPanel(true, {
+      ...averageReview,
+      status: "sent",
+      reasonCode: "matched",
+      conversionEventLogId: "event_1",
+    });
+
+    expect(html).toContain("Diagnostico");
+    expect(html).toContain("Conversao reconhecida");
+    expect(html).toContain("Inspecionar");
+    expect(html).not.toContain("Evento Meta ainda nao criado");
+  });
+
+  it("makes the missing Meta event explicit before materialization", () => {
+    const html = renderPanel(true);
+
+    expect(html).toContain("Diagnostico");
+    expect(html).toContain("Conversao reconhecida");
+    expect(html).toContain("Evento Meta ainda nao criado");
+    expect(html).not.toContain("Inspecionar");
+  });
 });

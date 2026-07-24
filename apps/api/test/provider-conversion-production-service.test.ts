@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import type { ProviderConversionDecisionDto } from "@wpptrack/shared";
 import { describe, expect, it, vi } from "vitest";
 import { hashPhoneIdentity } from "../src/common/phone/phone-identity";
 import { ProviderConversionProductionService } from "../src/inbound-webhook-production/provider-conversion-production.service";
@@ -19,6 +20,8 @@ function createHarness(
     duplicateHoursAgo?: number;
     deliveryStatus?: string;
     automationEventName?: "QualifiedLead" | "Purchase";
+    canonicalDecision?: boolean;
+    serializeTransactions?: boolean;
   } = {},
 ) {
   const isAutomation = Boolean(input.automationEventName);
@@ -120,6 +123,9 @@ function createHarness(
     processedAt: null,
     createdAt: activatedAt,
     updatedAt: activatedAt,
+    providerDecisionWorkspaceId: null,
+    providerDecisionId: null,
+    providerDecision: null,
     providerRule: {
       id: "provider_rule_1",
       workspaceId,
@@ -199,6 +205,155 @@ function createHarness(
           }
         : null,
   };
+  if (input.canonicalDecision) {
+    const eventName = input.automationEventName ?? "Purchase";
+    const triggerType = isAutomation
+      ? "provider_automation"
+      : "structured_catalog";
+    const decision: ProviderConversionDecisionDto = {
+      decisionCode: "eligible",
+      engineVersion: "decision-v1",
+      parserVersion: isAutomation ? "automation-v1" : "v1",
+      reasonCode: isAutomation ? "automation_matched" : "catalog_matched",
+      occurrence: {
+        source: isAutomation ? "automation" : "message",
+        provider: "umbler",
+        workspaceId,
+        connectionId: "connection_1",
+        channelId: "channel_1",
+        externalDeliveryId: "external_delivery_1",
+        externalEventId: "external_event_1",
+        externalMessageId: isAutomation ? null : "external_message_1",
+        occurrenceKey: parsed.dedupeKey,
+        businessDedupePolicy:
+          eventName === "Purchase"
+            ? {
+                mode: "rolling_window",
+                scopeKey: `Purchase:${workspaceId}:lead_1`,
+                windowSeconds: 86_400,
+              }
+            : {
+                mode: "lifetime",
+                scopeKey: `QualifiedLead:${workspaceId}:lead_1`,
+              },
+        eventName,
+        occurredAt: parsed.occurredAt.toISOString(),
+        authorType: isAutomation ? null : "bot",
+        contactIdentityHash: execution.contactIdentityHash,
+      },
+      rule: {
+        providerRuleId: "provider_rule_1",
+        conversionRuleId: "conversion_rule_1",
+        version: "rule-v1:frozen",
+        triggerType,
+        eventName,
+        mode: "production",
+        active: true,
+        authorScope: isAutomation ? null : "both",
+        triggerPhrases: isAutomation
+          ? []
+          : ["Dados para confirmar o pedido"],
+        defaultValueCents:
+          input.automationEventName === "Purchase" ? 29_990 : null,
+        defaultCurrency:
+          input.automationEventName === "Purchase" ? "BRL" : null,
+        defaultContentName:
+          input.automationEventName === "Purchase" ? "Pedido medio" : null,
+      },
+      catalog: isAutomation
+        ? null
+        : {
+            version: "catalog-v1:frozen",
+            catalog: {
+              id: "catalog_1",
+              name: "Tabela",
+              productName: "Cama elastica",
+              currency: "BRL",
+              active: true,
+              attributes: [
+                {
+                  id: "attribute_1",
+                  position: 1,
+                  key: "tamanho",
+                  label: "Tamanho",
+                },
+                {
+                  id: "attribute_2",
+                  position: 2,
+                  key: "modelo",
+                  label: "Modelo",
+                },
+              ],
+              variants: [],
+            },
+          },
+      conversion: {
+        matchedTriggerPhrase: isAutomation
+          ? null
+          : "Dados para confirmar o pedido",
+        items: isAutomation
+          ? []
+          : [
+              {
+                position: 1,
+                parsedAttributes: [
+                  { key: "tamanho", label: "Tamanho", value: "4,90" },
+                  { key: "modelo", label: "Modelo", value: "Nacional" },
+                ],
+                quantity: 1,
+                catalogVariantId: "variant_1",
+                unitValueCents: 359_700,
+                subtotalValueCents: 359_700,
+                contentName: "Cama elastica 4,90 Nacional",
+                reasonCode: "matched",
+              },
+            ],
+        valueCents:
+          eventName === "Purchase"
+            ? isAutomation
+              ? 29_990
+              : 359_700
+            : null,
+        observedPaymentValueCents: null,
+        currency: eventName === "Purchase" ? "BRL" : null,
+        contentName:
+          eventName === "Purchase"
+            ? isAutomation
+              ? "Pedido medio"
+              : "Cama elastica 4,90 Nacional"
+            : null,
+      },
+      leadResolution: {
+        status: "resolved",
+        reasonCode: "paid_lead_resolved",
+        lead: {
+          id: "lead_1",
+          phoneHash: execution.contactIdentityHash,
+          campaignId: "campaign_1",
+          adSetId: "adset_1",
+          adId: "ad_1",
+          ctwaClid: "ctwa_1",
+        },
+      },
+    };
+
+    execution.providerDecisionWorkspaceId = workspaceId;
+    execution.providerDecisionId = "decision_1";
+    execution.providerDecision = {
+      id: "decision_1",
+      workspaceId,
+      providerRuleId: execution.providerRuleId,
+      sourceDeliveryId: execution.sourceDeliveryId,
+      decisionCode: "eligible",
+      eventName,
+      occurredAt: execution.occurredAt,
+      occurrenceKey: execution.externalExecutionKey,
+      decisionVersion: 1,
+      leadId: "lead_1",
+      decisionJson: decision,
+    };
+    execution.leadId = "lead_1";
+  }
   const duplicateOccurredAt = input.duplicateHoursAgo
     ? new Date(
         execution.occurredAt.getTime() -
@@ -242,7 +397,14 @@ function createHarness(
     providerConversionRuleExecution: {
       findFirst: vi.fn(async () => execution),
       update: executionUpdate,
-      updateMany: vi.fn(async () => ({ count: 1 })),
+      updateMany: vi.fn(async ({ data }: any) => {
+        if (typeof data.status === "string") execution.status = data.status;
+        if (data.reasonCode !== undefined) execution.reasonCode = data.reasonCode;
+        if (data.normalizedResult !== undefined) {
+          execution.normalizedResult = data.normalizedResult;
+        }
+        return { count: 1 };
+      }),
     },
     purchaseReview: {
       updateMany: vi.fn(async () => ({ count: 0 })),
@@ -260,8 +422,26 @@ function createHarness(
     conversionEventLog: {
       findFirst: vi.fn(async () => ({ status: "ready_to_send" })),
     },
-    $transaction: vi.fn(async (operation: any) => operation(transaction)),
+    $transaction: vi.fn(),
   };
+  let transactionTail = Promise.resolve();
+  prisma.$transaction.mockImplementation(async (operation: any) => {
+    if (!input.serializeTransactions) {
+      return operation(transaction);
+    }
+
+    const previous = transactionTail;
+    let release!: () => void;
+    transactionTail = new Promise<void>((resolveTransaction) => {
+      release = resolveTransaction;
+    });
+    await previous;
+    try {
+      return await operation(transaction);
+    } finally {
+      release();
+    }
+  });
   const payloadEncryption = {
     decrypt: vi.fn(() => Buffer.from(JSON.stringify(body), "utf8")),
   };
@@ -339,11 +519,15 @@ function createHarness(
   );
 
   return {
+    catalogs,
     conversionQueue,
     conversions,
     execution,
     executionUpdate,
+    payloadEncryption,
     parsed,
+    prisma,
+    routes,
     service,
     transaction,
   };
@@ -599,5 +783,163 @@ describe("provider conversion production service", () => {
       leadId: "lead_1",
       conversionEventLogId: "conversion_1",
     });
+  });
+
+  it("materializes a canonical purchase from the frozen decision without reparsing mutable input", async () => {
+    const harness = createHarness({ canonicalDecision: true });
+    harness.execution.providerRule.conversionRule.defaultValueCents = 1;
+    harness.payloadEncryption.decrypt.mockImplementation(() => {
+      throw new Error("raw payload must not be read");
+    });
+    harness.catalogs.matchRuleMessage.mockRejectedValue(
+      new Error("mutable catalog must not be read"),
+    );
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "materialized" });
+
+    expect(harness.payloadEncryption.decrypt).not.toHaveBeenCalled();
+    expect(harness.catalogs.matchRuleMessage).not.toHaveBeenCalled();
+    expect(harness.conversions.recordExternalConversion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "Purchase",
+        sourceEventId: "external_message_1",
+        sourceTrigger: "inbound_webhook:umbler:structured_catalog",
+        leadId: "lead_1",
+        valueCents: 359_700,
+        currency: "BRL",
+        sourcePayload: expect.objectContaining({
+          providerConversionDecisionId: "decision_1",
+          providerConversionDecisionVersion: 1,
+          processingMode: "frozen_provider_conversion",
+        }),
+      }),
+      harness.transaction,
+    );
+  });
+
+  it("materializes a canonical qualified lead from frozen attribution", async () => {
+    const harness = createHarness({
+      automationEventName: "QualifiedLead",
+      canonicalDecision: true,
+    });
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "materialized" });
+
+    expect(harness.payloadEncryption.decrypt).not.toHaveBeenCalled();
+    expect(harness.conversions.recordExternalConversion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "QualifiedLead",
+        sourceTrigger: "inbound_webhook:umbler:provider_automation",
+        leadId: "lead_1",
+        adId: "ad_1",
+        ctwaClid: "ctwa_1",
+        valueCents: null,
+        currency: null,
+      }),
+      harness.transaction,
+    );
+  });
+
+  it("does not retry a permanent canonical decision failure", async () => {
+    const harness = createHarness({ canonicalDecision: true });
+    harness.execution.providerDecision.decisionJson = {
+      decisionCode: "eligible",
+    };
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).rejects.toMatchObject({
+      code: "provider_conversion_frozen_decision_mismatch",
+    });
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "unchanged" });
+
+    expect(harness.execution).toMatchObject({
+      status: "failed",
+      reasonCode: "provider_conversion_frozen_decision_mismatch",
+      attemptCount: 1,
+      normalizedResult: {
+        technicalDelivery: {
+          state: "failed_permanent",
+          retryable: false,
+        },
+      },
+    });
+    expect(harness.conversions.recordExternalConversion).not.toHaveBeenCalled();
+  });
+
+  it("retries an unexpected canonical infrastructure failure with the same decision", async () => {
+    const harness = createHarness({ canonicalDecision: true });
+    harness.routes.previewRoute.mockRejectedValueOnce(
+      new Error("temporary routing dependency failure"),
+    );
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).rejects.toMatchObject({
+      code: "provider_conversion_production_unexpected",
+    });
+    expect(harness.execution).toMatchObject({
+      status: "failed",
+      normalizedResult: {
+        technicalDelivery: {
+          state: "failed_retryable",
+          retryable: true,
+        },
+      },
+    });
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "materialized" });
+
+    expect(harness.payloadEncryption.decrypt).not.toHaveBeenCalled();
+    expect(harness.conversions.recordExternalConversion).toHaveBeenCalledOnce();
+    expect(harness.execution.attemptCount).toBe(2);
+  });
+
+  it("creates at most one event when canonical workers run concurrently", async () => {
+    const harness = createHarness({
+      canonicalDecision: true,
+      serializeTransactions: true,
+    });
+
+    await Promise.all([
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ]);
+
+    expect(harness.conversions.recordExternalConversion).toHaveBeenCalledOnce();
+    expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledOnce();
+    expect(harness.execution.status).toBe("materialized");
   });
 });

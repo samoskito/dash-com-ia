@@ -3,7 +3,10 @@ import { Prisma } from "@prisma/client";
 import type { InboundWebhookJobPayload } from "../common/queue/queue.constants";
 import { hashPhoneIdentity } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
-import { ProviderConversionObservationService } from "../conversion-rules/provider-conversion-observation.service";
+import {
+  ProviderConversionObservationService,
+  type ProviderConversionObservationResult,
+} from "../conversion-rules/provider-conversion-observation.service";
 import { InboundWebhookChannelRoutesService } from "./inbound-webhook-channel-routes.service";
 import { InboundWebhookDiagnosticsService } from "./inbound-webhook-diagnostics.service";
 import { InboundWebhookPayloadEncryptionService } from "./inbound-webhook-payload-encryption.service";
@@ -29,6 +32,8 @@ const supportedClassifications = new Set<InboundWebhookEventClassification>([
   "ignored_no_ctwa",
   "ignored_outbound",
   "ignored_private",
+  "ignored_empty_template",
+  "ignored_untracked_lead",
   "unsupported_event",
   "invalid_payload",
 ]);
@@ -73,7 +78,8 @@ export type InboundWebhookObservationErrorCode =
   | "inbound_webhook_context_invalid"
   | "inbound_webhook_delivery_not_claimable"
   | "inbound_webhook_processing_state_changed"
-  | "inbound_webhook_provider_conversion_deferred";
+  | "inbound_webhook_provider_conversion_deferred"
+  | "inbound_webhook_provider_conversion_reevaluation_unavailable";
 
 const observationErrorMessages: Record<
   InboundWebhookObservationErrorCode,
@@ -87,6 +93,8 @@ const observationErrorMessages: Record<
     "Inbound webhook processing state changed",
   inbound_webhook_provider_conversion_deferred:
     "Inbound webhook provider conversion processing was deferred",
+  inbound_webhook_provider_conversion_reevaluation_unavailable:
+    "Inbound webhook provider conversion cannot be reevaluated",
 };
 
 export class InboundWebhookObservationError extends Error {
@@ -288,6 +296,95 @@ export class InboundWebhookObservationService {
       persistedEventCount: persisted.createdEventCount,
       idempotent: false,
     };
+  }
+
+  async reevaluateProviderConversionDecision(input: {
+    workspaceId: string;
+    connectionId: string;
+    deliveryId: string;
+    providerRuleId: string;
+    occurrenceKey: string;
+    requestKey: string;
+  }): Promise<ProviderConversionObservationResult> {
+    this.assertJobPayload(input);
+    if (
+      !this.isIdentifier(input.providerRuleId) ||
+      !this.isIdentifier(input.occurrenceKey) ||
+      !this.isIdentifier(input.requestKey)
+    ) {
+      throw new InboundWebhookObservationError(
+        "inbound_webhook_context_invalid",
+      );
+    }
+
+    const delivery = await this.loadDelivery(input);
+    if (
+      !delivery ||
+      delivery.purpose !== "message_observation" ||
+      delivery.status !== "processed"
+    ) {
+      throw new InboundWebhookObservationError(
+        "inbound_webhook_provider_conversion_reevaluation_unavailable",
+      );
+    }
+
+    try {
+      this.validateLoadedContext(delivery);
+      const parser = this.parserRegistry.resolve({
+        provider: delivery.connection.provider,
+        parserVersion: delivery.connection.parserRelease.version,
+        parserReleaseStatus: delivery.connection.parserRelease.status,
+      });
+      const result = this.parseEncryptedPayload(delivery, parser);
+      this.validateParserResult(result, parser);
+      if (result.error || result.classification === "invalid_payload") {
+        throw new InboundWebhookObservationError(
+          "inbound_webhook_provider_conversion_reevaluation_unavailable",
+        );
+      }
+
+      const reevaluated = await this.providerConversions.reevaluateDelivery({
+        workspaceId: delivery.workspaceId,
+        connectionId: delivery.connectionId,
+        deliveryId: delivery.id,
+        externalDeliveryId: delivery.externalDeliveryId,
+        deliveryReceivedAt: delivery.firstReceivedAt,
+        events: result.events,
+        manualRecovery: true,
+        requestKey: input.requestKey,
+        target: {
+          providerRuleId: input.providerRuleId,
+          occurrenceKey: input.occurrenceKey,
+        },
+      });
+
+      for (const providerConversionExecutionId of
+        reevaluated.eligibleExecutionIds) {
+        try {
+          await this.productionQueue.enqueueProviderConversion({
+            providerConversionExecutionId,
+            workspaceId: delivery.workspaceId,
+          });
+        } catch {
+          this.logger.warn(
+            `Reevaluated provider conversion ${providerConversionExecutionId} remains eligible for queue recovery`,
+          );
+        }
+      }
+
+      return reevaluated;
+    } catch (error) {
+      if (error instanceof InboundWebhookObservationError) {
+        throw error;
+      }
+
+      this.logger.warn(
+        `Provider conversion reevaluation failed for delivery ${delivery.id} (${this.safeExceptionSummary(error)})`,
+      );
+      throw new InboundWebhookObservationError(
+        "inbound_webhook_provider_conversion_reevaluation_unavailable",
+      );
+    }
   }
 
   private assertJobPayload(input: Readonly<InboundWebhookJobPayload>): void {
@@ -827,6 +924,7 @@ export class InboundWebhookObservationService {
         workspaceId: delivery.workspaceId,
         connectionId: delivery.connectionId,
         deliveryId: delivery.id,
+        externalDeliveryId: delivery.externalDeliveryId,
         deliveryReceivedAt: delivery.firstReceivedAt,
         events: result.events,
         manualRecovery: force,
