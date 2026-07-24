@@ -459,7 +459,17 @@ platform-only diagnostics remain in Backoffice.
 
 ### Local implementation status (2026-07-24)
 
-- [x] Migration defaults every existing and new channel to `legacy`.
+- [x] The initial rollout migration preserved every existing channel in
+      `legacy`.
+- [x] A follow-up migration makes `canonical` the database default only for
+      newly created channels and does not update existing rows.
+- [x] Provider channel discovery explicitly creates new channels in
+      `canonical` while metadata updates preserve the persisted mode.
+- [x] New providers must normalize their payloads into the shared canonical
+      decision contract; provider-specific parsing does not create a separate
+      conversion engine.
+- [x] Existing channels remain in their current mode and migrate individually
+      only after an operator decides that the change is useful and validated.
 - [x] Channel modes `legacy`, `shadow` and `canonical` are implemented.
 - [x] Shadow mode persists append-only semantic comparisons while legacy remains authoritative.
 - [x] Shadow comparison failure cannot block the authoritative legacy decision.
@@ -467,7 +477,8 @@ platform-only diagnostics remain in Backoffice.
 - [x] Direct `legacy` to `canonical` activation is blocked.
 - [x] Canonical rollback to `legacy` is available and audited.
 - [x] Shadow tests prove one authoritative decision and one execution path.
-- [x] Full API suite passed: 155 files and 1,171 tests.
+- [x] Full API suite passed after the canonical-default policy: 156 files and
+      1,175 tests.
 - [x] Full web suite passed: 43 files and 261 tests.
 - [x] Full shared suite passed: 4 files and 92 tests, including 17 rollout contracts.
 - [x] Shared, API and web builds and monorepo typecheck passed.

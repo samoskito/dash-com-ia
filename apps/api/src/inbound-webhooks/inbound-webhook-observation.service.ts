@@ -723,6 +723,7 @@ export class InboundWebhookObservationService {
             connectedPhone: event.channel.connectedPhone,
             channelName: event.channel.name,
             status: "discovered",
+            conversionEngineMode: "canonical",
             firstSeenAt: processedAt,
             lastSeenAt: processedAt,
           },

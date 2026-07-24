@@ -382,12 +382,60 @@ describe("inbound webhook channel discovery", () => {
       connectedPhone: "+15550004444",
       channelName: "Priority Support",
       status: "discovered",
+      conversionEngineMode: "canonical",
     });
     expect(
       harness.channels.get("connection_1:organization_1:provider_channel_1")
         ?.lastSeenAt,
     ).toBeInstanceOf(Date);
     expect(harness.events).toHaveLength(3);
+  });
+
+  it("preserves the conversion engine mode of an existing channel", async () => {
+    const harness = createHarness();
+    harness.addDelivery("delivery_1", "connection_1", {
+      eventId: "provider_event_1",
+      messageId: "message_1",
+      organizationId: "organization_1",
+      providerChannelId: "provider_channel_1",
+      connectedPhone: "+15550002222",
+      channelName: "Support",
+    });
+    harness.addDelivery("delivery_2", "connection_1", {
+      eventId: "provider_event_2",
+      messageId: "message_2",
+      organizationId: "organization_1",
+      providerChannelId: "provider_channel_1",
+      connectedPhone: "+15550003333",
+      channelName: "Updated Support",
+    });
+
+    await harness.service.processDelivery({
+      deliveryId: "delivery_1",
+      workspaceId: "workspace_1",
+      connectionId: "connection_1",
+    });
+
+    const channel =
+      harness.channels.get("connection_1:organization_1:provider_channel_1") ??
+      null;
+
+    expect(channel?.conversionEngineMode).toBe("canonical");
+    channel!.conversionEngineMode = "legacy";
+
+    await harness.service.processDelivery({
+      deliveryId: "delivery_2",
+      workspaceId: "workspace_1",
+      connectionId: "connection_1",
+    });
+
+    expect(
+      harness.channels.get("connection_1:organization_1:provider_channel_1"),
+    ).toMatchObject({
+      connectedPhone: "+15550003333",
+      channelName: "Updated Support",
+      conversionEngineMode: "legacy",
+    });
   });
 
   it("isolates the same provider channel identity by connection", async () => {

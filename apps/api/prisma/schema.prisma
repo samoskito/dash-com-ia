@@ -1550,7 +1550,7 @@ model InboundWebhookChannel {
   connectedPhone        String
   channelName           String?
   status                InboundWebhookChannelStatus  @default(discovered)
-  conversionEngineMode  ProviderConversionEngineMode @default(legacy)
+  conversionEngineMode  ProviderConversionEngineMode @default(canonical)
   productionActivatedAt DateTime?
   firstSeenAt           DateTime                     @default(now())
   lastSeenAt            DateTime                     @default(now())
