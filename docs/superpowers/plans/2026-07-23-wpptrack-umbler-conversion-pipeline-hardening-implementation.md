@@ -472,17 +472,43 @@ platform-only diagnostics remain in Backoffice.
 - [x] Full shared suite passed: 4 files and 92 tests, including 17 rollout contracts.
 - [x] Shared, API and web builds and monorepo typecheck passed.
 - [x] Prisma schema validation and `git diff --check` passed.
-- [ ] Production deployment and canary rollout remain pending.
+- [x] Production schema and code deployment verified through Prisma status,
+      API health and a stable API task.
+- [x] BrinkPark was promoted from shadow to the canonical engine as the first
+      production canary.
+- [ ] Canary production evidence remains under active monitoring.
+
+### Deferred UI debt
+
+- [x] Replace the gray native dropdown presentation in the inbound Backoffice
+      workspace and the customer purchase-review filters with the existing dark
+      design-system controls.
+- [x] Make the purchase-review command bar respond to its available content
+      width, preserving a compact layout with the sidebar expanded, collapsed
+      and on mobile without horizontal overflow.
+- [x] Keep the visual patch isolated from decision, replay, materialization and
+      Meta-delivery behavior while the BrinkPark canonical canary remains under
+      active monitoring.
+- [x] Add focused layout contracts and verify the affected controls with
+      responsive browser renders, web typecheck and a production web build.
 
 ### Rollout
 
-1. [ ] Deploy schema and code with the new engine disabled.
-2. [ ] Verify Prisma status and API health.
-3. [ ] Enable shadow mode for one Umbler channel.
+1. [x] Deploy schema and code with the new engine disabled.
+2. [x] Verify Prisma status and API health.
+3. [x] Enable shadow mode for one Umbler channel.
 4. [ ] Review a representative sample of empty, partial and complete messages.
+   - [x] Empty template: canonical `ignored_empty_template`; no operational
+         review or conversion.
+   - [x] Complete catalog purchase: legacy and canonical both `eligible` with
+         `catalog_matched`.
+   - [ ] Partial or unknown catalog combination: canonical must require review
+         for a resolved paid lead and must not create an automatic conversion.
+   - The operator explicitly accepted validating the remaining partial case
+     during the protected BrinkPark production canary.
 5. [ ] Enable observation for that channel.
 6. [ ] Reevaluate controlled retained payloads.
-7. [ ] Enable automatic production for the canary channel.
+7. [x] Enable automatic production for the BrinkPark canary channel.
 8. [ ] Verify Meta events, dedupe, reviews and counters.
 9. [ ] Expand to remaining channels in the first workspace.
 10. [ ] Expand to the second Umbler workspace.
@@ -517,11 +543,11 @@ git diff --check
 
 ## 14. Production Evidence Checklist
 
-- [ ] API task is running without rollback or restart loop.
-- [ ] Prisma reports all migrations applied.
-- [ ] `/health` returns HTTP 200 with the production web origin allowed.
-- [ ] Shadow mismatch count is understood before canary activation.
-- [ ] Empty templates create no operational review.
+- [x] API task is running without rollback or restart loop.
+- [x] Prisma reports all migrations applied.
+- [x] `/health` returns HTTP 200 with the production web origin allowed.
+- [x] Shadow mismatch count is understood before canary activation.
+- [x] Empty templates create no operational review.
 - [ ] Unknown paid leads create no operational review.
 - [ ] Partial known-lead purchases appear once in review.
 - [ ] Complete known-lead purchases create one event.

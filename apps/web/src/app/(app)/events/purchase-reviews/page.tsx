@@ -16,9 +16,7 @@ function param(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function purchaseReviewView(
-  value: string | undefined,
-): PurchaseReviewViewDto {
+function purchaseReviewView(value: string | undefined): PurchaseReviewViewDto {
   return value === "history" || value === "all" ? value : "actionable";
 }
 
@@ -132,19 +130,25 @@ export default async function PurchaseReviewsPage({
           </div>
           <label className="filter-field">
             <span>Inicio</span>
-            <input defaultValue={since} name="since" type="date" />
+            <input
+              className="input-field"
+              defaultValue={since}
+              name="since"
+              type="date"
+            />
           </label>
           <label className="filter-field">
             <span>Fim</span>
-            <input defaultValue={until} name="until" type="date" />
+            <input
+              className="input-field"
+              defaultValue={until}
+              name="until"
+              type="date"
+            />
           </label>
           <label className="filter-field">
             <span>Visualizacao</span>
-            <select
-              className="filter-control"
-              defaultValue={view}
-              name="view"
-            >
+            <select className="filter-control" defaultValue={view} name="view">
               <option value="actionable">Pendencias</option>
               <option value="history">Historico concluido</option>
               <option value="all">Todas</option>

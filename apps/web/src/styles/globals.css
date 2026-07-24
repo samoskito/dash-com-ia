@@ -4274,7 +4274,8 @@ body {
 
 .inline-form select option,
 .filter-bar select option,
-.control-row select option {
+.control-row select option,
+.filter-control option {
   background: var(--graphite-900);
   color: var(--ink);
 }
@@ -5159,14 +5160,45 @@ button.meta-budget-control:focus-visible {
 }
 
 .purchase-review-command-panel {
+  container-name: purchase-review-command;
+  container-type: inline-size;
   padding: 14px 16px;
 }
 
 .purchase-review-filter-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) repeat(5, minmax(125px, 175px)) auto;
+  grid-template-columns:
+    minmax(180px, 1fr)
+    repeat(5, minmax(112px, 175px))
+    minmax(96px, auto);
   align-items: end;
   gap: 12px;
+}
+
+.purchase-review-filter-form > *,
+.purchase-review-filter-form .filter-field {
+  min-width: 0;
+}
+
+.purchase-review-filter-form .input-field,
+.purchase-review-filter-form .filter-control {
+  width: 100%;
+  color-scheme: dark;
+}
+
+.purchase-review-filter-form .button {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.purchase-review-filter-form
+  input[type="date"]::-webkit-calendar-picker-indicator,
+.provider-engine-comparison-filters
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(83%) sepia(8%) saturate(321%) hue-rotate(108deg)
+    brightness(92%);
+  opacity: 0.82;
 }
 
 .purchase-review-filter-title {
@@ -5475,15 +5507,42 @@ button.meta-budget-control:focus-visible {
   color: var(--ink);
 }
 
-@media (max-width: 980px) {
+@container purchase-review-command (max-width: 1080px) {
+  .purchase-review-filter-form {
+    grid-template-columns: minmax(165px, 0.8fr) repeat(3, minmax(0, 1fr));
+  }
+
+  .purchase-review-filter-title {
+    grid-row: 1 / span 2;
+  }
+}
+
+@container purchase-review-command (max-width: 720px) {
   .purchase-review-filter-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .purchase-review-filter-title {
     grid-column: 1 / -1;
+    grid-row: auto;
   }
 
+  .purchase-review-filter-form .button {
+    width: 100%;
+  }
+}
+
+@container purchase-review-command (max-width: 480px) {
+  .purchase-review-filter-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .purchase-review-filter-title {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 980px) {
   .purchase-review-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -5494,7 +5553,6 @@ button.meta-budget-control:focus-visible {
 }
 
 @media (max-width: 680px) {
-  .purchase-review-filter-form,
   .purchase-review-actions {
     grid-template-columns: 1fr;
   }
@@ -11381,8 +11439,10 @@ button.meta-manual-entry[aria-expanded="true"] {
 }
 
 .inbound-scope-form select {
+  width: 100%;
   min-width: 0;
   height: 44px;
+  color-scheme: dark;
 }
 
 .inbound-scope-actions {
@@ -11523,8 +11583,10 @@ button.meta-manual-entry[aria-expanded="true"] {
 
 .provider-engine-mode-form input,
 .provider-engine-mode-form select {
+  width: 100%;
   min-width: 0;
   height: 44px;
+  color-scheme: dark;
 }
 
 .provider-engine-blocker {
@@ -11592,6 +11654,11 @@ button.meta-manual-entry[aria-expanded="true"] {
   min-width: 0;
   height: 40px;
   color-scheme: dark;
+}
+
+.inbound-deliveries-page .filter-control,
+.inbound-deliveries-page .input-field {
+  background-color: var(--graphite-950);
 }
 
 .provider-engine-comparison-filter-actions {

@@ -868,6 +868,7 @@ export default async function InboundWebhookDeliveriesPage({
                 Workspace
               </span>
               <select
+                className="filter-control"
                 name="workspaceId"
                 defaultValue={activeWorkspace?.id ?? ""}
               >
@@ -886,6 +887,7 @@ export default async function InboundWebhookDeliveriesPage({
                 Conexao
               </span>
               <select
+                className="filter-control"
                 name="connectionId"
                 defaultValue={selectedConnection?.id ?? ""}
               >
@@ -904,7 +906,11 @@ export default async function InboundWebhookDeliveriesPage({
                 <Radio aria-hidden="true" size={15} strokeWidth={2} />
                 Canal WhatsApp
               </span>
-              <select name="channelId" defaultValue={selectedChannel?.id ?? ""}>
+              <select
+                className="filter-control"
+                name="channelId"
+                defaultValue={selectedChannel?.id ?? ""}
+              >
                 <option value="">Todos os canais</option>
                 {channelOptions.map(({ workspace, connection, channel }) => (
                   <option key={channel.id} value={channel.id}>
@@ -1071,7 +1077,11 @@ export default async function InboundWebhookDeliveriesPage({
                 />
                 <label>
                   <span>Proximo modo</span>
-                  <select name="mode" defaultValue={rollout.channel.mode}>
+                  <select
+                    className="filter-control"
+                    name="mode"
+                    defaultValue={rollout.channel.mode}
+                  >
                     <option value="legacy">Legado</option>
                     <option value="shadow">Comparacao shadow</option>
                     <option
@@ -1085,6 +1095,7 @@ export default async function InboundWebhookDeliveriesPage({
                 <label>
                   <span>Confirmar nome do canal</span>
                   <input
+                    className="input-field"
                     name="confirmation"
                     placeholder={rollout.channel.displayName}
                     autoComplete="off"
@@ -1136,6 +1147,7 @@ export default async function InboundWebhookDeliveriesPage({
                   <label>
                     <span>Presenca</span>
                     <select
+                      className="filter-control"
                       name="shadowDecision"
                       defaultValue={shadowFilters.decisionPresence}
                     >
@@ -1147,6 +1159,7 @@ export default async function InboundWebhookDeliveriesPage({
                   <label>
                     <span>Decisao</span>
                     <select
+                      className="filter-control"
                       name="shadowCode"
                       defaultValue={shadowFilters.decisionCode ?? ""}
                     >
@@ -1163,6 +1176,7 @@ export default async function InboundWebhookDeliveriesPage({
                   <label>
                     <span>Resultado</span>
                     <select
+                      className="filter-control"
                       name="shadowResult"
                       defaultValue={shadowFilters.comparisonResult}
                     >
@@ -1174,6 +1188,7 @@ export default async function InboundWebhookDeliveriesPage({
                   <label>
                     <span>Evento</span>
                     <select
+                      className="filter-control"
                       name="shadowEvent"
                       defaultValue={shadowFilters.eventName ?? ""}
                     >
@@ -1188,6 +1203,7 @@ export default async function InboundWebhookDeliveriesPage({
                   <label>
                     <span>Inicio</span>
                     <input
+                      className="input-field"
                       type="datetime-local"
                       name="shadowFrom"
                       defaultValue={shadowFilters.createdFrom ?? ""}
@@ -1196,6 +1212,7 @@ export default async function InboundWebhookDeliveriesPage({
                   <label>
                     <span>Fim</span>
                     <input
+                      className="input-field"
                       type="datetime-local"
                       name="shadowUntil"
                       defaultValue={shadowFilters.createdUntil ?? ""}
