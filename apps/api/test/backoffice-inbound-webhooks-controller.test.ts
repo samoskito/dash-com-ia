@@ -85,6 +85,18 @@ const rolloutResult = {
     matches: 19,
     mismatches: 1,
   },
+  filteredCounts: {
+    comparisons: 1,
+    matches: 0,
+    mismatches: 1,
+  },
+  pagination: {
+    offset: 0,
+    limit: 20,
+    total: 1,
+    hasPrevious: false,
+    hasNext: false,
+  },
   mismatchReasons: [
     {
       code: "applicability_mismatch",
@@ -381,7 +393,7 @@ describe("backoffice inbound webhooks controller", () => {
 
     await request(app.getHttpServer())
       .get(
-        "/backoffice/inbound-webhooks/conversion-rollout/channels/channel_1?onlyMismatches=true&limit=20",
+        "/backoffice/inbound-webhooks/conversion-rollout/channels/channel_1?comparisonResult=mismatches&decisionPresence=with_decision&decisionCode=review_required&eventName=Purchase&createdFrom=2026-07-24T10%3A30&createdUntil=2026-07-24T11%3A00&limit=20&offset=40",
       )
       .set("Authorization", "Bearer owner-token")
       .expect(200)
@@ -397,8 +409,15 @@ describe("backoffice inbound webhooks controller", () => {
     expect(service.getProviderConversionRollout).toHaveBeenCalledWith(
       "channel_1",
       {
-        onlyMismatches: true,
+        onlyMismatches: false,
+        comparisonResult: "mismatches",
+        decisionPresence: "with_decision",
+        decisionCode: "review_required",
+        eventName: "Purchase",
+        createdFrom: "2026-07-24T10:30",
+        createdUntil: "2026-07-24T11:00",
         limit: 20,
+        offset: 40,
       },
     );
     await app.close();
@@ -444,9 +463,7 @@ describe("backoffice inbound webhooks controller", () => {
     const { app, service } = await createApp();
 
     await request(app.getHttpServer())
-      .get(
-        "/backoffice/inbound-webhooks/conversion-rollout/channels/channel_1",
-      )
+      .get("/backoffice/inbound-webhooks/conversion-rollout/channels/channel_1")
       .set("Authorization", "Bearer workspace-admin-token")
       .expect(403);
     await request(app.getHttpServer())
@@ -501,9 +518,7 @@ describe("backoffice inbound webhooks controller", () => {
     expect(platformAdminService.assertPlatformOwner).toHaveBeenCalledWith(
       "owner-token",
     );
-    expect(
-      service.reevaluateProviderConversionDecision,
-    ).toHaveBeenCalledWith(
+    expect(service.reevaluateProviderConversionDecision).toHaveBeenCalledWith(
       "decision_1",
       "backoffice:decision_1:request_123456",
       expect.objectContaining({
@@ -529,9 +544,7 @@ describe("backoffice inbound webhooks controller", () => {
       })
       .expect(403);
 
-    expect(
-      service.reevaluateProviderConversionDecision,
-    ).not.toHaveBeenCalled();
+    expect(service.reevaluateProviderConversionDecision).not.toHaveBeenCalled();
     await app.close();
   });
 
@@ -548,9 +561,7 @@ describe("backoffice inbound webhooks controller", () => {
       })
       .expect(400);
 
-    expect(
-      service.reevaluateProviderConversionDecision,
-    ).not.toHaveBeenCalled();
+    expect(service.reevaluateProviderConversionDecision).not.toHaveBeenCalled();
     await app.close();
   });
 

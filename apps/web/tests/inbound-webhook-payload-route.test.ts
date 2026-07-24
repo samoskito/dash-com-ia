@@ -302,6 +302,107 @@ describe("inbound webhook payload routes", () => {
     expect(html).toContain("delivery_page_2");
   });
 
+  it("filters and paginates high-volume shadow decisions by event and minute", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          all: 1_400,
+          ctwaPending: 0,
+          ctwaRouted: 400,
+          failed: 0,
+          noCtwa: 1_000,
+          automationCallbacks: 0,
+          awaitingParser: 0,
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(operationsScope))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          channel: {
+            id: "channel_1",
+            displayName: "Comercial",
+            connectedPhone: "+5511999999999",
+            mode: "shadow",
+          },
+          counts: {
+            comparisons: 1_200,
+            matches: 1_190,
+            mismatches: 10,
+          },
+          filteredCounts: {
+            comparisons: 45,
+            matches: 40,
+            mismatches: 5,
+          },
+          pagination: {
+            offset: 20,
+            limit: 20,
+            total: 45,
+            hasPrevious: true,
+            hasNext: true,
+          },
+          mismatchReasons: [],
+          latestComparisonAt: "2026-07-24T14:00:00.000Z",
+          canActivateCanonical: true,
+          canonicalBlocker: null,
+          comparisons: [
+            {
+              id: "comparison_21",
+              occurrenceKey: "message_21:rule_1",
+              eventName: "Purchase",
+              authoritativeEngine: "legacy",
+              matches: false,
+              mismatchCode: "decision_code_mismatch",
+              legacy: {
+                engineVersion: "legacy-v1",
+                decisionCode: "eligible",
+                reasonCode: "catalog_match",
+              },
+              canonical: {
+                engineVersion: "canonical-v1",
+                decisionCode: "review_required",
+                reasonCode: "catalog_ambiguous",
+              },
+              sourceDeliveryId: "delivery_shadow_21",
+              createdAt: "2026-07-24T13:40:00.000Z",
+            },
+          ],
+        }),
+      );
+
+    const element = await InboundWebhookDeliveriesPage({
+      searchParams: Promise.resolve({
+        workspaceId: "workspace_1",
+        connectionId: "connection_1",
+        channelId: "channel_1",
+        shadowDecision: "with_decision",
+        shadowCode: "review_required",
+        shadowResult: "mismatches",
+        shadowEvent: "Purchase",
+        shadowFrom: "2026-07-24T10:30",
+        shadowUntil: "2026-07-24T11:00",
+        shadowPage: "2",
+      }),
+    });
+    const html = render(element);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/inbound-webhooks/conversion-rollout/channels/channel_1?comparisonResult=mismatches&decisionPresence=with_decision&limit=20&offset=20&eventName=Purchase&decisionCode=review_required&createdFrom=2026-07-24T10%3A30&createdUntil=2026-07-24T11%3A00",
+      expect.anything(),
+    );
+    expect(html).toContain("Historico pesquisavel");
+    expect(html).toContain("45 no filtro");
+    expect(html).toContain("Compras");
+    expect(html).toContain("Requer revisao");
+    expect(html).toContain("Pagina 2 de 3");
+    expect(html).toContain("Anterior");
+    expect(html).toContain("Proxima");
+    expect(html).toContain(
+      'href="/backoffice/inbound-webhooks/delivery_shadow_21/payload"',
+    );
+  });
+
   it("renders escaped raw JSON beside normalized parser events", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       jsonResponse({

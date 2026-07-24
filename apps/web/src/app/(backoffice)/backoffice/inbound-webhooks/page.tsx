@@ -3,9 +3,16 @@ import type {
   BackofficeInboundWebhookDeliverySummaryDto,
   BackofficeInboundWebhookOperationsScopeDto,
   BackofficeProviderConversionRolloutDto,
+  ConversionEventNameDto,
   InboundWebhookDeliveryPurposeDto,
   InboundWebhookDeliveryStatusDto,
   InboundWebhookEventClassificationDto,
+  ProviderConversionDecisionCodeDto,
+} from "@wpptrack/shared";
+import {
+  conversionEventDisplayLabel,
+  conversionEventNameSchema,
+  providerConversionDecisionCodeSchema,
 } from "@wpptrack/shared";
 import {
   AlertTriangle,
@@ -69,6 +76,15 @@ type ProviderConversionRolloutResult = {
   state: "real" | "error";
 };
 
+type ShadowComparisonFilters = {
+  comparisonResult: "all" | "matches" | "mismatches";
+  createdFrom?: string;
+  createdUntil?: string;
+  decisionCode?: ProviderConversionDecisionCodeDto;
+  decisionPresence: "all" | "with_decision" | "without_decision";
+  eventName?: ConversionEventNameDto;
+};
+
 type QuickFilterKey =
   | "all"
   | "automation"
@@ -79,6 +95,7 @@ type QuickFilterKey =
   | "no_ctwa";
 
 const deliveryPageSize = 50;
+const shadowComparisonPageSize = 20;
 
 const deliveryStatuses: Array<{
   label: string;
@@ -165,9 +182,7 @@ function conversionTraceHref(filters: DeliveryFilters): string {
   const params = deliveryScopeParams(filters);
   const query = params.toString();
 
-  return `/backoffice/inbound-webhooks/conversions${
-    query ? `?${query}` : ""
-  }`;
+  return `/backoffice/inbound-webhooks/conversions${query ? `?${query}` : ""}`;
 }
 
 async function getOperationsScope(): Promise<OperationsScopeResult> {
@@ -185,10 +200,35 @@ async function getOperationsScope(): Promise<OperationsScopeResult> {
 
 async function getProviderConversionRollout(
   channelId: string,
+  filters: ShadowComparisonFilters,
+  page: number,
 ): Promise<ProviderConversionRolloutResult> {
   try {
+    const params = new URLSearchParams({
+      comparisonResult: filters.comparisonResult,
+      decisionPresence: filters.decisionPresence,
+      limit: String(shadowComparisonPageSize),
+      offset: String((page - 1) * shadowComparisonPageSize),
+    });
+
+    if (filters.eventName) {
+      params.set("eventName", filters.eventName);
+    }
+
+    if (filters.decisionCode) {
+      params.set("decisionCode", filters.decisionCode);
+    }
+
+    if (filters.createdFrom) {
+      params.set("createdFrom", filters.createdFrom);
+    }
+
+    if (filters.createdUntil) {
+      params.set("createdUntil", filters.createdUntil);
+    }
+
     const data = await serverApiFetch<BackofficeProviderConversionRolloutDto>(
-      `/backoffice/inbound-webhooks/conversion-rollout/channels/${encodeURIComponent(channelId)}?limit=20`,
+      `/backoffice/inbound-webhooks/conversion-rollout/channels/${encodeURIComponent(channelId)}?${params.toString()}`,
     );
 
     return { data, state: "real" };
@@ -290,6 +330,51 @@ function deliveryPageHref(filters: DeliveryFilters, page: number): string {
   return `/backoffice/inbound-webhooks${query ? `?${query}` : ""}`;
 }
 
+function shadowComparisonHref(
+  deliveryFilters: DeliveryFilters,
+  shadowFilters: ShadowComparisonFilters,
+  shadowPage: number,
+  deliveryPage: number,
+): string {
+  const params = deliveryFilterParams(deliveryFilters);
+
+  if (deliveryPage > 1) {
+    params.set("page", String(deliveryPage));
+  }
+
+  if (shadowFilters.comparisonResult !== "all") {
+    params.set("shadowResult", shadowFilters.comparisonResult);
+  }
+
+  if (shadowFilters.decisionPresence !== "all") {
+    params.set("shadowDecision", shadowFilters.decisionPresence);
+  }
+
+  if (shadowFilters.eventName) {
+    params.set("shadowEvent", shadowFilters.eventName);
+  }
+
+  if (shadowFilters.decisionCode) {
+    params.set("shadowCode", shadowFilters.decisionCode);
+  }
+
+  if (shadowFilters.createdFrom) {
+    params.set("shadowFrom", shadowFilters.createdFrom);
+  }
+
+  if (shadowFilters.createdUntil) {
+    params.set("shadowUntil", shadowFilters.createdUntil);
+  }
+
+  if (shadowPage > 1) {
+    params.set("shadowPage", String(shadowPage));
+  }
+
+  const query = params.toString();
+
+  return `/backoffice/inbound-webhooks${query ? `?${query}` : ""}`;
+}
+
 function pageParam(value: string | string[] | undefined): number {
   const parsed = Number(asStringParam(value));
 
@@ -298,6 +383,42 @@ function pageParam(value: string | string[] | undefined): number {
   }
 
   return Math.min(parsed, 2_001);
+}
+
+function shadowComparisonResultParam(
+  value: string | string[] | undefined,
+): ShadowComparisonFilters["comparisonResult"] {
+  const resolved = asStringParam(value);
+
+  return resolved === "matches" || resolved === "mismatches" ? resolved : "all";
+}
+
+function shadowDecisionPresenceParam(
+  value: string | string[] | undefined,
+): ShadowComparisonFilters["decisionPresence"] {
+  const resolved = asStringParam(value);
+
+  return resolved === "with_decision" || resolved === "without_decision"
+    ? resolved
+    : "all";
+}
+
+function shadowEventNameParam(
+  value: string | string[] | undefined,
+): ConversionEventNameDto | undefined {
+  const parsed = conversionEventNameSchema.safeParse(asStringParam(value));
+
+  return parsed.success ? parsed.data : undefined;
+}
+
+function shadowDecisionCodeParam(
+  value: string | string[] | undefined,
+): ProviderConversionDecisionCodeDto | undefined {
+  const parsed = providerConversionDecisionCodeSchema.safeParse(
+    asStringParam(value),
+  );
+
+  return parsed.success ? parsed.data : undefined;
 }
 
 function classificationLabel(
@@ -457,6 +578,23 @@ function shadowMismatchLabel(code: string | null): string {
   }
 }
 
+function shadowDecisionCodeLabel(
+  code: ProviderConversionDecisionCodeDto,
+): string {
+  switch (code) {
+    case "eligible":
+      return "Elegivel";
+    case "review_required":
+      return "Requer revisao";
+    case "ignored_empty_template":
+      return "Template vazio ignorado";
+    case "ignored_untracked_lead":
+      return "Lead fora da base paga";
+    case "duplicate":
+      return "Duplicado";
+  }
+}
+
 export default async function InboundWebhookDeliveriesPage({
   searchParams,
 }: {
@@ -475,7 +613,20 @@ export default async function InboundWebhookDeliveriesPage({
     status: asStringParam(resolvedSearchParams.status),
     classification: asStringParam(resolvedSearchParams.classification),
   };
+  const shadowFilters: ShadowComparisonFilters = {
+    comparisonResult: shadowComparisonResultParam(
+      resolvedSearchParams.shadowResult,
+    ),
+    decisionPresence: shadowDecisionPresenceParam(
+      resolvedSearchParams.shadowDecision,
+    ),
+    decisionCode: shadowDecisionCodeParam(resolvedSearchParams.shadowCode),
+    eventName: shadowEventNameParam(resolvedSearchParams.shadowEvent),
+    createdFrom: asStringParam(resolvedSearchParams.shadowFrom),
+    createdUntil: asStringParam(resolvedSearchParams.shadowUntil),
+  };
   const page = pageParam(resolvedSearchParams.page);
+  const shadowPage = pageParam(resolvedSearchParams.shadowPage);
   const [result, summaryResult, scopeResult] = await Promise.all([
     getDeliveries(filters, page),
     getDeliverySummary(filters),
@@ -522,7 +673,11 @@ export default async function InboundWebhookDeliveriesPage({
     ({ channel }) => channel.id === filters.channelId,
   )?.channel;
   const rolloutResult = selectedChannel
-    ? await getProviderConversionRollout(selectedChannel.id)
+    ? await getProviderConversionRollout(
+        selectedChannel.id,
+        shadowFilters,
+        shadowPage,
+      )
     : null;
   const rollout = rolloutResult?.data ?? null;
   const quickFilter = activeQuickFilter(filters);
@@ -607,6 +762,24 @@ export default async function InboundWebhookDeliveriesPage({
                 : quickFilter === "failed"
                   ? totals?.failed
                   : undefined;
+  const shadowScopeParams = deliveryFilterParams(filters);
+  if (page > 1) {
+    shadowScopeParams.set("page", String(page));
+  }
+  const shadowPreservedParams = Array.from(shadowScopeParams.entries());
+  const shadowTotalPages = rollout
+    ? Math.max(
+        1,
+        Math.ceil(rollout.pagination.total / rollout.pagination.limit),
+      )
+    : 1;
+  const shadowCurrentPage = rollout
+    ? Math.floor(rollout.pagination.offset / rollout.pagination.limit) + 1
+    : shadowPage;
+  const emptyShadowFilters: ShadowComparisonFilters = {
+    comparisonResult: "all",
+    decisionPresence: "all",
+  };
 
   return (
     <section className="page-stack standalone-page inbound-deliveries-page">
@@ -929,22 +1102,134 @@ export default async function InboundWebhookDeliveriesPage({
                 ) : null}
               </BackofficeActionForm>
 
-              {rollout.comparisons.length > 0 ? (
-                <div className="provider-engine-comparison-table">
-                  <div className="section-heading-row compact">
-                    <div>
-                      <span className="eyebrow">Amostra recente</span>
-                      <h3>Decisoes comparadas</h3>
-                    </div>
+              <div className="provider-engine-comparison-table">
+                <div className="section-heading-row compact">
+                  <div>
+                    <span className="eyebrow">Historico pesquisavel</span>
+                    <h3>Decisoes comparadas</h3>
+                  </div>
+                  <div className="provider-engine-filter-counts">
                     <span className="event-chip neutral">
-                      {rollout.comparisons.length} exibida(s)
+                      {rollout.filteredCounts.comparisons} no filtro
+                    </span>
+                    <span className="event-chip good">
+                      {rollout.filteredCounts.matches} coincidem
+                    </span>
+                    <span className="event-chip warn">
+                      {rollout.filteredCounts.mismatches} divergem
                     </span>
                   </div>
+                </div>
+
+                <form
+                  className="provider-engine-comparison-filters"
+                  method="get"
+                >
+                  {shadowPreservedParams.map(([name, value]) => (
+                    <input
+                      key={`${name}:${value}`}
+                      type="hidden"
+                      name={name}
+                      value={value}
+                    />
+                  ))}
+                  <label>
+                    <span>Presenca</span>
+                    <select
+                      name="shadowDecision"
+                      defaultValue={shadowFilters.decisionPresence}
+                    >
+                      <option value="all">Todas</option>
+                      <option value="with_decision">Com decisao</option>
+                      <option value="without_decision">Sem decisao</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Decisao</span>
+                    <select
+                      name="shadowCode"
+                      defaultValue={shadowFilters.decisionCode ?? ""}
+                    >
+                      <option value="">Todas as decisoes</option>
+                      {providerConversionDecisionCodeSchema.options.map(
+                        (decisionCode) => (
+                          <option key={decisionCode} value={decisionCode}>
+                            {shadowDecisionCodeLabel(decisionCode)}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Resultado</span>
+                    <select
+                      name="shadowResult"
+                      defaultValue={shadowFilters.comparisonResult}
+                    >
+                      <option value="all">Todos</option>
+                      <option value="matches">Coincidem</option>
+                      <option value="mismatches">Divergem</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Evento</span>
+                    <select
+                      name="shadowEvent"
+                      defaultValue={shadowFilters.eventName ?? ""}
+                    >
+                      <option value="">Todos os eventos</option>
+                      {conversionEventNameSchema.options.map((eventName) => (
+                        <option key={eventName} value={eventName}>
+                          {conversionEventDisplayLabel(eventName)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Inicio</span>
+                    <input
+                      type="datetime-local"
+                      name="shadowFrom"
+                      defaultValue={shadowFilters.createdFrom ?? ""}
+                    />
+                  </label>
+                  <label>
+                    <span>Fim</span>
+                    <input
+                      type="datetime-local"
+                      name="shadowUntil"
+                      defaultValue={shadowFilters.createdUntil ?? ""}
+                    />
+                  </label>
+                  <div className="provider-engine-comparison-filter-actions">
+                    <button className="button compact-button" type="submit">
+                      <SlidersHorizontal
+                        aria-hidden="true"
+                        size={16}
+                        strokeWidth={2}
+                      />
+                      Aplicar filtros
+                    </button>
+                    <a
+                      className="button ghost compact-button"
+                      href={shadowComparisonHref(
+                        filters,
+                        emptyShadowFilters,
+                        1,
+                        page,
+                      )}
+                    >
+                      Limpar
+                    </a>
+                  </div>
+                </form>
+
+                {rollout.comparisons.length > 0 ? (
                   <div className="table-shell">
                     <table>
                       <thead>
                         <tr>
-                          <th>Horario</th>
+                          <th>Horario / evento</th>
                           <th>Resultado</th>
                           <th>Legado</th>
                           <th>Canonico</th>
@@ -954,7 +1239,16 @@ export default async function InboundWebhookDeliveriesPage({
                       <tbody>
                         {rollout.comparisons.map((comparison) => (
                           <tr key={comparison.id}>
-                            <td>{formatDateTime(comparison.createdAt)}</td>
+                            <td>
+                              <strong>
+                                {formatDateTime(comparison.createdAt)}
+                              </strong>
+                              <small>
+                                {conversionEventDisplayLabel(
+                                  comparison.eventName,
+                                )}
+                              </small>
+                            </td>
                             <td>
                               <span
                                 className={`event-chip ${
@@ -974,7 +1268,8 @@ export default async function InboundWebhookDeliveriesPage({
                                   "Sem decisao"}
                               </strong>
                               <small>
-                                {comparison.legacy.reasonCode ?? "Nao aplicavel"}
+                                {comparison.legacy.reasonCode ??
+                                  "Nao aplicavel"}
                               </small>
                             </td>
                             <td>
@@ -1005,8 +1300,65 @@ export default async function InboundWebhookDeliveriesPage({
                       </tbody>
                     </table>
                   </div>
-                </div>
-              ) : null}
+                ) : (
+                  <div className="provider-engine-comparison-empty">
+                    <Inbox aria-hidden="true" size={20} strokeWidth={2} />
+                    <span>
+                      <strong>Nenhuma comparacao neste filtro</strong>
+                      <small>
+                        Ajuste o evento, a decisao ou o intervalo de horario.
+                      </small>
+                    </span>
+                  </div>
+                )}
+
+                <nav
+                  className="provider-engine-comparison-pagination"
+                  aria-label="Paginacao das decisoes comparadas"
+                >
+                  <span>
+                    Pagina {shadowCurrentPage} de {shadowTotalPages}
+                  </span>
+                  <div>
+                    {rollout.pagination.hasPrevious ? (
+                      <a
+                        className="button ghost compact-button"
+                        href={shadowComparisonHref(
+                          filters,
+                          shadowFilters,
+                          Math.max(1, shadowCurrentPage - 1),
+                          page,
+                        )}
+                      >
+                        <ChevronLeft
+                          aria-hidden="true"
+                          size={16}
+                          strokeWidth={2}
+                        />
+                        Anterior
+                      </a>
+                    ) : null}
+                    {rollout.pagination.hasNext ? (
+                      <a
+                        className="button ghost compact-button"
+                        href={shadowComparisonHref(
+                          filters,
+                          shadowFilters,
+                          shadowCurrentPage + 1,
+                          page,
+                        )}
+                      >
+                        Proxima
+                        <ChevronRight
+                          aria-hidden="true"
+                          size={16}
+                          strokeWidth={2}
+                        />
+                      </a>
+                    ) : null}
+                  </div>
+                </nav>
+              </div>
             </>
           )}
         </section>

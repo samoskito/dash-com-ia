@@ -38,8 +38,7 @@ import { InboundWebhookQueueService } from "./inbound-webhook-queue.service";
 const payloadReadAction = "inbound_webhook.payload.read";
 const conversionRecoveryAction =
   "inbound_webhook.provider_conversions.reprocess";
-const conversionReevaluationAction =
-  "provider_conversion.decision.reevaluate";
+const conversionReevaluationAction = "provider_conversion.decision.reevaluate";
 const conversionEngineModeAction =
   "provider_conversion.channel_engine_mode.change";
 const payloadTargetType = "inbound_webhook_delivery";
@@ -241,9 +240,7 @@ export class BackofficeInboundWebhooksService {
             occurrenceKey: decision.occurrenceKey,
             requestKey,
           });
-        executionIds = reevaluated.executionId
-          ? [reevaluated.executionId]
-          : [];
+        executionIds = reevaluated.executionId ? [reevaluated.executionId] : [];
         eligibleExecutionIds = reevaluated.eligibleExecutionId
           ? [reevaluated.eligibleExecutionId]
           : [];
@@ -492,12 +489,70 @@ export class BackofficeInboundWebhooksService {
       workspaceId: channel.workspaceId,
       channelId: channel.id,
     };
+    const comparisonResult = query.onlyMismatches
+      ? "mismatches"
+      : query.comparisonResult;
+    const createdAt =
+      query.createdFrom || query.createdUntil
+        ? dateTimeRangeInTimezone(
+            query.createdFrom,
+            query.createdUntil,
+            backofficeTimezone,
+          )
+        : null;
+    const filteredComparisonScope: Prisma.ProviderConversionShadowComparisonWhereInput =
+      {
+        ...comparisonScope,
+        ...(comparisonResult === "matches"
+          ? { matches: true }
+          : comparisonResult === "mismatches"
+            ? { matches: false }
+            : {}),
+        ...(query.decisionPresence === "with_decision"
+          ? {
+              OR: [
+                { legacyDecisionCode: { not: null } },
+                { canonicalDecisionCode: { not: null } },
+              ],
+            }
+          : query.decisionPresence === "without_decision"
+            ? {
+                legacyDecisionCode: null,
+                canonicalDecisionCode: null,
+              }
+            : {}),
+        ...(query.decisionCode
+          ? {
+              AND: [
+                {
+                  OR: [
+                    { legacyDecisionCode: query.decisionCode },
+                    { canonicalDecisionCode: query.decisionCode },
+                  ],
+                },
+              ],
+            }
+          : {}),
+        ...(query.eventName
+          ? {
+              providerRule: {
+                conversionRule: {
+                  eventName: query.eventName,
+                },
+              },
+            }
+          : {}),
+        ...(createdAt ? { createdAt } : {}),
+      };
     const [
       comparisonCount,
       matchCount,
       mismatchCount,
       mismatchGroups,
       latest,
+      filteredComparisonCount,
+      filteredMatchCount,
+      filteredMismatchCount,
       comparisons,
     ] = await Promise.all([
       this.prisma.providerConversionShadowComparison.count({
@@ -520,11 +575,17 @@ export class BackofficeInboundWebhooksService {
         select: { createdAt: true },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       }),
+      this.prisma.providerConversionShadowComparison.count({
+        where: filteredComparisonScope,
+      }),
+      this.prisma.providerConversionShadowComparison.count({
+        where: { AND: [filteredComparisonScope, { matches: true }] },
+      }),
+      this.prisma.providerConversionShadowComparison.count({
+        where: { AND: [filteredComparisonScope, { matches: false }] },
+      }),
       this.prisma.providerConversionShadowComparison.findMany({
-        where: {
-          ...comparisonScope,
-          ...(query.onlyMismatches ? { matches: false } : {}),
-        },
+        where: filteredComparisonScope,
         select: {
           id: true,
           occurrenceKey: true,
@@ -539,9 +600,19 @@ export class BackofficeInboundWebhooksService {
           canonicalReasonCode: true,
           sourceDeliveryId: true,
           createdAt: true,
+          providerRule: {
+            select: {
+              conversionRule: {
+                select: {
+                  eventName: true,
+                },
+              },
+            },
+          },
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: query.limit,
+        skip: query.offset,
       }),
     ]);
     const canonicalBlocker =
@@ -565,6 +636,18 @@ export class BackofficeInboundWebhooksService {
         matches: matchCount,
         mismatches: mismatchCount,
       },
+      filteredCounts: {
+        comparisons: filteredComparisonCount,
+        matches: filteredMatchCount,
+        mismatches: filteredMismatchCount,
+      },
+      pagination: {
+        offset: query.offset,
+        limit: query.limit,
+        total: filteredComparisonCount,
+        hasPrevious: query.offset > 0,
+        hasNext: query.offset + comparisons.length < filteredComparisonCount,
+      },
       mismatchReasons: mismatchGroups
         .filter(
           (
@@ -583,6 +666,7 @@ export class BackofficeInboundWebhooksService {
       comparisons: comparisons.map((comparison) => ({
         id: comparison.id,
         occurrenceKey: comparison.occurrenceKey,
+        eventName: comparison.providerRule.conversionRule.eventName,
         authoritativeEngine: comparison.authoritativeEngine,
         matches: comparison.matches,
         mismatchCode: comparison.mismatchCode,
@@ -630,7 +714,10 @@ export class BackofficeInboundWebhooksService {
     if (input.mode === channel.conversionEngineMode) {
       return this.getProviderConversionRollout(channel.id, {
         onlyMismatches: false,
+        comparisonResult: "all",
+        decisionPresence: "all",
         limit: 30,
+        offset: 0,
       });
     }
 
@@ -699,7 +786,10 @@ export class BackofficeInboundWebhooksService {
 
     return this.getProviderConversionRollout(channel.id, {
       onlyMismatches: false,
+      comparisonResult: "all",
+      decisionPresence: "all",
       limit: 30,
+      offset: 0,
     });
   }
 

@@ -475,13 +475,36 @@ export const providerConversionEngineModeSchema = z.enum([
   "canonical",
 ]);
 
-export const backofficeProviderConversionRolloutQuerySchema = z.object({
-  onlyMismatches: z
-    .enum(["true", "false"])
-    .transform((value) => value === "true")
-    .default("false"),
-  limit: z.coerce.number().int().min(1).max(100).default(30),
-});
+export const backofficeProviderConversionRolloutQuerySchema = z
+  .object({
+    onlyMismatches: z
+      .enum(["true", "false"])
+      .transform((value) => value === "true")
+      .default("false"),
+    comparisonResult: z.enum(["all", "matches", "mismatches"]).default("all"),
+    decisionPresence: z
+      .enum(["all", "with_decision", "without_decision"])
+      .default("all"),
+    decisionCode: providerConversionDecisionCodeSchema.optional(),
+    eventName: conversionEventNameSchema.optional(),
+    createdFrom: backofficeInboundWebhookReceivedAtSchema.optional(),
+    createdUntil: backofficeInboundWebhookReceivedAtSchema.optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(30),
+    offset: z.coerce.number().int().min(0).max(100_000).default(0),
+  })
+  .superRefine((input, context) => {
+    if (
+      input.createdFrom &&
+      input.createdUntil &&
+      input.createdFrom > input.createdUntil
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["createdUntil"],
+        message: "O fim do periodo deve ser igual ou posterior ao inicio",
+      });
+    }
+  });
 
 export const backofficeProviderConversionRolloutModeInputSchema = z.object({
   mode: providerConversionEngineModeSchema,
@@ -493,6 +516,7 @@ export const backofficeProviderConversionRolloutModeInputSchema = z.object({
 export const backofficeProviderConversionRolloutComparisonSchema = z.object({
   id: idSchema,
   occurrenceKey: z.string().trim().min(1).max(500),
+  eventName: conversionEventNameSchema,
   authoritativeEngine: providerConversionEngineModeSchema,
   matches: z.boolean(),
   mismatchCode: z.string().trim().min(1).max(160).nullable(),
@@ -521,6 +545,18 @@ export const backofficeProviderConversionRolloutSchema = z.object({
     comparisons: z.number().int().nonnegative(),
     matches: z.number().int().nonnegative(),
     mismatches: z.number().int().nonnegative(),
+  }),
+  filteredCounts: z.object({
+    comparisons: z.number().int().nonnegative(),
+    matches: z.number().int().nonnegative(),
+    mismatches: z.number().int().nonnegative(),
+  }),
+  pagination: z.object({
+    offset: z.number().int().nonnegative(),
+    limit: z.number().int().positive(),
+    total: z.number().int().nonnegative(),
+    hasPrevious: z.boolean(),
+    hasNext: z.boolean(),
   }),
   mismatchReasons: z.array(
     z.object({

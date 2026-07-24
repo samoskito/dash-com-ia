@@ -71,8 +71,39 @@ describe("inbound webhook contracts", () => {
   it("accepts protected provider-conversion rollout controls", () => {
     expect(backofficeProviderConversionRolloutQuerySchema.parse({})).toEqual({
       onlyMismatches: false,
+      comparisonResult: "all",
+      decisionPresence: "all",
       limit: 30,
+      offset: 0,
     });
+    expect(
+      backofficeProviderConversionRolloutQuerySchema.parse({
+        comparisonResult: "mismatches",
+        decisionPresence: "with_decision",
+        decisionCode: "review_required",
+        eventName: "Purchase",
+        createdFrom: "2026-07-24T10:30",
+        createdUntil: "2026-07-24T11:00",
+        limit: "20",
+        offset: "40",
+      }),
+    ).toEqual({
+      onlyMismatches: false,
+      comparisonResult: "mismatches",
+      decisionPresence: "with_decision",
+      decisionCode: "review_required",
+      eventName: "Purchase",
+      createdFrom: "2026-07-24T10:30",
+      createdUntil: "2026-07-24T11:00",
+      limit: 20,
+      offset: 40,
+    });
+    expect(() =>
+      backofficeProviderConversionRolloutQuerySchema.parse({
+        createdFrom: "2026-07-24T11:00",
+        createdUntil: "2026-07-24T10:30",
+      }),
+    ).toThrow();
     expect(
       backofficeProviderConversionRolloutModeInputSchema.parse({
         mode: "canonical",
@@ -107,6 +138,18 @@ describe("inbound webhook contracts", () => {
         matches: 9,
         mismatches: 1,
       },
+      filteredCounts: {
+        comparisons: 1,
+        matches: 0,
+        mismatches: 1,
+      },
+      pagination: {
+        offset: 0,
+        limit: 20,
+        total: 1,
+        hasPrevious: false,
+        hasNext: false,
+      },
       mismatchReasons: [
         {
           code: "applicability_mismatch",
@@ -120,6 +163,7 @@ describe("inbound webhook contracts", () => {
         {
           id: "comparison_1",
           occurrenceKey: "occurrence_1",
+          eventName: "Purchase",
           authoritativeEngine: "legacy",
           matches: false,
           mismatchCode: "applicability_mismatch",
