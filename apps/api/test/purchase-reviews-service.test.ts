@@ -15,15 +15,12 @@ function createService() {
   return {
     purchaseReview,
     canonicalApproval,
-    service: new PurchaseReviewsService(
-      prisma,
-      canonicalApproval as never,
-    ),
+    service: new PurchaseReviewsService(prisma, canonicalApproval as never),
   };
 }
 
 describe("purchase reviews service", () => {
-  it("paginates only actionable reviews in the default operational queue", async () => {
+  it("keeps corrected and failed reviews in the operational queue", async () => {
     const { purchaseReview, service } = createService();
 
     await service.list("workspace_1", {
@@ -49,7 +46,7 @@ describe("purchase reviews service", () => {
             },
           ],
           status: {
-            in: ["review_required"],
+            in: ["review_required", "recognized", "failed"],
           },
         }),
       }),
@@ -112,7 +109,7 @@ describe("purchase reviews service", () => {
     );
   });
 
-  it("keeps technical failures out of the actionable counter", async () => {
+  it("counts technical failures as recoverable operational work", async () => {
     const { purchaseReview, service } = createService();
 
     await service.list("workspace_1", {
@@ -125,7 +122,9 @@ describe("purchase reviews service", () => {
     expect(purchaseReview.count).toHaveBeenNthCalledWith(2, {
       where: expect.objectContaining({
         workspaceId: "workspace_1",
-        status: { in: ["review_required"] },
+        status: {
+          in: ["review_required", "recognized", "failed"],
+        },
       }),
     });
   });

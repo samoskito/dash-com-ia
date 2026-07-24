@@ -75,6 +75,55 @@ const averageReview: PurchaseReviewDto = {
   updatedAt: "2026-07-22T13:00:01.000Z",
 };
 
+const catalogRule: ProviderConversionRuleDto = {
+  ...averageRule,
+  id: "provider_rule_catalog",
+  conversionRule: {
+    ...averageRule.conversionRule,
+    id: "conversion_rule_catalog",
+    name: "Compra por catalogo",
+    triggerType: "structured_catalog",
+    triggerValue: "structured_catalog",
+    defaultValueCents: null,
+    defaultContentName: "Cama elastica",
+  },
+  catalog: {
+    id: "catalog_1",
+    name: "Camas elasticas",
+    productName: "Cama elastica",
+    currency: "BRL",
+    active: true,
+    attributes: [
+      { id: "attribute_size", position: 1, key: "tamanho", label: "Tamanho" },
+      { id: "attribute_model", position: 2, key: "modelo", label: "Modelo" },
+    ],
+    variants: [
+      {
+        id: "variant_1",
+        normalizedKey: "3,05\u001feuropa",
+        attributeValues: ["3,05", "Europa"],
+        aliases: [[], []],
+        valueCents: 179_700,
+        contentName: null,
+        active: true,
+      },
+    ],
+  },
+};
+
+const catalogReview: PurchaseReviewDto = {
+  ...averageReview,
+  id: "review_catalog",
+  providerRuleId: catalogRule.id,
+  ruleName: catalogRule.conversionRule.name,
+  status: "review_required",
+  classificationCode: "review_required",
+  reasonCode: "catalog_combination_not_found",
+  items: [],
+  calculatedValueCents: null,
+  effectiveValueCents: null,
+};
+
 function renderPanel(canManage: boolean, review = averageReview): string {
   return renderToStaticMarkup(
     createElement(PurchaseReviewPanel, {
@@ -136,5 +185,19 @@ describe("purchase review panel", () => {
     expect(html).toContain("Conversao reconhecida");
     expect(html).toContain("Evento Meta ainda nao criado");
     expect(html).not.toContain("Inspecionar");
+  });
+
+  it("offers one explicit action to resolve and send a catalog review", () => {
+    const html = renderToStaticMarkup(
+      createElement(PurchaseReviewPanel, {
+        canManage: true,
+        providerRules: [catalogRule],
+        reviews: [catalogReview],
+      }),
+    );
+
+    expect(html).toContain("Selecionar variante");
+    expect(html).toContain("Aprovar e enviar");
+    expect(html).not.toContain("Salvar revisao");
   });
 });

@@ -99,6 +99,38 @@ export class PurchaseReviewsController {
     return this.reviews.get(context.workspaceId, reviewId);
   }
 
+  @Post(":id/resolve-and-approve")
+  async resolveAndApprove(
+    @AuthToken() refreshToken: string,
+    @Param("id") reviewId: string,
+    @Body() body: unknown,
+  ) {
+    const context = await this.requireIntegrationManager(refreshToken);
+    const parsed = purchaseReviewItemsUpdateInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten());
+    }
+
+    await this.reviews.updateItems(
+      context.workspaceId,
+      reviewId,
+      parsed.data,
+      context.userId,
+    );
+    const approval = await this.reviews.prepareApproval(
+      context.workspaceId,
+      reviewId,
+      { reason: parsed.data.reason },
+      context.userId,
+    );
+    await this.production.processExecution({
+      workspaceId: context.workspaceId,
+      providerConversionExecutionId: approval.providerConversionExecutionId,
+    });
+
+    return this.reviews.get(context.workspaceId, reviewId);
+  }
+
   @Post(":id/reject")
   async reject(
     @AuthToken() refreshToken: string,

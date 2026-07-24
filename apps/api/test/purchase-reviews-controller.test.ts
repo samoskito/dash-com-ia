@@ -135,6 +135,42 @@ describe("purchase reviews controller", () => {
     await app.close();
   });
 
+  it("saves catalog items and materializes the purchase in one action", async () => {
+    const { app, production, reviews } = await createApp("admin");
+    const input = {
+      items: [{ catalogVariantId: "variant_1", quantity: 1 }],
+      reason: "Compra conferida",
+    };
+
+    await request(app.getHttpServer())
+      .post("/purchase-reviews/review_1/resolve-and-approve")
+      .set("Authorization", "Bearer refresh-token")
+      .send(input)
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ id: "review_1", status: "approved" });
+      });
+
+    expect(reviews.updateItems).toHaveBeenCalledWith(
+      "workspace_1",
+      "review_1",
+      input,
+      "user_1",
+    );
+    expect(reviews.prepareApproval).toHaveBeenCalledWith(
+      "workspace_1",
+      "review_1",
+      { reason: input.reason },
+      "user_1",
+    );
+    expect(production.processExecution).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      providerConversionExecutionId: "execution_1",
+    });
+    expect(reviews.get).toHaveBeenCalledWith("workspace_1", "review_1");
+    await app.close();
+  });
+
   it("rejects an approval without an auditable reason", async () => {
     const { app, production, reviews } = await createApp("owner");
 

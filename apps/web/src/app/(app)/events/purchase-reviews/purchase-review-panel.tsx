@@ -82,10 +82,10 @@ function ReviewRow({
     !materialized &&
     !["duplicate", "rejected", "approved"].includes(review.status);
   const canApprove =
+    !catalogReview &&
     !materialized &&
     !["duplicate", "rejected", "approved"].includes(review.status) &&
-    review.effectiveValueCents !== null &&
-    (!catalogReview || review.items.length > 0);
+    review.effectiveValueCents !== null;
 
   async function perform(
     action: string,
@@ -108,7 +108,7 @@ function ReviewRow({
     }
   }
 
-  function saveItems() {
+  function validItems(): boolean {
     if (
       items.length === 0 ||
       items.some((item) => !item.catalogVariantId || item.quantity < 1)
@@ -116,8 +116,13 @@ function ReviewRow({
       setFeedback(
         "Selecione uma variante e informe a quantidade de cada item.",
       );
-      return;
+      return false;
     }
+    return true;
+  }
+
+  function saveCorrection() {
+    if (!validItems()) return;
     void perform(
       "save",
       `/purchase-reviews/${encodeURIComponent(review.id)}/items`,
@@ -129,6 +134,30 @@ function ReviewRow({
         ? "Valor corrigido no painel sem reenviar para a Meta."
         : "Itens revisados. A compra ja pode ser aprovada.",
     );
+  }
+
+  async function resolveAndApproveCatalog() {
+    if (!validItems()) return;
+
+    setBusy("resolve-and-approve");
+    setFeedback(null);
+    try {
+      await apiFetch(
+        `/purchase-reviews/${encodeURIComponent(review.id)}/resolve-and-approve`,
+        {
+          method: "POST",
+          body: JSON.stringify({ items, reason }),
+        },
+      );
+      setFeedback("Compra aprovada e encaminhada para a Meta.");
+      router.refresh();
+    } catch {
+      setFeedback(
+        "A compra permanece pendente. Atualize a pagina e tente novamente.",
+      );
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
@@ -153,9 +182,7 @@ function ReviewRow({
           </div>
         </div>
         <div className="purchase-review-state">
-          <span
-            className={`status-chip ${purchaseReviewTone(review.status)}`}
-          >
+          <span className={`status-chip ${purchaseReviewTone(review.status)}`}>
             {purchaseReviewStatusLabel(review.status)}
           </span>
           <time dateTime={review.occurredAt}>
@@ -349,13 +376,19 @@ function ReviewRow({
           <div>
             {canEditCatalog ? (
               <button
-                className="button ghost"
+                className={sent ? "button ghost" : "button primary"}
                 disabled={busy !== null}
-                onClick={saveItems}
+                onClick={
+                  sent ? saveCorrection : () => void resolveAndApproveCatalog()
+                }
                 type="button"
               >
-                <Save aria-hidden="true" size={15} />
-                {sent ? "Corrigir painel" : "Salvar revisao"}
+                {sent ? (
+                  <Save aria-hidden="true" size={15} />
+                ) : (
+                  <Check aria-hidden="true" size={15} />
+                )}
+                {sent ? "Corrigir painel" : "Aprovar e enviar"}
               </button>
             ) : null}
             {canReject ? (

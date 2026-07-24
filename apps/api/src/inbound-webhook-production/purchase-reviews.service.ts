@@ -29,7 +29,7 @@ const visibleReviewReasonWhere = {
   ],
 } satisfies Prisma.PurchaseReviewWhereInput;
 
-const actionableStatuses = ["review_required"] as const;
+const actionableStatuses = ["review_required", "recognized", "failed"] as const;
 
 const historyStatuses = [
   "approved",
