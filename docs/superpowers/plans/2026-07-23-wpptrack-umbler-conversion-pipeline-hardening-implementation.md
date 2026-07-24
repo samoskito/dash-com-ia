@@ -476,7 +476,11 @@ platform-only diagnostics remain in Backoffice.
       API health and a stable API task.
 - [x] BrinkPark was promoted from shadow to the canonical engine as the first
       production canary.
-- [ ] Canary production evidence remains under active monitoring.
+- [x] Canary production evidence captured on 2026-07-24: four real BrinkPark
+      purchases were recognized automatically by the canonical engine in
+      production, without replay or manual approval.
+- [ ] Extended canary monitoring remains active for deduplication, repurchase
+      and retry scenarios.
 
 ### Deferred UI debt
 
@@ -510,6 +514,10 @@ platform-only diagnostics remain in Backoffice.
 6. [ ] Reevaluate controlled retained payloads.
 7. [x] Enable automatic production for the BrinkPark canary channel.
 8. [ ] Verify Meta events, dedupe, reviews and counters.
+   - [x] Four real BrinkPark purchases completed the automatic canonical path
+         in production on 2026-07-24.
+   - [ ] Dedupe, repurchase, retry and aggregate counters still require
+         scenario-specific evidence.
 9. [ ] Expand to remaining channels in the first workspace.
 10. [ ] Expand to the second Umbler workspace.
 
