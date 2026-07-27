@@ -97,12 +97,14 @@ function createHarness() {
       providerInstanceId: "provider_1",
       connectionStatus: "qr_required",
       qrCode: "qr-code",
+      connectedPhone: null,
       message: "Leia o QR code",
     }),
     getInstanceStatus: vi.fn().mockResolvedValue({
       providerInstanceId: "provider_1",
       connectionStatus: "connected",
       qrCode: null,
+      connectedPhone: "5549998347468",
       message: "Conectado",
     }),
   };
@@ -180,6 +182,7 @@ describe("PackageUazapiProvisioningService", () => {
       providerInstanceId: "provider_1",
       connectionStatus: "connected",
       qrCode: null,
+      connectedPhone: "5549998347468",
       message: "Conectado",
     });
 
@@ -193,7 +196,7 @@ describe("PackageUazapiProvisioningService", () => {
     expect(harness.seats.activateSeat).toHaveBeenCalledWith(
       "workspace_1",
       "seat_1",
-      null,
+      "5549998347468",
       "user_1",
     );
   });
@@ -204,6 +207,7 @@ describe("PackageUazapiProvisioningService", () => {
       providerInstanceId: "provider_1",
       connectionStatus: "error",
       qrCode: null,
+      connectedPhone: null,
       message: "Falha no provedor",
     });
 
@@ -237,12 +241,12 @@ describe("PackageUazapiProvisioningService", () => {
     expect(harness.seats.activateSeat).toHaveBeenCalledWith(
       "workspace_1",
       "seat_1",
-      null,
+      "5549998347468",
       "user_1",
     );
   });
 
-  it("does not activate an already active seat again during polling", async () => {
+  it("refreshes an active seat so a missing provider phone can be recovered", async () => {
     const harness = createHarness();
     harness.prisma.whatsappSeat.findFirst.mockResolvedValueOnce({
       ...reservedSeatRecord,
@@ -259,7 +263,12 @@ describe("PackageUazapiProvisioningService", () => {
     );
 
     expect(result.seat.status).toBe("active");
-    expect(harness.seats.activateSeat).not.toHaveBeenCalled();
+    expect(harness.seats.activateSeat).toHaveBeenCalledWith(
+      "workspace_1",
+      "seat_1",
+      "5549998347468",
+      "user_1",
+    );
   });
 
   it("renews the QR code on the existing instance and seat", async () => {
@@ -268,12 +277,14 @@ describe("PackageUazapiProvisioningService", () => {
       providerInstanceId: "provider_1",
       connectionStatus: "qr_required",
       qrCode: "expired-qr",
+      connectedPhone: null,
       message: "QR expirado",
     });
     harness.uazapi.connectInstance.mockResolvedValueOnce({
       providerInstanceId: "provider_1",
       connectionStatus: "qr_required",
       qrCode: "fresh-qr",
+      connectedPhone: null,
       message: "Leia o novo QR code",
     });
 
@@ -308,7 +319,7 @@ describe("PackageUazapiProvisioningService", () => {
     expect(harness.seats.activateSeat).toHaveBeenCalledWith(
       "workspace_1",
       "seat_1",
-      null,
+      "5549998347468",
       "user_1",
     );
   });
@@ -323,6 +334,7 @@ describe("PackageUazapiProvisioningService", () => {
       providerInstanceId: "provider_1",
       connectionStatus: "qr_required",
       qrCode: null,
+      connectedPhone: null,
       message: "QR expirado",
     });
 

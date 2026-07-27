@@ -3,6 +3,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import SubscriptionPage from "../src/app/(app)/subscription/page";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => undefined }),
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -107,6 +111,39 @@ describe("subscription route", () => {
         });
       }
 
+      if (path === "/billing/package/seats") {
+        return json([
+          {
+            id: "seat_1",
+            workspaceId: "workspace_1",
+            subscriptionId: "contract_1",
+            provider: "uazapi",
+            status: "active",
+            normalizedPhone: "5549998347468",
+            whatsappInstanceId: "instance_1",
+            inboundWebhookChannelId: null,
+            reservationExpiresAt: null,
+            activatedAt: "2026-07-27T20:45:02.193Z",
+            suspendedAt: null,
+            releasedAt: null,
+          },
+        ]);
+      }
+
+      if (path === "/integrations/whatsapp/instances") {
+        return json([
+          {
+            id: "instance_1",
+            name: "Comunidade NOD - Teste",
+            provider: "uazapi",
+            billingStatus: "active",
+            providerInstanceId: "provider_instance_1",
+            checkoutUrl: null,
+            createdAt: "2026-07-27T20:30:00.000Z",
+          },
+        ]);
+      }
+
       return json({ message: `Unhandled test URL: ${path}` }, 404);
     });
 
@@ -115,9 +152,15 @@ describe("subscription route", () => {
 
     expect(requestedPaths).toContain("/billing/package/state");
     expect(requestedPaths).toContain("/workspaces/current");
+    expect(requestedPaths).toContain("/billing/package/seats");
+    expect(requestedPaths).toContain("/integrations/whatsapp/instances");
     expect(html).toContain("Assinatura WhatsApp");
     expect(html).toContain("Inicial 3 numeros");
     expect(html).toContain("2/3 ocupados");
+    expect(html).toContain("Instancias do pacote");
+    expect(html).toContain("Comunidade NOD - Teste");
+    expect(html).toContain("+55 49 99834-7468");
+    expect(html).toContain("Conectado");
     expect(html).toContain("Gerar QR code");
     expect(html).toContain("Pagamentos e notas fiscais");
     expect(html).toContain("Autorizada");

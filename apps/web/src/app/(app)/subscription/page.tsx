@@ -1,5 +1,6 @@
 import type {
   BillingInvoiceStatus,
+  UazapiPackageProvisionDto,
   WhatsappInstanceSummaryDto,
   WhatsappSeatDto,
   WorkspaceBillingProfileStatus,
@@ -37,6 +38,20 @@ type ResumableUazapiProvisioning = {
   instanceName: string;
 };
 
+type PackageWhatsappInstance = {
+  id: string;
+  name: string;
+  phone: string | null;
+  provider: WhatsappInstanceSummaryDto["provider"];
+  seatStatus: WhatsappSeatDto["status"];
+  connectionStatus: UazapiPackageProvisionDto["connection"]["connectionStatus"];
+};
+
+type WhatsappPackageResources = {
+  instances: PackageWhatsappInstance[];
+  resumeProvisioning: ResumableUazapiProvisioning | null;
+};
+
 async function getPackageBillingState(): Promise<BillingResource> {
   try {
     return {
@@ -50,7 +65,7 @@ async function getPackageBillingState(): Promise<BillingResource> {
   }
 }
 
-async function getResumableUazapiProvisioning(): Promise<ResumableUazapiProvisioning | null> {
+async function getWhatsappPackageResources(): Promise<WhatsappPackageResources> {
   try {
     const [seats, instances] = await Promise.all([
       serverApiFetch<WhatsappSeatDto[]>("/billing/package/seats"),
@@ -58,41 +73,85 @@ async function getResumableUazapiProvisioning(): Promise<ResumableUazapiProvisio
         "/integrations/whatsapp/instances",
       ),
     ]);
-    const reservedSeat = seats.find(
+    const instanceById = new Map(
+      instances.map((instance) => [instance.id, instance]),
+    );
+    const linkedSeats = seats.filter(
       (seat) =>
         seat.provider === "uazapi" &&
-        seat.status === "reserved" &&
+        seat.status !== "released" &&
         Boolean(seat.whatsappInstanceId),
     );
-    if (!reservedSeat?.whatsappInstanceId) {
-      return null;
-    }
+    const resolved = await Promise.all(
+      linkedSeats.map(async (seat) => {
+        const whatsappInstanceId = seat.whatsappInstanceId;
+        const instance = whatsappInstanceId
+          ? instanceById.get(whatsappInstanceId)
+          : null;
+        if (!whatsappInstanceId || !instance) {
+          return null;
+        }
 
-    const instance = instances.find(
-      (candidate) =>
-        candidate.id === reservedSeat.whatsappInstanceId &&
-        candidate.provider === "uazapi" &&
-        candidate.billingStatus === "active",
+        let effectiveSeat = seat;
+        let connectionStatus = defaultConnectionStatusForSeat(seat, instance);
+        let connectedPhone = seat.normalizedPhone;
+
+        if (seat.status === "reserved" || !seat.normalizedPhone) {
+          try {
+            const live = await serverApiFetch<UazapiPackageProvisionDto>(
+              `/billing/package/uazapi/instances/${encodeURIComponent(
+                whatsappInstanceId,
+              )}/status`,
+            );
+            effectiveSeat = live.seat;
+            connectionStatus = live.connection.connectionStatus;
+            connectedPhone =
+              live.connection.connectedPhone ?? live.seat.normalizedPhone;
+          } catch {
+            // The stored package state remains visible if the provider is slow.
+          }
+        }
+
+        return {
+          id: instance.id,
+          name: instance.name,
+          phone: connectedPhone,
+          provider: instance.provider,
+          seatStatus: effectiveSeat.status,
+          connectionStatus,
+        } satisfies PackageWhatsappInstance;
+      }),
+    );
+    const packageInstances = resolved.filter(
+      (instance): instance is PackageWhatsappInstance => instance !== null,
+    );
+    const resumable = packageInstances.find(
+      (instance) =>
+        instance.provider === "uazapi" &&
+        instance.seatStatus === "reserved" &&
+        instance.connectionStatus !== "connected",
     );
 
-    return instance
-      ? {
-          whatsappInstanceId: instance.id,
-          instanceName: instance.name,
-        }
-      : null;
+    return {
+      instances: packageInstances,
+      resumeProvisioning: resumable
+        ? {
+            whatsappInstanceId: resumable.id,
+            instanceName: resumable.name,
+          }
+        : null,
+    };
   } catch {
-    return null;
+    return { instances: [], resumeProvisioning: null };
   }
 }
 
 export default async function SubscriptionPage() {
-  const [billingResult, workspace, resumableUazapiProvisioning] =
-    await Promise.all([
-      getPackageBillingState(),
-      getCurrentWorkspace(),
-      getResumableUazapiProvisioning(),
-    ]);
+  const [billingResult, workspace, whatsappResources] = await Promise.all([
+    getPackageBillingState(),
+    getCurrentWorkspace(),
+    getWhatsappPackageResources(),
+  ]);
   const billing = billingResult.data;
 
   if (!billing || !workspace) {
@@ -277,6 +336,50 @@ export default async function SubscriptionPage() {
             <span>Suspensos</span>
             {billing.seats.suspended}
           </strong>
+        </div>
+        <div className="package-instance-inventory">
+          <div className="package-instance-heading">
+            <div>
+              <span className="eyebrow">Conexoes por QR code</span>
+              <h3>Instancias do pacote</h3>
+            </div>
+            <span className="status-chip">
+              {whatsappResources.instances.length} instancia(s)
+            </span>
+          </div>
+          {whatsappResources.instances.length ? (
+            <div className="package-instance-list">
+              {whatsappResources.instances.map((instance) => (
+                <div className="package-instance-row" key={instance.id}>
+                  <div className="package-instance-icon" aria-hidden="true">
+                    <Smartphone size={19} />
+                  </div>
+                  <div className="package-instance-identity">
+                    <strong>{instance.name}</strong>
+                    <span>Uazapi por QR code</span>
+                  </div>
+                  <div className="package-instance-phone">
+                    <span>Numero conectado</span>
+                    <strong>
+                      {formatWhatsappPhone(instance.phone) ??
+                        "Numero em sincronizacao"}
+                    </strong>
+                  </div>
+                  <span
+                    className={`status-chip${packageInstanceStatusTone(
+                      instance,
+                    )}`}
+                  >
+                    {packageInstanceStatusLabel(instance)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted package-instance-empty">
+              Nenhuma instancia por QR code conectada neste pacote.
+            </p>
+          )}
         </div>
         <div className="package-seat-actions">
           <Link className="button ghost" href="/integrations">
@@ -512,7 +615,7 @@ export default async function SubscriptionPage() {
         <PackageBillingActionForm
           action={provisionPackageUazapiAction}
           className="inline-form package-uazapi-form"
-          resumeProvisioning={resumableUazapiProvisioning}
+          resumeProvisioning={whatsappResources.resumeProvisioning}
           showProvisionResult
         >
           <input
@@ -531,7 +634,7 @@ export default async function SubscriptionPage() {
             Gerar QR code
           </SubmitButton>
         </PackageBillingActionForm>
-        {!canProvision && !resumableUazapiProvisioning ? (
+        {!canProvision && !whatsappResources.resumeProvisioning ? (
           <p className="muted">
             {billing.seats.available <= 0
               ? "O pacote esta sem vagas disponiveis."
@@ -777,4 +880,87 @@ function profileStatusLabel(
   }
 
   return status === "invalid" ? "Dados invalidos" : "Cadastro pendente";
+}
+
+function defaultConnectionStatusForSeat(
+  seat: WhatsappSeatDto,
+  instance: WhatsappInstanceSummaryDto,
+): PackageWhatsappInstance["connectionStatus"] {
+  if (seat.status === "active") {
+    return "connected";
+  }
+
+  if (seat.status === "suspended") {
+    return "disconnected";
+  }
+
+  if (instance.billingStatus === "error") {
+    return "error";
+  }
+
+  if (instance.billingStatus === "disconnected") {
+    return "disconnected";
+  }
+
+  return "qr_required";
+}
+
+function packageInstanceStatusLabel(instance: PackageWhatsappInstance): string {
+  if (
+    instance.seatStatus === "active" &&
+    instance.connectionStatus === "connected"
+  ) {
+    return "Conectado";
+  }
+
+  if (
+    instance.seatStatus === "reserved" &&
+    ["pending", "qr_required"].includes(instance.connectionStatus)
+  ) {
+    return "Aguardando leitura";
+  }
+
+  if (instance.seatStatus === "suspended") {
+    return "Suspenso";
+  }
+
+  if (instance.connectionStatus === "disconnected") {
+    return "Desconectado";
+  }
+
+  return "Requer atencao";
+}
+
+function packageInstanceStatusTone(instance: PackageWhatsappInstance): string {
+  if (
+    instance.seatStatus === "active" &&
+    instance.connectionStatus === "connected"
+  ) {
+    return "";
+  }
+
+  return instance.connectionStatus === "error" ? " bad" : " warn";
+}
+
+function formatWhatsappPhone(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const digits = value.replace(/\D/gu, "");
+  if (digits.length === 13 && digits.startsWith("55")) {
+    return `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(
+      4,
+      9,
+    )}-${digits.slice(9)}`;
+  }
+
+  if (digits.length === 12 && digits.startsWith("55")) {
+    return `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(
+      4,
+      8,
+    )}-${digits.slice(8)}`;
+  }
+
+  return digits ? `+${digits}` : null;
 }

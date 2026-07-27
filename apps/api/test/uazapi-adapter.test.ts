@@ -5,42 +5,43 @@ describe("uazapi adapter", () => {
   it("reports connected when admin token is configured for per-instance provisioning", async () => {
     const adapter = new UazapiAdapter({
       UAZAPI_BASE_URL: "https://uazapi.test",
-      UAZAPI_ADMIN_TOKEN: "admin-token"
+      UAZAPI_ADMIN_TOKEN: "admin-token",
     });
 
     await expect(adapter.getHealth()).resolves.toMatchObject({
       provider: "uazapi",
       status: "connected",
-      message: undefined
+      message: undefined,
     });
   });
 
   it("creates an instance with the official admin token and returns the instance token", async () => {
-    const fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          instance: {
-            id: "provider_instance_1",
-            name: "Comercial",
-            status: "disconnected"
-          },
-          token: "instance-token-1"
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            instance: {
+              id: "provider_instance_1",
+              name: "Comercial",
+              status: "disconnected",
+            },
+            token: "instance-token-1",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
     );
     const adapter = new UazapiAdapter(
       {
         UAZAPI_BASE_URL: "https://uazapi.test",
-        UAZAPI_ADMIN_TOKEN: "admin-token"
+        UAZAPI_ADMIN_TOKEN: "admin-token",
       },
-      fetch
+      fetch,
     );
 
     const result = await adapter.createInstance({
       name: "Comercial",
       localInstanceId: "wpp_1",
-      workspaceId: "workspace_1"
+      workspaceId: "workspace_1",
     });
 
     expect(fetch).toHaveBeenCalledWith(
@@ -48,20 +49,20 @@ describe("uazapi adapter", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          admintoken: "admin-token"
+          admintoken: "admin-token",
         }),
         body: JSON.stringify({
           name: "Comercial",
           adminField01: "workspace_1",
-          adminField02: "wpp_1"
-        })
-      })
+          adminField02: "wpp_1",
+        }),
+      }),
     );
     expect(result).toEqual({
       status: "created",
       providerInstanceId: "provider_instance_1",
       instanceToken: "instance-token-1",
-      message: null
+      message: null,
     });
   });
 
@@ -77,23 +78,24 @@ describe("uazapi adapter", () => {
   });
 
   it("configures an instance webhook with messages and label events", async () => {
-    const fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ response: "webhook updated" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
-      })
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ response: "webhook updated" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
     );
     const adapter = new UazapiAdapter(
       {
-        UAZAPI_BASE_URL: "https://uazapi.test"
+        UAZAPI_BASE_URL: "https://uazapi.test",
       },
-      fetch
+      fetch,
     );
 
     const result = await adapter.configureInstanceWebhook({
       instanceToken: "instance-token-1",
       webhookUrl:
-        "https://api.wpptrack.test/webhooks/uazapi/instances/wpp_1?token=secret"
+        "https://api.wpptrack.test/webhooks/uazapi/instances/wpp_1?token=secret",
     });
 
     expect(fetch).toHaveBeenCalledWith(
@@ -101,51 +103,58 @@ describe("uazapi adapter", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          token: "instance-token-1"
+          token: "instance-token-1",
         }),
         body: JSON.stringify({
           enabled: true,
           url: "https://api.wpptrack.test/webhooks/uazapi/instances/wpp_1?token=secret",
-          events: ["messages", "messages_update", "labels", "chat_labels", "connection"],
+          events: [
+            "messages",
+            "messages_update",
+            "labels",
+            "chat_labels",
+            "connection",
+          ],
           excludeMessages: ["wasSentByApi"],
           addUrlEvents: false,
-          addUrlTypesMessages: false
-        })
-      })
+          addUrlTypesMessages: false,
+        }),
+      }),
     );
     expect(result).toEqual({
       status: "configured",
-      message: null
+      message: null,
     });
   });
 
   it("uses the per-instance token when requesting QR status", async () => {
-    const fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          instance: {
-            id: "provider_instance_1",
-            status: "connecting",
-            qrcode: "qr-code-text"
-          },
-          status: {
-            connected: false,
-            loggedIn: false
-          }
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            instance: {
+              id: "provider_instance_1",
+              status: "connecting",
+              qrcode: "qr-code-text",
+            },
+            status: {
+              connected: false,
+              loggedIn: false,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
     );
     const adapter = new UazapiAdapter(
       {
-        UAZAPI_BASE_URL: "https://uazapi.test"
+        UAZAPI_BASE_URL: "https://uazapi.test",
       },
-      fetch
+      fetch,
     );
 
     const status = await adapter.getQr(
       "provider_instance_1",
-      "instance-token-1"
+      "instance-token-1",
     );
 
     expect(fetch).toHaveBeenCalledWith(
@@ -153,36 +162,38 @@ describe("uazapi adapter", () => {
       expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({
-          token: "instance-token-1"
-        })
-      })
+          token: "instance-token-1",
+        }),
+      }),
     );
     expect(status.connectionStatus).toBe("qr_required");
     expect(status.qrCode).toBe("qr-code-text");
   });
 
   it("connects an instance through the official Uazapi endpoint", async () => {
-    const fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          instance: {
-            id: "provider_instance_1",
-            status: "connected"
-          },
-          status: {
-            connected: true,
-            loggedIn: true
-          }
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            instance: {
+              id: "provider_instance_1",
+              status: "connected",
+              owner: "5549998347468@s.whatsapp.net",
+            },
+            status: {
+              connected: true,
+              loggedIn: true,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
     );
     const adapter = new UazapiAdapter(
       {
         UAZAPI_BASE_URL: "https://uazapi.test/",
-        UAZAPI_TOKEN: "secret-token"
+        UAZAPI_TOKEN: "secret-token",
       },
-      fetch
+      fetch,
     );
 
     const status = await adapter.connectInstance("provider_instance_1");
@@ -192,40 +203,42 @@ describe("uazapi adapter", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          token: "secret-token"
-        })
-      })
+          token: "secret-token",
+        }),
+      }),
     );
     expect(status.providerInstanceId).toBe("provider_instance_1");
     expect(status.connectionStatus).toBe("connected");
+    expect(status.connectedPhone).toBe("5549998347468");
   });
 
   it("lists WhatsApp labels through the official Uazapi endpoint", async () => {
-    const fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify([
-          {
-            id: "label_uuid_1",
-            name: "Venda fechada",
-            colorHex: "#fed428",
-            labelid: "10",
-            owner: "secret-owner"
-          }
-        ]),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify([
+            {
+              id: "label_uuid_1",
+              name: "Venda fechada",
+              colorHex: "#fed428",
+              labelid: "10",
+              owner: "secret-owner",
+            },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
     );
     const adapter = new UazapiAdapter(
       {
         UAZAPI_BASE_URL: "https://uazapi.test",
-        UAZAPI_TOKEN: "secret-token"
+        UAZAPI_TOKEN: "secret-token",
       },
-      fetch
+      fetch,
     );
 
     const result = await adapter.listLabels(
       "provider_instance_1",
-      "instance-token-1"
+      "instance-token-1",
     );
 
     expect(fetch).toHaveBeenCalledWith(
@@ -233,9 +246,9 @@ describe("uazapi adapter", () => {
       expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({
-          token: "instance-token-1"
-        })
-      })
+          token: "instance-token-1",
+        }),
+      }),
     );
     expect(result).toEqual({
       status: "success",
@@ -245,9 +258,9 @@ describe("uazapi adapter", () => {
           id: "label_uuid_1",
           name: "Venda fechada",
           colorHex: "#fed428",
-          labelId: "10"
-        }
-      ]
+          labelId: "10",
+        },
+      ],
     });
     expect(JSON.stringify(result)).not.toContain("secret-owner");
   });

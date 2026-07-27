@@ -2,8 +2,9 @@
 
 import type { UazapiPackageProvisionDto } from "@wpptrack/shared";
 import { RefreshCw } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../../../lib/api";
 
 export type PackageBillingActionState = {
@@ -41,6 +42,7 @@ export function PackageBillingActionForm({
   resumeProvisioning?: ResumableUazapiProvisioning | null;
   showProvisionResult?: boolean;
 }) {
+  const router = useRouter();
   const [state, formAction] = useActionState(action, initialState);
   const [provision, setProvision] = useState<
     UazapiPackageProvisionDto | undefined
@@ -49,6 +51,7 @@ export function PackageBillingActionForm({
   const [pollingCycle, setPollingCycle] = useState(0);
   const [refreshingQr, setRefreshingQr] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const refreshedConnectedInstance = useRef<string | null>(null);
 
   useEffect(() => {
     if (state.status === "success" && state.checkoutUrl) {
@@ -130,14 +133,31 @@ export function PackageBillingActionForm({
     showProvisionResult,
   ]);
 
+  useEffect(() => {
+    const connection = provision?.connection;
+    if (
+      connection?.connectionStatus !== "connected" ||
+      refreshedConnectedInstance.current === connection.whatsappInstanceId
+    ) {
+      return;
+    }
+
+    refreshedConnectedInstance.current = connection.whatsappInstanceId;
+    setPollingMessage(null);
+    setRefreshError(null);
+    router.refresh();
+  }, [provision?.connection, router]);
+
   const whatsappInstanceId =
     provision?.connection.whatsappInstanceId ??
     resumeProvisioning?.whatsappInstanceId ??
     null;
-  const canRefreshQr =
-    Boolean(whatsappInstanceId) &&
-    provision?.connection.connectionStatus !== "connected";
-  const qrCode = provision?.connection.qrCode ?? null;
+  const connectionIsConfirmed =
+    provision?.connection.connectionStatus === "connected";
+  const canRefreshQr = Boolean(whatsappInstanceId) && !connectionIsConfirmed;
+  const qrCode = connectionIsConfirmed
+    ? null
+    : (provision?.connection.qrCode ?? null);
   const qrImage = qrImageSource(qrCode);
 
   const refreshQr = async () => {
@@ -185,21 +205,35 @@ export function PackageBillingActionForm({
       </form>
       {state.status !== "idle" ? (
         <div
-          className={`feedback-banner${state.status === "error" ? " warn" : ""}`}
+          className={`feedback-banner${
+            state.status === "error" && !connectionIsConfirmed ? " warn" : ""
+          }`}
           role="status"
           aria-live="polite"
         >
           <strong>
-            {state.status === "success" ? "Acao concluida" : "Acao pendente"}
+            {connectionIsConfirmed
+              ? "Conexao confirmada"
+              : state.status === "success"
+                ? "Acao concluida"
+                : "Acao pendente"}
           </strong>
-          <span>{state.message}</span>
+          <span>
+            {connectionIsConfirmed
+              ? "WhatsApp conectado e vaga ativada no pacote."
+              : state.message}
+          </span>
         </div>
       ) : null}
       {showProvisionResult && (provision || resumeProvisioning) ? (
         <section className="package-qr-result" aria-label="Conexao WhatsApp">
           <div>
             <span className="eyebrow">
-              {provision ? "Conexao preparada" : "Conexao reservada"}
+              {connectionIsConfirmed
+                ? "Conexao concluida"
+                : provision
+                  ? "Conexao preparada"
+                  : "Conexao reservada"}
             </span>
             <strong>
               {provision
@@ -207,12 +241,17 @@ export function PackageBillingActionForm({
                 : `Continuar ${resumeProvisioning?.instanceName ?? "conexao"}`}
             </strong>
             <small>
-              {refreshError ??
-                pollingMessage ??
-                provision?.connection.message ??
-                "O QR anterior pode ter expirado. Gere um novo para continuar na mesma instancia."}
+              {connectionIsConfirmed
+                ? connectedInstanceMessage(
+                    provision?.connection.connectedPhone ?? null,
+                  )
+                : (refreshError ??
+                  pollingMessage ??
+                  provision?.connection.message ??
+                  "O QR anterior pode ter expirado. Gere um novo para continuar na mesma instancia.")}
             </small>
-            {provision?.seat.status === "reserved" || resumeProvisioning ? (
+            {!connectionIsConfirmed &&
+            (provision?.seat.status === "reserved" || resumeProvisioning) ? (
               <small>
                 A vaga fica reservada ate a Uazapi confirmar a conexao.
               </small>
@@ -233,6 +272,8 @@ export function PackageBillingActionForm({
             <img src={qrImage} alt="QR code para conectar o WhatsApp" />
           ) : qrCode ? (
             <code>{qrCode}</code>
+          ) : connectionIsConfirmed ? (
+            <span className="status-chip">Conectado</span>
           ) : (
             <span className="status-chip warn">QR ainda nao emitido</span>
           )}
@@ -278,4 +319,35 @@ function connectionStatusLabel(
   };
 
   return labels[status];
+}
+
+function connectedInstanceMessage(phone: string | null): string {
+  const formattedPhone = formatPhone(phone);
+
+  return formattedPhone
+    ? `Numero ${formattedPhone} conectado e ativo no pacote.`
+    : "Conexao confirmada. Este numero ja esta ativo no pacote.";
+}
+
+function formatPhone(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const digits = value.replace(/\D/gu, "");
+  if (digits.length === 13 && digits.startsWith("55")) {
+    return `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(
+      4,
+      9,
+    )}-${digits.slice(9)}`;
+  }
+
+  if (digits.length === 12 && digits.startsWith("55")) {
+    return `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(
+      4,
+      8,
+    )}-${digits.slice(8)}`;
+  }
+
+  return digits ? `+${digits}` : null;
 }

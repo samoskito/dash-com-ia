@@ -174,6 +174,7 @@ async function getWhatsappInstanceStatuses(
             billingStatus: instance.billingStatus,
             connectionStatus: "error",
             qrCode: null,
+            connectedPhone: null,
             message: "Nao foi possivel carregar o status da instancia.",
           },
         ] as const;

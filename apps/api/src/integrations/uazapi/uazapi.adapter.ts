@@ -1,12 +1,12 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import {
   RUNTIME_FETCH,
-  type RuntimeFetch
+  type RuntimeFetch,
 } from "../../common/runtime/runtime.module";
 import type {
   IntegrationAdapter,
   IntegrationEnv,
-  IntegrationHealthDto
+  IntegrationHealthDto,
 } from "../integration.types";
 import type { WhatsappLabelDto } from "@wpptrack/shared";
 import { INTEGRATION_ENV } from "../integration.types";
@@ -21,6 +21,7 @@ export type UazapiConnectionResult = {
     | "disconnected"
     | "error";
   qrCode: string | null;
+  connectedPhone: string | null;
   message: string | null;
 };
 
@@ -56,13 +57,13 @@ export class UazapiAdapter implements IntegrationAdapter {
     @Inject(INTEGRATION_ENV) private readonly env: IntegrationEnv = process.env,
     @Optional()
     @Inject(RUNTIME_FETCH)
-    private readonly fetchImpl: RuntimeFetch = fetch
+    private readonly fetchImpl: RuntimeFetch = fetch,
   ) {}
 
   async getHealth(): Promise<IntegrationHealthDto> {
     const hasCredentials = Boolean(
       this.env.UAZAPI_BASE_URL &&
-        (this.env.UAZAPI_ADMIN_TOKEN || this.env.UAZAPI_TOKEN)
+      (this.env.UAZAPI_ADMIN_TOKEN || this.env.UAZAPI_TOKEN),
     );
 
     return {
@@ -71,19 +72,19 @@ export class UazapiAdapter implements IntegrationAdapter {
       checkedAt: new Date().toISOString(),
       message: hasCredentials
         ? undefined
-        : "Missing UAZAPI_BASE_URL or UAZAPI_ADMIN_TOKEN"
+        : "Missing UAZAPI_BASE_URL or UAZAPI_ADMIN_TOKEN",
     };
   }
 
   async createInstance(
-    input: UazapiCreateInstanceInput
+    input: UazapiCreateInstanceInput,
   ): Promise<UazapiCreateInstanceResult> {
     if (!this.env.UAZAPI_BASE_URL || !this.env.UAZAPI_ADMIN_TOKEN) {
       return {
         status: "not_configured",
         providerInstanceId: null,
         instanceToken: null,
-        message: "Missing UAZAPI_BASE_URL or UAZAPI_ADMIN_TOKEN"
+        message: "Missing UAZAPI_BASE_URL or UAZAPI_ADMIN_TOKEN",
       };
     }
 
@@ -94,14 +95,14 @@ export class UazapiAdapter implements IntegrationAdapter {
           method: "POST",
           headers: {
             admintoken: this.env.UAZAPI_ADMIN_TOKEN,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             name: input.name,
             adminField01: input.workspaceId,
-            adminField02: input.localInstanceId
-          })
-        }
+            adminField02: input.localInstanceId,
+          }),
+        },
       );
       const payload = (await response.json().catch(() => ({}))) as Record<
         string,
@@ -113,7 +114,8 @@ export class UazapiAdapter implements IntegrationAdapter {
           status: "error",
           providerInstanceId: null,
           instanceToken: null,
-          message: this.asString(payload.message) ?? `Uazapi HTTP ${response.status}`
+          message:
+            this.asString(payload.message) ?? `Uazapi HTTP ${response.status}`,
         };
       }
 
@@ -129,45 +131,46 @@ export class UazapiAdapter implements IntegrationAdapter {
           this.asString(payload.token) ??
           this.asString(payload.instanceToken) ??
           this.asString(payload.instance_token),
-        message: this.asString(payload.message)
+        message: this.asString(payload.message),
       };
     } catch (error) {
       return {
         status: "error",
         providerInstanceId: null,
         instanceToken: null,
-        message: error instanceof Error ? error.message : "Erro ao chamar Uazapi"
+        message:
+          error instanceof Error ? error.message : "Erro ao chamar Uazapi",
       };
     }
   }
 
   async getInstanceStatus(
     instanceRef: string,
-    instanceToken?: string | null
+    instanceToken?: string | null,
   ): Promise<UazapiConnectionResult> {
     return this.requestInstance(
       "GET",
       "/instance/status",
       instanceRef,
-      instanceToken
+      instanceToken,
     );
   }
 
   async connectInstance(
     instanceRef: string,
-    instanceToken?: string | null
+    instanceToken?: string | null,
   ): Promise<UazapiConnectionResult> {
     return this.requestInstance(
       "POST",
       "/instance/connect",
       instanceRef,
-      instanceToken
+      instanceToken,
     );
   }
 
   async getQr(
     instanceRef: string,
-    instanceToken?: string | null
+    instanceToken?: string | null,
   ): Promise<UazapiConnectionResult> {
     return this.getInstanceStatus(instanceRef, instanceToken);
   }
@@ -176,10 +179,14 @@ export class UazapiAdapter implements IntegrationAdapter {
     instanceToken: string | null;
     webhookUrl: string | null;
   }): Promise<UazapiWebhookConfigurationResult> {
-    if (!this.env.UAZAPI_BASE_URL || !input.instanceToken || !input.webhookUrl) {
+    if (
+      !this.env.UAZAPI_BASE_URL ||
+      !input.instanceToken ||
+      !input.webhookUrl
+    ) {
       return {
         status: "not_configured",
-        message: "Missing UAZAPI_BASE_URL, instance token or webhook URL"
+        message: "Missing UAZAPI_BASE_URL, instance token or webhook URL",
       };
     }
 
@@ -190,7 +197,7 @@ export class UazapiAdapter implements IntegrationAdapter {
           method: "POST",
           headers: {
             token: input.instanceToken,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             enabled: true,
@@ -200,13 +207,13 @@ export class UazapiAdapter implements IntegrationAdapter {
               "messages_update",
               "labels",
               "chat_labels",
-              "connection"
+              "connection",
             ],
             excludeMessages: ["wasSentByApi"],
             addUrlEvents: false,
-            addUrlTypesMessages: false
-          })
-        }
+            addUrlTypesMessages: false,
+          }),
+        },
       );
       const payload = (await response.json().catch(() => ({}))) as Record<
         string,
@@ -219,25 +226,26 @@ export class UazapiAdapter implements IntegrationAdapter {
           message:
             this.asString(payload.message) ??
             this.asString(payload.error) ??
-            `Uazapi HTTP ${response.status}`
+            `Uazapi HTTP ${response.status}`,
         };
       }
 
       return {
         status: "configured",
-        message: this.asString(payload.message)
+        message: this.asString(payload.message),
       };
     } catch (error) {
       return {
         status: "error",
-        message: error instanceof Error ? error.message : "Erro ao chamar Uazapi"
+        message:
+          error instanceof Error ? error.message : "Erro ao chamar Uazapi",
       };
     }
   }
 
   async listLabels(
     _instanceRef: string,
-    instanceToken?: string | null
+    instanceToken?: string | null,
   ): Promise<UazapiLabelListResult> {
     const token = this.getInstanceToken(instanceToken);
 
@@ -245,7 +253,7 @@ export class UazapiAdapter implements IntegrationAdapter {
       return {
         status: "not_configured",
         message: "Missing UAZAPI_BASE_URL or UAZAPI_TOKEN",
-        labels: []
+        labels: [],
       };
     }
 
@@ -256,9 +264,9 @@ export class UazapiAdapter implements IntegrationAdapter {
           method: "GET",
           headers: {
             token,
-            "Content-Type": "application/json"
-          }
-        }
+            "Content-Type": "application/json",
+          },
+        },
       );
       const payload = (await response.json().catch(() => [])) as unknown;
 
@@ -271,20 +279,21 @@ export class UazapiAdapter implements IntegrationAdapter {
             this.asString(errorPayload?.message) ??
             this.asString(errorPayload?.error) ??
             `Uazapi HTTP ${response.status}`,
-          labels: []
+          labels: [],
         };
       }
 
       return {
         status: "success",
         message: null,
-        labels: this.toLabels(payload)
+        labels: this.toLabels(payload),
       };
     } catch (error) {
       return {
         status: "error",
-        message: error instanceof Error ? error.message : "Erro ao chamar Uazapi",
-        labels: []
+        message:
+          error instanceof Error ? error.message : "Erro ao chamar Uazapi",
+        labels: [],
       };
     }
   }
@@ -293,7 +302,7 @@ export class UazapiAdapter implements IntegrationAdapter {
     method: "GET" | "POST",
     path: string,
     instanceRef: string,
-    instanceToken?: string | null
+    instanceToken?: string | null,
   ): Promise<UazapiConnectionResult> {
     const token = this.getInstanceToken(instanceToken);
 
@@ -302,7 +311,8 @@ export class UazapiAdapter implements IntegrationAdapter {
         providerInstanceId: instanceRef,
         connectionStatus: "not_configured",
         qrCode: null,
-        message: "Missing UAZAPI_BASE_URL or UAZAPI_TOKEN"
+        connectedPhone: null,
+        message: "Missing UAZAPI_BASE_URL or UAZAPI_TOKEN",
       };
     }
 
@@ -313,9 +323,9 @@ export class UazapiAdapter implements IntegrationAdapter {
           method,
           headers: {
             token,
-            "Content-Type": "application/json"
-          }
-        }
+            "Content-Type": "application/json",
+          },
+        },
       );
       const payload = (await response.json().catch(() => ({}))) as Record<
         string,
@@ -327,7 +337,9 @@ export class UazapiAdapter implements IntegrationAdapter {
           providerInstanceId: instanceRef,
           connectionStatus: "error",
           qrCode: null,
-          message: this.asString(payload.message) ?? `Uazapi HTTP ${response.status}`
+          connectedPhone: null,
+          message:
+            this.asString(payload.message) ?? `Uazapi HTTP ${response.status}`,
         };
       }
 
@@ -337,18 +349,22 @@ export class UazapiAdapter implements IntegrationAdapter {
         providerInstanceId: instanceRef,
         connectionStatus: "error",
         qrCode: null,
-        message: error instanceof Error ? error.message : "Erro ao chamar Uazapi"
+        connectedPhone: null,
+        message:
+          error instanceof Error ? error.message : "Erro ao chamar Uazapi",
       };
     }
   }
 
   private toConnectionResult(
     payload: Record<string, unknown>,
-    fallbackInstanceId: string
+    fallbackInstanceId: string,
   ): UazapiConnectionResult {
     const instance = this.asRecord(payload.instance);
     const status = this.asRecord(payload.status);
-    const instanceStatus = this.asString(instance?.status) ?? this.asString(payload.status);
+    const statusJid = this.asRecord(status?.jid);
+    const instanceStatus =
+      this.asString(instance?.status) ?? this.asString(payload.status);
     const qrCode =
       this.asString(instance?.qrcode) ??
       this.asString(instance?.qrCode) ??
@@ -366,14 +382,28 @@ export class UazapiAdapter implements IntegrationAdapter {
         fallbackInstanceId,
       connectionStatus: this.normalizeStatus(instanceStatus, status, qrCode),
       qrCode,
-      message: this.asString(payload.message)
+      connectedPhone: this.firstNormalizedPhone(
+        instance?.owner,
+        instance?.phone,
+        instance?.phoneNumber,
+        status?.owner,
+        status?.phone,
+        status?.phoneNumber,
+        status?.jid,
+        statusJid?.user,
+        statusJid?.id,
+        payload.owner,
+        payload.phone,
+        payload.phoneNumber,
+      ),
+      message: this.asString(payload.message),
     };
   }
 
   private normalizeStatus(
     value: unknown,
     status: Record<string, unknown> | null,
-    qrCode: string | null
+    qrCode: string | null,
   ): UazapiConnectionResult["connectionStatus"] {
     if (status?.connected === true || status?.loggedIn === true) {
       return "connected";
@@ -396,7 +426,9 @@ export class UazapiAdapter implements IntegrationAdapter {
       return "qr_required";
     }
 
-    if (["disconnected", "closed", "offline", "hibernated"].includes(statusText)) {
+    if (
+      ["disconnected", "closed", "offline", "hibernated"].includes(statusText)
+    ) {
       return "disconnected";
     }
 
@@ -405,6 +437,40 @@ export class UazapiAdapter implements IntegrationAdapter {
     }
 
     return "pending";
+  }
+
+  private firstNormalizedPhone(...values: unknown[]): string | null {
+    for (const value of values) {
+      const phone = this.normalizePhone(value);
+      if (phone) {
+        return phone;
+      }
+    }
+
+    return null;
+  }
+
+  private normalizePhone(value: unknown): string | null {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+
+      return this.firstNormalizedPhone(
+        record.user,
+        record.phone,
+        record.phoneNumber,
+        record.number,
+        record.id,
+      );
+    }
+
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    const address = value.trim().split("@")[0]?.split(":")[0] ?? "";
+    const digits = address.replace(/\D/gu, "");
+
+    return digits.length >= 8 && digits.length <= 15 ? digits : null;
   }
 
   private asRecord(value: unknown): Record<string, unknown> | null {
@@ -430,8 +496,8 @@ export class UazapiAdapter implements IntegrationAdapter {
           id,
           name,
           colorHex: this.asString(label?.colorHex),
-          labelId: this.asString(label?.labelid)
-        }
+          labelId: this.asString(label?.labelid),
+        },
       ];
     });
   }

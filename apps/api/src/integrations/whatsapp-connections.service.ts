@@ -2,7 +2,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
-  NotFoundException
+  NotFoundException,
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -13,7 +13,7 @@ import { PrismaService } from "../common/prisma/prisma.service";
 import {
   UazapiAdapter,
   type UazapiConnectionResult,
-  type UazapiLabelListResult
+  type UazapiLabelListResult,
 } from "./uazapi/uazapi.adapter";
 import { MetaTokenEncryptionService } from "./meta/meta-token-encryption.service";
 
@@ -52,10 +52,12 @@ export class WhatsappConnectionsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(UazapiAdapter) private readonly uazapiAdapter: UazapiAdapter,
     @Inject(MetaTokenEncryptionService)
-    private readonly tokenEncryption: MetaTokenEncryptionService
+    private readonly tokenEncryption: MetaTokenEncryptionService,
   ) {}
 
-  async listInstances(workspaceId: string): Promise<WhatsappInstanceSummaryDto[]> {
+  async listInstances(
+    workspaceId: string,
+  ): Promise<WhatsappInstanceSummaryDto[]> {
     const instances = (await this.prisma.whatsappInstance.findMany({
       where: { workspaceId },
       include: {
@@ -65,13 +67,13 @@ export class WhatsappConnectionsService {
           include: {
             paymentCharge: {
               select: {
-                checkoutUrl: true
-              }
-            }
-          }
-        }
+                checkoutUrl: true,
+              },
+            },
+          },
+        },
       },
-      orderBy: { createdAt: "asc" }
+      orderBy: { createdAt: "asc" },
     })) as Array<WhatsappInstanceRecord & { createdAt: Date }>;
 
     return instances.map((instance) => ({
@@ -81,15 +83,18 @@ export class WhatsappConnectionsService {
       billingStatus: instance.status,
       providerInstanceId: instance.providerInstanceId,
       checkoutUrl: instance.activations?.[0]?.paymentCharge.checkoutUrl ?? null,
-      createdAt: instance.createdAt.toISOString()
+      createdAt: instance.createdAt.toISOString(),
     }));
   }
 
   async getStatus(
     workspaceId: string,
-    whatsappInstanceId: string
+    whatsappInstanceId: string,
   ): Promise<WhatsappInstanceConnectionDto> {
-    const instance = await this.getActiveInstance(workspaceId, whatsappInstanceId);
+    const instance = await this.getActiveInstance(
+      workspaceId,
+      whatsappInstanceId,
+    );
     if (instance.provider === "cloud_api") {
       return this.handleCloudApiInstance(instance, "whatsapp.cloud_api.status");
     }
@@ -100,8 +105,8 @@ export class WhatsappConnectionsService {
       () =>
         this.uazapiAdapter.getInstanceStatus(
           instance.providerInstanceId ?? instance.id,
-          this.getProviderToken(instance)
-        )
+          this.getProviderToken(instance),
+        ),
     );
 
     return this.toDto(instance, result);
@@ -110,14 +115,17 @@ export class WhatsappConnectionsService {
   async connectInstance(
     workspaceId: string,
     whatsappInstanceId: string,
-    actorUserId?: string
+    actorUserId?: string,
   ): Promise<WhatsappInstanceConnectionDto> {
-    const instance = await this.getActiveInstance(workspaceId, whatsappInstanceId);
+    const instance = await this.getActiveInstance(
+      workspaceId,
+      whatsappInstanceId,
+    );
     const beforeProviderInstanceId = instance.providerInstanceId;
     if (instance.provider === "cloud_api") {
       const result = await this.handleCloudApiConnection(
         instance,
-        "whatsapp.cloud_api.connect"
+        "whatsapp.cloud_api.connect",
       );
 
       if (actorUserId) {
@@ -125,7 +133,7 @@ export class WhatsappConnectionsService {
           instance,
           actorUserId,
           result,
-          beforeProviderInstanceId
+          beforeProviderInstanceId,
         });
       }
 
@@ -138,14 +146,17 @@ export class WhatsappConnectionsService {
       () =>
         this.uazapiAdapter.connectInstance(
           instance.providerInstanceId ?? instance.id,
-          this.getProviderToken(instance)
-        )
+          this.getProviderToken(instance),
+        ),
     );
 
-    if (result.providerInstanceId && result.providerInstanceId !== instance.providerInstanceId) {
+    if (
+      result.providerInstanceId &&
+      result.providerInstanceId !== instance.providerInstanceId
+    ) {
       await this.prisma.whatsappInstance.update({
         where: { id: instance.id },
-        data: { providerInstanceId: result.providerInstanceId }
+        data: { providerInstanceId: result.providerInstanceId },
       });
       instance.providerInstanceId = result.providerInstanceId;
     }
@@ -155,7 +166,7 @@ export class WhatsappConnectionsService {
         instance,
         actorUserId,
         result,
-        beforeProviderInstanceId
+        beforeProviderInstanceId,
       });
     }
 
@@ -164,9 +175,12 @@ export class WhatsappConnectionsService {
 
   async getQr(
     workspaceId: string,
-    whatsappInstanceId: string
+    whatsappInstanceId: string,
   ): Promise<WhatsappInstanceConnectionDto> {
-    const instance = await this.getActiveInstance(workspaceId, whatsappInstanceId);
+    const instance = await this.getActiveInstance(
+      workspaceId,
+      whatsappInstanceId,
+    );
     if (instance.provider === "cloud_api") {
       return this.handleCloudApiInstance(instance, "whatsapp.cloud_api.qr");
     }
@@ -177,8 +191,8 @@ export class WhatsappConnectionsService {
       () =>
         this.uazapiAdapter.getQr(
           instance.providerInstanceId ?? instance.id,
-          this.getProviderToken(instance)
-        )
+          this.getProviderToken(instance),
+        ),
     );
 
     return this.toDto(instance, result);
@@ -186,15 +200,18 @@ export class WhatsappConnectionsService {
 
   async listLabels(
     workspaceId: string,
-    whatsappInstanceId: string
+    whatsappInstanceId: string,
   ): Promise<WhatsappLabelDto[]> {
-    const instance = await this.getActiveInstance(workspaceId, whatsappInstanceId);
+    const instance = await this.getActiveInstance(
+      workspaceId,
+      whatsappInstanceId,
+    );
     if (instance.provider === "cloud_api") {
       await this.recordCloudApiIntegrationLog(
         instance,
         "whatsapp.cloud_api.labels.list",
         new Date(),
-        this.cloudApiPendingResult(instance)
+        this.cloudApiPendingResult(instance),
       );
 
       return [];
@@ -203,7 +220,7 @@ export class WhatsappConnectionsService {
     const startedAt = new Date();
     const result = await this.uazapiAdapter.listLabels(
       instance.providerInstanceId ?? instance.id,
-      this.getProviderToken(instance)
+      this.getProviderToken(instance),
     );
     await this.recordUazapiLabelLog(instance, startedAt, result);
 
@@ -213,13 +230,18 @@ export class WhatsappConnectionsService {
   private async callUazapiInstance(
     instance: WhatsappInstanceRecord,
     operation: UazapiOperation,
-    callback: () => Promise<UazapiConnectionResult>
+    callback: () => Promise<UazapiConnectionResult>,
   ): Promise<UazapiConnectionResult> {
     const startedAt = new Date();
 
     try {
       const result = await callback();
-      await this.recordUazapiIntegrationLog(instance, operation, startedAt, result);
+      await this.recordUazapiIntegrationLog(
+        instance,
+        operation,
+        startedAt,
+        result,
+      );
 
       return result;
     } catch (error) {
@@ -227,7 +249,9 @@ export class WhatsappConnectionsService {
         providerInstanceId: instance.providerInstanceId ?? instance.id,
         connectionStatus: "error",
         qrCode: null,
-        message: error instanceof Error ? error.message : "Erro ao chamar Uazapi"
+        connectedPhone: null,
+        message:
+          error instanceof Error ? error.message : "Erro ao chamar Uazapi",
       });
 
       throw error;
@@ -236,7 +260,7 @@ export class WhatsappConnectionsService {
 
   private async handleCloudApiInstance(
     instance: WhatsappInstanceRecord,
-    operation: CloudApiOperation
+    operation: CloudApiOperation,
   ): Promise<WhatsappInstanceConnectionDto> {
     const result = await this.handleCloudApiConnection(instance, operation);
 
@@ -245,24 +269,31 @@ export class WhatsappConnectionsService {
 
   private async handleCloudApiConnection(
     instance: WhatsappInstanceRecord,
-    operation: CloudApiOperation
+    operation: CloudApiOperation,
   ): Promise<UazapiConnectionResult> {
     const startedAt = new Date();
     const result = this.cloudApiPendingResult(instance);
 
-    await this.recordCloudApiIntegrationLog(instance, operation, startedAt, result);
+    await this.recordCloudApiIntegrationLog(
+      instance,
+      operation,
+      startedAt,
+      result,
+    );
 
     return result;
   }
 
   private cloudApiPendingResult(
-    instance: WhatsappInstanceRecord
+    instance: WhatsappInstanceRecord,
   ): UazapiConnectionResult {
     return {
       providerInstanceId: instance.providerInstanceId,
       connectionStatus: "not_configured",
       qrCode: null,
-      message: "WhatsApp Cloud API oficial ainda nao configurada para esta instancia"
+      connectedPhone: null,
+      message:
+        "WhatsApp Cloud API oficial ainda nao configurada para esta instancia",
     };
   }
 
@@ -270,7 +301,7 @@ export class WhatsappConnectionsService {
     instance: WhatsappInstanceRecord,
     operation: CloudApiOperation,
     startedAt: Date,
-    result: UazapiConnectionResult
+    result: UazapiConnectionResult,
   ): Promise<void> {
     const finishedAt = new Date();
 
@@ -290,14 +321,14 @@ export class WhatsappConnectionsService {
           requestSummary: {
             whatsappInstanceId: instance.id,
             provider: instance.provider,
-            providerInstanceConfigured: Boolean(instance.providerInstanceId)
+            providerInstanceConfigured: Boolean(instance.providerInstanceId),
           } as Prisma.InputJsonValue,
           responseSummary: {
             connectionStatus: result.connectionStatus,
             message: result.message,
-            hasQrCode: false
-          } as Prisma.InputJsonValue
-        }
+            hasQrCode: false,
+          } as Prisma.InputJsonValue,
+        },
       });
     } catch {
       return;
@@ -308,7 +339,7 @@ export class WhatsappConnectionsService {
     instance: WhatsappInstanceRecord,
     operation: UazapiOperation,
     startedAt: Date,
-    result: UazapiConnectionResult
+    result: UazapiConnectionResult,
   ): Promise<void> {
     const finishedAt = new Date();
     const status =
@@ -334,14 +365,14 @@ export class WhatsappConnectionsService {
           jobId: instance.id,
           requestSummary: {
             whatsappInstanceId: instance.id,
-            providerInstanceId: instance.providerInstanceId
+            providerInstanceId: instance.providerInstanceId,
           } as Prisma.InputJsonValue,
           responseSummary: {
             connectionStatus: result.connectionStatus,
             message: result.message,
-            hasQrCode: Boolean(result.qrCode)
-          } as Prisma.InputJsonValue
-        }
+            hasQrCode: Boolean(result.qrCode),
+          } as Prisma.InputJsonValue,
+        },
       });
     } catch {
       return;
@@ -351,7 +382,7 @@ export class WhatsappConnectionsService {
   private async recordUazapiLabelLog(
     instance: WhatsappInstanceRecord,
     startedAt: Date,
-    result: UazapiLabelListResult
+    result: UazapiLabelListResult,
   ): Promise<void> {
     const finishedAt = new Date();
     const status =
@@ -376,13 +407,13 @@ export class WhatsappConnectionsService {
           jobId: instance.id,
           requestSummary: {
             whatsappInstanceId: instance.id,
-            providerInstanceId: instance.providerInstanceId
+            providerInstanceId: instance.providerInstanceId,
           } as Prisma.InputJsonValue,
           responseSummary: {
             labelsCount: result.labels.length,
-            message: result.message
-          } as Prisma.InputJsonValue
-        }
+            message: result.message,
+          } as Prisma.InputJsonValue,
+        },
       });
     } catch {
       return;
@@ -409,17 +440,17 @@ export class WhatsappConnectionsService {
           resultStatus: input.result.connectionStatus,
           beforeSummary: this.connectionAuditSummary({
             instance: input.instance,
-            providerInstanceId: input.beforeProviderInstanceId
+            providerInstanceId: input.beforeProviderInstanceId,
           }),
           afterSummary: {
             ...(this.connectionAuditSummary({
               instance: input.instance,
-              providerInstanceId: input.instance.providerInstanceId
+              providerInstanceId: input.instance.providerInstanceId,
             }) as Record<string, unknown>),
             connectionStatus: input.result.connectionStatus,
-            hasQrCode: Boolean(input.result.qrCode)
-          } as Prisma.InputJsonValue
-        }
+            hasQrCode: Boolean(input.result.qrCode),
+          } as Prisma.InputJsonValue,
+        },
       });
     } catch {
       return;
@@ -436,7 +467,7 @@ export class WhatsappConnectionsService {
       providerInstanceConfigured: Boolean(input.providerInstanceId),
       providerInstanceIdHash: input.providerInstanceId
         ? this.hashSensitiveValue(input.providerInstanceId)
-        : null
+        : null,
     } as Prisma.InputJsonValue;
   }
 
@@ -444,7 +475,9 @@ export class WhatsappConnectionsService {
     return createHash("sha256").update(value).digest("hex");
   }
 
-  private getProviderToken(instance: WhatsappInstanceRecord): string | undefined {
+  private getProviderToken(
+    instance: WhatsappInstanceRecord,
+  ): string | undefined {
     if (
       !instance.providerTokenEncrypted ||
       !instance.providerTokenIv ||
@@ -456,19 +489,19 @@ export class WhatsappConnectionsService {
     return this.tokenEncryption.decrypt({
       encryptedAccessToken: instance.providerTokenEncrypted,
       tokenIv: instance.providerTokenIv,
-      tokenTag: instance.providerTokenTag
+      tokenTag: instance.providerTokenTag,
     });
   }
 
   private async getActiveInstance(
     workspaceId: string,
-    whatsappInstanceId: string
+    whatsappInstanceId: string,
   ): Promise<WhatsappInstanceRecord> {
     const instance = (await this.prisma.whatsappInstance.findFirst({
       where: {
         id: whatsappInstanceId,
-        workspaceId
-      }
+        workspaceId,
+      },
     })) as WhatsappInstanceRecord | null;
 
     if (!instance) {
@@ -477,7 +510,7 @@ export class WhatsappConnectionsService {
 
     if (instance.status !== "active") {
       throw new ForbiddenException(
-        "Instancia WhatsApp ainda nao foi liberada por pagamento"
+        "Instancia WhatsApp ainda nao foi liberada por pagamento",
       );
     }
 
@@ -486,7 +519,7 @@ export class WhatsappConnectionsService {
 
   private toDto(
     instance: WhatsappInstanceRecord,
-    result: UazapiConnectionResult
+    result: UazapiConnectionResult,
   ): WhatsappInstanceConnectionDto {
     return {
       whatsappInstanceId: instance.id,
@@ -494,7 +527,8 @@ export class WhatsappConnectionsService {
       billingStatus: instance.status,
       connectionStatus: result.connectionStatus,
       qrCode: result.qrCode,
-      message: result.message
+      connectedPhone: result.connectedPhone,
+      message: result.message,
     };
   }
 }

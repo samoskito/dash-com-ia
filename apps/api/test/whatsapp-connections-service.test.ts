@@ -18,10 +18,10 @@ function createHarness() {
         activations: [
           {
             paymentCharge: {
-              checkoutUrl: "https://sandbox.asaas.com/i/pay_1"
-            }
-          }
-        ]
+              checkoutUrl: "https://sandbox.asaas.com/i/pay_1",
+            },
+          },
+        ],
       },
       {
         id: "wpp_active",
@@ -34,7 +34,7 @@ function createHarness() {
         providerTokenIv: "iv",
         providerTokenTag: "tag",
         createdAt: new Date("2026-07-02T03:01:00.000Z"),
-        activations: []
+        activations: [],
       },
       {
         id: "wpp_cloud",
@@ -47,80 +47,83 @@ function createHarness() {
         providerTokenIv: null,
         providerTokenTag: null,
         createdAt: new Date("2026-07-02T03:02:00.000Z"),
-        activations: []
-      }
-    ] as Array<Record<string, unknown>>
+        activations: [],
+      },
+    ] as Array<Record<string, unknown>>,
   };
   const prisma = {
     whatsappInstance: {
       findFirst: async ({
-        where
+        where,
       }: {
         where: { id: string; workspaceId: string };
       }) =>
         db.instances.find(
           (instance) =>
-            instance.id === where.id && instance.workspaceId === where.workspaceId
+            instance.id === where.id &&
+            instance.workspaceId === where.workspaceId,
         ) ?? null,
       findMany: async ({ where }: { where: { workspaceId: string } }) =>
-        db.instances.filter((instance) => instance.workspaceId === where.workspaceId),
+        db.instances.filter(
+          (instance) => instance.workspaceId === where.workspaceId,
+        ),
       update: async ({
         data,
-        where
+        where,
       }: {
         data: Record<string, unknown>;
         where: { id: string };
       }) => {
         const index = db.instances.findIndex(
-          (instance) => instance.id === where.id
+          (instance) => instance.id === where.id,
         );
         db.instances[index] = {
           ...db.instances[index],
-          ...data
+          ...data,
         };
         return db.instances[index];
-      }
+      },
     },
     integrationLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const log = {
           id: `integration_${db.integrationLogs.length + 1}`,
           startedAt: data.startedAt ?? new Date("2026-07-02T03:00:00.000Z"),
-          ...data
+          ...data,
         };
         db.integrationLogs.push(log);
         return log;
-      }
+      },
     },
     auditLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const log = {
           id: `audit_${db.auditLogs.length + 1}`,
-          ...data
+          ...data,
         };
         db.auditLogs.push(log);
         return log;
-      }
-    }
+      },
+    },
   };
   const uazapiAdapter = {
     connectInstance: vi.fn(async () => ({
       providerInstanceId: "provider_instance_1",
       connectionStatus: "qr_required",
       qrCode: "qr-code-text",
-      message: "Escaneie o QR Code"
+      message: "Escaneie o QR Code",
     })),
     getInstanceStatus: vi.fn(async () => ({
       providerInstanceId: "provider_instance_1",
       connectionStatus: "connected",
       qrCode: null,
-      message: "WhatsApp conectado"
+      message: "WhatsApp conectado",
     })),
     getQr: vi.fn(async () => ({
       providerInstanceId: "provider_instance_1",
       connectionStatus: "qr_required",
       qrCode: "qr-code-text",
-      message: "Escaneie o QR Code"
+      message: "Escaneie o QR Code",
     })),
     listLabels: vi.fn(async () => ({
       status: "success",
@@ -130,14 +133,14 @@ function createHarness() {
           id: "label_uuid_1",
           name: "Venda fechada",
           colorHex: "#fed428",
-          labelId: "10"
-        }
-      ]
-    }))
+          labelId: "10",
+        },
+      ],
+    })),
   };
 
   const tokenEncryption = {
-    decrypt: vi.fn(() => "instance-token-1")
+    decrypt: vi.fn(() => "instance-token-1"),
   };
 
   return {
@@ -145,10 +148,10 @@ function createHarness() {
     service: new WhatsappConnectionsService(
       prisma as never,
       uazapiAdapter as never,
-      tokenEncryption as never
+      tokenEncryption as never,
     ),
     tokenEncryption,
-    uazapiAdapter
+    uazapiAdapter,
   };
 }
 
@@ -166,7 +169,7 @@ describe("whatsapp connections service", () => {
         billingStatus: "pending_payment",
         providerInstanceId: null,
         checkoutUrl: "https://sandbox.asaas.com/i/pay_1",
-        createdAt: expect.any(String)
+        createdAt: expect.any(String),
       },
       {
         id: "wpp_active",
@@ -175,7 +178,7 @@ describe("whatsapp connections service", () => {
         billingStatus: "active",
         providerInstanceId: "provider_instance_1",
         checkoutUrl: null,
-        createdAt: expect.any(String)
+        createdAt: expect.any(String),
       },
       {
         id: "wpp_cloud",
@@ -184,8 +187,8 @@ describe("whatsapp connections service", () => {
         billingStatus: "active",
         providerInstanceId: null,
         checkoutUrl: null,
-        createdAt: expect.any(String)
-      }
+        createdAt: expect.any(String),
+      },
     ]);
   });
 
@@ -193,7 +196,7 @@ describe("whatsapp connections service", () => {
     const { service, uazapiAdapter } = createHarness();
 
     await expect(
-      service.connectInstance("workspace_1", "wpp_pending")
+      service.connectInstance("workspace_1", "wpp_pending"),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(uazapiAdapter.connectInstance).not.toHaveBeenCalled();
   });
@@ -205,14 +208,14 @@ describe("whatsapp connections service", () => {
 
     expect(uazapiAdapter.getInstanceStatus).toHaveBeenCalledWith(
       "provider_instance_1",
-      "instance-token-1"
+      "instance-token-1",
     );
     expect(status).toMatchObject({
       whatsappInstanceId: "wpp_active",
       provider: "uazapi",
       billingStatus: "active",
       connectionStatus: "connected",
-      qrCode: null
+      qrCode: null,
     });
     expect(JSON.stringify(status)).not.toContain("secret");
     expect(db.integrationLogs).toContainEqual(
@@ -223,8 +226,8 @@ describe("whatsapp connections service", () => {
         status: "success",
         providerRequestId: "provider_instance_1",
         providerErrorMessage: null,
-        jobId: "wpp_active"
-      })
+        jobId: "wpp_active",
+      }),
     );
     expect(JSON.stringify(db.integrationLogs)).not.toContain("qr-code-text");
     expect(JSON.stringify(db.integrationLogs)).not.toContain("secret");
@@ -243,7 +246,9 @@ describe("whatsapp connections service", () => {
       billingStatus: "active",
       connectionStatus: "not_configured",
       qrCode: null,
-      message: "WhatsApp Cloud API oficial ainda nao configurada para esta instancia"
+      connectedPhone: null,
+      message:
+        "WhatsApp Cloud API oficial ainda nao configurada para esta instancia",
     });
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({
@@ -254,8 +259,8 @@ describe("whatsapp connections service", () => {
         providerRequestId: null,
         providerErrorMessage:
           "WhatsApp Cloud API oficial ainda nao configurada para esta instancia",
-        jobId: "wpp_cloud"
-      })
+        jobId: "wpp_cloud",
+      }),
     );
   });
 
@@ -288,16 +293,16 @@ describe("whatsapp connections service", () => {
         beforeSummary: expect.objectContaining({
           provider: "uazapi",
           providerInstanceConfigured: false,
-          providerInstanceIdHash: null
+          providerInstanceIdHash: null,
         }),
         afterSummary: expect.objectContaining({
           provider: "uazapi",
           providerInstanceConfigured: true,
           providerInstanceIdHash: expect.any(String),
           connectionStatus: "qr_required",
-          hasQrCode: true
-        })
-      })
+          hasQrCode: true,
+        }),
+      }),
     );
     expect(JSON.stringify(db.auditLogs)).not.toContain("provider_instance_1");
     expect(JSON.stringify(db.auditLogs)).not.toContain("qr-code-text");
@@ -307,7 +312,7 @@ describe("whatsapp connections service", () => {
     const { service } = createHarness();
 
     await expect(
-      service.getStatus("workspace_2", "wpp_active")
+      service.getStatus("workspace_2", "wpp_active"),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -318,15 +323,15 @@ describe("whatsapp connections service", () => {
 
     expect(uazapiAdapter.listLabels).toHaveBeenCalledWith(
       "provider_instance_1",
-      "instance-token-1"
+      "instance-token-1",
     );
     expect(labels).toEqual([
       {
         id: "label_uuid_1",
         name: "Venda fechada",
         colorHex: "#fed428",
-        labelId: "10"
-      }
+        labelId: "10",
+      },
     ]);
     expect(db.integrationLogs).toContainEqual(
       expect.objectContaining({
@@ -335,8 +340,8 @@ describe("whatsapp connections service", () => {
         operation: "uazapi.labels.list",
         status: "success",
         providerRequestId: "provider_instance_1",
-        jobId: "wpp_active"
-      })
+        jobId: "wpp_active",
+      }),
     );
   });
 });

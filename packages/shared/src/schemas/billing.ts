@@ -401,6 +401,7 @@ export const uazapiPackageProvisionSchema = z.object({
       "error",
     ]),
     qrCode: z.string().min(1).nullable(),
+    connectedPhone: z.string().min(8).max(24).nullable().default(null),
     message: z.string().min(1).nullable(),
   }),
 });
@@ -498,6 +499,7 @@ export const whatsappInstanceConnectionSchema = z.object({
   ]),
   connectionStatus: z.enum(whatsappConnectionStatuses),
   qrCode: z.string().min(1).nullable(),
+  connectedPhone: z.string().min(8).max(24).nullable().default(null),
   message: z.string().min(1).nullable(),
 });
 

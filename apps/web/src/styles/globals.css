@@ -9523,6 +9523,82 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   border-right: 0;
 }
 
+.package-instance-inventory {
+  display: grid;
+  gap: 12px;
+  padding: 18px 0 4px;
+  border-top: 1px solid var(--border);
+}
+
+.package-instance-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.package-instance-heading h3 {
+  margin: 5px 0 0;
+  font-family: var(--font-display);
+  font-size: 19px;
+}
+
+.package-instance-list {
+  display: grid;
+  border-top: 1px solid var(--border);
+}
+
+.package-instance-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 38px minmax(180px, 1.15fr) minmax(210px, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.package-instance-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(66, 240, 168, 0.3);
+  border-radius: 8px;
+  color: var(--mint);
+  background: rgba(66, 240, 168, 0.06);
+}
+
+.package-instance-identity,
+.package-instance-phone {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.package-instance-identity strong,
+.package-instance-phone strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-display);
+  font-size: 15px;
+}
+
+.package-instance-identity span,
+.package-instance-phone span {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.package-instance-empty {
+  margin: 0;
+  padding: 6px 0 2px;
+}
+
 .package-seat-actions {
   display: flex;
   flex-wrap: wrap;
@@ -9718,11 +9794,25 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   .package-profile-form fieldset {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .package-instance-row {
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+  }
+
+  .package-instance-phone {
+    grid-column: 2;
+  }
+
+  .package-instance-row > .status-chip {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
 }
 
 @media (max-width: 640px) {
   .package-billing-header,
   .package-section-heading,
+  .package-instance-heading,
   .package-alert {
     align-items: flex-start;
     flex-direction: column;
@@ -9753,6 +9843,17 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
 
   .package-field-wide {
     grid-column: auto;
+  }
+
+  .package-instance-row {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .package-instance-phone,
+  .package-instance-row > .status-chip {
+    grid-column: 2;
+    grid-row: auto;
+    justify-self: start;
   }
 
   .package-qr-result img {

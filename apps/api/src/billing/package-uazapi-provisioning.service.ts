@@ -131,7 +131,7 @@ export class PackageUazapiProvisioningService {
         seat = await this.seats.activateSeat(
           workspaceId,
           seat.id,
-          null,
+          connection.connectedPhone,
           actorUserId,
         );
       }
@@ -154,6 +154,7 @@ export class PackageUazapiProvisioningService {
           billingStatus: "active",
           connectionStatus: connection.connectionStatus,
           qrCode: connection.qrCode,
+          connectedPhone: connection.connectedPhone,
           message: connection.message,
         },
       };
@@ -389,14 +390,11 @@ export class PackageUazapiProvisioningService {
     actorUserId: string,
   ): Promise<UazapiPackageProvisionDto> {
     let seatDto = this.seats.mapSeat(seat);
-    if (
-      connection.connectionStatus === "connected" &&
-      seat.status === "reserved"
-    ) {
+    if (connection.connectionStatus === "connected") {
       seatDto = await this.seats.activateSeat(
         workspaceId,
         seat.id,
-        null,
+        connection.connectedPhone,
         actorUserId,
       );
     }
@@ -412,6 +410,7 @@ export class PackageUazapiProvisioningService {
             ? "error"
             : connection.connectionStatus,
         qrCode: connection.qrCode,
+        connectedPhone: connection.connectedPhone,
         message: connection.message,
       },
     };
