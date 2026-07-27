@@ -61,10 +61,7 @@ export class PackageCheckoutService {
       orderBy: { createdAt: "desc" }
     });
 
-    if (
-      reusable?.asaasCheckoutId &&
-      reusable.asaasCheckoutUrl
-    ) {
+    if (reusable?.asaasCheckoutId && reusable.asaasCheckoutUrl) {
       return {
         workspaceId,
         subscriptionId: reusable.id,
@@ -73,6 +70,19 @@ export class PackageCheckoutService {
         status: "awaiting_payment"
       };
     }
+
+    const resumable = await this.prisma.workspaceSubscription.findFirst({
+      where: {
+        workspaceId,
+        planId,
+        isCurrent: false,
+        contractStatus: {
+          in: ["draft", "awaiting_payment"]
+        },
+        asaasSubscriptionId: null
+      },
+      orderBy: { createdAt: "desc" }
+    });
 
     const profile = await this.prisma.workspaceBillingProfile.findUnique({
       where: { workspaceId }
@@ -101,13 +111,15 @@ export class PackageCheckoutService {
       }
     });
 
-    const assignment = await this.contracts.assignPlan(
-      workspaceId,
-      planId,
-      actorUserId,
-      "Contratacao iniciada pelo cliente",
-      "user"
-    );
+    const assignment = resumable
+      ? { subscriptionId: resumable.id }
+      : await this.contracts.assignPlan(
+          workspaceId,
+          planId,
+          actorUserId,
+          "Contratacao iniciada pelo cliente",
+          "user"
+        );
     const checkout = await this.asaas.createRecurringCheckout({
       workspaceId,
       subscriptionId: assignment.subscriptionId,

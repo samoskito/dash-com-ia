@@ -384,6 +384,10 @@ export default async function SubscriptionPage() {
         <div className="package-plan-grid">
           {billing.availablePlans.map((plan) => {
             const selected = contract?.planId === plan.id;
+            const checkoutPending =
+              selected &&
+              (contract?.status === "draft" ||
+                contract?.status === "awaiting_payment");
             const checkoutEnabled =
               canManageBilling &&
               billing.capabilities.packageBilling &&
@@ -406,9 +410,15 @@ export default async function SubscriptionPage() {
                   <small>/mes</small>
                 </strong>
                 <span className={`status-chip${selected ? "" : " neutral"}`}>
-                  {selected ? "Pacote atual" : "Disponivel"}
+                  {checkoutPending
+                    ? contract?.status === "draft"
+                      ? "Checkout pendente"
+                      : "Aguardando pagamento"
+                    : selected
+                      ? "Pacote atual"
+                      : "Disponivel"}
                 </span>
-                {!selected ? (
+                {!selected || checkoutPending ? (
                   <PackageBillingActionForm
                     action={startPackageCheckoutAction}
                   >
@@ -419,7 +429,9 @@ export default async function SubscriptionPage() {
                       pendingLabel="Abrindo..."
                       statusText="Preparando checkout recorrente."
                     >
-                      Contratar pacote
+                      {checkoutPending
+                        ? "Continuar pagamento"
+                        : "Contratar pacote"}
                     </SubmitButton>
                   </PackageBillingActionForm>
                 ) : null}

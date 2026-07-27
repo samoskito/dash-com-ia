@@ -71,7 +71,7 @@ function createHarness() {
     contracts as never
   );
 
-  return { asaas, contracts, plans, service };
+  return { asaas, contracts, plans, prisma, service };
 }
 
 describe("PackageCheckoutService", () => {
@@ -93,6 +93,62 @@ describe("PackageCheckoutService", () => {
     });
     expect(contracts.markAwaitingPayment).toHaveBeenCalledOnce();
     expect(contracts.activatePaidContract).not.toHaveBeenCalled();
+  });
+
+  it("resumes a draft contract after checkout creation previously failed", async () => {
+    const { asaas, contracts, prisma, service } = createHarness();
+    prisma.workspaceSubscription.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "contract_draft_1",
+        contractStatus: "draft"
+      });
+
+    const result = await service.createCheckout(
+      "workspace_1",
+      "plan_1",
+      "user_1"
+    );
+
+    expect(result.subscriptionId).toBe("contract_draft_1");
+    expect(contracts.assignPlan).not.toHaveBeenCalled();
+    expect(asaas.createRecurringCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subscriptionId: "contract_draft_1"
+      })
+    );
+    expect(contracts.markAwaitingPayment).toHaveBeenCalledWith(
+      "contract_draft_1",
+      expect.objectContaining({
+        checkoutId: "checkout_1"
+      })
+    );
+  });
+
+  it("returns an unexpired checkout without creating another Asaas session", async () => {
+    const { asaas, contracts, prisma, service } = createHarness();
+    prisma.workspaceSubscription.findFirst.mockResolvedValueOnce({
+      id: "contract_pending_1",
+      asaasCheckoutId: "checkout_existing_1",
+      asaasCheckoutUrl: "https://asaas.example.test/checkout_existing_1"
+    });
+
+    const result = await service.createCheckout(
+      "workspace_1",
+      "plan_1",
+      "user_1"
+    );
+
+    expect(result).toEqual({
+      workspaceId: "workspace_1",
+      subscriptionId: "contract_pending_1",
+      checkoutId: "checkout_existing_1",
+      checkoutUrl: "https://asaas.example.test/checkout_existing_1",
+      status: "awaiting_payment"
+    });
+    expect(contracts.assignPlan).not.toHaveBeenCalled();
+    expect(asaas.createRecurringCheckout).not.toHaveBeenCalled();
+    expect(contracts.markAwaitingPayment).not.toHaveBeenCalled();
   });
 
   it("never exposes a private custom plan in self-service checkout", async () => {
