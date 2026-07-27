@@ -66,10 +66,65 @@ function createHarness() {
     {} as never
   );
 
-  return { prisma, service };
+  return { asaas, prisma, service };
 }
 
 describe("PackageBillingWebhookService", () => {
+  it("resolves a checkout-created subscription by checkout session", async () => {
+    const { asaas, prisma, service } = createHarness();
+    asaas.parseContractExternalReference.mockReturnValueOnce(null);
+    prisma.workspaceSubscription.findFirst.mockImplementationOnce(
+      async (args: {
+        where?: {
+          asaasCheckoutId?: string;
+        };
+      }) =>
+        args.where?.asaasCheckoutId === "checkout_asaas_1"
+          ? contract
+          : null
+    );
+
+    const result = await service.tryProcess({
+      id: "evt_checkout_subscription_1",
+      event: "SUBSCRIPTION_CREATED",
+      dateCreated: "2026-07-27 16:21:28",
+      subscription: {
+        object: "subscription",
+        id: "sub_checkout_1",
+        customer: "cus_asaas_1",
+        value: 30,
+        status: "ACTIVE",
+        externalReference: null,
+        checkoutSession: "checkout_asaas_1"
+      }
+    });
+
+    expect(result).toMatchObject({
+      handled: true,
+      status: "processed",
+      workspaceId: "workspace_1"
+    });
+    expect(prisma.workspaceSubscription.findFirst).toHaveBeenCalledWith({
+      where: {
+        asaasCheckoutId: "checkout_asaas_1",
+        planNameSnapshot: { not: null }
+      }
+    });
+    expect(prisma.workspaceSubscription.update).toHaveBeenCalledWith({
+      where: { id: "contract_1" },
+      data: { asaasSubscriptionId: "sub_checkout_1" }
+    });
+    expect(prisma.billingProviderEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: "SUBSCRIPTION_CREATED",
+        resourceId: "sub_checkout_1",
+        resourceType: "subscription",
+        subscriptionId: "contract_1",
+        workspaceId: "workspace_1"
+      })
+    });
+  });
+
   it("does not process an event that was already completed", async () => {
     const { prisma, service } = createHarness();
     prisma.billingProviderEvent.create.mockRejectedValueOnce(duplicateError());

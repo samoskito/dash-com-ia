@@ -129,6 +129,7 @@ export class PackageBillingWebhookService {
     const asaasSubscriptionId =
       this.relationId(resource.subscription) ??
       (resourceType === "subscription" ? resourceId : null);
+    const asaasCheckoutId = this.relationId(resource.checkoutSession);
 
     let contract = parsedReference
       ? await this.prisma.workspaceSubscription.findFirst({
@@ -144,6 +145,15 @@ export class PackageBillingWebhookService {
       contract = await this.prisma.workspaceSubscription.findFirst({
         where: {
           asaasSubscriptionId,
+          planNameSnapshot: { not: null }
+        }
+      });
+    }
+
+    if (!contract && asaasCheckoutId) {
+      contract = await this.prisma.workspaceSubscription.findFirst({
+        where: {
+          asaasCheckoutId,
           planNameSnapshot: { not: null }
         }
       });
