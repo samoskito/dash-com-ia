@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InboundWebhookJobPayload } from "../src/common/queue/queue.constants";
 import { hashPhoneIdentity } from "../src/common/phone/phone-identity";
 import type { PrismaService } from "../src/common/prisma/prisma.service";
@@ -27,6 +27,16 @@ const fixturePath = resolve(
   "umbler",
   "message-with-ctwa.json",
 );
+const testNow = new Date("2026-07-18T15:00:00.000Z");
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(testNow);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function loadFixture(): UmblerV1Envelope {
   return JSON.parse(readFileSync(fixturePath, "utf8")) as UmblerV1Envelope;

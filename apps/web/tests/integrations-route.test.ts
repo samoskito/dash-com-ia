@@ -281,6 +281,51 @@ describe("integrations route", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
+            profile: null,
+            contract: {
+              id: "package_contract_1",
+              workspaceId: "workspace_1",
+              planId: "package_plan_1",
+              status: "active",
+              planName: "Pacote inicial",
+              planVersion: 1,
+              monthlyPriceCents: 5000,
+              includedWhatsappNumbers: 3,
+              occupiedWhatsappNumbers: 2,
+              billingMethod: "pix",
+              currentPeriodStart: "2026-07-01T00:00:00.000Z",
+              currentPeriodEnd: "2026-08-01T00:00:00.000Z",
+              graceEndsAt: null,
+              cancelAtPeriodEnd: false,
+              accessEndsAt: null,
+              fiscalStatus: "authorized",
+            },
+            availablePlans: [],
+            seats: {
+              capacity: 3,
+              occupied: 2,
+              available: 1,
+              reserved: 0,
+              active: 2,
+              suspended: 0,
+            },
+            invoices: [],
+            enforcementEnabled: false,
+            capabilities: {
+              packageBilling: true,
+              recurringCheckout: true,
+              lifecycle: true,
+              automaticInvoices: true,
+              uazapiProvisioning: true,
+              externalChannelEnforcement: false,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
             whatsappInstanceId: "wpp_1",
             provider: "uazapi",
             billingStatus: "active",
@@ -353,6 +398,10 @@ describe("integrations route", () => {
       expect.objectContaining({ credentials: "include" }),
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/billing/package/state",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:3333/workspaces/current",
       expect.objectContaining({ credentials: "include" }),
     );
@@ -409,11 +458,17 @@ describe("integrations route", () => {
     expect(html).toContain("Pagamento pendente");
     expect(html).toContain("Pagar agora");
     expect(html).toContain('href="https://sandbox.asaas.com/i/pay_2"');
-    expect(html).toContain("Adicionar instancia");
+    expect(html).not.toContain("Adicionar instancia");
+    expect(html).toContain("Pacote WhatsApp");
+    expect(html).toContain("Pacote inicial");
+    expect(html).toContain("Numeros incluidos");
+    expect(html).toContain("Gerenciar assinatura e QR");
     expect(html).toContain("99,00");
-    expect(html).toContain(
+    expect(html).not.toContain(
       "Ao continuar, o backend vai gerar uma cobranca de R$\u00a099,00 no Asaas antes da conexao.",
     );
+    expect(html).toContain("Conexoes gerenciadas pelo pacote");
+    expect(html).toContain("Abrir assinatura");
     expect(html).toContain("Assinatura");
     expect(html).toContain("Por instancia");
     expect(html).toContain("198,00");

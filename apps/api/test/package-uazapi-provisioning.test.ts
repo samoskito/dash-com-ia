@@ -1,0 +1,264 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PackageUazapiProvisioningService } from "../src/billing/package-uazapi-provisioning.service";
+
+const reservedSeatDto = {
+  id: "seat_1",
+  workspaceId: "workspace_1",
+  subscriptionId: "contract_1",
+  provider: "uazapi",
+  status: "reserved",
+  normalizedPhone: null,
+  whatsappInstanceId: "instance_1",
+  inboundWebhookChannelId: null,
+  reservationExpiresAt: "2026-07-26T15:00:00.000Z",
+  activatedAt: null,
+  suspendedAt: null,
+  releasedAt: null,
+} as const;
+
+const activeSeatDto = {
+  ...reservedSeatDto,
+  status: "active",
+  reservationExpiresAt: null,
+  activatedAt: "2026-07-26T14:00:00.000Z",
+} as const;
+
+const reservedSeatRecord = {
+  ...reservedSeatDto,
+  reservationExpiresAt: new Date("2026-07-26T15:00:00.000Z"),
+  activatedAt: null,
+  suspendedAt: null,
+  releasedAt: null,
+  createdAt: new Date("2026-07-26T14:00:00.000Z"),
+  updatedAt: new Date("2026-07-26T14:00:00.000Z"),
+  releaseReason: null,
+};
+
+function createHarness() {
+  const prisma = {
+    whatsappInstance: {
+      create: vi.fn().mockResolvedValue({ id: "instance_1" }),
+      delete: vi.fn().mockResolvedValue({ id: "instance_1" }),
+      update: vi.fn().mockResolvedValue({ id: "instance_1" }),
+      findFirst: vi.fn().mockResolvedValue({
+        id: "instance_1",
+        workspaceId: "workspace_1",
+        provider: "uazapi",
+        status: "active",
+        providerInstanceId: "provider_1",
+        providerTokenEncrypted: "encrypted",
+        providerTokenIv: "iv",
+        providerTokenTag: "tag",
+      }),
+    },
+    whatsappSeat: {
+      findFirst: vi.fn().mockResolvedValue(reservedSeatRecord),
+    },
+    integrationLog: {
+      create: vi.fn().mockResolvedValue({ id: "integration_log_1" }),
+    },
+    auditLog: {
+      create: vi.fn().mockResolvedValue({ id: "audit_log_1" }),
+    },
+    $transaction: vi
+      .fn()
+      .mockImplementation((operations: Promise<unknown>[]) =>
+        Promise.all(operations),
+      ),
+  };
+  const configuration = {
+    isPackageBillingEnabled: () => true,
+    isUazapiProvisioningEnabled: () => true,
+  };
+  const contracts = {
+    getCurrentAccessContract: vi.fn().mockResolvedValue({ id: "contract_1" }),
+  };
+  const seats = {
+    reserveSeat: vi.fn().mockResolvedValue(reservedSeatDto),
+    activateSeat: vi.fn().mockResolvedValue(activeSeatDto),
+    releaseSeat: vi.fn().mockResolvedValue({
+      ...reservedSeatDto,
+      status: "released",
+    }),
+    mapSeat: vi.fn().mockReturnValue(reservedSeatDto),
+  };
+  const uazapi = {
+    createInstance: vi.fn().mockResolvedValue({
+      status: "created",
+      providerInstanceId: "provider_1",
+      instanceToken: "secret",
+      message: null,
+    }),
+    configureInstanceWebhook: vi.fn().mockResolvedValue({
+      status: "configured",
+      message: null,
+    }),
+    connectInstance: vi.fn().mockResolvedValue({
+      providerInstanceId: "provider_1",
+      connectionStatus: "qr_required",
+      qrCode: "qr-code",
+      message: "Leia o QR code",
+    }),
+    getInstanceStatus: vi.fn().mockResolvedValue({
+      providerInstanceId: "provider_1",
+      connectionStatus: "connected",
+      qrCode: null,
+      message: "Conectado",
+    }),
+  };
+  const tokenEncryption = {
+    encrypt: vi.fn().mockReturnValue({
+      encryptedAccessToken: "encrypted",
+      tokenIv: "iv",
+      tokenTag: "tag",
+    }),
+    decrypt: vi.fn().mockReturnValue("secret"),
+  };
+  const service = new PackageUazapiProvisioningService(
+    prisma as never,
+    configuration as never,
+    contracts as never,
+    seats as never,
+    uazapi as never,
+    tokenEncryption as never,
+  );
+
+  return {
+    configuration,
+    contracts,
+    prisma,
+    seats,
+    service,
+    tokenEncryption,
+    uazapi,
+  };
+}
+
+describe("PackageUazapiProvisioningService", () => {
+  beforeEach(() => {
+    vi.stubEnv("API_PUBLIC_URL", "https://api.example.test");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("removes the local placeholder when capacity reservation fails", async () => {
+    const harness = createHarness();
+    harness.seats.reserveSeat.mockRejectedValueOnce(
+      new Error("capacity_exceeded"),
+    );
+
+    await expect(
+      harness.service.provision("workspace_1", "Vendas", "user_1"),
+    ).rejects.toThrow("capacity_exceeded");
+
+    expect(harness.prisma.whatsappInstance.delete).toHaveBeenCalledWith({
+      where: { id: "instance_1" },
+    });
+    expect(harness.uazapi.createInstance).not.toHaveBeenCalled();
+  });
+
+  it("keeps the seat reserved while the provider is waiting for the QR code", async () => {
+    const harness = createHarness();
+
+    const result = await harness.service.provision(
+      "workspace_1",
+      "Vendas",
+      "user_1",
+    );
+
+    expect(result.seat.status).toBe("reserved");
+    expect(result.connection.connectionStatus).toBe("qr_required");
+    expect(result.connection.qrCode).toBe("qr-code");
+    expect(harness.seats.activateSeat).not.toHaveBeenCalled();
+  });
+
+  it("activates the reserved seat when the provider connects immediately", async () => {
+    const harness = createHarness();
+    harness.uazapi.connectInstance.mockResolvedValueOnce({
+      providerInstanceId: "provider_1",
+      connectionStatus: "connected",
+      qrCode: null,
+      message: "Conectado",
+    });
+
+    const result = await harness.service.provision(
+      "workspace_1",
+      "Vendas",
+      "user_1",
+    );
+
+    expect(result.seat.status).toBe("active");
+    expect(harness.seats.activateSeat).toHaveBeenCalledWith(
+      "workspace_1",
+      "seat_1",
+      null,
+      "user_1",
+    );
+  });
+
+  it("releases the reservation when provider connection setup fails", async () => {
+    const harness = createHarness();
+    harness.uazapi.connectInstance.mockResolvedValueOnce({
+      providerInstanceId: "provider_1",
+      connectionStatus: "error",
+      qrCode: null,
+      message: "Falha no provedor",
+    });
+
+    await expect(
+      harness.service.provision("workspace_1", "Vendas", "user_1"),
+    ).rejects.toThrow("Nao foi possivel preparar a conexao Uazapi");
+
+    expect(harness.seats.releaseSeat).toHaveBeenCalledWith(
+      "workspace_1",
+      "seat_1",
+      "uazapi_provisioning_failed",
+      "user_1",
+    );
+    expect(harness.prisma.whatsappInstance.update).toHaveBeenLastCalledWith({
+      where: { id: "instance_1" },
+      data: { status: "error" },
+    });
+  });
+
+  it("promotes a reserved seat only after status polling confirms connected", async () => {
+    const harness = createHarness();
+
+    const result = await harness.service.getProvisioningStatus(
+      "workspace_1",
+      "instance_1",
+      "user_1",
+    );
+
+    expect(result.connection.connectionStatus).toBe("connected");
+    expect(result.seat.status).toBe("active");
+    expect(harness.seats.activateSeat).toHaveBeenCalledWith(
+      "workspace_1",
+      "seat_1",
+      null,
+      "user_1",
+    );
+  });
+
+  it("does not activate an already active seat again during polling", async () => {
+    const harness = createHarness();
+    harness.prisma.whatsappSeat.findFirst.mockResolvedValueOnce({
+      ...reservedSeatRecord,
+      status: "active",
+      reservationExpiresAt: null,
+      activatedAt: new Date("2026-07-26T14:00:00.000Z"),
+    });
+    harness.seats.mapSeat.mockReturnValueOnce(activeSeatDto);
+
+    const result = await harness.service.getProvisioningStatus(
+      "workspace_1",
+      "instance_1",
+      "user_1",
+    );
+
+    expect(result.seat.status).toBe("active");
+    expect(harness.seats.activateSeat).not.toHaveBeenCalled();
+  });
+});

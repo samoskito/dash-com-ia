@@ -3,6 +3,7 @@ import { Test } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { BillingService } from "../src/billing/billing.service";
+import { PackageBillingWebhookService } from "../src/billing/package-billing-webhook.service";
 import { ConversionEventsQueueService } from "../src/common/queue/conversion-events-queue.service";
 import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
 import { ConversionRulesService } from "../src/conversion-rules/conversion-rules.service";
@@ -46,6 +47,11 @@ async function createApp() {
       status: "paid",
       chargeId: "charge_1",
       activationId: "activation_1"
+    }))
+  };
+  const packageBillingWebhook = {
+    tryProcess: vi.fn(async () => ({
+      handled: false
     }))
   };
   const conversionRulesService = {
@@ -122,6 +128,10 @@ async function createApp() {
     providers: [
       { provide: DiagnosticsService, useValue: diagnosticsService },
       { provide: BillingService, useValue: billingService },
+      {
+        provide: PackageBillingWebhookService,
+        useValue: packageBillingWebhook
+      },
       { provide: ConversionRulesService, useValue: conversionRulesService },
       { provide: ConversionEventsService, useValue: conversionEventsService },
       {
@@ -140,6 +150,7 @@ async function createApp() {
     app,
     diagnosticsService,
     billingService,
+    packageBillingWebhook,
     conversionRulesService,
     conversionEventsService,
     conversionEventsQueueService,

@@ -1,4 +1,5 @@
 import {
+  CreditCard,
   Home,
   Settings2,
   UsersRound,
@@ -6,7 +7,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export type BackofficeArea = "clients" | "home" | "operations" | "webhooks";
+export type BackofficeArea =
+  | "billing"
+  | "clients"
+  | "home"
+  | "operations"
+  | "webhooks";
 
 type BackofficeNavigationProps = {
   active: BackofficeArea;
@@ -32,6 +38,13 @@ const items: Array<{
     icon: UsersRound,
     label: "Clientes",
     shortLabel: "Clientes",
+  },
+  {
+    area: "billing",
+    href: "/backoffice/billing",
+    icon: CreditCard,
+    label: "Assinaturas",
+    shortLabel: "Assinaturas",
   },
   {
     area: "webhooks",

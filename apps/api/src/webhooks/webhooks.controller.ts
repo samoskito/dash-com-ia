@@ -13,6 +13,7 @@ import {
   UnauthorizedException
 } from "@nestjs/common";
 import { BillingService } from "../billing/billing.service";
+import { PackageBillingWebhookService } from "../billing/package-billing-webhook.service";
 import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsService } from "../conversion-events/conversion-events.service";
@@ -41,6 +42,8 @@ export class WebhooksController {
     private readonly diagnosticsService: DiagnosticsService,
     @Inject(BillingService)
     private readonly billingService: BillingService,
+    @Inject(PackageBillingWebhookService)
+    private readonly packageBillingWebhook: PackageBillingWebhookService,
     @Inject(ConversionRulesService)
     private readonly conversionRulesService: ConversionRulesService,
     @Inject(ConversionEventsService)
@@ -136,6 +139,28 @@ export class WebhooksController {
     @Headers("x-workspace-id") workspaceId?: string
   ) {
     this.assertAsaasWebhookToken(asaasAccessToken);
+    const packageBilling =
+      await this.packageBillingWebhook.tryProcess(body);
+
+    if (packageBilling.handled) {
+      if (
+        workspaceId &&
+        packageBilling.workspaceId &&
+        workspaceId !== packageBilling.workspaceId
+      ) {
+        throw new UnauthorizedException("Webhook Asaas nao autorizado");
+      }
+
+      return {
+        status: packageBilling.status ?? "processed",
+        billing: {
+          processed: packageBilling.status === "processed",
+          status: packageBilling.status ?? "processed",
+          code: packageBilling.code
+        }
+      };
+    }
+
     const context =
       await this.billingService.resolveAsaasPaymentWebhookContext(body);
 

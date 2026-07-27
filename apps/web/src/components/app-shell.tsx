@@ -16,6 +16,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plug,
+  CreditCard,
   Send,
   Settings2,
   ShieldCheck,
@@ -48,6 +49,7 @@ const navigationIconById: Record<ClientNavigationId, LucideIcon> = {
   events: Send,
   integrations: Plug,
   settings: Settings2,
+  subscription: CreditCard,
 };
 
 const navigationGroups = [
@@ -60,7 +62,7 @@ const navigationGroups = [
   {
     label: "Gestao",
     items: clientNavigation.filter((item) =>
-      ["integrations", "settings"].includes(item.id),
+      ["integrations", "settings", "subscription"].includes(item.id),
     ),
   },
 ] as const;

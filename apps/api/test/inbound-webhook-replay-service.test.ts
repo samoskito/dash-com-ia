@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ConflictException, ServiceUnavailableException } from "@nestjs/common";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InboundWebhookReplayService } from "../src/inbound-webhook-replay/inbound-webhook-replay.service";
 import { InboundWebhookParserRegistry } from "../src/inbound-webhooks/providers/inbound-webhook-parser.registry";
 
@@ -9,6 +9,11 @@ const workspaceId = "workspace_1";
 const connectionId = "connection_1";
 const channelId = "channel_1";
 const now = new Date("2026-07-18T15:00:00.000Z");
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(now);
+});
 
 afterEach(() => {
   vi.useRealTimers();

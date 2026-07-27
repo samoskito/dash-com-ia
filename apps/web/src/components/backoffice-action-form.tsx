@@ -24,16 +24,17 @@ export type BackofficeActionState = {
 
 export type BackofficeFormAction = (
   previousState: BackofficeActionState,
-  formData: FormData
+  formData: FormData,
 ) => Promise<BackofficeActionState>;
 
 export const initialBackofficeActionState: BackofficeActionState = {
   status: "idle",
   message: "",
-  nonce: 0
+  nonce: 0,
 };
 
 type BackofficeActionFormProps = {
+  id?: string;
   action: BackofficeFormAction;
   children: ReactNode;
   className?: string;
@@ -42,13 +43,17 @@ type BackofficeActionFormProps = {
 };
 
 export function BackofficeActionForm({
+  id,
   action,
   children,
   className,
   resetOnSuccess = false,
-  onSuccess
+  onSuccess,
 }: BackofficeActionFormProps) {
-  const [state, formAction] = useActionState(action, initialBackofficeActionState);
+  const [state, formAction] = useActionState(
+    action,
+    initialBackofficeActionState,
+  );
   const [noticeVisible, setNoticeVisible] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const handledNonceRef = useRef(0);
@@ -74,7 +79,7 @@ export function BackofficeActionForm({
 
   return (
     <>
-      <form ref={formRef} className={className} action={formAction}>
+      <form id={id} ref={formRef} className={className} action={formAction}>
         {children}
       </form>
       {noticeVisible ? (
@@ -83,7 +88,9 @@ export function BackofficeActionForm({
           role="status"
           aria-live="polite"
         >
-          <strong>{state.status === "error" ? "Acao nao concluida" : "Concluido"}</strong>
+          <strong>
+            {state.status === "error" ? "Acao nao concluida" : "Concluido"}
+          </strong>
           <span>{state.message}</span>
         </div>
       ) : null}

@@ -77,6 +77,76 @@ enum WhatsappInstanceActivationStatus {
   expired
 }
 
+enum SubscriptionPlanKind {
+  standard
+  custom
+  exempt
+  legacy_protected
+}
+
+enum SubscriptionPlanVisibility {
+  public
+  private
+}
+
+enum WorkspaceSubscriptionContractStatus {
+  draft
+  awaiting_payment
+  active
+  past_due
+  grace_period
+  cancel_at_period_end
+  suspended
+  canceled
+  exempt
+  legacy_protected
+}
+
+enum SubscriptionPaymentMethod {
+  unknown
+  credit_card
+  pix
+}
+
+enum WorkspaceBillingProfileStatus {
+  incomplete
+  valid
+  invalid
+}
+
+enum WhatsappSeatStatus {
+  reserved
+  active
+  suspended
+  released
+}
+
+enum WhatsappSeatProvider {
+  uazapi
+  cloud_api
+  umbler
+  gupshup
+}
+
+enum BillingProviderEventStatus {
+  received
+  processing
+  processed
+  ignored
+  failed
+}
+
+enum BillingInvoiceStatus {
+  not_configured
+  pending_configuration
+  scheduled
+  issued
+  authorized
+  canceled
+  failed
+  rejected
+}
+
 enum ConversionTriggerType {
   keyword
   whatsapp_label
@@ -312,6 +382,9 @@ model User {
   createdProviderConversionRules   ProviderConversionRuleConfig[]    @relation("ProviderConversionRuleCreator")
   decidedPurchaseReviews           PurchaseReview[]                  @relation("PurchaseReviewDecisionActor")
   purchaseValueAdjustments         PurchaseValueAdjustment[]         @relation("PurchaseValueAdjustmentActor")
+  assignedWorkspaceSubscriptions   WorkspaceSubscription[]           @relation("WorkspaceSubscriptionAssigner")
+  billingContractAudits            BillingContractAudit[]            @relation("BillingContractAuditActor")
+  validatedPlatformFiscalSettings  PlatformFiscalSettings[]          @relation("PlatformFiscalSettingsValidator")
 
   @@index([lastWorkspaceId])
 }
@@ -335,6 +408,11 @@ model Workspace {
   jobAttempts                      JobAttempt[]
   auditLogs                        AuditLog[]
   subscriptions                    WorkspaceSubscription[]
+  billingProfile                   WorkspaceBillingProfile?
+  whatsappSeats                    WhatsappSeat[]
+  billingProviderEvents            BillingProviderEvent[]
+  billingContractAudits            BillingContractAudit[]
+  billingInvoices                  BillingInvoice[]
   paymentCharges                   PaymentCharge[]
   whatsappInstanceActivations      WhatsappInstanceActivation[]
   conversionRules                  ConversionRule[]
@@ -415,10 +493,12 @@ model WhatsappInstance {
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
 
-  workspace   Workspace                    @relation(fields: [workspaceId], references: [id])
-  activations WhatsappInstanceActivation[]
-  leads       Lead[]
+  workspace     Workspace                    @relation(fields: [workspaceId], references: [id])
+  activations   WhatsappInstanceActivation[]
+  leads         Lead[]
+  whatsappSeats WhatsappSeat[]
 
+  @@unique([workspaceId, id])
   @@index([workspaceId])
   @@index([providerInstanceId])
 }
@@ -802,38 +882,256 @@ model AuditLog {
 }
 
 model SubscriptionPlan {
-  id                            String   @id @default(cuid())
+  id                            String                     @id @default(cuid())
   name                          String
-  slug                          String   @unique
+  slug                          String                     @unique
   pricePerWhatsappInstanceCents Int
-  active                        Boolean  @default(true)
-  createdAt                     DateTime @default(now())
-  updatedAt                     DateTime @updatedAt
+  kind                          SubscriptionPlanKind       @default(standard)
+  visibility                    SubscriptionPlanVisibility @default(private)
+  monthlyPriceCents             Int?
+  includedWhatsappNumbers       Int?
+  version                       Int                        @default(1)
+  active                        Boolean                    @default(true)
+  createdAt                     DateTime                   @default(now())
+  updatedAt                     DateTime                   @updatedAt
 
-  subscriptions WorkspaceSubscription[]
+  subscriptions  WorkspaceSubscription[]
+  contractAudits BillingContractAudit[]
+
+  @@index([kind, visibility, active])
 }
 
 model WorkspaceSubscription {
-  id                  String    @id @default(cuid())
-  workspaceId         String
-  planId              String?
-  status              String
-  activeInstances     Int       @default(0)
-  asaasSubscriptionId String?
-  currentPeriodEnd    DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                              String                              @id @default(cuid())
+  workspaceId                     String
+  planId                          String?
+  status                          String
+  activeInstances                 Int                                 @default(0)
+  contractStatus                  WorkspaceSubscriptionContractStatus @default(draft)
+  isCurrent                       Boolean                             @default(false)
+  planNameSnapshot                String?
+  planVersionSnapshot             Int?
+  monthlyPriceCentsSnapshot       Int?
+  includedWhatsappNumbersSnapshot Int?
+  assignedAt                      DateTime?
+  assignedByUserId                String?
+  assignmentReason                String?
+  asaasCustomerId                 String?
+  asaasCheckoutId                 String?
+  asaasCheckoutUrl                String?
+  asaasCheckoutExpiresAt          DateTime?
+  asaasSubscriptionId             String?
+  billingMethod                   SubscriptionPaymentMethod           @default(unknown)
+  currentPeriodStart              DateTime?
+  currentPeriodEnd                DateTime?
+  graceEndsAt                     DateTime?
+  cancellationRequestedAt         DateTime?
+  cancellationReason              String?
+  cancelAtPeriodEnd               Boolean                             @default(false)
+  accessEndsAt                    DateTime?
+  fiscalStatus                    BillingInvoiceStatus                @default(not_configured)
+  fiscalLastErrorCode             String?
+  fiscalLastErrorAt               DateTime?
+  activatedAt                     DateTime?
+  suspendedAt                     DateTime?
+  canceledAt                      DateTime?
+  endedAt                         DateTime?
+  recurrenceStoppedAt             DateTime?
+  lastPaymentConfirmedAt          DateTime?
+  createdAt                       DateTime                            @default(now())
+  updatedAt                       DateTime                            @updatedAt
 
-  workspace Workspace         @relation(fields: [workspaceId], references: [id])
-  plan      SubscriptionPlan? @relation(fields: [planId], references: [id])
+  workspace       Workspace              @relation(fields: [workspaceId], references: [id])
+  plan            SubscriptionPlan?      @relation(fields: [planId], references: [id])
+  assignedBy      User?                  @relation("WorkspaceSubscriptionAssigner", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  whatsappSeats   WhatsappSeat[]
+  providerEvents  BillingProviderEvent[]
+  contractAudits  BillingContractAudit[]
+  paymentCharges  PaymentCharge[]
+  billingInvoices BillingInvoice[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, status])
+  @@index([workspaceId, isCurrent, contractStatus])
+  @@index([asaasSubscriptionId])
+  @@index([asaasCheckoutId])
+  @@index([asaasCheckoutExpiresAt])
+  @@index([graceEndsAt])
+  @@index([accessEndsAt])
+  @@index([fiscalStatus, fiscalLastErrorAt])
+  @@index([assignedByUserId])
+}
+
+model WorkspaceBillingProfile {
+  id                  String                        @id @default(cuid())
+  workspaceId         String                        @unique
+  payerType           String
+  payerName           String
+  taxId               String
+  billingEmail        String
+  phone               String
+  postalCode          String
+  addressLine         String
+  addressNumber       String
+  addressComplement   String?
+  district            String
+  city                String
+  state               String
+  asaasCustomerId     String?                       @unique
+  status              WorkspaceBillingProfileStatus @default(incomplete)
+  validatedAt         DateTime?
+  validationErrorCode String?
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+
+  @@index([status, updatedAt])
+  @@index([taxId])
+}
+
+model WhatsappSeat {
+  id                      String               @id @default(cuid())
+  workspaceId             String
+  subscriptionId          String
+  provider                WhatsappSeatProvider
+  normalizedPhone         String?
+  whatsappInstanceId      String?
+  inboundWebhookChannelId String?
+  status                  WhatsappSeatStatus   @default(reserved)
+  reservationExpiresAt    DateTime?
+  activatedAt             DateTime?
+  suspendedAt             DateTime?
+  releasedAt              DateTime?
+  releaseReason           String?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+
+  workspace             Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  subscription          WorkspaceSubscription  @relation(fields: [workspaceId, subscriptionId], references: [workspaceId, id], onDelete: Restrict, map: "WhatsappSeat_subscriptionId_fkey")
+  whatsappInstance      WhatsappInstance?      @relation(fields: [workspaceId, whatsappInstanceId], references: [workspaceId, id], onDelete: Restrict, map: "WhatsappSeat_whatsappInstanceId_fkey")
+  inboundWebhookChannel InboundWebhookChannel? @relation(fields: [workspaceId, inboundWebhookChannelId], references: [workspaceId, id], onDelete: Restrict, map: "WhatsappSeat_inboundWebhookChannelId_fkey")
 
   @@index([workspaceId, status])
-  @@index([asaasSubscriptionId])
+  @@index([subscriptionId, status])
+  @@index([normalizedPhone])
+  @@index([reservationExpiresAt, status])
+}
+
+model BillingProviderEvent {
+  id                 String                     @id @default(cuid())
+  workspaceId        String?
+  subscriptionId     String?
+  provider           String                     @default("asaas")
+  providerEventId    String
+  eventType          String
+  resourceType       String?
+  resourceId         String?
+  externalReference  String?
+  status             BillingProviderEventStatus @default(received)
+  payloadRedacted    Json?
+  processingAttempts Int                        @default(0)
+  lastErrorCode      String?
+  lastErrorMessage   String?
+  receivedAt         DateTime                   @default(now())
+  processedAt        DateTime?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  workspace    Workspace?             @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  subscription WorkspaceSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, providerEventId])
+  @@index([workspaceId, receivedAt])
+  @@index([subscriptionId, receivedAt])
+  @@index([provider, resourceType, resourceId])
+  @@index([status, receivedAt])
+}
+
+model BillingContractAudit {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  subscriptionId     String?
+  planId             String?
+  actorUserId        String?
+  actorType          String
+  action             String
+  reason             String?
+  beforeSnapshot     Json?
+  afterSnapshot      Json?
+  providerReferences Json?
+  createdAt          DateTime @default(now())
+
+  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  subscription WorkspaceSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  plan         SubscriptionPlan?      @relation(fields: [planId], references: [id], onDelete: SetNull)
+  actor        User?                  @relation("BillingContractAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([subscriptionId, createdAt])
+  @@index([planId])
+  @@index([actorUserId])
+  @@index([action, createdAt])
+}
+
+model PlatformFiscalSettings {
+  id                   String    @id
+  enabled              Boolean   @default(false)
+  effectiveDatePeriod  String    @default("ON_PAYMENT_CONFIRMATION")
+  municipalServiceId   String?
+  municipalServiceCode String?
+  serviceDescription   String
+  observations         String?
+  taxes                Json?
+  validatedAt          DateTime?
+  validatedByUserId    String?
+  validationReason     String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  validatedBy User? @relation("PlatformFiscalSettingsValidator", fields: [validatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([enabled, validatedAt])
+  @@index([validatedByUserId])
+}
+
+model BillingInvoice {
+  id                String               @id @default(cuid())
+  workspaceId       String
+  subscriptionId    String
+  paymentChargeId   String?
+  provider          String               @default("asaas")
+  providerInvoiceId String?
+  providerPaymentId String?
+  status            BillingInvoiceStatus @default(pending_configuration)
+  amountCents       Int?
+  issuedAt          DateTime?
+  authorizedAt      DateTime?
+  canceledAt        DateTime?
+  lastErrorCode     String?
+  lastErrorMessage  String?
+  retryCount        Int                  @default(0)
+  lastAttemptAt     DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  workspace     Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  subscription  WorkspaceSubscription @relation(fields: [workspaceId, subscriptionId], references: [workspaceId, id], onDelete: Restrict, map: "BillingInvoice_subscriptionId_fkey")
+  paymentCharge PaymentCharge?        @relation(fields: [paymentChargeId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, providerInvoiceId])
+  @@unique([provider, providerPaymentId])
+  @@index([workspaceId, createdAt])
+  @@index([subscriptionId, createdAt])
+  @@index([paymentChargeId])
+  @@index([providerPaymentId])
+  @@index([status, updatedAt])
 }
 
 model PaymentCharge {
   id               String              @id @default(cuid())
   workspaceId      String
+  subscriptionId   String?
   provider         String              @default("asaas")
   externalChargeId String?
   status           PaymentChargeStatus @default(pending)
@@ -845,10 +1143,13 @@ model PaymentCharge {
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
-  workspace  Workspace                   @relation(fields: [workspaceId], references: [id])
-  activation WhatsappInstanceActivation?
+  workspace       Workspace                   @relation(fields: [workspaceId], references: [id])
+  subscription    WorkspaceSubscription?      @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  activation      WhatsappInstanceActivation?
+  billingInvoices BillingInvoice[]
 
   @@index([workspaceId, status])
+  @@index([subscriptionId, status])
   @@index([externalChargeId])
 }
 
@@ -1567,6 +1868,7 @@ model InboundWebhookChannel {
   providerConversionDecisions   ProviderConversionDecisionAudit[]
   providerConversionComparisons ProviderConversionShadowComparison[]
   purchaseReviews               PurchaseReview[]
+  whatsappSeats                 WhatsappSeat[]
 
   @@unique([workspaceId, id])
   @@unique([connectionId, organizationId, providerChannelId], map: "InboundWebhookChannel_identity_key")

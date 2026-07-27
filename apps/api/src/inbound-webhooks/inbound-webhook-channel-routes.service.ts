@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
@@ -15,6 +16,8 @@ import type {
   InboundWebhookChannelRoutesUpdateInputDto,
   InboundWebhookChannelStatusUpdateInputDto,
 } from "@wpptrack/shared";
+import { PackageBillingConfiguration } from "../billing/package-billing.configuration";
+import { WhatsappSeatService } from "../billing/whatsapp-seat.service";
 import { PrismaService } from "../common/prisma/prisma.service";
 import {
   type InboundWebhookMetaRoutePreview,
@@ -32,6 +35,7 @@ const channelInclude = {
     select: {
       id: true,
       workspaceId: true,
+      provider: true,
       status: true,
       removedAt: true,
     },
@@ -116,6 +120,12 @@ export class InboundWebhookChannelRoutesService {
     private readonly prisma: PrismaService,
     @Inject(InboundWebhookMetaRouteReaderService)
     private readonly metaRouteReader: InboundWebhookMetaRouteReaderService,
+    @Optional()
+    @Inject(PackageBillingConfiguration)
+    private readonly packageBilling?: PackageBillingConfiguration,
+    @Optional()
+    @Inject(WhatsappSeatService)
+    private readonly whatsappSeats?: WhatsappSeatService,
   ) {}
 
   async listChannels(
@@ -358,6 +368,13 @@ export class InboundWebhookChannelRoutesService {
         );
       }
 
+      await this.syncExternalChannelSeat(
+        transaction,
+        current,
+        input.status,
+        actorUserId,
+      );
+
       const updatedAt = new Date(
         Math.max(Date.now(), current.updatedAt.getTime() + 1),
       );
@@ -419,6 +436,44 @@ export class InboundWebhookChannelRoutesService {
     );
 
     return this.toChannelDto(refreshed, readinessByChannel.get(refreshed.id));
+  }
+
+  private async syncExternalChannelSeat(
+    transaction: Prisma.TransactionClient,
+    channel: PersistedChannel,
+    nextStatus: InboundWebhookChannelStatusUpdateInputDto["status"],
+    actorUserId: string,
+  ): Promise<void> {
+    if (
+      !this.packageBilling?.isPackageBillingEnabled() ||
+      !this.packageBilling.isExternalChannelEnforcementEnabled() ||
+      !this.whatsappSeats
+    ) {
+      return;
+    }
+
+    if (
+      nextStatus === "active" &&
+      channel.connection.status === "production"
+    ) {
+      await this.whatsappSeats.activateExternalChannelSeat(transaction, {
+        workspaceId: channel.workspaceId,
+        channelId: channel.id,
+        provider: channel.connection.provider,
+        normalizedPhone: channel.connectedPhone.trim() || null,
+        actorUserId,
+      });
+      return;
+    }
+
+    if (nextStatus === "paused") {
+      await this.whatsappSeats.releaseExternalChannelSeat(transaction, {
+        workspaceId: channel.workspaceId,
+        channelId: channel.id,
+        actorUserId,
+        reason: "external_channel_paused",
+      });
+    }
   }
 
   async reevaluateUnresolvedEvents(

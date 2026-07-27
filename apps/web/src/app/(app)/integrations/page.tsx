@@ -15,6 +15,7 @@ import type {
   WhatsappInstanceConnectionDto,
   WhatsappInstanceQuoteDto,
   WhatsappInstanceSummaryDto,
+  WorkspacePackageBillingStateDto,
   WorkspaceSubscriptionSummaryDto,
 } from "@wpptrack/shared";
 import {
@@ -26,6 +27,7 @@ import {
   Webhook,
 } from "lucide-react";
 import { revalidatePath } from "next/cache";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SubmitButton } from "../../../components/submit-button";
 import { PresentationMask } from "../../../components/presentation-mask";
@@ -207,6 +209,24 @@ async function getBillingSubscription(): Promise<
     return {
       data: await serverApiFetch<WorkspaceSubscriptionSummaryDto>(
         "/billing/subscription",
+      ),
+      state: "real",
+    };
+  } catch {
+    return {
+      data: null,
+      state: "error",
+    };
+  }
+}
+
+async function getPackageBillingState(): Promise<
+  ResourceResult<WorkspacePackageBillingStateDto | null>
+> {
+  try {
+    return {
+      data: await serverApiFetch<WorkspacePackageBillingStateDto>(
+        "/billing/package/state",
       ),
       state: "real",
     };
@@ -946,6 +966,7 @@ export default async function IntegrationsPage({
     pipelineResult,
     workspaceResult,
     metaCapabilitiesResult,
+    packageBillingResult,
   ] = await Promise.all([
     getHealth(),
     getWhatsappInstances(),
@@ -956,6 +977,7 @@ export default async function IntegrationsPage({
     getIntegrationPipeline(),
     getCurrentWorkspaceResource(),
     getMetaCapabilities(),
+    getPackageBillingState(),
   ]);
   const usesExternalWhatsapp =
     pipelineResult.data?.whatsappSource?.mode === "external";
@@ -978,6 +1000,10 @@ export default async function IntegrationsPage({
   const inboundWebhookData = inboundWebhookResult.data;
   const whatsappQuote = whatsappQuoteResult.data;
   const billingSubscription = billingSubscriptionResult.data;
+  const packageBilling = packageBillingResult.data;
+  const packageBillingEnabled = Boolean(
+    packageBilling?.capabilities?.packageBilling,
+  );
   const pipeline = pipelineResult.data;
   const workspace = workspaceResult.data;
   const isPlatformOperator = Boolean(workspace?.platformRole);
@@ -1573,6 +1599,49 @@ export default async function IntegrationsPage({
             />
           ) : null}
 
+          {packageBillingEnabled && packageBilling ? (
+            <div className="surface-panel package-integration-summary">
+              <div>
+                <span className="eyebrow">Pacote WhatsApp</span>
+                <h2>
+                  {packageBilling.contract?.planName ??
+                    "Pacote ainda nao definido"}
+                </h2>
+                <p className="muted">
+                  A capacidade e compartilhada entre conexoes por QR code e
+                  canais externos em producao.
+                </p>
+              </div>
+              <div className="metric-grid compact">
+                <div className="metric-card">
+                  <span className="micro-label">Numeros incluidos</span>
+                  <strong>{packageBilling.seats.capacity}</strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Vagas ocupadas</span>
+                  <strong>{packageBilling.seats.occupied}</strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Disponiveis</span>
+                  <strong>{packageBilling.seats.available}</strong>
+                </div>
+                <div className="metric-card">
+                  <span className="micro-label">Status</span>
+                  <strong>
+                    {packageBilling.contract
+                      ? statusLabel(packageBilling.contract.status)
+                      : "Sem pacote"}
+                  </strong>
+                </div>
+              </div>
+              <div className="panel-actions">
+                <Link className="button primary" href="/subscription">
+                  Gerenciar assinatura e QR
+                </Link>
+              </div>
+            </div>
+          ) : null}
+
           {usesExternalWhatsapp ? (
             <div className="surface-panel external-source-panel">
               <div>
@@ -1662,7 +1731,18 @@ export default async function IntegrationsPage({
                   </strong>
                 </div>
               </div>
-              {canManageBilling ? (
+              {packageBillingEnabled ? (
+                <div className="feedback-banner">
+                  <strong>Conexoes gerenciadas pelo pacote</strong>
+                  <span>
+                    Use a area Assinatura para contratar vagas e gerar novos QR
+                    codes. As instancias existentes continuam listadas abaixo.
+                  </span>
+                  <Link className="button primary" href="/subscription">
+                    Abrir assinatura
+                  </Link>
+                </div>
+              ) : canManageBilling ? (
                 <>
                   <form className="inline-form" action={createWhatsappCheckout}>
                     <input

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../src/common/prisma/prisma.service";
 import type { InboundWebhookDiagnosticsService } from "../src/inbound-webhooks/inbound-webhook-diagnostics.service";
 import type { InboundWebhookChannelRoutesService } from "../src/inbound-webhooks/inbound-webhook-channel-routes.service";
@@ -336,6 +336,15 @@ function matchesStatus(
 }
 
 describe("inbound webhook channel discovery", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-18T15:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("discovers several channels and updates mutable metadata without duplicates", async () => {
     const harness = createHarness();
     harness.addDelivery("delivery_1", "connection_1", {

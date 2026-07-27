@@ -44,6 +44,7 @@ describe("navigation", () => {
       "events",
       "integrations",
       "settings",
+      "subscription",
     ]);
     expect(clientNavigation.map((item) => item.label)).not.toContain(
       "Clientes",
@@ -277,6 +278,7 @@ describe("navigation", () => {
       "/events",
       "/integrations",
       "/settings",
+      "/subscription",
       "/backoffice",
     ]) {
       expect(middleware).toContain(route);

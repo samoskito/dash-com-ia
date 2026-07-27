@@ -4,7 +4,8 @@ export const clientNavigation = [
   { id: "reports", label: "Relatorios" },
   { id: "events", label: "Eventos Meta" },
   { id: "integrations", label: "Integracoes" },
-  { id: "settings", label: "Configuracoes" }
+  { id: "settings", label: "Configuracoes" },
+  { id: "subscription", label: "Assinatura" }
 ] as const;
 
 export const backofficeNavigation = [
