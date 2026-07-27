@@ -3,16 +3,19 @@ import {
   ConflictException,
   Inject,
   Injectable,
-  NotFoundException
+  NotFoundException,
 } from "@nestjs/common";
-import type { Prisma, WhatsappSeat } from "@prisma/client";
+import type { Prisma, WhatsappInstance, WhatsappSeat } from "@prisma/client";
 import type {
   UazapiPackageProvisionDto,
-  WhatsappSeatDto
+  WhatsappSeatDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
-import { UazapiAdapter } from "../integrations/uazapi/uazapi.adapter";
+import {
+  UazapiAdapter,
+  type UazapiConnectionResult,
+} from "../integrations/uazapi/uazapi.adapter";
 import { PackageBillingConfiguration } from "./package-billing.configuration";
 import { PackageContractService } from "./package-contract.service";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
@@ -30,20 +33,20 @@ export class PackageUazapiProvisioningService {
     @Inject(UazapiAdapter)
     private readonly uazapi: UazapiAdapter,
     @Inject(MetaTokenEncryptionService)
-    private readonly tokenEncryption: MetaTokenEncryptionService
+    private readonly tokenEncryption: MetaTokenEncryptionService,
   ) {}
 
   async provision(
     workspaceId: string,
     instanceName: string,
-    actorUserId: string
+    actorUserId: string,
   ): Promise<UazapiPackageProvisionDto> {
     if (
       !this.configuration.isPackageBillingEnabled() ||
       !this.configuration.isUazapiProvisioningEnabled()
     ) {
       throw new ConflictException(
-        "Provisionamento Uazapi por pacote ainda nao habilitado"
+        "Provisionamento Uazapi por pacote ainda nao habilitado",
       );
     }
 
@@ -53,8 +56,8 @@ export class PackageUazapiProvisioningService {
         workspaceId,
         name: instanceName,
         provider: "uazapi",
-        status: "pending_payment"
-      }
+        status: "pending_payment",
+      },
     });
 
     let seat: WhatsappSeatDto;
@@ -65,13 +68,13 @@ export class PackageUazapiProvisioningService {
           provider: "uazapi",
           whatsappInstanceId: instance.id,
           inboundWebhookChannelId: null,
-          normalizedPhone: null
+          normalizedPhone: null,
         },
-        actorUserId
+        actorUserId,
       );
     } catch (error) {
       await this.prisma.whatsappInstance.delete({
-        where: { id: instance.id }
+        where: { id: instance.id },
       });
       throw error;
     }
@@ -81,7 +84,7 @@ export class PackageUazapiProvisioningService {
       const created = await this.uazapi.createInstance({
         name: instanceName,
         localInstanceId: instance.id,
-        workspaceId
+        workspaceId,
       });
       if (
         created.status !== "created" ||
@@ -95,12 +98,10 @@ export class PackageUazapiProvisioningService {
       const webhookUrl = this.instanceWebhookUrl(instance.id, webhookToken);
       const configured = await this.uazapi.configureInstanceWebhook({
         instanceToken: created.instanceToken,
-        webhookUrl
+        webhookUrl,
       });
       if (configured.status !== "configured") {
-        throw new Error(
-          configured.message ?? "uazapi_webhook_not_configured"
-        );
+        throw new Error(configured.message ?? "uazapi_webhook_not_configured");
       }
 
       const encrypted = this.tokenEncryption.encrypt(created.instanceToken);
@@ -112,13 +113,13 @@ export class PackageUazapiProvisioningService {
           providerTokenEncrypted: encrypted.encryptedAccessToken,
           providerTokenIv: encrypted.tokenIv,
           providerTokenTag: encrypted.tokenTag,
-          webhookTokenHash: this.hashToken(webhookToken)
-        }
+          webhookTokenHash: this.hashToken(webhookToken),
+        },
       });
 
       const connection = await this.uazapi.connectInstance(
         created.providerInstanceId,
-        created.instanceToken
+        created.instanceToken,
       );
       if (
         connection.connectionStatus === "error" ||
@@ -131,7 +132,7 @@ export class PackageUazapiProvisioningService {
           workspaceId,
           seat.id,
           null,
-          actorUserId
+          actorUserId,
         );
       }
       await this.recordLog({
@@ -142,7 +143,7 @@ export class PackageUazapiProvisioningService {
         startedAt,
         status: "success",
         providerInstanceId: created.providerInstanceId,
-        message: connection.message
+        message: connection.message,
       });
 
       return {
@@ -153,19 +154,19 @@ export class PackageUazapiProvisioningService {
           billingStatus: "active",
           connectionStatus: connection.connectionStatus,
           qrCode: connection.qrCode,
-          message: connection.message
-        }
+          message: connection.message,
+        },
       };
     } catch (error) {
       await this.prisma.whatsappInstance.update({
         where: { id: instance.id },
-        data: { status: "error" }
+        data: { status: "error" },
       });
       await this.seats.releaseSeat(
         workspaceId,
         seat.id,
         "uazapi_provisioning_failed",
-        actorUserId
+        actorUserId,
       );
       await this.recordLog({
         workspaceId,
@@ -175,34 +176,151 @@ export class PackageUazapiProvisioningService {
         startedAt,
         status: "error",
         providerInstanceId: null,
-        message: this.errorMessage(error)
+        message: this.errorMessage(error),
       });
-      throw new ConflictException(
-        "Nao foi possivel preparar a conexao Uazapi"
-      );
+      throw new ConflictException("Nao foi possivel preparar a conexao Uazapi");
     }
   }
 
   async getProvisioningStatus(
     workspaceId: string,
     whatsappInstanceId: string,
-    actorUserId: string
+    actorUserId: string,
   ): Promise<UazapiPackageProvisionDto> {
+    this.assertProvisioningEnabled();
+    const instance = await this.getProvisioningInstance(
+      workspaceId,
+      whatsappInstanceId,
+    );
+    const seat = await this.ensureProvisioningSeat(
+      workspaceId,
+      whatsappInstanceId,
+      actorUserId,
+    );
+    const instanceToken = this.decryptInstanceToken(instance);
+    const connection = await this.uazapi.getInstanceStatus(
+      instance.providerInstanceId!,
+      instanceToken,
+    );
+
+    return this.toProvisioningResult(
+      workspaceId,
+      whatsappInstanceId,
+      seat,
+      connection,
+      actorUserId,
+    );
+  }
+
+  async refreshProvisioningQr(
+    workspaceId: string,
+    whatsappInstanceId: string,
+    actorUserId: string,
+  ): Promise<UazapiPackageProvisionDto> {
+    this.assertProvisioningEnabled();
+    const startedAt = new Date();
+    const instance = await this.getProvisioningInstance(
+      workspaceId,
+      whatsappInstanceId,
+    );
+    const seat = await this.ensureProvisioningSeat(
+      workspaceId,
+      whatsappInstanceId,
+      actorUserId,
+    );
+    const instanceToken = this.decryptInstanceToken(instance);
+
+    try {
+      const current = await this.uazapi.getInstanceStatus(
+        instance.providerInstanceId!,
+        instanceToken,
+      );
+      const connection =
+        current.connectionStatus === "connected"
+          ? current
+          : await this.uazapi.connectInstance(
+              instance.providerInstanceId!,
+              instanceToken,
+            );
+
+      if (
+        connection.connectionStatus === "error" ||
+        connection.connectionStatus === "not_configured"
+      ) {
+        throw new Error(connection.message ?? "uazapi_qr_not_refreshed");
+      }
+
+      if (
+        connection.providerInstanceId &&
+        connection.providerInstanceId !== instance.providerInstanceId
+      ) {
+        await this.prisma.whatsappInstance.update({
+          where: { id: whatsappInstanceId },
+          data: { providerInstanceId: connection.providerInstanceId },
+        });
+      }
+
+      const result = await this.toProvisioningResult(
+        workspaceId,
+        whatsappInstanceId,
+        seat,
+        connection,
+        actorUserId,
+      );
+
+      await this.recordLog({
+        workspaceId,
+        instanceId: whatsappInstanceId,
+        seatId: result.seat.id,
+        actorUserId,
+        startedAt,
+        status: "success",
+        providerInstanceId:
+          connection.providerInstanceId ?? instance.providerInstanceId,
+        message: connection.message,
+        operation: "uazapi.package.refresh_qr",
+        auditAction: "billing.uazapi_package_refresh_qr",
+      });
+
+      return result;
+    } catch (error) {
+      await this.recordLog({
+        workspaceId,
+        instanceId: whatsappInstanceId,
+        seatId: seat.id,
+        actorUserId,
+        startedAt,
+        status: "error",
+        providerInstanceId: instance.providerInstanceId,
+        message: this.errorMessage(error),
+        operation: "uazapi.package.refresh_qr",
+        auditAction: "billing.uazapi_package_refresh_qr",
+      });
+      throw new ConflictException("Nao foi possivel gerar um novo QR code");
+    }
+  }
+
+  private assertProvisioningEnabled(): void {
     if (
       !this.configuration.isPackageBillingEnabled() ||
       !this.configuration.isUazapiProvisioningEnabled()
     ) {
       throw new ConflictException(
-        "Provisionamento Uazapi por pacote ainda nao habilitado"
+        "Provisionamento Uazapi por pacote ainda nao habilitado",
       );
     }
+  }
 
+  private async getProvisioningInstance(
+    workspaceId: string,
+    whatsappInstanceId: string,
+  ): Promise<WhatsappInstance> {
     const instance = await this.prisma.whatsappInstance.findFirst({
       where: {
         id: whatsappInstanceId,
         workspaceId,
-        provider: "uazapi"
-      }
+        provider: "uazapi",
+      },
     });
     if (
       !instance ||
@@ -215,6 +333,14 @@ export class PackageUazapiProvisioningService {
       throw new NotFoundException("Instancia Uazapi nao encontrada");
     }
 
+    return instance;
+  }
+
+  private async ensureProvisioningSeat(
+    workspaceId: string,
+    whatsappInstanceId: string,
+    actorUserId: string,
+  ): Promise<WhatsappSeat> {
     let seat = await this.findCurrentSeat(workspaceId, whatsappInstanceId);
     if (
       seat?.status === "reserved" &&
@@ -225,7 +351,7 @@ export class PackageUazapiProvisioningService {
         workspaceId,
         seat.id,
         "uazapi_qr_reservation_expired",
-        actorUserId
+        actorUserId,
       );
       seat = null;
     }
@@ -237,30 +363,41 @@ export class PackageUazapiProvisioningService {
           provider: "uazapi",
           whatsappInstanceId,
           inboundWebhookChannelId: null,
-          normalizedPhone: null
+          normalizedPhone: null,
         },
-        actorUserId
+        actorUserId,
       );
       seat = await this.findSeatById(workspaceId, reserved.id);
     }
 
-    const instanceToken = this.tokenEncryption.decrypt({
-      encryptedAccessToken: instance.providerTokenEncrypted,
-      tokenIv: instance.providerTokenIv,
-      tokenTag: instance.providerTokenTag
-    });
-    const connection = await this.uazapi.getInstanceStatus(
-      instance.providerInstanceId,
-      instanceToken
-    );
+    return seat;
+  }
 
+  private decryptInstanceToken(instance: WhatsappInstance): string {
+    return this.tokenEncryption.decrypt({
+      encryptedAccessToken: instance.providerTokenEncrypted!,
+      tokenIv: instance.providerTokenIv!,
+      tokenTag: instance.providerTokenTag!,
+    });
+  }
+
+  private async toProvisioningResult(
+    workspaceId: string,
+    whatsappInstanceId: string,
+    seat: WhatsappSeat,
+    connection: UazapiConnectionResult,
+    actorUserId: string,
+  ): Promise<UazapiPackageProvisionDto> {
     let seatDto = this.seats.mapSeat(seat);
-    if (connection.connectionStatus === "connected" && seat.status === "reserved") {
+    if (
+      connection.connectionStatus === "connected" &&
+      seat.status === "reserved"
+    ) {
       seatDto = await this.seats.activateSeat(
         workspaceId,
         seat.id,
         null,
-        actorUserId
+        actorUserId,
       );
     }
 
@@ -275,14 +412,14 @@ export class PackageUazapiProvisioningService {
             ? "error"
             : connection.connectionStatus,
         qrCode: connection.qrCode,
-        message: connection.message
-      }
+        message: connection.message,
+      },
     };
   }
 
   private instanceWebhookUrl(
     whatsappInstanceId: string,
-    webhookToken: string
+    webhookToken: string,
   ): string {
     const publicApiUrl = process.env.API_PUBLIC_URL?.replace(/\/+$/, "");
     if (!publicApiUrl) {
@@ -290,7 +427,7 @@ export class PackageUazapiProvisioningService {
     }
 
     return `${publicApiUrl}/webhooks/uazapi/instances/${encodeURIComponent(
-      whatsappInstanceId
+      whatsappInstanceId,
     )}?token=${encodeURIComponent(webhookToken)}`;
   }
 
@@ -303,6 +440,8 @@ export class PackageUazapiProvisioningService {
     status: "success" | "error";
     providerInstanceId: string | null;
     message: string | null;
+    operation?: string;
+    auditAction?: string;
   }): Promise<void> {
     const finishedAt = new Date();
     await this.prisma.$transaction([
@@ -310,44 +449,43 @@ export class PackageUazapiProvisioningService {
         data: {
           workspaceId: input.workspaceId,
           source: "uazapi",
-          operation: "uazapi.package.provision",
+          operation: input.operation ?? "uazapi.package.provision",
           status: input.status,
           startedAt: input.startedAt,
           finishedAt,
           durationMs: Math.max(
             0,
-            finishedAt.getTime() - input.startedAt.getTime()
+            finishedAt.getTime() - input.startedAt.getTime(),
           ),
           providerRequestId: input.providerInstanceId,
-          providerErrorMessage:
-            input.status === "error" ? input.message : null,
+          providerErrorMessage: input.status === "error" ? input.message : null,
           jobId: input.instanceId,
           requestSummary: {
             whatsappInstanceId: input.instanceId,
-            seatId: input.seatId
+            seatId: input.seatId,
           } as Prisma.InputJsonValue,
           responseSummary: {
             providerInstanceConfigured: Boolean(input.providerInstanceId),
-            message: input.message
-          } as Prisma.InputJsonValue
-        }
+            message: input.message,
+          } as Prisma.InputJsonValue,
+        },
       }),
       this.prisma.auditLog.create({
         data: {
           workspaceId: input.workspaceId,
           actorUserId: input.actorUserId,
           actorType: "user",
-          action: "billing.uazapi_package_provision",
+          action: input.auditAction ?? "billing.uazapi_package_provision",
           targetType: "WhatsappInstance",
           targetId: input.instanceId,
           reason: input.message,
           resultStatus: input.status,
           afterSummary: {
             seatId: input.seatId,
-            providerInstanceConfigured: Boolean(input.providerInstanceId)
-          }
-        }
-      })
+            providerInstanceConfigured: Boolean(input.providerInstanceId),
+          },
+        },
+      }),
     ]);
   }
 
@@ -361,24 +499,24 @@ export class PackageUazapiProvisioningService {
 
   private async findCurrentSeat(
     workspaceId: string,
-    whatsappInstanceId: string
+    whatsappInstanceId: string,
   ): Promise<WhatsappSeat | null> {
     return this.prisma.whatsappSeat.findFirst({
       where: {
         workspaceId,
         whatsappInstanceId,
-        status: { in: ["reserved", "active", "suspended"] }
+        status: { in: ["reserved", "active", "suspended"] },
       },
-      orderBy: { createdAt: "desc" }
+      orderBy: { createdAt: "desc" },
     });
   }
 
   private async findSeatById(
     workspaceId: string,
-    seatId: string
+    seatId: string,
   ): Promise<WhatsappSeat> {
     const seat = await this.prisma.whatsappSeat.findFirst({
-      where: { id: seatId, workspaceId }
+      where: { id: seatId, workspaceId },
     });
     if (!seat) {
       throw new NotFoundException("Vaga de WhatsApp nao encontrada");

@@ -9667,6 +9667,11 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   font-size: 10px;
 }
 
+.package-qr-refresh {
+  justify-self: start;
+  margin-top: 8px;
+}
+
 .package-cancel-form {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto;

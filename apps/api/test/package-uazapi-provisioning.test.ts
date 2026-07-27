@@ -10,7 +10,7 @@ const reservedSeatDto = {
   normalizedPhone: null,
   whatsappInstanceId: "instance_1",
   inboundWebhookChannelId: null,
-  reservationExpiresAt: "2026-07-26T15:00:00.000Z",
+  reservationExpiresAt: "2099-07-26T15:00:00.000Z",
   activatedAt: null,
   suspendedAt: null,
   releasedAt: null,
@@ -25,7 +25,7 @@ const activeSeatDto = {
 
 const reservedSeatRecord = {
   ...reservedSeatDto,
-  reservationExpiresAt: new Date("2026-07-26T15:00:00.000Z"),
+  reservationExpiresAt: new Date("2099-07-26T15:00:00.000Z"),
   activatedAt: null,
   suspendedAt: null,
   releasedAt: null,
@@ -260,5 +260,94 @@ describe("PackageUazapiProvisioningService", () => {
 
     expect(result.seat.status).toBe("active");
     expect(harness.seats.activateSeat).not.toHaveBeenCalled();
+  });
+
+  it("renews the QR code on the existing instance and seat", async () => {
+    const harness = createHarness();
+    harness.uazapi.getInstanceStatus.mockResolvedValueOnce({
+      providerInstanceId: "provider_1",
+      connectionStatus: "qr_required",
+      qrCode: "expired-qr",
+      message: "QR expirado",
+    });
+    harness.uazapi.connectInstance.mockResolvedValueOnce({
+      providerInstanceId: "provider_1",
+      connectionStatus: "qr_required",
+      qrCode: "fresh-qr",
+      message: "Leia o novo QR code",
+    });
+
+    const result = await harness.service.refreshProvisioningQr(
+      "workspace_1",
+      "instance_1",
+      "user_1",
+    );
+
+    expect(result.connection.qrCode).toBe("fresh-qr");
+    expect(result.seat.id).toBe("seat_1");
+    expect(harness.uazapi.createInstance).not.toHaveBeenCalled();
+    expect(harness.seats.reserveSeat).not.toHaveBeenCalled();
+    expect(harness.uazapi.connectInstance).toHaveBeenCalledWith(
+      "provider_1",
+      "secret",
+    );
+  });
+
+  it("does not reconnect when QR renewal finds an already connected instance", async () => {
+    const harness = createHarness();
+
+    const result = await harness.service.refreshProvisioningQr(
+      "workspace_1",
+      "instance_1",
+      "user_1",
+    );
+
+    expect(result.connection.connectionStatus).toBe("connected");
+    expect(result.seat.status).toBe("active");
+    expect(harness.uazapi.connectInstance).not.toHaveBeenCalled();
+    expect(harness.seats.activateSeat).toHaveBeenCalledWith(
+      "workspace_1",
+      "seat_1",
+      null,
+      "user_1",
+    );
+  });
+
+  it("releases an expired reservation and reserves the same instance again", async () => {
+    const harness = createHarness();
+    harness.prisma.whatsappSeat.findFirst.mockResolvedValueOnce({
+      ...reservedSeatRecord,
+      reservationExpiresAt: new Date("2020-01-01T00:00:00.000Z"),
+    });
+    harness.uazapi.getInstanceStatus.mockResolvedValueOnce({
+      providerInstanceId: "provider_1",
+      connectionStatus: "qr_required",
+      qrCode: null,
+      message: "QR expirado",
+    });
+
+    const result = await harness.service.refreshProvisioningQr(
+      "workspace_1",
+      "instance_1",
+      "user_1",
+    );
+
+    expect(harness.seats.releaseSeat).toHaveBeenCalledWith(
+      "workspace_1",
+      "seat_1",
+      "uazapi_qr_reservation_expired",
+      "user_1",
+    );
+    expect(harness.seats.reserveSeat).toHaveBeenCalledWith(
+      "workspace_1",
+      {
+        provider: "uazapi",
+        whatsappInstanceId: "instance_1",
+        inboundWebhookChannelId: null,
+        normalizedPhone: null,
+      },
+      "user_1",
+    );
+    expect(result.connection.qrCode).toBe("qr-code");
   });
 });

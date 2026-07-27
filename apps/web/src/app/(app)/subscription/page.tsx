@@ -1,5 +1,7 @@
 import type {
   BillingInvoiceStatus,
+  WhatsappInstanceSummaryDto,
+  WhatsappSeatDto,
   WorkspaceBillingProfileStatus,
   WorkspacePackageBillingStateDto,
   WorkspaceSubscriptionContractStatus,
@@ -30,6 +32,11 @@ type BillingResource = {
   state: "real" | "error";
 };
 
+type ResumableUazapiProvisioning = {
+  whatsappInstanceId: string;
+  instanceName: string;
+};
+
 async function getPackageBillingState(): Promise<BillingResource> {
   try {
     return {
@@ -43,11 +50,49 @@ async function getPackageBillingState(): Promise<BillingResource> {
   }
 }
 
+async function getResumableUazapiProvisioning(): Promise<ResumableUazapiProvisioning | null> {
+  try {
+    const [seats, instances] = await Promise.all([
+      serverApiFetch<WhatsappSeatDto[]>("/billing/package/seats"),
+      serverApiFetch<WhatsappInstanceSummaryDto[]>(
+        "/integrations/whatsapp/instances",
+      ),
+    ]);
+    const reservedSeat = seats.find(
+      (seat) =>
+        seat.provider === "uazapi" &&
+        seat.status === "reserved" &&
+        Boolean(seat.whatsappInstanceId),
+    );
+    if (!reservedSeat?.whatsappInstanceId) {
+      return null;
+    }
+
+    const instance = instances.find(
+      (candidate) =>
+        candidate.id === reservedSeat.whatsappInstanceId &&
+        candidate.provider === "uazapi" &&
+        candidate.billingStatus === "active",
+    );
+
+    return instance
+      ? {
+          whatsappInstanceId: instance.id,
+          instanceName: instance.name,
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function SubscriptionPage() {
-  const [billingResult, workspace] = await Promise.all([
-    getPackageBillingState(),
-    getCurrentWorkspace(),
-  ]);
+  const [billingResult, workspace, resumableUazapiProvisioning] =
+    await Promise.all([
+      getPackageBillingState(),
+      getCurrentWorkspace(),
+      getResumableUazapiProvisioning(),
+    ]);
   const billing = billingResult.data;
 
   if (!billing || !workspace) {
@@ -172,7 +217,9 @@ export default async function SubscriptionPage() {
         {contract?.status === "cancel_at_period_end" ? (
           <div className="package-alert">
             <strong>Renovacao cancelada</strong>
-            <span>O acesso permanece ativo ate {dateLabel(contract.accessEndsAt)}.</span>
+            <span>
+              O acesso permanece ativo ate {dateLabel(contract.accessEndsAt)}.
+            </span>
           </div>
         ) : null}
       </section>
@@ -241,7 +288,10 @@ export default async function SubscriptionPage() {
         </div>
       </section>
 
-      <section className="surface-panel" aria-labelledby="package-profile-title">
+      <section
+        className="surface-panel"
+        aria-labelledby="package-profile-title"
+      >
         <div className="package-section-heading">
           <div>
             <span className="eyebrow">Responsavel financeiro</span>
@@ -369,7 +419,9 @@ export default async function SubscriptionPage() {
               Salvar dados
             </SubmitButton>
           ) : (
-            <p className="muted">Somente o responsavel da conta pode alterar.</p>
+            <p className="muted">
+              Somente o responsavel da conta pode alterar.
+            </p>
           )}
         </PackageBillingActionForm>
       </section>
@@ -419,9 +471,7 @@ export default async function SubscriptionPage() {
                       : "Disponivel"}
                 </span>
                 {!selected || checkoutPending ? (
-                  <PackageBillingActionForm
-                    action={startPackageCheckoutAction}
-                  >
+                  <PackageBillingActionForm action={startPackageCheckoutAction}>
                     <input type="hidden" name="planId" value={plan.id} />
                     <SubmitButton
                       className="button primary"
@@ -462,6 +512,7 @@ export default async function SubscriptionPage() {
         <PackageBillingActionForm
           action={provisionPackageUazapiAction}
           className="inline-form package-uazapi-form"
+          resumeProvisioning={resumableUazapiProvisioning}
           showProvisionResult
         >
           <input
@@ -480,7 +531,7 @@ export default async function SubscriptionPage() {
             Gerar QR code
           </SubmitButton>
         </PackageBillingActionForm>
-        {!canProvision ? (
+        {!canProvision && !resumableUazapiProvisioning ? (
           <p className="muted">
             {billing.seats.available <= 0
               ? "O pacote esta sem vagas disponiveis."
@@ -622,9 +673,7 @@ function money(value: number | null | undefined): string {
 }
 
 function dateLabel(value: string | null | undefined): string {
-  return value
-    ? new Date(value).toLocaleDateString("pt-BR")
-    : "Nao definido";
+  return value ? new Date(value).toLocaleDateString("pt-BR") : "Nao definido";
 }
 
 function periodLabel(
@@ -641,12 +690,9 @@ function periodLabel(
 function contractAllowsProvisioning(
   status: WorkspaceSubscriptionContractStatus,
 ): boolean {
-  return [
-    "active",
-    "grace_period",
-    "exempt",
-    "legacy_protected",
-  ].includes(status);
+  return ["active", "grace_period", "exempt", "legacy_protected"].includes(
+    status,
+  );
 }
 
 function contractStatusLabel(

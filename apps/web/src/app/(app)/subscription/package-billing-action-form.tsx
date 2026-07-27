@@ -1,6 +1,7 @@
 "use client";
 
 import type { UazapiPackageProvisionDto } from "@wpptrack/shared";
+import { RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { useActionState, useEffect, useState } from "react";
 import { apiFetch } from "../../../lib/api";
@@ -22,15 +23,22 @@ const initialState: PackageBillingActionState = {
   message: "",
 };
 
+type ResumableUazapiProvisioning = {
+  whatsappInstanceId: string;
+  instanceName: string;
+};
+
 export function PackageBillingActionForm({
   action,
   children,
   className,
+  resumeProvisioning,
   showProvisionResult = false,
 }: {
   action: PackageBillingFormAction;
   children: ReactNode;
   className?: string;
+  resumeProvisioning?: ResumableUazapiProvisioning | null;
   showProvisionResult?: boolean;
 }) {
   const [state, formAction] = useActionState(action, initialState);
@@ -38,6 +46,9 @@ export function PackageBillingActionForm({
     UazapiPackageProvisionDto | undefined
   >();
   const [pollingMessage, setPollingMessage] = useState<string | null>(null);
+  const [pollingCycle, setPollingCycle] = useState(0);
+  const [refreshingQr, setRefreshingQr] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   useEffect(() => {
     if (state.status === "success" && state.checkoutUrl) {
@@ -48,12 +59,14 @@ export function PackageBillingActionForm({
   useEffect(() => {
     setProvision(state.provision);
     setPollingMessage(null);
+    if (state.provision) {
+      setPollingCycle((current) => current + 1);
+    }
   }, [state.provision]);
 
   useEffect(() => {
     const currentStatus = provision?.connection.connectionStatus;
-    const whatsappInstanceId =
-      provision?.connection.whatsappInstanceId ?? null;
+    const whatsappInstanceId = provision?.connection.whatsappInstanceId ?? null;
     if (
       !showProvisionResult ||
       !whatsappInstanceId ||
@@ -113,11 +126,57 @@ export function PackageBillingActionForm({
   }, [
     provision?.connection.connectionStatus,
     provision?.connection.whatsappInstanceId,
+    pollingCycle,
     showProvisionResult,
   ]);
 
+  const whatsappInstanceId =
+    provision?.connection.whatsappInstanceId ??
+    resumeProvisioning?.whatsappInstanceId ??
+    null;
+  const canRefreshQr =
+    Boolean(whatsappInstanceId) &&
+    provision?.connection.connectionStatus !== "connected";
   const qrCode = provision?.connection.qrCode ?? null;
   const qrImage = qrImageSource(qrCode);
+
+  const refreshQr = async () => {
+    if (!whatsappInstanceId || refreshingQr) {
+      return;
+    }
+
+    setRefreshingQr(true);
+    setRefreshError(null);
+    setPollingMessage(null);
+    setProvision((current) =>
+      current
+        ? {
+            ...current,
+            connection: {
+              ...current.connection,
+              qrCode: null,
+              message: "Gerando um novo QR code.",
+            },
+          }
+        : current,
+    );
+    try {
+      const next = await apiFetch<UazapiPackageProvisionDto>(
+        `/billing/package/uazapi/instances/${encodeURIComponent(
+          whatsappInstanceId,
+        )}/refresh-qr`,
+        { method: "POST" },
+      );
+      setProvision(next);
+      setPollingCycle((current) => current + 1);
+    } catch {
+      setRefreshError(
+        "Nao foi possivel renovar o QR code. Tente novamente em alguns instantes.",
+      );
+    } finally {
+      setRefreshingQr(false);
+    }
+  };
 
   return (
     <>
@@ -136,22 +195,38 @@ export function PackageBillingActionForm({
           <span>{state.message}</span>
         </div>
       ) : null}
-      {showProvisionResult && provision ? (
+      {showProvisionResult && (provision || resumeProvisioning) ? (
         <section className="package-qr-result" aria-label="Conexao WhatsApp">
           <div>
-            <span className="eyebrow">Conexao preparada</span>
+            <span className="eyebrow">
+              {provision ? "Conexao preparada" : "Conexao reservada"}
+            </span>
             <strong>
-              {connectionStatusLabel(provision.connection.connectionStatus)}
+              {provision
+                ? connectionStatusLabel(provision.connection.connectionStatus)
+                : `Continuar ${resumeProvisioning?.instanceName ?? "conexao"}`}
             </strong>
             <small>
-              {pollingMessage ??
-                provision.connection.message ??
-                "A instancia foi criada e ocupa uma vaga do pacote."}
+              {refreshError ??
+                pollingMessage ??
+                provision?.connection.message ??
+                "O QR anterior pode ter expirado. Gere um novo para continuar na mesma instancia."}
             </small>
-            {provision.seat.status === "reserved" ? (
+            {provision?.seat.status === "reserved" || resumeProvisioning ? (
               <small>
                 A vaga fica reservada ate a Uazapi confirmar a conexao.
               </small>
+            ) : null}
+            {canRefreshQr ? (
+              <button
+                className="button secondary package-qr-refresh"
+                disabled={refreshingQr}
+                onClick={refreshQr}
+                type="button"
+              >
+                <RefreshCw aria-hidden="true" size={16} />
+                {refreshingQr ? "Gerando novo QR..." : "Gerar novo QR"}
+              </button>
             ) : null}
           </div>
           {qrImage ? (

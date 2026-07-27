@@ -8,13 +8,13 @@ import {
   Delete,
   Param,
   Post,
-  Put
+  Put,
 } from "@nestjs/common";
 import {
   workspaceBillingProfileInputSchema,
   workspacePackageCheckoutInputSchema,
   workspaceSubscriptionCancellationInputSchema,
-  uazapiPackageProvisionInputSchema
+  uazapiPackageProvisionInputSchema,
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { AuthService } from "../auth/auth.service";
@@ -43,7 +43,7 @@ export class PackageBillingController {
     @Inject(PackageUazapiProvisioningService)
     private readonly uazapiProvisioning: PackageUazapiProvisioningService,
     @Inject(WhatsappSeatService)
-    private readonly seats: WhatsappSeatService
+    private readonly seats: WhatsappSeatService,
   ) {}
 
   @Get("plans")
@@ -54,23 +54,18 @@ export class PackageBillingController {
 
   @Get("state")
   async getState(@AuthToken() refreshToken: string) {
-    const { workspaceId } =
-      await this.getCurrentWorkspaceContext(refreshToken);
+    const { workspaceId } = await this.getCurrentWorkspaceContext(refreshToken);
     return this.contracts.getWorkspaceBillingState(workspaceId);
   }
 
   @Get("seats")
   async listSeats(@AuthToken() refreshToken: string) {
-    const { workspaceId } =
-      await this.getCurrentWorkspaceContext(refreshToken);
+    const { workspaceId } = await this.getCurrentWorkspaceContext(refreshToken);
     return this.seats.listWorkspaceSeats(workspaceId);
   }
 
   @Put("profile")
-  async saveProfile(
-    @AuthToken() refreshToken: string,
-    @Body() body: unknown
-  ) {
+  async saveProfile(@AuthToken() refreshToken: string, @Body() body: unknown) {
     const parsed = workspaceBillingProfileInputSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException("Dados de cobranca invalidos");
@@ -88,7 +83,7 @@ export class PackageBillingController {
   @Post("checkout")
   async createCheckout(
     @AuthToken() refreshToken: string,
-    @Body() body: unknown
+    @Body() body: unknown,
   ) {
     const parsed = workspacePackageCheckoutInputSchema.safeParse(body);
     if (!parsed.success) {
@@ -104,14 +99,14 @@ export class PackageBillingController {
     return this.checkout.createCheckout(
       workspaceId,
       parsed.data.planId,
-      userId
+      userId,
     );
   }
 
   @Delete("subscription")
   async cancelSubscription(
     @AuthToken() refreshToken: string,
-    @Body() body: unknown
+    @Body() body: unknown,
   ) {
     const parsed = workspaceSubscriptionCancellationInputSchema.safeParse(body);
     if (!parsed.success) {
@@ -127,14 +122,14 @@ export class PackageBillingController {
     return this.lifecycle.requestCancellation(
       workspaceId,
       userId,
-      parsed.data.reason ?? null
+      parsed.data.reason ?? null,
     );
   }
 
   @Post("uazapi/instances")
   async provisionUazapi(
     @AuthToken() refreshToken: string,
-    @Body() body: unknown
+    @Body() body: unknown,
   ) {
     const parsed = uazapiPackageProvisionInputSchema.safeParse(body);
     if (!parsed.success) {
@@ -150,14 +145,14 @@ export class PackageBillingController {
     return this.uazapiProvisioning.provision(
       workspaceId,
       parsed.data.instanceName,
-      userId
+      userId,
     );
   }
 
   @Get("uazapi/instances/:whatsappInstanceId/status")
   async getUazapiProvisioningStatus(
     @AuthToken() refreshToken: string,
-    @Param("whatsappInstanceId") whatsappInstanceId: string
+    @Param("whatsappInstanceId") whatsappInstanceId: string,
   ) {
     const { canManageIntegrations, userId, workspaceId } =
       await this.getCurrentWorkspaceContext(refreshToken);
@@ -168,7 +163,25 @@ export class PackageBillingController {
     return this.uazapiProvisioning.getProvisioningStatus(
       workspaceId,
       whatsappInstanceId,
-      userId
+      userId,
+    );
+  }
+
+  @Post("uazapi/instances/:whatsappInstanceId/refresh-qr")
+  async refreshUazapiProvisioningQr(
+    @AuthToken() refreshToken: string,
+    @Param("whatsappInstanceId") whatsappInstanceId: string,
+  ) {
+    const { canManageIntegrations, userId, workspaceId } =
+      await this.getCurrentWorkspaceContext(refreshToken);
+    if (!canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.uazapiProvisioning.refreshProvisioningQr(
+      workspaceId,
+      whatsappInstanceId,
+      userId,
     );
   }
 
@@ -185,7 +198,7 @@ export class PackageBillingController {
       canManageBilling: workspace.permissions.canManageBilling,
       canManageIntegrations: workspace.permissions.canManageIntegrations,
       userId: authenticated.user.id,
-      workspaceId: workspace.id
+      workspaceId: workspace.id,
     };
   }
 }
