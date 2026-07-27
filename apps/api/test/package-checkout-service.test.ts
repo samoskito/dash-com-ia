@@ -45,7 +45,10 @@ function createHarness() {
     })
   };
   const asaas = {
-    updateCustomer: vi.fn().mockResolvedValue({ id: "customer_1" }),
+    updateCustomer: vi.fn().mockResolvedValue({
+      id: "customer_1",
+      cityId: 3550308
+    }),
     createCustomer: vi.fn(),
     createRecurringCheckout: vi.fn().mockResolvedValue({
       id: "checkout_1",
@@ -76,7 +79,7 @@ function createHarness() {
 
 describe("PackageCheckoutService", () => {
   it("returns a checkout without activating access before payment", async () => {
-    const { contracts, service } = createHarness();
+    const { asaas, contracts, service } = createHarness();
 
     const result = await service.createCheckout(
       "workspace_1",
@@ -93,6 +96,17 @@ describe("PackageCheckoutService", () => {
     });
     expect(contracts.markAwaitingPayment).toHaveBeenCalledOnce();
     expect(contracts.activatePaidContract).not.toHaveBeenCalled();
+    expect(asaas.createRecurringCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile,
+        customerCityId: 3550308
+      })
+    );
+    expect(asaas.createRecurringCheckout).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: expect.anything()
+      })
+    );
   });
 
   it("resumes a draft contract after checkout creation previously failed", async () => {

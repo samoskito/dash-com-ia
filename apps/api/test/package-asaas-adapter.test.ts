@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { WorkspaceBillingProfile } from "@prisma/client";
 import { PackageAsaasAdapter } from "../src/billing/package-asaas.adapter";
 
 function response(status: number, payload: unknown = {}) {
@@ -24,7 +25,7 @@ afterEach(() => {
 });
 
 describe("PackageAsaasAdapter", () => {
-  it("reuses the customer created for the workspace checkout", async () => {
+  it("uses the hosted checkout customerData contract", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       response(200, {
         id: "checkout_1",
@@ -39,14 +40,68 @@ describe("PackageAsaasAdapter", () => {
       subscriptionId: "contract_1",
       planName: "Pacote 3",
       monthlyPriceCents: 5000,
-      customerId: "customer_1"
+      customerCityId: 3550308,
+      profile: {
+        payerName: "Cliente Teste",
+        taxId: "123.456.789-09",
+        billingEmail: "billing@example.test",
+        phone: "+55 (11) 99999-9999",
+        addressLine: "Rua A",
+        addressNumber: "10",
+        addressComplement: "Sala 1",
+        postalCode: "01001-000",
+        district: "Centro"
+      } as WorkspaceBillingProfile
     });
 
     const request = JSON.parse(
       String(fetchMock.mock.calls[0]?.[1]?.body)
     ) as Record<string, unknown>;
-    expect(request.customer).toBe("customer_1");
-    expect(request).not.toHaveProperty("customerData");
+    expect(request).not.toHaveProperty("customer");
+    expect(request.customerData).toEqual({
+      name: "Cliente Teste",
+      cpfCnpj: "12345678909",
+      email: "billing@example.test",
+      phone: "5511999999999",
+      address: "Rua A",
+      addressNumber: "10",
+      complement: "Sala 1",
+      postalCode: "01001000",
+      province: "Centro",
+      city: 3550308
+    });
+  });
+
+  it("keeps the Asaas city identifier returned with the customer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        response(200, {
+          id: "customer_1",
+          city: 3550308
+        })
+      )
+    );
+
+    await expect(
+      createAdapter().createCustomer(
+        "workspace_1",
+        {
+          payerName: "Cliente Teste",
+          taxId: "12345678909",
+          billingEmail: "billing@example.test",
+          phone: "5511999999999",
+          addressLine: "Rua A",
+          addressNumber: "10",
+          addressComplement: null,
+          postalCode: "01001000",
+          district: "Centro"
+        } as WorkspaceBillingProfile
+      )
+    ).resolves.toEqual({
+      id: "customer_1",
+      cityId: 3550308
+    });
   });
 
   it("creates invoice settings only when the subscription has none", async () => {

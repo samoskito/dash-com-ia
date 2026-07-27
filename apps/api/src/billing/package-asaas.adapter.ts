@@ -6,6 +6,7 @@ type JsonRecord = Record<string, unknown>;
 
 export type AsaasCustomerResult = {
   id: string;
+  cityId: number;
 };
 
 export type AsaasRecurringCheckoutResult = {
@@ -81,7 +82,7 @@ export class PackageAsaasAdapter {
       notificationDisabled: false
     });
 
-    return { id: this.requiredString(response, "id") };
+    return this.mapCustomer(response);
   }
 
   async updateCustomer(
@@ -107,7 +108,7 @@ export class PackageAsaasAdapter {
       }
     );
 
-    return { id: this.requiredString(response, "id") };
+    return this.mapCustomer(response);
   }
 
   async createRecurringCheckout(input: {
@@ -115,7 +116,8 @@ export class PackageAsaasAdapter {
     subscriptionId: string;
     planName: string;
     monthlyPriceCents: number;
-    customerId: string;
+    profile: WorkspaceBillingProfile;
+    customerCityId: number;
   }): Promise<AsaasRecurringCheckoutResult> {
     const successUrl = this.configuration.checkoutSuccessUrl();
     const cancelUrl = this.configuration.checkoutCancelUrl();
@@ -150,7 +152,18 @@ export class PackageAsaasAdapter {
           value: input.monthlyPriceCents / 100
         }
       ],
-      customer: input.customerId,
+      customerData: {
+        name: input.profile.payerName,
+        cpfCnpj: this.digits(input.profile.taxId),
+        email: input.profile.billingEmail,
+        phone: this.digits(input.profile.phone),
+        address: input.profile.addressLine,
+        addressNumber: input.profile.addressNumber,
+        complement: input.profile.addressComplement ?? undefined,
+        postalCode: this.digits(input.profile.postalCode),
+        province: input.profile.district,
+        city: input.customerCityId
+      },
       subscription: {
         cycle: "MONTHLY",
         nextDueDate: this.asaasDateTime(new Date())
@@ -448,6 +461,13 @@ export class PackageAsaasAdapter {
     };
   }
 
+  private mapCustomer(payload: JsonRecord): AsaasCustomerResult {
+    return {
+      id: this.requiredString(payload, "id"),
+      cityId: this.requiredNumber(payload, "city")
+    };
+  }
+
   private mapPayment(payload: JsonRecord): AsaasPaymentResult {
     return {
       id: this.requiredString(payload, "id"),
@@ -494,6 +514,18 @@ export class PackageAsaasAdapter {
   private optionalNumber(payload: JsonRecord, key: string): number | null {
     const value = payload[key];
     return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+
+  private requiredNumber(payload: JsonRecord, key: string): number {
+    const value = this.optionalNumber(payload, key);
+    if (value === null) {
+      throw new PackageAsaasError(
+        `asaas_invalid_response_${key}`,
+        null,
+        false
+      );
+    }
+    return value;
   }
 
   private relationId(value: unknown): string | null {

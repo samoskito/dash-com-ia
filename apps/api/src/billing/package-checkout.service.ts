@@ -93,13 +93,14 @@ export class PackageCheckoutService {
       );
     }
 
-    let customerId = profile.asaasCustomerId;
-    if (customerId) {
-      await this.asaas.updateCustomer(customerId, workspaceId, profile);
-    } else {
-      const customer = await this.asaas.createCustomer(workspaceId, profile);
-      customerId = customer.id;
-    }
+    const customer = profile.asaasCustomerId
+      ? await this.asaas.updateCustomer(
+          profile.asaasCustomerId,
+          workspaceId,
+          profile
+        )
+      : await this.asaas.createCustomer(workspaceId, profile);
+    const customerId = customer.id;
 
     await this.prisma.workspaceBillingProfile.update({
       where: { id: profile.id },
@@ -125,7 +126,8 @@ export class PackageCheckoutService {
       subscriptionId: assignment.subscriptionId,
       planName: plan.name,
       monthlyPriceCents: plan.monthlyPriceCents,
-      customerId
+      profile,
+      customerCityId: customer.cityId
     });
 
     await this.contracts.markAwaitingPayment(assignment.subscriptionId, {
