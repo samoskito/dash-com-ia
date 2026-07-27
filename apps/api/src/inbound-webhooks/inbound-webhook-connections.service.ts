@@ -4,7 +4,6 @@ import {
   Inject,
   Injectable,
   NotFoundException,
-  Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
@@ -18,8 +17,6 @@ import type {
   InboundWebhookCapabilitiesDto,
 } from "@wpptrack/shared";
 import { inboundWebhookProviders } from "@wpptrack/shared";
-import { PackageBillingConfiguration } from "../billing/package-billing.configuration";
-import { WhatsappSeatService } from "../billing/whatsapp-seat.service";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
@@ -39,12 +36,6 @@ export class InboundWebhookConnectionsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(RUNTIME_ENV) private readonly env: RuntimeEnv,
-    @Optional()
-    @Inject(PackageBillingConfiguration)
-    private readonly packageBilling?: PackageBillingConfiguration,
-    @Optional()
-    @Inject(WhatsappSeatService)
-    private readonly whatsappSeats?: WhatsappSeatService,
   ) {}
 
   async getCapabilities(): Promise<InboundWebhookCapabilitiesDto> {
@@ -316,13 +307,6 @@ export class InboundWebhookConnectionsService {
         await this.assertProductionReady(transaction, current);
       }
 
-      await this.syncExternalChannelSeats(
-        transaction,
-        current,
-        input.status,
-        actorUserId,
-      );
-
       const updatedAt = this.nextMutationTime(current.updatedAt);
       const claimed = await transaction.inboundWebhookConnection.updateMany({
         where: this.activeMutationWhere(current),
@@ -385,12 +369,6 @@ export class InboundWebhookConnectionsService {
         transaction,
         workspaceId,
         connectionId,
-      );
-      await this.syncExternalChannelSeats(
-        transaction,
-        current,
-        "paused",
-        actorUserId,
       );
       const removedAt = this.nextMutationTime(current.updatedAt);
       const claimed = await transaction.inboundWebhookConnection.updateMany({
@@ -608,57 +586,6 @@ export class InboundWebhookConnectionsService {
       throw new ConflictException(
         "Finalize o replay em andamento antes de ativar a producao",
       );
-    }
-  }
-
-  private async syncExternalChannelSeats(
-    transaction: Prisma.TransactionClient,
-    connection: PersistedInboundWebhookConnection,
-    nextStatus: InboundWebhookConnectionStatusUpdateInputDto["status"],
-    actorUserId: string,
-  ): Promise<void> {
-    if (
-      !this.packageBilling?.isPackageBillingEnabled() ||
-      !this.packageBilling.isExternalChannelEnforcementEnabled() ||
-      !this.whatsappSeats
-    ) {
-      return;
-    }
-
-    const channels = await transaction.inboundWebhookChannel.findMany({
-      where: {
-        workspaceId: connection.workspaceId,
-        connectionId: connection.id,
-        ...(nextStatus === "production" ? { status: "active" } : {}),
-      },
-      select: {
-        id: true,
-        connectedPhone: true,
-      },
-      orderBy: { createdAt: "asc" },
-    });
-
-    for (const channel of channels) {
-      if (nextStatus === "production") {
-        await this.whatsappSeats.activateExternalChannelSeat(transaction, {
-          workspaceId: connection.workspaceId,
-          channelId: channel.id,
-          provider: connection.provider,
-          normalizedPhone: channel.connectedPhone.trim() || null,
-          actorUserId,
-        });
-        continue;
-      }
-
-      await this.whatsappSeats.releaseExternalChannelSeat(transaction, {
-        workspaceId: connection.workspaceId,
-        channelId: channel.id,
-        actorUserId,
-        reason:
-          nextStatus === "paused"
-            ? "external_connection_paused"
-            : "external_connection_observation",
-      });
     }
   }
 

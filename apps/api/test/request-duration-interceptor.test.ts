@@ -1,7 +1,10 @@
 import { Logger } from "@nestjs/common";
 import { lastValueFrom, of } from "rxjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RequestDurationInterceptor } from "../src/common/http/request-duration.interceptor";
+import {
+  RequestDurationInterceptor,
+  sanitizeRequestPath,
+} from "../src/common/http/request-duration.interceptor";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -39,6 +42,16 @@ describe("request duration interceptor", () => {
     );
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('"path":"/reports/campaigns?page=1"'),
+    );
+  });
+
+  it("redacts webhook tokens from logged request paths", () => {
+    expect(
+      sanitizeRequestPath(
+        "/webhooks/inbound/connection_1?token=private-secret&mode=test",
+      ),
+    ).toBe(
+      "/webhooks/inbound/connection_1?token=[REDACTED]&mode=test",
     );
   });
 });

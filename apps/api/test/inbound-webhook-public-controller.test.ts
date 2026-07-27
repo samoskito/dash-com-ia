@@ -1,4 +1,5 @@
 import { NotFoundException } from "@nestjs/common";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
@@ -10,6 +11,7 @@ import {
   InboundConversionAutomationIngestionService,
   type InboundConversionAutomationIngestionInput,
 } from "../src/inbound-webhooks/inbound-conversion-automation-ingestion.service";
+import { INBOUND_WEBHOOK_BODY_LIMIT } from "../src/inbound-webhooks/inbound-webhook-limits";
 import { InboundWebhookPublicController } from "../src/inbound-webhooks/inbound-webhook-public.controller";
 
 async function createApp() {
@@ -44,7 +46,10 @@ async function createApp() {
       },
     ],
   }).compile();
-  const app = moduleRef.createNestApplication({ rawBody: true });
+  const app = moduleRef.createNestApplication<NestExpressApplication>({
+    rawBody: true,
+  });
+  app.useBodyParser("json", { limit: INBOUND_WEBHOOK_BODY_LIMIT });
   await app.init();
 
   return { app, ingestion, conversionAutomationIngestion };
@@ -121,6 +126,34 @@ describe("inbound webhook public controller", () => {
       true,
     );
     expect(input).not.toHaveProperty("workspaceId");
+
+    await app.close();
+  });
+
+  it("accepts Umbler JSON payloads above the default 100 KiB parser limit", async () => {
+    const { app, ingestion } = await createApp();
+    const payload = JSON.stringify({
+      Type: "Message",
+      EventId: "umbler_event_large_http",
+      Payload: {
+        Content: {
+          LastMessage: {
+            Thumbnail: "x".repeat(256 * 1024),
+          },
+        },
+      },
+    });
+
+    await request(app.getHttpServer())
+      .post("/webhooks/inbound/connection_1?token=one-time-token")
+      .set("Content-Type", "application/json")
+      .send(payload)
+      .expect(202);
+
+    expect(ingestion.ingest).toHaveBeenCalledTimes(1);
+    const input = ingestion.ingest.mock.calls[0][0];
+    expect(input.rawBody).toBeInstanceOf(Buffer);
+    expect((input.rawBody as Buffer).equals(Buffer.from(payload))).toBe(true);
 
     await app.close();
   });

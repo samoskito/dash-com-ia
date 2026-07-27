@@ -2,7 +2,9 @@ import {
   Controller,
   Headers,
   HttpCode,
+  HttpException,
   Inject,
+  Logger,
   Param,
   Post,
   Query,
@@ -13,6 +15,8 @@ import { InboundConversionAutomationIngestionService } from "./inbound-conversio
 
 @Controller("webhooks/inbound")
 export class InboundWebhookPublicController {
+  private readonly logger = new Logger(InboundWebhookPublicController.name);
+
   constructor(
     @Inject(InboundWebhookIngestionService)
     private readonly ingestion: InboundWebhookIngestionService,
@@ -47,12 +51,43 @@ export class InboundWebhookPublicController {
     @Headers("x-attempt") providerAttempt: unknown,
     @RawBody() rawBody: Buffer | undefined,
   ) {
-    return this.ingestion.ingest({
-      connectionId,
-      token,
-      contentType,
-      providerAttempt,
-      rawBody,
-    });
+    const startedAt = Date.now();
+
+    try {
+      const result = await this.ingestion.ingest({
+        connectionId,
+        token,
+        contentType,
+        providerAttempt,
+        rawBody,
+      });
+      const durationMs = Date.now() - startedAt;
+
+      if (durationMs >= 1_000) {
+        this.logger.warn(
+          JSON.stringify({
+            event: "inbound_webhook.accepted_slow",
+            connectionId,
+            durationMs,
+            bodyBytes: rawBody?.length ?? 0,
+            queueStatus: result.queueStatus,
+          }),
+        );
+      }
+
+      return result;
+    } catch (error) {
+      this.logger.error(
+        JSON.stringify({
+          event: "inbound_webhook.rejected",
+          connectionId,
+          statusCode: error instanceof HttpException ? error.getStatus() : 500,
+          durationMs: Date.now() - startedAt,
+          bodyBytes: rawBody?.length ?? 0,
+          contentType: contentType?.split(";", 1)[0] ?? null,
+        }),
+      );
+      throw error;
+    }
   }
 }

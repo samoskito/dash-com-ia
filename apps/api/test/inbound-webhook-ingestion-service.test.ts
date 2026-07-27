@@ -150,14 +150,29 @@ function createHarness(options?: {
           candidate.id === where.id &&
           candidate.connectionId === where.connectionId &&
           candidate.workspaceId === where.workspaceId &&
-          candidate.status === where.status,
+          (where.status === undefined || candidate.status === where.status),
       );
 
       if (!delivery) {
         return { count: 0 };
       }
 
-      Object.assign(delivery, data);
+      if (data.attemptCount?.increment) {
+        delivery.attemptCount += data.attemptCount.increment;
+      }
+      if (data.providerAttempt !== undefined) {
+        delivery.providerAttempt = data.providerAttempt;
+      }
+      if (data.lastReceivedAt !== undefined) {
+        delivery.lastReceivedAt = data.lastReceivedAt;
+      }
+      if (data.status !== undefined) {
+        delivery.status = data.status;
+      }
+      if (data.queuedAt !== undefined) {
+        delivery.queuedAt = data.queuedAt;
+      }
+
       return { count: 1 };
     }),
   };
@@ -277,6 +292,32 @@ describe("inbound webhook ingestion service", () => {
     expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
   });
 
+  it("accepts a valid Umbler payload larger than the old 96 KiB limit", async () => {
+    const harness = createHarness();
+    const rawBody = Buffer.from(
+      JSON.stringify({
+        Type: "Message",
+        EventId: "umbler_event_large",
+        Payload: {
+          Content: {
+            LastMessage: {
+              Thumbnail: "x".repeat(256 * 1024),
+            },
+          },
+        },
+      }),
+    );
+
+    const result = await harness.service.ingest(requestInput(rawBody));
+
+    expect(result).toMatchObject({
+      status: "accepted",
+      duplicate: false,
+      queueStatus: "pending",
+    });
+    expect(harness.deliveries.size).toBe(1);
+  });
+
   it("encrypts and persists a valid Umbler EventId under connection tenancy", async () => {
     const harness = createHarness();
     const privateMarker = "private-contact-marker";
@@ -298,7 +339,10 @@ describe("inbound webhook ingestion service", () => {
     expect(result).toMatchObject({
       status: "accepted",
       duplicate: false,
-      queueStatus: "queued",
+      queueStatus: "pending",
+    });
+    await vi.waitFor(() => {
+      expect([...harness.deliveries.values()][0]?.status).toBe("queued");
     });
     const delivery = [...harness.deliveries.values()][0];
     expect(delivery.workspaceId).toBe("workspace_safe");
@@ -394,9 +438,14 @@ describe("inbound webhook ingestion service", () => {
       queueStatus: "existing",
     });
     expect(harness.deliveries.size).toBe(1);
+    await vi.waitFor(() => {
+      expect([...harness.deliveries.values()][0]?.attemptCount).toBe(2);
+    });
     const delivery = [...harness.deliveries.values()][0];
-    expect(delivery.attemptCount).toBe(2);
-    expect(delivery.providerAttempt).toBe(2);
+    await vi.waitFor(() => {
+      expect(delivery.attemptCount).toBe(2);
+      expect(delivery.providerAttempt).toBe(2);
+    });
     expect(harness.queue.enqueueDelivery).toHaveBeenCalledTimes(1);
   });
 
@@ -429,6 +478,43 @@ describe("inbound webhook ingestion service", () => {
     expect(delivery.payloadIv).toBeTruthy();
     expect(delivery.payloadTag).toBeTruthy();
     expect(delivery.encryptionKeyVersion).toBe(1);
+  });
+
+  it("acknowledges a durable delivery without waiting for Redis or connection telemetry", async () => {
+    const harness = createHarness();
+    harness.queue.enqueueDelivery.mockImplementationOnce(
+      () => new Promise(() => undefined),
+    );
+    harness.prisma.inboundWebhookConnection.updateMany.mockImplementationOnce(
+      () => new Promise(() => undefined),
+    );
+
+    const result = await Promise.race([
+      harness.service.ingest(
+        requestInput(
+          Buffer.from(
+            JSON.stringify({
+              Type: "Message",
+              EventId: "umbler_fast_ack",
+            }),
+          ),
+        ),
+      ),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error("ingestion waited for background work")),
+          100,
+        );
+      }),
+    ]);
+
+    expect(result).toMatchObject({
+      status: "accepted",
+      duplicate: false,
+      queueStatus: "pending",
+    });
+    expect(harness.deliveries.size).toBe(1);
+    expect([...harness.deliveries.values()][0]?.status).toBe("pending");
   });
 
   it("returns a sanitized non-2xx response when persistence fails", async () => {

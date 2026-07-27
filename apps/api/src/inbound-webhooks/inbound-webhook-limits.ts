@@ -1,0 +1,2 @@
+export const INBOUND_WEBHOOK_BODY_LIMIT = "2mb";
+export const MAX_INBOUND_WEBHOOK_PAYLOAD_BYTES = 2 * 1024 * 1024;

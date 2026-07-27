@@ -14,6 +14,13 @@ type HttpRequest = {
   url?: string;
 };
 
+export function sanitizeRequestPath(path: string): string {
+  return path.replace(
+    /([?&]token=)[^&#\s"]*/gi,
+    "$1[REDACTED]",
+  );
+}
+
 @Injectable()
 export class RequestDurationInterceptor implements NestInterceptor {
   private readonly logger = new Logger(RequestDurationInterceptor.name);
@@ -41,7 +48,9 @@ export class RequestDurationInterceptor implements NestInterceptor {
           JSON.stringify({
             event: "http.request.slow",
             method: request.method ?? "UNKNOWN",
-            path: request.originalUrl ?? request.url ?? "unknown",
+            path: sanitizeRequestPath(
+              request.originalUrl ?? request.url ?? "unknown",
+            ),
             durationMs,
           }),
         );

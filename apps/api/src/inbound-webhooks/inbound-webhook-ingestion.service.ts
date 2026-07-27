@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   PayloadTooLargeException,
   ServiceUnavailableException,
@@ -22,12 +23,14 @@ import {
   type InboundWebhookDeliveryIdentity,
 } from "./providers/inbound-webhook-delivery-identity";
 import { extractUmblerV1DeliveryIdentity } from "./providers/umbler/umbler-v1-delivery-identity";
+import { MAX_INBOUND_WEBHOOK_PAYLOAD_BYTES } from "./inbound-webhook-limits";
 
-export const MAX_INBOUND_WEBHOOK_PAYLOAD_BYTES = 96 * 1024;
+export { MAX_INBOUND_WEBHOOK_PAYLOAD_BYTES } from "./inbound-webhook-limits";
 
 const publicConnectionNotFoundMessage = "Webhook nao encontrado";
 const publicPersistenceFailureMessage = "Webhook temporariamente indisponivel";
 const dummySecretHash = Buffer.alloc(32);
+const CONNECTION_TELEMETRY_INTERVAL_MS = 30_000;
 
 type PublicInboundWebhookConnection =
   Prisma.InboundWebhookConnectionGetPayload<{
@@ -78,6 +81,8 @@ export function parseInboundWebhookProviderAttempt(
 
 @Injectable()
 export class InboundWebhookIngestionService {
+  private readonly logger = new Logger(InboundWebhookIngestionService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(RUNTIME_ENV) private readonly env: RuntimeEnv,
@@ -103,15 +108,15 @@ export class InboundWebhookIngestionService {
     const existing = await this.findExistingDelivery(connection.id, identity);
 
     if (existing) {
-      const deliveryId = await this.recordDuplicate(
+      this.scheduleDuplicateAccounting(
         connection,
-        identity,
+        existing.id,
         providerAttempt,
       );
 
       return {
         status: "accepted",
-        deliveryId,
+        deliveryId: existing.id,
         duplicate: true,
         queueStatus: "existing",
       };
@@ -137,15 +142,26 @@ export class InboundWebhookIngestionService {
       });
     } catch (error) {
       if (this.isUniqueConstraintError(error)) {
-        const duplicateDeliveryId = await this.recordDuplicate(
-          connection,
+        const duplicate = await this.findExistingDelivery(
+          connection.id,
           identity,
+        );
+
+        if (!duplicate) {
+          throw new ServiceUnavailableException(
+            publicPersistenceFailureMessage,
+          );
+        }
+
+        this.scheduleDuplicateAccounting(
+          connection,
+          duplicate.id,
           providerAttempt,
         );
 
         return {
           status: "accepted",
-          deliveryId: duplicateDeliveryId,
+          deliveryId: duplicate.id,
           duplicate: true,
           queueStatus: "existing",
         };
@@ -158,36 +174,13 @@ export class InboundWebhookIngestionService {
       throw new ServiceUnavailableException(publicPersistenceFailureMessage);
     }
 
-    let queueStatus: InboundWebhookIngestionResult["queueStatus"] = "pending";
-
-    try {
-      await this.queue.enqueueDelivery({
-        deliveryId,
-        connectionId: connection.id,
-        workspaceId: connection.workspaceId,
-      });
-      await this.prisma.inboundWebhookDelivery.updateMany({
-        where: {
-          id: deliveryId,
-          connectionId: connection.id,
-          workspaceId: connection.workspaceId,
-          status: "pending",
-        },
-        data: {
-          status: "queued",
-          queuedAt: new Date(),
-        },
-      });
-      queueStatus = "queued";
-    } catch {
-      queueStatus = "pending";
-    }
+    this.schedulePostAcceptance(connection, deliveryId, receivedAt);
 
     return {
       status: "accepted",
       deliveryId,
       duplicate: false,
-      queueStatus,
+      queueStatus: "pending",
     };
   }
 
@@ -212,7 +205,8 @@ export class InboundWebhookIngestionService {
           parserRelease: true,
         },
       });
-    } catch {
+    } catch (error) {
+      this.logInfrastructureFailure("connection_lookup", connectionId, error);
       throw new ServiceUnavailableException(publicPersistenceFailureMessage);
     }
 
@@ -292,48 +286,45 @@ export class InboundWebhookIngestionService {
           id: true,
         },
       });
-    } catch {
+    } catch (error) {
+      this.logInfrastructureFailure("delivery_lookup", connectionId, error);
       throw new ServiceUnavailableException(publicPersistenceFailureMessage);
     }
   }
 
-  private async recordDuplicate(
+  private scheduleDuplicateAccounting(
     connection: PublicInboundWebhookConnection,
-    identity: InboundWebhookDeliveryIdentity,
+    deliveryId: string,
     providerAttempt: number | null,
-  ): Promise<string> {
-    try {
-      return await this.prisma.$transaction(async (transaction) => {
-        await this.revalidateConnection(transaction, connection);
-        const delivery = await transaction.inboundWebhookDelivery.update({
+  ): void {
+    const receivedAt = new Date();
+
+    setImmediate(() => {
+      void Promise.allSettled([
+        this.prisma.inboundWebhookDelivery.updateMany({
           where: {
-            connectionId_ingressKey: {
-              connectionId: connection.id,
-              ingressKey: identity.ingressKey,
-            },
+            id: deliveryId,
+            connectionId: connection.id,
+            workspaceId: connection.workspaceId,
           },
           data: {
             attemptCount: {
               increment: 1,
             },
-            lastReceivedAt: new Date(),
+            lastReceivedAt: receivedAt,
             providerAttempt: providerAttempt ?? undefined,
           },
-          select: {
-            id: true,
-          },
-        });
-        await this.touchConnection(transaction, connection, new Date());
-
-        return delivery.id;
+        }),
+        this.touchConnectionTelemetry(connection, receivedAt),
+      ]).then((results) => {
+        this.logBackgroundFailures(
+          "inbound_webhook.duplicate_accounting_failed",
+          connection.id,
+          deliveryId,
+          results,
+        );
       });
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-
-      throw new ServiceUnavailableException(publicPersistenceFailureMessage);
-    }
+    });
   }
 
   private async persistNewDelivery(input: {
@@ -377,11 +368,49 @@ export class InboundWebhookIngestionService {
           },
         },
       });
-      await this.touchConnection(
-        transaction,
-        input.connection,
-        input.receivedAt,
-      );
+    });
+  }
+
+  private schedulePostAcceptance(
+    connection: PublicInboundWebhookConnection,
+    deliveryId: string,
+    receivedAt: Date,
+  ): void {
+    setImmediate(() => {
+      void Promise.allSettled([
+        this.enqueueAcceptedDelivery(connection, deliveryId),
+        this.touchConnectionTelemetry(connection, receivedAt),
+      ]).then((results) => {
+        this.logBackgroundFailures(
+          "inbound_webhook.post_acceptance_failed",
+          connection.id,
+          deliveryId,
+          results,
+        );
+      });
+    });
+  }
+
+  private async enqueueAcceptedDelivery(
+    connection: PublicInboundWebhookConnection,
+    deliveryId: string,
+  ): Promise<void> {
+    await this.queue.enqueueDelivery({
+      deliveryId,
+      connectionId: connection.id,
+      workspaceId: connection.workspaceId,
+    });
+    await this.prisma.inboundWebhookDelivery.updateMany({
+      where: {
+        id: deliveryId,
+        connectionId: connection.id,
+        workspaceId: connection.workspaceId,
+        status: "pending",
+      },
+      data: {
+        status: "queued",
+        queuedAt: new Date(),
+      },
     });
   }
 
@@ -407,27 +436,87 @@ export class InboundWebhookIngestionService {
     }
   }
 
-  private async touchConnection(
-    transaction: Prisma.TransactionClient,
+  private async touchConnectionTelemetry(
     connection: PublicInboundWebhookConnection,
     lastDeliveryAt: Date,
   ): Promise<void> {
-    const updated = await transaction.inboundWebhookConnection.updateMany({
+    const staleBefore = new Date(
+      lastDeliveryAt.getTime() - CONNECTION_TELEMETRY_INTERVAL_MS,
+    );
+
+    await this.prisma.inboundWebhookConnection.updateMany({
       where: {
         id: connection.id,
         workspaceId: connection.workspaceId,
         secretHash: connection.secretHash,
         status: { in: ["observation", "production"] },
         removedAt: null,
+        OR: [
+          {
+            lastDeliveryAt: null,
+          },
+          {
+            lastDeliveryAt: {
+              lt: staleBefore,
+            },
+          },
+        ],
       },
       data: {
         lastDeliveryAt,
       },
     });
+  }
 
-    if (updated.count !== 1) {
-      throw new NotFoundException(publicConnectionNotFoundMessage);
+  private logBackgroundFailures(
+    event: string,
+    connectionId: string,
+    deliveryId: string,
+    results: PromiseSettledResult<unknown>[],
+  ): void {
+    const failures = results.filter(
+      (result): result is PromiseRejectedResult =>
+        result.status === "rejected",
+    );
+
+    if (failures.length === 0) {
+      return;
     }
+
+    this.logger.warn(
+      JSON.stringify({
+        event,
+        connectionId,
+        deliveryId,
+        failureCount: failures.length,
+        failureTypes: failures.map((failure) =>
+          this.errorType(failure.reason),
+        ),
+      }),
+    );
+  }
+
+  private errorType(error: unknown): string {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return error.code;
+    }
+
+    return error instanceof Error ? error.name : "unknown";
+  }
+
+  private logInfrastructureFailure(
+    stage: string,
+    connectionId: string,
+    error: unknown,
+  ): void {
+    this.logger.error(
+      JSON.stringify({
+        event: "inbound_webhook.infrastructure_failure",
+        stage,
+        connectionId,
+        errorType: this.errorType(error),
+      }),
+    );
   }
 
   private isUniqueConstraintError(error: unknown): boolean {
