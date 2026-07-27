@@ -47,7 +47,8 @@ export class PackageAsaasError extends Error {
   constructor(
     readonly code: string,
     readonly statusCode: number | null,
-    readonly retryable: boolean
+    readonly retryable: boolean,
+    readonly description: string | null = null
   ) {
     super(code);
     this.name = "PackageAsaasError";
@@ -132,7 +133,7 @@ export class PackageAsaasAdapter {
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const response = await this.request("POST", "/checkouts", {
-      billingTypes: ["CREDIT_CARD", "PIX"],
+      billingTypes: ["CREDIT_CARD"],
       chargeTypes: ["RECURRENT"],
       minutesToExpire: 1440,
       externalReference: this.contractExternalReference(
@@ -402,12 +403,14 @@ export class PackageAsaasAdapter {
       const payload = await this.readResponse(response);
 
       if (!response.ok) {
+        const providerError = this.extractError(payload, response.status);
         throw new PackageAsaasError(
-          this.extractErrorCode(payload, response.status),
+          providerError.code,
           response.status,
           response.status === 408 ||
             response.status === 429 ||
-            response.status >= 500
+            response.status >= 500,
+          providerError.description
         );
       }
 
@@ -443,11 +446,21 @@ export class PackageAsaasAdapter {
     }
   }
 
-  private extractErrorCode(payload: JsonRecord, status: number): string {
+  private extractError(
+    payload: JsonRecord,
+    status: number
+  ): { code: string; description: string | null } {
     const errors = Array.isArray(payload.errors) ? payload.errors : [];
     const first = errors.find(this.isRecord);
     const code = first ? this.optionalString(first, "code") : null;
-    return code ? `asaas_${code}` : `asaas_http_${status}`;
+    const description = first
+      ? this.optionalString(first, "description")
+      : null;
+
+    return {
+      code: code ? `asaas_${code}` : `asaas_http_${status}`,
+      description
+    };
   }
 
   private mapSubscription(payload: JsonRecord): AsaasSubscriptionResult {

@@ -193,9 +193,13 @@ It is activated through an audited platform-owner operation.
 
 ### 5.1 Hosted recurring checkout
 
-Use Asaas Checkout in recurring mode with credit card and Pix. The API creates
+Use Asaas Checkout in recurring mode with credit card. The API creates
 the checkout from the trusted contract snapshot and sends a stable WppTrack
 external reference.
+
+The initial hosted recurring contract follows the official Asaas recurring
+checkout example. Pix recurring remains a separate follow-up through Automatic
+Pix so it does not invalidate or weaken the card subscription flow.
 
 The customer completes payment on the Asaas-hosted page. WppTrack activates the
 contract only after the corresponding payment webhook is validated and

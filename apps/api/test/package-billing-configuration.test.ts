@@ -27,7 +27,9 @@ describe("PackageBillingConfiguration", () => {
       ASAAS_WEBHOOK_AUTH_TOKEN: "existing-webhook-token",
     });
 
-    expect(existing.asaasApiUrl()).toBe("https://sandbox.asaas.com/api/v3");
+    expect(existing.asaasApiUrl()).toBe(
+      "https://api-sandbox.asaas.com/v3"
+    );
     expect(existing.asaasWebhookToken()).toBe("existing-webhook-token");
     expect(explicit.asaasApiUrl()).toBe("https://api.asaas.com/v3");
     expect(explicit.asaasWebhookToken()).toBe("package-webhook-token");

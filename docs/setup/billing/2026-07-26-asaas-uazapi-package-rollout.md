@@ -48,7 +48,7 @@ WPPTRACK_BILLING_CHECKOUT_CANCEL_URL=https://SEU_APP/subscription
 Credenciais externas, sempre como secrets do ambiente:
 
 ```dotenv
-ASAAS_API_URL=https://sandbox.asaas.com/api/v3
+ASAAS_API_URL=https://api-sandbox.asaas.com/v3
 ASAAS_API_KEY=
 ASAAS_WEBHOOK_TOKEN=
 UAZAPI_BASE_URL=
@@ -57,6 +57,11 @@ UAZAPI_WEBHOOK_AUTH_TOKEN=
 ```
 
 Nao registrar valores dessas credenciais em logs, prints ou documentos.
+
+O checkout recorrente inicial segue o contrato oficial de assinatura
+hospedada com cartao de credito. Pix recorrente exige um fluxo separado e nao
+deve ser habilitado neste checkout ate a integracao de Pix Automatico ser
+implementada e validada.
 
 ## Fase 1 - Deploy Inerte
 

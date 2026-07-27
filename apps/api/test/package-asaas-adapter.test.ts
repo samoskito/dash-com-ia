@@ -57,6 +57,8 @@ describe("PackageAsaasAdapter", () => {
     const request = JSON.parse(
       String(fetchMock.mock.calls[0]?.[1]?.body)
     ) as Record<string, unknown>;
+    expect(request.billingTypes).toEqual(["CREDIT_CARD"]);
+    expect(request.chargeTypes).toEqual(["RECURRENT"]);
     expect(request).not.toHaveProperty("customer");
     expect(request.customerData).toEqual({
       name: "Cliente Teste",
@@ -163,7 +165,14 @@ describe("PackageAsaasAdapter", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        response(500, { errors: [{ code: "unavailable" }] })
+        response(500, {
+          errors: [
+            {
+              code: "unavailable",
+              description: "Provider temporarily unavailable"
+            }
+          ]
+        })
       )
     );
 
@@ -172,7 +181,8 @@ describe("PackageAsaasAdapter", () => {
     ).rejects.toMatchObject({
       code: "asaas_unavailable",
       statusCode: 500,
-      retryable: true
+      retryable: true,
+      description: "Provider temporarily unavailable"
     });
   });
 

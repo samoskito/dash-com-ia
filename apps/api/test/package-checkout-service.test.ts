@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { PackageAsaasError } from "../src/billing/package-asaas.adapter";
 import { PackageCheckoutService } from "../src/billing/package-checkout.service";
 
 const profile = {
@@ -182,5 +183,25 @@ describe("PackageCheckoutService", () => {
     ).rejects.toMatchObject({
       message: "Plano indisponivel para contratacao"
     });
+  });
+
+  it("returns the sanitized Asaas rejection instead of a generic code", async () => {
+    const { asaas, contracts, service } = createHarness();
+    asaas.createRecurringCheckout.mockRejectedValueOnce(
+      new PackageAsaasError(
+        "asaas_invalid_object",
+        400,
+        false,
+        "The 'subscription.nextDueDate' field is invalid for billing@example.test"
+      )
+    );
+
+    await expect(
+      service.createCheckout("workspace_1", "plan_1", "user_1")
+    ).rejects.toMatchObject({
+      message:
+        "O Asaas recusou a operacao (asaas_invalid_object): The 'subscription.nextDueDate' field is invalid for [email]"
+    });
+    expect(contracts.markAwaitingPayment).not.toHaveBeenCalled();
   });
 });

@@ -92,7 +92,9 @@ Checkpoint: capacity can be calculated and enforced locally with Asaas disabled.
 
 - [x] Extend the Asaas adapter with customer create/update/retrieve.
 - [x] Create recurring hosted checkouts with trusted package snapshot values.
-- [x] Offer credit card and Pix according to the approved checkout contract.
+- [x] Offer credit card through the documented hosted recurring checkout.
+- [ ] Add Pix recurring in a separate Automatic Pix wave after provider
+  validation.
 - [x] Include stable workspace and contract external references.
 - [x] Persist checkout and subscription identifiers without storing payment
       credentials.

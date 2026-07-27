@@ -87,11 +87,15 @@ export class PackageBillingConfiguration {
   }
 
   asaasApiUrl(): string {
-    return (
+    const configuredUrl = (
       this.clean(this.env.ASAAS_API_URL) ??
       this.clean(this.env.ASAAS_BASE_URL) ??
       "https://api.asaas.com/v3"
     ).replace(/\/+$/, "");
+
+    return configuredUrl === "https://sandbox.asaas.com/api/v3"
+      ? "https://api-sandbox.asaas.com/v3"
+      : configuredUrl;
   }
 
   asaasApiKey(): string | null {

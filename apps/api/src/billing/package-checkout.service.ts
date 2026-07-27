@@ -1,18 +1,25 @@
 import {
+  BadGatewayException,
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   ServiceUnavailableException
 } from "@nestjs/common";
 import type { WorkspacePackageCheckoutDto } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
-import { PackageAsaasAdapter } from "./package-asaas.adapter";
+import {
+  PackageAsaasAdapter,
+  PackageAsaasError
+} from "./package-asaas.adapter";
 import { PackageBillingConfiguration } from "./package-billing.configuration";
 import { PackageContractService } from "./package-contract.service";
 import { PackagePlanService } from "./package-plan.service";
 
 @Injectable()
 export class PackageCheckoutService {
+  private readonly logger = new Logger(PackageCheckoutService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(PackageBillingConfiguration)
@@ -48,6 +55,7 @@ export class PackageCheckoutService {
     ) {
       throw new ConflictException("Plano indisponivel para contratacao");
     }
+    const monthlyPriceCents = plan.monthlyPriceCents;
 
     const reusable = await this.prisma.workspaceSubscription.findFirst({
       where: {
@@ -94,12 +102,16 @@ export class PackageCheckoutService {
     }
 
     const customer = profile.asaasCustomerId
-      ? await this.asaas.updateCustomer(
-          profile.asaasCustomerId,
-          workspaceId,
-          profile
+      ? await this.executeAsaas("update_customer", () =>
+          this.asaas.updateCustomer(
+            profile.asaasCustomerId!,
+            workspaceId,
+            profile
+          )
         )
-      : await this.asaas.createCustomer(workspaceId, profile);
+      : await this.executeAsaas("create_customer", () =>
+          this.asaas.createCustomer(workspaceId, profile)
+        );
     const customerId = customer.id;
 
     await this.prisma.workspaceBillingProfile.update({
@@ -121,14 +133,18 @@ export class PackageCheckoutService {
           "Contratacao iniciada pelo cliente",
           "user"
         );
-    const checkout = await this.asaas.createRecurringCheckout({
-      workspaceId,
-      subscriptionId: assignment.subscriptionId,
-      planName: plan.name,
-      monthlyPriceCents: plan.monthlyPriceCents,
-      profile,
-      customerCityId: customer.cityId
-    });
+    const checkout = await this.executeAsaas(
+      "create_recurring_checkout",
+      () =>
+        this.asaas.createRecurringCheckout({
+          workspaceId,
+          subscriptionId: assignment.subscriptionId,
+          planName: plan.name,
+          monthlyPriceCents,
+          profile,
+          customerCityId: customer.cityId
+        })
+    );
 
     await this.contracts.markAwaitingPayment(assignment.subscriptionId, {
       customerId,
@@ -144,5 +160,52 @@ export class PackageCheckoutService {
       checkoutUrl: checkout.link,
       status: "awaiting_payment"
     };
+  }
+
+  private async executeAsaas<T>(
+    operation: string,
+    action: () => Promise<T>
+  ): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      if (!(error instanceof PackageAsaasError)) {
+        throw error;
+      }
+
+      const description = this.sanitizeProviderDescription(
+        error.description
+      );
+      this.logger.error(
+        JSON.stringify({
+          event: "asaas_package_checkout_failed",
+          operation,
+          code: error.code,
+          statusCode: error.statusCode,
+          retryable: error.retryable,
+          description
+        })
+      );
+
+      throw new BadGatewayException(
+        description
+          ? `O Asaas recusou a operacao (${error.code}): ${description}`
+          : `O Asaas recusou a operacao (${error.code})`
+      );
+    }
+  }
+
+  private sanitizeProviderDescription(value: string | null): string | null {
+    if (!value) {
+      return null;
+    }
+
+    return value
+      .replace(
+        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,
+        "[email]"
+      )
+      .replace(/\b\d{5,}\b/g, "[numero]")
+      .slice(0, 500);
   }
 }
