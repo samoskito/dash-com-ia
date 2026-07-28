@@ -7,7 +7,11 @@ const contract = {
   workspaceId: "workspace_1",
   planId: "plan_1",
   planNameSnapshot: "Pacote",
-  asaasSubscriptionId: "sub_asaas_1"
+  asaasSubscriptionId: "sub_asaas_1",
+  cancelAtPeriodEnd: false,
+  cancellationRequestedAt: null,
+  contractStatus: "active",
+  currentPeriodEnd: new Date("2026-08-27T12:00:00.000Z")
 };
 
 const subscriptionWebhook = {
@@ -46,6 +50,11 @@ function createHarness() {
     },
     billingInvoice: {
       findFirst: vi.fn()
+    },
+    paymentCharge: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: "charge_1" }),
+      update: vi.fn()
     }
   };
   const configuration = {
@@ -57,16 +66,20 @@ function createHarness() {
       subscriptionId: "contract_1"
     })
   };
+  const lifecycle = {
+    markPaymentDeleted: vi.fn().mockResolvedValue(contract),
+    markPaymentOverdue: vi.fn().mockResolvedValue(contract)
+  };
   const service = new PackageBillingWebhookService(
     prisma as never,
     configuration as never,
     asaas as never,
     {} as never,
-    {} as never,
+    lifecycle as never,
     {} as never
   );
 
-  return { asaas, prisma, service };
+  return { asaas, lifecycle, prisma, service };
 }
 
 describe("PackageBillingWebhookService", () => {
@@ -220,5 +233,36 @@ describe("PackageBillingWebhookService", () => {
       resourceId: "sub_asaas_1",
       resourceType: "subscription"
     });
+  });
+
+  it("routes deleted future charges through cancellation-aware lifecycle handling", async () => {
+    const { lifecycle, prisma, service } = createHarness();
+
+    const result = await service.tryProcess({
+      id: "evt_payment_deleted_1",
+      event: "PAYMENT_DELETED",
+      payment: {
+        id: "payment_future_1",
+        subscription: "sub_asaas_1",
+        value: 30
+      }
+    });
+
+    expect(result).toMatchObject({
+      handled: true,
+      status: "processed",
+      workspaceId: "workspace_1"
+    });
+    expect(prisma.paymentCharge.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        externalChargeId: "payment_future_1",
+        status: "canceled"
+      })
+    });
+    expect(lifecycle.markPaymentDeleted).toHaveBeenCalledWith(
+      "contract_1",
+      "payment_future_1"
+    );
+    expect(lifecycle.markPaymentOverdue).not.toHaveBeenCalled();
   });
 });

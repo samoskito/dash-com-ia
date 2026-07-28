@@ -295,9 +295,16 @@ export class PackageBillingWebhookService {
       );
       return true;
     }
+    if (context.eventType === "PAYMENT_DELETED") {
+      await this.upsertCharge(context, "canceled");
+      await this.lifecycle.markPaymentDeleted(
+        context.contract.id,
+        context.resourceId
+      );
+      return true;
+    }
     if (
       context.eventType === "PAYMENT_REFUNDED" ||
-      context.eventType === "PAYMENT_DELETED" ||
       context.eventType === "PAYMENT_CHARGEBACK_REQUESTED" ||
       context.eventType === "PAYMENT_CHARGEBACK_DISPUTE"
     ) {

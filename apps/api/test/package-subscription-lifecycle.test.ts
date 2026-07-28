@@ -141,6 +141,48 @@ describe("PackageSubscriptionLifecycleService", () => {
     });
   });
 
+  it("keeps the paid period when Asaas deletes future charges after cancellation", async () => {
+    const { prisma, service, transaction } = createHarness();
+    const cancelingContract = {
+      ...activeContract,
+      contractStatus: "cancel_at_period_end",
+      cancelAtPeriodEnd: true,
+      cancellationRequestedAt: new Date("2026-07-26T12:00:00.000Z"),
+      recurrenceStoppedAt: new Date("2026-07-26T12:00:00.000Z"),
+      accessEndsAt: activeContract.currentPeriodEnd
+    };
+    prisma.workspaceSubscription.findUnique.mockResolvedValueOnce(
+      cancelingContract
+    );
+
+    const result = await service.markPaymentDeleted(
+      "contract_1",
+      "payment_future_1"
+    );
+
+    expect(result).toBe(cancelingContract);
+    expect(transaction.workspaceSubscription.update).not.toHaveBeenCalled();
+    expect(transaction.billingContractAudit.create).not.toHaveBeenCalled();
+  });
+
+  it("opens grace when a payment is deleted outside scheduled cancellation", async () => {
+    const { service, transaction } = createHarness();
+
+    const result = await service.markPaymentDeleted(
+      "contract_1",
+      "payment_deleted_1"
+    );
+
+    expect(result.contractStatus).toBe("grace_period");
+    expect(transaction.workspaceSubscription.update).toHaveBeenCalledWith({
+      where: { id: "contract_1" },
+      data: expect.objectContaining({
+        contractStatus: "grace_period",
+        status: "past_due"
+      })
+    });
+  });
+
   it("reconciles expired reservations, grace and period-end cancellation", async () => {
     const { prisma, seats, service } = createHarness();
     seats.expireAllReservations.mockResolvedValueOnce(2);

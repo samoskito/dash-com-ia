@@ -170,6 +170,45 @@ export class PackageSubscriptionLifecycleService
       return contract;
     }
 
+    return this.moveToGracePeriod(contract, providerPaymentId);
+  }
+
+  async markPaymentDeleted(
+    subscriptionId: string,
+    providerPaymentId: string
+  ): Promise<WorkspaceSubscription> {
+    const contract = await this.prisma.workspaceSubscription.findUnique({
+      where: { id: subscriptionId }
+    });
+    if (!contract) {
+      throw new ConflictException("Contrato nao encontrado");
+    }
+    if (
+      contract.contractStatus === "exempt" ||
+      contract.contractStatus === "legacy_protected" ||
+      contract.contractStatus === "canceled"
+    ) {
+      return contract;
+    }
+
+    const paidPeriodStillActive =
+      contract.currentPeriodEnd !== null &&
+      contract.currentPeriodEnd.getTime() > Date.now();
+    if (
+      contract.cancelAtPeriodEnd &&
+      contract.cancellationRequestedAt &&
+      paidPeriodStillActive
+    ) {
+      return contract;
+    }
+
+    return this.moveToGracePeriod(contract, providerPaymentId);
+  }
+
+  private async moveToGracePeriod(
+    contract: WorkspaceSubscription,
+    providerPaymentId: string
+  ): Promise<WorkspaceSubscription> {
     const graceEndsAt = addDays(
       new Date(),
       this.configuration.gracePeriodDays()
