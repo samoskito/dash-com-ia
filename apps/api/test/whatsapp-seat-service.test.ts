@@ -158,4 +158,64 @@ describe("WhatsappSeatService", () => {
       })
     });
   });
+
+  it("does not reactivate an external channel seat under a suspended contract", async () => {
+    const { service, transaction } = createReserveHarness();
+    transaction.workspaceSubscription.findFirst.mockResolvedValueOnce({
+      id: "contract_1",
+      workspaceId: "workspace_1",
+      contractStatus: "suspended",
+      accessEndsAt: new Date("2026-07-28T19:29:53.233Z"),
+      includedWhatsappNumbersSnapshot: 1
+    });
+    transaction.whatsappSeat.findFirst.mockResolvedValueOnce({
+      ...seatRecord,
+      provider: "umbler",
+      whatsappInstanceId: null,
+      inboundWebhookChannelId: "channel_1",
+      status: "suspended"
+    });
+
+    await expect(
+      service.activateExternalChannelSeat(transaction as never, {
+        workspaceId: "workspace_1",
+        channelId: "channel_1",
+        provider: "umbler",
+        normalizedPhone: "+5511999999999",
+        actorUserId: "user_1"
+      })
+    ).rejects.toMatchObject({
+      message: "Workspace sem contrato com acesso ativo"
+    });
+
+    expect(transaction.whatsappSeat.update).not.toHaveBeenCalled();
+    expect(transaction.billingContractAudit.create).not.toHaveBeenCalled();
+  });
+
+  it("does not overbook capacity when a released external seat is activated again", async () => {
+    const { service, transaction } = createReserveHarness(1);
+    transaction.whatsappSeat.findFirst.mockResolvedValueOnce({
+      ...seatRecord,
+      provider: "umbler",
+      whatsappInstanceId: null,
+      inboundWebhookChannelId: "channel_1",
+      status: "released",
+      reservationExpiresAt: null,
+      releasedAt: new Date("2026-07-28T18:00:00.000Z")
+    });
+
+    await expect(
+      service.activateExternalChannelSeat(transaction as never, {
+        workspaceId: "workspace_1",
+        channelId: "channel_1",
+        provider: "umbler",
+        normalizedPhone: "+5511999999999",
+        actorUserId: "user_1"
+      })
+    ).rejects.toMatchObject({
+      message: "Todas as vagas do pacote estao ocupadas"
+    });
+
+    expect(transaction.whatsappSeat.update).not.toHaveBeenCalled();
+  });
 });

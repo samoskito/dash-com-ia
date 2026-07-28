@@ -73,6 +73,14 @@ function createHarness() {
   ];
   const connections = new Map<string, TestConnection>();
   const audits: Array<Record<string, unknown>> = [];
+  const billingConfiguration = {
+    isPackageBillingEnabled: vi.fn(() => false),
+    isExternalChannelEnforcementEnabled: vi.fn(() => false),
+  };
+  const whatsappSeats = {
+    activateExternalChannelSeat: vi.fn(async () => undefined),
+    releaseExternalChannelSeat: vi.fn(async () => undefined),
+  };
   let sequence = 0;
   let failNextMutationClaim = false;
 
@@ -170,11 +178,7 @@ function createHarness() {
     },
     inboundWebhookConnection,
     inboundWebhookChannel: {
-      findMany: vi.fn(
-        async (): Promise<
-          Array<{ id: string; routes: Array<{ id: string }> }>
-        > => [],
-      ),
+      findMany: vi.fn(async (): Promise<Array<Record<string, unknown>>> => []),
       updateMany: vi.fn(async () => ({ count: 0 })),
     },
     inboundWebhookReplayBatch: {
@@ -208,14 +212,18 @@ function createHarness() {
   const service = new InboundWebhookConnectionsService(
     prisma as unknown as PrismaService,
     enabledEnvironment(),
+    billingConfiguration as never,
+    whatsappSeats as never,
   );
 
   return {
     audits,
+    billingConfiguration,
     connections,
     parserReleases,
     prisma,
     service,
+    whatsappSeats,
     failNextMutationClaim() {
       failNextMutationClaim = true;
     },
@@ -542,6 +550,84 @@ describe("inbound webhook connections service", () => {
       action: "inbound_webhook.connection_promoted",
       resultStatus: "production",
     });
+  });
+
+  it("reserves external seats in production, preserves them on pause and releases them on removal", async () => {
+    const harness = createHarness();
+    const created = await harness.service.createConnection(
+      "workspace_1",
+      {
+        provider: "umbler",
+        displayName: "Umbler com cobranca",
+      },
+      "user_1",
+    );
+    harness.parserReleases[0]!.status = "certified";
+    harness.billingConfiguration.isPackageBillingEnabled.mockReturnValue(true);
+    harness.billingConfiguration.isExternalChannelEnforcementEnabled.mockReturnValue(
+      true,
+    );
+    harness.prisma.inboundWebhookChannel.findMany
+      .mockResolvedValueOnce([
+        {
+          id: "channel_billed",
+          routes: [{ id: "route_validated" }],
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "channel_billed",
+          connectedPhone: "5511999999999",
+        },
+      ])
+      .mockResolvedValueOnce([{ id: "channel_billed" }]);
+
+    await harness.service.updateStatus(
+      "workspace_1",
+      created.connection.id,
+      { status: "production" },
+      "user_1",
+    );
+
+    expect(
+      harness.whatsappSeats.activateExternalChannelSeat,
+    ).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        channelId: "channel_billed",
+        provider: "umbler",
+        normalizedPhone: "5511999999999",
+      }),
+    );
+
+    await harness.service.updateStatus(
+      "workspace_1",
+      created.connection.id,
+      { status: "paused" },
+      "user_1",
+    );
+
+    expect(
+      harness.whatsappSeats.releaseExternalChannelSeat,
+    ).not.toHaveBeenCalled();
+
+    await harness.service.removeConnection(
+      "workspace_1",
+      created.connection.id,
+      "user_1",
+    );
+
+    expect(
+      harness.whatsappSeats.releaseExternalChannelSeat,
+    ).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        channelId: "channel_billed",
+        reason: "connection_removed",
+      }),
+    );
   });
 
   it("does not return a secret when a concurrent mutation wins", async () => {

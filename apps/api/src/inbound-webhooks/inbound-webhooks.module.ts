@@ -1,6 +1,7 @@
 import { BullModule } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
+import { BillingSeatModule } from "../billing/billing-seat.module";
 import { PrismaModule } from "../common/prisma/prisma.module";
 import {
   INBOUND_WEBHOOK_PRODUCTION_QUEUE,
@@ -33,6 +34,7 @@ import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser
 @Module({
   imports: [
     AuthModule,
+    BillingSeatModule,
     PrismaModule,
     RuntimeModule,
     ConversionRulesModule,

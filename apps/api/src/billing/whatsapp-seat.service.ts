@@ -17,7 +17,8 @@ import { PrismaService } from "../common/prisma/prisma.service";
 import { PackageBillingConfiguration } from "./package-billing.configuration";
 import {
   assertPackageCapacity,
-  contractAllowsWhatsappAccess
+  contractAllowsWhatsappAccess,
+  seatConsumesCapacity
 } from "./package-billing.policy";
 
 type TransactionClient = Prisma.TransactionClient;
@@ -227,57 +228,14 @@ export class WhatsappSeatService {
     transaction: TransactionClient,
     input: ExternalChannelSeatInput
   ): Promise<WhatsappSeat> {
+    const now = new Date();
     await this.lockWorkspace(transaction, input.workspaceId);
     await this.expireReservations(
       transaction,
       input.workspaceId,
-      new Date(),
+      now,
       input.actorUserId
     );
-
-    const existing = await transaction.whatsappSeat.findFirst({
-      where: {
-        workspaceId: input.workspaceId,
-        inboundWebhookChannelId: input.channelId,
-        status: { in: ["reserved", "active", "suspended"] }
-      },
-      orderBy: { createdAt: "desc" }
-    });
-
-    if (existing) {
-      if (existing.status === "active") {
-        return existing;
-      }
-
-      const reactivated = await transaction.whatsappSeat.update({
-        where: { id: existing.id },
-        data: {
-          provider: input.provider,
-          normalizedPhone: input.normalizedPhone,
-          status: "active",
-          activatedAt: existing.activatedAt ?? new Date(),
-          reservationExpiresAt: null,
-          suspendedAt: null,
-          releasedAt: null,
-          releaseReason: null
-        }
-      });
-
-      await transaction.billingContractAudit.create({
-        data: {
-          workspaceId: input.workspaceId,
-          subscriptionId: reactivated.subscriptionId,
-          actorUserId: input.actorUserId,
-          actorType: input.actorUserId ? "user" : "system",
-          action: "seat.external_channel_reactivated",
-          reason: input.provider,
-          beforeSnapshot: this.seatSnapshot(existing),
-          afterSnapshot: this.seatSnapshot(reactivated)
-        }
-      });
-
-      return reactivated;
-    }
 
     const contract = await transaction.workspaceSubscription.findFirst({
       where: {
@@ -292,11 +250,92 @@ export class WhatsappSeatService {
       !contract ||
       !contractAllowsWhatsappAccess(
         contract.contractStatus,
-        new Date(),
+        now,
         contract.accessEndsAt
       )
     ) {
       throw new ConflictException("Workspace sem contrato com acesso ativo");
+    }
+
+    const existing = await transaction.whatsappSeat.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        inboundWebhookChannelId: input.channelId,
+        status: { in: ["reserved", "active", "suspended"] }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (existing) {
+      if (
+        existing.subscriptionId === contract.id &&
+        existing.status === "active"
+      ) {
+        return existing;
+      }
+
+      if (
+        existing.subscriptionId !== contract.id ||
+        !seatConsumesCapacity(existing.status)
+      ) {
+        const occupied = await transaction.whatsappSeat.count({
+          where: {
+            workspaceId: input.workspaceId,
+            subscriptionId: contract.id,
+            status: { in: ["reserved", "active", "suspended"] }
+          }
+        });
+
+        try {
+          assertPackageCapacity(
+            contract.includedWhatsappNumbersSnapshot ?? 0,
+            occupied
+          );
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message === "package_capacity_exhausted"
+          ) {
+            throw new ConflictException(
+              "Todas as vagas do pacote estao ocupadas"
+            );
+          }
+          throw error;
+        }
+      }
+
+      const reactivated = await transaction.whatsappSeat.update({
+        where: { id: existing.id },
+        data: {
+          subscriptionId: contract.id,
+          provider: input.provider,
+          normalizedPhone: input.normalizedPhone,
+          status: "active",
+          activatedAt: existing.activatedAt ?? now,
+          reservationExpiresAt: null,
+          suspendedAt: null,
+          releasedAt: null,
+          releaseReason: null
+        }
+      });
+
+      await transaction.billingContractAudit.create({
+        data: {
+          workspaceId: input.workspaceId,
+          subscriptionId: contract.id,
+          actorUserId: input.actorUserId,
+          actorType: input.actorUserId ? "user" : "system",
+          action:
+            existing.subscriptionId === contract.id
+              ? "seat.external_channel_reactivated"
+              : "seat.external_channel_contract_rebound",
+          reason: input.provider,
+          beforeSnapshot: this.seatSnapshot(existing),
+          afterSnapshot: this.seatSnapshot(reactivated)
+        }
+      });
+
+      return reactivated;
     }
 
     const occupied = await transaction.whatsappSeat.count({
@@ -330,7 +369,7 @@ export class WhatsappSeatService {
         normalizedPhone: input.normalizedPhone,
         inboundWebhookChannelId: input.channelId,
         status: "active",
-        activatedAt: new Date()
+        activatedAt: now
       }
     });
 

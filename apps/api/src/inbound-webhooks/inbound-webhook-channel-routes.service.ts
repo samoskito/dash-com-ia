@@ -4,6 +4,8 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
@@ -15,6 +17,8 @@ import type {
   InboundWebhookChannelRoutesUpdateInputDto,
   InboundWebhookChannelStatusUpdateInputDto,
 } from "@wpptrack/shared";
+import { PackageBillingConfiguration } from "../billing/package-billing.configuration";
+import { WhatsappSeatService } from "../billing/whatsapp-seat.service";
 import { PrismaService } from "../common/prisma/prisma.service";
 import {
   type InboundWebhookMetaRoutePreview,
@@ -117,6 +121,12 @@ export class InboundWebhookChannelRoutesService {
     private readonly prisma: PrismaService,
     @Inject(InboundWebhookMetaRouteReaderService)
     private readonly metaRouteReader: InboundWebhookMetaRouteReaderService,
+    @Optional()
+    @Inject(PackageBillingConfiguration)
+    private readonly billingConfiguration?: PackageBillingConfiguration,
+    @Optional()
+    @Inject(WhatsappSeatService)
+    private readonly whatsappSeats?: WhatsappSeatService,
   ) {}
 
   async listChannels(
@@ -357,6 +367,20 @@ export class InboundWebhookChannelRoutesService {
         throw new ConflictException(
           "Configure uma rota Meta valida antes de ativar o canal",
         );
+      }
+
+      if (
+        input.status === "active" &&
+        current.connection.status === "production" &&
+        this.externalChannelEnforcementEnabled()
+      ) {
+        await this.whatsappSeats!.activateExternalChannelSeat(transaction, {
+          workspaceId,
+          channelId,
+          provider: current.connection.provider,
+          normalizedPhone: current.connectedPhone || null,
+          actorUserId,
+        });
       }
 
       const updatedAt = new Date(
@@ -1099,6 +1123,20 @@ export class InboundWebhookChannelRoutesService {
 
   private throwNotFound(): never {
     throw new NotFoundException(resourceNotFoundMessage);
+  }
+
+  private externalChannelEnforcementEnabled(): boolean {
+    const enabled =
+      this.billingConfiguration?.isPackageBillingEnabled() === true &&
+      this.billingConfiguration.isExternalChannelEnforcementEnabled();
+
+    if (enabled && !this.whatsappSeats) {
+      throw new ServiceUnavailableException(
+        "Controle de vagas dos canais externos indisponivel",
+      );
+    }
+
+    return enabled;
   }
 
   private async loadChannelReadiness(

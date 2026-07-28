@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { ExternalChannelBillingAccessError } from "../src/billing/external-channel-billing-access.service";
 import { InboundWebhookProductionService } from "../src/inbound-webhook-production/inbound-webhook-production.service";
 import { InboundWebhookParserRegistry } from "../src/inbound-webhooks/providers/inbound-webhook-parser.registry";
 
@@ -136,6 +137,9 @@ function createHarness(input: { channelStatus?: "active" | "paused" } = {}) {
   const conversionQueue = {
     enqueueSend: vi.fn(async () => ({ status: "queued" })),
   };
+  const billingAccess = {
+    assertProductionAccess: vi.fn(async () => undefined),
+  };
   const service = new InboundWebhookProductionService(
     prisma as never,
     payloadEncryption as never,
@@ -143,6 +147,7 @@ function createHarness(input: { channelStatus?: "active" | "paused" } = {}) {
     leads as never,
     conversions as never,
     conversionQueue as never,
+    billingAccess as never,
     {
       NODE_ENV: "test",
       API_PUBLIC_URL: "http://localhost:3333",
@@ -155,6 +160,7 @@ function createHarness(input: { channelStatus?: "active" | "paused" } = {}) {
   return {
     conversionQueue,
     conversions,
+    billingAccess,
     item,
     leads,
     parsed,
@@ -213,6 +219,30 @@ describe("inbound webhook production service", () => {
     expect(harness.item).toMatchObject({
       status: "failed",
       errorCode: "inbound_webhook_production_context_changed",
+    });
+    expect(harness.leads.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+    expect(harness.conversions.recordExternalConversion).not.toHaveBeenCalled();
+    expect(harness.conversionQueue.enqueueSend).not.toHaveBeenCalled();
+  });
+
+  it("preserves the item without creating side effects when billing access is suspended", async () => {
+    const harness = createHarness();
+    harness.billingAccess.assertProductionAccess.mockRejectedValueOnce(
+      new ExternalChannelBillingAccessError(
+        "external_channel_billing_seat_inactive",
+      ),
+    );
+
+    await expect(
+      harness.service.processItem({
+        productionItemId: harness.item.id,
+        workspaceId,
+      }),
+    ).rejects.toThrow("Inbound webhook production item failed");
+
+    expect(harness.item).toMatchObject({
+      status: "failed",
+      errorCode: "external_channel_billing_seat_inactive",
     });
     expect(harness.leads.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
     expect(harness.conversions.recordExternalConversion).not.toHaveBeenCalled();

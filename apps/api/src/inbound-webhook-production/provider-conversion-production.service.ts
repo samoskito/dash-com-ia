@@ -7,6 +7,10 @@ import {
   type ProviderConversionTechnicalDeliveryStateDto,
   type StructuredCatalogTestMessageResultDto,
 } from "@wpptrack/shared";
+import {
+  ExternalChannelBillingAccessError,
+  ExternalChannelBillingAccessService,
+} from "../billing/external-channel-billing-access.service";
 import { hashPhoneIdentity } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
@@ -97,6 +101,8 @@ export class ProviderConversionProductionService {
     private readonly conversions: ConversionEventsService,
     @Inject(ConversionEventsQueueService)
     private readonly conversionQueue: ConversionEventsQueueService,
+    @Inject(ExternalChannelBillingAccessService)
+    private readonly billingAccess: ExternalChannelBillingAccessService,
     @Inject(RUNTIME_ENV) private readonly env: RuntimeEnv = process.env,
   ) {}
 
@@ -222,6 +228,17 @@ export class ProviderConversionProductionService {
         queueRequired: boolean;
       }
   > {
+    if (!execution.channelId) {
+      throw new ProviderConversionProductionFailure(
+        "provider_conversion_production_context_invalid",
+      );
+    }
+
+    await this.billingAccess.assertProductionAccess(
+      execution.workspaceId,
+      execution.channelId,
+    );
+
     if (execution.providerDecision) {
       return this.materializeFrozenDecision(
         execution,
@@ -1205,6 +1222,14 @@ export class ProviderConversionProductionService {
       | "failed_permanent";
     retryable: boolean;
   } {
+    if (code.startsWith("external_channel_billing_")) {
+      return {
+        executionStatus: "failed",
+        state: "failed_retryable",
+        retryable: true,
+      };
+    }
+
     if (
       code === "provider_conversion_production_context_invalid" ||
       code.startsWith("provider_conversion_route_")
@@ -1502,10 +1527,15 @@ export class ProviderConversionProductionService {
   }
 
   private errorCode(error: unknown): string {
-    return error instanceof ProviderConversionProductionFailure &&
+    if (
+      (error instanceof ProviderConversionProductionFailure ||
+        error instanceof ExternalChannelBillingAccessError) &&
       /^[a-z0-9_]{1,160}$/u.test(error.code)
-      ? error.code
-      : "provider_conversion_production_unexpected";
+    ) {
+      return error.code;
+    }
+
+    return "provider_conversion_production_unexpected";
   }
 
   private failureSummary(error: unknown, code: string): Prisma.InputJsonValue {

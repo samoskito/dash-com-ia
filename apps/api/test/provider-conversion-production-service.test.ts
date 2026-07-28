@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ProviderConversionDecisionDto } from "@wpptrack/shared";
 import { describe, expect, it, vi } from "vitest";
+import { ExternalChannelBillingAccessError } from "../src/billing/external-channel-billing-access.service";
 import { hashPhoneIdentity } from "../src/common/phone/phone-identity";
 import { ProviderConversionProductionService } from "../src/inbound-webhook-production/provider-conversion-production.service";
 import { InboundWebhookParserRegistry } from "../src/inbound-webhooks/providers/inbound-webhook-parser.registry";
@@ -499,6 +500,9 @@ function createHarness(
   const conversionQueue = {
     enqueueSend: vi.fn(async () => ({ status: "queued" })),
   };
+  const billingAccess = {
+    assertProductionAccess: vi.fn(async () => undefined),
+  };
   const service = new ProviderConversionProductionService(
     prisma as never,
     payloadEncryption as never,
@@ -507,6 +511,7 @@ function createHarness(
     routes as never,
     conversions as never,
     conversionQueue as never,
+    billingAccess as never,
     {
       NODE_ENV: "test",
       API_PUBLIC_URL: "http://localhost:3333",
@@ -519,6 +524,7 @@ function createHarness(
   );
 
   return {
+    billingAccess,
     catalogs,
     conversionQueue,
     conversions,
@@ -616,6 +622,39 @@ describe("provider conversion production service", () => {
 
     expect(harness.conversions.recordExternalConversion).toHaveBeenCalledOnce();
     expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a billing-blocked conversion retryable without creating a Meta event", async () => {
+    const harness = createHarness();
+    harness.billingAccess.assertProductionAccess.mockRejectedValueOnce(
+      new ExternalChannelBillingAccessError(
+        "external_channel_billing_contract_inactive",
+      ),
+    );
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).rejects.toMatchObject({
+      code: "external_channel_billing_contract_inactive",
+      retryable: true,
+    });
+
+    expect(harness.execution.status).toBe("failed");
+    expect(harness.execution.reasonCode).toBe(
+      "external_channel_billing_contract_inactive",
+    );
+    expect(harness.execution.normalizedResult).toMatchObject({
+      technicalDelivery: {
+        state: "failed_retryable",
+        retryable: true,
+        reasonCode: "external_channel_billing_contract_inactive",
+      },
+    });
+    expect(harness.conversions.recordExternalConversion).not.toHaveBeenCalled();
+    expect(harness.conversionQueue.enqueueSend).not.toHaveBeenCalled();
   });
 
   it("does not enqueue a conversion that is no longer ready to send", async () => {

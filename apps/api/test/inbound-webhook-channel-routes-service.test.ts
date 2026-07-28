@@ -10,7 +10,8 @@ import { InboundWebhookChannelRoutesService } from "../src/inbound-webhooks/inbo
 type TestConnection = {
   id: string;
   workspaceId: string;
-  status: "observation" | "paused";
+  provider: "umbler";
+  status: "observation" | "production" | "paused";
   removedAt: Date | null;
 };
 
@@ -99,12 +100,20 @@ const otherWorkspaceId = "workspace_2";
 const now = new Date("2026-07-17T19:00:00.000Z");
 
 function createHarness() {
+  const billingConfiguration = {
+    isPackageBillingEnabled: vi.fn(() => false),
+    isExternalChannelEnforcementEnabled: vi.fn(() => false),
+  };
+  const whatsappSeats = {
+    activateExternalChannelSeat: vi.fn(async () => undefined),
+  };
   const connections = new Map<string, TestConnection>([
     [
       "connection_1",
       {
         id: "connection_1",
         workspaceId,
+        provider: "umbler",
         status: "observation",
         removedAt: null,
       },
@@ -114,6 +123,7 @@ function createHarness() {
       {
         id: "connection_foreign",
         workspaceId: otherWorkspaceId,
+        provider: "umbler",
         status: "observation",
         removedAt: null,
       },
@@ -659,6 +669,8 @@ function createHarness() {
   const service = new InboundWebhookChannelRoutesService(
     prisma as unknown as PrismaService,
     metaRouteReader as unknown as InboundWebhookMetaRouteReaderService,
+    billingConfiguration as never,
+    whatsappSeats as never,
   );
 
   function addUnresolvedEvent(
@@ -691,8 +703,10 @@ function createHarness() {
 
   return {
     audits,
+    billingConfiguration,
     businesses,
     channels,
+    connections,
     destinations,
     events,
     metaRouteReader,
@@ -701,6 +715,7 @@ function createHarness() {
     reportingAccounts,
     routes,
     service,
+    whatsappSeats,
     addUnresolvedEvent,
   };
 }
@@ -1227,6 +1242,56 @@ describe("inbound webhook channel routes service", () => {
       classification: "eligible_route_unresolved",
       classificationReason: "route_channel_paused",
     });
+  });
+
+  it("reserves a seat when an externally billed production channel is activated", async () => {
+    const harness = createHarness();
+    await harness.service.replaceRoutes(
+      workspaceId,
+      "channel_1",
+      {
+        routes: [
+          {
+            metaBusinessConnectionId: "business_1",
+            metaReportingAccountId: "reporting_1",
+            metaConversionDestinationId: "destination_1",
+          },
+        ],
+      },
+      "user_1",
+    );
+    await harness.service.updateChannelStatus(
+      workspaceId,
+      "channel_1",
+      { status: "paused" },
+      "user_1",
+    );
+
+    harness.connections.get("connection_1")!.status = "production";
+    harness.billingConfiguration.isPackageBillingEnabled.mockReturnValue(true);
+    harness.billingConfiguration.isExternalChannelEnforcementEnabled.mockReturnValue(
+      true,
+    );
+
+    await harness.service.updateChannelStatus(
+      workspaceId,
+      "channel_1",
+      { status: "active" },
+      "user_2",
+    );
+
+    expect(
+      harness.whatsappSeats.activateExternalChannelSeat,
+    ).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        workspaceId,
+        channelId: "channel_1",
+        provider: "umbler",
+        normalizedPhone: "5511999990001",
+        actorUserId: "user_2",
+      }),
+    );
   });
 
   it("rolls route changes back when the audit cannot be stored", async () => {

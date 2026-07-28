@@ -2,6 +2,10 @@ import { Inject, Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import {
+  ExternalChannelBillingAccessError,
+  ExternalChannelBillingAccessService,
+} from "../billing/external-channel-billing-access.service";
+import {
   hashPhoneIdentity,
   normalizePhoneIdentity,
 } from "../common/phone/phone-identity";
@@ -73,6 +77,8 @@ export class InboundWebhookProductionService {
     private readonly conversions: ConversionEventsService,
     @Inject(ConversionEventsQueueService)
     private readonly conversionQueue: ConversionEventsQueueService,
+    @Inject(ExternalChannelBillingAccessService)
+    private readonly billingAccess: ExternalChannelBillingAccessService,
     @Inject(RUNTIME_ENV)
     private readonly env: RuntimeEnv = process.env,
   ) {}
@@ -215,6 +221,11 @@ export class InboundWebhookProductionService {
         "inbound_webhook_production_payload_unavailable",
       );
     }
+
+    await this.billingAccess.assertProductionAccess(
+      event.workspaceId,
+      event.channelId,
+    );
 
     const parsedEvent = this.reparseEvent(item);
     const phone = normalizePhoneIdentity(parsedEvent.contact.phoneNumber);
@@ -411,10 +422,15 @@ export class InboundWebhookProductionService {
   }
 
   private productionErrorCode(error: unknown): string {
-    return error instanceof ProductionItemFailure &&
+    if (
+      (error instanceof ProductionItemFailure ||
+        error instanceof ExternalChannelBillingAccessError) &&
       /^[a-z0-9_]{1,120}$/u.test(error.code)
-      ? error.code
-      : "inbound_webhook_production_unexpected";
+    ) {
+      return error.code;
+    }
+
+    return "inbound_webhook_production_unexpected";
   }
 
   private metaEventId(connectionId: string, dedupeKey: string): string {
