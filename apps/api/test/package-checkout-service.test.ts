@@ -50,6 +50,7 @@ function createHarness() {
       id: "customer_1",
       cityId: 3550308
     }),
+    findCustomerByExternalReference: vi.fn().mockResolvedValue(null),
     createCustomer: vi.fn(),
     createRecurringCheckout: vi.fn().mockResolvedValue({
       id: "checkout_1",
@@ -164,6 +165,64 @@ describe("PackageCheckoutService", () => {
     expect(contracts.assignPlan).not.toHaveBeenCalled();
     expect(asaas.createRecurringCheckout).not.toHaveBeenCalled();
     expect(contracts.markAwaitingPayment).not.toHaveBeenCalled();
+  });
+
+  it("reuses a customer created remotely before a local timeout", async () => {
+    const { asaas, prisma, service } = createHarness();
+    prisma.workspaceBillingProfile.findUnique.mockResolvedValueOnce({
+      ...profile,
+      asaasCustomerId: null,
+      status: "incomplete"
+    });
+    asaas.findCustomerByExternalReference.mockResolvedValueOnce({
+      id: "customer_recovered",
+      cityId: 3550308
+    });
+
+    await service.createCheckout("workspace_1", "plan_1", "user_1");
+
+    expect(asaas.createCustomer).not.toHaveBeenCalled();
+    expect(prisma.workspaceBillingProfile.update).toHaveBeenCalledWith({
+      where: { id: "profile_1" },
+      data: expect.objectContaining({
+        asaasCustomerId: "customer_recovered",
+        status: "valid"
+      })
+    });
+    expect(asaas.createRecurringCheckout).toHaveBeenCalledOnce();
+  });
+
+  it("recovers a customer after a retryable create timeout", async () => {
+    const { asaas, prisma, service } = createHarness();
+    prisma.workspaceBillingProfile.findUnique.mockResolvedValueOnce({
+      ...profile,
+      asaasCustomerId: null,
+      status: "incomplete"
+    });
+    asaas.createCustomer.mockRejectedValueOnce(
+      new PackageAsaasError("asaas_timeout", null, true)
+    );
+    asaas.findCustomerByExternalReference
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "customer_recovered",
+        cityId: 3550308
+      });
+
+    await service.createCheckout("workspace_1", "plan_1", "user_1");
+
+    expect(asaas.createCustomer).toHaveBeenCalledOnce();
+    expect(
+      asaas.findCustomerByExternalReference
+    ).toHaveBeenCalledTimes(2);
+    expect(prisma.workspaceBillingProfile.update).toHaveBeenCalledWith({
+      where: { id: "profile_1" },
+      data: expect.objectContaining({
+        asaasCustomerId: "customer_recovered",
+        status: "valid"
+      })
+    });
+    expect(asaas.createRecurringCheckout).toHaveBeenCalledOnce();
   });
 
   it("never exposes a private custom plan in self-service checkout", async () => {

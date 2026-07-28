@@ -79,11 +79,36 @@ export class PackageAsaasAdapter {
       complement: profile.addressComplement ?? undefined,
       province: profile.district,
       postalCode: this.digits(profile.postalCode),
-      externalReference: `wpptrack:workspace:${workspaceId}`,
+      externalReference: this.customerExternalReference(workspaceId),
       notificationDisabled: false
     });
 
     return this.mapCustomer(response);
+  }
+
+  async findCustomerByExternalReference(
+    workspaceId: string
+  ): Promise<AsaasCustomerResult | null> {
+    const externalReference = this.customerExternalReference(workspaceId);
+    const query = new URLSearchParams({
+      externalReference,
+      limit: "10",
+      offset: "0"
+    });
+    const response = await this.request(
+      "GET",
+      `/customers?${query.toString()}`
+    );
+    const data = Array.isArray(response.data) ? response.data : [];
+    const customer = data
+      .filter(this.isRecord)
+      .find(
+        (item) =>
+          this.optionalString(item, "externalReference") ===
+          externalReference
+      );
+
+    return customer ? this.mapCustomer(customer) : null;
   }
 
   async updateCustomer(
@@ -104,7 +129,7 @@ export class PackageAsaasAdapter {
         complement: profile.addressComplement ?? undefined,
         province: profile.district,
         postalCode: this.digits(profile.postalCode),
-        externalReference: `wpptrack:workspace:${workspaceId}`,
+        externalReference: this.customerExternalReference(workspaceId),
         notificationDisabled: false
       }
     );
@@ -357,6 +382,10 @@ export class PackageAsaasAdapter {
     subscriptionId: string
   ): string {
     return `wpptrack:contract:${workspaceId}:${subscriptionId}`;
+  }
+
+  private customerExternalReference(workspaceId: string): string {
+    return `wpptrack:workspace:${workspaceId}`;
   }
 
   parseContractExternalReference(

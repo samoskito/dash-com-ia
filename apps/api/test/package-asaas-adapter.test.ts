@@ -106,6 +106,36 @@ describe("PackageAsaasAdapter", () => {
     });
   });
 
+  it("finds the exact customer by workspace external reference", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      response(200, {
+        data: [
+          {
+            id: "customer_other",
+            city: 3550308,
+            externalReference: "wpptrack:workspace:other"
+          },
+          {
+            id: "customer_1",
+            city: 3550308,
+            externalReference: "wpptrack:workspace:workspace_1"
+          }
+        ]
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createAdapter().findCustomerByExternalReference("workspace_1")
+    ).resolves.toEqual({
+      id: "customer_1",
+      cityId: 3550308
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "externalReference=wpptrack%3Aworkspace%3Aworkspace_1"
+    );
+  });
+
   it("creates invoice settings only when the subscription has none", async () => {
     const fetchMock = vi
       .fn()

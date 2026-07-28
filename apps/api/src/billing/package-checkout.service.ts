@@ -6,6 +6,7 @@ import {
   Logger,
   ServiceUnavailableException
 } from "@nestjs/common";
+import type { WorkspaceBillingProfile } from "@prisma/client";
 import type { WorkspacePackageCheckoutDto } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import {
@@ -101,17 +102,7 @@ export class PackageCheckoutService {
       );
     }
 
-    const customer = profile.asaasCustomerId
-      ? await this.executeAsaas("update_customer", () =>
-          this.asaas.updateCustomer(
-            profile.asaasCustomerId!,
-            workspaceId,
-            profile
-          )
-        )
-      : await this.executeAsaas("create_customer", () =>
-          this.asaas.createCustomer(workspaceId, profile)
-        );
+    const customer = await this.resolveCustomer(workspaceId, profile);
     const customerId = customer.id;
 
     await this.prisma.workspaceBillingProfile.update({
@@ -162,6 +153,48 @@ export class PackageCheckoutService {
     };
   }
 
+  private async resolveCustomer(
+    workspaceId: string,
+    profile: WorkspaceBillingProfile
+  ) {
+    if (profile.asaasCustomerId) {
+      return this.executeAsaas("update_customer", () =>
+        this.asaas.updateCustomer(
+          profile.asaasCustomerId!,
+          workspaceId,
+          profile
+        )
+      );
+    }
+
+    const existing = await this.executeAsaas(
+      "find_customer_by_reference",
+      () => this.asaas.findCustomerByExternalReference(workspaceId)
+    );
+    if (existing) {
+      return existing;
+    }
+
+    try {
+      return await this.asaas.createCustomer(workspaceId, profile);
+    } catch (error) {
+      if (
+        error instanceof PackageAsaasError &&
+        error.retryable
+      ) {
+        const recovered = await this.executeAsaas(
+          "recover_customer_after_create",
+          () => this.asaas.findCustomerByExternalReference(workspaceId)
+        );
+        if (recovered) {
+          return recovered;
+        }
+      }
+
+      return this.throwAsaasFailure("create_customer", error);
+    }
+  }
+
   private async executeAsaas<T>(
     operation: string,
     action: () => Promise<T>
@@ -169,30 +202,34 @@ export class PackageCheckoutService {
     try {
       return await action();
     } catch (error) {
-      if (!(error instanceof PackageAsaasError)) {
-        throw error;
-      }
-
-      const description = this.sanitizeProviderDescription(
-        error.description
-      );
-      this.logger.error(
-        JSON.stringify({
-          event: "asaas_package_checkout_failed",
-          operation,
-          code: error.code,
-          statusCode: error.statusCode,
-          retryable: error.retryable,
-          description
-        })
-      );
-
-      throw new BadGatewayException(
-        description
-          ? `O Asaas recusou a operacao (${error.code}): ${description}`
-          : `O Asaas recusou a operacao (${error.code})`
-      );
+      return this.throwAsaasFailure(operation, error);
     }
+  }
+
+  private throwAsaasFailure(operation: string, error: unknown): never {
+    if (!(error instanceof PackageAsaasError)) {
+      throw error;
+    }
+
+    const description = this.sanitizeProviderDescription(
+      error.description
+    );
+    this.logger.error(
+      JSON.stringify({
+        event: "asaas_package_checkout_failed",
+        operation,
+        code: error.code,
+        statusCode: error.statusCode,
+        retryable: error.retryable,
+        description
+      })
+    );
+
+    throw new BadGatewayException(
+      description
+        ? `O Asaas recusou a operacao (${error.code}): ${description}`
+        : `O Asaas recusou a operacao (${error.code})`
+    );
   }
 
   private sanitizeProviderDescription(value: string | null): string | null {
