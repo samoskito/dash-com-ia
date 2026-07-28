@@ -388,6 +388,9 @@ Validated externally on 2026-07-27:
   activated the Comunidade NOD contract.
 - A Uazapi instance was created, connected through the in-product QR flow and
   displayed with its connected phone and active seat.
+- Customer-facing and operator-facing UI uses the product name `NOD API`;
+  technical provider identifiers, routes, database values and environment
+  variables remain `uazapi` for backward compatibility.
 
 ## Production Checkpoints
 

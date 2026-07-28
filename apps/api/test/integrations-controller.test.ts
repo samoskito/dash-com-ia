@@ -431,7 +431,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
     getUazapiStartAction: vi.fn(() => ({
       provider: "uazapi",
       action: "configure_env",
-      label: "Configurar Uazapi",
+      label: "Configurar NOD API",
       missingEnv: ["UAZAPI_BASE_URL", "UAZAPI_TOKEN"],
     })),
     getAsaasStatusAction: vi.fn(() => ({
@@ -448,7 +448,7 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
           key: "webhook",
           label: "Webhook",
           value: 4,
-          detail: "Webhooks Uazapi recebidos",
+          detail: "Webhooks NOD API recebidos",
         },
       ],
     })),

@@ -25,8 +25,14 @@ function errorState(
 ): PackageBillingActionState {
   return {
     status: "error",
-    message: isApiRequestError(error) ? error.message : fallback,
+    message: publicProviderMessage(
+      isApiRequestError(error) ? error.message : fallback,
+    ),
   };
+}
+
+function publicProviderMessage(message: string): string {
+  return message.replace(/\bUazapi\b/giu, "NOD API");
 }
 
 export async function saveBillingProfileAction(
@@ -148,12 +154,14 @@ export async function provisionPackageUazapiAction(
     return {
       status: "success",
       message:
-        provision.connection.message ??
+        (provision.connection.message
+          ? publicProviderMessage(provision.connection.message)
+          : null) ??
         "Instancia criada. Continue pela leitura do QR code.",
       provision,
     };
   } catch (error) {
-    return errorState(error, "Nao foi possivel preparar a instancia Uazapi.");
+    return errorState(error, "Nao foi possivel preparar a instancia NOD API.");
   }
 }
 
@@ -180,9 +188,11 @@ export async function removePackageUazapiInstanceAction(
   } catch (error) {
     return {
       ok: false,
-      message: isApiRequestError(error)
-        ? error.message
-        : "Nao foi possivel remover o numero.",
+      message: publicProviderMessage(
+        isApiRequestError(error)
+          ? error.message
+          : "Nao foi possivel remover o numero.",
+      ),
     };
   }
 }

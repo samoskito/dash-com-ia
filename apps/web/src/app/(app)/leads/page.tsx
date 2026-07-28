@@ -159,7 +159,7 @@ function sourceLabel(source: string | null, adId: string | null): string {
   }
 
   if (source === "uazapi") {
-    return "Uazapi";
+    return "NOD API";
   }
 
   return source ?? adId ?? "Origem parcial";

@@ -702,7 +702,7 @@ function money(cents: number | null | undefined) {
 
 function providerTitle(provider: string) {
   const titles: Record<string, string> = {
-    uazapi: "WhatsApp / Uazapi",
+    uazapi: "WhatsApp / NOD API",
     meta: "Meta OAuth",
     asaas: "Asaas",
   };
@@ -1785,7 +1785,7 @@ export default async function IntegrationsPage({
                       <th>Provider</th>
                       <th>Billing</th>
                       <th>Conexao</th>
-                      <th>ID Uazapi</th>
+                      <th>ID NOD API</th>
                       <th>Acao</th>
                     </tr>
                   </thead>
@@ -1833,7 +1833,7 @@ export default async function IntegrationsPage({
                           </td>
                           <td>
                             {instance.providerInstanceId ??
-                              "ID Uazapi ainda nao emitido"}
+                              "ID NOD API ainda nao emitido"}
                           </td>
                           <td>
                             {instance.billingStatus === "active" &&

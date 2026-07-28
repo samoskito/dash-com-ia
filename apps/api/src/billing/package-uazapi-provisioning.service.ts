@@ -48,7 +48,7 @@ export class PackageUazapiProvisioningService {
       !this.configuration.isUazapiProvisioningEnabled()
     ) {
       throw new ConflictException(
-        "Provisionamento Uazapi por pacote ainda nao habilitado",
+        "Provisionamento NOD API por pacote ainda nao habilitado",
       );
     }
 
@@ -181,7 +181,7 @@ export class PackageUazapiProvisioningService {
         providerInstanceId: null,
         message: this.errorMessage(error),
       });
-      throw new ConflictException("Nao foi possivel preparar a conexao Uazapi");
+      throw new ConflictException("Nao foi possivel preparar a conexao NOD API");
     }
   }
 
@@ -319,7 +319,7 @@ export class PackageUazapiProvisioningService {
       },
     });
     if (!instance) {
-      throw new NotFoundException("Instancia Uazapi nao encontrada");
+      throw new NotFoundException("Instancia NOD API nao encontrada");
     }
     if (confirmation.trim() !== instance.name) {
       throw new BadRequestException(
@@ -379,7 +379,7 @@ export class PackageUazapiProvisioningService {
         auditAction: "billing.uazapi_package_remove",
       });
       throw new ConflictException(
-        "A Uazapi nao confirmou a remocao. O numero continua conectado e ocupando a vaga",
+        "A NOD API nao confirmou a remocao. O numero continua conectado e ocupando a vaga",
       );
     }
 
@@ -492,7 +492,7 @@ export class PackageUazapiProvisioningService {
       !this.configuration.isUazapiProvisioningEnabled()
     ) {
       throw new ConflictException(
-        "Provisionamento Uazapi por pacote ainda nao habilitado",
+        "Provisionamento NOD API por pacote ainda nao habilitado",
       );
     }
   }
@@ -516,7 +516,7 @@ export class PackageUazapiProvisioningService {
       !instance.providerTokenIv ||
       !instance.providerTokenTag
     ) {
-      throw new NotFoundException("Instancia Uazapi nao encontrada");
+      throw new NotFoundException("Instancia NOD API nao encontrada");
     }
 
     return instance;

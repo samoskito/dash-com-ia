@@ -1977,7 +1977,7 @@ export default async function BackofficePage({
                       <td colSpan={7}>
                         <strong>{webhookLogEmptyTitle}</strong>
                         <span>
-                          Webhooks Uazapi, Meta e Asaas recebidos aparecem aqui.
+                          Webhooks NOD API, Meta e Asaas recebidos aparecem aqui.
                         </span>
                       </td>
                     </tr>
@@ -2105,7 +2105,7 @@ export default async function BackofficePage({
                       <td colSpan={6}>
                         <strong>{integrationLogEmptyTitle}</strong>
                         <span>
-                          Chamadas Meta, Uazapi e Asaas aparecem aqui.
+                          Chamadas Meta, NOD API e Asaas aparecem aqui.
                         </span>
                       </td>
                     </tr>

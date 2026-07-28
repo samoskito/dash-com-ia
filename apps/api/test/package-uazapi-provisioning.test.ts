@@ -230,7 +230,7 @@ describe("PackageUazapiProvisioningService", () => {
 
     await expect(
       harness.service.provision("workspace_1", "Vendas", "user_1"),
-    ).rejects.toThrow("Nao foi possivel preparar a conexao Uazapi");
+    ).rejects.toThrow("Nao foi possivel preparar a conexao NOD API");
 
     expect(harness.seats.releaseSeat).toHaveBeenCalledWith(
       "workspace_1",
@@ -414,7 +414,7 @@ describe("PackageUazapiProvisioningService", () => {
         "user_1",
       ),
     ).rejects.toThrow(
-      "A Uazapi nao confirmou a remocao. O numero continua conectado e ocupando a vaga",
+      "A NOD API nao confirmou a remocao. O numero continua conectado e ocupando a vaga",
     );
 
     expect(harness.prisma.whatsappSeat.update).not.toHaveBeenCalled();

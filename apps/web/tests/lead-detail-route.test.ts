@@ -98,7 +98,7 @@ describe("lead detail route", () => {
     expect(html).toContain("Enviado");
     expect(html).toContain("Ocorrido em");
     expect(html).toContain("Webhooks e diagnosticos vinculados");
-    expect(html).toContain("Webhook Uazapi");
+    expect(html).toContain("Webhook NOD API");
     expect(html).toContain('class="lead-detail-mobile-list"');
     expect(html).toContain("webhook_1");
   });

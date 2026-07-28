@@ -225,7 +225,7 @@ describe("integrations route", () => {
                 key: "webhook",
                 label: "Webhook",
                 value: 4,
-                detail: "Webhooks Uazapi recebidos",
+                detail: "Webhooks NOD API recebidos",
               },
               {
                 key: "lead",
@@ -454,7 +454,7 @@ describe("integrations route", () => {
     expect(html).toContain("Escaneie o QR Code");
     expect(html).toContain("wpp_1");
     expect(html).toContain("Suporte");
-    expect(html).toContain("ID Uazapi ainda nao emitido");
+    expect(html).toContain("ID NOD API ainda nao emitido");
     expect(html).toContain("Pagamento pendente");
     expect(html).toContain("Pagar agora");
     expect(html).toContain('href="https://sandbox.asaas.com/i/pay_2"');
@@ -475,7 +475,7 @@ describe("integrations route", () => {
     expect(html).toContain("sub_asaas_1");
     expect(html).toContain("Antecipada via Asaas");
     expect(html).toContain("Leads com origem de campanha Meta");
-    expect(html).toContain("Webhooks Uazapi recebidos");
+    expect(html).toContain("Webhooks NOD API recebidos");
     expect(html).toContain("Eventos enviados para Meta");
     expect(html).toContain("Ver diagnostico");
     expect(html).toContain("API conectada");

@@ -90,7 +90,7 @@ function sourceLabel(source: string | null) {
   const labels: Record<string, string> = {
     external_mysql: "Integracao externa",
     umbler_talk: "Umbler Talk",
-    uazapi: "Uazapi",
+    uazapi: "NOD API",
   };
 
   return source ? (labels[source] ?? source) : "-";
@@ -122,7 +122,7 @@ function webhookEventLabel(eventType: string) {
 function webhookSourceLabel(source: string) {
   const labels: Record<string, string> = {
     umbler_talk: "Umbler Talk",
-    uazapi: "Uazapi",
+    uazapi: "NOD API",
   };
 
   return labels[source] ?? source;

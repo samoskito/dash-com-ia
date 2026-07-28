@@ -101,7 +101,7 @@ export function PackageInstanceRemoveButton({
             <div>
               <strong>O WhatsApp sera desconectado</strong>
               <p>
-                A instancia sera removida da Uazapi e deixara de receber
+                A instancia sera removida da NOD API e deixara de receber
                 mensagens. A vaga volta ao pacote imediatamente.
               </p>
             </div>

@@ -158,6 +158,8 @@ describe("subscription route", () => {
     expect(html).toContain("Inicial 3 numeros");
     expect(html).toContain("2/3 ocupados");
     expect(html).toContain("Instancias do pacote");
+    expect(html).toContain("NOD API por QR code");
+    expect(html).toContain("Nova conexao NOD API");
     expect(html).toContain("Comunidade NOD - Teste");
     expect(html).toContain("+55 49 99834-7468");
     expect(html).toContain("Conectado");

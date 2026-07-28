@@ -437,8 +437,8 @@ export class IntegrationsService {
       action: missingEnv.length > 0 ? "configure_env" : "wait_webhook",
       label:
         missingEnv.length > 0
-          ? "Configurar Uazapi"
-          : "Uazapi pronta para provisionar instancia",
+          ? "Configurar NOD API"
+          : "NOD API pronta para provisionar instancia",
       missingEnv,
     };
   }
@@ -567,7 +567,7 @@ export class IntegrationsService {
           key: "webhook",
           label: "Webhook",
           value: webhooksReceived,
-          detail: "Webhooks Uazapi recebidos",
+          detail: "Webhooks NOD API recebidos",
         },
         {
           key: "lead",
@@ -613,7 +613,7 @@ export class IntegrationsService {
           key: "webhook",
           label: "Webhook",
           value: 0,
-          detail: "Webhooks Uazapi recebidos",
+          detail: "Webhooks NOD API recebidos",
         },
         {
           key: "lead",

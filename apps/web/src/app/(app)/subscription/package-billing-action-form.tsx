@@ -247,13 +247,13 @@ export function PackageBillingActionForm({
                   )
                 : (refreshError ??
                   pollingMessage ??
-                  provision?.connection.message ??
+                  publicProviderMessage(provision?.connection.message) ??
                   "O QR anterior pode ter expirado. Gere um novo para continuar na mesma instancia.")}
             </small>
             {!connectionIsConfirmed &&
             (provision?.seat.status === "reserved" || resumeProvisioning) ? (
               <small>
-                A vaga fica reservada ate a Uazapi confirmar a conexao.
+                A vaga fica reservada ate a NOD API confirmar a conexao.
               </small>
             ) : null}
             {canRefreshQr ? (
@@ -327,6 +327,12 @@ function connectedInstanceMessage(phone: string | null): string {
   return formattedPhone
     ? `Numero ${formattedPhone} conectado e ativo no pacote.`
     : "Conexao confirmada. Este numero ja esta ativo no pacote.";
+}
+
+function publicProviderMessage(
+  message: string | null | undefined,
+): string | null {
+  return message ? message.replace(/\bUazapi\b/giu, "NOD API") : null;
 }
 
 function formatPhone(value: string | null): string | null {

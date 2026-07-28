@@ -357,7 +357,7 @@ export default async function SubscriptionPage() {
                   </div>
                   <div className="package-instance-identity">
                     <strong>{instance.name}</strong>
-                    <span>Uazapi por QR code</span>
+                    <span>NOD API por QR code</span>
                   </div>
                   <div className="package-instance-phone">
                     <span>Numero conectado</span>
@@ -618,7 +618,7 @@ export default async function SubscriptionPage() {
         <div className="package-section-heading">
           <div>
             <span className="eyebrow">WhatsApp por QR code</span>
-            <h2 id="uazapi-title">Nova conexao Uazapi</h2>
+            <h2 id="uazapi-title">Nova conexao NOD API</h2>
           </div>
           <QrCode aria-hidden="true" size={28} />
         </div>

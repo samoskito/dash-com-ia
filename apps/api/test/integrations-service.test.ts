@@ -722,7 +722,7 @@ describe("integrations service", () => {
           key: "webhook",
           label: "Webhook",
           value: 4,
-          detail: "Webhooks Uazapi recebidos"
+          detail: "Webhooks NOD API recebidos"
         },
         {
           key: "lead",

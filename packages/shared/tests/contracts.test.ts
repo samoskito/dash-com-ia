@@ -676,7 +676,7 @@ describe("shared contracts", () => {
           key: "webhook",
           label: "Webhook",
           value: 12,
-          detail: "Webhooks Uazapi recebidos",
+          detail: "Webhooks NOD API recebidos",
         },
         {
           key: "meta_sent",

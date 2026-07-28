@@ -251,7 +251,7 @@ export class WhatsappConnectionsService {
         qrCode: null,
         connectedPhone: null,
         message:
-          error instanceof Error ? error.message : "Erro ao chamar Uazapi",
+          error instanceof Error ? error.message : "Erro ao chamar NOD API",
       });
 
       throw error;
