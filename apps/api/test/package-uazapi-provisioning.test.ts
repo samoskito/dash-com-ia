@@ -42,6 +42,7 @@ function createHarness() {
       update: vi.fn().mockResolvedValue({ id: "instance_1" }),
       findFirst: vi.fn().mockResolvedValue({
         id: "instance_1",
+        name: "Vendas",
         workspaceId: "workspace_1",
         provider: "uazapi",
         status: "active",
@@ -49,10 +50,21 @@ function createHarness() {
         providerTokenEncrypted: "encrypted",
         providerTokenIv: "iv",
         providerTokenTag: "tag",
+        webhookTokenHash: "webhook_hash",
+        updatedAt: new Date("2026-07-26T14:00:00.000Z"),
       }),
     },
     whatsappSeat: {
       findFirst: vi.fn().mockResolvedValue(reservedSeatRecord),
+      update: vi.fn().mockResolvedValue({
+        ...reservedSeatRecord,
+        status: "released",
+        releasedAt: new Date("2026-07-27T12:00:00.000Z"),
+        releaseReason: "uazapi_instance_removed_by_user",
+      }),
+    },
+    billingContractAudit: {
+      create: vi.fn().mockResolvedValue({ id: "contract_audit_1" }),
     },
     integrationLog: {
       create: vi.fn().mockResolvedValue({ id: "integration_log_1" }),
@@ -106,6 +118,11 @@ function createHarness() {
       qrCode: null,
       connectedPhone: "5549998347468",
       message: "Conectado",
+    }),
+    deleteInstance: vi.fn().mockResolvedValue({
+      status: "deleted",
+      alreadyMissing: false,
+      message: "Instance Deleted",
     }),
   };
   const tokenEncryption = {
@@ -361,5 +378,124 @@ describe("PackageUazapiProvisioningService", () => {
       "user_1",
     );
     expect(result.connection.qrCode).toBe("qr-code");
+  });
+
+  it("requires the exact instance name before removing a number", async () => {
+    const harness = createHarness();
+
+    await expect(
+      harness.service.removeInstance(
+        "workspace_1",
+        "instance_1",
+        "Nome incorreto",
+        "user_1",
+      ),
+    ).rejects.toThrow(
+      "Digite o nome exato da instancia para confirmar a remocao",
+    );
+
+    expect(harness.uazapi.deleteInstance).not.toHaveBeenCalled();
+    expect(harness.prisma.whatsappSeat.update).not.toHaveBeenCalled();
+  });
+
+  it("keeps the instance and seat active when Uazapi does not confirm removal", async () => {
+    const harness = createHarness();
+    harness.uazapi.deleteInstance.mockResolvedValueOnce({
+      status: "error",
+      alreadyMissing: false,
+      message: "Uazapi HTTP 503",
+    });
+
+    await expect(
+      harness.service.removeInstance(
+        "workspace_1",
+        "instance_1",
+        "Vendas",
+        "user_1",
+      ),
+    ).rejects.toThrow(
+      "A Uazapi nao confirmou a remocao. O numero continua conectado e ocupando a vaga",
+    );
+
+    expect(harness.prisma.whatsappSeat.update).not.toHaveBeenCalled();
+    expect(harness.prisma.whatsappInstance.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "disconnected" }),
+      }),
+    );
+  });
+
+  it("does not leave an occupied seat behind when the local instance is already disconnected", async () => {
+    const harness = createHarness();
+    harness.prisma.whatsappInstance.findFirst.mockResolvedValueOnce({
+      id: "instance_1",
+      name: "Vendas",
+      workspaceId: "workspace_1",
+      provider: "uazapi",
+      status: "disconnected",
+      providerInstanceId: "provider_1",
+      providerTokenEncrypted: "encrypted",
+      providerTokenIv: "iv",
+      providerTokenTag: "tag",
+      webhookTokenHash: "webhook_hash",
+      updatedAt: new Date("2026-07-26T14:00:00.000Z"),
+    });
+
+    await harness.service.removeInstance(
+      "workspace_1",
+      "instance_1",
+      "Vendas",
+      "user_1",
+    );
+
+    expect(harness.uazapi.deleteInstance).toHaveBeenCalledWith("secret");
+    expect(harness.prisma.whatsappSeat.update).toHaveBeenCalledWith({
+      where: { id: "seat_1" },
+      data: expect.objectContaining({ status: "released" }),
+    });
+  });
+
+  it("deletes the provider instance, releases its seat and preserves local history", async () => {
+    const harness = createHarness();
+
+    const result = await harness.service.removeInstance(
+      "workspace_1",
+      "instance_1",
+      "Vendas",
+      "user_1",
+    );
+
+    expect(harness.uazapi.deleteInstance).toHaveBeenCalledWith("secret");
+    expect(harness.prisma.whatsappSeat.update).toHaveBeenCalledWith({
+      where: { id: "seat_1" },
+      data: expect.objectContaining({
+        status: "released",
+        releaseReason: "uazapi_instance_removed_by_user",
+        reservationExpiresAt: null,
+      }),
+    });
+    expect(harness.prisma.whatsappInstance.update).toHaveBeenCalledWith({
+      where: { id: "instance_1" },
+      data: {
+        status: "disconnected",
+        providerTokenEncrypted: null,
+        providerTokenIv: null,
+        providerTokenTag: null,
+        webhookTokenHash: null,
+      },
+    });
+    expect(harness.prisma.billingContractAudit.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workspaceId: "workspace_1",
+        subscriptionId: "contract_1",
+        action: "seat.released",
+      }),
+    });
+    expect(result).toMatchObject({
+      whatsappInstanceId: "instance_1",
+      instanceName: "Vendas",
+      releasedSeatId: "seat_1",
+      providerAlreadyMissing: false,
+    });
   });
 });

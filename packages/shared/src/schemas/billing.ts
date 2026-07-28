@@ -406,6 +406,18 @@ export const uazapiPackageProvisionSchema = z.object({
   }),
 });
 
+export const uazapiPackageInstanceRemovalInputSchema = z.object({
+  confirmation: z.string().trim().min(2).max(120),
+});
+
+export const uazapiPackageInstanceRemovalSchema = z.object({
+  whatsappInstanceId: z.string().min(1),
+  instanceName: z.string().min(1),
+  releasedSeatId: z.string().min(1).nullable(),
+  removedAt: z.string().datetime(),
+  providerAlreadyMissing: z.boolean(),
+});
+
 export const externalChannelBillingActionInputSchema = z.object({
   confirmation: z.literal(true),
   reason: z.string().trim().min(3).max(500).nullable().optional(),
@@ -719,6 +731,12 @@ export type UazapiPackageProvisionInputDto = z.infer<
 >;
 export type UazapiPackageProvisionDto = z.infer<
   typeof uazapiPackageProvisionSchema
+>;
+export type UazapiPackageInstanceRemovalInputDto = z.infer<
+  typeof uazapiPackageInstanceRemovalInputSchema
+>;
+export type UazapiPackageInstanceRemovalDto = z.infer<
+  typeof uazapiPackageInstanceRemovalSchema
 >;
 export type ExternalChannelBillingActionInputDto = z.infer<
   typeof externalChannelBillingActionInputSchema

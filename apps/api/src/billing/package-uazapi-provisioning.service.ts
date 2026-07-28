@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -7,6 +8,7 @@ import {
 } from "@nestjs/common";
 import type { Prisma, WhatsappInstance, WhatsappSeat } from "@prisma/client";
 import type {
+  UazapiPackageInstanceRemovalDto,
   UazapiPackageProvisionDto,
   WhatsappSeatDto,
 } from "@wpptrack/shared";
@@ -301,6 +303,189 @@ export class PackageUazapiProvisioningService {
     }
   }
 
+  async removeInstance(
+    workspaceId: string,
+    whatsappInstanceId: string,
+    confirmation: string,
+    actorUserId: string,
+  ): Promise<UazapiPackageInstanceRemovalDto> {
+    this.assertProvisioningEnabled();
+    const startedAt = new Date();
+    const instance = await this.prisma.whatsappInstance.findFirst({
+      where: {
+        id: whatsappInstanceId,
+        workspaceId,
+        provider: "uazapi",
+      },
+    });
+    if (!instance) {
+      throw new NotFoundException("Instancia Uazapi nao encontrada");
+    }
+    if (confirmation.trim() !== instance.name) {
+      throw new BadRequestException(
+        "Digite o nome exato da instancia para confirmar a remocao",
+      );
+    }
+
+    const seat = await this.prisma.whatsappSeat.findFirst({
+      where: {
+        workspaceId,
+        whatsappInstanceId,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (
+      instance.status === "disconnected" &&
+      (!seat || seat.status === "released")
+    ) {
+      return {
+        whatsappInstanceId,
+        instanceName: instance.name,
+        releasedSeatId: seat?.id ?? null,
+        removedAt: (
+          seat?.releasedAt ??
+          instance.updatedAt ??
+          new Date()
+        ).toISOString(),
+        providerAlreadyMissing: true,
+      };
+    }
+
+    if (
+      !instance.providerTokenEncrypted ||
+      !instance.providerTokenIv ||
+      !instance.providerTokenTag
+    ) {
+      throw new ConflictException(
+        "A credencial da instancia nao esta disponivel para remocao segura",
+      );
+    }
+
+    const deletion = await this.uazapi.deleteInstance(
+      this.decryptInstanceToken(instance),
+    );
+    if (deletion.status !== "deleted") {
+      await this.recordLog({
+        workspaceId,
+        instanceId: instance.id,
+        seatId: seat?.id ?? "seat_not_found",
+        actorUserId,
+        startedAt,
+        status: "error",
+        providerInstanceId: instance.providerInstanceId,
+        message: deletion.message,
+        operation: "uazapi.package.remove",
+        auditAction: "billing.uazapi_package_remove",
+      });
+      throw new ConflictException(
+        "A Uazapi nao confirmou a remocao. O numero continua conectado e ocupando a vaga",
+      );
+    }
+
+    const removedAt = new Date();
+    const operations: Prisma.PrismaPromise<unknown>[] = [];
+    if (seat && seat.status !== "released") {
+      const releasedSeat = {
+        ...seat,
+        status: "released" as const,
+        releasedAt: removedAt,
+        releaseReason: "uazapi_instance_removed_by_user",
+        reservationExpiresAt: null,
+      };
+      operations.push(
+        this.prisma.whatsappSeat.update({
+          where: { id: seat.id },
+          data: {
+            status: "released",
+            releasedAt: removedAt,
+            releaseReason: "uazapi_instance_removed_by_user",
+            reservationExpiresAt: null,
+          },
+        }),
+        this.prisma.billingContractAudit.create({
+          data: {
+            workspaceId,
+            subscriptionId: seat.subscriptionId,
+            actorUserId,
+            actorType: "user",
+            action: "seat.released",
+            reason: "uazapi_instance_removed_by_user",
+            beforeSnapshot: this.seatSnapshot(seat),
+            afterSnapshot: this.seatSnapshot(releasedSeat),
+          },
+        }),
+      );
+    }
+
+    operations.push(
+      this.prisma.whatsappInstance.update({
+        where: { id: instance.id },
+        data: {
+          status: "disconnected",
+          providerTokenEncrypted: null,
+          providerTokenIv: null,
+          providerTokenTag: null,
+          webhookTokenHash: null,
+        },
+      }),
+      this.prisma.integrationLog.create({
+        data: {
+          workspaceId,
+          source: "uazapi",
+          operation: "uazapi.package.remove",
+          status: "success",
+          startedAt,
+          finishedAt: removedAt,
+          durationMs: Math.max(0, removedAt.getTime() - startedAt.getTime()),
+          providerRequestId: instance.providerInstanceId,
+          jobId: instance.id,
+          requestSummary: {
+            whatsappInstanceId: instance.id,
+            seatId: seat?.id ?? null,
+          } as Prisma.InputJsonValue,
+          responseSummary: {
+            providerAlreadyMissing: deletion.alreadyMissing,
+            message: deletion.message,
+          } as Prisma.InputJsonValue,
+        },
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          workspaceId,
+          actorUserId,
+          actorType: "user",
+          action: "billing.uazapi_package_remove",
+          targetType: "WhatsappInstance",
+          targetId: instance.id,
+          reason: "Numero removido pelo usuario",
+          resultStatus: "success",
+          beforeSummary: {
+            name: instance.name,
+            status: instance.status,
+            seatId: seat?.id ?? null,
+          },
+          afterSummary: {
+            name: instance.name,
+            status: "disconnected",
+            seatId: seat?.id ?? null,
+            seatStatus: seat ? "released" : null,
+            providerAlreadyMissing: deletion.alreadyMissing,
+          },
+        },
+      }),
+    );
+    await this.prisma.$transaction(operations);
+
+    return {
+      whatsappInstanceId: instance.id,
+      instanceName: instance.name,
+      releasedSeatId: seat?.id ?? null,
+      removedAt: removedAt.toISOString(),
+      providerAlreadyMissing: deletion.alreadyMissing,
+    };
+  }
+
   private assertProvisioningEnabled(): void {
     if (
       !this.configuration.isPackageBillingEnabled() ||
@@ -494,6 +679,37 @@ export class PackageUazapiProvisioningService {
 
   private errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : "unknown_error";
+  }
+
+  private seatSnapshot(
+    seat: Pick<
+      WhatsappSeat,
+      | "id"
+      | "provider"
+      | "status"
+      | "normalizedPhone"
+      | "whatsappInstanceId"
+      | "inboundWebhookChannelId"
+      | "reservationExpiresAt"
+      | "activatedAt"
+      | "suspendedAt"
+      | "releasedAt"
+      | "releaseReason"
+    >,
+  ): Prisma.InputJsonValue {
+    return {
+      id: seat.id,
+      provider: seat.provider,
+      status: seat.status,
+      normalizedPhone: seat.normalizedPhone,
+      whatsappInstanceId: seat.whatsappInstanceId,
+      inboundWebhookChannelId: seat.inboundWebhookChannelId,
+      reservationExpiresAt: seat.reservationExpiresAt?.toISOString() ?? null,
+      activatedAt: seat.activatedAt?.toISOString() ?? null,
+      suspendedAt: seat.suspendedAt?.toISOString() ?? null,
+      releasedAt: seat.releasedAt?.toISOString() ?? null,
+      releaseReason: seat.releaseReason,
+    };
   }
 
   private async findCurrentSeat(

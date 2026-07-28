@@ -161,6 +161,8 @@ describe("subscription route", () => {
     expect(html).toContain("Comunidade NOD - Teste");
     expect(html).toContain("+55 49 99834-7468");
     expect(html).toContain("Conectado");
+    expect(html).toContain("Remover numero");
+    expect(html).toContain("A assinatura nao sera cancelada.");
     expect(html).toContain("Gerar QR code");
     expect(html).toContain("Pagamentos e notas fiscais");
     expect(html).toContain("Autorizada");

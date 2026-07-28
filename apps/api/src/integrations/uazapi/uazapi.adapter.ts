@@ -49,6 +49,12 @@ export type UazapiCreateInstanceResult = {
   message: string | null;
 };
 
+export type UazapiDeleteInstanceResult = {
+  status: "deleted" | "not_configured" | "error";
+  alreadyMissing: boolean;
+  message: string | null;
+};
+
 @Injectable()
 export class UazapiAdapter implements IntegrationAdapter {
   readonly provider = "uazapi" as const;
@@ -173,6 +179,70 @@ export class UazapiAdapter implements IntegrationAdapter {
     instanceToken?: string | null,
   ): Promise<UazapiConnectionResult> {
     return this.getInstanceStatus(instanceRef, instanceToken);
+  }
+
+  async deleteInstance(
+    instanceToken?: string | null,
+  ): Promise<UazapiDeleteInstanceResult> {
+    const token = this.getInstanceToken(instanceToken);
+
+    if (!this.env.UAZAPI_BASE_URL || !token) {
+      return {
+        status: "not_configured",
+        alreadyMissing: false,
+        message: "Missing UAZAPI_BASE_URL or UAZAPI_TOKEN",
+      };
+    }
+
+    try {
+      const response = await this.fetchImpl(
+        `${this.env.UAZAPI_BASE_URL.replace(/\/$/, "")}/instance`,
+        {
+          method: "DELETE",
+          headers: {
+            token,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      const message =
+        this.asString(payload.message) ??
+        this.asString(payload.response) ??
+        this.asString(payload.error);
+
+      if (response.status === 404) {
+        return {
+          status: "deleted",
+          alreadyMissing: true,
+          message: message ?? "Instancia ja removida na Uazapi",
+        };
+      }
+
+      if (!response.ok) {
+        return {
+          status: "error",
+          alreadyMissing: false,
+          message: message ?? `Uazapi HTTP ${response.status}`,
+        };
+      }
+
+      return {
+        status: "deleted",
+        alreadyMissing: false,
+        message,
+      };
+    } catch (error) {
+      return {
+        status: "error",
+        alreadyMissing: false,
+        message:
+          error instanceof Error ? error.message : "Erro ao chamar Uazapi",
+      };
+    }
   }
 
   async configureInstanceWebhook(input: {

@@ -9594,6 +9594,91 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   text-transform: uppercase;
 }
 
+.package-instance-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.package-instance-remove-trigger {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 107, 95, 0.42);
+  border-radius: 7px;
+  background: rgba(255, 107, 95, 0.04);
+  color: var(--coral);
+}
+
+.package-instance-remove-trigger:hover,
+.package-instance-remove-trigger:focus-visible {
+  border-color: rgba(255, 107, 95, 0.75);
+  background: rgba(255, 107, 95, 0.1);
+  outline: none;
+}
+
+.package-instance-remove-dialog {
+  width: min(560px, calc(100vw - 28px));
+  border-color: rgba(255, 107, 95, 0.38);
+}
+
+.package-instance-remove-warning {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 11px;
+  padding: 13px;
+  border-left: 3px solid var(--coral);
+  background: rgba(255, 107, 95, 0.07);
+  color: var(--coral);
+}
+
+.package-instance-remove-warning > div,
+.package-instance-remove-confirmation {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.package-instance-remove-warning p,
+.package-instance-remove-preserved span {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.package-instance-remove-preserved {
+  display: grid;
+  gap: 4px;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(5, 8, 7, 0.3);
+}
+
+.package-instance-remove-confirmation > span {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.package-instance-remove-confirmation input {
+  width: 100%;
+}
+
+.package-instance-remove-spinner {
+  animation: package-instance-spin 0.8s linear infinite;
+}
+
+@keyframes package-instance-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .package-instance-empty {
   margin: 0;
   padding: 6px 0 2px;
@@ -9803,7 +9888,7 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
     grid-column: 2;
   }
 
-  .package-instance-row > .status-chip {
+  .package-instance-controls {
     grid-column: 3;
     grid-row: 1 / span 2;
   }
@@ -9850,7 +9935,7 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   }
 
   .package-instance-phone,
-  .package-instance-row > .status-chip {
+  .package-instance-controls {
     grid-column: 2;
     grid-row: auto;
     justify-self: start;

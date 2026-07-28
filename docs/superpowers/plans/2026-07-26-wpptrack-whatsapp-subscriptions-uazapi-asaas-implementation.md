@@ -94,7 +94,7 @@ Checkpoint: capacity can be calculated and enforced locally with Asaas disabled.
 - [x] Create recurring hosted checkouts with trusted package snapshot values.
 - [x] Offer credit card through the documented hosted recurring checkout.
 - [ ] Add Pix recurring in a separate Automatic Pix wave after provider
-  validation.
+      validation.
 - [x] Include stable workspace and contract external references.
 - [x] Persist checkout and subscription identifiers without storing payment
       credentials.
@@ -237,6 +237,8 @@ on the same connection can enter production.
 - [x] Add recurring checkout and payment-pending states.
 - [x] Add invoice history and fiscal status.
 - [x] Add an explicit self-service cancel confirmation.
+- [x] Allow an owner to remove a Uazapi number with exact-name confirmation,
+      provider deletion, immediate seat release and preserved local history.
 - [x] Unify Uazapi instances and external channels in the WhatsApp integration
       area without hiding provider-specific actions.
 - [x] Add actionable states for plan missing, payment pending, plan full,
@@ -372,11 +374,20 @@ Completed locally on 2026-07-26:
 Still external/manual:
 
 - Visual viewport review against an authenticated, seeded deployment.
-- Schema deployment with all flags disabled.
-- Production legacy backfill preview and apply.
-- Asaas sandbox checkout, payment webhook and invoice issuance.
-- Uazapi QR scan and real connection status callback.
+- NFS-e configuration and invoice issuance.
+- Removal of one sandbox Uazapi instance and confirmation that its package seat
+  becomes available again.
 - Production canary, cancellation and renewal-cycle observation.
+
+Validated externally on 2026-07-27:
+
+- Production schema is current and the API health endpoint returns `200`.
+- Existing Umbler workspaces were protected by legacy contracts without
+  changing their running connections.
+- Asaas sandbox checkout, recurring subscription creation and payment webhook
+  activated the Comunidade NOD contract.
+- A Uazapi instance was created, connected through the in-product QR flow and
+  displayed with its connected phone and active seat.
 
 ## Production Checkpoints
 

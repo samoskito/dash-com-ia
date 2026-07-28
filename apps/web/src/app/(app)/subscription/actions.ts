@@ -1,6 +1,7 @@
 "use server";
 
 import type {
+  UazapiPackageInstanceRemovalDto,
   UazapiPackageProvisionDto,
   WorkspaceBillingProfileDto,
   WorkspacePackageCheckoutDto,
@@ -59,7 +60,10 @@ export async function saveBillingProfileAction(
       message: "Dados de cobranca atualizados.",
     };
   } catch (error) {
-    return errorState(error, "Nao foi possivel atualizar os dados de cobranca.");
+    return errorState(
+      error,
+      "Nao foi possivel atualizar os dados de cobranca.",
+    );
   }
 }
 
@@ -150,5 +154,35 @@ export async function provisionPackageUazapiAction(
     };
   } catch (error) {
     return errorState(error, "Nao foi possivel preparar a instancia Uazapi.");
+  }
+}
+
+export async function removePackageUazapiInstanceAction(
+  whatsappInstanceId: string,
+  confirmation: string,
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    await serverApiFetch<UazapiPackageInstanceRemovalDto>(
+      `/billing/package/uazapi/instances/${encodeURIComponent(
+        whatsappInstanceId,
+      )}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ confirmation }),
+      },
+    );
+    revalidatePath("/subscription");
+    revalidatePath("/integrations");
+    return {
+      ok: true,
+      message: "Numero removido e vaga liberada. A assinatura segue ativa.",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: isApiRequestError(error)
+        ? error.message
+        : "Nao foi possivel remover o numero.",
+    };
   }
 }

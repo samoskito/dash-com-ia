@@ -14,6 +14,7 @@ import {
   workspaceBillingProfileInputSchema,
   workspacePackageCheckoutInputSchema,
   workspaceSubscriptionCancellationInputSchema,
+  uazapiPackageInstanceRemovalInputSchema,
   uazapiPackageProvisionInputSchema,
 } from "@wpptrack/shared";
 import { AuthToken } from "../auth/auth-user.decorator";
@@ -181,6 +182,31 @@ export class PackageBillingController {
     return this.uazapiProvisioning.refreshProvisioningQr(
       workspaceId,
       whatsappInstanceId,
+      userId,
+    );
+  }
+
+  @Delete("uazapi/instances/:whatsappInstanceId")
+  async removeUazapiInstance(
+    @AuthToken() refreshToken: string,
+    @Param("whatsappInstanceId") whatsappInstanceId: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = uazapiPackageInstanceRemovalInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Confirmacao da remocao invalida");
+    }
+
+    const { canManageIntegrations, userId, workspaceId } =
+      await this.getCurrentWorkspaceContext(refreshToken);
+    if (!canManageIntegrations) {
+      throw new ForbiddenException("Sem permissao para gerenciar integracoes");
+    }
+
+    return this.uazapiProvisioning.removeInstance(
+      workspaceId,
+      whatsappInstanceId,
+      parsed.data.confirmation,
       userId,
     );
   }

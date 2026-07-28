@@ -27,6 +27,7 @@ import {
   startPackageCheckoutAction,
 } from "./actions";
 import { PackageBillingActionForm } from "./package-billing-action-form";
+import { PackageInstanceRemoveButton } from "./package-instance-remove-button";
 
 type BillingResource = {
   data: WorkspacePackageBillingStateDto | null;
@@ -365,13 +366,22 @@ export default async function SubscriptionPage() {
                         "Numero em sincronizacao"}
                     </strong>
                   </div>
-                  <span
-                    className={`status-chip${packageInstanceStatusTone(
-                      instance,
-                    )}`}
-                  >
-                    {packageInstanceStatusLabel(instance)}
-                  </span>
+                  <div className="package-instance-controls">
+                    <span
+                      className={`status-chip${packageInstanceStatusTone(
+                        instance,
+                      )}`}
+                    >
+                      {packageInstanceStatusLabel(instance)}
+                    </span>
+                    {canManageIntegrations ? (
+                      <PackageInstanceRemoveButton
+                        instanceId={instance.id}
+                        instanceName={instance.name}
+                        phone={formatWhatsappPhone(instance.phone)}
+                      />
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>

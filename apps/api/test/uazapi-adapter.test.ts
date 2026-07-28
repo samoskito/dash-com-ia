@@ -212,6 +212,64 @@ describe("uazapi adapter", () => {
     expect(status.connectedPhone).toBe("5549998347468");
   });
 
+  it("deletes an instance with its per-instance token", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            response: "Instance Deleted",
+            info: "A instancia foi desconectada e removida",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    const adapter = new UazapiAdapter(
+      {
+        UAZAPI_BASE_URL: "https://uazapi.test/",
+      },
+      fetch,
+    );
+
+    const result = await adapter.deleteInstance("instance-token-1");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://uazapi.test/instance",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({
+          token: "instance-token-1",
+        }),
+      }),
+    );
+    expect(result).toEqual({
+      status: "deleted",
+      alreadyMissing: false,
+      message: "Instance Deleted",
+    });
+  });
+
+  it("treats an instance already missing in Uazapi as an idempotent removal", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ message: "Instancia nao encontrada" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    const adapter = new UazapiAdapter(
+      {
+        UAZAPI_BASE_URL: "https://uazapi.test",
+      },
+      fetch,
+    );
+
+    await expect(adapter.deleteInstance("instance-token-1")).resolves.toEqual({
+      status: "deleted",
+      alreadyMissing: true,
+      message: "Instancia nao encontrada",
+    });
+  });
+
   it("lists WhatsApp labels through the official Uazapi endpoint", async () => {
     const fetch = vi.fn(
       async () =>
