@@ -202,7 +202,7 @@ describe("webhooks controller", () => {
     await app.close();
   });
 
-  it("records Uazapi webhooks", async () => {
+  it("records Uazapi webhooks without creating automatic Meta events when CTWA is absent", async () => {
     const expectedPhoneHash = createHash("sha256")
       .update("5511988441020")
       .digest("hex");
@@ -240,14 +240,9 @@ describe("webhooks controller", () => {
       .expect(({ body }) => {
         expect(body.status).toBe("received");
         expect(body.webhookLogId).toBe("webhook_1");
-        expect(body.conversion.automatic.created).toEqual(["automatic_1"]);
+        expect(body.conversion.automatic.created).toEqual([]);
         expect(body.conversion.created).toEqual(["conversion_1"]);
         expect(body.conversion.queued).toEqual([
-          {
-            conversionEventLogId: "automatic_1",
-            jobId: "conversion-send_automatic_1",
-            status: "queued"
-          },
           {
             conversionEventLogId: "conversion_1",
             jobId: "conversion-send_conversion_1",
@@ -287,18 +282,10 @@ describe("webhooks controller", () => {
         ])
       })
     );
-    expect(conversionEventsService.recordAutomaticLeadSubmitted).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: "workspace_1",
-        leadId: "lead_1",
-        phoneHash: expectedPhoneHash,
-        campaignId: "cmp_1",
-        adSetId: "adset_1",
-        adId: "ad_1"
-      })
-    );
+    expect(
+      conversionEventsService.recordAutomaticLeadSubmitted
+    ).not.toHaveBeenCalled();
     expect(conversionEventsService.listReadyLogIds).toHaveBeenCalledWith([
-      "automatic_1",
       "conversion_1"
     ]);
     expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
@@ -311,10 +298,6 @@ describe("webhooks controller", () => {
         adSetId: "adset_1",
         adId: "ad_1"
       })
-    );
-    expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
-      "automatic_1",
-      "workspace_1"
     );
     expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
       "conversion_1",

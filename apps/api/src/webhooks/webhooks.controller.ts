@@ -512,16 +512,20 @@ export class WebhooksController {
       ctwaSourceUrl: parsed.ctwaSourceUrl,
       occurredAt: new Date()
     });
-    const automatic =
-      await this.conversionEventsService.recordAutomaticLeadSubmitted({
-        workspaceId: resolvedContext.workspaceId,
-        leadId: lead?.id ?? parsed.leadId,
-        phoneHash: parsed.phoneHash,
-        campaignId: parsed.campaignId,
-        adSetId: parsed.adSetId,
-        adId: parsed.adId,
-        ctwaClid: parsed.ctwaClid
-      });
+    const automatic = parsed.ctwaClid
+      ? await this.conversionEventsService.recordAutomaticLeadSubmitted({
+          workspaceId: resolvedContext.workspaceId,
+          leadId: lead?.id ?? parsed.leadId,
+          phoneHash: parsed.phoneHash,
+          campaignId: parsed.campaignId,
+          adSetId: parsed.adSetId,
+          adId: parsed.adId,
+          ctwaClid: parsed.ctwaClid
+        })
+      : {
+          created: [],
+          duplicates: []
+        };
     const conversion = await this.conversionEventsService.recordRuleMatches({
       workspaceId: resolvedContext.workspaceId,
       rules,

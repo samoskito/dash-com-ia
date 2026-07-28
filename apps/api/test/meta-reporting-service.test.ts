@@ -13,6 +13,15 @@ function matchesWhere(
   }
 
   return Object.entries(where).every(([key, value]) => {
+    if (key === "AND" && Array.isArray(value)) {
+      return value.every(
+        (item) =>
+          item !== null &&
+          typeof item === "object" &&
+          matchesWhere(record, item as Record<string, unknown>),
+      );
+    }
+
     if (key === "OR" && Array.isArray(value)) {
       return value.some(
         (item) =>
@@ -1253,15 +1262,107 @@ describe("meta reporting service", () => {
 
     expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: {
+        where: expect.objectContaining({
           workspaceId: "workspace_1",
           eventOccurredAt: {
             gte: new Date("2026-07-01T03:00:00.000Z"),
             lte: new Date("2026-07-03T02:59:59.999Z"),
           },
-        },
+          AND: expect.arrayContaining([
+            {
+              NOT: {
+                sourceTrigger: "auto_lead",
+                ctwaClid: null,
+              },
+            },
+          ]),
+        }),
         skip: 0,
         take: 25,
+      }),
+    );
+  });
+
+  it("keeps automatic messages without CTWA out of the Meta audit", async () => {
+    const { db, prisma, service } = createHarness();
+    db.conversionLogs = [
+      {
+        id: "automatic_without_ctwa",
+        workspaceId: "workspace_1",
+        eventName: "LeadSubmitted",
+        eventOccurredAt: new Date("2026-07-02T12:00:00.000Z"),
+        sentAt: null,
+        status: "pending_meta_context",
+        sourceTrigger: "auto_lead",
+        leadId: null,
+        phoneHash: "phone_without_ctwa",
+        campaignId: null,
+        adSetId: null,
+        adId: null,
+        ctwaClid: null,
+        pixelId: null,
+        pageId: null,
+        providerResponseSummary: null,
+        errorCode: "MissingAdId",
+        errorMessage: "Missing Meta context",
+        valueCents: null,
+        valueSource: null,
+      },
+      {
+        id: "automatic_with_ctwa",
+        workspaceId: "workspace_1",
+        eventName: "LeadSubmitted",
+        eventOccurredAt: new Date("2026-07-02T13:00:00.000Z"),
+        sentAt: null,
+        status: "pending_meta_context",
+        sourceTrigger: "auto_lead",
+        leadId: null,
+        phoneHash: "phone_with_ctwa",
+        campaignId: null,
+        adSetId: null,
+        adId: null,
+        ctwaClid: "ctwa_click_1",
+        pixelId: null,
+        pageId: null,
+        providerResponseSummary: null,
+        errorCode: "MissingAdId",
+        errorMessage: "Missing Meta context",
+        valueCents: null,
+        valueSource: null,
+      },
+    ];
+
+    const result = await service.getConversionEventAudit({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(result.summary).toMatchObject({
+      total: 1,
+      blocked: 1,
+    });
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      id: "automatic_with_ctwa",
+      source: "system",
+      deliveryState: "blocked",
+    });
+    expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            {
+              NOT: {
+                sourceTrigger: "auto_lead",
+                ctwaClid: null,
+              },
+            },
+          ]),
+        }),
       }),
     );
   });
@@ -1597,7 +1698,15 @@ describe("meta reporting service", () => {
       where: expect.objectContaining({
         eventName: "Purchase",
         status: { in: ["error"] },
-        sourceTrigger: { startsWith: "external_mysql:" },
+        AND: expect.arrayContaining([
+          { sourceTrigger: { startsWith: "external_mysql:" } },
+          {
+            NOT: {
+              sourceTrigger: "auto_lead",
+              ctwaClid: null,
+            },
+          },
+        ]),
       }),
       _count: { _all: true },
     });

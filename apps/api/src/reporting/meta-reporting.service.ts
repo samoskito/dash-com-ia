@@ -1738,7 +1738,15 @@ export class MetaReportingService {
       ...(input.deliveryState
         ? { status: { in: this.conversionAuditStatuses(input.deliveryState) } }
         : {}),
-      ...this.conversionAuditSourceWhere(input.source),
+      AND: [
+        this.conversionAuditSourceWhere(input.source),
+        {
+          NOT: {
+            sourceTrigger: "auto_lead",
+            ctwaClid: null,
+          },
+        },
+      ],
     };
     const [events, statusGroups, funnelStages] = await Promise.all([
       this.prisma.conversionEventLog.findMany({
