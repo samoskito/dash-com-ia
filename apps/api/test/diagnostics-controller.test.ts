@@ -31,6 +31,7 @@ const diagnosticEvent = {
 const webhookLog = {
   id: "webhook_1",
   workspaceId: "workspace_1",
+  whatsappInstanceId: "instance_1",
   source: "uazapi",
   eventType: "message.received",
   externalEventId: "evt_1",
@@ -44,12 +45,14 @@ const webhookLog = {
   adId: "ad_1",
   jobId: null,
   errorCode: null,
-  errorMessage: null
+  errorMessage: null,
+  payloadAvailable: true
 };
 
 const webhookPayload = {
   id: "webhook_1",
   workspaceId: "workspace_1",
+  whatsappInstanceId: "instance_1",
   source: "uazapi",
   eventType: "message.received",
   externalEventId: "evt_1",
@@ -292,7 +295,7 @@ describe("diagnostics controller", () => {
 
     await request(app.getHttpServer())
       .get(
-        "/backoffice/diagnostics/webhooks?workspaceId=workspace_1&source=uazapi&status=received&q=message&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&leadId=lead_1&phoneHash=phone_hash_1&campaignId=cmp_1&adId=ad_1&limit=10"
+        "/backoffice/diagnostics/webhooks?workspaceId=workspace_1&whatsappInstanceId=instance_1&source=uazapi&status=received&q=message&since=2026-07-01T00%3A00%3A00.000Z&until=2026-07-02T23%3A59%3A59.000Z&leadId=lead_1&phoneHash=phone_hash_1&campaignId=cmp_1&adId=ad_1&limit=10&offset=20"
       )
       .set("Authorization", "Bearer refresh-token")
       .expect(200)
@@ -306,6 +309,7 @@ describe("diagnostics controller", () => {
     );
     expect(service.listWebhookLogs).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
+      whatsappInstanceId: "instance_1",
       source: "uazapi",
       status: "received",
       q: "message",
@@ -315,7 +319,8 @@ describe("diagnostics controller", () => {
       phoneHash: "phone_hash_1",
       campaignId: "cmp_1",
       adId: "ad_1",
-      limit: 10
+      limit: 10,
+      offset: 20
     });
 
     await app.close();

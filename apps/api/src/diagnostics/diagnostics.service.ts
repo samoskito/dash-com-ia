@@ -66,6 +66,7 @@ type DiagnosticEventRecord = {
 type WebhookLogRecord = {
   id: string;
   workspaceId: string | null;
+  whatsappInstanceId: string | null;
   source: DiagnosticSourceDto;
   eventType: string;
   externalEventId: string | null;
@@ -179,6 +180,7 @@ export type ConversionEventRetryContext = {
 
 export type WebhookLogInput = {
   workspaceId?: string;
+  whatsappInstanceId?: string;
   source: DiagnosticSourceDto;
   eventType: string;
   externalEventId?: string;
@@ -280,6 +282,7 @@ export class DiagnosticsService {
     const webhook = await this.prisma.webhookLog.create({
       data: {
         workspaceId: input.workspaceId ?? null,
+        whatsappInstanceId: input.whatsappInstanceId ?? null,
         source: input.source,
         eventType: input.eventType,
         externalEventId: input.externalEventId ?? null,
@@ -606,9 +609,19 @@ export class DiagnosticsService {
     query: DiagnosticWebhookLogListQueryDto
   ): Promise<DiagnosticWebhookLogDto[]> {
     const where: Prisma.WebhookLogWhereInput = {};
+    const combinedFilters: Prisma.WebhookLogWhereInput[] = [];
 
     if (query.workspaceId) {
       where.workspaceId = query.workspaceId;
+    }
+
+    if (query.whatsappInstanceId) {
+      combinedFilters.push({
+        OR: [
+          { whatsappInstanceId: query.whatsappInstanceId },
+          { whatsappInstanceId: null }
+        ]
+      });
     }
 
     if (query.source) {
@@ -655,13 +668,19 @@ export class DiagnosticsService {
     }
 
     if (query.q) {
-      where.OR = [
-        { eventType: { contains: query.q, mode: "insensitive" } },
-        { status: { contains: query.q, mode: "insensitive" } },
-        { externalEventId: { contains: query.q, mode: "insensitive" } },
-        { errorCode: { contains: query.q, mode: "insensitive" } },
-        { errorMessage: { contains: query.q, mode: "insensitive" } }
-      ];
+      combinedFilters.push({
+        OR: [
+          { eventType: { contains: query.q, mode: "insensitive" } },
+          { status: { contains: query.q, mode: "insensitive" } },
+          { externalEventId: { contains: query.q, mode: "insensitive" } },
+          { errorCode: { contains: query.q, mode: "insensitive" } },
+          { errorMessage: { contains: query.q, mode: "insensitive" } }
+        ]
+      });
+    }
+
+    if (combinedFilters.length > 0) {
+      where.AND = combinedFilters;
     }
 
     const webhooks = (await this.prisma.webhookLog.findMany({
@@ -669,6 +688,7 @@ export class DiagnosticsService {
       orderBy: {
         receivedAt: "desc"
       },
+      skip: query.offset,
       take: query.limit
     })) as WebhookLogRecord[];
 
@@ -1296,6 +1316,7 @@ export class DiagnosticsService {
     return {
       id: webhook.id,
       workspaceId: webhook.workspaceId,
+      whatsappInstanceId: webhook.whatsappInstanceId,
       source: webhook.source,
       eventType: webhook.eventType,
       externalEventId: webhook.externalEventId,
@@ -1309,7 +1330,9 @@ export class DiagnosticsService {
       adId: webhook.adId,
       jobId: webhook.jobId,
       errorCode: webhook.errorCode,
-      errorMessage: webhook.errorMessage
+      errorMessage: webhook.errorMessage,
+      payloadAvailable:
+        webhook.summaryPayload !== null && webhook.summaryPayload !== undefined
     };
   }
 
@@ -1321,6 +1344,7 @@ export class DiagnosticsService {
     return {
       id: webhook.id,
       workspaceId: webhook.workspaceId,
+      whatsappInstanceId: webhook.whatsappInstanceId,
       source: webhook.source,
       eventType: webhook.eventType,
       externalEventId: webhook.externalEventId,
@@ -1605,7 +1629,8 @@ export class DiagnosticsService {
 
     return items.sort(
       (left, right) =>
-        new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime()
+        new Date(left.occurredAt).getTime() -
+        new Date(right.occurredAt).getTime()
     );
   }
 

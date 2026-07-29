@@ -55,6 +55,12 @@ function createHarness() {
         );
       }
 
+      if (key === "AND" && Array.isArray(value)) {
+        return value.every((condition): boolean =>
+          matchesWhere(record, condition as Record<string, unknown>)
+        );
+      }
+
       if (
         value &&
         typeof value === "object" &&
@@ -117,14 +123,18 @@ function createHarness() {
         ) ?? null,
       findMany: async ({
         where,
+        skip,
         take
       }: {
         where: Record<string, unknown>;
+        skip: number;
         take: number;
       }) => {
-        webhookFindManyCalls.push({ where, take });
+        webhookFindManyCalls.push({ where, skip, take });
 
-        return webhookLogs.slice(0, take);
+        return webhookLogs
+          .filter((webhookLog) => matchesWhere(webhookLog, where))
+          .slice(skip, skip + take);
       },
       count: async ({ where }: { where: Record<string, unknown> }) =>
         countRecords(webhookLogs, where)
@@ -803,9 +813,14 @@ describe("diagnostics service", () => {
     const { service, webhookFindManyCalls } = createHarness();
     await service.recordWebhookLog({
       workspaceId: "workspace_1",
+      whatsappInstanceId: "instance_1",
       source: "uazapi",
       eventType: "message.received",
       externalEventId: "evt_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      campaignId: "cmp_1",
+      adId: "ad_1",
       summaryPayload: {
         text: "oi"
       }
@@ -813,6 +828,7 @@ describe("diagnostics service", () => {
 
     const result = await service.listWebhookLogs({
       workspaceId: "workspace_1",
+      whatsappInstanceId: "instance_1",
       source: "uazapi",
       status: "received",
       q: "message",
@@ -822,17 +838,20 @@ describe("diagnostics service", () => {
       phoneHash: "phone_hash_1",
       campaignId: "cmp_1",
       adId: "ad_1",
-      limit: 10
+      limit: 10,
+      offset: 0
     });
 
     expect(result[0]).toMatchObject({
       id: "webhook_1",
       workspaceId: "workspace_1",
+      whatsappInstanceId: "instance_1",
       source: "uazapi",
       eventType: "message.received",
       externalEventId: "evt_1",
       status: "received",
-      processedAt: null
+      processedAt: null,
+      payloadAvailable: true
     });
     expect(webhookFindManyCalls[0]?.where).toEqual({
       workspaceId: "workspace_1",
@@ -846,14 +865,25 @@ describe("diagnostics service", () => {
       phoneHash: "phone_hash_1",
       campaignId: "cmp_1",
       adId: "ad_1",
-      OR: [
-        { eventType: { contains: "message", mode: "insensitive" } },
-        { status: { contains: "message", mode: "insensitive" } },
-        { externalEventId: { contains: "message", mode: "insensitive" } },
-        { errorCode: { contains: "message", mode: "insensitive" } },
-        { errorMessage: { contains: "message", mode: "insensitive" } }
+      AND: [
+        {
+          OR: [
+            { whatsappInstanceId: "instance_1" },
+            { whatsappInstanceId: null }
+          ]
+        },
+        {
+          OR: [
+            { eventType: { contains: "message", mode: "insensitive" } },
+            { status: { contains: "message", mode: "insensitive" } },
+            { externalEventId: { contains: "message", mode: "insensitive" } },
+            { errorCode: { contains: "message", mode: "insensitive" } },
+            { errorMessage: { contains: "message", mode: "insensitive" } }
+          ]
+        }
       ]
     });
+    expect(webhookFindManyCalls[0]?.skip).toBe(0);
     expect(webhookFindManyCalls[0]?.take).toBe(10);
   });
 
@@ -862,6 +892,7 @@ describe("diagnostics service", () => {
     webhookLogs.push({
       id: "webhook_1",
       workspaceId: "workspace_1",
+      whatsappInstanceId: "instance_1",
       source: "uazapi",
       eventType: "message.received",
       externalEventId: "evt_1",
@@ -892,6 +923,7 @@ describe("diagnostics service", () => {
     expect(payload).toMatchObject({
       id: "webhook_1",
       workspaceId: "workspace_1",
+      whatsappInstanceId: "instance_1",
       source: "uazapi",
       eventType: "message.received",
       payloadKind: "summary",

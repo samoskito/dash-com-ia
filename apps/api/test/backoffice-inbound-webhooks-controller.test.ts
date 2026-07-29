@@ -182,6 +182,17 @@ async function createApp() {
               ],
             },
           ],
+          directInstances: [
+            {
+              id: "instance_1",
+              displayName: "Atendimento QR",
+              provider: "uazapi",
+              status: "active",
+              connectedPhone: "+5511888888888",
+              seatStatus: "active",
+              lastSeenAt: "2026-07-17T20:01:00.000Z",
+            },
+          ],
         },
       ],
     })),
@@ -273,6 +284,12 @@ describe("backoffice inbound webhooks controller", () => {
         expect(body.workspaces[0].connections[0].channels[0]).toMatchObject({
           displayName: "Comercial",
           connectedPhone: "+5511999999999",
+        });
+        expect(body.workspaces[0].directInstances[0]).toMatchObject({
+          displayName: "Atendimento QR",
+          provider: "uazapi",
+          connectedPhone: "+5511888888888",
+          seatStatus: "active",
         });
       });
 

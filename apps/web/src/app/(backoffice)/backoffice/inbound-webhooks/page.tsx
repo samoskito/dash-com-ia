@@ -4,6 +4,7 @@ import type {
   BackofficeInboundWebhookOperationsScopeDto,
   BackofficeProviderConversionRolloutDto,
   ConversionEventNameDto,
+  DiagnosticWebhookLogDto,
   InboundWebhookDeliveryPurposeDto,
   InboundWebhookDeliveryStatusDto,
   InboundWebhookEventClassificationDto,
@@ -47,8 +48,10 @@ type DeliveryFilters = {
   channelId?: string;
   classification?: string;
   connectionId?: string;
+  eventType?: string;
   provider?: string;
   purpose?: InboundWebhookDeliveryPurposeDto;
+  q?: string;
   receivedFrom?: string;
   receivedUntil?: string;
   status?: string;
@@ -64,6 +67,12 @@ type DeliveryResult = {
 type DeliverySummaryResult = {
   data: BackofficeInboundWebhookDeliverySummaryDto | null;
   state: "real" | "error";
+};
+
+type DirectDeliveryResult = {
+  data: DiagnosticWebhookLogDto[];
+  hasNextPage: boolean;
+  state: "real" | "empty" | "error";
 };
 
 type OperationsScopeResult = {
@@ -175,7 +184,44 @@ function deliveryFilterParams(filters: DeliveryFilters): URLSearchParams {
     params.set("classification", filters.classification);
   }
 
+  if (filters.eventType) {
+    params.set("eventType", filters.eventType);
+  }
+
+  if (filters.q) {
+    params.set("q", filters.q);
+  }
+
   return params;
+}
+
+function directConnectionId(workspaceId: string): string {
+  return `nod-api:${workspaceId}`;
+}
+
+function directConnectionWorkspaceId(value?: string): string | undefined {
+  const prefix = "nod-api:";
+
+  return value?.startsWith(prefix) ? value.slice(prefix.length) : undefined;
+}
+
+function toDiagnosticDateTime(
+  value: string | undefined,
+  includeFullMinute: boolean,
+): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
+    const suffix = includeFullMinute ? ":59.999-03:00" : ":00.000-03:00";
+
+    return new Date(`${value}${suffix}`).toISOString();
+  }
+
+  const parsed = new Date(value);
+
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
 }
 
 function conversionTraceHref(filters: DeliveryFilters): string {
@@ -255,6 +301,65 @@ async function getDeliveries(
       data: visibleDeliveries,
       hasNextPage: deliveries.length > deliveryPageSize,
       state: visibleDeliveries.length > 0 ? "real" : "empty",
+    };
+  } catch {
+    return {
+      data: [],
+      hasNextPage: false,
+      state: "error",
+    };
+  }
+}
+
+async function getDirectDeliveries(
+  filters: DeliveryFilters,
+  workspaceId: string,
+  whatsappInstanceId: string | undefined,
+  page: number,
+): Promise<DirectDeliveryResult> {
+  try {
+    const params = new URLSearchParams({
+      workspaceId,
+      source: "uazapi",
+      limit: String(deliveryPageSize + 1),
+      offset: String((page - 1) * deliveryPageSize),
+    });
+    const since = toDiagnosticDateTime(filters.receivedFrom, false);
+    const until = toDiagnosticDateTime(filters.receivedUntil, true);
+
+    if (whatsappInstanceId) {
+      params.set("whatsappInstanceId", whatsappInstanceId);
+    }
+
+    if (filters.status) {
+      params.set("status", filters.status);
+    }
+
+    if (filters.eventType) {
+      params.set("eventType", filters.eventType);
+    }
+
+    if (filters.q) {
+      params.set("q", filters.q);
+    }
+
+    if (since) {
+      params.set("since", since);
+    }
+
+    if (until) {
+      params.set("until", until);
+    }
+
+    const logs = await serverApiFetch<DiagnosticWebhookLogDto[]>(
+      `/backoffice/diagnostics/webhooks?${params.toString()}`,
+    );
+    const visibleLogs = logs.slice(0, deliveryPageSize);
+
+    return {
+      data: visibleLogs,
+      hasNextPage: logs.length > deliveryPageSize,
+      state: visibleLogs.length > 0 ? "real" : "empty",
     };
   } catch {
     return {
@@ -612,6 +717,8 @@ export default async function InboundWebhookDeliveriesPage({
     receivedUntil: asStringParam(resolvedSearchParams.receivedUntil),
     status: asStringParam(resolvedSearchParams.status),
     classification: asStringParam(resolvedSearchParams.classification),
+    eventType: asStringParam(resolvedSearchParams.eventType),
+    q: asStringParam(resolvedSearchParams.q),
   };
   const shadowFilters: ShadowComparisonFilters = {
     comparisonResult: shadowComparisonResultParam(
@@ -627,18 +734,25 @@ export default async function InboundWebhookDeliveriesPage({
   };
   const page = pageParam(resolvedSearchParams.page);
   const shadowPage = pageParam(resolvedSearchParams.shadowPage);
-  const [result, summaryResult, scopeResult] = await Promise.all([
-    getDeliveries(filters, page),
-    getDeliverySummary(filters),
-    getOperationsScope(),
-  ]);
-  const deliveries = result.data;
+  const scopeResult = await getOperationsScope();
   const scope = scopeResult.data?.workspaces ?? [];
   const connectionEntries = scope.flatMap((workspace) =>
     workspace.connections.map((connection) => ({ workspace, connection })),
   );
-  const selectedWorkspace = scope.find(
-    (workspace) => workspace.id === filters.workspaceId,
+  const directInstanceEntries = scope.flatMap((workspace) =>
+    workspace.directInstances.map((instance) => ({ workspace, instance })),
+  );
+  const requestedDirectWorkspaceId = directConnectionWorkspaceId(
+    filters.connectionId,
+  );
+  const selectedWorkspace =
+    scope.find((workspace) => workspace.id === filters.workspaceId) ??
+    scope.find((workspace) => workspace.id === requestedDirectWorkspaceId) ??
+    directInstanceEntries.find(
+      ({ instance }) => instance.id === filters.channelId,
+    )?.workspace;
+  const selectedDirectInstanceEntry = directInstanceEntries.find(
+    ({ instance }) => instance.id === filters.channelId,
   );
   const selectedConnectionEntry =
     connectionEntries.find(
@@ -648,30 +762,87 @@ export default async function InboundWebhookDeliveriesPage({
       connection.channels.some((channel) => channel.id === filters.channelId),
     );
   const selectedConnection = selectedConnectionEntry?.connection;
+  const selectedDirectInstance = selectedDirectInstanceEntry?.instance;
   const activeWorkspace =
-    selectedWorkspace ?? selectedConnectionEntry?.workspace;
+    selectedWorkspace ??
+    selectedConnectionEntry?.workspace ??
+    selectedDirectInstanceEntry?.workspace;
+  const isDirectScope = Boolean(
+    selectedDirectInstance ||
+    requestedDirectWorkspaceId ||
+    (selectedWorkspace &&
+      selectedWorkspace.connections.length === 0 &&
+      selectedWorkspace.directInstances.length > 0),
+  );
   const connectionOptions = selectedWorkspace
     ? selectedWorkspace.connections.map((connection) => ({
         workspace: selectedWorkspace,
         connection,
       }))
     : connectionEntries;
-  const channelOptions = selectedConnection
-    ? selectedConnection.channels.map((channel) => ({
-        workspace: selectedConnectionEntry!.workspace,
-        connection: selectedConnection,
-        channel,
-      }))
-    : connectionOptions.flatMap(({ workspace, connection }) =>
-        connection.channels.map((channel) => ({
-          workspace,
-          connection,
+  const directConnectionOptions = selectedWorkspace
+    ? selectedWorkspace.directInstances.length > 0
+      ? [selectedWorkspace]
+      : []
+    : scope.filter((workspace) => workspace.directInstances.length > 0);
+  const channelOptions = isDirectScope
+    ? []
+    : selectedConnection
+      ? selectedConnection.channels.map((channel) => ({
+          workspace: selectedConnectionEntry!.workspace,
+          connection: selectedConnection,
           channel,
-        })),
-      );
+        }))
+      : connectionOptions.flatMap(({ workspace, connection }) =>
+          connection.channels.map((channel) => ({
+            workspace,
+            connection,
+            channel,
+          })),
+        );
+  const directInstanceOptions = selectedConnection
+    ? []
+    : selectedWorkspace
+      ? selectedWorkspace.directInstances.map((instance) => ({
+          workspace: selectedWorkspace,
+          instance,
+        }))
+      : directInstanceEntries;
   const selectedChannel = channelOptions.find(
     ({ channel }) => channel.id === filters.channelId,
   )?.channel;
+  let result: DeliveryResult = {
+    data: [],
+    hasNextPage: false,
+    state: "empty",
+  };
+  let summaryResult: DeliverySummaryResult = {
+    data: null,
+    state: "real",
+  };
+
+  if (!isDirectScope) {
+    [result, summaryResult] = await Promise.all([
+      getDeliveries(filters, page),
+      getDeliverySummary(filters),
+    ]);
+  }
+
+  const directResult =
+    isDirectScope && activeWorkspace
+      ? await getDirectDeliveries(
+          filters,
+          activeWorkspace.id,
+          selectedDirectInstance?.id,
+          page,
+        )
+      : ({
+          data: [],
+          hasNextPage: false,
+          state: "empty",
+        } satisfies DirectDeliveryResult);
+  const deliveries = result.data;
+  const directDeliveries = directResult.data;
   const rolloutResult = selectedChannel
     ? await getProviderConversionRollout(
         selectedChannel.id,
@@ -683,6 +854,8 @@ export default async function InboundWebhookDeliveriesPage({
   const quickFilter = activeQuickFilter(filters);
   const hasAdvancedFilters = Boolean(
     filters.provider ||
+    filters.eventType ||
+    filters.q ||
     filters.receivedFrom ||
     filters.receivedUntil ||
     filters.purpose === "message_observation" ||
@@ -738,8 +911,11 @@ export default async function InboundWebhookDeliveriesPage({
       href: quickFilterHref(filters, "failed"),
     },
   ];
-  const deliveryHeading =
-    quickFilter === null
+  const deliveryHeading = isDirectScope
+    ? selectedDirectInstance
+      ? `Entregas de ${selectedDirectInstance.displayName}`
+      : "Entregas da NOD API"
+    : quickFilter === null
       ? "Resultados filtrados"
       : quickFilter === "all"
         ? "Ultimas entregas"
@@ -833,6 +1009,10 @@ export default async function InboundWebhookDeliveriesPage({
               {activeWorkspace.name}
               {selectedConnection ? ` / ${selectedConnection.displayName}` : ""}
               {selectedChannel ? ` / ${selectedChannel.displayName}` : ""}
+              {isDirectScope ? " / NOD API" : ""}
+              {selectedDirectInstance
+                ? ` / ${selectedDirectInstance.displayName}`
+                : ""}
             </span>
           ) : null}
         </div>
@@ -889,13 +1069,27 @@ export default async function InboundWebhookDeliveriesPage({
               <select
                 className="filter-control"
                 name="connectionId"
-                defaultValue={selectedConnection?.id ?? ""}
+                defaultValue={
+                  selectedConnection?.id ??
+                  (isDirectScope && activeWorkspace
+                    ? directConnectionId(activeWorkspace.id)
+                    : "")
+                }
               >
                 <option value="">Todas as conexoes</option>
                 {connectionOptions.map(({ workspace, connection }) => (
                   <option key={connection.id} value={connection.id}>
                     {selectedWorkspace ? "" : `${workspace.name} / `}
                     {connection.displayName}
+                  </option>
+                ))}
+                {directConnectionOptions.map((workspace) => (
+                  <option
+                    key={directConnectionId(workspace.id)}
+                    value={directConnectionId(workspace.id)}
+                  >
+                    {selectedWorkspace ? "" : `${workspace.name} / `}
+                    NOD API por QR code
                   </option>
                 ))}
               </select>
@@ -909,7 +1103,9 @@ export default async function InboundWebhookDeliveriesPage({
               <select
                 className="filter-control"
                 name="channelId"
-                defaultValue={selectedChannel?.id ?? ""}
+                defaultValue={
+                  selectedChannel?.id ?? selectedDirectInstance?.id ?? ""
+                }
               >
                 <option value="">Todos os canais</option>
                 {channelOptions.map(({ workspace, connection, channel }) => (
@@ -918,6 +1114,17 @@ export default async function InboundWebhookDeliveriesPage({
                       ? ""
                       : `${workspace.name} / ${connection.displayName} / `}
                     {channel.displayName} / {channel.connectedPhone}
+                  </option>
+                ))}
+                {directInstanceOptions.map(({ workspace, instance }) => (
+                  <option key={instance.id} value={instance.id}>
+                    {isDirectScope
+                      ? ""
+                      : `${workspace.name} / NOD API por QR code / `}
+                    {instance.displayName}
+                    {instance.connectedPhone
+                      ? ` / ${instance.connectedPhone}`
+                      : ""}
                   </option>
                 ))}
               </select>
@@ -960,6 +1167,20 @@ export default async function InboundWebhookDeliveriesPage({
                 Recuperar producao
               </a>
             ) : null}
+          </div>
+        ) : isDirectScope && activeWorkspace ? (
+          <div className="inbound-scope-actions">
+            <span>
+              <strong>
+                {selectedDirectInstance?.displayName ?? "NOD API por QR code"}
+              </strong>
+              <small>
+                {selectedDirectInstance?.connectedPhone ??
+                  "Todas as instancias deste cliente"}{" "}
+                - auditoria de payload ativa
+              </small>
+            </span>
+            <span className="event-chip good">Recebimento protegido</span>
           </div>
         ) : null}
       </section>
@@ -1381,7 +1602,7 @@ export default async function InboundWebhookDeliveriesPage({
         </section>
       ) : null}
 
-      {(totals?.ctwaPending ?? 0) > 0 ? (
+      {!isDirectScope && (totals?.ctwaPending ?? 0) > 0 ? (
         <div className="inbound-attention-banner">
           <span className="inbound-attention-icon" aria-hidden="true">
             <AlertTriangle size={18} strokeWidth={2} />
@@ -1403,21 +1624,23 @@ export default async function InboundWebhookDeliveriesPage({
         </div>
       ) : null}
 
-      <nav className="inbound-quick-filters" aria-label="Filtros rapidos">
-        {quickFilters.map((filter) => (
-          <a
-            className={`inbound-quick-filter${
-              quickFilter === filter.key ? " active" : ""
-            }`}
-            href={filter.href}
-            aria-current={quickFilter === filter.key ? "page" : undefined}
-            key={filter.key}
-          >
-            <span>{filter.label}</span>
-            <strong>{filter.count ?? "--"}</strong>
-          </a>
-        ))}
-      </nav>
+      {!isDirectScope ? (
+        <nav className="inbound-quick-filters" aria-label="Filtros rapidos">
+          {quickFilters.map((filter) => (
+            <a
+              className={`inbound-quick-filter${
+                quickFilter === filter.key ? " active" : ""
+              }`}
+              href={filter.href}
+              aria-current={quickFilter === filter.key ? "page" : undefined}
+              key={filter.key}
+            >
+              <span>{filter.label}</span>
+              <strong>{filter.count ?? "--"}</strong>
+            </a>
+          ))}
+        </nav>
+      ) : null}
 
       <details className="inbound-advanced-filters" open={hasAdvancedFilters}>
         <summary>
@@ -1465,49 +1688,89 @@ export default async function InboundWebhookDeliveriesPage({
               title="O minuto selecionado e incluido por completo"
             />
           </label>
-          <label className="filter-field">
-            <span>Plataforma</span>
-            <select name="provider" defaultValue={filters.provider ?? ""}>
-              <option value="">Todas</option>
-              <option value="umbler">Umbler</option>
-              <option value="gupshup">Gupshup</option>
-            </select>
-          </label>
-          <label className="filter-field">
-            <span>Tipo de entrada</span>
-            <select name="purpose" defaultValue={filters.purpose ?? ""}>
-              <option value="">Todos</option>
-              <option value="message_observation">Mensagens WhatsApp</option>
-              <option value="conversion_automation">
-                Automacoes de conversao
-              </option>
-            </select>
-          </label>
+          {isDirectScope ? (
+            <>
+              <label className="filter-field">
+                <span>Evento ou identificador</span>
+                <input
+                  type="search"
+                  name="q"
+                  defaultValue={filters.q ?? ""}
+                  placeholder="Mensagem, evento ou ID"
+                />
+              </label>
+              <label className="filter-field">
+                <span>Tipo de evento</span>
+                <input
+                  type="text"
+                  name="eventType"
+                  defaultValue={filters.eventType ?? ""}
+                  placeholder="Ex.: messages"
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <label className="filter-field">
+                <span>Plataforma</span>
+                <select name="provider" defaultValue={filters.provider ?? ""}>
+                  <option value="">Todas</option>
+                  <option value="umbler">Umbler</option>
+                  <option value="gupshup">Gupshup</option>
+                </select>
+              </label>
+              <label className="filter-field">
+                <span>Tipo de entrada</span>
+                <select name="purpose" defaultValue={filters.purpose ?? ""}>
+                  <option value="">Todos</option>
+                  <option value="message_observation">
+                    Mensagens WhatsApp
+                  </option>
+                  <option value="conversion_automation">
+                    Automacoes de conversao
+                  </option>
+                </select>
+              </label>
+            </>
+          )}
           <label className="filter-field">
             <span>Status</span>
             <select name="status" defaultValue={filters.status ?? ""}>
               <option value="">Todos</option>
-              {deliveryStatuses.map((status) => (
-                <option key={status.value} value={status.value}>
-                  {status.label}
-                </option>
-              ))}
+              {isDirectScope ? (
+                <>
+                  <option value="received">Recebido</option>
+                  <option value="processed">Processado</option>
+                  <option value="failed">Falhou</option>
+                </>
+              ) : (
+                deliveryStatuses.map((status) => (
+                  <option key={status.value} value={status.value}>
+                    {status.label}
+                  </option>
+                ))
+              )}
             </select>
           </label>
-          <label className="filter-field">
-            <span>Classificacao</span>
-            <select
-              name="classification"
-              defaultValue={filters.classification ?? ""}
-            >
-              <option value="">Todas</option>
-              {eventClassifications.map((classification) => (
-                <option key={classification.value} value={classification.value}>
-                  {classification.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!isDirectScope ? (
+            <label className="filter-field">
+              <span>Classificacao</span>
+              <select
+                name="classification"
+                defaultValue={filters.classification ?? ""}
+              >
+                <option value="">Todas</option>
+                {eventClassifications.map((classification) => (
+                  <option
+                    key={classification.value}
+                    value={classification.value}
+                  >
+                    {classification.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <button className="button" type="submit">
             Aplicar
           </button>
@@ -1524,15 +1787,17 @@ export default async function InboundWebhookDeliveriesPage({
             <h2>{deliveryHeading}</h2>
           </div>
           <span className="event-chip neutral">
-            {activeTotal === undefined
-              ? `${deliveries.length} entrega(s) exibida(s)`
-              : `${deliveries.length} entrega(s) / ${activeTotal} ${
-                  quickFilter === "automation" ? "callback(s)" : "evento(s)"
-                }`}
+            {isDirectScope
+              ? `${directDeliveries.length} entrega(s) exibida(s)`
+              : activeTotal === undefined
+                ? `${deliveries.length} entrega(s) exibida(s)`
+                : `${deliveries.length} entrega(s) / ${activeTotal} ${
+                    quickFilter === "automation" ? "callback(s)" : "evento(s)"
+                  }`}
           </span>
         </div>
 
-        {result.state === "error" ? (
+        {(isDirectScope ? directResult.state : result.state) === "error" ? (
           <div className="inbound-empty-state">
             <AlertTriangle aria-hidden="true" size={20} />
             <div>
@@ -1543,7 +1808,7 @@ export default async function InboundWebhookDeliveriesPage({
               </p>
             </div>
           </div>
-        ) : result.state === "empty" ? (
+        ) : (isDirectScope ? directResult.state : result.state) === "empty" ? (
           <div className="inbound-empty-state">
             <Inbox aria-hidden="true" size={20} />
             <div>
@@ -1551,7 +1816,7 @@ export default async function InboundWebhookDeliveriesPage({
               <p>O primeiro evento da plataforma aparecera aqui.</p>
             </div>
           </div>
-        ) : deliveries.length === 0 ? (
+        ) : (isDirectScope ? directDeliveries : deliveries).length === 0 ? (
           <div className="inbound-empty-state">
             <SlidersHorizontal aria-hidden="true" size={20} />
             <div>
@@ -1561,141 +1826,227 @@ export default async function InboundWebhookDeliveriesPage({
           </div>
         ) : (
           <div className="inbound-delivery-list" role="list">
-            {deliveries.map((delivery) => {
-              const tone = deliveryTone(delivery);
-              const deliveryConnection = connectionEntries.find(
-                ({ connection }) => connection.id === delivery.connectionId,
-              )?.connection;
-              const channelSummary = delivery.channels.length
-                ? delivery.channels
-                    .map(
-                      (channel) =>
-                        `${channel.displayName} / ${channel.connectedPhone}`,
-                    )
-                    .join(", ")
-                : "Callback sem canal normalizado";
+            {isDirectScope
+              ? directDeliveries.map((delivery) => {
+                  const instance =
+                    directInstanceEntries.find(
+                      ({ instance: candidate }) =>
+                        candidate.id === delivery.whatsappInstanceId,
+                    )?.instance ?? selectedDirectInstance;
+                  const tone = delivery.errorCode ? "bad" : "good";
 
-              return (
-                <article
-                  className={`inbound-delivery-row ${tone}`}
-                  key={delivery.id}
-                  role="listitem"
-                >
-                  <div className="inbound-delivery-when">
-                    <span className="micro-label">Recebido</span>
-                    <strong>{formatDateTime(delivery.lastReceivedAt)}</strong>
-                    <span>{delivery.attemptCount} tentativa(s)</span>
-                  </div>
-
-                  <div className="inbound-delivery-source">
-                    <span className="micro-label">Cliente / conexao</span>
-                    <strong>{delivery.workspaceName}</strong>
-                    <span>{delivery.connectionName}</span>
-                    <small>{channelSummary}</small>
-                    <span>
-                      {deliveryPurposeLabel(delivery.purpose)} /{" "}
-                      {delivery.providerEventType ?? "Tipo nao informado"}
-                    </span>
-                  </div>
-
-                  <div className="inbound-delivery-result">
-                    <span className="micro-label">Resultado</span>
-                    <strong>{deliveryResultLabel(delivery)}</strong>
-                    <span>{deliveryResultDescription(delivery)}</span>
-                  </div>
-
-                  <div className="inbound-delivery-payload">
-                    <span className="micro-label">Auditoria</span>
-                    <strong>{payloadLabel(delivery)}</strong>
-                    <span>
-                      {statusLabel(delivery.status)} - {delivery.eventCount}{" "}
-                      evento(s)
-                    </span>
-                  </div>
-
-                  <div className="inbound-delivery-actions">
-                    <a
-                      className="button ghost compact-button inbound-payload-link"
-                      href={`/backoffice/inbound-webhooks/${delivery.id}/payload`}
+                  return (
+                    <article
+                      className={`inbound-delivery-row ${tone}`}
+                      key={delivery.id}
+                      role="listitem"
                     >
-                      <Eye aria-hidden="true" size={16} strokeWidth={2} />
-                      Ver payload
-                    </a>
-                    {delivery.purpose === "message_observation" &&
-                    delivery.status === "processed" ? (
-                      <>
-                        {delivery.providerConversionsObservedAt ? (
-                          <span
-                            className="event-chip good"
-                            title={`Conversoes lidas em ${formatDateTime(
-                              delivery.providerConversionsObservedAt,
-                            )}`}
-                          >
-                            Conversoes lidas
-                          </span>
+                      <div className="inbound-delivery-when">
+                        <span className="micro-label">Recebido</span>
+                        <strong>{formatDateTime(delivery.receivedAt)}</strong>
+                        <span>
+                          {delivery.processedAt
+                            ? `Processado em ${formatDateTime(
+                                delivery.processedAt,
+                              )}`
+                            : "Recebimento registrado"}
+                        </span>
+                      </div>
+
+                      <div className="inbound-delivery-source">
+                        <span className="micro-label">Cliente / instancia</span>
+                        <strong>{activeWorkspace?.name ?? "Workspace"}</strong>
+                        <span>{instance?.displayName ?? "NOD API"}</span>
+                        <small>
+                          {instance?.connectedPhone ??
+                            "Registro anterior ao rastreamento por instancia"}
+                        </small>
+                        <span>NOD API por QR code</span>
+                      </div>
+
+                      <div className="inbound-delivery-result">
+                        <span className="micro-label">Evento</span>
+                        <strong>{delivery.eventType}</strong>
+                        <span>
+                          {delivery.externalEventId
+                            ? `ID externo: ${delivery.externalEventId}`
+                            : "Sem identificador externo"}
+                        </span>
+                      </div>
+
+                      <div className="inbound-delivery-payload">
+                        <span className="micro-label">Auditoria</span>
+                        <strong>
+                          {delivery.payloadAvailable
+                            ? "Payload disponivel"
+                            : "Payload indisponivel"}
+                        </strong>
+                        <span>
+                          {delivery.errorMessage ??
+                            delivery.errorCode ??
+                            `Status: ${delivery.status}`}
+                        </span>
+                      </div>
+
+                      <div className="inbound-delivery-actions">
+                        <a
+                          className="button ghost compact-button inbound-payload-link"
+                          href={`/backoffice/webhooks/${delivery.id}/payload`}
+                        >
+                          <Eye aria-hidden="true" size={16} strokeWidth={2} />
+                          Ver payload
+                        </a>
+                        <span className="event-chip neutral">
+                          Somente auditoria
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })
+              : deliveries.map((delivery) => {
+                  const tone = deliveryTone(delivery);
+                  const deliveryConnection = connectionEntries.find(
+                    ({ connection }) => connection.id === delivery.connectionId,
+                  )?.connection;
+                  const channelSummary = delivery.channels.length
+                    ? delivery.channels
+                        .map(
+                          (channel) =>
+                            `${channel.displayName} / ${channel.connectedPhone}`,
+                        )
+                        .join(", ")
+                    : "Callback sem canal normalizado";
+
+                  return (
+                    <article
+                      className={`inbound-delivery-row ${tone}`}
+                      key={delivery.id}
+                      role="listitem"
+                    >
+                      <div className="inbound-delivery-when">
+                        <span className="micro-label">Recebido</span>
+                        <strong>
+                          {formatDateTime(delivery.lastReceivedAt)}
+                        </strong>
+                        <span>{delivery.attemptCount} tentativa(s)</span>
+                      </div>
+
+                      <div className="inbound-delivery-source">
+                        <span className="micro-label">Cliente / conexao</span>
+                        <strong>{delivery.workspaceName}</strong>
+                        <span>{delivery.connectionName}</span>
+                        <small>{channelSummary}</small>
+                        <span>
+                          {deliveryPurposeLabel(delivery.purpose)} /{" "}
+                          {delivery.providerEventType ?? "Tipo nao informado"}
+                        </span>
+                      </div>
+
+                      <div className="inbound-delivery-result">
+                        <span className="micro-label">Resultado</span>
+                        <strong>{deliveryResultLabel(delivery)}</strong>
+                        <span>{deliveryResultDescription(delivery)}</span>
+                      </div>
+
+                      <div className="inbound-delivery-payload">
+                        <span className="micro-label">Auditoria</span>
+                        <strong>{payloadLabel(delivery)}</strong>
+                        <span>
+                          {statusLabel(delivery.status)} - {delivery.eventCount}{" "}
+                          evento(s)
+                        </span>
+                      </div>
+
+                      <div className="inbound-delivery-actions">
+                        <a
+                          className="button ghost compact-button inbound-payload-link"
+                          href={`/backoffice/inbound-webhooks/${delivery.id}/payload`}
+                        >
+                          <Eye aria-hidden="true" size={16} strokeWidth={2} />
+                          Ver payload
+                        </a>
+                        {delivery.purpose === "message_observation" &&
+                        delivery.status === "processed" ? (
+                          <>
+                            {delivery.providerConversionsObservedAt ? (
+                              <span
+                                className="event-chip good"
+                                title={`Conversoes lidas em ${formatDateTime(
+                                  delivery.providerConversionsObservedAt,
+                                )}`}
+                              >
+                                Conversoes lidas
+                              </span>
+                            ) : null}
+                            {delivery.payloadAvailable ? (
+                              <BackofficeActionForm
+                                action={
+                                  reprocessInboundProviderConversionsAction
+                                }
+                                className="inbound-inline-action-form"
+                              >
+                                <input
+                                  name="deliveryId"
+                                  type="hidden"
+                                  value={delivery.id}
+                                />
+                                <InboundProviderConversionRecoveryButton />
+                              </BackofficeActionForm>
+                            ) : (
+                              <span className="event-chip warn">
+                                Payload expirado
+                              </span>
+                            )}
+                          </>
                         ) : null}
-                        {delivery.payloadAvailable ? (
-                          <BackofficeActionForm
-                            action={reprocessInboundProviderConversionsAction}
-                            className="inbound-inline-action-form"
+                        {delivery.classification ===
+                          "eligible_route_resolved" ||
+                        delivery.classification ===
+                          "eligible_route_unresolved" ? (
+                          <a
+                            className="button ghost compact-button inbound-replay-link"
+                            href={`/backoffice/inbound-webhooks/replay/${delivery.connectionId}`}
                           >
-                            <input
-                              name="deliveryId"
-                              type="hidden"
-                              value={delivery.id}
+                            <RotateCcw
+                              aria-hidden="true"
+                              size={16}
+                              strokeWidth={2}
                             />
-                            <InboundProviderConversionRecoveryButton />
-                          </BackofficeActionForm>
-                        ) : (
-                          <span className="event-chip warn">
-                            Payload expirado
-                          </span>
-                        )}
-                      </>
-                    ) : null}
-                    {delivery.classification === "eligible_route_resolved" ||
-                    delivery.classification === "eligible_route_unresolved" ? (
-                      <a
-                        className="button ghost compact-button inbound-replay-link"
-                        href={`/backoffice/inbound-webhooks/replay/${delivery.connectionId}`}
-                      >
-                        <RotateCcw
-                          aria-hidden="true"
-                          size={16}
-                          strokeWidth={2}
-                        />
-                        Replay historico
-                      </a>
-                    ) : null}
-                    {deliveryConnection?.status === "production" &&
-                    (delivery.classification === "eligible_route_resolved" ||
-                      delivery.classification ===
-                        "eligible_route_unresolved") ? (
-                      <a
-                        className="button ghost compact-button inbound-replay-link"
-                        href={`/backoffice/inbound-webhooks/recovery/${delivery.connectionId}${
-                          delivery.channels.length === 1
-                            ? `?channelId=${delivery.channels[0].id}`
-                            : ""
-                        }`}
-                      >
-                        <LifeBuoy
-                          aria-hidden="true"
-                          size={16}
-                          strokeWidth={2}
-                        />
-                        Recuperar producao
-                      </a>
-                    ) : null}
-                  </div>
-                </article>
-              );
-            })}
+                            Replay historico
+                          </a>
+                        ) : null}
+                        {deliveryConnection?.status === "production" &&
+                        (delivery.classification ===
+                          "eligible_route_resolved" ||
+                          delivery.classification ===
+                            "eligible_route_unresolved") ? (
+                          <a
+                            className="button ghost compact-button inbound-replay-link"
+                            href={`/backoffice/inbound-webhooks/recovery/${delivery.connectionId}${
+                              delivery.channels.length === 1
+                                ? `?channelId=${delivery.channels[0].id}`
+                                : ""
+                            }`}
+                          >
+                            <LifeBuoy
+                              aria-hidden="true"
+                              size={16}
+                              strokeWidth={2}
+                            />
+                            Recuperar producao
+                          </a>
+                        ) : null}
+                      </div>
+                    </article>
+                  );
+                })}
           </div>
         )}
       </section>
 
-      {result.state !== "error" && (page > 1 || result.hasNextPage) ? (
+      {(isDirectScope ? directResult.state : result.state) !== "error" &&
+      (page > 1 ||
+        (isDirectScope ? directResult.hasNextPage : result.hasNextPage)) ? (
         <nav
           className="report-pagination"
           aria-label="Paginacao das entregas do WhatsApp"
@@ -1718,7 +2069,7 @@ export default async function InboundWebhookDeliveriesPage({
                 Anterior
               </span>
             )}
-            {result.hasNextPage ? (
+            {(isDirectScope ? directResult.hasNextPage : result.hasNextPage) ? (
               <a
                 className="button ghost"
                 href={deliveryPageHref(filters, page + 1)}

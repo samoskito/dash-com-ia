@@ -113,6 +113,7 @@ export const diagnosticSummarySchema = z.object({
 export const diagnosticWebhookLogSchema = z.object({
   id: z.string().min(1),
   workspaceId: z.string().min(1).nullable(),
+  whatsappInstanceId: z.string().min(1).nullable(),
   source: diagnosticSourceSchema,
   eventType: z.string().min(1),
   externalEventId: z.string().nullable(),
@@ -126,11 +127,13 @@ export const diagnosticWebhookLogSchema = z.object({
   adId: z.string().nullable(),
   jobId: z.string().nullable(),
   errorCode: z.string().nullable(),
-  errorMessage: z.string().nullable()
+  errorMessage: z.string().nullable(),
+  payloadAvailable: z.boolean()
 });
 
 export const diagnosticWebhookLogListQuerySchema = z.object({
   workspaceId: z.string().min(1).optional(),
+  whatsappInstanceId: z.string().min(1).optional(),
   source: diagnosticSourceSchema.optional(),
   status: z.string().min(1).optional(),
   eventType: z.string().min(1).optional(),
@@ -143,7 +146,8 @@ export const diagnosticWebhookLogListQuerySchema = z.object({
   adSetId: z.string().min(1).optional(),
   adId: z.string().min(1).optional(),
   errorCode: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(25)
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  offset: z.coerce.number().int().min(0).max(200000).default(0)
 });
 
 export const diagnosticWebhookLogListSchema = z.array(
@@ -154,6 +158,7 @@ export const diagnosticWebhookPayloadSchema = diagnosticWebhookLogSchema
   .pick({
     id: true,
     workspaceId: true,
+    whatsappInstanceId: true,
     source: true,
     eventType: true,
     externalEventId: true,
@@ -415,7 +420,9 @@ export type DiagnosticTimelineItemDto = z.infer<
 export type DiagnosticEventDetailDto = z.infer<
   typeof diagnosticEventDetailSchema
 >;
-export type DiagnosticRetryInputDto = z.infer<typeof diagnosticRetryInputSchema>;
+export type DiagnosticRetryInputDto = z.infer<
+  typeof diagnosticRetryInputSchema
+>;
 export type DiagnosticRetryResultDto = z.infer<
   typeof diagnosticRetryResultSchema
 >;

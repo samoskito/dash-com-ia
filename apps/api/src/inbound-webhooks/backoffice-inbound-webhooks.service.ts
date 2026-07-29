@@ -411,9 +411,27 @@ export class BackofficeInboundWebhooksService {
   async getOperationsScope(): Promise<BackofficeInboundWebhookOperationsScopeDto> {
     const workspaces = await this.prisma.workspace.findMany({
       where: {
-        inboundWebhookConnections: {
-          some: { removedAt: null },
-        },
+        OR: [
+          {
+            inboundWebhookConnections: {
+              some: { removedAt: null },
+            },
+          },
+          {
+            whatsappInstances: {
+              some: {
+                provider: "uazapi",
+                whatsappSeats: {
+                  some: {
+                    status: {
+                      in: ["reserved", "active", "suspended"],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
       },
       select: {
         id: true,
@@ -440,6 +458,38 @@ export class BackofficeInboundWebhooksService {
           },
           orderBy: [{ displayName: "asc" }, { id: "asc" }],
         },
+        whatsappInstances: {
+          where: {
+            provider: "uazapi",
+            whatsappSeats: {
+              some: {
+                status: {
+                  in: ["reserved", "active", "suspended"],
+                },
+              },
+            },
+          },
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            updatedAt: true,
+            whatsappSeats: {
+              where: {
+                status: {
+                  in: ["reserved", "active", "suspended"],
+                },
+              },
+              select: {
+                normalizedPhone: true,
+                status: true,
+              },
+              orderBy: { updatedAt: "desc" },
+              take: 1,
+            },
+          },
+          orderBy: [{ name: "asc" }, { id: "asc" }],
+        },
       },
       orderBy: [{ name: "asc" }, { id: "asc" }],
     });
@@ -463,6 +513,19 @@ export class BackofficeInboundWebhooksService {
             lastSeenAt: channel.lastSeenAt.toISOString(),
           })),
         })),
+        directInstances: workspace.whatsappInstances.map((instance) => {
+          const seat = instance.whatsappSeats[0] ?? null;
+
+          return {
+            id: instance.id,
+            displayName: instance.name,
+            provider: "uazapi" as const,
+            status: instance.status,
+            connectedPhone: seat?.normalizedPhone ?? null,
+            seatStatus: seat?.status ?? null,
+            lastSeenAt: instance.updatedAt.toISOString(),
+          };
+        }),
       })),
     };
   }

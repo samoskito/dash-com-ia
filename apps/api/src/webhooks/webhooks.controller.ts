@@ -139,8 +139,7 @@ export class WebhooksController {
     @Headers("x-workspace-id") workspaceId?: string
   ) {
     this.assertAsaasWebhookToken(asaasAccessToken);
-    const packageBilling =
-      await this.packageBillingWebhook.tryProcess(body);
+    const packageBilling = await this.packageBillingWebhook.tryProcess(body);
 
     if (packageBilling.handled) {
       if (
@@ -194,7 +193,7 @@ export class WebhooksController {
 
     if (workspaceId && workspaceId !== context.workspaceId) {
       throw new UnauthorizedException("Webhook Meta nao autorizado");
-  }
+    }
 
     return this.recordMetaWebhook(body, context);
   }
@@ -309,7 +308,9 @@ export class WebhooksController {
     };
   }
 
-  private getFirstMetaChange(body: WebhookBody): Record<string, unknown> | null {
+  private getFirstMetaChange(
+    body: WebhookBody
+  ): Record<string, unknown> | null {
     const entries = Array.isArray(body.entry) ? body.entry : [];
 
     for (const entry of entries) {
@@ -459,6 +460,7 @@ export class WebhooksController {
 
     const diagnostic = await this.diagnosticsService.recordWebhookLog({
       workspaceId: resolvedContext.workspaceId,
+      whatsappInstanceId: resolvedContext.whatsappInstanceId,
       source: "uazapi",
       eventType: parsed.eventType,
       externalEventId: parsed.externalEventId,

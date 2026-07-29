@@ -588,10 +588,29 @@ export const backofficeInboundWebhookScopeConnectionSchema = z.object({
   channels: z.array(backofficeInboundWebhookScopeChannelSchema),
 });
 
+export const backofficeInboundWebhookScopeDirectInstanceSchema = z.object({
+  id: idSchema,
+  displayName: inboundWebhookDisplayNameSchema,
+  provider: z.literal("uazapi"),
+  status: z.enum([
+    "pending_payment",
+    "active",
+    "disconnected",
+    "suspended",
+    "error",
+  ]),
+  connectedPhone: z.string().trim().min(1).max(32).nullable(),
+  seatStatus: z
+    .enum(["reserved", "active", "suspended", "released"])
+    .nullable(),
+  lastSeenAt: dateTimeSchema.nullable(),
+});
+
 export const backofficeInboundWebhookScopeWorkspaceSchema = z.object({
   id: idSchema,
   name: z.string().trim().min(1).max(160),
   connections: z.array(backofficeInboundWebhookScopeConnectionSchema),
+  directInstances: z.array(backofficeInboundWebhookScopeDirectInstanceSchema),
 });
 
 export const backofficeInboundWebhookOperationsScopeSchema = z.object({
@@ -966,6 +985,9 @@ export type BackofficeInboundWebhookScopeChannelDto = z.infer<
 >;
 export type BackofficeInboundWebhookScopeConnectionDto = z.infer<
   typeof backofficeInboundWebhookScopeConnectionSchema
+>;
+export type BackofficeInboundWebhookScopeDirectInstanceDto = z.infer<
+  typeof backofficeInboundWebhookScopeDirectInstanceSchema
 >;
 export type BackofficeInboundWebhookScopeWorkspaceDto = z.infer<
   typeof backofficeInboundWebhookScopeWorkspaceSchema

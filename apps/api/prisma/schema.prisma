@@ -577,30 +577,32 @@ model WorkspaceInvite {
 }
 
 model WebhookLog {
-  id              String           @id @default(cuid())
-  workspaceId     String?
-  source          DiagnosticSource
-  eventType       String
-  externalEventId String?
-  status          String
-  receivedAt      DateTime         @default(now())
-  processedAt     DateTime?
-  leadId          String?
-  phoneHash       String?
-  campaignId      String?
-  adSetId         String?
-  adId            String?
-  jobId           String?
-  errorCode       String?
-  errorMessage    String?
-  summaryPayload  Json?
-  rawPayloadRef   String?
-  idempotencyKey  String?          @unique
+  id                 String           @id @default(cuid())
+  workspaceId        String?
+  whatsappInstanceId String?
+  source             DiagnosticSource
+  eventType          String
+  externalEventId    String?
+  status             String
+  receivedAt         DateTime         @default(now())
+  processedAt        DateTime?
+  leadId             String?
+  phoneHash          String?
+  campaignId         String?
+  adSetId            String?
+  adId               String?
+  jobId              String?
+  errorCode          String?
+  errorMessage       String?
+  summaryPayload     Json?
+  rawPayloadRef      String?
+  idempotencyKey     String?          @unique
 
   workspace        Workspace?        @relation(fields: [workspaceId], references: [id])
   diagnosticEvents DiagnosticEvent[]
 
   @@index([workspaceId, source, status, receivedAt])
+  @@index([workspaceId, whatsappInstanceId, receivedAt])
 }
 
 model IntegrationLog {

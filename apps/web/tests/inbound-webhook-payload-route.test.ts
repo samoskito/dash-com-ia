@@ -61,8 +61,51 @@ const operationsScope = {
           ],
         },
       ],
+      directInstances: [],
     },
   ],
+};
+
+const nodApiOperationsScope = {
+  workspaces: [
+    {
+      id: "workspace_nod",
+      name: "Comunidade NOD",
+      connections: [],
+      directInstances: [
+        {
+          id: "instance_nod",
+          displayName: "teste - nod",
+          provider: "uazapi",
+          status: "active",
+          connectedPhone: "+5511911166170",
+          seatStatus: "active",
+          lastSeenAt: "2026-07-29T15:00:00.000Z",
+        },
+      ],
+    },
+  ],
+};
+
+const nodApiWebhookLog = {
+  id: "webhook_nod_1",
+  workspaceId: "workspace_nod",
+  whatsappInstanceId: "instance_nod",
+  source: "uazapi",
+  eventType: "messages",
+  externalEventId: "message_nod_1",
+  status: "received",
+  receivedAt: "2026-07-29T15:01:00.000Z",
+  processedAt: null,
+  leadId: null,
+  phoneHash: "phone_hash_nod",
+  campaignId: null,
+  adSetId: null,
+  adId: null,
+  jobId: null,
+  errorCode: null,
+  errorMessage: null,
+  payloadAvailable: true,
 };
 
 afterEach(() => {
@@ -72,6 +115,7 @@ afterEach(() => {
 describe("inbound webhook payload routes", () => {
   it("renders recent deliveries with quick filters and scoped audit actions", async () => {
     vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(operationsScope))
       .mockResolvedValueOnce(
         jsonResponse([
           availableDelivery,
@@ -102,8 +146,7 @@ describe("inbound webhook payload routes", () => {
           automationCallbacks: 12,
           awaitingParser: 4,
         }),
-      )
-      .mockResolvedValueOnce(jsonResponse(operationsScope));
+      );
 
     const element = await InboundWebhookDeliveriesPage({});
     const html = render(element);
@@ -156,8 +199,41 @@ describe("inbound webhook payload routes", () => {
     expectNoReleaseAction(html);
   });
 
+  it("lists NOD API workspaces and opens their persisted payloads", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(nodApiOperationsScope))
+      .mockResolvedValueOnce(jsonResponse([nodApiWebhookLog]));
+
+    const element = await InboundWebhookDeliveriesPage({
+      searchParams: Promise.resolve({
+        workspaceId: "workspace_nod",
+        connectionId: "nod-api:workspace_nod",
+        channelId: "instance_nod",
+      }),
+    });
+    const html = render(element);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/backoffice/diagnostics/webhooks?workspaceId=workspace_nod&source=uazapi&limit=51&offset=0&whatsappInstanceId=instance_nod",
+      expect.objectContaining({
+        cache: "no-store",
+        credentials: "include",
+      }),
+    );
+    expect(html).toContain("Comunidade NOD");
+    expect(html).toContain("NOD API por QR code");
+    expect(html).toContain("teste - nod");
+    expect(html).toContain("+5511911166170");
+    expect(html).toContain("messages");
+    expect(html).toContain("Payload disponivel");
+    expect(html).toContain('href="/backoffice/webhooks/webhook_nod_1/payload"');
+    expect(html).not.toContain("Replay historico");
+    expect(html).not.toContain("Recuperar producao");
+  });
+
   it("filters recent deliveries through the quick CTWA view", async () => {
     vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(operationsScope))
       .mockResolvedValueOnce(
         jsonResponse([
           {
@@ -178,8 +254,7 @@ describe("inbound webhook payload routes", () => {
           automationCallbacks: 12,
           awaitingParser: 4,
         }),
-      )
-      .mockResolvedValueOnce(jsonResponse(operationsScope));
+      );
 
     const element = await InboundWebhookDeliveriesPage({
       searchParams: Promise.resolve({
@@ -203,6 +278,7 @@ describe("inbound webhook payload routes", () => {
 
   it("separates retained conversion automation callbacks from message events", async () => {
     vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(operationsScope))
       .mockResolvedValueOnce(
         jsonResponse([
           {
@@ -225,8 +301,7 @@ describe("inbound webhook payload routes", () => {
           automationCallbacks: 12,
           awaitingParser: 12,
         }),
-      )
-      .mockResolvedValueOnce(jsonResponse(operationsScope));
+      );
 
     const element = await InboundWebhookDeliveriesPage({
       searchParams: Promise.resolve({
@@ -254,6 +329,7 @@ describe("inbound webhook payload routes", () => {
 
   it("paginates older deliveries while preserving the active filters", async () => {
     vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(operationsScope))
       .mockResolvedValueOnce(
         jsonResponse([
           {
@@ -273,8 +349,7 @@ describe("inbound webhook payload routes", () => {
           automationCallbacks: 12,
           awaitingParser: 4,
         }),
-      )
-      .mockResolvedValueOnce(jsonResponse(operationsScope));
+      );
 
     const element = await InboundWebhookDeliveriesPage({
       searchParams: Promise.resolve({
@@ -304,6 +379,7 @@ describe("inbound webhook payload routes", () => {
 
   it("filters and paginates high-volume shadow decisions by event and minute", async () => {
     vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(operationsScope))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(
         jsonResponse({
@@ -316,7 +392,6 @@ describe("inbound webhook payload routes", () => {
           awaitingParser: 0,
         }),
       )
-      .mockResolvedValueOnce(jsonResponse(operationsScope))
       .mockResolvedValueOnce(
         jsonResponse({
           channel: {
