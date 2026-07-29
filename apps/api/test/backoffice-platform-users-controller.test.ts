@@ -90,4 +90,27 @@ describe("backoffice platform users controller", () => {
     );
     await app.close();
   });
+
+  it("revokes an operator global access without deleting the user", async () => {
+    const { app, authService } = await createApp();
+
+    await request(app.getHttpServer())
+      .patch("/backoffice/platform-users/operator_1")
+      .set("Authorization", "Bearer refresh-token")
+      .send({ role: null })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          id: "operator_1",
+          role: null
+        });
+      });
+
+    expect(authService.updatePlatformUserRole).toHaveBeenCalledWith(
+      "operator_1",
+      { role: null },
+      "platform_owner"
+    );
+    await app.close();
+  });
 });

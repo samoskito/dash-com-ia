@@ -75,4 +75,52 @@ describe("platform user management", () => {
       )
     ).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it("revokes only the platform role and preserves the user account", async () => {
+    const auditCreate = vi.fn(async (_args: unknown) => ({}));
+    const userUpdate = vi.fn(async ({ data }: any) => ({
+      id: "operator_1",
+      name: "Operador",
+      email: "operador@wpptrack.com",
+      platformRole: data.platformRole,
+      createdAt: new Date("2026-07-11T18:00:00.000Z")
+    }));
+    const service = new AuthService(
+      {
+        user: {
+          findUnique: vi.fn(async () => ({
+            id: "operator_1",
+            name: "Operador",
+            email: "operador@wpptrack.com",
+            platformRole: "platform_operator",
+            createdAt: new Date("2026-07-11T18:00:00.000Z")
+          })),
+          update: userUpdate
+        },
+        auditLog: { create: auditCreate }
+      } as never,
+      {} as never,
+      {}
+    );
+
+    const result = await service.updatePlatformUserRole(
+      "operator_1",
+      { role: null },
+      "platform_owner"
+    );
+
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: "operator_1" },
+      data: { platformRole: null }
+    });
+    expect(result).toEqual({ id: "operator_1", role: null });
+    expect(auditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "platform_user.role_updated",
+          targetId: "operator_1"
+        })
+      })
+    );
+  });
 });

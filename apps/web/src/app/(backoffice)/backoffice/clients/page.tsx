@@ -23,6 +23,7 @@ import { BackofficeNavigation } from "../../../../components/backoffice-navigati
 import { ExternalConnectorRow } from "../../../../components/external-connector-row";
 import { PendingSubmitButton } from "../../../../components/pending-submit-button";
 import { SecurePasswordInput } from "../../../../components/secure-password-input";
+import { TeamActionButton } from "../../../../components/team-action-button";
 import { serverApiFetch } from "../../../../lib/server-api";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -254,6 +255,40 @@ async function createPlatformUser(
   }
 
   return actionResult("success", "Usuario interno criado com sucesso");
+}
+
+async function revokePlatformUserAccess(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const userId = String(formData.get("userId") ?? "").trim();
+
+  if (!userId) {
+    return actionResult("error", "Usuario interno nao identificado");
+  }
+
+  try {
+    await serverApiFetch(
+      `/backoffice/platform-users/${encodeURIComponent(userId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ role: null }),
+      },
+    );
+    revalidatePath("/backoffice/clients");
+  } catch {
+    return actionResult(
+      "error",
+      "Nao foi possivel remover o acesso global do usuario",
+    );
+  }
+
+  return actionResult(
+    "success",
+    "Acesso global removido. A conta continua disponivel para equipes de workspace.",
+  );
 }
 
 async function createExternalConnector(
@@ -982,9 +1017,27 @@ export default async function BackofficeClientsPage({
                     <strong>{user.name ?? "Usuario interno"}</strong>
                     <small>{user.email}</small>
                   </span>
-                  <span className="event-chip">
-                    {user.role === "platform_owner" ? "Owner" : "Operador"}
-                  </span>
+                  <div className="client-operator-actions">
+                    <span className="event-chip">
+                      {user.role === "platform_owner" ? "Owner" : "Operador"}
+                    </span>
+                    {isPlatformOwner &&
+                    user.role === "platform_operator" &&
+                    user.id !== session?.user.id ? (
+                      <BackofficeActionForm
+                        action={revokePlatformUserAccess}
+                        className="client-operator-revoke-form"
+                      >
+                        <input name="userId" type="hidden" value={user.id} />
+                        <TeamActionButton
+                          confirmMessage={`Remover o acesso global de ${user.name ?? user.email}? A conta nao sera excluida e podera ser vinculada a um workspace.`}
+                          danger
+                          kind="revoke"
+                          label={`Remover acesso global de ${user.name ?? user.email}`}
+                        />
+                      </BackofficeActionForm>
+                    ) : null}
+                  </div>
                 </div>
               ))
             ) : (

@@ -122,6 +122,13 @@ describe("backoffice clients route", () => {
             role: "platform_owner",
             createdAt: "2026-07-11T18:00:00.000Z",
           },
+          {
+            id: "platform_operator",
+            name: "Operador",
+            email: "operador@wpptrack.com",
+            role: "platform_operator",
+            createdAt: "2026-07-11T19:00:00.000Z",
+          },
         ];
       } else if (url.endsWith("/auth/me")) {
         body = {
@@ -195,6 +202,9 @@ describe("backoffice clients route", () => {
     expect(teamHtml).toContain("Acesso global da plataforma");
     expect(teamHtml).toContain("Criar acesso interno");
     expect(teamHtml).toContain("owner@wpptrack.com");
+    expect(teamHtml).toContain("operador@wpptrack.com");
+    expect(teamHtml).toContain("Remover acesso global de Operador");
+    expect(teamHtml).not.toContain("Remover acesso global de Owner");
     expect(teamHtml).not.toContain("Ambientes dos clientes");
     expect(teamHtml).not.toContain("MySQL Barbieri");
   });

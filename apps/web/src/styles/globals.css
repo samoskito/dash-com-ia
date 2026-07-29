@@ -11674,6 +11674,17 @@ button.meta-manual-entry[aria-expanded="true"] {
   border-bottom: 0;
 }
 
+.client-operator-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.client-operator-revoke-form {
+  display: flex;
+}
+
 .external-connectors-panel .empty-state.compact {
   display: grid;
   gap: 4px;
