@@ -6,6 +6,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import ProductLayout from "../src/app/(app)/layout";
 import { WorkspaceAccessGate } from "../src/components/workspace-access-gate";
 
+const requestHeaderState = vi.hoisted(() => ({
+  pathname: "/overview",
+}));
+
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    toString: () => "",
+  }),
+  headers: async () => ({
+    get: (name: string) =>
+      name === "x-wpptrack-pathname" ? requestHeaderState.pathname : null,
+  }),
+}));
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/overview",
   useRouter: () => ({
@@ -14,6 +28,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 afterEach(() => {
+  requestHeaderState.pathname = "/overview";
   vi.restoreAllMocks();
 });
 
@@ -66,6 +81,127 @@ describe("product app layout", () => {
 
     expect(html).toContain("Conteudo privado");
     expect(html).not.toContain("Workspace bloqueado");
+  });
+
+  it("blocks product content when package access is suspended", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+
+        if (url.endsWith("/workspaces/current")) {
+          return new Response(
+            JSON.stringify({
+              id: "workspace_1",
+              name: "Comunidade NOD",
+              slug: "comunidade-nod",
+              role: "owner",
+              operationalStatus: "active",
+              accessMode: "member",
+              permissions: {
+                canInviteMembers: true,
+                canManageBilling: true,
+                canManageIntegrations: true,
+                canViewReports: true,
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        if (url.endsWith("/billing/package/access")) {
+          return new Response(
+            JSON.stringify({
+              enforcementEnabled: true,
+              allowed: false,
+              reason: "contract_inactive",
+              contractStatus: "suspended",
+              accessEndsAt: null,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        if (url.endsWith("/workspaces")) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        return new Response(JSON.stringify({ message: "not configured" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+
+    const element = await WorkspaceAccessGate({
+      children: createElement("p", null, "Conteudo privado"),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Acesso suspenso");
+    expect(html).toContain("Gerenciar assinatura");
+    expect(html).toContain('href="/subscription"');
+    expect(html).not.toContain("Conteudo privado");
+    expect(
+      fetchSpy.mock.calls.some(([input]) =>
+        String(input).endsWith("/integrations/whatsapp/source"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the subscription recovery page available while access is suspended", async () => {
+    requestHeaderState.pathname = "/subscription";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url.endsWith("/workspaces/current")) {
+        return new Response(
+          JSON.stringify({
+            id: "workspace_1",
+            name: "Comunidade NOD",
+            slug: "comunidade-nod",
+            role: "owner",
+            operationalStatus: "active",
+            accessMode: "member",
+            permissions: {
+              canInviteMembers: true,
+              canManageBilling: true,
+              canManageIntegrations: true,
+              canViewReports: true,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.endsWith("/billing/package/access")) {
+        return new Response(
+          JSON.stringify({
+            enforcementEnabled: true,
+            allowed: false,
+            reason: "access_expired",
+            contractStatus: "cancel_at_period_end",
+            accessEndsAt: "2026-07-28T12:00:00.000Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const element = await WorkspaceAccessGate({
+      children: createElement("p", null, "Pagina de assinatura"),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Pagina de assinatura");
+    expect(html).not.toContain("Acesso suspenso");
   });
 
   it("passes only authenticated memberships to the workspace selector", async () => {
@@ -195,6 +331,17 @@ describe("product app layout", () => {
     expect(source).toContain("<Suspense");
     expect(source).toContain("<ProductRouteLoading />");
     expect(source).toContain("<WorkspaceAccessGate>");
+  });
+
+  it("forwards the protected pathname to the server access gate", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/middleware.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain('requestHeaders.set("x-wpptrack-pathname"');
+    expect(source).toContain("request: {");
+    expect(source).toContain("headers: requestHeaders");
   });
 
   it("refreshes workspace data without a full reload or a tab-return refresh", () => {

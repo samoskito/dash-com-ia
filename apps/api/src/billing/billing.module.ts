@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../common/prisma/prisma.module";
 import { IntegrationsModule } from "../integrations/integrations.module";
@@ -24,6 +25,8 @@ import { LegacyBillingBackfillService } from "./legacy-billing-backfill.service"
 import { SplitController } from "./split.controller";
 import { SplitService } from "./split.service";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
+import { WorkspaceBillingAccessGuard } from "./workspace-billing-access.guard";
+import { WorkspacePackageAccessService } from "./workspace-package-access.service";
 
 @Module({
   imports: [
@@ -52,6 +55,11 @@ import { WhatsappSeatService } from "./whatsapp-seat.service";
     PackageCheckoutService,
     PackagePlanService,
     PackageContractService,
+    WorkspacePackageAccessService,
+    {
+      provide: APP_GUARD,
+      useClass: WorkspaceBillingAccessGuard,
+    },
     PackageFiscalService,
     LegacyBillingBackfillService,
     PackageSubscriptionLifecycleService,
@@ -66,6 +74,7 @@ import { WhatsappSeatService } from "./whatsapp-seat.service";
     PackageBillingWebhookService,
     PackageCheckoutService,
     PackageContractService,
+    WorkspacePackageAccessService,
     PackageFiscalService,
     LegacyBillingBackfillService,
     PackagePlanService,

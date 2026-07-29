@@ -27,7 +27,14 @@ export function middleware(request: NextRequest) {
   const session = request.cookies.get("wpptrack_session")?.value;
 
   if (session) {
-    return NextResponse.next();
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-wpptrack-pathname", request.nextUrl.pathname);
+
+    return NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
   }
 
   const loginUrl = request.nextUrl.clone();

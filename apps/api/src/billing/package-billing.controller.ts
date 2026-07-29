@@ -26,6 +26,7 @@ import { PackagePlanService } from "./package-plan.service";
 import { PackageSubscriptionLifecycleService } from "./package-subscription-lifecycle.service";
 import { PackageUazapiProvisioningService } from "./package-uazapi-provisioning.service";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
+import { WorkspacePackageAccessService } from "./workspace-package-access.service";
 
 @Controller("billing/package")
 export class PackageBillingController {
@@ -45,6 +46,8 @@ export class PackageBillingController {
     private readonly uazapiProvisioning: PackageUazapiProvisioningService,
     @Inject(WhatsappSeatService)
     private readonly seats: WhatsappSeatService,
+    @Inject(WorkspacePackageAccessService)
+    private readonly packageAccess: WorkspacePackageAccessService,
   ) {}
 
   @Get("plans")
@@ -57,6 +60,12 @@ export class PackageBillingController {
   async getState(@AuthToken() refreshToken: string) {
     const { workspaceId } = await this.getCurrentWorkspaceContext(refreshToken);
     return this.contracts.getWorkspaceBillingState(workspaceId);
+  }
+
+  @Get("access")
+  async getAccess(@AuthToken() refreshToken: string) {
+    const { workspaceId } = await this.getCurrentWorkspaceContext(refreshToken);
+    return this.packageAccess.getWorkspaceAccessState(workspaceId);
   }
 
   @Get("seats")

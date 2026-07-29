@@ -447,6 +447,26 @@ export const workspacePackageBillingStateSchema = z.object({
   }),
 });
 
+export const workspacePackageAccessReasons = [
+  "enforcement_disabled",
+  "active_contract",
+  "missing_contract",
+  "contract_inactive",
+  "access_expired",
+] as const;
+
+export const workspacePackageAccessReasonSchema = z.enum(
+  workspacePackageAccessReasons,
+);
+
+export const workspacePackageAccessSchema = z.object({
+  enforcementEnabled: z.boolean(),
+  allowed: z.boolean(),
+  reason: workspacePackageAccessReasonSchema,
+  contractStatus: workspaceSubscriptionContractStatusSchema.nullable(),
+  accessEndsAt: z.string().datetime().nullable(),
+});
+
 export const whatsappInstanceQuoteSchema = z.object({
   workspaceId: z.string().min(1),
   activeInstances: z.number().int().nonnegative(),
@@ -743,6 +763,12 @@ export type ExternalChannelBillingActionInputDto = z.infer<
 >;
 export type WorkspacePackageBillingStateDto = z.infer<
   typeof workspacePackageBillingStateSchema
+>;
+export type WorkspacePackageAccessReason = z.infer<
+  typeof workspacePackageAccessReasonSchema
+>;
+export type WorkspacePackageAccessDto = z.infer<
+  typeof workspacePackageAccessSchema
 >;
 export type WorkspaceSubscriptionSummaryDto = z.infer<
   typeof workspaceSubscriptionSummarySchema

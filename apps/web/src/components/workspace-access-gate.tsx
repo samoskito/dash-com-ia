@@ -1,25 +1,28 @@
 import type { CurrentWorkspaceDto, WorkspaceListDto } from "@wpptrack/shared";
+import Link from "next/link";
+import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import {
   getAvailableWorkspaces,
-  getCurrentWorkspace
+  getCurrentWorkspace,
+  getWorkspacePackageAccess,
 } from "../lib/current-workspace";
 import { isApiRequestError } from "../lib/server-api";
 import { getWhatsappDataSource } from "../lib/whatsapp-data-source";
 import { AppShell } from "./app-shell";
 
 export async function WorkspaceAccessGate({
-  children
+  children,
 }: {
   children: ReactNode;
 }) {
-  const [workspaceAccess, workspaces, dataSource] = await Promise.all([
+  const [workspaceAccess, workspaces, pathname] = await Promise.all([
     getWorkspaceAccessState(),
     getWorkspaceListState(),
-    getWhatsappDataSource()
+    getRequestPathname(),
   ]);
 
-  if (workspaceAccess.state === "blocked") {
+  if (workspaceAccess.state === "operational_blocked") {
     return (
       <AppShell workspace={workspaceAccess.workspace} workspaces={workspaces}>
         <section className="page-stack">
@@ -34,6 +37,34 @@ export async function WorkspaceAccessGate({
             </div>
             <div className="header-actions">
               <span className="status-chip warn">bloqueado</span>
+            </div>
+          </header>
+        </section>
+      </AppShell>
+    );
+  }
+
+  if (
+    workspaceAccess.state === "billing_blocked" &&
+    !pathname.startsWith("/subscription")
+  ) {
+    return (
+      <AppShell workspace={workspaceAccess.workspace} workspaces={workspaces}>
+        <section className="page-stack">
+          <header className="page-header">
+            <div>
+              <span className="eyebrow">Assinatura</span>
+              <h1>Acesso suspenso</h1>
+              <p>
+                Regularize a assinatura para voltar a acessar os dados e as
+                operacoes deste workspace.
+              </p>
+            </div>
+            <div className="header-actions">
+              <span className="status-chip warn">pagamento pendente</span>
+              <Link className="button primary" href="/subscription">
+                Gerenciar assinatura
+              </Link>
             </div>
           </header>
         </section>
@@ -67,6 +98,8 @@ export async function WorkspaceAccessGate({
     );
   }
 
+  const dataSource = await getWhatsappDataSource();
+
   return (
     <AppShell
       dataSource={dataSource}
@@ -88,14 +121,36 @@ async function getWorkspaceListState(): Promise<WorkspaceListDto> {
 
 async function getWorkspaceAccessState(): Promise<
   | { state: "active"; workspace: CurrentWorkspaceDto | null }
-  | { state: "blocked"; workspace: CurrentWorkspaceDto | null }
+  | {
+      state: "operational_blocked";
+      workspace: CurrentWorkspaceDto | null;
+    }
+  | { state: "billing_blocked"; workspace: CurrentWorkspaceDto }
 > {
   try {
     const workspace = await getCurrentWorkspace();
 
+    if (workspace.accessMode !== "platform_support") {
+      try {
+        const packageAccess = await getWorkspacePackageAccess();
+
+        if (packageAccess.enforcementEnabled && !packageAccess.allowed) {
+          return {
+            state: "billing_blocked",
+            workspace,
+          };
+        }
+      } catch {
+        // The API guard remains authoritative if the lightweight UI check fails.
+      }
+    }
+
     return {
-      state: workspace.operationalStatus === "blocked" ? "blocked" : "active",
-      workspace
+      state:
+        workspace.operationalStatus === "blocked"
+          ? "operational_blocked"
+          : "active",
+      workspace,
     };
   } catch (error) {
     const blocked =
@@ -104,8 +159,17 @@ async function getWorkspaceAccessState(): Promise<
       error.message.toLowerCase().includes("workspace bloqueado");
 
     return {
-      state: blocked ? "blocked" : "active",
-      workspace: null
+      state: blocked ? "operational_blocked" : "active",
+      workspace: null,
     };
+  }
+}
+
+async function getRequestPathname(): Promise<string> {
+  try {
+    const requestHeaders = await headers();
+    return requestHeaders.get("x-wpptrack-pathname") ?? "/overview";
+  } catch {
+    return "/overview";
   }
 }
