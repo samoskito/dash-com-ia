@@ -354,4 +354,16 @@ describe("product app layout", () => {
     expect(source).not.toContain("window.location.reload");
     expect(source).not.toContain("visibilitychange");
   });
+
+  it("revalidates workspace access after protected route changes", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/app-shell.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("previousAccessPathnameRef");
+    expect(source).toContain(
+      "previousAccessPathnameRef.current = pathname;\n    router.refresh();",
+    );
+  });
 });

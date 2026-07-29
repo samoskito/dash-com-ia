@@ -104,6 +104,16 @@ export function AppShell({
   const [workspaceSwitchError, setWorkspaceSwitchError] = useState(false);
   const [isWorkspaceSwitchPending, startWorkspaceTransition] = useTransition();
   const workspaceSelectorRef = useRef<HTMLElement>(null);
+  const previousAccessPathnameRef = useRef(pathname);
+
+  useEffect(() => {
+    if (previousAccessPathnameRef.current === pathname) {
+      return;
+    }
+
+    previousAccessPathnameRef.current = pathname;
+    router.refresh();
+  }, [pathname, router]);
 
   useEffect(() => {
     setSidebarCollapsed(
