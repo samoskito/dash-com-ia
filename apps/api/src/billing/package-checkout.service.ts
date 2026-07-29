@@ -48,39 +48,7 @@ export class PackageCheckoutService {
     }
 
     const plan = await this.plans.getPackagePlan(planId);
-    if (
-      !plan.active ||
-      plan.kind !== "standard" ||
-      plan.visibility !== "public" ||
-      plan.monthlyPriceCents === null
-    ) {
-      throw new ConflictException("Plano indisponivel para contratacao");
-    }
-    const monthlyPriceCents = plan.monthlyPriceCents;
-
-    const reusable = await this.prisma.workspaceSubscription.findFirst({
-      where: {
-        workspaceId,
-        planId,
-        contractStatus: "awaiting_payment",
-        asaasCheckoutId: { not: null },
-        asaasCheckoutUrl: { not: null },
-        asaasCheckoutExpiresAt: { gt: new Date() }
-      },
-      orderBy: { createdAt: "desc" }
-    });
-
-    if (reusable?.asaasCheckoutId && reusable.asaasCheckoutUrl) {
-      return {
-        workspaceId,
-        subscriptionId: reusable.id,
-        checkoutId: reusable.asaasCheckoutId,
-        checkoutUrl: reusable.asaasCheckoutUrl,
-        status: "awaiting_payment"
-      };
-    }
-
-    const resumable = await this.prisma.workspaceSubscription.findFirst({
+    const assignedContract = await this.prisma.workspaceSubscription.findFirst({
       where: {
         workspaceId,
         planId,
@@ -92,6 +60,39 @@ export class PackageCheckoutService {
       },
       orderBy: { createdAt: "desc" }
     });
+    const publicSelfServicePlan =
+      plan.kind === "standard" && plan.visibility === "public";
+    const assignedPrivatePlan =
+      plan.visibility === "private" &&
+      (plan.kind === "standard" || plan.kind === "custom") &&
+      plan.monthlyPriceCents !== null &&
+      plan.monthlyPriceCents > 0 &&
+      Boolean(assignedContract);
+
+    if (
+      !plan.active ||
+      plan.monthlyPriceCents === null ||
+      (!publicSelfServicePlan && !assignedPrivatePlan)
+    ) {
+      throw new ConflictException("Plano indisponivel para contratacao");
+    }
+    const monthlyPriceCents = plan.monthlyPriceCents;
+
+    if (
+      assignedContract?.contractStatus === "awaiting_payment" &&
+      assignedContract.asaasCheckoutId &&
+      assignedContract.asaasCheckoutUrl &&
+      assignedContract.asaasCheckoutExpiresAt &&
+      assignedContract.asaasCheckoutExpiresAt.getTime() > Date.now()
+    ) {
+      return {
+        workspaceId,
+        subscriptionId: assignedContract.id,
+        checkoutId: assignedContract.asaasCheckoutId,
+        checkoutUrl: assignedContract.asaasCheckoutUrl,
+        status: "awaiting_payment"
+      };
+    }
 
     const profile = await this.prisma.workspaceBillingProfile.findUnique({
       where: { workspaceId }
@@ -115,8 +116,8 @@ export class PackageCheckoutService {
       }
     });
 
-    const assignment = resumable
-      ? { subscriptionId: resumable.id }
+    const assignment = assignedContract
+      ? { subscriptionId: assignedContract.id }
       : await this.contracts.assignPlan(
           workspaceId,
           planId,

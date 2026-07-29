@@ -178,6 +178,13 @@ export default async function SubscriptionPage() {
   const contract = billing.contract;
   const planIsManagedByPlatform =
     contract?.status === "exempt" || contract?.status === "legacy_protected";
+  const checkoutPending =
+    contract?.status === "draft" || contract?.status === "awaiting_payment";
+  const checkoutEnabled =
+    canManageBilling &&
+    billing.capabilities.packageBilling &&
+    billing.capabilities.recurringCheckout &&
+    Boolean(billing.profile && contract?.planId);
   const canCancel =
     canManageBilling &&
     billing.capabilities.lifecycle &&
@@ -280,6 +287,30 @@ export default async function SubscriptionPage() {
             <span>
               O acesso permanece ativo ate {dateLabel(contract.accessEndsAt)}.
             </span>
+          </div>
+        ) : null}
+        {checkoutPending && contract?.planId ? (
+          <div className="package-contract-checkout">
+            <div>
+              <strong>Concluir contratacao deste pacote</strong>
+              <span>
+                O pagamento sera aberto com o valor e a capacidade exibidos
+                acima.
+              </span>
+            </div>
+            <PackageBillingActionForm action={startPackageCheckoutAction}>
+              <input type="hidden" name="planId" value={contract.planId} />
+              <SubmitButton
+                className="button primary"
+                disabled={!checkoutEnabled}
+                pendingLabel="Abrindo..."
+                statusText="Preparando checkout recorrente."
+              >
+                {contract.status === "awaiting_payment"
+                  ? "Continuar pagamento"
+                  : "Iniciar pagamento"}
+              </SubmitButton>
+            </PackageBillingActionForm>
           </div>
         ) : null}
       </section>
@@ -539,76 +570,68 @@ export default async function SubscriptionPage() {
         </PackageBillingActionForm>
       </section>
 
-      <section className="package-plan-section" aria-labelledby="plans-title">
-        <div className="package-section-heading">
-          <div>
-            <span className="eyebrow">Pacotes disponiveis</span>
-            <h2 id="plans-title">Escolha pela quantidade de numeros</h2>
-          </div>
-        </div>
-        <div className="package-plan-grid">
-          {billing.availablePlans.map((plan) => {
-            const selected = contract?.planId === plan.id;
-            const checkoutPending =
-              selected &&
-              (contract?.status === "draft" ||
-                contract?.status === "awaiting_payment");
-            const checkoutEnabled =
-              canManageBilling &&
-              billing.capabilities.packageBilling &&
-              billing.capabilities.recurringCheckout &&
-              Boolean(billing.profile);
-
-            return (
-              <article
-                className={`package-plan-card${selected ? " selected" : ""}`}
-                key={plan.id}
-              >
-                <div>
-                  <span className="eyebrow">
-                    {plan.includedWhatsappNumbers} numero(s)
-                  </span>
-                  <h3>{plan.name}</h3>
-                </div>
-                <strong>
-                  {money(plan.monthlyPriceCents)}
-                  <small>/mes</small>
-                </strong>
-                <span className={`status-chip${selected ? "" : " neutral"}`}>
-                  {checkoutPending
-                    ? contract?.status === "draft"
-                      ? "Checkout pendente"
-                      : "Aguardando pagamento"
-                    : selected
-                      ? "Pacote atual"
-                      : "Disponivel"}
-                </span>
-                {!selected || checkoutPending ? (
-                  <PackageBillingActionForm action={startPackageCheckoutAction}>
-                    <input type="hidden" name="planId" value={plan.id} />
-                    <SubmitButton
-                      className="button primary"
-                      disabled={!checkoutEnabled}
-                      pendingLabel="Abrindo..."
-                      statusText="Preparando checkout recorrente."
-                    >
-                      {checkoutPending
-                        ? "Continuar pagamento"
-                        : "Contratar pacote"}
-                    </SubmitButton>
-                  </PackageBillingActionForm>
-                ) : null}
-              </article>
-            );
-          })}
-          {billing.availablePlans.length === 0 ? (
-            <div className="feedback-banner warn">
-              <strong>Nenhum pacote publico disponivel</strong>
-              <span>O backoffice precisa publicar um pacote comercial.</span>
+      {!checkoutPending ? (
+        <section className="package-plan-section" aria-labelledby="plans-title">
+          <div className="package-section-heading">
+            <div>
+              <span className="eyebrow">Pacotes disponiveis</span>
+              <h2 id="plans-title">Escolha pela quantidade de numeros</h2>
             </div>
-          ) : null}
-        </div>
-      </section>
+          </div>
+          <div className="package-plan-grid">
+            {billing.availablePlans.map((plan) => {
+              const selected = contract?.planId === plan.id;
+              const planCheckoutEnabled =
+                canManageBilling &&
+                billing.capabilities.packageBilling &&
+                billing.capabilities.recurringCheckout &&
+                Boolean(billing.profile);
+
+              return (
+                <article
+                  className={`package-plan-card${selected ? " selected" : ""}`}
+                  key={plan.id}
+                >
+                  <div>
+                    <span className="eyebrow">
+                      {plan.includedWhatsappNumbers} numero(s)
+                    </span>
+                    <h3>{plan.name}</h3>
+                  </div>
+                  <strong>
+                    {money(plan.monthlyPriceCents)}
+                    <small>/mes</small>
+                  </strong>
+                  <span className={`status-chip${selected ? "" : " neutral"}`}>
+                    {selected ? "Pacote atual" : "Disponivel"}
+                  </span>
+                  {!selected ? (
+                    <PackageBillingActionForm
+                      action={startPackageCheckoutAction}
+                    >
+                      <input type="hidden" name="planId" value={plan.id} />
+                      <SubmitButton
+                        className="button primary"
+                        disabled={!planCheckoutEnabled}
+                        pendingLabel="Abrindo..."
+                        statusText="Preparando checkout recorrente."
+                      >
+                        Contratar pacote
+                      </SubmitButton>
+                    </PackageBillingActionForm>
+                  ) : null}
+                </article>
+              );
+            })}
+            {billing.availablePlans.length === 0 ? (
+              <div className="feedback-banner warn">
+                <strong>Nenhum pacote publico disponivel</strong>
+                <span>O backoffice precisa publicar um pacote comercial.</span>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <section
         className="surface-panel package-uazapi-panel"

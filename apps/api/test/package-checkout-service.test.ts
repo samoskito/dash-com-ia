@@ -113,12 +113,10 @@ describe("PackageCheckoutService", () => {
 
   it("resumes a draft contract after checkout creation previously failed", async () => {
     const { asaas, contracts, prisma, service } = createHarness();
-    prisma.workspaceSubscription.findFirst
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: "contract_draft_1",
-        contractStatus: "draft"
-      });
+    prisma.workspaceSubscription.findFirst.mockResolvedValueOnce({
+      id: "contract_draft_1",
+      contractStatus: "draft"
+    });
 
     const result = await service.createCheckout(
       "workspace_1",
@@ -145,8 +143,10 @@ describe("PackageCheckoutService", () => {
     const { asaas, contracts, prisma, service } = createHarness();
     prisma.workspaceSubscription.findFirst.mockResolvedValueOnce({
       id: "contract_pending_1",
+      contractStatus: "awaiting_payment",
       asaasCheckoutId: "checkout_existing_1",
-      asaasCheckoutUrl: "https://asaas.example.test/checkout_existing_1"
+      asaasCheckoutUrl: "https://asaas.example.test/checkout_existing_1",
+      asaasCheckoutExpiresAt: new Date(Date.now() + 60_000)
     });
 
     const result = await service.createCheckout(
@@ -242,6 +242,50 @@ describe("PackageCheckoutService", () => {
     ).rejects.toMatchObject({
       message: "Plano indisponivel para contratacao"
     });
+  });
+
+  it("allows a private paid plan only when assigned to the workspace", async () => {
+    const { asaas, contracts, plans, prisma, service } = createHarness();
+    plans.getPackagePlan.mockResolvedValueOnce({
+      id: "plan_canary",
+      name: "Canario producao - 1 numero",
+      kind: "custom",
+      visibility: "private",
+      monthlyPriceCents: 500,
+      includedWhatsappNumbers: 1,
+      active: true
+    });
+    prisma.workspaceSubscription.findFirst.mockResolvedValueOnce({
+      id: "contract_canary",
+      workspaceId: "workspace_1",
+      planId: "plan_canary",
+      contractStatus: "draft",
+      asaasSubscriptionId: null
+    });
+
+    const result = await service.createCheckout(
+      "workspace_1",
+      "plan_canary",
+      "user_1"
+    );
+
+    expect(result.subscriptionId).toBe("contract_canary");
+    expect(contracts.assignPlan).not.toHaveBeenCalled();
+    expect(asaas.createRecurringCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subscriptionId: "contract_canary",
+        planName: "Canario producao - 1 numero",
+        monthlyPriceCents: 500
+      })
+    );
+    expect(prisma.workspaceSubscription.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: "workspace_1",
+          planId: "plan_canary"
+        })
+      })
+    );
   });
 
   it("returns the sanitized Asaas rejection instead of a generic code", async () => {

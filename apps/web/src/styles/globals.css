@@ -9479,6 +9479,31 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   text-align: right;
 }
 
+.package-contract-checkout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(66, 240, 168, 0.32);
+  background: rgba(4, 18, 14, 0.7);
+}
+
+.package-contract-checkout > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.package-contract-checkout span {
+  color: var(--ink-muted);
+}
+
+.package-contract-checkout form,
+.package-contract-checkout .button {
+  flex: 0 0 auto;
+}
+
 .package-seat-panel,
 .package-uazapi-panel,
 .package-invoice-panel,
@@ -9898,9 +9923,15 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   .package-billing-header,
   .package-section-heading,
   .package-instance-heading,
-  .package-alert {
+  .package-alert,
+  .package-contract-checkout {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .package-contract-checkout form,
+  .package-contract-checkout .button {
+    width: 100%;
   }
 
   .package-alert span {
