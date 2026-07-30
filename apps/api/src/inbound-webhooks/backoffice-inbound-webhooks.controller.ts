@@ -12,6 +12,7 @@ import {
 import {
   backofficeInboundWebhookDeliveryQuerySchema,
   backofficeInboundWebhookDeliverySummaryQuerySchema,
+  backofficeInboundWebhookParserRecoveryInputSchema,
   backofficeProviderConversionRolloutModeInputSchema,
   backofficeProviderConversionRolloutQuerySchema,
   backofficeProviderConversionReevaluationInputSchema,
@@ -76,13 +77,53 @@ export class BackofficeInboundWebhooksController {
     return this.inboundWebhooks.summarizeDeliveries(parsed.data);
   }
 
+  @Get("connections/:connectionId/parser-recovery-preview")
+  async getParserRecoveryPreview(
+    @AuthToken() refreshToken: string,
+    @Param("connectionId") connectionId: string,
+  ) {
+    await this.platformAdminService.assertPlatformOwner(refreshToken);
+
+    return this.inboundWebhooks.getParserRecoveryPreview(
+      this.identifier(connectionId, "Conexao invalida"),
+    );
+  }
+
+  @Post("connections/:connectionId/parser-recovery")
+  async reprocessParserBatch(
+    @AuthToken() refreshToken: string,
+    @Param("connectionId") connectionId: string,
+    @Body() body: unknown,
+    @Req() request: InboundBackofficeRequest,
+  ) {
+    const owner =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed =
+      backofficeInboundWebhookParserRecoveryInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Recuperacao de parser invalida");
+    }
+
+    return this.inboundWebhooks.reprocessParserBatch(
+      this.identifier(connectionId, "Conexao invalida"),
+      parsed.data,
+      {
+        id: owner.id,
+        actorType: owner.role,
+        sourceIp: request.ip ?? null,
+      },
+    );
+  }
+
   @Get("conversion-traces")
   async listConversionTraces(
     @AuthToken() refreshToken: string,
     @Query() query: Record<string, unknown>,
   ) {
     await this.platformAdminService.assertPlatformOwner(refreshToken);
-    const parsed = backofficeProviderConversionTraceQuerySchema.safeParse(query);
+    const parsed =
+      backofficeProviderConversionTraceQuerySchema.safeParse(query);
 
     if (!parsed.success) {
       throw new BadRequestException("Filtros invalidos");
@@ -210,14 +251,11 @@ export class BackofficeInboundWebhooksController {
     const owner =
       await this.platformAdminService.assertPlatformOwner(refreshToken);
 
-    return this.inboundWebhooks.reprocessParser(
-      this.deliveryId(deliveryId),
-      {
-        id: owner.id,
-        actorType: owner.role,
-        sourceIp: request.ip ?? null,
-      },
-    );
+    return this.inboundWebhooks.reprocessParser(this.deliveryId(deliveryId), {
+      id: owner.id,
+      actorType: owner.role,
+      sourceIp: request.ip ?? null,
+    });
   }
 
   private async assertPayloadOwner(

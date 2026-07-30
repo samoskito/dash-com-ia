@@ -70,6 +70,12 @@ export const inboundWebhookReplaySelections = [
   "canary_10",
   "remaining",
 ] as const;
+export const inboundWebhookParserRecoverySelections = [
+  "canary_10",
+  "batch_100",
+  "batch_500",
+  "remaining",
+] as const;
 export const inboundWebhookChannelReadinessStates = [
   "waiting",
   "blocked",
@@ -121,6 +127,9 @@ export const inboundWebhookReplayItemStatusSchema = z.enum(
 );
 export const inboundWebhookReplaySelectionSchema = z.enum(
   inboundWebhookReplaySelections,
+);
+export const inboundWebhookParserRecoverySelectionSchema = z.enum(
+  inboundWebhookParserRecoverySelections,
 );
 export const inboundWebhookChannelReadinessStateSchema = z.enum(
   inboundWebhookChannelReadinessStates,
@@ -857,6 +866,39 @@ export const backofficeInboundWebhookProductionRecoveryResultSchema = z.object({
   queueFailures: z.number().int().nonnegative(),
 });
 
+export const backofficeInboundWebhookParserRecoveryInputSchema = z.object({
+  confirmation: inboundWebhookDisplayNameSchema,
+  selection: inboundWebhookParserRecoverySelectionSchema.default("canary_10"),
+});
+
+export const backofficeInboundWebhookParserRecoveryPreviewSchema = z.object({
+  workspace: z.object({
+    id: idSchema,
+    name: z.string().trim().min(1).max(160),
+  }),
+  connection: inboundWebhookConnectionSchema,
+  counts: z.object({
+    awaitingParser: z.number().int().nonnegative(),
+    recoverable: z.number().int().nonnegative(),
+    expired: z.number().int().nonnegative(),
+    unavailable: z.number().int().nonnegative(),
+    inFlight: z.number().int().nonnegative(),
+  }),
+  maxBatchSize: z.literal(500),
+});
+
+export const backofficeInboundWebhookParserRecoveryResultSchema = z.object({
+  connectionId: idSchema,
+  selection: inboundWebhookParserRecoverySelectionSchema,
+  requestedLimit: z.number().int().min(1).max(500),
+  selected: z.number().int().nonnegative(),
+  claimed: z.number().int().nonnegative(),
+  queued: z.number().int().nonnegative(),
+  existing: z.number().int().nonnegative(),
+  queueFailures: z.number().int().nonnegative(),
+  remainingRecoverable: z.number().int().nonnegative(),
+});
+
 export type InboundWebhookProviderDto = z.infer<
   typeof inboundWebhookProviderSchema
 >;
@@ -892,6 +934,9 @@ export type InboundWebhookReplayItemStatusDto = z.infer<
 >;
 export type InboundWebhookReplaySelectionDto = z.infer<
   typeof inboundWebhookReplaySelectionSchema
+>;
+export type InboundWebhookParserRecoverySelectionDto = z.infer<
+  typeof inboundWebhookParserRecoverySelectionSchema
 >;
 export type InboundWebhookConnectionCreateInputDto = z.infer<
   typeof inboundWebhookConnectionCreateInputSchema
@@ -1057,4 +1102,13 @@ export type BackofficeInboundWebhookProductionRecoveryPreviewDto = z.infer<
 >;
 export type BackofficeInboundWebhookProductionRecoveryResultDto = z.infer<
   typeof backofficeInboundWebhookProductionRecoveryResultSchema
+>;
+export type BackofficeInboundWebhookParserRecoveryInputDto = z.infer<
+  typeof backofficeInboundWebhookParserRecoveryInputSchema
+>;
+export type BackofficeInboundWebhookParserRecoveryPreviewDto = z.infer<
+  typeof backofficeInboundWebhookParserRecoveryPreviewSchema
+>;
+export type BackofficeInboundWebhookParserRecoveryResultDto = z.infer<
+  typeof backofficeInboundWebhookParserRecoveryResultSchema
 >;

@@ -27,6 +27,7 @@ import {
   Inbox,
   LifeBuoy,
   Radio,
+  RefreshCw,
   RotateCcw,
   ShieldCheck,
   SlidersHorizontal,
@@ -1157,6 +1158,13 @@ export default async function InboundWebhookDeliveriesPage({
             >
               <History aria-hidden="true" size={16} strokeWidth={2} />
               Replay historico
+            </a>
+            <a
+              className="button ghost compact-button"
+              href={`/backoffice/inbound-webhooks/parser-recovery/${selectedConnection.id}`}
+            >
+              <RefreshCw aria-hidden="true" size={16} strokeWidth={2} />
+              Recuperar parser
             </a>
             {selectedConnection.status === "production" ? (
               <a

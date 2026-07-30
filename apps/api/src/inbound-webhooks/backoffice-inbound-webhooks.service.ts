@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -17,10 +18,14 @@ import type {
   BackofficeInboundWebhookDeliverySummaryDto,
   BackofficeInboundWebhookDeliverySummaryQueryDto,
   BackofficeInboundWebhookOperationsScopeDto,
+  BackofficeInboundWebhookParserRecoveryInputDto,
+  BackofficeInboundWebhookParserRecoveryPreviewDto,
+  BackofficeInboundWebhookParserRecoveryResultDto,
   BackofficeInboundWebhookPayloadDto,
   BackofficeProviderConversionRolloutDto,
   BackofficeProviderConversionRolloutModeInputDto,
   BackofficeProviderConversionRolloutQueryDto,
+  InboundWebhookParserRecoverySelectionDto,
   InboundWebhookNormalizedObservationDto,
 } from "@wpptrack/shared";
 import { backofficeProviderConversionRolloutSchema } from "@wpptrack/shared";
@@ -43,12 +48,56 @@ const payloadReadAction = "inbound_webhook.payload.read";
 const conversionRecoveryAction =
   "inbound_webhook.provider_conversions.reprocess";
 const parserRecoveryAction = "inbound_webhook.parser.reprocess";
+const parserBatchRecoveryAction = "inbound_webhook.parser.batch_reprocess";
 const conversionReevaluationAction = "provider_conversion.decision.reevaluate";
 const conversionEngineModeAction =
   "provider_conversion.channel_engine_mode.change";
 const payloadTargetType = "inbound_webhook_delivery";
 const genericPayloadError = "Payload indisponivel";
 const backofficeTimezone = "America/Sao_Paulo";
+const parserRecoveryMaxBatchSize = 500;
+const parserRecoveryQueueConcurrency = 20;
+
+const parserRecoveryLimits: Record<
+  InboundWebhookParserRecoverySelectionDto,
+  number
+> = {
+  canary_10: 10,
+  batch_100: 100,
+  batch_500: parserRecoveryMaxBatchSize,
+  remaining: parserRecoveryMaxBatchSize,
+};
+
+const parserRecoveryConnectionSelect = {
+  id: true,
+  workspaceId: true,
+  provider: true,
+  displayName: true,
+  status: true,
+  productionActivatedAt: true,
+  lastDeliveryAt: true,
+  lastSuccessfulParseAt: true,
+  removedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  workspace: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  parserRelease: {
+    select: {
+      provider: true,
+      version: true,
+      status: true,
+    },
+  },
+} satisfies Prisma.InboundWebhookConnectionSelect;
+
+type ParserRecoveryConnection = Prisma.InboundWebhookConnectionGetPayload<{
+  select: typeof parserRecoveryConnectionSelect;
+}>;
 
 const deliveryListSelect = {
   id: true,
@@ -642,6 +691,281 @@ export class BackofficeInboundWebhooksService {
     }
   }
 
+  async getParserRecoveryPreview(
+    connectionId: string,
+  ): Promise<BackofficeInboundWebhookParserRecoveryPreviewDto> {
+    const now = new Date();
+    const connection = await this.requireParserRecoveryConnection(connectionId);
+    const backlogWhere = this.parserRecoveryBacklogWhere(connection);
+    const recoverableWhere = this.parserRecoveryRecoverableWhere(
+      connection,
+      now,
+    );
+
+    const [awaitingParser, recoverable, expired, unavailable, inFlight] =
+      await Promise.all([
+        this.prisma.inboundWebhookDelivery.count({
+          where: backlogWhere,
+        }),
+        this.prisma.inboundWebhookDelivery.count({
+          where: recoverableWhere,
+        }),
+        this.prisma.inboundWebhookDelivery.count({
+          where: {
+            ...backlogWhere,
+            payloadExpiresAt: { lte: now },
+          },
+        }),
+        this.prisma.inboundWebhookDelivery.count({
+          where: {
+            ...backlogWhere,
+            payloadExpiresAt: { gt: now },
+            OR: [
+              { encryptedPayload: null },
+              { payloadIv: null },
+              { payloadTag: null },
+              { encryptionKeyVersion: null },
+            ],
+          },
+        }),
+        this.prisma.inboundWebhookDelivery.count({
+          where: {
+            workspaceId: connection.workspaceId,
+            connectionId: connection.id,
+            provider: connection.provider,
+            parserVersion: connection.parserRelease.version,
+            purpose: "message_observation",
+            status: { in: ["pending", "queued", "processing"] },
+            classification: null,
+            events: { none: {} },
+          },
+        }),
+      ]);
+
+    return {
+      workspace: connection.workspace,
+      connection: this.parserRecoveryConnectionDto(connection),
+      counts: {
+        awaitingParser,
+        recoverable,
+        expired,
+        unavailable,
+        inFlight,
+      },
+      maxBatchSize: parserRecoveryMaxBatchSize,
+    };
+  }
+
+  async reprocessParserBatch(
+    connectionId: string,
+    input: BackofficeInboundWebhookParserRecoveryInputDto,
+    actor: InboundWebhookPayloadActor,
+  ): Promise<BackofficeInboundWebhookParserRecoveryResultDto> {
+    const now = new Date();
+    const claimAt = new Date();
+    const connection = await this.requireParserRecoveryConnection(connectionId);
+
+    if (input.confirmation.trim() !== connection.displayName) {
+      throw new BadRequestException("Digite o nome exato da conexao");
+    }
+
+    const requestedLimit = parserRecoveryLimits[input.selection];
+    const recoverableBefore = await this.prisma.inboundWebhookDelivery.count({
+      where: this.parserRecoveryRecoverableWhere(connection, now),
+    });
+
+    if (recoverableBefore === 0) {
+      throw new BadRequestException(
+        "Nenhuma entrega preservada esta disponivel para recuperar",
+      );
+    }
+
+    const claimedDeliveries = await this.prisma.$transaction(
+      async (transaction) => {
+        const candidates = await transaction.inboundWebhookDelivery.findMany({
+          where: this.parserRecoveryRecoverableWhere(connection, now),
+          orderBy: [{ lastReceivedAt: "asc" }, { id: "asc" }],
+          take: requestedLimit,
+          select: {
+            id: true,
+            workspaceId: true,
+            connectionId: true,
+            updatedAt: true,
+          },
+        });
+
+        if (candidates.length === 0) {
+          throw new ConflictException(
+            "O estado das entregas mudou; atualize a recuperacao",
+          );
+        }
+
+        await transaction.inboundWebhookDelivery.updateMany({
+          where: {
+            ...this.parserRecoveryRecoverableWhere(connection, now),
+            OR: candidates.map((candidate) => ({
+              id: candidate.id,
+              updatedAt: candidate.updatedAt,
+            })),
+          },
+          data: {
+            status: "pending",
+            classification: null,
+            normalizedSummary: Prisma.DbNull,
+            parseErrorCode: null,
+            routingErrorCode: null,
+            queuedAt: claimAt,
+            processedAt: null,
+            providerConversionsObservedAt: null,
+          },
+        });
+
+        const claimed = await transaction.inboundWebhookDelivery.findMany({
+          where: {
+            id: { in: candidates.map((candidate) => candidate.id) },
+            workspaceId: connection.workspaceId,
+            connectionId: connection.id,
+            status: "pending",
+            classification: null,
+            queuedAt: claimAt,
+            events: { none: {} },
+          },
+          orderBy: [{ lastReceivedAt: "asc" }, { id: "asc" }],
+          select: {
+            id: true,
+            workspaceId: true,
+            connectionId: true,
+          },
+        });
+
+        if (claimed.length === 0) {
+          throw new ConflictException(
+            "As entregas foram reivindicadas por outra operacao",
+          );
+        }
+
+        await transaction.auditLog.create({
+          data: {
+            workspaceId: connection.workspaceId,
+            actorUserId: actor.id,
+            actorType: actor.actorType,
+            action: parserBatchRecoveryAction,
+            targetType: "inbound_webhook_connection",
+            targetId: connection.id,
+            reason: "Controlled parser recovery for retained deliveries",
+            sourceIp: this.sourceIp(actor.sourceIp),
+            resultStatus: "requested",
+            beforeSummary: {
+              selection: input.selection,
+              requestedLimit,
+              recoverable: recoverableBefore,
+              selected: candidates.length,
+            },
+            afterSummary: {
+              status: "pending",
+              claimed: claimed.length,
+              firstDeliveryId: claimed[0]?.id ?? null,
+              lastDeliveryId: claimed.at(-1)?.id ?? null,
+              parserVersion: connection.parserRelease.version,
+              parserReleaseStatus: connection.parserRelease.status,
+            },
+          },
+        });
+
+        return {
+          candidates: candidates.length,
+          claimed,
+        };
+      },
+    );
+
+    let queued = 0;
+    let existing = 0;
+    let queueFailures = 0;
+    const acceptedDeliveryIds: string[] = [];
+
+    for (
+      let offset = 0;
+      offset < claimedDeliveries.claimed.length;
+      offset += parserRecoveryQueueConcurrency
+    ) {
+      const batch = claimedDeliveries.claimed.slice(
+        offset,
+        offset + parserRecoveryQueueConcurrency,
+      );
+      const outcomes = await Promise.all(
+        batch.map(async (delivery) => {
+          try {
+            const result = await this.queue.enqueueDelivery({
+              deliveryId: delivery.id,
+              connectionId: delivery.connectionId,
+              workspaceId: delivery.workspaceId,
+            });
+
+            return {
+              deliveryId: delivery.id,
+              status: result.status,
+            };
+          } catch {
+            return {
+              deliveryId: delivery.id,
+              status: "failed" as const,
+            };
+          }
+        }),
+      );
+
+      for (const outcome of outcomes) {
+        if (outcome.status === "failed") {
+          queueFailures += 1;
+          continue;
+        }
+
+        acceptedDeliveryIds.push(outcome.deliveryId);
+        if (outcome.status === "existing") {
+          existing += 1;
+        } else {
+          queued += 1;
+        }
+      }
+    }
+
+    if (acceptedDeliveryIds.length > 0) {
+      await this.prisma.inboundWebhookDelivery.updateMany({
+        where: {
+          id: { in: acceptedDeliveryIds },
+          workspaceId: connection.workspaceId,
+          connectionId: connection.id,
+          status: "pending",
+          classification: null,
+          queuedAt: claimAt,
+        },
+        data: {
+          status: "queued",
+          queuedAt: new Date(),
+        },
+      });
+    }
+
+    const remainingRecoverable = await this.prisma.inboundWebhookDelivery.count(
+      {
+        where: this.parserRecoveryRecoverableWhere(connection, new Date()),
+      },
+    );
+
+    return {
+      connectionId: connection.id,
+      selection: input.selection,
+      requestedLimit,
+      selected: claimedDeliveries.candidates,
+      claimed: claimedDeliveries.claimed.length,
+      queued,
+      existing,
+      queueFailures,
+      remainingRecoverable,
+    };
+  }
+
   async getOperationsScope(): Promise<BackofficeInboundWebhookOperationsScopeDto> {
     const workspaces = await this.prisma.workspace.findMany({
       where: {
@@ -1132,8 +1456,7 @@ export class BackofficeInboundWebhooksService {
     query: BackofficeInboundWebhookDeliverySummaryQueryDto,
   ): Promise<BackofficeInboundWebhookDeliverySummaryDto> {
     const deliveryScope = this.deliveryScope(query);
-    const awaitingParserDeliveryScope =
-      this.awaitingParserDeliveryScope(query);
+    const awaitingParserDeliveryScope = this.awaitingParserDeliveryScope(query);
     const eventScope = this.eventScope(query);
     const [
       all,
@@ -1518,6 +1841,107 @@ export class BackofficeInboundWebhooksService {
     connectedPhone: string;
   }): string {
     return channel.channelName?.trim() || channel.connectedPhone;
+  }
+
+  private async requireParserRecoveryConnection(
+    connectionId: string,
+  ): Promise<ParserRecoveryConnection> {
+    const connection = await this.prisma.inboundWebhookConnection.findUnique({
+      where: { id: connectionId },
+      select: parserRecoveryConnectionSelect,
+    });
+
+    if (!connection) {
+      throw new NotFoundException("Conexao nao encontrada");
+    }
+
+    if (
+      connection.removedAt !== null ||
+      !["observation", "production"].includes(connection.status) ||
+      connection.parserRelease.provider !== connection.provider
+    ) {
+      throw new ConflictException(
+        "A conexao nao esta disponivel para recuperar o parser",
+      );
+    }
+
+    try {
+      this.parserRegistry.resolve({
+        provider: connection.provider,
+        parserVersion: connection.parserRelease.version,
+        parserReleaseStatus: connection.parserRelease.status,
+      });
+    } catch (error) {
+      if (error instanceof InboundWebhookParserResolutionError) {
+        throw new ConflictException(
+          "O parser desta conexao nao esta disponivel para reprocessamento",
+        );
+      }
+
+      throw error;
+    }
+
+    return connection;
+  }
+
+  private parserRecoveryBacklogWhere(
+    connection: ParserRecoveryConnection,
+  ): Prisma.InboundWebhookDeliveryWhereInput {
+    return {
+      workspaceId: connection.workspaceId,
+      connectionId: connection.id,
+      provider: connection.provider,
+      parserVersion: connection.parserRelease.version,
+      purpose: "message_observation",
+      status: "processed",
+      classification: "unsupported_event",
+      events: { none: {} },
+      connection: {
+        provider: connection.provider,
+        status: { in: ["observation", "production"] },
+        removedAt: null,
+        parserRelease: {
+          provider: connection.provider,
+          version: connection.parserRelease.version,
+          status: connection.parserRelease.status,
+        },
+      },
+    };
+  }
+
+  private parserRecoveryRecoverableWhere(
+    connection: ParserRecoveryConnection,
+    now: Date,
+  ): Prisma.InboundWebhookDeliveryWhereInput {
+    return {
+      ...this.parserRecoveryBacklogWhere(connection),
+      payloadExpiresAt: { gt: now },
+      encryptedPayload: { not: null },
+      payloadIv: { not: null },
+      payloadTag: { not: null },
+      encryptionKeyVersion: { not: null },
+    };
+  }
+
+  private parserRecoveryConnectionDto(
+    connection: ParserRecoveryConnection,
+  ): BackofficeInboundWebhookParserRecoveryPreviewDto["connection"] {
+    return {
+      id: connection.id,
+      workspaceId: connection.workspaceId,
+      provider: connection.provider,
+      displayName: connection.displayName,
+      parserVersion: connection.parserRelease.version,
+      parserReleaseStatus: connection.parserRelease.status,
+      status: connection.status,
+      productionActivatedAt:
+        connection.productionActivatedAt?.toISOString() ?? null,
+      lastDeliveryAt: connection.lastDeliveryAt?.toISOString() ?? null,
+      lastSuccessfulParseAt:
+        connection.lastSuccessfulParseAt?.toISOString() ?? null,
+      createdAt: connection.createdAt.toISOString(),
+      updatedAt: connection.updatedAt.toISOString(),
+    };
   }
 
   private payloadAvailable(

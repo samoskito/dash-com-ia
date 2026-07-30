@@ -215,6 +215,45 @@ async function createApp() {
       deliveryId: "delivery_1",
       status: "queued",
     })),
+    getParserRecoveryPreview: vi.fn(async () => ({
+      workspace: {
+        id: "workspace_1",
+        name: "Cliente Teste",
+      },
+      connection: {
+        id: "connection_1",
+        workspaceId: "workspace_1",
+        provider: "gupshup",
+        displayName: "Unidade Itaborai",
+        parserVersion: "v1",
+        parserReleaseStatus: "certified",
+        status: "observation",
+        productionActivatedAt: null,
+        lastDeliveryAt: "2026-07-30T16:08:24.500Z",
+        lastSuccessfulParseAt: "2026-07-30T16:08:24.500Z",
+        createdAt: "2026-07-20T22:08:33.552Z",
+        updatedAt: "2026-07-30T16:08:24.500Z",
+      },
+      counts: {
+        awaitingParser: 3_374,
+        recoverable: 2_058,
+        expired: 1_316,
+        unavailable: 0,
+        inFlight: 0,
+      },
+      maxBatchSize: 500,
+    })),
+    reprocessParserBatch: vi.fn(async () => ({
+      connectionId: "connection_1",
+      selection: "canary_10",
+      requestedLimit: 10,
+      selected: 10,
+      claimed: 10,
+      queued: 10,
+      existing: 0,
+      queueFailures: 0,
+      remainingRecoverable: 2_048,
+    })),
     reevaluateProviderConversionDecision: vi.fn(async () => ({
       previousDecisionId: "decision_1",
       decisionId: "decision_2",
@@ -698,6 +737,102 @@ describe("backoffice inbound webhooks controller", () => {
       .expect(403);
 
     expect(service.reprocessParser).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("lets only the platform owner inspect and start a bounded parser recovery", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/inbound-webhooks/connections/connection_1/parser-recovery-preview",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.counts).toEqual({
+          awaitingParser: 3_374,
+          recoverable: 2_058,
+          expired: 1_316,
+          unavailable: 0,
+          inFlight: 0,
+        });
+        expect(body).not.toHaveProperty("payload");
+      });
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/connections/connection_1/parser-recovery",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .send({
+        confirmation: "Unidade Itaborai",
+        selection: "canary_10",
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          requestedLimit: 10,
+          queued: 10,
+          remainingRecoverable: 2_048,
+        });
+      });
+
+    expect(platformAdminService.assertPlatformOwner).toHaveBeenCalledWith(
+      "owner-token",
+    );
+    expect(service.getParserRecoveryPreview).toHaveBeenCalledWith(
+      "connection_1",
+    );
+    expect(service.reprocessParserBatch).toHaveBeenCalledWith(
+      "connection_1",
+      {
+        confirmation: "Unidade Itaborai",
+        selection: "canary_10",
+      },
+      expect.objectContaining({
+        id: "platform_owner_1",
+        actorType: "platform_owner",
+        sourceIp: expect.any(String),
+      }),
+    );
+
+    await app.close();
+  });
+
+  it("rejects invalid or unauthorized parser batch recovery requests", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/connections/connection_1/parser-recovery",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .send({
+        confirmation: "Unidade Itaborai",
+        selection: "all",
+      })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .get(
+        "/backoffice/inbound-webhooks/connections/connection_1/parser-recovery-preview",
+      )
+      .set("Authorization", "Bearer workspace-admin-token")
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/connections/connection_1/parser-recovery",
+      )
+      .set("Authorization", "Bearer workspace-admin-token")
+      .send({
+        confirmation: "Unidade Itaborai",
+        selection: "canary_10",
+      })
+      .expect(403);
+
+    expect(service.reprocessParserBatch).not.toHaveBeenCalled();
     await app.close();
   });
 

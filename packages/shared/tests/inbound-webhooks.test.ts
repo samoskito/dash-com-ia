@@ -4,6 +4,9 @@ import {
   backofficeInboundWebhookDeliveryQuerySchema,
   backofficeInboundWebhookDeliverySummaryQuerySchema,
   backofficeInboundWebhookDeliverySummarySchema,
+  backofficeInboundWebhookParserRecoveryInputSchema,
+  backofficeInboundWebhookParserRecoveryPreviewSchema,
+  backofficeInboundWebhookParserRecoveryResultSchema,
   backofficeInboundWebhookPayloadSchema,
   backofficeProviderConversionRolloutModeInputSchema,
   backofficeProviderConversionRolloutQuerySchema,
@@ -42,6 +45,65 @@ const connection = {
 };
 
 describe("inbound webhook contracts", () => {
+  it("accepts bounded parser recovery batches and redacted previews", () => {
+    expect(
+      backofficeInboundWebhookParserRecoveryInputSchema.parse({
+        confirmation: "Unidade Itaborai",
+        selection: "batch_500",
+      }),
+    ).toEqual({
+      confirmation: "Unidade Itaborai",
+      selection: "batch_500",
+    });
+    expect(() =>
+      backofficeInboundWebhookParserRecoveryInputSchema.parse({
+        confirmation: "Unidade Itaborai",
+        selection: "all",
+      }),
+    ).toThrow();
+
+    const preview = backofficeInboundWebhookParserRecoveryPreviewSchema.parse({
+      workspace: {
+        id: "workspace_1",
+        name: "MC Itaborai",
+      },
+      connection: {
+        ...connection,
+        provider: "gupshup",
+        parserReleaseStatus: "certified",
+      },
+      counts: {
+        awaitingParser: 3374,
+        recoverable: 2058,
+        expired: 1316,
+        unavailable: 0,
+        inFlight: 0,
+      },
+      maxBatchSize: 500,
+      secret: "must-be-removed",
+    });
+
+    expect(preview.counts.recoverable).toBe(2058);
+    expect(preview).not.toHaveProperty("secret");
+    expect(
+      backofficeInboundWebhookParserRecoveryResultSchema.parse({
+        connectionId: "connection_1",
+        selection: "canary_10",
+        requestedLimit: 10,
+        selected: 10,
+        claimed: 10,
+        queued: 10,
+        existing: 0,
+        queueFailures: 0,
+        remainingRecoverable: 2048,
+      }),
+    ).toMatchObject({
+      requestedLimit: 10,
+      queued: 10,
+      remainingRecoverable: 2048,
+    });
+  });
+
   it("accepts the dedicated ignored empty-template classification", () => {
     expect(
       inboundWebhookEventClassificationSchema.parse("ignored_empty_template"),
