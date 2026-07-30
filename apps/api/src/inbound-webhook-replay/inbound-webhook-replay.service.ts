@@ -1059,7 +1059,7 @@ export class InboundWebhookReplayService {
       workspaceId: event.workspaceId,
       name: parsedEvent.contact.name ?? undefined,
       phone,
-      source: "umbler",
+      source: event.provider,
       preserveExistingSource: true,
       preserveEarliestFirstMessageAt: true,
       campaignId: ad.campaignId ?? undefined,
@@ -1081,9 +1081,9 @@ export class InboundWebhookReplayService {
       workspaceId: event.workspaceId,
       externalConnectorId: null,
       sourceEventId: event.externalMessageId ?? event.id,
-      sourceTrigger: "inbound_webhook:umbler",
+      sourceTrigger: `inbound_webhook:${event.provider}`,
       eventName: "LeadSubmitted",
-      eventId: this.metaEventId(connection.id, event.dedupeKey),
+      eventId: this.metaEventId(event.provider, connection.id, event.dedupeKey),
       dedupeKey: `inbound-webhook:${connection.id}:${event.dedupeKey}`,
       leadId: lead.id,
       phoneHash,
@@ -1097,7 +1097,7 @@ export class InboundWebhookReplayService {
       ctwaClid: parsedEvent.ctwaClid,
       eventOccurredAt: event.occurredAt,
       sourcePayload: {
-        provider: "umbler",
+        provider: event.provider,
         connectionId: connection.id,
         inboundEventId: event.id,
         channelId: event.channelId,
@@ -1658,12 +1658,16 @@ export class InboundWebhookReplayService {
     return error.code;
   }
 
-  private metaEventId(connectionId: string, dedupeKey: string): string {
+  private metaEventId(
+    provider: string,
+    connectionId: string,
+    dedupeKey: string,
+  ): string {
     const digest = createHash("sha256")
       .update(`${connectionId}\0${dedupeKey}`, "utf8")
       .digest("hex");
 
-    return `umbler_lead_${digest}`;
+    return `${provider}_lead_${digest}`;
   }
 
   private sourceIp(value: string | null): string | null {

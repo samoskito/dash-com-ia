@@ -174,7 +174,6 @@ export class InboundWebhookProductionService {
     const now = new Date();
 
     if (
-      event.provider !== "umbler" ||
       event.classification !== "eligible_route_resolved" ||
       !event.hasCtwa ||
       !event.adId
@@ -259,7 +258,7 @@ export class InboundWebhookProductionService {
       workspaceId: event.workspaceId,
       name: parsedEvent.contact.name ?? undefined,
       phone,
-      source: "umbler",
+      source: event.provider,
       preserveExistingSource: true,
       preserveEarliestFirstMessageAt: true,
       campaignId: ad.campaignId ?? undefined,
@@ -283,9 +282,9 @@ export class InboundWebhookProductionService {
       workspaceId: event.workspaceId,
       externalConnectorId: null,
       sourceEventId: event.externalMessageId ?? event.id,
-      sourceTrigger: "inbound_webhook:umbler",
+      sourceTrigger: `inbound_webhook:${event.provider}`,
       eventName: "LeadSubmitted",
-      eventId: this.metaEventId(connection.id, event.dedupeKey),
+      eventId: this.metaEventId(event.provider, connection.id, event.dedupeKey),
       dedupeKey: `inbound-webhook:${connection.id}:${event.dedupeKey}`,
       leadId: lead.id,
       phoneHash,
@@ -299,7 +298,7 @@ export class InboundWebhookProductionService {
       ctwaClid: parsedEvent.ctwaClid,
       eventOccurredAt: event.occurredAt,
       sourcePayload: {
-        provider: "umbler",
+        provider: event.provider,
         connectionId: connection.id,
         inboundEventId: event.id,
         channelId: event.channelId,
@@ -433,11 +432,15 @@ export class InboundWebhookProductionService {
     return "inbound_webhook_production_unexpected";
   }
 
-  private metaEventId(connectionId: string, dedupeKey: string): string {
+  private metaEventId(
+    provider: string,
+    connectionId: string,
+    dedupeKey: string,
+  ): string {
     const digest = createHash("sha256")
       .update(`${connectionId}\0${dedupeKey}`, "utf8")
       .digest("hex");
 
-    return `umbler_lead_${digest}`;
+    return `${provider}_lead_${digest}`;
   }
 }

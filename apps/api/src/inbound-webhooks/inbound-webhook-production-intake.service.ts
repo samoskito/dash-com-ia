@@ -56,7 +56,6 @@ export class InboundWebhookProductionIntakeService {
         workspaceId: input.workspaceId,
         connectionId: input.connectionId,
         deliveryId: input.deliveryId,
-        provider: "umbler",
         classification: "eligible_route_resolved",
         hasCtwa: true,
         adId: { not: null },

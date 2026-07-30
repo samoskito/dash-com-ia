@@ -14,15 +14,67 @@ const fixturePath = resolve(
   "message-with-ctwa.json",
 );
 const rawPayload = JSON.parse(readFileSync(fixturePath, "utf8")) as unknown;
+const gupshupPayload = {
+  object: "whatsapp_business_account",
+  gs_app_id: "gupshup-app-1",
+  entry: [
+    {
+      id: "waba-1",
+      changes: [
+        {
+          field: "messages",
+          value: {
+            messaging_product: "whatsapp",
+            metadata: {
+              display_phone_number: "+55 21 99999-0000",
+              phone_number_id: "phone-number-id-1",
+            },
+            contacts: [
+              {
+                profile: { name: "Contato Gupshup" },
+                wa_id: "5521988887777",
+              },
+            ],
+            messages: [
+              {
+                from: "5521988887777",
+                id: "wamid.gupshup-production-1",
+                timestamp: "1785373200",
+                type: "text",
+                text: { body: "Mensagem privada" },
+                referral: {
+                  source_url: "https://fb.me/ad",
+                  source_id: "120000000000000001",
+                  source_type: "ad",
+                  headline: "Titulo do anuncio",
+                  body: "Descricao do anuncio",
+                  image_url: "https://cdn.example.com/ad.jpg",
+                  ctwa_clid: "ctwa-secret-value",
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  ],
+};
 
-function createHarness(input: { channelStatus?: "active" | "paused" } = {}) {
+function createHarness(
+  input: {
+    channelStatus?: "active" | "paused";
+    provider?: "umbler" | "gupshup";
+  } = {},
+) {
+  const provider = input.provider ?? "umbler";
+  const providerPayload = provider === "gupshup" ? gupshupPayload : rawPayload;
   const parserRegistry = new InboundWebhookParserRegistry();
   const parser = parserRegistry.resolve({
-    provider: "umbler",
+    provider,
     parserVersion: "v1",
     parserReleaseStatus: "certified",
   });
-  const parsed = parser.parse(rawPayload).events[0]!;
+  const parsed = parser.parse(providerPayload).events[0]!;
   const activatedAt = new Date("2026-07-21T12:00:00.000Z");
   const firstReceivedAt = new Date("2026-07-21T12:00:01.000Z");
   const item = {
@@ -35,7 +87,7 @@ function createHarness(input: { channelStatus?: "active" | "paused" } = {}) {
     event: {
       id: "inbound_event_1",
       workspaceId,
-      provider: "umbler",
+      provider,
       classification: "eligible_route_resolved",
       hasCtwa: true,
       adId: parsed.adId,
@@ -60,7 +112,7 @@ function createHarness(input: { channelStatus?: "active" | "paused" } = {}) {
       },
       connection: {
         id: connectionId,
-        provider: "umbler",
+        provider,
         status: "production",
         removedAt: null,
         productionActivatedAt: activatedAt,
@@ -122,7 +174,7 @@ function createHarness(input: { channelStatus?: "active" | "paused" } = {}) {
     },
   };
   const payloadEncryption = {
-    decrypt: vi.fn(() => Buffer.from(JSON.stringify(rawPayload), "utf8")),
+    decrypt: vi.fn(() => Buffer.from(JSON.stringify(providerPayload), "utf8")),
   };
   const leads = {
     upsertFromWhatsappWebhook: vi.fn(async () => ({ id: "lead_1" })),
@@ -204,6 +256,38 @@ describe("inbound webhook production service", () => {
     );
     expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledOnce();
     expect(harness.item.status).toBe("materialized");
+  });
+
+  it("materializes and queues a live Gupshup lead with provider-specific audit data", async () => {
+    const harness = createHarness({ provider: "gupshup" });
+
+    await expect(
+      harness.service.processItem({
+        productionItemId: harness.item.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "materialized" });
+
+    expect(harness.leads.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId,
+        source: "gupshup",
+        adId: harness.parsed.adId,
+        ctwaClid: harness.parsed.ctwaClid,
+      }),
+    );
+    expect(harness.conversions.recordExternalConversion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId,
+        sourceTrigger: "inbound_webhook:gupshup",
+        eventId: expect.stringMatching(/^gupshup_lead_[a-f0-9]{64}$/u),
+        sourcePayload: expect.objectContaining({
+          provider: "gupshup",
+          processingMode: "live_production",
+        }),
+      }),
+    );
+    expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledOnce();
   });
 
   it("rejects a paused channel before creating a lead or conversion", async () => {

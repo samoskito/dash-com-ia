@@ -62,9 +62,15 @@ describe("inbound webhook production intake", () => {
       }),
     ];
     const createMany = vi.fn(async ({ data }) => ({ count: data.length }));
+    const findMany = vi.fn(
+      async (query: { where: Record<string, unknown> }) => {
+        expect(query.where).not.toHaveProperty("provider");
+        return events;
+      },
+    );
     const prisma = {
       inboundWebhookEvent: {
-        findMany: vi.fn(async () => events),
+        findMany,
       },
       inboundWebhookProductionItem: {
         createMany,
