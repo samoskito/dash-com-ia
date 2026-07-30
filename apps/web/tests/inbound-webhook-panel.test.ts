@@ -225,6 +225,7 @@ describe("inbound webhook panel", () => {
       {
         dateStyle: "short",
         timeStyle: "short",
+        timeZone: "America/Sao_Paulo",
       },
     );
 
@@ -258,6 +259,7 @@ describe("inbound webhook panel", () => {
     ).toLocaleString("pt-BR", {
       dateStyle: "short",
       timeStyle: "short",
+      timeZone: "America/Sao_Paulo",
     });
 
     expect(html).toContain("Prontidao parcial");

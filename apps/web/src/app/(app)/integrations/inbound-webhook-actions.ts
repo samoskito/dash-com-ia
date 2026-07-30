@@ -27,6 +27,16 @@ export type InboundWebhookActionResult = {
 
 const integrationsPath = "/integrations";
 const invalidFormMessage = "Revise os dados informados e tente novamente.";
+const connectionStatusOperationalErrors = new Set([
+  "Ative ao menos um canal validado antes da producao",
+  "Certifique o parser antes de ativar o envio automatico",
+  "Controle de vagas dos canais externos indisponivel",
+  "Envio automatico de webhooks ainda nao esta habilitado",
+  "Finalize o replay em andamento antes de ativar a producao",
+  "Todas as vagas do pacote estao ocupadas",
+  "Todo canal ativo precisa de uma rota Meta valida",
+  "Workspace sem contrato com acesso ativo",
+]);
 
 export async function createInboundWebhookConnectionAction(
   formData: FormData,
@@ -142,8 +152,11 @@ export async function setInboundWebhookConnectionStatusAction(
             ? "Envio automatico ativado nos canais habilitados."
             : "Conexao mantida em modo de observacao.",
     };
-  } catch {
-    return failure("Nao foi possivel alterar o status desta conexao.");
+  } catch (error) {
+    return failure(
+      knownOperationalError(error, connectionStatusOperationalErrors) ??
+        "Nao foi possivel alterar o status desta conexao.",
+    );
   }
 }
 
@@ -301,4 +314,17 @@ async function deleteApiResource(path: string): Promise<void> {
 
 function failure(message: string): InboundWebhookActionResult {
   return { ok: false, message };
+}
+
+function knownOperationalError(
+  error: unknown,
+  allowedMessages: ReadonlySet<string>,
+): string | null {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  const message = error.message.trim();
+
+  return allowedMessages.has(message) ? message : null;
 }

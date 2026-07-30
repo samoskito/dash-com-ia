@@ -27,6 +27,7 @@ import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { PresentationMask } from "../../../components/presentation-mask";
+import { displayTimeZone } from "../../../lib/date-time";
 import type {
   InboundWebhookActionResult,
   InboundWebhookOneTimeSecret,
@@ -863,5 +864,6 @@ function formatDateTime(value: string | null): string {
   return date.toLocaleString("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
+    timeZone: displayTimeZone,
   });
 }

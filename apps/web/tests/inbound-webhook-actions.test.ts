@@ -144,6 +144,22 @@ describe("inbound webhook server actions", () => {
     },
   );
 
+  it("returns a safe production-readiness reason when activation is blocked", async () => {
+    serverApiFetch.mockRejectedValueOnce(
+      new Error("Finalize o replay em andamento antes de ativar a producao"),
+    );
+
+    const result = await setInboundWebhookConnectionStatusAction(
+      form({ connectionId: "connection_1", status: "production" }),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Finalize o replay em andamento antes de ativar a producao",
+    });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
   it("removes a connection through the tenant-scoped endpoint", async () => {
     serverApiFetch.mockResolvedValueOnce(undefined);
 
