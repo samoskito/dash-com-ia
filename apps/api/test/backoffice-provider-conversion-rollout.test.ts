@@ -8,6 +8,7 @@ import type { InboundConversionAutomationIngestionService } from "../src/inbound
 import type { InboundWebhookObservationService } from "../src/inbound-webhooks/inbound-webhook-observation.service";
 import type { InboundWebhookPayloadEncryptionService } from "../src/inbound-webhooks/inbound-webhook-payload-encryption.service";
 import type { InboundWebhookQueueService } from "../src/inbound-webhooks/inbound-webhook-queue.service";
+import { InboundWebhookParserRegistry } from "../src/inbound-webhooks/providers/inbound-webhook-parser.registry";
 
 const actor = {
   id: "platform_owner_1",
@@ -115,6 +116,7 @@ function createHarness(input?: {
     prisma as unknown as PrismaService,
     {} as InboundWebhookPayloadEncryptionService,
     {} as InboundWebhookQueueService,
+    new InboundWebhookParserRegistry(),
     {} as ProviderConversionDecisionRepository,
     {} as InboundWebhookObservationService,
     {} as InboundConversionAutomationIngestionService,
@@ -193,6 +195,7 @@ describe("backoffice provider conversion rollout", () => {
       prisma as unknown as PrismaService,
       {} as InboundWebhookPayloadEncryptionService,
       {} as InboundWebhookQueueService,
+      new InboundWebhookParserRegistry(),
       {} as ProviderConversionDecisionRepository,
       {} as InboundWebhookObservationService,
       {} as InboundConversionAutomationIngestionService,

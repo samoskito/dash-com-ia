@@ -276,6 +276,48 @@ describe("inbound webhook payload routes", () => {
     expect(html).toContain('aria-current="page"');
   });
 
+  it("offers a dedicated parser recovery only for retained unsupported Gupshup deliveries", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(operationsScope))
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            ...availableDelivery,
+            id: "delivery_gupshup_unsupported",
+            provider: "gupshup",
+            providerEventType: "message",
+            parserVersion: "gupshup-v1",
+            classification: "unsupported_event",
+            eventCount: 0,
+            normalizedSummary: {
+              eventCount: 0,
+              hasCtwa: false,
+            },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          all: 0,
+          ctwaPending: 0,
+          ctwaRouted: 0,
+          failed: 0,
+          noCtwa: 0,
+          automationCallbacks: 0,
+          awaitingParser: 1,
+        }),
+      );
+
+    const element = await InboundWebhookDeliveriesPage({});
+    const html = render(element);
+
+    expect(html).toContain("Reprocessar parser");
+    expect(html).not.toContain("Reprocessar conversao");
+    expect(html).toContain(
+      'value="delivery_gupshup_unsupported"',
+    );
+  });
+
   it("separates retained conversion automation callbacks from message events", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse(operationsScope))

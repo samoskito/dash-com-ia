@@ -6,10 +6,10 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import type {
   InboundWebhookDelivery,
   InboundWebhookEvent,
-  Prisma,
 } from "@prisma/client";
 import type {
   BackofficeInboundWebhookDeliveryDto,
@@ -34,10 +34,15 @@ import {
 } from "./inbound-webhook-observation.service";
 import { InboundWebhookPayloadEncryptionService } from "./inbound-webhook-payload-encryption.service";
 import { InboundWebhookQueueService } from "./inbound-webhook-queue.service";
+import {
+  InboundWebhookParserRegistry,
+  InboundWebhookParserResolutionError,
+} from "./providers/inbound-webhook-parser.registry";
 
 const payloadReadAction = "inbound_webhook.payload.read";
 const conversionRecoveryAction =
   "inbound_webhook.provider_conversions.reprocess";
+const parserRecoveryAction = "inbound_webhook.parser.reprocess";
 const conversionReevaluationAction = "provider_conversion.decision.reevaluate";
 const conversionEngineModeAction =
   "provider_conversion.channel_engine_mode.change";
@@ -117,6 +122,8 @@ export class BackofficeInboundWebhooksService {
     private readonly payloadEncryption: InboundWebhookPayloadEncryptionService,
     @Inject(InboundWebhookQueueService)
     private readonly queue: InboundWebhookQueueService,
+    @Inject(InboundWebhookParserRegistry)
+    private readonly parserRegistry: InboundWebhookParserRegistry,
     @Inject(ProviderConversionDecisionRepository)
     private readonly decisions: ProviderConversionDecisionRepository,
     @Inject(InboundWebhookObservationService)
@@ -404,6 +411,233 @@ export class BackofficeInboundWebhooksService {
     } catch {
       throw new ServiceUnavailableException(
         "A fila nao aceitou o reprocessamento",
+      );
+    }
+  }
+
+  async reprocessParser(
+    deliveryId: string,
+    actor: InboundWebhookPayloadActor,
+  ): Promise<{
+    deliveryId: string;
+    status: "queued" | "existing";
+  }> {
+    const now = new Date();
+    const delivery = await this.prisma.inboundWebhookDelivery.findUnique({
+      where: { id: deliveryId },
+      select: {
+        id: true,
+        workspaceId: true,
+        connectionId: true,
+        provider: true,
+        parserVersion: true,
+        purpose: true,
+        status: true,
+        classification: true,
+        normalizedSummary: true,
+        payloadExpiresAt: true,
+        encryptedPayload: true,
+        payloadIv: true,
+        payloadTag: true,
+        encryptionKeyVersion: true,
+        queuedAt: true,
+        processedAt: true,
+        providerConversionsObservedAt: true,
+        updatedAt: true,
+        connection: {
+          select: {
+            provider: true,
+            status: true,
+            removedAt: true,
+            parserRelease: {
+              select: {
+                provider: true,
+                version: true,
+                status: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            events: true,
+          },
+        },
+      },
+    });
+
+    if (!delivery) {
+      throw new NotFoundException("Entrega nao encontrada");
+    }
+
+    if (delivery.purpose !== "message_observation") {
+      throw new ConflictException(
+        "Esta entrega nao pertence ao fluxo de mensagens",
+      );
+    }
+
+    if (!this.payloadAvailable(delivery, now)) {
+      throw new ConflictException(
+        "O payload desta entrega nao esta mais disponivel",
+      );
+    }
+
+    if (
+      delivery.connection.provider !== delivery.provider ||
+      delivery.connection.removedAt !== null ||
+      !["observation", "production"].includes(delivery.connection.status) ||
+      delivery.connection.parserRelease.provider !== delivery.provider ||
+      delivery.connection.parserRelease.version !== delivery.parserVersion
+    ) {
+      throw new ConflictException(
+        "A conexao ou o parser desta entrega nao esta disponivel",
+      );
+    }
+
+    try {
+      this.parserRegistry.resolve({
+        provider: delivery.provider,
+        parserVersion: delivery.parserVersion,
+        parserReleaseStatus: delivery.connection.parserRelease.status,
+      });
+    } catch (error) {
+      if (error instanceof InboundWebhookParserResolutionError) {
+        throw new ConflictException(
+          "O parser desta entrega nao esta disponivel para reprocessamento",
+        );
+      }
+
+      throw error;
+    }
+
+    if (
+      ["pending", "queued", "processing"].includes(delivery.status) &&
+      delivery.classification === null &&
+      delivery.normalizedSummary === null &&
+      delivery.processedAt === null &&
+      delivery._count.events === 0
+    ) {
+      return {
+        deliveryId: delivery.id,
+        status: "existing",
+      };
+    }
+
+    if (
+      delivery.status !== "processed" ||
+      delivery.classification !== "unsupported_event"
+    ) {
+      throw new ConflictException(
+        "Somente uma entrega processada e ainda nao suportada pode reler o parser",
+      );
+    }
+
+    if (delivery._count.events !== 0) {
+      throw new ConflictException(
+        "Esta entrega ja possui eventos canonicos e nao pode reler o parser",
+      );
+    }
+
+    await this.prisma.$transaction(async (transaction) => {
+      const claimed = await transaction.inboundWebhookDelivery.updateMany({
+        where: {
+          id: delivery.id,
+          workspaceId: delivery.workspaceId,
+          connectionId: delivery.connectionId,
+          updatedAt: delivery.updatedAt,
+          purpose: "message_observation",
+          status: "processed",
+          classification: "unsupported_event",
+          payloadExpiresAt: { gt: now },
+          encryptedPayload: { not: null },
+          payloadIv: { not: null },
+          payloadTag: { not: null },
+          encryptionKeyVersion: { not: null },
+          events: { none: {} },
+          connection: {
+            provider: delivery.provider,
+            status: { in: ["observation", "production"] },
+            removedAt: null,
+            parserRelease: {
+              provider: delivery.provider,
+              version: delivery.parserVersion,
+              status: delivery.connection.parserRelease.status,
+            },
+          },
+        },
+        data: {
+          status: "pending",
+          classification: null,
+          normalizedSummary: Prisma.DbNull,
+          parseErrorCode: null,
+          routingErrorCode: null,
+          queuedAt: null,
+          processedAt: null,
+          providerConversionsObservedAt: null,
+        },
+      });
+
+      if (claimed.count !== 1) {
+        throw new ConflictException(
+          "O estado da entrega mudou; atualize a auditoria",
+        );
+      }
+
+      await transaction.auditLog.create({
+        data: {
+          workspaceId: delivery.workspaceId,
+          actorUserId: actor.id,
+          actorType: actor.actorType,
+          action: parserRecoveryAction,
+          targetType: payloadTargetType,
+          targetId: delivery.id,
+          reason: "Explicit parser recovery for one retained delivery",
+          sourceIp: this.sourceIp(actor.sourceIp),
+          resultStatus: "requested",
+          beforeSummary: {
+            status: delivery.status,
+            classification: delivery.classification,
+            eventCount: delivery._count.events,
+            parserVersion: delivery.parserVersion,
+          },
+          afterSummary: {
+            status: "pending",
+            classification: null,
+            parserVersion: delivery.parserVersion,
+            parserReleaseStatus: delivery.connection.parserRelease.status,
+          },
+        },
+      });
+    });
+
+    try {
+      const queued = await this.queue.enqueueDelivery({
+        deliveryId: delivery.id,
+        connectionId: delivery.connectionId,
+        workspaceId: delivery.workspaceId,
+      });
+      const queuedAt = new Date();
+      await this.prisma.inboundWebhookDelivery.updateMany({
+        where: {
+          id: delivery.id,
+          workspaceId: delivery.workspaceId,
+          connectionId: delivery.connectionId,
+          status: "pending",
+          classification: null,
+        },
+        data: {
+          status: "queued",
+          queuedAt,
+        },
+      });
+
+      return {
+        deliveryId: delivery.id,
+        status: queued.status,
+      };
+    } catch {
+      throw new ServiceUnavailableException(
+        "A fila nao aceitou o reprocessamento do parser",
       );
     }
   }

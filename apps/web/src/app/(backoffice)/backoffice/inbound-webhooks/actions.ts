@@ -9,6 +9,11 @@ type ConversionRecoveryResult = {
   status: "queued" | "existing";
 };
 
+type ParserRecoveryResult = {
+  deliveryId: string;
+  status: "queued" | "existing";
+};
+
 type ConversionReevaluationResult = {
   previousDecisionId: string;
   decisionId: string;
@@ -123,6 +128,42 @@ export async function reprocessInboundProviderConversionsAction(
       error.message.length <= 180
         ? error.message
         : "Nao foi possivel reprocessar as conversoes desta entrega.";
+
+    return actionResult("error", message);
+  }
+}
+
+export async function reprocessInboundParserAction(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  const id = deliveryId(formData);
+
+  if (!id) {
+    return actionResult("error", "Entrega invalida.");
+  }
+
+  try {
+    const result = await serverApiFetch<ParserRecoveryResult>(
+      `/backoffice/inbound-webhooks/deliveries/${encodeURIComponent(id)}/reprocess-parser`,
+      { method: "POST" },
+    );
+
+    revalidatePath("/backoffice/inbound-webhooks");
+
+    return actionResult(
+      "success",
+      result.status === "existing"
+        ? "Esta entrega ja esta aguardando o parser."
+        : "Entrega encaminhada para o parser atual.",
+    );
+  } catch (error) {
+    const message =
+      isApiRequestError(error) &&
+      [400, 404, 409, 503].includes(error.status) &&
+      error.message.length <= 180
+        ? error.message
+        : "Nao foi possivel reprocessar o parser desta entrega.";
 
     return actionResult("error", message);
   }

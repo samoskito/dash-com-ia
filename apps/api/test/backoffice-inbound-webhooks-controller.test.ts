@@ -211,6 +211,10 @@ async function createApp() {
       deliveryId: "delivery_1",
       status: "queued",
     })),
+    reprocessParser: vi.fn(async () => ({
+      deliveryId: "delivery_1",
+      status: "queued",
+    })),
     reevaluateProviderConversionDecision: vi.fn(async () => ({
       previousDecisionId: "decision_1",
       decisionId: "decision_2",
@@ -651,6 +655,49 @@ describe("backoffice inbound webhooks controller", () => {
       .expect(403);
 
     expect(service.reprocessProviderConversions).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("lets only the platform owner reprocess the parser for one retained delivery", async () => {
+    const { app, platformAdminService, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/deliveries/delivery_1/reprocess-parser",
+      )
+      .set("Authorization", "Bearer owner-token")
+      .expect(201)
+      .expect({
+        deliveryId: "delivery_1",
+        status: "queued",
+      });
+
+    expect(platformAdminService.assertPlatformOwner).toHaveBeenCalledWith(
+      "owner-token",
+    );
+    expect(service.reprocessParser).toHaveBeenCalledWith(
+      "delivery_1",
+      expect.objectContaining({
+        id: "platform_owner_1",
+        actorType: "platform_owner",
+        sourceIp: expect.any(String),
+      }),
+    );
+
+    await app.close();
+  });
+
+  it("denies parser recovery to workspace users", async () => {
+    const { app, service } = await createApp();
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/inbound-webhooks/deliveries/delivery_1/reprocess-parser",
+      )
+      .set("Authorization", "Bearer workspace-admin-token")
+      .expect(403);
+
+    expect(service.reprocessParser).not.toHaveBeenCalled();
     await app.close();
   });
 

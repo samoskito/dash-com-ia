@@ -11,6 +11,7 @@ import { InboundConversionAutomationIngestionService } from "../src/inbound-webh
 import { InboundWebhookObservationService } from "../src/inbound-webhooks/inbound-webhook-observation.service";
 import { InboundWebhookPayloadEncryptionService } from "../src/inbound-webhooks/inbound-webhook-payload-encryption.service";
 import { InboundWebhookQueueService } from "../src/inbound-webhooks/inbound-webhook-queue.service";
+import { InboundWebhookParserRegistry } from "../src/inbound-webhooks/providers/inbound-webhook-parser.registry";
 
 const connectionSecretHash = "internal-secret-hash-do-not-leak";
 const oneTimeWebhookUrl =
@@ -153,11 +154,16 @@ function deliveryRecord(
     updatedAt: new Date("2026-07-17T20:00:02.000Z"),
     connection: {
       id: "connection_1",
+      provider: "umbler" as const,
       displayName: "Umbler Comercial",
+      status: "observation" as const,
+      removedAt: null,
       secretHash: connectionSecretHash,
       webhookUrl: oneTimeWebhookUrl,
       parserRelease: {
         id: "inbound_parser_umbler_v1",
+        provider: "umbler" as const,
+        version: "v1",
         status: "observation_only" as const,
       },
     },
@@ -287,8 +293,15 @@ function createHarness(state: PayloadState = "available") {
   const prisma = {
     inboundWebhookDelivery,
     inboundWebhookEvent,
-    $transaction: vi.fn(async (operations: Array<Promise<unknown>>) =>
-      Promise.all(operations),
+    $transaction: vi.fn(
+      async (
+        operation:
+          | Array<Promise<unknown>>
+          | ((transaction: unknown) => Promise<unknown>),
+      ) =>
+        typeof operation === "function"
+          ? operation(prisma)
+          : Promise.all(operation),
     ),
     auditLog: {
       create: vi.fn(async ({ data }) => {
@@ -311,6 +324,7 @@ function createHarness(state: PayloadState = "available") {
     prisma as unknown as PrismaService,
     encryption,
     queue as unknown as InboundWebhookQueueService,
+    new InboundWebhookParserRegistry(),
     {} as ProviderConversionDecisionRepository,
     {} as InboundWebhookObservationService,
     {} as InboundConversionAutomationIngestionService,
@@ -405,6 +419,156 @@ describe("inbound webhook payload access", () => {
       harness.service.reprocessProviderConversions(harness.delivery.id, owner),
     ).rejects.toThrow("O payload desta entrega nao esta mais disponivel");
     expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
+  });
+
+  it("atomically returns one unsupported delivery to the parser queue and audits the request", async () => {
+    const harness = createHarness();
+    Reflect.set(harness.delivery, "provider", "gupshup");
+    Reflect.set(harness.delivery.connection, "provider", "gupshup");
+    Reflect.set(
+      harness.delivery.connection.parserRelease,
+      "provider",
+      "gupshup",
+    );
+    Reflect.set(harness.delivery, "parserVersion", "v1");
+    Reflect.set(
+      harness.delivery.connection.parserRelease,
+      "version",
+      "v1",
+    );
+    Reflect.set(harness.delivery, "classification", "unsupported_event");
+    Reflect.set(harness.delivery, "events", []);
+    Reflect.set(harness.delivery._count, "events", 0);
+
+    const result = await harness.service.reprocessParser(
+      harness.delivery.id,
+      owner,
+    );
+
+    expect(result).toEqual({
+      deliveryId: harness.delivery.id,
+      status: "queued",
+    });
+    expect(harness.queue.enqueueDelivery).toHaveBeenCalledWith({
+      deliveryId: harness.delivery.id,
+      connectionId: harness.delivery.connectionId,
+      workspaceId: harness.delivery.workspaceId,
+    });
+    expect(harness.delivery.status).toBe("queued");
+    expect(harness.delivery.classification).toBeNull();
+    expect(harness.delivery.processedAt).toBeNull();
+    expect(harness.delivery.providerConversionsObservedAt).toBeNull();
+    expect(harness.prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workspaceId: harness.delivery.workspaceId,
+        actorUserId: owner.id,
+        actorType: owner.actorType,
+        action: "inbound_webhook.parser.reprocess",
+        targetId: harness.delivery.id,
+        resultStatus: "requested",
+      }),
+    });
+  });
+
+  it("treats a repeated parser recovery request as idempotent", async () => {
+    const harness = createHarness();
+    Reflect.set(harness.delivery, "provider", "gupshup");
+    Reflect.set(harness.delivery.connection, "provider", "gupshup");
+    Reflect.set(
+      harness.delivery.connection.parserRelease,
+      "provider",
+      "gupshup",
+    );
+    Reflect.set(harness.delivery, "parserVersion", "v1");
+    Reflect.set(
+      harness.delivery.connection.parserRelease,
+      "version",
+      "v1",
+    );
+    Reflect.set(harness.delivery, "status", "queued");
+    Reflect.set(harness.delivery, "classification", null);
+    Reflect.set(harness.delivery, "normalizedSummary", null);
+    Reflect.set(harness.delivery, "processedAt", null);
+    Reflect.set(harness.delivery, "events", []);
+    Reflect.set(harness.delivery._count, "events", 0);
+
+    await expect(
+      harness.service.reprocessParser(harness.delivery.id, owner),
+    ).resolves.toEqual({
+      deliveryId: harness.delivery.id,
+      status: "existing",
+    });
+    expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
+    expect(harness.prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses parser recovery when canonical events already exist", async () => {
+    const harness = createHarness();
+    Reflect.set(harness.delivery, "classification", "unsupported_event");
+
+    await expect(
+      harness.service.reprocessParser(harness.delivery.id, owner),
+    ).rejects.toThrow(
+      "Esta entrega ja possui eventos canonicos e nao pode reler o parser",
+    );
+    expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
+  });
+
+  it("refuses parser recovery when the parser release is retired", async () => {
+    const harness = createHarness();
+    Reflect.set(harness.delivery, "provider", "gupshup");
+    Reflect.set(harness.delivery, "classification", "unsupported_event");
+    Reflect.set(harness.delivery, "parserVersion", "v1");
+    Reflect.set(harness.delivery.connection, "provider", "gupshup");
+    Reflect.set(
+      harness.delivery.connection.parserRelease,
+      "provider",
+      "gupshup",
+    );
+    Reflect.set(harness.delivery.connection.parserRelease, "version", "v1");
+    Reflect.set(
+      harness.delivery.connection.parserRelease,
+      "status",
+      "retired",
+    );
+    Reflect.set(harness.delivery, "events", []);
+    Reflect.set(harness.delivery._count, "events", 0);
+
+    await expect(
+      harness.service.reprocessParser(harness.delivery.id, owner),
+    ).rejects.toThrow(
+      "O parser desta entrega nao esta disponivel para reprocessamento",
+    );
+    expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
+  });
+
+  it("keeps a parser recovery pending when the queue is temporarily unavailable", async () => {
+    const harness = createHarness();
+    Reflect.set(harness.delivery, "provider", "gupshup");
+    Reflect.set(harness.delivery.connection, "provider", "gupshup");
+    Reflect.set(
+      harness.delivery.connection.parserRelease,
+      "provider",
+      "gupshup",
+    );
+    Reflect.set(harness.delivery, "parserVersion", "v1");
+    Reflect.set(
+      harness.delivery.connection.parserRelease,
+      "version",
+      "v1",
+    );
+    Reflect.set(harness.delivery, "classification", "unsupported_event");
+    Reflect.set(harness.delivery, "events", []);
+    Reflect.set(harness.delivery._count, "events", 0);
+    harness.queue.enqueueDelivery.mockRejectedValueOnce(
+      new Error("queue unavailable"),
+    );
+
+    await expect(
+      harness.service.reprocessParser(harness.delivery.id, owner),
+    ).rejects.toThrow("A fila nao aceitou o reprocessamento do parser");
+    expect(harness.delivery.status).toBe("pending");
+    expect(harness.prisma.auditLog.create).toHaveBeenCalledTimes(1);
   });
 
   it("lists redacted delivery metadata with parser release status", async () => {

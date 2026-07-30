@@ -201,6 +201,25 @@ export class BackofficeInboundWebhooksController {
     );
   }
 
+  @Post("deliveries/:deliveryId/reprocess-parser")
+  async reprocessParser(
+    @AuthToken() refreshToken: string,
+    @Param("deliveryId") deliveryId: string,
+    @Req() request: InboundBackofficeRequest,
+  ) {
+    const owner =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+
+    return this.inboundWebhooks.reprocessParser(
+      this.deliveryId(deliveryId),
+      {
+        id: owner.id,
+        actorType: owner.role,
+        sourceIp: request.ip ?? null,
+      },
+    );
+  }
+
   private async assertPayloadOwner(
     refreshToken: string,
     deliveryId: string,

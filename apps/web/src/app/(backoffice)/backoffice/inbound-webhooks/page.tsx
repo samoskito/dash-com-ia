@@ -34,10 +34,12 @@ import {
 } from "lucide-react";
 import { BackofficeActionForm } from "../../../../components/backoffice-action-form";
 import { BackofficeNavigation } from "../../../../components/backoffice-navigation";
+import { InboundParserRecoveryButton } from "../../../../components/inbound-parser-recovery-button";
 import { InboundProviderConversionRecoveryButton } from "../../../../components/inbound-provider-conversion-recovery-button";
 import { formatDateTime } from "../../../../lib/date-time";
 import { serverApiFetch } from "../../../../lib/server-api";
 import {
+  reprocessInboundParserAction,
   reprocessInboundProviderConversionsAction,
   updateProviderConversionEngineModeAction,
 } from "./actions";
@@ -1916,6 +1918,13 @@ export default async function InboundWebhookDeliveriesPage({
                         )
                         .join(", ")
                     : "Callback sem canal normalizado";
+                  const parserRecoveryAvailable =
+                    delivery.provider === "gupshup" &&
+                    delivery.purpose === "message_observation" &&
+                    delivery.status === "processed" &&
+                    delivery.classification === "unsupported_event" &&
+                    delivery.parserReleaseStatus !== "retired" &&
+                    delivery.eventCount === 0;
 
                   return (
                     <article
@@ -1968,21 +1977,10 @@ export default async function InboundWebhookDeliveriesPage({
                         {delivery.purpose === "message_observation" &&
                         delivery.status === "processed" ? (
                           <>
-                            {delivery.providerConversionsObservedAt ? (
-                              <span
-                                className="event-chip good"
-                                title={`Conversoes lidas em ${formatDateTime(
-                                  delivery.providerConversionsObservedAt,
-                                )}`}
-                              >
-                                Conversoes lidas
-                              </span>
-                            ) : null}
-                            {delivery.payloadAvailable ? (
+                            {parserRecoveryAvailable &&
+                            delivery.payloadAvailable ? (
                               <BackofficeActionForm
-                                action={
-                                  reprocessInboundProviderConversionsAction
-                                }
+                                action={reprocessInboundParserAction}
                                 className="inbound-inline-action-form"
                               >
                                 <input
@@ -1990,12 +1988,44 @@ export default async function InboundWebhookDeliveriesPage({
                                   type="hidden"
                                   value={delivery.id}
                                 />
-                                <InboundProviderConversionRecoveryButton />
+                                <InboundParserRecoveryButton />
                               </BackofficeActionForm>
-                            ) : (
+                            ) : parserRecoveryAvailable ? (
                               <span className="event-chip warn">
                                 Payload expirado
                               </span>
+                            ) : (
+                              <>
+                                {delivery.providerConversionsObservedAt ? (
+                                  <span
+                                    className="event-chip good"
+                                    title={`Conversoes lidas em ${formatDateTime(
+                                      delivery.providerConversionsObservedAt,
+                                    )}`}
+                                  >
+                                    Conversoes lidas
+                                  </span>
+                                ) : null}
+                                {delivery.payloadAvailable ? (
+                                  <BackofficeActionForm
+                                    action={
+                                      reprocessInboundProviderConversionsAction
+                                    }
+                                    className="inbound-inline-action-form"
+                                  >
+                                    <input
+                                      name="deliveryId"
+                                      type="hidden"
+                                      value={delivery.id}
+                                    />
+                                    <InboundProviderConversionRecoveryButton />
+                                  </BackofficeActionForm>
+                                ) : (
+                                  <span className="event-chip warn">
+                                    Payload expirado
+                                  </span>
+                                )}
+                              </>
                             )}
                           </>
                         ) : null}
