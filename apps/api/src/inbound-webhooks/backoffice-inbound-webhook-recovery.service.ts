@@ -160,6 +160,7 @@ export class BackofficeInboundWebhookRecoveryService {
         connection.workspaceId,
         connection.id,
         refreshedChannel.id,
+        connection.provider,
         boundary,
         new Date(),
       ),
@@ -299,6 +300,7 @@ export class BackofficeInboundWebhookRecoveryService {
       connection.workspaceId,
       connection.id,
       channel.id,
+      connection.provider,
       boundary,
     );
     const [postActivationCount, routeUnresolved, alreadyQueued, eligible] =
@@ -323,6 +325,7 @@ export class BackofficeInboundWebhookRecoveryService {
             connection.workspaceId,
             connection.id,
             channel.id,
+            connection.provider,
             boundary,
             now,
           ),
@@ -352,13 +355,14 @@ export class BackofficeInboundWebhookRecoveryService {
     workspaceId: string,
     connectionId: string,
     channelId: string,
+    provider: RecoveryConnection["provider"],
     boundary: Date,
   ): Prisma.InboundWebhookEventWhereInput {
     return {
       workspaceId,
       connectionId,
       channelId,
-      provider: "umbler",
+      provider,
       hasCtwa: true,
       delivery: {
         firstReceivedAt: { gte: boundary },
@@ -370,6 +374,7 @@ export class BackofficeInboundWebhookRecoveryService {
     workspaceId: string,
     connectionId: string,
     channelId: string,
+    provider: RecoveryConnection["provider"],
     boundary: Date,
     now: Date,
   ): Prisma.InboundWebhookEventWhereInput {
@@ -378,6 +383,7 @@ export class BackofficeInboundWebhookRecoveryService {
         workspaceId,
         connectionId,
         channelId,
+        provider,
         boundary,
       ),
       classification: "eligible_route_resolved",

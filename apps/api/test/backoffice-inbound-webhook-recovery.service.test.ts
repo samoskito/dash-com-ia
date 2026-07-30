@@ -8,12 +8,13 @@ import { InboundWebhookProductionQueueService } from "../src/inbound-webhooks/in
 const connectionActivatedAt = new Date("2026-07-21T12:00:00.000Z");
 const channelActivatedAt = new Date("2026-07-21T12:05:00.000Z");
 
-function connectionRecord() {
+function connectionRecord(provider: "umbler" | "gupshup" = "umbler") {
   return {
     id: "connection_1",
     workspaceId: "workspace_1",
-    provider: "umbler" as const,
-    displayName: "Umbler Comercial",
+    provider,
+    displayName:
+      provider === "gupshup" ? "Gupshup Comercial" : "Umbler Comercial",
     status: "production" as const,
     productionActivatedAt: connectionActivatedAt,
     lastDeliveryAt: new Date("2026-07-21T13:00:00.000Z"),
@@ -53,11 +54,12 @@ function runtimeEnvironment(productionEnabled = true) {
 function createHarness(options?: {
   countResults?: number[];
   productionEnabled?: boolean;
+  provider?: "umbler" | "gupshup";
 }) {
   const counts = [...(options?.countResults ?? [])];
   const prisma = {
     inboundWebhookConnection: {
-      findFirst: vi.fn(async () => connectionRecord()),
+      findFirst: vi.fn(async () => connectionRecord(options?.provider)),
     },
     inboundWebhookEvent: {
       count: vi.fn(async () => counts.shift() ?? 0),
@@ -130,9 +132,41 @@ describe("backoffice inbound webhook production recovery service", () => {
       where: expect.objectContaining({
         connectionId: "connection_1",
         channelId: "channel_1",
+        provider: "umbler",
         delivery: {
           firstReceivedAt: { gte: channelActivatedAt },
         },
+      }),
+    });
+  });
+
+  it("uses the connection provider when previewing Gupshup production gaps", async () => {
+    const harness = createHarness({
+      countResults: [23, 11, 0, 0, 11],
+      provider: "gupshup",
+    });
+
+    const preview = await harness.service.getPreview("connection_1");
+
+    expect(preview).toMatchObject({
+      connection: {
+        provider: "gupshup",
+        displayName: "Gupshup Comercial",
+      },
+      counts: {
+        totalCtwa: 23,
+        historical: 12,
+        routeUnresolved: 0,
+        unavailable: 0,
+        alreadyQueued: 0,
+        eligible: 11,
+      },
+    });
+    expect(harness.prisma.inboundWebhookEvent.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        connectionId: "connection_1",
+        channelId: "channel_1",
+        provider: "gupshup",
       }),
     });
   });
@@ -175,6 +209,7 @@ describe("backoffice inbound webhook production recovery service", () => {
       expect.objectContaining({
         take: 5,
         where: expect.objectContaining({
+          provider: "umbler",
           classification: "eligible_route_resolved",
           replayItem: null,
           productionItem: null,
@@ -213,6 +248,32 @@ describe("backoffice inbound webhook production recovery service", () => {
       existing: 0,
       queueFailures: 0,
     });
+  });
+
+  it("enqueues a Gupshup production recovery with the same safeguards", async () => {
+    const harness = createHarness({ provider: "gupshup" });
+
+    await harness.service.authorizeRecovery({
+      connectionId: "connection_1",
+      channelId: "channel_1",
+      confirmation: "Gupshup Comercial",
+      selection: "canary_1",
+      actor,
+      sourceIp: "203.0.113.10",
+    });
+
+    expect(harness.prisma.inboundWebhookEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 1,
+        where: expect.objectContaining({
+          provider: "gupshup",
+          classification: "eligible_route_resolved",
+          replayItem: null,
+          productionItem: null,
+        }),
+      }),
+    );
+    expect(harness.queue.enqueueItem).toHaveBeenCalledTimes(2);
   });
 
   it("keeps recovery blocked when the production flag is off", async () => {
