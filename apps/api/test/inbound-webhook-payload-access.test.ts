@@ -612,6 +612,71 @@ describe("inbound webhook payload access", () => {
     expect(harness.audits).toHaveLength(0);
   });
 
+  it("keeps unsupported deliveries visible through the selected channel connection", async () => {
+    const harness = createHarness();
+    Reflect.set(harness.delivery, "provider", "gupshup");
+    Reflect.set(harness.delivery, "classification", "unsupported_event");
+    Reflect.set(harness.delivery, "events", []);
+    Reflect.set(harness.delivery._count, "events", 0);
+
+    const result = await harness.service.listDeliveries({
+      workspaceId: "workspace_1",
+      connectionId: "connection_1",
+      channelId: "channel_1",
+      provider: "gupshup",
+      purpose: "message_observation",
+      status: "processed",
+      classification: "unsupported_event",
+      limit: 25,
+      offset: 0,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(
+      harness.prisma.inboundWebhookDelivery.findMany,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          connection: {
+            channels: {
+              some: {
+                id: "channel_1",
+              },
+            },
+          },
+        }),
+      }),
+    );
+    const where =
+      harness.prisma.inboundWebhookDelivery.findMany.mock.calls[0]?.[0]?.where;
+    expect(where).not.toHaveProperty("events");
+
+    const summary = await harness.service.summarizeDeliveries({
+      workspaceId: "workspace_1",
+      connectionId: "connection_1",
+      channelId: "channel_1",
+      provider: "gupshup",
+      purpose: "message_observation",
+    });
+    const awaitingParserCall =
+      harness.prisma.inboundWebhookDelivery.count.mock.calls.find(
+        ([input]) => input.where.classification === "unsupported_event",
+      );
+
+    expect(summary.awaitingParser).toBe(1);
+    expect(awaitingParserCall?.[0].where).toEqual(
+      expect.objectContaining({
+        connection: {
+          channels: {
+            some: {
+              id: "channel_1",
+            },
+          },
+        },
+      }),
+    );
+  });
+
   it("filters deliveries by the exact Sao Paulo minute", async () => {
     const harness = createHarness();
 

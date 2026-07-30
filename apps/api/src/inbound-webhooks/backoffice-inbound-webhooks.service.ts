@@ -1093,9 +1093,13 @@ export class BackofficeInboundWebhooksService {
   async listDeliveries(
     query: BackofficeInboundWebhookDeliveryQueryDto,
   ): Promise<BackofficeInboundWebhookDeliveryDto[]> {
+    const deliveryScope =
+      query.classification === "unsupported_event"
+        ? this.awaitingParserDeliveryScope(query)
+        : this.deliveryScope(query);
     const deliveries = await this.prisma.inboundWebhookDelivery.findMany({
       where: {
-        ...this.deliveryScope(query),
+        ...deliveryScope,
         ...(query.status ? { status: query.status } : {}),
         ...(query.classification
           ? {
@@ -1128,6 +1132,8 @@ export class BackofficeInboundWebhooksService {
     query: BackofficeInboundWebhookDeliverySummaryQueryDto,
   ): Promise<BackofficeInboundWebhookDeliverySummaryDto> {
     const deliveryScope = this.deliveryScope(query);
+    const awaitingParserDeliveryScope =
+      this.awaitingParserDeliveryScope(query);
     const eventScope = this.eventScope(query);
     const [
       all,
@@ -1168,7 +1174,7 @@ export class BackofficeInboundWebhooksService {
       }),
       this.prisma.inboundWebhookDelivery.count({
         where: {
-          ...deliveryScope,
+          ...awaitingParserDeliveryScope,
           classification: "unsupported_event",
         },
       }),
@@ -1389,6 +1395,31 @@ export class BackofficeInboundWebhooksService {
       ...(query.connectionId ? { connectionId: query.connectionId } : {}),
       ...(query.channelId
         ? { events: { some: { channelId: query.channelId } } }
+        : {}),
+      ...(query.provider ? { provider: query.provider } : {}),
+      ...(query.purpose ? { purpose: query.purpose } : {}),
+      ...(receivedAt ? { lastReceivedAt: receivedAt } : {}),
+    };
+  }
+
+  private awaitingParserDeliveryScope(
+    query: BackofficeInboundWebhookDeliverySummaryQueryDto,
+  ): Prisma.InboundWebhookDeliveryWhereInput {
+    const receivedAt = this.receivedAtRange(query);
+
+    return {
+      ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
+      ...(query.connectionId ? { connectionId: query.connectionId } : {}),
+      ...(query.channelId
+        ? {
+            connection: {
+              channels: {
+                some: {
+                  id: query.channelId,
+                },
+              },
+            },
+          }
         : {}),
       ...(query.provider ? { provider: query.provider } : {}),
       ...(query.purpose ? { purpose: query.purpose } : {}),
