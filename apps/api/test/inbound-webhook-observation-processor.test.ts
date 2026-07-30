@@ -615,6 +615,134 @@ describe("inbound webhook observation processor", () => {
     );
   });
 
+  it("persists a canonical Gupshup CTWA event from the observed Cloud envelope", async () => {
+    const harness = createHarness();
+    const contactPhone = "5521988887777";
+    const privateMessage = "Mensagem privada da Gupshup";
+    const privateCtwa = "ctwa-private-gupshup";
+    harness.addConnection("connection_gupshup", "workspace_1", {
+      provider: "gupshup",
+      parserReleaseId: "parser_release_gupshup",
+      parserRelease: {
+        id: "parser_release_gupshup",
+        provider: "gupshup",
+        version: "v1",
+        status: "observation_only",
+      },
+    });
+    harness.addDelivery(
+      "delivery_gupshup_cloud",
+      {
+        object: "whatsapp_business_account",
+        gs_app_id: "gupshup-app-1",
+        entry: [
+          {
+            id: "waba-1",
+            changes: [
+              {
+                field: "messages",
+                value: {
+                  messaging_product: "whatsapp",
+                  metadata: {
+                    display_phone_number: "+55 21 99999-0000",
+                    phone_number_id: "phone-number-id-1",
+                  },
+                  contacts: [
+                    {
+                      profile: {
+                        name: "Contato de teste",
+                      },
+                      wa_id: contactPhone,
+                    },
+                  ],
+                  messages: [
+                    {
+                      from: contactPhone,
+                      id: "wamid.gupshup-cloud-1",
+                      timestamp: "1785373200",
+                      type: "text",
+                      text: {
+                        body: privateMessage,
+                      },
+                      referral: {
+                        source_url: "https://fb.me/ad",
+                        source_id: "120000000000000001",
+                        source_type: "ad",
+                        headline: "Titulo do anuncio",
+                        body: "Descricao do anuncio",
+                        ctwa_clid: privateCtwa,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        connectionId: "connection_gupshup",
+        provider: "gupshup",
+      },
+    );
+
+    const result = await harness.service.processDelivery({
+      deliveryId: "delivery_gupshup_cloud",
+      connectionId: "connection_gupshup",
+      workspaceId: "workspace_1",
+    });
+
+    expect(result).toEqual({
+      deliveryId: "delivery_gupshup_cloud",
+      status: "processed",
+      classification: "eligible_route_unresolved",
+      parsedEventCount: 1,
+      persistedEventCount: 1,
+      idempotent: false,
+    });
+    expect(harness.events.size).toBe(1);
+    expect(harness.channels.size).toBe(1);
+    expect(harness.deliveries.get("delivery_gupshup_cloud")).toMatchObject({
+      status: "processed",
+      classification: "eligible_route_unresolved",
+      providerEventType: "messages",
+      externalDeliveryId: "wamid.gupshup-cloud-1",
+      parseErrorCode: null,
+      routingErrorCode: null,
+    });
+
+    const persistedEvent = [...harness.events.values()][0]!;
+    expect(persistedEvent).toMatchObject({
+      workspaceId: "workspace_1",
+      connectionId: "connection_gupshup",
+      deliveryId: "delivery_gupshup_cloud",
+      provider: "gupshup",
+      contactIdentityHash: hashPhoneIdentity(contactPhone),
+      adId: "120000000000000001",
+      hasCtwa: true,
+      classification: "eligible_route_unresolved",
+    });
+    expect(harness.diagnostics.recordObservation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "gupshup",
+        eventType: "messages",
+        eventCount: 1,
+        classification: "eligible_route_unresolved",
+      }),
+    );
+
+    const redactedPersistence = JSON.stringify({
+      delivery:
+        harness.deliveries.get("delivery_gupshup_cloud")?.normalizedSummary,
+      event: persistedEvent,
+      diagnostic:
+        harness.diagnostics.recordObservation.mock.calls[0]?.[0],
+    });
+    expect(redactedPersistence).not.toContain(contactPhone);
+    expect(redactedPersistence).not.toContain(privateMessage);
+    expect(redactedPersistence).not.toContain(privateCtwa);
+  });
+
   it("rejects cross-tenant or cross-connection jobs before decrypting", async () => {
     const harness = createHarness();
     harness.addDelivery("delivery_1", loadFixture());
