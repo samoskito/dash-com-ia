@@ -7,9 +7,10 @@ import { WorkspacesService } from "./workspaces.service";
 import { PlatformWorkspaceAccessService } from "./platform-workspace-access.service";
 import { WorkspaceContextService } from "./workspace-context.service";
 import { WorkspaceAccessPolicyService } from "./workspace-access-policy.service";
+import { ClientSwapModule } from "./client-swap/client-swap.module";
 
 @Module({
-  imports: [AuthModule, PrismaModule],
+  imports: [AuthModule, PrismaModule, ClientSwapModule],
   controllers: [WorkspacesController, BackofficeWorkspacesController],
   providers: [
     WorkspacesService,
