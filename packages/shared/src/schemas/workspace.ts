@@ -192,3 +192,25 @@ export type WorkspaceInviteInspectionDto = z.infer<
 export type WorkspaceInviteAcceptDto = z.infer<
   typeof workspaceInviteAcceptSchema
 >;
+
+// Client Swap schemas
+export const clientSwapDto = z.object({
+  confirm: z.literal(true, {
+    errorMap: () => ({ message: 'Confirmação obrigatória: envie confirm: true' }),
+  }),
+  newClientName: z.string().min(1).max(100).optional(),
+});
+
+export const clientSwapResultSchema = z.object({
+  success: z.literal(true),
+  wipedCounts: z.record(z.string(), z.number().int().nonnegative()),
+  workspace: z.object({
+    id: z.string(),
+    name: z.string(),
+    slug: z.string(),
+    operationalStatus: z.enum(workspaceOperationalStatuses),
+  }),
+});
+
+export type ClientSwapDto = z.infer<typeof clientSwapDto>;
+export type ClientSwapResult = z.infer<typeof clientSwapResultSchema>;
