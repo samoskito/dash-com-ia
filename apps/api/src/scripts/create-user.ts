@@ -72,6 +72,19 @@ async function main() {
 
     if (user) {
       console.log(`Usuário já existe: ${user.id} (${user.email})`);
+      if (!user.passwordHash) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: await bcrypt.hash(args.password, 12), emailVerifiedAt: new Date() },
+        });
+        console.log(`Senha definida para usuário existente (não tinha senha)`);
+      } else {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: await bcrypt.hash(args.password, 12) },
+        });
+        console.log(`Senha redefinida para usuário existente`);
+      }
     } else {
       user = await prisma.user.create({
         data: {
