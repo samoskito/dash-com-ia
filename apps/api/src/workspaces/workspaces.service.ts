@@ -12,10 +12,15 @@ import { Prisma, type WorkspaceInvite } from "@prisma/client";
 import {
   backofficeClientWorkspaceListSchema,
   clientOwnerAccessResendResultSchema,
+  clientOwnerActivationLinkResultSchema,
+  clientOwnerSetPasswordResultSchema,
   clientWorkspaceProvisionResultSchema,
   type BackofficeClientWorkspaceDto,
   type ClientOwnerAccessDeliveryDto,
   type ClientOwnerAccessResendResultDto,
+  type ClientOwnerActivationLinkResultDto,
+  type ClientOwnerSetPasswordInputDto,
+  type ClientOwnerSetPasswordResultDto,
   type ClientWorkspaceProvisionInputDto,
   type ClientWorkspaceProvisionResultDto,
   type CurrentWorkspaceDto,
@@ -132,7 +137,7 @@ export class WorkspacesService {
           where: { role: "owner" },
           include: {
             user: {
-              select: { id: true, name: true, email: true },
+              select: { id: true, name: true, email: true, passwordHash: true },
             },
           },
           orderBy: { createdAt: "asc" },
@@ -155,6 +160,7 @@ export class WorkspacesService {
           id: member.user.id,
           name: member.user.name,
           email: member.user.email,
+          hasPassword: member.user.passwordHash != null,
         })),
         connectorCount: workspace._count.externalDataConnectors,
       })),
@@ -333,6 +339,134 @@ export class WorkspacesService {
     });
   }
 
+  async issueClientOwnerActivationLink(
+    workspaceId: string,
+    ownerUserId: string,
+    actorUserId: string,
+  ): Promise<ClientOwnerActivationLinkResultDto> {
+    const member = await this.findClientOwnerMembership(
+      workspaceId,
+      ownerUserId,
+    );
+
+    if (member.user.passwordHash) {
+      throw this.alreadyActivatedConflict();
+    }
+
+    if (!this.authService) {
+      throw new BadRequestException("Ativacao indisponivel");
+    }
+
+    const issued = await this.authService.issueClientOwnerActivationLink({
+      userId: member.user.id,
+      workspaceId: member.workspace.id,
+    });
+    const activationUrl = this.buildWebUrl("/login/activate", issued.token);
+
+    await this.recordWorkspaceAudit({
+      workspaceId,
+      actorUserId,
+      actorType: "platform_admin",
+      action: "workspace.client_owner_activation_link_issued",
+      targetType: "WorkspaceMember",
+      targetId: member.id,
+      resultStatus: issued.delivery,
+      afterSummary: {
+        accessMode: issued.mode,
+        delivery: issued.delivery,
+        emailAttempted: issued.emailAttempted,
+        actionTokenId: issued.actionTokenId,
+        tokenHashPrefix: issued.tokenHashPrefix,
+        recipientEmailHash: this.hashAuditValue(member.user.email),
+      } as Prisma.InputJsonValue,
+    });
+
+    return clientOwnerActivationLinkResultSchema.parse({
+      ok: true,
+      mode: issued.mode,
+      delivery: issued.delivery,
+      activationUrl,
+      expiresAt: issued.expiresAt.toISOString(),
+      emailAttempted: issued.emailAttempted,
+    });
+  }
+
+  async setClientOwnerPassword(
+    workspaceId: string,
+    ownerUserId: string,
+    input: ClientOwnerSetPasswordInputDto,
+    actorUserId: string,
+  ): Promise<ClientOwnerSetPasswordResultDto> {
+    const member = await this.findClientOwnerMembership(
+      workspaceId,
+      ownerUserId,
+    );
+
+    if (member.user.passwordHash) {
+      throw this.alreadyActivatedConflict();
+    }
+
+    const passwordHash = await this.passwordService.hash(input.password);
+    const now = new Date();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.user.updateMany({
+        where: {
+          id: member.user.id,
+          passwordHash: null,
+        },
+        data: {
+          passwordHash,
+          emailVerifiedAt: member.user.emailVerifiedAt ?? now,
+        },
+      });
+
+      if (result.count !== 1) {
+        throw this.alreadyActivatedConflict();
+      }
+
+      await tx.authSession.updateMany({
+        where: {
+          userId: member.user.id,
+          revokedAt: null,
+        },
+        data: { revokedAt: now },
+      });
+      await tx.authActionToken.updateMany({
+        where: {
+          userId: member.user.id,
+          type: "account_activation",
+          usedAt: null,
+        },
+        data: { usedAt: now },
+      });
+
+      return result;
+    });
+
+    await this.recordWorkspaceAudit({
+      workspaceId,
+      actorUserId,
+      actorType: "platform_admin",
+      action: "workspace.client_owner_password_set",
+      targetType: "User",
+      targetId: member.user.id,
+      resultStatus: "success",
+      afterSummary: {
+        userId: member.user.id,
+        passwordSet: true,
+        sessionsRevoked: true,
+        recipientEmailHash: this.hashAuditValue(member.user.email),
+        updatedCount: updated.count,
+      } as Prisma.InputJsonValue,
+    });
+
+    return clientOwnerSetPasswordResultSchema.parse({
+      ok: true,
+      userId: member.user.id,
+      passwordSet: true,
+    });
+  }
+
   private async deliverClientOwnerAccess(input: {
     workspace: { id: string; name: string };
     owner: {
@@ -455,17 +589,7 @@ export class WorkspacesService {
     });
 
     return invites.flatMap((invite) =>
-      this.isInvitableRole(invite.role)
-        ? [
-            {
-              id: invite.id,
-              email: invite.email,
-              role: invite.role,
-              status: invite.status,
-              expiresAt: invite.expiresAt.toISOString(),
-            },
-          ]
-        : [],
+      this.isInvitableRole(invite.role) ? [this.toInviteDto(invite)] : [],
     );
   }
 
@@ -960,13 +1084,7 @@ export class WorkspacesService {
       inviterName: authenticated.user.name,
     });
 
-    return {
-      id: deliverable.id,
-      email: deliverable.email,
-      role: this.requireInvitableRole(deliverable.role),
-      status: deliverable.status,
-      expiresAt: deliverable.expiresAt.toISOString(),
-    };
+    return this.toInviteDto(deliverable, acceptToken);
   }
 
   async resendInvite(
@@ -1019,13 +1137,7 @@ export class WorkspacesService {
       inviterName: authenticated.user.name,
     });
 
-    return {
-      id: deliverable.id,
-      email: deliverable.email,
-      role: this.requireInvitableRole(deliverable.role),
-      status: deliverable.status,
-      expiresAt: deliverable.expiresAt.toISOString(),
-    };
+    return this.toInviteDto(deliverable, acceptToken);
   }
 
   async revokeInvite(
@@ -1063,13 +1175,7 @@ export class WorkspacesService {
       } as Prisma.InputJsonValue,
     });
 
-    return {
-      id: updated.id,
-      email: updated.email,
-      role: this.requireInvitableRole(updated.role),
-      status: updated.status,
-      expiresAt: updated.expiresAt.toISOString(),
-    };
+    return this.toInviteDto(updated);
   }
 
   async inspectInvite(
@@ -1634,6 +1740,86 @@ export class WorkspacesService {
       role: member.role,
       canManageMembers: member.canManageMembers,
       joinedAt: member.createdAt.toISOString(),
+    };
+  }
+
+  private alreadyActivatedConflict(): ConflictException {
+    return new ConflictException({
+      code: "already_activated",
+      message: "Responsavel ja possui senha",
+    });
+  }
+
+  private async findClientOwnerMembership(
+    workspaceId: string,
+    ownerUserId: string,
+  ) {
+    const member = await this.prisma.workspaceMember.findFirst({
+      where: {
+        workspaceId,
+        userId: ownerUserId,
+        role: "owner",
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        workspace: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            passwordHash: true,
+            emailVerifiedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!member) {
+      throw new NotFoundException("Responsavel nao encontrado");
+    }
+
+    return member;
+  }
+
+  private getWebOrigin(): string {
+    return (process.env.WEB_ORIGIN ?? "http://localhost:3000").replace(
+      /\/$/,
+      "",
+    );
+  }
+
+  private buildWebUrl(path: string, token: string): string {
+    const url = new URL(path, `${this.getWebOrigin()}/`);
+    url.searchParams.set("token", token);
+    return url.toString();
+  }
+
+  private toInviteDto(
+    invite: {
+      id: string;
+      email: string;
+      role: string;
+      status: WorkspaceInviteDto["status"] | string;
+      expiresAt: Date;
+    },
+    acceptToken?: string,
+  ): WorkspaceInviteDto {
+    return {
+      id: invite.id,
+      email: invite.email,
+      role: this.requireInvitableRole(invite.role),
+      status: invite.status as WorkspaceInviteDto["status"],
+      expiresAt: invite.expiresAt.toISOString(),
+      ...(acceptToken
+        ? { acceptUrl: this.buildWebUrl("/invite/accept", acceptToken) }
+        : {}),
     };
   }
 

@@ -14,9 +14,16 @@ export const clientWorkspaceProvisionInputSchema = z.object({
   ownerEmail: normalizedEmailSchema
 });
 
+export const clientOwnerAccessDeliveryValues = [
+  "email_queued",
+  "failed",
+  "not_configured",
+  "link_only"
+] as const;
+
 export const clientOwnerAccessDeliverySchema = z.object({
   mode: z.enum(["activation", "existing_account"]),
-  delivery: z.enum(["email_queued", "failed", "not_configured"])
+  delivery: z.enum(clientOwnerAccessDeliveryValues)
 });
 
 export const clientWorkspaceProvisionResultSchema = z.object({
@@ -40,6 +47,38 @@ export const clientOwnerAccessResendResultSchema = z.object({
   access: clientOwnerAccessDeliverySchema
 });
 
+export const clientOwnerActivationLinkResultSchema = z.object({
+  ok: z.literal(true),
+  mode: z.literal("activation"),
+  delivery: z.enum(clientOwnerAccessDeliveryValues),
+  activationUrl: z.string().url(),
+  expiresAt: z.string().datetime(),
+  emailAttempted: z.boolean()
+});
+
+export const clientOwnerSetPasswordInputSchema = z
+  .object({
+    password: z.string().min(8).max(128),
+    confirmPassword: z.string().min(8).max(128),
+    confirm: z.literal(true)
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    if (val.password !== val.confirmPassword) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "password_mismatch",
+        path: ["confirmPassword"]
+      });
+    }
+  });
+
+export const clientOwnerSetPasswordResultSchema = z.object({
+  ok: z.literal(true),
+  userId: z.string().min(1),
+  passwordSet: z.literal(true)
+});
+
 export const backofficeClientWorkspaceSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -50,7 +89,8 @@ export const backofficeClientWorkspaceSchema = z.object({
     z.object({
       id: z.string().min(1),
       name: z.string().nullable(),
-      email: z.string().email()
+      email: z.string().email(),
+      hasPassword: z.boolean()
     })
   ),
   connectorCount: z.number().int().nonnegative()
@@ -104,6 +144,15 @@ export type ClientOwnerAccessDeliveryDto = z.infer<
 >;
 export type ClientOwnerAccessResendResultDto = z.infer<
   typeof clientOwnerAccessResendResultSchema
+>;
+export type ClientOwnerActivationLinkResultDto = z.infer<
+  typeof clientOwnerActivationLinkResultSchema
+>;
+export type ClientOwnerSetPasswordInputDto = z.infer<
+  typeof clientOwnerSetPasswordInputSchema
+>;
+export type ClientOwnerSetPasswordResultDto = z.infer<
+  typeof clientOwnerSetPasswordResultSchema
 >;
 export type BackofficeClientWorkspaceDto = z.infer<
   typeof backofficeClientWorkspaceSchema

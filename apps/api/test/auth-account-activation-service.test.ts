@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { AuthService } from "../src/auth/auth.service";
 
@@ -379,5 +379,32 @@ describe("client owner account activation", () => {
       results.filter((result) => result.status === "rejected"),
     ).toHaveLength(1);
     expect(harness.db.sessions).toHaveLength(1);
+  });
+
+  it("returns a one-time token to the backoffice link path without logging it", async () => {
+    const harness = createHarness();
+
+    const result = await harness.service.issueClientOwnerActivationLink({
+      userId: harness.db.user.id,
+      workspaceId: harness.workspace.id,
+    });
+
+    expect(result.token).toHaveLength(64);
+    expect(result.delivery).toBe("email_queued");
+    expect(result.emailAttempted).toBe(true);
+    expect(result.expiresAt).toBeInstanceOf(Date);
+    expect(JSON.stringify(harness.db.auditLogs)).not.toContain(result.token);
+  });
+
+  it("rejects backoffice activation when the owner already has a password", async () => {
+    const harness = createHarness();
+    harness.db.user.passwordHash = "already-set";
+
+    await expect(
+      harness.service.issueClientOwnerActivationLink({
+        userId: harness.db.user.id,
+        workspaceId: harness.workspace.id,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 });

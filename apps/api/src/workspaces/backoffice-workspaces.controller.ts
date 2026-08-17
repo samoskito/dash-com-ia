@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import {
   clientWorkspaceProvisionInputSchema,
+  clientOwnerSetPasswordInputSchema,
   workspaceBillingUpdateInputSchema,
   workspaceOperationalStatusUpdateInputSchema
 } from "@wpptrack/shared";
@@ -79,6 +80,45 @@ export class BackofficeWorkspacesController {
     return this.workspacesService.resendClientOwnerAccess(
       workspaceId,
       ownerUserId,
+      platformAdmin.id
+    );
+  }
+
+  @Post(":workspaceId/owners/:ownerUserId/activation-link")
+  async issueOwnerActivationLink(
+    @AuthToken() refreshToken: string,
+    @Param("workspaceId") workspaceId: string,
+    @Param("ownerUserId") ownerUserId: string
+  ) {
+    const platformAdmin =
+      await this.platformAdminService.assertPlatformAdmin(refreshToken);
+
+    return this.workspacesService.issueClientOwnerActivationLink(
+      workspaceId,
+      ownerUserId,
+      platformAdmin.id
+    );
+  }
+
+  @Post(":workspaceId/owners/:ownerUserId/set-password")
+  async setOwnerPassword(
+    @AuthToken() refreshToken: string,
+    @Param("workspaceId") workspaceId: string,
+    @Param("ownerUserId") ownerUserId: string,
+    @Body() body: unknown
+  ) {
+    const platformAdmin =
+      await this.platformAdminService.assertPlatformAdmin(refreshToken);
+    const parsed = clientOwnerSetPasswordInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Payload invalido");
+    }
+
+    return this.workspacesService.setClientOwnerPassword(
+      workspaceId,
+      ownerUserId,
+      parsed.data,
       platformAdmin.id
     );
   }

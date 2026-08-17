@@ -111,6 +111,7 @@ export const workspaceInviteSchema = z.object({
   role: z.enum(invitationalWorkspaceRoles),
   status: z.enum(workspaceInviteStatuses),
   expiresAt: z.string().datetime(),
+  acceptUrl: z.string().url().optional(),
 });
 
 export const workspaceInviteAcceptInputSchema = z.object({
