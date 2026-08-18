@@ -41,15 +41,12 @@ const LOOKBACK_HOURS = Number(process.env.LOOKBACK_HOURS || 168);
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const QUEUE_NAME = "conversion-events";
 
-function createBullJobId(prefix, id) {
-  // Match apps/api/src/common/queue/job-id.ts if present; fallback stable id
-  try {
-    const { createBullJobId: real } = require("../dist/common/queue/job-id");
-    return real(prefix, id);
-  } catch {
-    const safe = String(id).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
-    return `${prefix}:${safe}`;
-  }
+function createBullJobId(...segments) {
+  // Mirror apps/api/src/common/queue/job-id.ts exactly
+  return segments
+    .filter((segment) => segment !== null && segment !== undefined)
+    .map((segment) => String(segment).replaceAll(":", "_"))
+    .join("_");
 }
 
 async function main() {
