@@ -14080,3 +14080,74 @@ button.meta-manual-entry[aria-expanded="true"] {
     width: 100%;
   }
 }
+
+.client-swap-panel-shell {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.client-swap-trigger {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.client-swap-lists {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.client-swap-lists > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(5, 8, 7, 0.45);
+}
+
+.client-swap-lists dt {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.client-swap-lists dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.client-swap-checkbox {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 10px !important;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.client-swap-checkbox input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--signal);
+}
+
+.client-swap-details {
+  margin-top: 8px;
+}
+
+.client-swap-details ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.client-swap-dialog {
+  max-width: min(560px, calc(100vw - 32px));
+}

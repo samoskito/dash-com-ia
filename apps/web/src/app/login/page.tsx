@@ -62,6 +62,10 @@ export default async function LoginPage({
   const redirectTo = safeRedirectPath(
     asStringParam(resolvedSearchParams.redirectTo),
   );
+  const swappedNotice =
+    asStringParam(resolvedSearchParams.swapped) === "1"
+      ? "Troca de cliente concluida. Entre novamente para continuar com o workspace limpo."
+      : null;
   const googleEnabled =
     process.env.AUTH_GOOGLE_ENABLED?.trim().toLowerCase() === "true";
 
@@ -78,6 +82,11 @@ export default async function LoginPage({
             Acesse o painel para acompanhar leads, campanhas, eventos Pixel e
             diagnosticos da sua operacao em uma unica tela de controle.
           </p>
+          {swappedNotice ? (
+            <p className="form-success" role="status">
+              {swappedNotice}
+            </p>
+          ) : null}
 
           <div
             className="login-status-grid"

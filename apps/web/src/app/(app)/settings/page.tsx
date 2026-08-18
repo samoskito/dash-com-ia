@@ -16,6 +16,7 @@ import { conversionEventDisplayLabels } from "@wpptrack/shared";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import {
+  ArrowLeftRight,
   Building2,
   ChevronDown,
   ShieldCheck,
@@ -28,6 +29,7 @@ import {
   BackofficeActionForm,
   type BackofficeActionState,
 } from "../../../components/backoffice-action-form";
+import { ClientSwapPanel } from "../../../components/client-swap-panel";
 import { ConversionRuleBuilder } from "../../../components/conversion-rule-builder";
 import { CopyLinkButton } from "../../../components/copy-link-button";
 import { LinkResultActionForm } from "../../../components/link-result-action-form";
@@ -38,6 +40,7 @@ import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { ProviderConversionRulePanel } from "../integrations/provider-conversion-rule-panel";
+import { clientSwapAction } from "./client-swap-actions";
 import {
   adaptProviderConversionRuleAction,
   createProviderConversionRuleAction,
@@ -929,6 +932,9 @@ export default async function SettingsPage() {
     workspace?.permissions.canManageMembers &&
     (!isPlatformSupport || isPlatformOwnerSupport),
   );
+  const canSwapClient = Boolean(
+    workspace && workspace.role === "owner" && !isPlatformSupport,
+  );
   const canGrantMemberManager = Boolean(
     workspace?.permissions.canGrantMemberManager &&
     (!isPlatformSupport || isPlatformOwnerSupport),
@@ -1086,6 +1092,12 @@ export default async function SettingsPage() {
           <Workflow size={16} aria-hidden="true" />
           Conversoes
         </a>
+        {canSwapClient ? (
+          <a href="#configuracao-trocar-cliente">
+            <ArrowLeftRight size={16} aria-hidden="true" />
+            Trocar cliente
+          </a>
+        ) : null}
       </nav>
 
       <section
@@ -1997,6 +2009,39 @@ export default async function SettingsPage() {
           </details>
         </div>
       </section>
+
+      {canSwapClient && workspace ? (
+        <section
+          className="settings-domain-section settings-client-swap-domain"
+          id="configuracao-trocar-cliente"
+          aria-labelledby="settings-client-swap-title"
+        >
+          <div className="settings-domain-heading">
+            <span className="settings-domain-number" aria-hidden="true">
+              04
+            </span>
+            <div>
+              <span className="eyebrow">Operacao da agencia</span>
+              <h2 id="settings-client-swap-title">Trocar de cliente</h2>
+              <p>
+                Use quando este workspace deixar de atender o cliente atual e
+                for reaproveitado para outro. A assinatura e a equipe da
+                agencia permanecem; os dados operacionais do cliente sao
+                apagados.
+              </p>
+            </div>
+            <span className="status-chip warn">Acao destrutiva</span>
+          </div>
+
+          <div className="surface-panel client-swap-panel-shell">
+            <ClientSwapPanel
+              workspaceId={workspace.id}
+              workspaceName={workspace.name}
+              swapAction={clientSwapAction}
+            />
+          </div>
+        </section>
+      ) : null}
     </section>
   );
 }
