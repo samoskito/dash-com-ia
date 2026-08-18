@@ -747,3 +747,10 @@ Proximo passo operacional:
 - Seguranca: dois rounds de review fail-closed (Grok 4.6 read-only) + checklist Mano Deyvin no diff (passed) + gitleaks (so falso-positivo de fixture). Sem migrations na PR. Testes: shared 102, api 1346+, web 291, builds verdes.
 - Cenario de uso aprovado: workspace da agencia reaproveitado para novo cliente mantem assinatura/equipe; primeiro swap real deve ser validado em workspace de TESTE, nunca direto em cliente pago.
 - CI do repo: so Vercel (web preview). Nao ha GitHub Actions de testes; gates de testes sao locais. Follow-up sugerido: workflow de CI monorepo + gitleaks.
+
+## Entregas 2026-08-18 (PR #6, merge ba8374b) — Owner Master
+
+- Decisao de produto ("Owner Master"): o `platform_owner` (usuario master/dono da plataforma) tem poderes equivalentes a um owner de workspace em qualquer workspace que acessar via backoffice (support context). Princípio geral para futuras features: tarefas de owner devem ser acessiveis ao master em modo suporte, salvo decisao explicita em contrario.
+- Implementacao no Client Swap: `WorkspaceOwnerGuard` aceita `platform_owner` apenas quando existe support context ATIVO com `workspaceId` exato do alvo (sem swap arbitrario de outros workspaces); sessao comum sem support context continua 403; `platform_operator` continua 403 para swap (destrutiva restrita ao master, por enquanto). Swap em modo suporte e auditado com `actorType: platform_admin`.
+- Frontend: Settings exibe "Trocar de cliente" para platform_owner em support mode; pos-swap em support mode redireciona para `/backoffice/clients` (owner-member segue indo para `/login?swapped=1`).
+- Fluxo de uso: Backoffice -> Clientes -> Acessar workspace -> Settings (fim da pagina) -> Trocar de cliente. Testes: api 1354 (6 novos de guard), web 291, builds verdes. Sem migrations.
