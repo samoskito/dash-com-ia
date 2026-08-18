@@ -459,6 +459,8 @@ model Workspace {
   purchaseReviews                  PurchaseReview[]
   purchaseReviewItems              PurchaseReviewItem[]
   purchaseValueAdjustments         PurchaseValueAdjustment[]
+  xmaxAccounts                     XmaxAccount[]
+  xmaxShadowEvents                 XmaxShadowEvent[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
@@ -2379,4 +2381,95 @@ model MetaAdDailyInsight {
   @@index([workspaceId, adSetId, localDate])
   @@index([workspaceId, adId, localDate])
   @@index([workspaceId, localDate, impressions])
+}
+
+enum XmaxAccountStatus {
+  active
+  paused
+  disabled
+}
+
+enum XmaxShadowEventStatus {
+  observed
+  discarded
+  duplicate
+  failed
+}
+
+/// XMAX multi-account integration (shadow ingest first; no CAPI in X1).
+model XmaxAccount {
+  id                       String            @id @default(cuid())
+  workspaceId              String
+  displayName              String
+  baseUrl                  String
+  queueId                  String
+  /// AES-256-GCM ciphertext of API key (base64)
+  apiKeyEncrypted          String
+  apiKeyIv                 String
+  apiKeyTag                String
+  /// SHA-256 of webhook secret; compared with timing-safe equality
+  webhookSecretHash        String
+  /// Default ISO country calling code digits, e.g. "55" (BR) or "595" (PY)
+  defaultCountryCode       String            @default("55")
+  /// Configurable tag ids that map to QualifiedLead (defaults for one client: ["55"])
+  qualifiedLeadTagIds      String[]          @default([])
+  /// Configurable tag ids that map to Purchase (defaults for one client: ["56"])
+  purchaseTagIds           String[]          @default([])
+  status                   XmaxAccountStatus @default(active)
+  shadowMode               Boolean           @default(true)
+  /// Always false in X1 — production CAPI cutover is X2+
+  capiSendEnabled          Boolean           @default(false)
+  lastWebhookAt            DateTime?
+  lastSuccessfulGetContact DateTime?
+  lastErrorCode            String?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  workspace    Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  eventDedups  XmaxContactEventDedup[]
+  shadowEvents XmaxShadowEvent[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+}
+
+/// Semantic dedup: 1 event per contact+eventName forever (tag re-add must not re-fire).
+model XmaxContactEventDedup {
+  id          String   @id @default(cuid())
+  accountId   String
+  contactId   String
+  eventName   String
+  firstSeenAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  account XmaxAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, contactId, eventName])
+  @@index([accountId, firstSeenAt])
+}
+
+/// Shadow observation log for XMAX webhook processing (no Meta send in X1).
+model XmaxShadowEvent {
+  id              String                @id @default(cuid())
+  workspaceId     String
+  accountId       String
+  contactId       String?
+  eventName       String?
+  phoneNormalized String?
+  phoneHash       String?
+  status          XmaxShadowEventStatus
+  reasonCode      String?
+  ingressKey      String
+  providerAttempt Int?
+  tagIds          String[]              @default([])
+  rawSummary      Json?
+  createdAt       DateTime              @default(now())
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  account   XmaxAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, ingressKey])
+  @@index([workspaceId, createdAt])
+  @@index([accountId, status, createdAt])
+  @@index([accountId, contactId, eventName])
 }
