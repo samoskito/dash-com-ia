@@ -1,9 +1,10 @@
 // Cleanup leads created by the broken Uazapi path (no CTWA).
 // Usage:
-//   node scripts/cleanup-uazapi-leads-without-ctwa.js --dry-run
-//   node scripts/cleanup-uazapi-leads-without-ctwa.js --execute
+//   WORKSPACE_ID=... node scripts/cleanup-uazapi-leads-without-ctwa.js --dry-run
+//   WORKSPACE_ID=... node scripts/cleanup-uazapi-leads-without-ctwa.js --execute
 //
 // Safety:
+// - WORKSPACE_ID is REQUIRED (never wipe all tenants)
 // - ONLY deletes Lead rows where source = 'uazapi' AND ctwaClid IS NULL
 // - Never touches leads with ctwaClid set (Umbler/Gupshup/CTWA OK)
 // - Nulls/clears child FKs in safe order before deleting the Lead
@@ -18,27 +19,46 @@ const mode = process.argv.includes("--execute")
   : process.argv.includes("--dry-run")
     ? "dry-run"
     : null;
+const WORKSPACE_ID = process.env.WORKSPACE_ID || null;
 
 if (!mode) {
   console.error(
-    "Uso: node scripts/cleanup-uazapi-leads-without-ctwa.js --dry-run | --execute",
+    "Uso: WORKSPACE_ID=<id> node scripts/cleanup-uazapi-leads-without-ctwa.js --dry-run | --execute",
   );
   process.exit(1);
 }
 
+if (!WORKSPACE_ID) {
+  console.error(
+    "WORKSPACE_ID e obrigatorio. Ex.: WORKSPACE_ID=cmsx... node scripts/cleanup-uazapi-leads-without-ctwa.js --dry-run",
+  );
+  process.exit(1);
+}
+
+const targetWhere = {
+  workspaceId: WORKSPACE_ID,
+  source: "uazapi",
+  ctwaClid: null,
+};
+
 async function inventory() {
-  const [total, withCtwa, uazapiNoCtwa, uazapiWithCtwa, otherNoCtwa] =
+  const [totalWs, withCtwa, uazapiNoCtwa, uazapiWithCtwa, otherNoCtwa] =
     await Promise.all([
-      prisma.lead.count(),
-      prisma.lead.count({ where: { ctwaClid: { not: null } } }),
+      prisma.lead.count({ where: { workspaceId: WORKSPACE_ID } }),
       prisma.lead.count({
-        where: { source: "uazapi", ctwaClid: null },
+        where: { workspaceId: WORKSPACE_ID, ctwaClid: { not: null } },
       }),
+      prisma.lead.count({ where: targetWhere }),
       prisma.lead.count({
-        where: { source: "uazapi", ctwaClid: { not: null } },
+        where: {
+          workspaceId: WORKSPACE_ID,
+          source: "uazapi",
+          ctwaClid: { not: null },
+        },
       }),
       prisma.lead.count({
         where: {
+          workspaceId: WORKSPACE_ID,
           OR: [{ source: { not: "uazapi" } }, { source: null }],
           ctwaClid: null,
         },
@@ -46,9 +66,9 @@ async function inventory() {
     ]);
 
   const sample = await prisma.lead.findMany({
-    where: { source: "uazapi", ctwaClid: null },
+    where: targetWhere,
     orderBy: { createdAt: "desc" },
-    take: 10,
+    take: 20,
     select: {
       id: true,
       workspaceId: true,
@@ -56,6 +76,7 @@ async function inventory() {
       phoneDisplay: true,
       source: true,
       campaignId: true,
+      adId: true,
       ctwaClid: true,
       createdAt: true,
     },
@@ -63,14 +84,15 @@ async function inventory() {
 
   console.log("=== INVENTARIO ===");
   console.log({
-    totalLeads: total,
-    withCtwa,
+    workspaceId: WORKSPACE_ID,
+    totalLeadsInWorkspace: totalWs,
+    withCtwa_KEEP: withCtwa,
     uazapiNoCtwa_TO_DELETE: uazapiNoCtwa,
     uazapiWithCtwa_KEEP: uazapiWithCtwa,
     otherSourcesNoCtwa_KEEP: otherNoCtwa,
     mode,
   });
-  console.log("amostra (10 mais recentes uazapi sem ctwa):");
+  console.log("candidatos (uazapi sem ctwa neste workspace):");
   for (const l of sample) {
     console.log(
       "-",
@@ -81,6 +103,8 @@ async function inventory() {
       l.name || "NULL",
       "| phone=",
       l.phoneDisplay || "NULL",
+      "| adId=",
+      l.adId || "NULL",
       "| id=",
       l.id,
     );
@@ -145,7 +169,7 @@ async function executeCleanup() {
 
   for (;;) {
     const batch = await prisma.lead.findMany({
-      where: { source: "uazapi", ctwaClid: null },
+      where: targetWhere,
       select: { id: true },
       take: batchSize,
     });
@@ -187,6 +211,7 @@ async function executeCleanup() {
       const del = await tx.lead.deleteMany({
         where: {
           id: { in: ids },
+          workspaceId: WORKSPACE_ID,
           source: "uazapi",
           ctwaClid: null,
         },
