@@ -458,6 +458,15 @@ export class WebhooksController {
       resolvedContext
     );
 
+    const attribution = await this.resolveUazapiMetaAttribution(
+      resolvedContext.workspaceId,
+      {
+        campaignId: parsed.campaignId,
+        adSetId: parsed.adSetId,
+        adId: parsed.adId
+      }
+    );
+
     const diagnostic = await this.diagnosticsService.recordWebhookLog({
       workspaceId: resolvedContext.workspaceId,
       whatsappInstanceId: resolvedContext.whatsappInstanceId,
@@ -474,9 +483,9 @@ export class WebhooksController {
         : undefined,
       leadId: parsed.leadId,
       phoneHash: parsed.phoneHash,
-      campaignId: parsed.campaignId,
-      adSetId: parsed.adSetId,
-      adId: parsed.adId,
+      campaignId: attribution.campaignId,
+      adSetId: attribution.adSetId,
+      adId: attribution.adId,
       summaryPayload: body
     });
 
@@ -497,7 +506,8 @@ export class WebhooksController {
       message.fromMe === false &&
       parsed.isGroupChat !== true;
 
-    if (!isInboundMessage) {
+    // Product rule: Uazapi only creates platform leads for paid CTWA inbound messages.
+    if (!isInboundMessage || !parsed.ctwaClid) {
       return {
         ...diagnostic,
         conversion: {
@@ -524,35 +534,31 @@ export class WebhooksController {
       phoneHash: parsed.phoneHash,
       source: "uazapi",
       labels: triggerInput.labels,
-      campaignId: parsed.campaignId,
-      adSetId: parsed.adSetId,
-      adId: parsed.adId,
+      campaignId: attribution.campaignId,
+      adSetId: attribution.adSetId,
+      adId: attribution.adId,
       ctwaClid: parsed.ctwaClid,
       ctwaSourceUrl: parsed.ctwaSourceUrl,
       occurredAt: new Date()
     });
-    const automatic = parsed.ctwaClid
-      ? await this.conversionEventsService.recordAutomaticLeadSubmitted({
-          workspaceId: resolvedContext.workspaceId,
-          leadId: lead?.id ?? parsed.leadId,
-          phoneHash: parsed.phoneHash,
-          campaignId: parsed.campaignId,
-          adSetId: parsed.adSetId,
-          adId: parsed.adId,
-          ctwaClid: parsed.ctwaClid
-        })
-      : {
-          created: [],
-          duplicates: []
-        };
+    const automatic =
+      await this.conversionEventsService.recordAutomaticLeadSubmitted({
+        workspaceId: resolvedContext.workspaceId,
+        leadId: lead?.id ?? parsed.leadId,
+        phoneHash: parsed.phoneHash,
+        campaignId: attribution.campaignId,
+        adSetId: attribution.adSetId,
+        adId: attribution.adId,
+        ctwaClid: parsed.ctwaClid
+      });
     const conversion = await this.conversionEventsService.recordRuleMatches({
       workspaceId: resolvedContext.workspaceId,
       rules,
       leadId: lead?.id ?? parsed.leadId,
       phoneHash: parsed.phoneHash,
-      campaignId: parsed.campaignId,
-      adSetId: parsed.adSetId,
-      adId: parsed.adId,
+      campaignId: attribution.campaignId,
+      adSetId: attribution.adSetId,
+      adId: attribution.adId,
       ctwaClid: parsed.ctwaClid
     });
     const readyLogIds = await this.conversionEventsService.listReadyLogIds([
@@ -575,6 +581,44 @@ export class WebhooksController {
         automatic,
         queued
       }
+    };
+  }
+
+  private async resolveUazapiMetaAttribution(
+    workspaceId: string,
+    input: {
+      campaignId?: string;
+      adSetId?: string;
+      adId?: string;
+    }
+  ): Promise<{
+    campaignId?: string;
+    adSetId?: string;
+    adId?: string;
+  }> {
+    if (!input.adId) {
+      return input;
+    }
+
+    const ad = await this.prisma.metaAd.findFirst({
+      where: {
+        workspaceId,
+        adId: input.adId
+      },
+      select: {
+        campaignId: true,
+        adSetId: true
+      }
+    });
+
+    if (!ad) {
+      return input;
+    }
+
+    return {
+      adId: input.adId,
+      campaignId: input.campaignId ?? ad.campaignId ?? undefined,
+      adSetId: input.adSetId ?? ad.adSetId ?? undefined
     };
   }
 
