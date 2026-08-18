@@ -165,6 +165,7 @@ export class ClientSwapService {
     actorUserId: string,
     dto: ClientSwapDto,
     idempotencyKey?: string,
+    actorType: "user" | "platform_admin" = "user",
   ): Promise<ClientSwapResult> {
     if (dto.confirm !== true) {
       throw new BadRequestException("Payload invalido");
@@ -195,7 +196,7 @@ export class ClientSwapService {
           }
 
           await this.rateLimitService.assertAllowed(workspaceId, tx);
-          await this.validateSwap(tx, workspaceId, actorUserId);
+          await this.validateSwap(tx, workspaceId, actorUserId, actorType);
 
           const connectorIds = (
             await tx.externalDataConnector.findMany({
@@ -222,7 +223,7 @@ export class ClientSwapService {
             data: {
               workspaceId,
               actorUserId,
-              actorType: "user",
+              actorType,
               action: CLIENT_SWAP_COMPLETED_ACTION,
               targetType: "Workspace",
               targetId: workspaceId,
@@ -311,6 +312,7 @@ export class ClientSwapService {
     tx: Prisma.TransactionClient,
     workspaceId: string,
     actorUserId: string,
+    actorType: "user" | "platform_admin",
   ): Promise<void> {
     const workspace = await tx.workspace.findUnique({
       where: { id: workspaceId },
@@ -330,11 +332,13 @@ export class ClientSwapService {
       );
     }
 
-    const membership = workspace.members[0];
-    if (!membership || membership.role !== "owner") {
-      throw new ForbiddenException(
-        "Apenas o owner do workspace pode executar esta operação",
-      );
+    if (actorType !== "platform_admin") {
+      const membership = workspace.members[0];
+      if (!membership || membership.role !== "owner") {
+        throw new ForbiddenException(
+          "Apenas o owner do workspace pode executar esta operação",
+        );
+      }
     }
 
     const activeSubscription = workspace.subscriptions.find(

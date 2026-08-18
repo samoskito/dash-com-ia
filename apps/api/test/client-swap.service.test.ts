@@ -68,9 +68,15 @@ function createHarness(options: {
       findMany: vi.fn(async () => [{ id: "connector_1" }]),
     },
     workspace: {
-      findUnique: vi.fn(async ({ where }: any) => {
+      findUnique: vi.fn(async ({ where, include }: any) => {
         if (where.id === workspaceId) {
-          return workspace;
+          const memberFilter = include?.members?.where?.userId;
+          return {
+            ...workspace,
+            members: memberFilter
+              ? workspace.members.filter((member) => member.userId === memberFilter)
+              : workspace.members,
+          };
         }
         if (where.slug && slugHits.has(where.slug)) {
           return { id: "workspace_other" };
@@ -156,6 +162,8 @@ describe("client swap service", () => {
     expect(harness.auditLogs).toHaveLength(1);
     expect(harness.auditLogs[0]).toMatchObject({
       action: CLIENT_SWAP_COMPLETED_ACTION,
+      actorType: "user",
+      actorUserId: actorUserId,
       resultStatus: "success",
       beforeSummary: { idempotencyKeyHash },
     });
@@ -356,5 +364,27 @@ describe("client swap service", () => {
       ),
     ).rejects.toBeInstanceOf(InternalServerErrorException);
     expect(harness.prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("audits platform_admin and skips membership when actorType is platform_admin", async () => {
+    const harness = createHarness();
+    const platformOwnerId = "user_platform_owner";
+
+    const result = await harness.service.swap(
+      workspaceId,
+      platformOwnerId,
+      { confirm: true },
+      idempotencyKey,
+      "platform_admin",
+    );
+
+    expect(result.success).toBe(true);
+    expect(harness.auditLogs).toHaveLength(1);
+    expect(harness.auditLogs[0]).toMatchObject({
+      action: CLIENT_SWAP_COMPLETED_ACTION,
+      actorType: "platform_admin",
+      actorUserId: platformOwnerId,
+    });
+    expect(harness.prisma.lead.deleteMany).toHaveBeenCalled();
   });
 });
