@@ -17,6 +17,7 @@ export type ParsedUazapiWebhook = {
   ctwaClid?: string;
   ctwaSourceUrl?: string;
   providerInstanceId?: string;
+  isGroupChat?: boolean;
 };
 
 export function parseUazapiWebhook(
@@ -34,14 +35,16 @@ export function parseUazapiWebhook(
     recordValue(body.adsContextData) ??
     recordValue(referral?.ads_context_data) ??
     recordValue(referral?.adsContextData);
-  const phone = getPhone(body);
+  const externalAdReply = getExternalAdReply(body, message);
+  const phone = getPhone(body, message);
 
   return {
     eventType: firstString(body.event) ?? firstString(body.type) ?? "uazapi.webhook",
     externalEventId:
       firstString(body.id) ??
       firstString(body.eventId) ??
-      firstString(body.externalEventId),
+      firstString(body.externalEventId) ??
+      firstString(message?.id),
     leadId: firstString(body.leadId),
     phone,
     phoneHash: firstString(body.phoneHash) ?? hashPhoneIdentity(phone),
@@ -80,16 +83,20 @@ export function parseUazapiWebhook(
       firstString(referral?.sourceId) ??
       firstString(referral?.source_id) ??
       firstString(adsContext?.adId) ??
-      firstString(adsContext?.ad_id),
+      firstString(adsContext?.ad_id) ??
+      firstString(externalAdReply?.sourceID),
     ctwaClid:
       firstString(body.ctwa_clid) ??
       firstString(body.ctwaClid) ??
-      firstStringFromRecords(referralCandidates, ["ctwa_clid", "ctwaClid"]),
+      firstStringFromRecords(referralCandidates, ["ctwa_clid", "ctwaClid"]) ??
+      firstString(externalAdReply?.ctwaClid),
     ctwaSourceUrl:
       firstString(body.ctwaSourceUrl) ??
       firstString(body.source_url) ??
-      firstStringFromRecords(referralCandidates, ["source_url", "sourceUrl"]),
-    providerInstanceId: getProviderInstanceId(body)
+      firstStringFromRecords(referralCandidates, ["source_url", "sourceUrl"]) ??
+      firstString(externalAdReply?.sourceUrl),
+    providerInstanceId: getProviderInstanceId(body),
+    isGroupChat: getIsGroupChat(body)
   };
 }
 
@@ -149,12 +156,9 @@ function getMessageText(body: UazapiWebhookBody): string | undefined {
 }
 
 function getLabels(body: UazapiWebhookBody): string[] {
+  const chat = recordValue(body.chat);
   const rawLabels =
-    body.labels ??
-    (body.chat && typeof body.chat === "object" && !Array.isArray(body.chat)
-      ? (body.chat as Record<string, unknown>).labels
-      : undefined) ??
-    body.label;
+    body.labels ?? chat?.labels ?? chat?.wa_label ?? body.label;
 
   if (!rawLabels) {
     return [];
@@ -167,33 +171,57 @@ function getLabels(body: UazapiWebhookBody): string[] {
     .filter((label): label is string => Boolean(label));
 }
 
-function getPhone(body: UazapiWebhookBody): string | undefined {
-  const contact = body.contact;
-  const chat = body.chat;
+function getPhone(
+  body: UazapiWebhookBody,
+  message?: Record<string, unknown>
+): string | undefined {
+  const contact = recordValue(body.contact);
+  const chat = recordValue(body.chat);
 
   return (
     firstString(body.phone) ??
     firstString(body.from) ??
     firstString(body.sender) ??
-    (contact && typeof contact === "object" && !Array.isArray(contact)
-      ? firstString((contact as Record<string, unknown>).phone)
-      : undefined) ??
-    (chat && typeof chat === "object" && !Array.isArray(chat)
-      ? firstString((chat as Record<string, unknown>).phone)
-      : undefined)
+    firstString(contact?.phone) ??
+    firstString(chat?.phone) ??
+    firstString(message?.chatid) ??
+    firstString(chat?.wa_chatid)
   );
 }
 
 function getContactName(body: UazapiWebhookBody): string | undefined {
-  const contact = body.contact;
+  const contact = recordValue(body.contact);
+  const chat = recordValue(body.chat);
 
   return (
     firstString(body.name) ??
     firstString(body.contactName) ??
     firstString(body.pushName) ??
-    (contact && typeof contact === "object" && !Array.isArray(contact)
-      ? firstString((contact as Record<string, unknown>).name)
-      : undefined)
+    firstString(contact?.name) ??
+    firstString(chat?.wa_name) ??
+    firstString(chat?.name)
+  );
+}
+
+function getIsGroupChat(body: UazapiWebhookBody): boolean | undefined {
+  const chat = recordValue(body.chat);
+
+  return typeof chat?.wa_isGroup === "boolean" ? chat.wa_isGroup : undefined;
+}
+
+function getExternalAdReply(
+  body: UazapiWebhookBody,
+  message?: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const content = recordValue(message?.content);
+  const contentContext = recordValue(content?.contextInfo);
+  const messageContext = recordValue(message?.contextInfo);
+  const bodyContext = recordValue(body.contextInfo);
+
+  return (
+    recordValue(contentContext?.externalAdReply) ??
+    recordValue(messageContext?.externalAdReply) ??
+    recordValue(bodyContext?.externalAdReply)
   );
 }
 

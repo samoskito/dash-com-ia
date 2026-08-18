@@ -491,6 +491,23 @@ export class WebhooksController {
       };
     }
 
+    const message = this.recordValue(body.message);
+    const isInboundMessage =
+      message !== undefined &&
+      message.fromMe === false &&
+      parsed.isGroupChat !== true;
+
+    if (!isInboundMessage) {
+      return {
+        ...diagnostic,
+        conversion: {
+          created: [],
+          duplicates: [],
+          queued: []
+        }
+      };
+    }
+
     const triggerInput = {
       messageText: parsed.messageText,
       labels: parsed.labels

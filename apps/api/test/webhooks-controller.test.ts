@@ -226,7 +226,8 @@ describe("webhooks controller", () => {
           id: "provider_instance_1"
         },
         message: {
-          text: "Oi, quero comprar"
+          text: "Oi, quero comprar",
+          fromMe: false
         },
         labels: ["Venda fechada"],
         phone: "+55 11 98844-1020",
@@ -343,6 +344,7 @@ describe("webhooks controller", () => {
         },
         message: {
           text: "fechei",
+          fromMe: false,
           referral: {
             source_id: "ad_ref_1",
             ctwa_clid: "ctwa_click_1",
@@ -636,7 +638,8 @@ describe("webhooks controller", () => {
           id: "provider_instance_1"
         },
         message: {
-          text: "Oi, quero comprar"
+          text: "Oi, quero comprar",
+          fromMe: false
         },
         phone: "+55 11 98844-1020"
       })
@@ -700,7 +703,8 @@ describe("webhooks controller", () => {
         event: "message.received",
         id: "evt_uazapi_instance_1",
         message: {
-          text: "Oi, quero comprar"
+          text: "Oi, quero comprar",
+          fromMe: false
         },
         phone: "+55 11 98844-1020"
       })
@@ -804,6 +808,235 @@ describe("webhooks controller", () => {
     expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
     expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
     expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("records chat-update diagnostics without creating a lead", async () => {
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      conversionEventsService,
+      conversionEventsQueueService,
+      leadsService
+    } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .set("x-workspace-id", "workspace_1")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
+      .send({
+        instance: {
+          id: "provider_instance_1"
+        },
+        chat: {
+          name: "Elisandra Castro",
+          phone: "+55 51 8670-0577",
+          wa_name: "",
+          wa_label: ["555197120433:39"],
+          wa_isGroup: false,
+          wa_chatid: "555186700577@s.whatsapp.net"
+        }
+      })
+      .expect(202)
+      .expect(({ body }) => {
+        expect(body.status).toBe("received");
+        expect(body.conversion).toEqual({
+          created: [],
+          duplicates: [],
+          queued: []
+        });
+      });
+
+    expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        source: "uazapi"
+      })
+    );
+    expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+    expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
+    expect(
+      conversionEventsService.recordAutomaticLeadSubmitted
+    ).not.toHaveBeenCalled();
+    expect(conversionEventsService.recordRuleMatches).not.toHaveBeenCalled();
+    expect(conversionEventsQueueService.enqueueSend).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("upserts lead from inbound Uazapi message with current CTWA fields", async () => {
+    const {
+      app,
+      conversionRulesService,
+      conversionEventsService,
+      leadsService
+    } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .set("x-workspace-id", "workspace_1")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
+      .send({
+        instance: {
+          id: "provider_instance_1"
+        },
+        chat: {
+          id: "",
+          name: "",
+          phone: "555481241163",
+          owner: "555481240263",
+          wa_name: "Luciane",
+          wa_label: [],
+          wa_isGroup: false,
+          wa_chatid: "555481241163@s.whatsapp.net",
+          wa_chatlid: "271411952234508@lid",
+          lead_name: "",
+          lead_tags: []
+        },
+        owner: "555481240263",
+        message: {
+          id: "555481240263:3EB0REALMESSAGEID",
+          text: "Boa tarde",
+          type: "text",
+          fromMe: false,
+          chatid: "555481241163@s.whatsapp.net",
+          sender: "271411952234508@lid",
+          chatlid: "271411952234508@lid",
+          content: {
+            text: "Boa tarde",
+            title: "Livre-se da Dor, Sem Cirurgia!",
+            contextInfo: {
+              expiration: 86400,
+              externalAdReply: {
+                body: "Agende sua avaliacao",
+                title: "Livre-se da Dor, Sem Cirurgia!",
+                ctwaClid:
+                  "AfjIU6RQYlpYayfNA2FofVXxkeliu6BysDwemrjwWsYkf-_ONOcY41s3dxRY7EUKC9ohLo6fgLcH6vg35S3k29Q5NoxEzOAgiIvcn6gCIvcEyaVoEno2XI36dwlCGvo",
+                sourceID: "120233998877665544",
+                sourceUrl: "https://fb.me/current-uazapi-ad"
+              }
+            }
+          }
+        }
+      })
+      .expect(202);
+
+    expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        name: "Luciane",
+        phone: "555481241163",
+        ctwaClid:
+          "AfjIU6RQYlpYayfNA2FofVXxkeliu6BysDwemrjwWsYkf-_ONOcY41s3dxRY7EUKC9ohLo6fgLcH6vg35S3k29Q5NoxEzOAgiIvcn6gCIvcEyaVoEno2XI36dwlCGvo",
+        adId: "120233998877665544",
+        ctwaSourceUrl: "https://fb.me/current-uazapi-ad"
+      })
+    );
+    expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
+      "workspace_1",
+      expect.objectContaining({
+        messageText: "Boa tarde"
+      })
+    );
+    expect(
+      conversionEventsService.recordAutomaticLeadSubmitted
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        leadId: "lead_1",
+        ctwaClid:
+          "AfjIU6RQYlpYayfNA2FofVXxkeliu6BysDwemrjwWsYkf-_ONOcY41s3dxRY7EUKC9ohLo6fgLcH6vg35S3k29Q5NoxEzOAgiIvcn6gCIvcEyaVoEno2XI36dwlCGvo"
+      })
+    );
+
+    await app.close();
+  });
+
+  it("does not create a lead for outbound fromMe messages", async () => {
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      conversionEventsService,
+      leadsService
+    } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .set("x-workspace-id", "workspace_1")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
+      .send({
+        instance: {
+          id: "provider_instance_1"
+        },
+        chat: {
+          phone: "555481241163",
+          wa_name: "Luciane",
+          wa_isGroup: false
+        },
+        message: {
+          id: "555481240263:3EB0FROMME",
+          text: "resposta da clinica",
+          type: "text",
+          fromMe: true,
+          chatid: "555481241163@s.whatsapp.net"
+        }
+      })
+      .expect(202)
+      .expect(({ body }) => {
+        expect(body.conversion).toEqual({
+          created: [],
+          duplicates: [],
+          queued: []
+        });
+      });
+
+    expect(diagnosticsService.recordWebhookLog).toHaveBeenCalled();
+    expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+    expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
+    expect(
+      conversionEventsService.recordAutomaticLeadSubmitted
+    ).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("does not create a lead for inbound group chat messages", async () => {
+    const {
+      app,
+      diagnosticsService,
+      conversionRulesService,
+      leadsService
+    } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .set("x-workspace-id", "workspace_1")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
+      .send({
+        instance: {
+          id: "provider_instance_1"
+        },
+        chat: {
+          name: "Grupo Clinica",
+          wa_isGroup: true,
+          wa_chatid: "120363025812345678@g.us"
+        },
+        message: {
+          id: "555481240263:3EB0GROUPMSG",
+          text: "aviso do grupo",
+          type: "text",
+          fromMe: false,
+          chatid: "120363025812345678@g.us"
+        }
+      })
+      .expect(202);
+
+    expect(diagnosticsService.recordWebhookLog).toHaveBeenCalled();
+    expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+    expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
 
     await app.close();
   });
