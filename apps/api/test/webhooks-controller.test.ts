@@ -114,6 +114,14 @@ async function createApp() {
         }
       ])
     },
+    metaAd: {
+      findFirst: vi.fn(
+        async (): Promise<{
+          campaignId: string | null;
+          adSetId: string | null;
+        } | null> => null
+      )
+    },
     metaConversionDestination: {
       findMany: vi.fn(async () => [
         {
@@ -202,7 +210,7 @@ describe("webhooks controller", () => {
     await app.close();
   });
 
-  it("records Uazapi webhooks without creating automatic Meta events when CTWA is absent", async () => {
+  it("records Uazapi webhooks without creating leads when CTWA is absent", async () => {
     const expectedPhoneHash = createHash("sha256")
       .update("5511988441020")
       .digest("hex");
@@ -241,15 +249,11 @@ describe("webhooks controller", () => {
       .expect(({ body }) => {
         expect(body.status).toBe("received");
         expect(body.webhookLogId).toBe("webhook_1");
-        expect(body.conversion.automatic.created).toEqual([]);
-        expect(body.conversion.created).toEqual(["conversion_1"]);
-        expect(body.conversion.queued).toEqual([
-          {
-            conversionEventLogId: "conversion_1",
-            jobId: "conversion-send_conversion_1",
-            status: "queued"
-          }
-        ]);
+        expect(body.conversion).toEqual({
+          created: [],
+          duplicates: [],
+          queued: []
+        });
       });
 
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
@@ -266,43 +270,111 @@ describe("webhooks controller", () => {
         adId: "ad_1"
       })
     );
-    expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
-      "workspace_1",
-      {
-        messageText: "Oi, quero comprar",
-        labels: ["Venda fechada"]
+    expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
+    expect(conversionEventsService.recordRuleMatches).not.toHaveBeenCalled();
+    expect(
+      conversionEventsService.recordAutomaticLeadSubmitted
+    ).not.toHaveBeenCalled();
+    expect(conversionEventsService.listReadyLogIds).not.toHaveBeenCalled();
+    expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+    expect(conversionEventsQueueService.enqueueSend).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("resolves missing campaign/adSet from MetaAd on CTWA Uazapi ingest", async () => {
+    const expectedPhoneHash = createHash("sha256")
+      .update("5511988441020")
+      .digest("hex");
+    const {
+      app,
+      diagnosticsService,
+      conversionEventsService,
+      leadsService,
+      prismaService
+    } = await createApp();
+    prismaService.metaAd.findFirst.mockResolvedValueOnce({
+      campaignId: "cmp_from_meta",
+      adSetId: "adset_from_meta"
+    });
+    conversionEventsService.recordAutomaticLeadSubmitted.mockResolvedValueOnce({
+      created: ["automatic_1"],
+      duplicates: []
+    });
+    conversionEventsService.recordRuleMatches.mockResolvedValueOnce({
+      created: [],
+      duplicates: []
+    });
+    conversionEventsService.listReadyLogIds.mockResolvedValueOnce([
+      "automatic_1"
+    ]);
+
+    await request(app.getHttpServer())
+      .post("/webhooks/uazapi")
+      .set("x-workspace-id", "workspace_1")
+      .set("x-wpptrack-webhook-token", uazapiWebhookToken)
+      .send({
+        event: "message.received",
+        id: "evt_uazapi_meta_resolve_1",
+        instance: {
+          id: "provider_instance_1"
+        },
+        message: {
+          text: "Oi",
+          fromMe: false,
+          content: {
+            contextInfo: {
+              externalAdReply: {
+                ctwaClid: "ctwa_meta_1",
+                sourceID: "ad_only_1"
+              }
+            }
+          }
+        },
+        chat: {
+          wa_name: "Luciane",
+          phone: "5511988441020",
+          wa_isGroup: false
+        }
+      })
+      .expect(202);
+
+    expect(prismaService.metaAd.findFirst).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        adId: "ad_only_1"
+      },
+      select: {
+        campaignId: true,
+        adSetId: true
       }
+    });
+    expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        campaignId: "cmp_from_meta",
+        adSetId: "adset_from_meta",
+        adId: "ad_only_1"
+      })
     );
-    expect(conversionEventsService.recordRuleMatches).toHaveBeenCalledWith(
+    expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Luciane",
+        campaignId: "cmp_from_meta",
+        adSetId: "adset_from_meta",
+        adId: "ad_only_1",
+        ctwaClid: "ctwa_meta_1"
+      })
+    );
+    expect(conversionEventsService.recordAutomaticLeadSubmitted).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
         leadId: "lead_1",
         phoneHash: expectedPhoneHash,
-        rules: expect.arrayContaining([
-          expect.objectContaining({ eventName: "QualifiedLead" })
-        ])
+        campaignId: "cmp_from_meta",
+        adSetId: "adset_from_meta",
+        adId: "ad_only_1",
+        ctwaClid: "ctwa_meta_1"
       })
-    );
-    expect(
-      conversionEventsService.recordAutomaticLeadSubmitted
-    ).not.toHaveBeenCalled();
-    expect(conversionEventsService.listReadyLogIds).toHaveBeenCalledWith([
-      "conversion_1"
-    ]);
-    expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: "workspace_1",
-        name: "Mariana Alves",
-        phone: "+55 11 98844-1020",
-        labels: ["Venda fechada"],
-        campaignId: "cmp_1",
-        adSetId: "adset_1",
-        adId: "ad_1"
-      })
-    );
-    expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
-      "conversion_1",
-      "workspace_1"
     );
 
     await app.close();
@@ -641,7 +713,8 @@ describe("webhooks controller", () => {
           text: "Oi, quero comprar",
           fromMe: false
         },
-        phone: "+55 11 98844-1020"
+        phone: "+55 11 98844-1020",
+        ctwaClid: "ctwa_resolve_1"
       })
       .expect(202);
 
@@ -673,7 +746,8 @@ describe("webhooks controller", () => {
     expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
-        whatsappInstanceId: "wpp_1"
+        whatsappInstanceId: "wpp_1",
+        ctwaClid: "ctwa_resolve_1"
       })
     );
 
@@ -706,7 +780,8 @@ describe("webhooks controller", () => {
           text: "Oi, quero comprar",
           fromMe: false
         },
-        phone: "+55 11 98844-1020"
+        phone: "+55 11 98844-1020",
+        ctwaClid: "ctwa_instance_1"
       })
       .expect(202);
 
@@ -738,7 +813,8 @@ describe("webhooks controller", () => {
     expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
-        whatsappInstanceId: "wpp_1"
+        whatsappInstanceId: "wpp_1",
+        ctwaClid: "ctwa_instance_1"
       })
     );
 
