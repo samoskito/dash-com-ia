@@ -20,6 +20,7 @@ import { LeadsModule } from "./leads/leads.module";
 import { ReportingModule } from "./reporting/reporting.module";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
+import { XmaxModule } from "./xmax/xmax.module";
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     LeadsModule,
     ReportingModule,
     WebhooksModule,
+    XmaxModule,
   ],
   controllers: [HealthController],
   providers: [
