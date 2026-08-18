@@ -933,7 +933,9 @@ export default async function SettingsPage() {
     (!isPlatformSupport || isPlatformOwnerSupport),
   );
   const canSwapClient = Boolean(
-    workspace && workspace.role === "owner" && !isPlatformSupport,
+    workspace &&
+    workspace.role === "owner" &&
+    (!isPlatformSupport || isPlatformOwnerSupport),
   );
   const canGrantMemberManager = Boolean(
     workspace?.permissions.canGrantMemberManager &&
@@ -2038,6 +2040,11 @@ export default async function SettingsPage() {
               workspaceId={workspace.id}
               workspaceName={workspace.name}
               swapAction={clientSwapAction}
+              successRedirect={
+                isPlatformOwnerSupport
+                  ? "/backoffice/clients?swapped=1"
+                  : undefined
+              }
             />
           </div>
         </section>

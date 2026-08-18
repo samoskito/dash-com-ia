@@ -10,6 +10,7 @@ export function ClientSwapPanel({
   workspaceId,
   workspaceName,
   swapAction,
+  successRedirect = "/login?swapped=1",
 }: {
   workspaceId: string;
   workspaceName: string;
@@ -19,6 +20,7 @@ export function ClientSwapPanel({
     confirmationName: string,
     newClientName: string,
   ) => Promise<ClientSwapActionResult>;
+  successRedirect?: string;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [confirmationName, setConfirmationName] = useState("");
@@ -73,7 +75,7 @@ export function ClientSwapPanel({
 
     setResult(outcome);
     window.setTimeout(() => {
-      window.location.href = "/login?swapped=1";
+      window.location.href = successRedirect;
     }, REDIRECT_DELAY_MS);
   }
 
