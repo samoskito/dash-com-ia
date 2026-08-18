@@ -8,6 +8,7 @@ import { ClientSwapRateLimitService } from "../src/workspaces/client-swap/client
 import {
   CLIENT_SWAP_COMPLETED_ACTION,
   CLIENT_SWAP_CURSOR_DELEGATE,
+  CLIENT_SWAP_RESTRICT_EDGES,
   CLIENT_SWAP_WIPE_DELEGATES,
   ClientSwapService,
   hashClientSwapIdempotencyKey,
@@ -174,6 +175,16 @@ describe("client swap service", () => {
     );
   });
 
+  it("deletes Restrict children before their parents", () => {
+    const sequence = [...CLIENT_SWAP_WIPE_DELEGATES];
+
+    for (const [child, parent] of CLIENT_SWAP_RESTRICT_EDGES) {
+      expect(sequence.indexOf(child)).toBeGreaterThanOrEqual(0);
+      expect(sequence.indexOf(parent)).toBeGreaterThanOrEqual(0);
+      expect(sequence.indexOf(child)).toBeLessThan(sequence.indexOf(parent));
+    }
+  });
+
   it("refuses confirm !== true without wiping", async () => {
     const harness = createHarness();
 
@@ -224,7 +235,7 @@ describe("client swap service", () => {
         { confirm: true },
         idempotencyKey,
       ),
-    ).rejects.toThrow("audit storage unavailable");
+    ).rejects.toThrow("Nao foi possivel concluir a troca de cliente");
     expect(harness.prisma.lead.deleteMany).not.toHaveBeenCalled();
     expect(harness.prisma.auditLog.create).not.toHaveBeenCalled();
   });
@@ -271,14 +282,15 @@ describe("client swap service", () => {
       deleteFailures: { lead: new Error("fk violation") },
     });
 
-    await expect(
-      harness.service.swap(
-        workspaceId,
-        actorUserId,
-        { confirm: true },
-        idempotencyKey,
-      ),
-    ).rejects.toThrow("fk violation");
+    const err = await harness.service
+      .swap(workspaceId, actorUserId, { confirm: true }, idempotencyKey)
+      .catch((error: unknown) => error);
+
+    expect(err).toBeInstanceOf(InternalServerErrorException);
+    expect((err as Error).message).toBe(
+      "Nao foi possivel concluir a troca de cliente",
+    );
+    expect((err as Error).message).not.toContain("fk violation");
     expect(harness.prisma.auditLog.create).not.toHaveBeenCalled();
   });
 

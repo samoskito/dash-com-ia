@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Inject,
   Injectable,
   InternalServerErrorException,
@@ -29,19 +30,20 @@ export const CLIENT_SWAP_PRE_CONNECTOR_DELEGATES = [
   "providerConversionShadowComparison",
   "providerConversionRuleChannel",
   "providerConversionRuleEndpoint",
-  "providerConversionRuleConfig",
   "conversionCatalogVariant",
   "conversionCatalogAttribute",
   "conversionCatalog",
+  "providerConversionRuleConfig",
   "inboundWebhookReplayItem",
   "inboundWebhookReplayBatch",
   "inboundWebhookProductionItem",
   "inboundWebhookEvent",
   "inboundWebhookDelivery",
   "inboundWebhookChannelRoute",
+  "externalIngestionRecord",
+  "whatsappSeat",
   "inboundWebhookChannel",
   "inboundWebhookConnection",
-  "externalIngestionRecord",
 ] as const;
 
 export const CLIENT_SWAP_CURSOR_DELEGATE = "externalSyncCursor";
@@ -50,12 +52,12 @@ export const CLIENT_SWAP_POST_CONNECTOR_DELEGATES = [
   "externalCapiCutover",
   "externalDataConnector",
   "metaAdDailyInsight",
-  "metaAd",
   "metaAdSetDailyInsight",
   "metaAdSet",
   "metaCampaignDailyInsight",
   "metaCampaign",
   "metaAdDestinationAssignment",
+  "metaAd",
   "metaReportingAccountDestination",
   "metaReportingAccount",
   "metaConversionDestination",
@@ -63,7 +65,6 @@ export const CLIENT_SWAP_POST_CONNECTOR_DELEGATES = [
   "metaBusinessConnection",
   "metaCredential",
   "metaIntegration",
-  "whatsappSeat",
   "whatsappInstanceActivation",
   "whatsappInstance",
   "conversionEventLog",
@@ -85,6 +86,56 @@ export const CLIENT_SWAP_WIPE_DELEGATES = [
   ...CLIENT_SWAP_PRE_CONNECTOR_DELEGATES,
   CLIENT_SWAP_CURSOR_DELEGATE,
   ...CLIENT_SWAP_POST_CONNECTOR_DELEGATES,
+] as const;
+
+/**
+ * Inter-model Restrict/NoAction edges among wiped delegates, parsed from
+ * schema.prisma (explicit onDelete: Restrict, or required relations with the
+ * Prisma default). Child must be deleted before parent. Same-table self-FKs
+ * are omitted because deleteMany is a single statement.
+ */
+export const CLIENT_SWAP_RESTRICT_EDGES = [
+  ["whatsappSeat", "whatsappInstance"],
+  ["whatsappSeat", "inboundWebhookChannel"],
+  ["whatsappInstanceActivation", "whatsappInstance"],
+  ["providerConversionRuleConfig", "conversionRule"],
+  ["providerConversionRuleConfig", "inboundWebhookConnection"],
+  ["providerConversionRuleChannel", "providerConversionRuleConfig"],
+  ["providerConversionRuleChannel", "inboundWebhookChannel"],
+  ["providerConversionRuleEndpoint", "providerConversionRuleConfig"],
+  ["conversionCatalog", "providerConversionRuleConfig"],
+  ["conversionCatalogAttribute", "conversionCatalog"],
+  ["conversionCatalogVariant", "conversionCatalog"],
+  ["providerConversionRuleExecution", "providerConversionRuleConfig"],
+  ["providerConversionRuleExecution", "inboundWebhookDelivery"],
+  ["providerConversionDecisionAudit", "providerConversionRuleConfig"],
+  ["providerConversionDecisionAudit", "inboundWebhookDelivery"],
+  ["providerConversionDecisionAudit", "inboundWebhookChannel"],
+  ["providerConversionDecisionAudit", "lead"],
+  ["providerConversionShadowComparison", "providerConversionRuleConfig"],
+  ["providerConversionShadowComparison", "inboundWebhookDelivery"],
+  ["providerConversionShadowComparison", "inboundWebhookChannel"],
+  ["metaBusinessConnection", "metaCredential"],
+  ["metaReportingAccountDestination", "metaReportingAccount"],
+  ["metaReportingAccountDestination", "metaConversionDestination"],
+  ["metaAdDestinationAssignment", "metaAd"],
+  ["metaAdDestinationAssignment", "metaReportingAccount"],
+  ["metaAdDestinationAssignment", "metaConversionDestination"],
+  ["inboundWebhookChannel", "inboundWebhookConnection"],
+  ["inboundWebhookChannelRoute", "inboundWebhookChannel"],
+  ["inboundWebhookDelivery", "inboundWebhookConnection"],
+  ["purchaseReview", "providerConversionRuleConfig"],
+  ["purchaseReview", "inboundWebhookDelivery"],
+  ["purchaseValueAdjustment", "purchaseReview"],
+  ["purchaseValueAdjustment", "conversionEventLog"],
+  ["inboundWebhookEvent", "inboundWebhookConnection"],
+  ["inboundWebhookEvent", "inboundWebhookDelivery"],
+  ["inboundWebhookEvent", "inboundWebhookChannel"],
+  ["inboundWebhookReplayBatch", "inboundWebhookConnection"],
+  ["inboundWebhookReplayBatch", "inboundWebhookChannel"],
+  ["inboundWebhookReplayItem", "inboundWebhookReplayBatch"],
+  ["inboundWebhookReplayItem", "inboundWebhookEvent"],
+  ["inboundWebhookProductionItem", "inboundWebhookEvent"],
 ] as const;
 
 type WorkspaceDelegateName =
@@ -127,75 +178,85 @@ export class ClientSwapService {
 
     this.logger.log("client_swap_started");
 
-    const result = await this.prisma.$transaction(
-      async (tx) => {
-        await tx.$executeRaw(
-          Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`client-swap:${workspaceId}`}))`,
-        );
+    try {
+      const result = await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw(
+            Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`client-swap:${workspaceId}`}))`,
+          );
 
-        const replay = await this.findCompletedSwap(
-          tx,
-          workspaceId,
-          idempotencyKeyHash,
-        );
-        if (replay) {
-          return replay;
-        }
-
-        await this.rateLimitService.assertAllowed(workspaceId, tx);
-        await this.validateSwap(tx, workspaceId, actorUserId);
-
-        const connectorIds = (
-          await tx.externalDataConnector.findMany({
-            where: { workspaceId },
-            select: { id: true },
-          })
-        ).map((connector) => connector.id);
-
-        const wipedCounts = await this.wipeClientData(
-          tx,
-          workspaceId,
-          connectorIds,
-        );
-        await this.assertWipeComplete(tx, workspaceId, connectorIds);
-        await this.revokeMemberSessions(tx, workspaceId);
-
-        const workspace = await this.renameWorkspaceIfRequested(
-          tx,
-          workspaceId,
-          dto.newClientName,
-        );
-
-        await tx.auditLog.create({
-          data: {
+          const replay = await this.findCompletedSwap(
+            tx,
             workspaceId,
-            actorUserId,
-            actorType: "user",
-            action: CLIENT_SWAP_COMPLETED_ACTION,
-            targetType: "Workspace",
-            targetId: workspaceId,
-            reason:
-              "Troca de cliente da agência: limpeza completa de dados do cliente anterior",
-            resultStatus: "success",
-            beforeSummary: { idempotencyKeyHash },
-            afterSummary: {
-              wipedCounts,
-              workspace,
+            idempotencyKeyHash,
+          );
+          if (replay) {
+            return replay;
+          }
+
+          await this.rateLimitService.assertAllowed(workspaceId, tx);
+          await this.validateSwap(tx, workspaceId, actorUserId);
+
+          const connectorIds = (
+            await tx.externalDataConnector.findMany({
+              where: { workspaceId },
+              select: { id: true },
+            })
+          ).map((connector) => connector.id);
+
+          const wipedCounts = await this.wipeClientData(
+            tx,
+            workspaceId,
+            connectorIds,
+          );
+          await this.assertWipeComplete(tx, workspaceId, connectorIds);
+          await this.revokeMemberSessions(tx, workspaceId);
+
+          const workspace = await this.renameWorkspaceIfRequested(
+            tx,
+            workspaceId,
+            dto.newClientName,
+          );
+
+          await tx.auditLog.create({
+            data: {
+              workspaceId,
+              actorUserId,
+              actorType: "user",
+              action: CLIENT_SWAP_COMPLETED_ACTION,
+              targetType: "Workspace",
+              targetId: workspaceId,
+              reason:
+                "Troca de cliente da agência: limpeza completa de dados do cliente anterior",
+              resultStatus: "success",
+              beforeSummary: { idempotencyKeyHash },
+              afterSummary: {
+                wipedCounts,
+                workspace,
+              },
             },
-          },
-        });
+          });
 
-        return {
-          success: true as const,
-          wipedCounts,
-          workspace,
-        };
-      },
-      { timeout: 120000 },
-    );
+          return {
+            success: true as const,
+            wipedCounts,
+            workspace,
+          };
+        },
+        { timeout: 120000 },
+      );
 
-    this.logger.log("client_swap_completed");
-    return result;
+      this.logger.log("client_swap_completed");
+      return result;
+    } catch (error) {
+      if (error instanceof HttpException && error.getStatus() < 500) {
+        throw error;
+      }
+      this.logger.warn("client_swap_failed");
+      throw new InternalServerErrorException(
+        "Nao foi possivel concluir a troca de cliente",
+      );
+    }
   }
 
   private async findCompletedSwap(
