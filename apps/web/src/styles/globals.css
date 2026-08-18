@@ -3577,6 +3577,49 @@ td span {
   min-width: 210px;
 }
 
+.owner-access-controls {
+  display: grid;
+  gap: 8px;
+  min-width: 170px;
+}
+
+.owner-set-password-confirm {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+  min-height: 36px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.owner-set-password-confirm input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--signal);
+}
+
+.link-result-action {
+  display: grid;
+  gap: 8px;
+}
+
+.link-result-box {
+  display: flex;
+  gap: 6px;
+}
+
+.link-result-box input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(5, 8, 7, 0.76);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 9px;
+}
+
 .compact-button {
   min-height: 34px;
   padding: 7px 11px;

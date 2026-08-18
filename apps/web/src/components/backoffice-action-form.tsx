@@ -20,6 +20,8 @@ export type BackofficeActionState = {
     connectorId: string;
     requestedAt: number;
   };
+  activationUrl?: string;
+  acceptUrl?: string;
 };
 
 export type BackofficeFormAction = (

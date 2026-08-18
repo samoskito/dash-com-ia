@@ -29,6 +29,8 @@ import {
   type BackofficeActionState,
 } from "../../../components/backoffice-action-form";
 import { ConversionRuleBuilder } from "../../../components/conversion-rule-builder";
+import { CopyLinkButton } from "../../../components/copy-link-button";
+import { LinkResultActionForm } from "../../../components/link-result-action-form";
 import { PendingSubmitButton } from "../../../components/pending-submit-button";
 import { PresentationMask } from "../../../components/presentation-mask";
 import { TeamActionButton } from "../../../components/team-action-button";
@@ -630,12 +632,21 @@ async function createWorkspaceInvite(
   }
 
   try {
-    await serverApiFetch("/workspaces/current/invites", {
-      method: "POST",
-      body: JSON.stringify({ email, role }),
-    });
+    const invite = await serverApiFetch<WorkspaceInviteDto>(
+      "/workspaces/current/invites",
+      {
+        method: "POST",
+        body: JSON.stringify({ email, role }),
+      },
+    );
     revalidatePath("/settings");
-    return settingsActionState("success", "Convite criado para a equipe.");
+
+    return {
+      status: "success",
+      message: "Convite criado para a equipe.",
+      nonce: Date.now(),
+      acceptUrl: invite.acceptUrl,
+    };
   } catch {
     return settingsActionState("error", "Nao foi possivel criar o convite.");
   }
@@ -733,11 +744,18 @@ async function resendWorkspaceInvite(
   }
 
   try {
-    await serverApiFetch(`/workspaces/current/invites/${inviteId}/resend`, {
-      method: "POST",
-    });
+    const invite = await serverApiFetch<WorkspaceInviteDto>(
+      `/workspaces/current/invites/${inviteId}/resend`,
+      { method: "POST" },
+    );
     revalidatePath("/settings");
-    return settingsActionState("success", "Convite renovado.");
+
+    return {
+      status: "success",
+      message: "Convite renovado.",
+      nonce: Date.now(),
+      acceptUrl: invite.acceptUrl,
+    };
   } catch {
     return settingsActionState("error", "Nao foi possivel renovar o convite.");
   }
@@ -1378,9 +1396,10 @@ export default async function SettingsPage() {
               </div>
               {canManageTeam ? (
                 <div data-presentation-sensitive-action="true">
-                  <BackofficeActionForm
+                  <LinkResultActionForm
                     action={createWorkspaceInvite}
                     className="invite-form"
+                    linkField="acceptUrl"
                     resetOnSuccess
                   >
                     <label>
@@ -1403,7 +1422,7 @@ export default async function SettingsPage() {
                       <UserPlus aria-hidden="true" size={16} strokeWidth={2} />
                       Enviar convite
                     </button>
-                  </BackofficeActionForm>
+                  </LinkResultActionForm>
                 </div>
               ) : (
                 <p className="muted">
@@ -1434,7 +1453,10 @@ export default async function SettingsPage() {
                           className="invite-actions"
                           data-presentation-sensitive-action="true"
                         >
-                          <BackofficeActionForm action={resendWorkspaceInvite}>
+                          <LinkResultActionForm
+                            action={resendWorkspaceInvite}
+                            linkField="acceptUrl"
+                          >
                             <input
                               name="inviteId"
                               type="hidden"
@@ -1445,7 +1467,10 @@ export default async function SettingsPage() {
                               label="Reenviar"
                               pendingLabel="Enviando..."
                             />
-                          </BackofficeActionForm>
+                          </LinkResultActionForm>
+                          {invite.acceptUrl ? (
+                            <CopyLinkButton url={invite.acceptUrl} />
+                          ) : null}
                           {["pending", "sent", "failed"].includes(
                             invite.status,
                           ) ? (
