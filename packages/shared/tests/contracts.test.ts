@@ -7,6 +7,10 @@ import {
   canViewReports,
   campaignReportRowSchema,
   clientWorkspaceProvisionInputSchema,
+  clientOwnerActivationLinkResultSchema,
+  clientOwnerSetPasswordInputSchema,
+  clientOwnerSetPasswordResultSchema,
+  backofficeClientWorkspaceSchema,
   clientNavigation,
   conversionAuditEventDetailSchema,
   conversionAuditEventSchema,
@@ -217,6 +221,65 @@ describe("shared contracts", () => {
 
     expect(parsed.ownerEmail).toBe("owner@empresa.com");
     expect(parsed).not.toHaveProperty("ownerPassword");
+  });
+
+  it("validates access recovery contracts without leaking secrets", () => {
+    const link = clientOwnerActivationLinkResultSchema.parse({
+      ok: true,
+      mode: "activation",
+      delivery: "link_only",
+      activationUrl: "https://wpp.rastrack.app/login/activate?token=abc123",
+      expiresAt: "2026-08-24T03:00:00.000Z",
+      emailAttempted: false,
+    });
+    const passwordSet = clientOwnerSetPasswordResultSchema.parse({
+      ok: true,
+      userId: "user_owner",
+      passwordSet: true,
+    });
+    const workspace = backofficeClientWorkspaceSchema.parse({
+      id: "workspace_1",
+      name: "Empresa Cliente",
+      slug: "empresa-cliente",
+      operationalStatus: "active",
+      createdAt: "2026-08-17T03:00:00.000Z",
+      owners: [
+        {
+          id: "user_owner",
+          name: "Owner",
+          email: "owner@empresa.com",
+          hasPassword: false,
+        },
+      ],
+      connectorCount: 0,
+    });
+
+    expect(link.activationUrl).toContain("/login/activate?token=");
+    expect(passwordSet.passwordSet).toBe(true);
+    expect(workspace.owners[0]?.hasPassword).toBe(false);
+    expect(link).not.toHaveProperty("token");
+    expect(passwordSet).not.toHaveProperty("password");
+    expect(() =>
+      clientOwnerSetPasswordInputSchema.parse({
+        password: "strong-password",
+        confirmPassword: "other-password",
+        confirm: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      clientOwnerSetPasswordInputSchema.parse({
+        password: "strong-password",
+        confirmPassword: "strong-password",
+      }),
+    ).toThrow();
+    expect(() =>
+      clientOwnerSetPasswordInputSchema.parse({
+        password: "strong-password",
+        confirmPassword: "strong-password",
+        confirm: true,
+        extra: true,
+      }),
+    ).toThrow();
   });
 
   it("validates campaign report rows", () => {
@@ -1069,6 +1132,15 @@ describe("shared contracts", () => {
     expect(inviteInput.email).toBe("admin@wpptrack.com");
     expect(invite.status).toBe("pending");
     expect(invite).not.toHaveProperty("acceptToken");
+    const inviteWithLink = workspaceInviteSchema.parse({
+      id: "invite_2",
+      email: "admin@wpptrack.com",
+      role: "admin",
+      status: "pending",
+      expiresAt: "2026-07-09T03:00:00.000Z",
+      acceptUrl: "https://wpp.rastrack.app/invite/accept?token=invite-token-1234567890",
+    });
+    expect(inviteWithLink.acceptUrl).toContain("/invite/accept?token=");
     expect(acceptInput.token).toBe("invite-token-1234567890");
     expect(accepted.memberId).toBe("member_2");
     expect(newUserAccept.name).toBe("New Member");
@@ -1253,6 +1325,7 @@ describe("shared contracts", () => {
       externalEventId: "evt_1",
       status: "received",
       receivedAt: "2026-07-02T03:00:00.000Z",
+      whatsappInstanceId: null,
       payloadKind: "summary",
       payloadAvailable: true,
       payload: {

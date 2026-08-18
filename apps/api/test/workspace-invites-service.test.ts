@@ -332,6 +332,10 @@ describe("workspace invite service", () => {
       status: "pending",
     });
     expect(invite).not.toHaveProperty("acceptToken");
+    expect(invite.acceptUrl).toContain("/invite/accept?token=");
+    expect(invite.acceptUrl).toContain(
+      (db.queuedEmails[0].envelope as { data: { token: string } }).data.token,
+    );
     expect(db.queuedEmails).toHaveLength(1);
     expect(db.queuedEmails[0]).toMatchObject({
       action: { type: "WorkspaceInvite", id: "invite_2" },
@@ -431,6 +435,8 @@ describe("workspace invite service", () => {
     ).data.token;
 
     expect(resent).not.toHaveProperty("acceptToken");
+    expect(resent.acceptUrl).toContain("/invite/accept?token=");
+    expect(resent.acceptUrl).toContain(replacementToken);
     expect(resent.status).toBe("pending");
     expect(db.invites[0].tokenHash).not.toBe(previousHash);
     expect(db.queuedEmails).toHaveLength(1);

@@ -1,6 +1,8 @@
 import type {
   BackofficeClientWorkspaceDto,
   ClientOwnerAccessResendResultDto,
+  ClientOwnerActivationLinkResultDto,
+  ClientOwnerSetPasswordResultDto,
   ClientWorkspaceProvisionResultDto,
   ExternalConnectionTestResultDto,
   ExternalDataConnectorDto,
@@ -21,6 +23,7 @@ import {
 } from "../../../../components/backoffice-clients-navigation";
 import { BackofficeNavigation } from "../../../../components/backoffice-navigation";
 import { ExternalConnectorRow } from "../../../../components/external-connector-row";
+import { LinkResultActionForm } from "../../../../components/link-result-action-form";
 import { PendingSubmitButton } from "../../../../components/pending-submit-button";
 import { SecurePasswordInput } from "../../../../components/secure-password-input";
 import { TeamActionButton } from "../../../../components/team-action-button";
@@ -210,6 +213,80 @@ async function resendOwnerAccess(formData: FormData) {
       ? "O envio de email nao esta configurado"
       : "Nao foi possivel enfileirar o email de acesso",
     "error",
+  );
+}
+
+async function issueOwnerActivationLink(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const workspaceId = String(formData.get("workspaceId") ?? "");
+  const ownerUserId = String(formData.get("ownerUserId") ?? "");
+
+  try {
+    const result = await serverApiFetch<ClientOwnerActivationLinkResultDto>(
+      `/backoffice/workspaces/${encodeURIComponent(workspaceId)}/owners/${encodeURIComponent(ownerUserId)}/activation-link`,
+      { method: "POST" },
+    );
+    revalidatePath("/backoffice/clients");
+
+    return {
+      status: "success",
+      message: result.emailAttempted
+        ? "Link de senha gerado e email enfileirado."
+        : "Link de senha gerado.",
+      nonce: Date.now(),
+      activationUrl: result.activationUrl,
+    };
+  } catch {
+    return actionResult("error", "Nao foi possivel gerar o link de senha");
+  }
+}
+
+async function setOwnerPassword(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  "use server";
+
+  const workspaceId = String(formData.get("workspaceId") ?? "");
+  const ownerUserId = String(formData.get("ownerUserId") ?? "");
+  const password = String(formData.get("password") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
+  const confirmed = formData.get("confirm") === "on";
+
+  if (!confirmed) {
+    return actionResult(
+      "error",
+      "Confirme que deseja definir a senha manualmente.",
+    );
+  }
+
+  if (password !== confirmPassword) {
+    return actionResult("error", "As senhas informadas nao coincidem");
+  }
+
+  try {
+    await serverApiFetch<ClientOwnerSetPasswordResultDto>(
+      `/backoffice/workspaces/${encodeURIComponent(workspaceId)}/owners/${encodeURIComponent(ownerUserId)}/set-password`,
+      {
+        method: "POST",
+        body: JSON.stringify({ password, confirmPassword, confirm: true }),
+      },
+    );
+    revalidatePath("/backoffice/clients");
+  } catch {
+    return actionResult(
+      "error",
+      "Nao foi possivel definir a senha do responsavel",
+    );
+  }
+
+  return actionResult(
+    "success",
+    "Senha definida. O responsavel ja pode acessar com a nova senha.",
   );
 }
 
@@ -538,6 +615,75 @@ function normalizeClientSearch(value: string): string {
     .toLocaleLowerCase("pt-BR");
 }
 
+function OwnerAccessControls({
+  workspace,
+}: {
+  workspace: BackofficeClientWorkspaceDto;
+}) {
+  const owner = workspace.owners[0];
+
+  if (!owner) {
+    return <span>Nao disponivel</span>;
+  }
+
+  return (
+    <div className="owner-access-controls">
+      <span className={`event-chip${owner.hasPassword ? "" : " warn"}`}>
+        {owner.hasPassword ? "Acesso ativo" : "Senha pendente"}
+      </span>
+      <form action={resendOwnerAccess}>
+        <input type="hidden" name="workspaceId" value={workspace.id} />
+        <input type="hidden" name="ownerUserId" value={owner.id} />
+        <PendingSubmitButton
+          label="Enviar e-mail de acesso"
+          pendingLabel="Enviando..."
+          className="button ghost compact-button"
+        />
+      </form>
+      <LinkResultActionForm action={issueOwnerActivationLink} linkField="activationUrl">
+        <input type="hidden" name="workspaceId" value={workspace.id} />
+        <input type="hidden" name="ownerUserId" value={owner.id} />
+        <PendingSubmitButton
+          label="Gerar link de senha"
+          pendingLabel="Gerando..."
+          className="button ghost compact-button"
+        />
+      </LinkResultActionForm>
+      {!owner.hasPassword ? (
+        <details className="rule-edit-details owner-set-password-details">
+          <summary className="button ghost compact-button">
+            Definir senha agora
+          </summary>
+          <BackofficeActionForm
+            action={setOwnerPassword}
+            className="rule-edit-form"
+            resetOnSuccess
+          >
+            <input type="hidden" name="workspaceId" value={workspace.id} />
+            <input type="hidden" name="ownerUserId" value={owner.id} />
+            <SecurePasswordInput label="Nova senha" name="password" />
+            <SecurePasswordInput
+              label="Confirmar senha"
+              name="confirmPassword"
+            />
+            <label className="owner-set-password-confirm">
+              <input name="confirm" required type="checkbox" />
+              <span>
+                Confirmo a definicao manual da senha para este responsavel.
+              </span>
+            </label>
+            <PendingSubmitButton
+              label="Definir senha"
+              pendingLabel="Salvando..."
+              className="button ghost compact-button"
+            />
+          </BackofficeActionForm>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 export default async function BackofficeClientsPage({
   searchParams,
 }: {
@@ -796,27 +942,7 @@ export default async function BackofficeClientsPage({
                         </span>
                       </td>
                       <td>
-                        {workspace.owners[0] ? (
-                          <form action={resendOwnerAccess}>
-                            <input
-                              type="hidden"
-                              name="workspaceId"
-                              value={workspace.id}
-                            />
-                            <input
-                              type="hidden"
-                              name="ownerUserId"
-                              value={workspace.owners[0].id}
-                            />
-                            <PendingSubmitButton
-                              label="Enviar e-mail de acesso"
-                              pendingLabel="Enviando..."
-                              className="button ghost compact-button"
-                            />
-                          </form>
-                        ) : (
-                          <span>Nao disponivel</span>
-                        )}
+                        <OwnerAccessControls workspace={workspace} />
                       </td>
                       <td>
                         <form action={startSupportAccess}>
@@ -888,25 +1014,7 @@ export default async function BackofficeClientsPage({
                   </dl>
 
                   <div className="client-workspace-mobile-actions">
-                    {workspace.owners[0] ? (
-                      <form action={resendOwnerAccess}>
-                        <input
-                          type="hidden"
-                          name="workspaceId"
-                          value={workspace.id}
-                        />
-                        <input
-                          type="hidden"
-                          name="ownerUserId"
-                          value={workspace.owners[0].id}
-                        />
-                        <PendingSubmitButton
-                          label="Enviar e-mail de acesso"
-                          pendingLabel="Enviando..."
-                          className="button ghost compact-button"
-                        />
-                      </form>
-                    ) : null}
+                    <OwnerAccessControls workspace={workspace} />
                     <form action={startSupportAccess}>
                       <input
                         type="hidden"

@@ -330,10 +330,13 @@ describe("settings route", () => {
     expect(html).toContain('href="#configuracao-conta"');
     expect(html).toContain('href="#configuracao-equipe"');
     expect(html).toContain('href="#configuracao-conversoes"');
+    expect(html).toContain('href="#configuracao-trocar-cliente"');
     expect(html).toContain('id="configuracao-conta"');
     expect(html).toContain('id="configuracao-equipe"');
     expect(html).toContain('id="configuracao-conversoes"');
-    expect(html.match(/class="settings-domain-section/g)).toHaveLength(3);
+    expect(html).toContain('id="configuracao-trocar-cliente"');
+    expect(html).toContain("Trocar de cliente");
+    expect(html.match(/class="settings-domain-section/g)).toHaveLength(4);
     expect(
       html.match(/class="surface-panel settings-automation-details [^"]+"/g),
     ).toHaveLength(2);
@@ -361,6 +364,8 @@ describe("settings route", () => {
     expect(html).not.toContain('placeholder="pessoa@empresa.com"');
     expect(html).not.toContain("member-role-form");
     expect(html).not.toContain("member-manager-toggle");
+    expect(html).not.toContain('id="configuracao-trocar-cliente"');
+    expect(html).not.toContain("Trocar de cliente...");
   });
 
   it("lets delegated admins manage the team without granting delegation", async () => {

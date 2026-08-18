@@ -111,6 +111,7 @@ export const workspaceInviteSchema = z.object({
   role: z.enum(invitationalWorkspaceRoles),
   status: z.enum(workspaceInviteStatuses),
   expiresAt: z.string().datetime(),
+  acceptUrl: z.string().url().optional(),
 });
 
 export const workspaceInviteAcceptInputSchema = z.object({
@@ -201,8 +202,11 @@ export const clientSwapDto = z.object({
   newClientName: z.string().min(1).max(100).optional(),
 });
 
+// Replay: a completed swap with the same Idempotency-Key returns HTTP 200
+// with replayed: true and the recorded afterSummary. The wipe is never re-executed.
 export const clientSwapResultSchema = z.object({
   success: z.literal(true),
+  replayed: z.literal(true).optional(),
   wipedCounts: z.record(z.string(), z.number().int().nonnegative()),
   workspace: z.object({
     id: z.string(),

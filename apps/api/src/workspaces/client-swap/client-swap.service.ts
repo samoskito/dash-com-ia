@@ -1,97 +1,162 @@
-import { Injectable, BadRequestException, ForbiddenException, ConflictException, Logger } from '@nestjs/common';
-import { PrismaService } from '../../common/prisma/prisma.service';
-import { ClientSwapDto } from '@wpptrack/shared';
-import { ClientSwapRateLimitService } from './client-swap-rate-limit.service';
+import { createHash } from "crypto";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  HttpException,
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import {
+  type ClientSwapDto,
+  type ClientSwapResult,
+  clientSwapResultSchema,
+} from "@wpptrack/shared";
+import { PrismaService } from "../../common/prisma/prisma.service";
+import { ClientSwapRateLimitService } from "./client-swap-rate-limit.service";
+
+export const CLIENT_SWAP_COMPLETED_ACTION = "workspace.client_swapped";
+
+/** Workspace-scoped Prisma delegates wiped in FK-safe order (children first). */
+export const CLIENT_SWAP_PRE_CONNECTOR_DELEGATES = [
+  "purchaseValueAdjustment",
+  "purchaseReviewItem",
+  "purchaseReview",
+  "providerConversionRuleExecution",
+  "providerConversionDecisionAudit",
+  "providerConversionShadowComparison",
+  "providerConversionRuleChannel",
+  "providerConversionRuleEndpoint",
+  "conversionCatalogVariant",
+  "conversionCatalogAttribute",
+  "conversionCatalog",
+  "providerConversionRuleConfig",
+  "inboundWebhookReplayItem",
+  "inboundWebhookReplayBatch",
+  "inboundWebhookProductionItem",
+  "inboundWebhookEvent",
+  "inboundWebhookDelivery",
+  "inboundWebhookChannelRoute",
+  "externalIngestionRecord",
+  "whatsappSeat",
+  "inboundWebhookChannel",
+  "inboundWebhookConnection",
+] as const;
+
+export const CLIENT_SWAP_CURSOR_DELEGATE = "externalSyncCursor";
+
+export const CLIENT_SWAP_POST_CONNECTOR_DELEGATES = [
+  "externalCapiCutover",
+  "externalDataConnector",
+  "metaAdDailyInsight",
+  "metaAdSetDailyInsight",
+  "metaAdSet",
+  "metaCampaignDailyInsight",
+  "metaCampaign",
+  "metaAdDestinationAssignment",
+  "metaAd",
+  "metaReportingAccountDestination",
+  "metaReportingAccount",
+  "metaConversionDestination",
+  "metaAssetSnapshot",
+  "metaBusinessConnection",
+  "metaCredential",
+  "metaIntegration",
+  "whatsappInstanceActivation",
+  "whatsappInstance",
+  "conversionEventLog",
+  "conversionRule",
+  "funnelStageConfiguration",
+  "lead",
+  "diagnosticEvent",
+  "webhookLog",
+  "integrationLog",
+  "jobAttempt",
+] as const;
+
+export const CLIENT_SWAP_WORKSPACE_DELEGATES = [
+  ...CLIENT_SWAP_PRE_CONNECTOR_DELEGATES,
+  ...CLIENT_SWAP_POST_CONNECTOR_DELEGATES,
+] as const;
+
+export const CLIENT_SWAP_WIPE_DELEGATES = [
+  ...CLIENT_SWAP_PRE_CONNECTOR_DELEGATES,
+  CLIENT_SWAP_CURSOR_DELEGATE,
+  ...CLIENT_SWAP_POST_CONNECTOR_DELEGATES,
+] as const;
+
+/**
+ * Inter-model Restrict/NoAction edges among wiped delegates, parsed from
+ * schema.prisma (explicit onDelete: Restrict, or required relations with the
+ * Prisma default). Child must be deleted before parent. Same-table self-FKs
+ * are omitted because deleteMany is a single statement.
+ */
+export const CLIENT_SWAP_RESTRICT_EDGES = [
+  ["whatsappSeat", "whatsappInstance"],
+  ["whatsappSeat", "inboundWebhookChannel"],
+  ["whatsappInstanceActivation", "whatsappInstance"],
+  ["providerConversionRuleConfig", "conversionRule"],
+  ["providerConversionRuleConfig", "inboundWebhookConnection"],
+  ["providerConversionRuleChannel", "providerConversionRuleConfig"],
+  ["providerConversionRuleChannel", "inboundWebhookChannel"],
+  ["providerConversionRuleEndpoint", "providerConversionRuleConfig"],
+  ["conversionCatalog", "providerConversionRuleConfig"],
+  ["conversionCatalogAttribute", "conversionCatalog"],
+  ["conversionCatalogVariant", "conversionCatalog"],
+  ["providerConversionRuleExecution", "providerConversionRuleConfig"],
+  ["providerConversionRuleExecution", "inboundWebhookDelivery"],
+  ["providerConversionDecisionAudit", "providerConversionRuleConfig"],
+  ["providerConversionDecisionAudit", "inboundWebhookDelivery"],
+  ["providerConversionDecisionAudit", "inboundWebhookChannel"],
+  ["providerConversionDecisionAudit", "lead"],
+  ["providerConversionShadowComparison", "providerConversionRuleConfig"],
+  ["providerConversionShadowComparison", "inboundWebhookDelivery"],
+  ["providerConversionShadowComparison", "inboundWebhookChannel"],
+  ["metaBusinessConnection", "metaCredential"],
+  ["metaReportingAccountDestination", "metaReportingAccount"],
+  ["metaReportingAccountDestination", "metaConversionDestination"],
+  ["metaAdDestinationAssignment", "metaAd"],
+  ["metaAdDestinationAssignment", "metaReportingAccount"],
+  ["metaAdDestinationAssignment", "metaConversionDestination"],
+  ["inboundWebhookChannel", "inboundWebhookConnection"],
+  ["inboundWebhookChannelRoute", "inboundWebhookChannel"],
+  ["inboundWebhookDelivery", "inboundWebhookConnection"],
+  ["purchaseReview", "providerConversionRuleConfig"],
+  ["purchaseReview", "inboundWebhookDelivery"],
+  ["purchaseValueAdjustment", "purchaseReview"],
+  ["purchaseValueAdjustment", "conversionEventLog"],
+  ["inboundWebhookEvent", "inboundWebhookConnection"],
+  ["inboundWebhookEvent", "inboundWebhookDelivery"],
+  ["inboundWebhookEvent", "inboundWebhookChannel"],
+  ["inboundWebhookReplayBatch", "inboundWebhookConnection"],
+  ["inboundWebhookReplayBatch", "inboundWebhookChannel"],
+  ["inboundWebhookReplayItem", "inboundWebhookReplayBatch"],
+  ["inboundWebhookReplayItem", "inboundWebhookEvent"],
+  ["inboundWebhookProductionItem", "inboundWebhookEvent"],
+] as const;
+
+type WorkspaceDelegateName =
+  (typeof CLIENT_SWAP_WORKSPACE_DELEGATES)[number];
+
+type WipeModel = {
+  deleteMany: (args: unknown) => Promise<{ count: number }>;
+  count: (args: unknown) => Promise<number>;
+};
+
+export function hashClientSwapIdempotencyKey(key: string): string {
+  return createHash("sha256").update(key, "utf8").digest("hex");
+}
 
 @Injectable()
 export class ClientSwapService {
   private readonly logger = new Logger(ClientSwapService.name);
 
-  // Ordem de deleção respeitando FKs (filhos primeiro, pais depois)
-  private readonly deletionOrder = [
-    // Purchase reviews & adjustments
-    'PurchaseValueAdjustment',
-    'PurchaseReviewItem',
-    'PurchaseReview',
-    // Provider conversion rules
-    'ProviderConversionRuleExecution',
-    'ProviderConversionDecisionAudit',
-    'ProviderConversionShadowComparison',
-    'ProviderConversionRuleChannel',
-    'ProviderConversionRuleEndpoint',
-    'ProviderConversionRuleConfig',
-    // Conversion catalogs
-    'ConversionCatalogVariant',
-    'ConversionCatalogAttribute',
-    'ConversionCatalog',
-    // Inbound webhooks
-    'InboundWebhookReplayItem',
-    'InboundWebhookReplayBatch',
-    'InboundWebhookProductionItem',
-    'InboundWebhookEvent',
-    'InboundWebhookDelivery',
-    'InboundWebhookChannelRoute',
-    'InboundWebhookChannel',
-    'InboundWebhookConnection',
-    // External data connectors
-    'ExternalIngestionRecord',
-    'ExternalSyncCursor',
-    'ExternalCapiCutover',
-    'ExternalDataConnector',
-    // Meta Ads
-    'MetaAdDailyInsight',
-    'MetaAd',
-    'MetaAdSetDailyInsight',
-    'MetaAdSet',
-    'MetaCampaignDailyInsight',
-    'MetaCampaign',
-    'MetaAdDestinationAssignment',
-    'MetaReportingAccountDestination',
-    'MetaReportingAccount',
-    'MetaConversionDestination',
-    'MetaAssetSnapshot',
-    'MetaBusinessConnection',
-    'MetaCredential',
-    'MetaIntegration',
-    // WhatsApp
-    'WhatsappSeat',
-    'WhatsappInstanceActivation',
-    'WhatsappInstance',
-    // Conversions & rules
-    'ConversionEventLog',
-    'ConversionRule',
-    'FunnelStageConfiguration',
-    // Leads (por último, pois muitos outros referenciam)
-    'Lead',
-  ];
-
-  // Modelos que devem ser MANTIDOS (apenas contados para auditoria)
-  private readonly preservedModels = [
-    'Workspace',
-    'WorkspaceMember',
-    'WorkspaceInvite',
-    'WorkspaceSubscription',
-    'WorkspaceBillingProfile',
-    'SubscriptionPlan',
-    'SplitReceiver',
-    'SplitRule',
-    'PaymentCharge',
-    'BillingProviderEvent',
-    'BillingContractAudit',
-    'BillingInvoice',
-    'WebhookLog',
-    'IntegrationLog',
-    'DiagnosticEvent',
-    'JobAttempt',
-    'AuditLog',
-    'User',
-    'AuthSession',
-    'AuthActionToken',
-    'MetaOAuthState',
-  ];
-
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(ClientSwapRateLimitService)
     private readonly rateLimitService: ClientSwapRateLimitService,
   ) {}
 
@@ -100,93 +165,154 @@ export class ClientSwapService {
     actorUserId: string,
     dto: ClientSwapDto,
     idempotencyKey?: string,
-  ): Promise<{
-    success: true;
-    wipedCounts: Record<string, number>;
-    workspace: { id: string; name: string; slug: string; operationalStatus: 'active' | 'blocked' };
-  }> {
-    this.logger.log(`Starting client swap for workspace ${workspaceId} by user ${actorUserId}`);
+  ): Promise<ClientSwapResult> {
+    if (dto.confirm !== true) {
+      throw new BadRequestException("Payload invalido");
+    }
 
-    // 1. Validações de negócio
-    await this.validateSwap(workspaceId, actorUserId);
+    if (!idempotencyKey) {
+      throw new ConflictException("Header Idempotency-Key é obrigatório");
+    }
 
-    // 1.5 Rate limit: 1 swap por 24h
-    await this.rateLimitService.checkAndRecord(workspaceId);
+    const idempotencyKeyHash = hashClientSwapIdempotencyKey(idempotencyKey);
 
-    // 2. Contar antes
-    const beforeCounts = await this.countClientData(workspaceId);
+    this.logger.log("client_swap_started");
 
-    // 3. Executar deleção em transação
-    const wipedCounts = await this.prisma.$transaction(
-      async (tx) => {
-        const counts: Record<string, number> = {};
+    try {
+      const result = await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw(
+            Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`client-swap:${workspaceId}`}))`,
+          );
 
-        // Deletar na ordem correta
-        for (const modelName of this.deletionOrder) {
-          try {
-            const result = await (tx as any)[modelName.toLowerCase()].deleteMany({
-              where: { workspaceId },
-            });
-            counts[modelName] = result.count;
-            if (result.count > 0) {
-              this.logger.debug(`Deleted ${result.count} records from ${modelName}`);
-            }
-          } catch (error: unknown) {
-            // Alguns modelos podem não existir no client Prisma ou ter nome diferente
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.warn(`Could not delete from ${modelName}: ${message}`);
-            counts[modelName] = 0;
+          const replay = await this.findCompletedSwap(
+            tx,
+            workspaceId,
+            idempotencyKeyHash,
+          );
+          if (replay) {
+            return replay;
           }
-        }
 
-        // Opcional: atualizar nome/slug do workspace se fornecido
-        if (dto.newClientName) {
-          await tx.workspace.update({
-            where: { id: workspaceId },
+          await this.rateLimitService.assertAllowed(workspaceId, tx);
+          await this.validateSwap(tx, workspaceId, actorUserId);
+
+          const connectorIds = (
+            await tx.externalDataConnector.findMany({
+              where: { workspaceId },
+              select: { id: true },
+            })
+          ).map((connector) => connector.id);
+
+          const wipedCounts = await this.wipeClientData(
+            tx,
+            workspaceId,
+            connectorIds,
+          );
+          await this.assertWipeComplete(tx, workspaceId, connectorIds);
+          await this.revokeMemberSessions(tx, workspaceId);
+
+          const workspace = await this.renameWorkspaceIfRequested(
+            tx,
+            workspaceId,
+            dto.newClientName,
+          );
+
+          await tx.auditLog.create({
             data: {
-              name: dto.newClientName,
-              slug: this.generateSlug(dto.newClientName),
+              workspaceId,
+              actorUserId,
+              actorType: "user",
+              action: CLIENT_SWAP_COMPLETED_ACTION,
+              targetType: "Workspace",
+              targetId: workspaceId,
+              reason:
+                "Troca de cliente da agência: limpeza completa de dados do cliente anterior",
+              resultStatus: "success",
+              beforeSummary: { idempotencyKeyHash },
+              afterSummary: {
+                wipedCounts,
+                workspace,
+              },
             },
           });
-        }
 
-        return counts;
-      },
-      { timeout: 120000 }, // 2 minutos para transação grande
-    );
+          return {
+            success: true as const,
+            wipedCounts,
+            workspace,
+          };
+        },
+        { timeout: 120000 },
+      );
 
-    // 4. Contar depois (deve ser zero para modelos limpos)
-    const afterCounts = await this.countClientData(workspaceId);
-
-    // 5. Criar AuditLog
-    await this.createAuditLog(workspaceId, actorUserId, beforeCounts, afterCounts, idempotencyKey);
-
-    // 6. Invalidar sessões ativas no workspace (força re-login)
-    await this.invalidateWorkspaceSessions(workspaceId);
-
-    // 7. Buscar workspace atualizado
-    const workspace = await this.prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      select: { id: true, name: true, slug: true, operationalStatus: true },
-    });
-
-    this.logger.log(`Client swap completed for workspace ${workspaceId}`);
-
-    return {
-      success: true,
-      wipedCounts,
-      workspace: {
-        id: workspace!.id,
-        name: workspace!.name,
-        slug: workspace!.slug,
-        operationalStatus: workspace!.operationalStatus as 'active' | 'blocked',
-      },
-    };
+      this.logger.log("client_swap_completed");
+      return result;
+    } catch (error) {
+      if (error instanceof HttpException && error.getStatus() < 500) {
+        throw error;
+      }
+      this.logger.warn("client_swap_failed");
+      throw new InternalServerErrorException(
+        "Nao foi possivel concluir a troca de cliente",
+      );
+    }
   }
 
-  private async validateSwap(workspaceId: string, actorUserId: string): Promise<void> {
-    // Verificar workspace existe
-    const workspace = await this.prisma.workspace.findUnique({
+  private async findCompletedSwap(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+    idempotencyKeyHash: string,
+  ): Promise<ClientSwapResult | null> {
+    const existing = await tx.auditLog.findFirst({
+      where: {
+        action: CLIENT_SWAP_COMPLETED_ACTION,
+        targetId: workspaceId,
+        resultStatus: "success",
+        beforeSummary: {
+          path: ["idempotencyKeyHash"],
+          equals: idempotencyKeyHash,
+        },
+      },
+      select: { afterSummary: true },
+    });
+
+    if (!existing) {
+      return null;
+    }
+
+    return this.replayCompletedSwap(existing.afterSummary);
+  }
+
+  private replayCompletedSwap(afterSummary: unknown): ClientSwapResult {
+    const summary =
+      afterSummary && typeof afterSummary === "object"
+        ? (afterSummary as {
+            wipedCounts?: unknown;
+            workspace?: unknown;
+          })
+        : {};
+
+    const parsed = clientSwapResultSchema.safeParse({
+      success: true,
+      replayed: true,
+      wipedCounts: summary.wipedCounts,
+      workspace: summary.workspace,
+    });
+
+    if (!parsed.success) {
+      throw new ConflictException("Idempotency-Key já utilizada");
+    }
+
+    return parsed.data;
+  }
+
+  private async validateSwap(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+    actorUserId: string,
+  ): Promise<void> {
+    const workspace = await tx.workspace.findUnique({
       where: { id: workspaceId },
       include: {
         members: { where: { userId: actorUserId } },
@@ -195,117 +321,209 @@ export class ClientSwapService {
     });
 
     if (!workspace) {
-      throw new BadRequestException('Workspace não encontrado');
+      throw new BadRequestException("Workspace não encontrado");
     }
 
-    // Verificar se está blocked
-    if (workspace.operationalStatus === 'blocked') {
-      throw new BadRequestException('Workspace está bloqueado. Operação não permitida.');
+    if (workspace.operationalStatus === "blocked") {
+      throw new BadRequestException(
+        "Workspace está bloqueado. Operação não permitida.",
+      );
     }
 
-    // Verificar se actor é owner
     const membership = workspace.members[0];
-    if (!membership || membership.role !== 'owner') {
-      throw new ForbiddenException('Apenas o owner do workspace pode executar esta operação');
+    if (!membership || membership.role !== "owner") {
+      throw new ForbiddenException(
+        "Apenas o owner do workspace pode executar esta operação",
+      );
     }
 
-    // Verificar assinatura ativa
     const activeSubscription = workspace.subscriptions.find(
-      (s) => s.contractStatus === 'active' && s.isCurrent,
+      (subscription) =>
+        subscription.contractStatus === "active" && subscription.isCurrent,
     );
     if (!activeSubscription) {
-      throw new BadRequestException('Workspace não possui assinatura ativa');
+      throw new BadRequestException("Workspace não possui assinatura ativa");
     }
   }
 
-  private async countClientData(workspaceId: string): Promise<Record<string, number>> {
+  private async wipeClientData(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+    connectorIds: string[],
+  ): Promise<Record<string, number>> {
     const counts: Record<string, number> = {};
 
-    // Contar modelos que serão limpos
-    for (const modelName of this.deletionOrder) {
-      try {
-        const count = await (this.prisma as any)[modelName.toLowerCase()].count({
-          where: { workspaceId },
-        });
-        counts[modelName] = count;
-      } catch {
-        counts[modelName] = 0;
-      }
+    for (const delegateName of CLIENT_SWAP_PRE_CONNECTOR_DELEGATES) {
+      const result = await this.wipeDelegate(tx, delegateName).deleteMany({
+        where: { workspaceId },
+      });
+      counts[delegateName] = result.count;
     }
 
-    // Contar modelos preservados (para auditoria)
-    for (const modelName of this.preservedModels) {
-      try {
-        const count = await (this.prisma as any)[modelName.toLowerCase()].count({
-          where: { workspaceId },
-        });
-        counts[`preserved_${modelName}`] = count;
-      } catch {
-        counts[`preserved_${modelName}`] = 0;
-      }
+    const cursorResult = await tx.externalSyncCursor.deleteMany({
+      where: { connectorId: { in: connectorIds } },
+    });
+    counts[CLIENT_SWAP_CURSOR_DELEGATE] = cursorResult.count;
+
+    for (const delegateName of CLIENT_SWAP_POST_CONNECTOR_DELEGATES) {
+      const result = await this.wipeDelegate(tx, delegateName).deleteMany({
+        where: { workspaceId },
+      });
+      counts[delegateName] = result.count;
     }
 
     return counts;
   }
 
-  private async createAuditLog(
+  private async assertWipeComplete(
+    tx: Prisma.TransactionClient,
     workspaceId: string,
-    actorUserId: string,
-    before: Record<string, number>,
-    after: Record<string, number>,
-    idempotencyKey?: string,
+    connectorIds: string[],
   ): Promise<void> {
-    const beforeSummary = Object.fromEntries(
-      Object.entries(before).filter(([k]) => !k.startsWith('preserved_')),
-    );
-    const afterSummary = Object.fromEntries(
-      Object.entries(after).filter(([k]) => !k.startsWith('preserved_')),
-    );
-
-    const auditData: any = {
-      workspaceId,
-      actorUserId,
-      actorType: 'user',
-      action: 'workspace.client_swapped',
-      targetType: 'Workspace',
-      targetId: workspaceId,
-      reason: 'Troca de cliente da agência: limpeza completa de dados do cliente anterior',
-      resultStatus: 'success',
-      beforeSummary,
-      afterSummary,
-    };
-
-    if (idempotencyKey) {
-      auditData.beforeSummary = {
-        ...auditData.beforeSummary,
-        idempotencyKey,
-      };
+    for (const delegateName of CLIENT_SWAP_WORKSPACE_DELEGATES) {
+      const remaining = await this.wipeDelegate(tx, delegateName).count({
+        where: { workspaceId },
+      });
+      if (remaining !== 0) {
+        this.logger.warn("client_swap_wipe_incomplete");
+        throw new InternalServerErrorException(
+          "Falha na limpeza do workspace",
+        );
+      }
     }
 
-    await this.prisma.auditLog.create({
-      data: auditData,
+    const remainingCursors = await tx.externalSyncCursor.count({
+      where: { connectorId: { in: connectorIds } },
     });
+    if (remainingCursors !== 0) {
+      this.logger.warn("client_swap_wipe_incomplete");
+      throw new InternalServerErrorException("Falha na limpeza do workspace");
+    }
   }
 
-  private async invalidateWorkspaceSessions(workspaceId: string): Promise<void> {
-    // Revogar sessões ativas neste workspace (força re-login)
-    await this.prisma.authSession.updateMany({
-      where: { activeWorkspaceId: workspaceId, revokedAt: null },
+  private wipeDelegate(
+    tx: Prisma.TransactionClient,
+    name: WorkspaceDelegateName,
+  ): WipeModel {
+    const model = (tx as unknown as Record<string, WipeModel | undefined>)[
+      name
+    ];
+    if (!model || typeof model.deleteMany !== "function") {
+      throw new InternalServerErrorException("Falha na limpeza do workspace");
+    }
+    return model;
+  }
+
+  private async revokeMemberSessions(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+  ): Promise<void> {
+    const members = await tx.workspaceMember.findMany({
+      where: { workspaceId },
+      select: { userId: true },
+    });
+    const userIds = members.map((member) => member.userId);
+
+    if (userIds.length === 0) {
+      return;
+    }
+
+    await tx.authSession.updateMany({
+      where: {
+        userId: { in: userIds },
+        revokedAt: null,
+      },
       data: { revokedAt: new Date() },
     });
-
-    // Opcional: limpar cache da queue se houver jobs pendentes do workspace
-    // BullMQ não tem API direta para limpar por workspace, mas jobs serão ignorados
-    // pois os dados referenciados não existem mais
   }
 
-  private generateSlug(name: string): string {
-    return name
+  private async renameWorkspaceIfRequested(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+    newClientName: string | undefined,
+  ): Promise<ClientSwapResult["workspace"]> {
+    if (newClientName) {
+      const slug = await this.resolveWorkspaceSlug(
+        tx,
+        workspaceId,
+        newClientName,
+      );
+
+      try {
+        await tx.workspace.update({
+          where: { id: workspaceId },
+          data: {
+            name: newClientName,
+            slug,
+          },
+        });
+      } catch (error: unknown) {
+        if (this.isUniqueConstraintError(error)) {
+          throw new ConflictException("Slug de workspace indisponivel");
+        }
+        throw error;
+      }
+    }
+
+    const workspace = await tx.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { id: true, name: true, slug: true, operationalStatus: true },
+    });
+
+    if (!workspace) {
+      throw new InternalServerErrorException("Falha na limpeza do workspace");
+    }
+
+    return {
+      id: workspace.id,
+      name: workspace.name,
+      slug: workspace.slug,
+      operationalStatus: workspace.operationalStatus as "active" | "blocked",
+    };
+  }
+
+  private async resolveWorkspaceSlug(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+    workspaceName: string,
+  ): Promise<string> {
+    const baseSlug = this.slugify(workspaceName);
+    let candidate = baseSlug;
+    let suffix = 2;
+
+    while (true) {
+      const existing = await tx.workspace.findUnique({
+        where: { slug: candidate },
+        select: { id: true },
+      });
+
+      if (!existing || existing.id === workspaceId) {
+        return candidate;
+      }
+
+      candidate = `${baseSlug}-${suffix}`;
+      suffix += 1;
+    }
+  }
+
+  private slugify(value: string): string {
+    const slug = value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '')
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
       .substring(0, 50);
+
+    return slug || "workspace";
+  }
+
+  private isUniqueConstraintError(error: unknown): boolean {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "P2002"
+    );
   }
 }

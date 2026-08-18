@@ -114,6 +114,16 @@ export type AuthSessionCreationOptions = {
   transaction?: Prisma.TransactionClient;
 };
 
+export type ClientOwnerActivationIssueResult = {
+  mode: "activation";
+  delivery: "email_queued" | "failed" | "not_configured" | "link_only";
+  token: string;
+  expiresAt: Date;
+  emailAttempted: boolean;
+  actionTokenId: string;
+  tokenHashPrefix: string;
+};
+
 type CreatedWorkspaceOwnership = {
   userId: string;
   workspaceId: string;
@@ -810,6 +820,38 @@ export class AuthService {
     userId: string;
     workspaceId: string;
   }): Promise<ClientOwnerAccessDeliveryDto> {
+    const issued = await this.createClientOwnerActivation(input, {
+      exposeLink: false,
+    });
+
+    return {
+      mode: issued.mode,
+      delivery:
+        issued.delivery === "link_only" ? "not_configured" : issued.delivery,
+    };
+  }
+
+  async issueClientOwnerActivationLink(input: {
+    userId: string;
+    workspaceId: string;
+  }): Promise<ClientOwnerActivationIssueResult> {
+    return this.createClientOwnerActivation(input, { exposeLink: true });
+  }
+
+  private alreadyActivatedConflict(): ConflictException {
+    return new ConflictException({
+      code: "already_activated",
+      message: "Responsavel ja possui senha",
+    });
+  }
+
+  private async createClientOwnerActivation(
+    input: {
+      userId: string;
+      workspaceId: string;
+    },
+    options: { exposeLink: boolean },
+  ): Promise<ClientOwnerActivationIssueResult> {
     const membership = await this.prisma.workspaceMember.findFirst({
       where: {
         userId: input.userId,
@@ -834,11 +876,24 @@ export class AuthService {
       },
     });
 
-    if (!membership || membership.user.passwordHash) {
+    if (!membership) {
+      if (options.exposeLink) {
+        throw new NotFoundException("Responsavel nao encontrado");
+      }
+
+      throw this.invalidAccountActivation();
+    }
+
+    if (membership.user.passwordHash) {
+      if (options.exposeLink) {
+        throw this.alreadyActivatedConflict();
+      }
+
       throw this.invalidAccountActivation();
     }
 
     const token = randomBytes(32).toString("hex");
+    const tokenHash = this.hashActionToken(token);
     const actionToken = await this.prisma.$transaction(async (tx) => {
       await tx.authActionToken.updateMany({
         where: {
@@ -855,14 +910,27 @@ export class AuthService {
           userId: membership.user.id,
           workspaceId: membership.workspace.id,
           type: "account_activation",
-          tokenHash: this.hashActionToken(token),
+          tokenHash,
           expiresAt: new Date(Date.now() + accountActivationTtlMs),
         },
       });
     });
 
+    const issued: ClientOwnerActivationIssueResult = {
+      mode: "activation",
+      delivery: "link_only",
+      token,
+      expiresAt: actionToken.expiresAt,
+      emailAttempted: false,
+      actionTokenId: actionToken.id,
+      tokenHashPrefix: tokenHash.slice(0, 12),
+    };
+
     if (!this.emailQueue?.isEnabled()) {
-      return { mode: "activation", delivery: "not_configured" };
+      return {
+        ...issued,
+        delivery: options.exposeLink ? "link_only" : "not_configured",
+      };
     }
 
     try {
@@ -888,7 +956,11 @@ export class AuthService {
         },
       });
 
-      return { mode: "activation", delivery: "email_queued" };
+      return {
+        ...issued,
+        delivery: "email_queued",
+        emailAttempted: true,
+      };
     } catch {
       await this.safeCreateAuditLog({
         workspaceId: membership.workspace.id,
@@ -904,7 +976,11 @@ export class AuthService {
         afterSummary: { type: "account_activation" },
       });
 
-      return { mode: "activation", delivery: "failed" };
+      return {
+        ...issued,
+        delivery: "failed",
+        emailAttempted: true,
+      };
     }
   }
 
