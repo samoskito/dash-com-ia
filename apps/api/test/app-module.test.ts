@@ -1,8 +1,10 @@
 import { Test } from "@nestjs/testing";
 import { describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
+import { IdempotencyGuard } from "../src/common/guards/idempotency.guard";
 import { ClientSwapModule } from "../src/workspaces/client-swap/client-swap.module";
 import { ClientSwapService } from "../src/workspaces/client-swap/client-swap.service";
+import { WorkspaceOwnerGuard } from "../src/workspaces/guards/workspace-owner.guard";
 
 describe("app module", () => {
   it("does not register mock controllers or providers", () => {
@@ -45,5 +47,11 @@ describe("app module", () => {
       strict: false,
     });
     expect(clientSwapService).toBeInstanceOf(ClientSwapService);
+    expect(
+      moduleRef.get(WorkspaceOwnerGuard, { strict: false }),
+    ).toBeInstanceOf(WorkspaceOwnerGuard);
+    expect(moduleRef.get(IdempotencyGuard, { strict: false })).toBeInstanceOf(
+      IdempotencyGuard,
+    );
   });
 });

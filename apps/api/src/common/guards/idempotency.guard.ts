@@ -1,38 +1,28 @@
-import { CanActivate, ExecutionContext, Injectable, ConflictException } from '@nestjs/common';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import {
+  CanActivate,
+  ConflictException,
+  ExecutionContext,
+  Injectable,
+} from "@nestjs/common";
+
+const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
 
 @Injectable()
 export class IdempotencyGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
-
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
-    const idempotencyKey = request.headers['idempotency-key'] as string;
+    const header = request.headers["idempotency-key"];
+    const idempotencyKey = Array.isArray(header) ? header[0] : header;
 
-    if (!idempotencyKey) {
-      throw new ConflictException('Header Idempotency-Key é obrigatório');
+    if (
+      typeof idempotencyKey !== "string" ||
+      idempotencyKey.trim().length === 0 ||
+      idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH
+    ) {
+      throw new ConflictException("Header Idempotency-Key é obrigatório");
     }
 
-    // Verificar se já existe uma chave usada recentemente (últimas 24h)
-    const existing = await this.prisma.auditLog.findFirst({
-      where: {
-        action: 'workspace.client_swapped',
-        targetId: request.params.workspaceId,
-        beforeSummary: {
-          path: ['idempotencyKey'],
-          equals: idempotencyKey,
-        },
-      },
-      select: { id: true, createdAt: true },
-    });
-
-    if (existing) {
-      throw new ConflictException('Idempotency-Key já utilizada para este workspace');
-    }
-
-    // Armazenar a chave no request para uso posterior no service
     request.idempotencyKey = idempotencyKey;
-
     return true;
   }
 }
