@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import type { ProviderConversionCatalogInputDto } from "@wpptrack/shared";
 import { describe, expect, it, vi } from "vitest";
 import { PrismaService } from "../src/common/prisma/prisma.service";
@@ -14,6 +15,10 @@ function runtimeEnvironment() {
     INBOUND_CONVERSION_PRODUCTION_ENABLED: "true",
     INBOUND_WEBHOOK_ENCRYPTION_KEY: Buffer.alloc(32, 31).toString("base64"),
   };
+}
+
+function jsonOrNull(value: unknown) {
+  return value === Prisma.DbNull || value === undefined ? null : value;
 }
 
 function createHarness(
@@ -107,7 +112,8 @@ function createHarness(
           createdAt: now,
           updatedAt: now,
           ...data,
-          defaultItems: null,
+          // Prisma.DbNull is persisted as a SQL NULL; anything else is real Json.
+          defaultItems: jsonOrNull(data.defaultItems),
         };
         return conversionRule;
       }),
@@ -118,6 +124,9 @@ function createHarness(
         conversionRule = {
           ...conversionRule,
           ...data,
+          ...(data.defaultItems !== undefined
+            ? { defaultItems: jsonOrNull(data.defaultItems) }
+            : {}),
           updatedAt: now,
         };
         return conversionRule;
@@ -283,6 +292,9 @@ function createHarness(
     },
     get catalog() {
       return catalog;
+    },
+    get conversionRule() {
+      return conversionRule;
     },
     executions,
     prisma,
@@ -503,6 +515,154 @@ describe("provider conversion rules service", () => {
     expect(
       harness.prisma.providerConversionRuleEndpoint.create,
     ).not.toHaveBeenCalled();
+  });
+
+  it("persists the message_phrase value pipeline on defaultItems", async () => {
+    const harness = createHarness();
+
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Checkout por mensagem",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "message_phrase",
+        eventName: "InitiateCheckout",
+        triggerPhrases: ["link de pagamento"],
+        messageAuthorScope: "team",
+        valueMode: "message_extracted",
+        exampleMessage: "Segue o link de pagamento de R$ 250,00",
+        defaultCurrency: "BRL",
+      },
+      "user_1",
+    );
+
+    expect(harness.conversionRule?.defaultItems).toEqual({
+      kind: "message_phrase_config_v1",
+      valueMode: "message_extracted",
+      exampleMessage: "Segue o link de pagamento de R$ 250,00",
+    });
+    expect(harness.conversionRule?.defaultValueCents).toBeNull();
+    expect(created.rule).toMatchObject({
+      valueMode: "message_extracted",
+      exampleMessage: "Segue o link de pagamento de R$ 250,00",
+      conversionRule: {
+        eventName: "InitiateCheckout",
+        triggerType: "message_phrase",
+        // the config object never leaks into the product item contract
+        defaultItems: null,
+      },
+    });
+  });
+
+  it("keeps a fixed checkout rule on the average value it was created with", async () => {
+    const harness = createHarness();
+
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Checkout Dr Hernia",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "message_phrase",
+        eventName: "InitiateCheckout",
+        triggerPhrases: ["iniciou checkout"],
+        messageAuthorScope: "team",
+        valueMode: "fixed",
+        defaultValueCents: 25_000,
+        defaultCurrency: "BRL",
+      },
+      "user_1",
+    );
+
+    expect(created.rule).toMatchObject({
+      valueMode: "fixed",
+      exampleMessage: null,
+      conversionRule: { defaultValueCents: 25_000, defaultCurrency: "BRL" },
+    });
+
+    await expect(
+      harness.service.updateRule(
+        "workspace_1",
+        created.rule.id,
+        { defaultValueCents: null },
+        "user_1",
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: "Regras com valor fixo precisam manter um valor positivo",
+    });
+  });
+
+  it("switches a message rule to extracted values and drops the fixed value", async () => {
+    const harness = createHarness();
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Compra por mensagem",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "message_phrase",
+        eventName: "Purchase",
+        triggerPhrases: ["Aviso de compra"],
+        messageAuthorScope: "team",
+        valueMode: "fixed",
+        defaultValueCents: 99_900,
+        defaultCurrency: "BRL",
+      },
+      "user_1",
+    );
+
+    const updated = await harness.service.updateRule(
+      "workspace_1",
+      created.rule.id,
+      {
+        valueMode: "message_extracted",
+        exampleMessage: "Compra confirmada no valor de R$ 250,00",
+        defaultValueCents: null,
+      },
+      "user_1",
+    );
+
+    expect(updated).toMatchObject({
+      valueMode: "message_extracted",
+      exampleMessage: "Compra confirmada no valor de R$ 250,00",
+      conversionRule: { defaultValueCents: null },
+    });
+  });
+
+  it("refuses the value pipeline on rules that are not message_phrase", async () => {
+    const harness = createHarness();
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Compra media por tag",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "provider_automation",
+        eventName: "Purchase",
+        defaultValueCents: 250_000,
+        defaultCurrency: "BRL",
+      },
+      "user_1",
+    );
+
+    await expect(
+      harness.service.updateRule(
+        "workspace_1",
+        created.rule.id,
+        { valueMode: "message_extracted" },
+        "user_1",
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message:
+        "O modo de valor pertence apenas a regras de compra/checkout por mensagem",
+    });
   });
 
   it("activates a certified provider automation only after an explicit update", async () => {

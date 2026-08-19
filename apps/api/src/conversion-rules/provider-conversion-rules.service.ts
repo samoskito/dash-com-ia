@@ -8,7 +8,13 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import {
+  messagePhraseConfigKind,
+  readMessagePhraseConfig,
+} from "@wpptrack/shared";
 import type {
+  MessagePhraseConfigDto,
+  MessagePhraseValueModeDto,
   ProviderConversionCatalogDto,
   ProviderConversionCatalogInputDto,
   ProviderConversionEndpointDto,
@@ -131,11 +137,20 @@ export class ProviderConversionRulesService {
       let defaultValueCents: number | null = null;
       let defaultCurrency: string | null = null;
       let defaultContentName: string | null = null;
+      let defaultItems: Prisma.InputJsonValue | typeof Prisma.DbNull =
+        Prisma.DbNull;
 
-      if (
-        input.triggerType === "message_phrase" ||
-        (input.triggerType === "provider_automation" &&
-          input.eventName === "Purchase")
+      if (input.triggerType === "message_phrase") {
+        defaultValueCents = input.defaultValueCents ?? null;
+        defaultCurrency = input.defaultCurrency;
+        defaultContentName = input.defaultContentName ?? null;
+        defaultItems = this.messagePhraseConfig({
+          valueMode: input.valueMode,
+          exampleMessage: input.exampleMessage ?? null,
+        });
+      } else if (
+        input.triggerType === "provider_automation" &&
+        input.eventName === "Purchase"
       ) {
         defaultValueCents = input.defaultValueCents;
         defaultCurrency = input.defaultCurrency;
@@ -160,7 +175,7 @@ export class ProviderConversionRulesService {
           defaultValueCents,
           defaultCurrency,
           defaultContentName,
-          defaultItems: Prisma.DbNull,
+          defaultItems,
           active: true,
         },
       });
@@ -424,6 +439,18 @@ export class ProviderConversionRulesService {
       }
       if (input.triggerPhrases !== undefined) {
         conversionRuleData.triggerValue = input.triggerPhrases[0];
+      }
+      if (input.valueMode !== undefined || input.exampleMessage !== undefined) {
+        const messagePhrase = readMessagePhraseConfig(
+          current.conversionRule.defaultItems,
+        );
+        conversionRuleData.defaultItems = this.messagePhraseConfig({
+          valueMode: input.valueMode ?? messagePhrase.valueMode,
+          exampleMessage:
+            input.exampleMessage !== undefined
+              ? input.exampleMessage
+              : messagePhrase.exampleMessage,
+        });
       }
 
       if (Object.keys(conversionRuleData).length > 0) {
@@ -697,30 +724,70 @@ export class ProviderConversionRulesService {
     }
   }
 
+  private messagePhraseConfig(input: {
+    valueMode: MessagePhraseValueModeDto;
+    exampleMessage: string | null;
+  }): Prisma.InputJsonValue {
+    return {
+      kind: messagePhraseConfigKind,
+      valueMode: input.valueMode,
+      exampleMessage: input.exampleMessage,
+    } satisfies MessagePhraseConfigDto;
+  }
+
   private assertUpdateMatchesRule(
     current: PersistedProviderRule,
     input: ProviderConversionRuleUpdateInputDto,
   ): void {
-    const isFixedValueRule =
+    const isValuedRule =
       ["provider_automation", "message_phrase"].includes(
         current.conversionRule.triggerType,
       ) &&
       ["Purchase", "InitiateCheckout"].includes(
         current.conversionRule.eventName,
       );
+    const isMessagePhraseRule =
+      current.conversionRule.triggerType === "message_phrase";
     const hasValueUpdate =
       input.defaultValueCents !== undefined ||
       input.defaultCurrency !== undefined ||
       input.defaultContentName !== undefined;
 
-    if (hasValueUpdate && !isFixedValueRule) {
+    if (hasValueUpdate && !isValuedRule) {
       throw new BadRequestException(
-        "Valores padrao pertencem apenas a regras de compra/checkout com valor fixo",
+        "Valores padrao pertencem apenas a regras de compra/checkout com valor",
       );
     }
-    if (isFixedValueRule && input.defaultValueCents === null) {
+    if (
+      (input.valueMode !== undefined || input.exampleMessage !== undefined) &&
+      !isMessagePhraseRule
+    ) {
+      throw new BadRequestException(
+        "O modo de valor pertence apenas a regras de compra/checkout por mensagem",
+      );
+    }
+    // Only extracted-value message rules may drop the average value: the value
+    // then comes from the message itself.
+    const nextValueMode = isMessagePhraseRule
+      ? (input.valueMode ??
+        readMessagePhraseConfig(current.conversionRule.defaultItems).valueMode)
+      : "fixed";
+    if (
+      isValuedRule &&
+      input.defaultValueCents === null &&
+      nextValueMode !== "message_extracted"
+    ) {
       throw new BadRequestException(
         "Regras com valor fixo precisam manter um valor positivo",
+      );
+    }
+    if (
+      isMessagePhraseRule &&
+      input.valueMode === "fixed" &&
+      !(input.defaultValueCents ?? current.conversionRule.defaultValueCents)
+    ) {
+      throw new BadRequestException(
+        "Informe o valor medio antes de voltar para o modo de valor fixo",
       );
     }
     if (
@@ -971,6 +1038,11 @@ export class ProviderConversionRulesService {
   }
 
   private toDto(rule: PersistedProviderRule): ProviderConversionRuleDto {
+    const messagePhrase =
+      rule.conversionRule.triggerType === "message_phrase"
+        ? readMessagePhraseConfig(rule.conversionRule.defaultItems)
+        : { valueMode: "fixed" as const, exampleMessage: null };
+
     return {
       id: rule.id,
       workspaceId: rule.workspaceId,
@@ -1002,6 +1074,8 @@ export class ProviderConversionRulesService {
       channelIds: rule.channels.map((channel) => channel.channelId),
       triggerPhrases: rule.messageTriggerPhrases,
       messageAuthorScope: rule.messageAuthorScope,
+      valueMode: messagePhrase.valueMode,
+      exampleMessage: messagePhrase.exampleMessage,
       endpoint: rule.endpoint ? this.endpointToDto(rule.endpoint) : null,
       catalog: rule.catalog ? this.catalogToDto(rule.catalog) : null,
       lastExecution: rule.executions[0]

@@ -6,6 +6,7 @@ import type {
 } from "@wpptrack/shared";
 import { Injectable } from "@nestjs/common";
 import {
+  extractSingleMoneyValueCents,
   matchProviderMessageTrigger,
   matchStructuredCatalogMessage,
   providerMessageAuthorAllowed,
@@ -180,7 +181,8 @@ export class ProviderConversionDecisionEngine {
       return { outcome: "not_applicable", reasonCode: "trigger_missing" };
     }
 
-    // Fixed-value message rules (Purchase, InitiateCheckout, …) require cents+currency.
+    // Message rules (Purchase, InitiateCheckout, …) need a value: either the
+    // configured average or, for valueMode "message_extracted", the message.
     const match = this.averageValueMatch(input, matchedTriggerPhrase);
     if (!match.matched) {
       return {
@@ -227,9 +229,13 @@ export class ProviderConversionDecisionEngine {
     input: ProviderConversionDecisionInput,
     matchedTriggerPhrase: string | null,
   ): StructuredCatalogTestMessageResultDto {
-    const matched = Boolean(
-      input.rule.defaultValueCents && input.rule.defaultCurrency,
-    );
+    // valueMode "message_extracted": the message carries the price, the
+    // configured average value is only a fallback. Never invent a value.
+    const extractedValueCents = this.extractedValueCents(input);
+    const valueCents = extractedValueCents ?? input.rule.defaultValueCents;
+    const currency =
+      input.rule.defaultCurrency ?? (extractedValueCents ? "BRL" : null);
+    const matched = Boolean(valueCents && currency);
 
     return {
       matched,
@@ -238,13 +244,24 @@ export class ProviderConversionDecisionEngine {
       matchedTriggerPhrase,
       parsedAttributes: [],
       items: [],
-      parsedValueCents: matched ? input.rule.defaultValueCents : null,
-      calculatedValueCents: matched ? input.rule.defaultValueCents : null,
-      observedPaymentValueCents: null,
+      parsedValueCents: matched ? valueCents : null,
+      calculatedValueCents: matched ? valueCents : null,
+      // Non-null only when the value was read from the message itself, which is
+      // what downstream production uses to report valueSource "actual".
+      observedPaymentValueCents: matched ? extractedValueCents : null,
       catalogVariantId: null,
       contentName: input.rule.defaultContentName,
-      currency: input.rule.defaultCurrency,
+      currency: matched ? currency : input.rule.defaultCurrency,
     };
+  }
+
+  private extractedValueCents(
+    input: ProviderConversionDecisionInput,
+  ): number | null {
+    if (input.rule.valueMode !== "message_extracted") return null;
+    if (input.occurrence.source !== "message") return null;
+
+    return extractSingleMoneyValueCents(input.occurrence.messageText);
   }
 
   private qualifiedLeadMatch(): StructuredCatalogTestMessageResultDto {

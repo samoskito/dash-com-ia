@@ -78,6 +78,8 @@ function rule(
     defaultValueCents: null,
     defaultCurrency: null,
     defaultContentName: null,
+    valueMode: "fixed",
+    exampleMessage: null,
     ...input,
   };
 }
@@ -467,6 +469,124 @@ describe("provider conversion decision engine", () => {
     expect(decision?.occurrence.businessDedupePolicy).toMatchObject({
       mode: "rolling_window",
       windowSeconds: 24 * 60 * 60,
+    });
+  });
+
+  it("extracts the checkout value from the message when valueMode is message_extracted", () => {
+    const decision = engine.evaluate(
+      messageInput({
+        messageText:
+          "Segue o link de pagamento\nValor do procedimento: R$ 250,00",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "InitiateCheckout",
+          triggerPhrases: ["link de pagamento"],
+          valueMode: "message_extracted",
+          defaultValueCents: null,
+          defaultCurrency: "BRL",
+          defaultContentName: "Checkout",
+        }),
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decisionCode: "eligible",
+      reasonCode: "average_value_message_matched",
+      occurrence: { eventName: "InitiateCheckout" },
+      conversion: {
+        valueCents: 25_000,
+        observedPaymentValueCents: 25_000,
+        currency: "BRL",
+      },
+    });
+  });
+
+  it("extracts the purchase value from the message instead of the fallback", () => {
+    const decision = engine.evaluate(
+      messageInput({
+        messageText: "AVISO DE COMPRA\nTotal pago: 1.397,00",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "Purchase",
+          triggerPhrases: ["Aviso de compra"],
+          valueMode: "message_extracted",
+          defaultValueCents: 99_900,
+          defaultCurrency: "BRL",
+        }),
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decisionCode: "eligible",
+      conversion: { valueCents: 139_700, observedPaymentValueCents: 139_700 },
+    });
+  });
+
+  it("falls back to the configured average when the message has no single value", () => {
+    const decision = engine.evaluate(
+      messageInput({
+        messageText: "AVISO DE COMPRA\nPedido confirmado",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "Purchase",
+          triggerPhrases: ["Aviso de compra"],
+          valueMode: "message_extracted",
+          defaultValueCents: 99_900,
+          defaultCurrency: "BRL",
+        }),
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decisionCode: "eligible",
+      conversion: { valueCents: 99_900, observedPaymentValueCents: null },
+    });
+  });
+
+  it("sends an extracted-value message without a value to review", () => {
+    const decision = engine.evaluate(
+      messageInput({
+        messageText: "Segue o link de pagamento",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "InitiateCheckout",
+          triggerPhrases: ["link de pagamento"],
+          valueMode: "message_extracted",
+          defaultValueCents: null,
+          defaultCurrency: "BRL",
+        }),
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decisionCode: "review_required",
+      reasonCode: "average_value_missing",
+      conversion: { valueCents: null },
+    });
+  });
+
+  it("ignores money in the message while valueMode stays fixed", () => {
+    const decision = engine.evaluate(
+      messageInput({
+        messageText: "CLIENTE INICIOU CHECKOUT\nfalamos em R$ 900,00",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "InitiateCheckout",
+          triggerPhrases: ["iniciou checkout"],
+          defaultValueCents: 25_000,
+          defaultCurrency: "BRL",
+        }),
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decisionCode: "eligible",
+      conversion: { valueCents: 25_000, observedPaymentValueCents: null },
     });
   });
 

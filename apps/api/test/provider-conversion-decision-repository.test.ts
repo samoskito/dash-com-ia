@@ -63,7 +63,8 @@ function eligibleDecision(
       defaultValueCents: null,
       defaultCurrency: null,
       defaultContentName: null,
-    },
+      valueMode: "fixed",
+      exampleMessage: null,    },
     catalog: null,
     conversion: {
       matchedTriggerPhrase: null,

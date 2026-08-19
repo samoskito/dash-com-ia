@@ -66,7 +66,8 @@ function decision(
       defaultValueCents: null,
       defaultCurrency: "BRL",
       defaultContentName: "Cama elastica",
-    },
+      valueMode: "fixed" as const,
+      exampleMessage: null,    },
     catalog: {
       version: "catalog-v1",
       catalog: {

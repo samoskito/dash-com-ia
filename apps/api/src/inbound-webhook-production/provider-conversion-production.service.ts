@@ -681,9 +681,7 @@ export class ProviderConversionProductionService {
           ctwaClid: lead.ctwaClid,
           valueCents,
           valueSource: requiresValue
-            ? decision.rule.triggerType === "structured_catalog"
-              ? "actual"
-              : "configured_average"
+            ? this.decisionValueSource(decision)
             : null,
           currency,
           contentName: requiresValue ? decision.conversion.contentName : null,
@@ -1492,6 +1490,22 @@ export class ProviderConversionProductionService {
       first: digest.readInt32BE(0),
       second: digest.readInt32BE(4),
     };
+  }
+
+  /**
+   * "actual" whenever the value came from the message itself: a catalog match,
+   * or a message_phrase rule that extracted the amount. A configured average
+   * (fixed mode, or the extracted-mode fallback) stays "configured_average".
+   */
+  private decisionValueSource(
+    decision: ProviderConversionDecisionDto,
+  ): "actual" | "configured_average" {
+    if (decision.rule.triggerType === "structured_catalog") return "actual";
+
+    return decision.rule.triggerType === "message_phrase" &&
+      decision.conversion.observedPaymentValueCents !== null
+      ? "actual"
+      : "configured_average";
   }
 
   private metaEventId(executionId: string, eventName: string): string {
