@@ -9,6 +9,8 @@ type EmailBody = {
   preheader: string;
   heading: string;
   paragraphs: string[];
+  /** Optional monospaced block (e.g. license key). Escaped on render. */
+  codeBlock?: string;
   actionLabel: string;
   actionUrl: string;
   footerNote: string;
@@ -126,6 +128,33 @@ export class EmailMessageRenderer {
       };
     }
 
+    if (envelope.template === "license_key_delivery") {
+      const productName = envelope.data.productName;
+      const support =
+        envelope.data.supportEmail?.trim() || "suporte@rastrack.app";
+      return {
+        subject: `Sua chave ${productName}`,
+        body: {
+          preheader: `Sua chave de acesso ${productName} chegou. Guarde com segurança.`,
+          heading: this.personalizedHeading(
+            envelope.data.recipientName,
+            "sua chave de acesso chegou",
+          ),
+          paragraphs: [
+            `Segue a chave do ${productName}. Ela libera o template e o onboarding do seu ambiente.`,
+            `Validade até ${this.formatExpiry(envelope.data.expiresAt)} (prefixo de suporte: ${envelope.data.keyPrefix}).`,
+            "Clone o repositório, cole a chave quando o setup pedir e use um assistente de IA (Claude/Codex/Grok) com o AGENTS.md do projeto para configurar.",
+            `Dúvidas: ${support}.`,
+          ],
+          codeBlock: envelope.data.licenseKey,
+          actionLabel: "Abrir repositório",
+          actionUrl: envelope.data.repoUrl,
+          footerNote:
+            "Não compartilhe esta chave. Ela fica vinculada à primeira conta que ativar (1 licença = 1 conta).",
+        },
+      };
+    }
+
     return {
       subject: "Confirme seu e-mail no WppTrack",
       body: {
@@ -153,6 +182,9 @@ export class EmailMessageRenderer {
       body.heading,
       "",
       ...body.paragraphs.flatMap((paragraph) => [paragraph, ""]),
+      ...(body.codeBlock
+        ? ["Sua chave:", body.codeBlock, ""]
+        : []),
       `${body.actionLabel}: ${body.actionUrl}`,
       "",
       body.footerNote,
@@ -168,6 +200,9 @@ export class EmailMessageRenderer {
           `<p style="margin:0 0 16px;color:#334155;font-size:16px;line-height:1.65;">${this.escapeHtml(paragraph)}</p>`,
       )
       .join("");
+    const codeBlock = body.codeBlock
+      ? `<pre style="margin:0 0 20px;padding:14px 16px;background:#0f2926;color:#ecfdf5;border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:15px;line-height:1.5;letter-spacing:0.04em;overflow-x:auto;">${this.escapeHtml(body.codeBlock)}</pre>`
+      : "";
 
     return `<!doctype html>
 <html lang="pt-BR">
@@ -189,6 +224,7 @@ export class EmailMessageRenderer {
             <td class="email-content" style="padding:40px 40px 32px;">
               <h1 style="margin:0 0 20px;color:#102a27;font-size:26px;line-height:1.25;letter-spacing:0;">${this.escapeHtml(body.heading)}</h1>
               ${paragraphs}
+              ${codeBlock}
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:26px 0;">
                 <tr><td bgcolor="#0e8c7a" style="border-radius:6px;"><a class="email-action" href="${this.escapeHtml(body.actionUrl)}" style="display:inline-block;padding:14px 22px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;">${this.escapeHtml(body.actionLabel)}</a></td></tr>
               </table>

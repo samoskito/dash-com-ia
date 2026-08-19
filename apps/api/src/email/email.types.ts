@@ -6,6 +6,7 @@ export const transactionalEmailTemplateNames = [
   "email_verification",
   "client_owner_activation",
   "workspace_access_granted",
+  "license_key_delivery",
 ] as const;
 
 export type TransactionalEmailTemplateName =
@@ -48,6 +49,17 @@ export type WorkspaceAccessGrantedEmailData = {
   workspaceName: string;
 };
 
+/** raw key only ever travels inside the encrypted envelope / rendered email body. */
+export type LicenseKeyDeliveryEmailData = {
+  recipientName?: string;
+  licenseKey: string;
+  keyPrefix: string;
+  expiresAt: string;
+  productName: string;
+  repoUrl: string;
+  supportEmail?: string;
+};
+
 export type TransactionalEmailEnvelope =
   | {
       to: EmailRecipient;
@@ -73,10 +85,15 @@ export type TransactionalEmailEnvelope =
       to: EmailRecipient;
       template: "workspace_access_granted";
       data: WorkspaceAccessGrantedEmailData;
+    }
+  | {
+      to: EmailRecipient;
+      template: "license_key_delivery";
+      data: LicenseKeyDeliveryEmailData;
     };
 
 export type EmailActionReference = {
-  type: "WorkspaceInvite" | "WorkspaceMember" | "AuthActionToken";
+  type: "WorkspaceInvite" | "WorkspaceMember" | "AuthActionToken" | "License";
   id: string;
   version: string;
 };
