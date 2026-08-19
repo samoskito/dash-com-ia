@@ -23,6 +23,7 @@ import { WhatsappSeatService } from "../billing/whatsapp-seat.service";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
+import { UazapiConversionBridgeService } from "./uazapi-conversion-bridge.service";
 
 const parserVersion = "v1";
 const connectionNotFoundMessage = "Conexao de webhook nao encontrada";
@@ -45,6 +46,9 @@ export class InboundWebhookConnectionsService {
     @Optional()
     @Inject(WhatsappSeatService)
     private readonly whatsappSeats?: WhatsappSeatService,
+    @Optional()
+    @Inject(UazapiConversionBridgeService)
+    private readonly uazapiBridge?: UazapiConversionBridgeService,
   ) {}
 
   async getCapabilities(): Promise<InboundWebhookCapabilitiesDto> {
@@ -68,25 +72,31 @@ export class InboundWebhookConnectionsService {
     return {
       enabled: config.enabled,
       productionEnabled: config.enabled && config.productionEnabled,
-      providers: inboundWebhookProviders.map((provider) => {
-        const release = releaseByProvider.get(provider);
+      // UAZAPI/NOD is bridged automatically from the WhatsApp instance and
+      // never goes through the generic manual creation flow.
+      providers: inboundWebhookProviders
+        .filter((provider) => provider !== "uazapi")
+        .map((provider) => {
+          const release = releaseByProvider.get(provider);
 
-        return {
-          provider,
-          parserVersion,
-          parserReleaseStatus: release?.status ?? null,
-          creationEnabled:
-            config.enabled === true &&
-            release !== undefined &&
-            release.status !== "retired",
-        };
-      }),
+          return {
+            provider,
+            parserVersion,
+            parserReleaseStatus: release?.status ?? null,
+            creationEnabled:
+              config.enabled === true &&
+              release !== undefined &&
+              release.status !== "retired",
+          };
+        }),
     };
   }
 
   async listConnections(
     workspaceId: string,
   ): Promise<InboundWebhookConnectionDto[]> {
+    await this.syncUazapiBridges(workspaceId);
+
     const connections = await this.prisma.inboundWebhookConnection.findMany({
       where: {
         workspaceId,
@@ -171,6 +181,15 @@ export class InboundWebhookConnectionsService {
     input: InboundWebhookConnectionCreateInputDto,
     actorUserId: string,
   ): Promise<InboundWebhookConnectionCreateResultDto> {
+    if (input.provider === "uazapi") {
+      // UAZAPI/NOD connections are provisioned automatically from the
+      // workspace's WhatsApp instance (see UazapiConversionBridgeService);
+      // they never go through the generic secret-based creation flow.
+      throw new ConflictException(
+        "Conexoes UAZAPI sao criadas automaticamente a partir da instancia WhatsApp",
+      );
+    }
+
     const config = this.requireEnabledConfig();
     const secret = this.generateSecret();
     const secretHash = this.hashSecret(secret);
@@ -444,6 +463,35 @@ export class InboundWebhookConnectionsService {
     });
   }
 
+  /**
+   * U2c: lazily provisions the InboundWebhookConnection/Channel bridge for
+   * every active UAZAPI/NOD instance so it shows up in the same Gatilhos
+   * builder without requiring a webhook to have arrived yet. Best-effort:
+   * a failure here just means the instance stays invisible until its next
+   * successful webhook (see UazapiProviderConversionService), not a 500.
+   */
+  private async syncUazapiBridges(workspaceId: string): Promise<void> {
+    if (!this.uazapiBridge) return;
+
+    const instances = await this.prisma.whatsappInstance.findMany({
+      where: { workspaceId, provider: "uazapi", status: "active" },
+      select: {
+        id: true,
+        workspaceId: true,
+        name: true,
+        providerInstanceId: true,
+      },
+    });
+
+    for (const instance of instances) {
+      try {
+        await this.uazapiBridge.ensureBridge(instance);
+      } catch {
+        // best-effort; see doc comment above
+      }
+    }
+  }
+
   private activeMutationWhere(
     connection: PersistedInboundWebhookConnection,
   ): Prisma.InboundWebhookConnectionWhereInput {
@@ -631,7 +679,13 @@ export class InboundWebhookConnectionsService {
     connection: PersistedInboundWebhookConnection,
     actorUserId: string,
   ): Promise<void> {
-    if (!this.externalChannelEnforcementEnabled()) {
+    if (
+      !this.externalChannelEnforcementEnabled() ||
+      connection.provider === "uazapi"
+    ) {
+      // UAZAPI/NOD channels are billed as WhatsappInstance seats already
+      // (see WhatsappSeatProvider "uazapi"); billing them again here as an
+      // "external channel" seat would double-charge the workspace.
       return;
     }
 

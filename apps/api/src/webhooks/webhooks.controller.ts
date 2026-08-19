@@ -6,6 +6,7 @@ import {
   Headers,
   HttpCode,
   Inject,
+  Logger,
   Param,
   Post,
   Query,
@@ -19,8 +20,9 @@ import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsService } from "../conversion-events/conversion-events.service";
 import { ConversionRulesService } from "../conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../diagnostics/diagnostics.service";
+import { UazapiProviderConversionService } from "../inbound-webhooks/uazapi-provider-conversion.service";
 import { LeadsService } from "../leads/leads.service";
-import { parseUazapiWebhook } from "./uazapi-webhook-parser";
+import { parseUazapiWebhook, type ParsedUazapiWebhook } from "./uazapi-webhook-parser";
 
 type WebhookBody = Record<string, unknown>;
 
@@ -37,6 +39,8 @@ type VerifiedMetaContext = {
 
 @Controller("webhooks")
 export class WebhooksController {
+  private readonly logger = new Logger(WebhooksController.name);
+
   constructor(
     @Inject(DiagnosticsService)
     private readonly diagnosticsService: DiagnosticsService,
@@ -52,6 +56,8 @@ export class WebhooksController {
     private readonly conversionEventsQueueService: ConversionEventsQueueService,
     @Inject(LeadsService)
     private readonly leadsService: LeadsService,
+    @Inject(UazapiProviderConversionService)
+    private readonly uazapiProviderConversion: UazapiProviderConversionService,
     @Inject(PrismaService)
     private readonly prisma: PrismaService
   ) {}
@@ -505,6 +511,17 @@ export class WebhooksController {
       message !== undefined &&
       message.fromMe === false &&
       parsed.isGroupChat !== true;
+    const isTeamMessage =
+      message !== undefined &&
+      message.fromMe === true &&
+      parsed.isGroupChat !== true;
+
+    // U2c: attendant (fromMe=true) messages evaluate message_phrase
+    // Checkout/Purchase conversion rules against the paid lead of the contact
+    // being messaged; never creates or touches a platform lead.
+    if (isTeamMessage) {
+      await this.evaluateUazapiTeamMessage(resolvedContext, parsed);
+    }
 
     // Product rule: Uazapi only creates platform leads for paid CTWA inbound messages.
     if (!isInboundMessage || !parsed.ctwaClid) {
@@ -582,6 +599,52 @@ export class WebhooksController {
         queued
       }
     };
+  }
+
+  private async evaluateUazapiTeamMessage(
+    context: VerifiedUazapiContext,
+    parsed: ParsedUazapiWebhook
+  ): Promise<void> {
+    if (!parsed.phone || !parsed.messageText) {
+      return;
+    }
+
+    try {
+      const instance = await this.prisma.whatsappInstance.findFirst({
+        where: {
+          id: context.whatsappInstanceId,
+          workspaceId: context.workspaceId
+        },
+        select: {
+          id: true,
+          workspaceId: true,
+          name: true,
+          providerInstanceId: true
+        }
+      });
+
+      if (!instance) {
+        return;
+      }
+
+      await this.uazapiProviderConversion.evaluateTeamMessage({
+        workspaceId: context.workspaceId,
+        instance,
+        phone: parsed.phone,
+        messageText: parsed.messageText,
+        externalMessageId: parsed.externalEventId,
+        occurredAt: new Date()
+      });
+    } catch (error) {
+      this.logger.error(
+        JSON.stringify({
+          event: "uazapi_team_message_evaluation_failed",
+          workspaceId: context.workspaceId,
+          whatsappInstanceId: context.whatsappInstanceId,
+          errorName: error instanceof Error ? error.name : "unknown"
+        })
+      );
+    }
   }
 
   private async resolveUazapiMetaAttribution(
