@@ -210,7 +210,51 @@ export class XmaxIngestService {
       });
     }
 
+    const phoneNormalized = normalizePhoneIdentityWithCountry(
+      contact.number ?? phoneHint,
+      account.defaultCountryCode,
+    );
+    const phoneHash = hashNormalizedPhone(phoneNormalized);
+
+    // C2 paid-only: production accounts must not burn semantic dedup or create
+    // leads/conversions when the phone is not already a paid lead in-base.
+    if (this.production.isProductionEnabled(account)) {
+      if (!phoneNormalized || !phoneHash) {
+        return this.recordAndReturn(account, {
+          status: "discarded",
+          reasonCode: "missing_phone",
+          eventName,
+          ingressKey,
+          contactId,
+          tagIds: contact.tagIds,
+          providerAttempt,
+        });
+      }
+
+      const paid = await this.production.findPaidLead(
+        account.workspaceId,
+        phoneHash,
+      );
+      if (!paid.ok) {
+        return this.recordAndReturn(account, {
+          status: "discarded",
+          reasonCode: paid.reasonCode,
+          eventName,
+          ingressKey,
+          contactId,
+          tagIds: contact.tagIds,
+          phoneNormalized,
+          providerAttempt,
+          rawSummary: {
+            name: contact.name ?? name ?? null,
+            paidOnlyGate: true,
+          },
+        });
+      }
+    }
+
     // Semantic dedup: 1 event per contact+eventName forever.
+    // Only reached for shadow-only accounts OR production with paid lead.
     const existingSemantic = await this.prisma.xmaxContactEventDedup.findUnique(
       {
         where: {
@@ -230,19 +274,10 @@ export class XmaxIngestService {
         ingressKey,
         contactId,
         tagIds: contact.tagIds,
-        phoneNormalized: normalizePhoneIdentityWithCountry(
-          contact.number ?? phoneHint,
-          account.defaultCountryCode,
-        ),
+        phoneNormalized,
         providerAttempt,
       });
     }
-
-    const phoneNormalized = normalizePhoneIdentityWithCountry(
-      contact.number ?? phoneHint,
-      account.defaultCountryCode,
-    );
-    const phoneHash = hashNormalizedPhone(phoneNormalized);
 
     try {
       await this.prisma.$transaction(async (tx) => {

@@ -39,6 +39,7 @@ describe("xmax ingest service (shadow)", () => {
   let adapter: { getContact: ReturnType<typeof vi.fn> };
   let production: {
     isProductionEnabled: ReturnType<typeof vi.fn>;
+    findPaidLead: ReturnType<typeof vi.fn>;
     emit: ReturnType<typeof vi.fn>;
   };
   let service: XmaxIngestService;
@@ -104,6 +105,7 @@ describe("xmax ingest service (shadow)", () => {
 
     production = {
       isProductionEnabled: vi.fn(() => false),
+      findPaidLead: vi.fn(async () => ({ ok: false, reasonCode: "no_paid_lead" })),
       emit: vi.fn(async () => ({ attempted: false, reasonCode: "shadow_only" })),
     };
 
@@ -165,10 +167,20 @@ describe("xmax ingest service (shadow)", () => {
     expect(shadowCreates.some((r) => r.status === "observed")).toBe(true);
   });
 
-  it("calls production emit when cutover flags are on", async () => {
+  it("calls production emit when cutover flags are on and paid lead exists", async () => {
     const live = buildAccount({ shadowMode: false, capiSendEnabled: true });
     prisma.xmaxAccount.findFirst.mockResolvedValueOnce(live);
     production.isProductionEnabled.mockReturnValue(true);
+    production.findPaidLead.mockResolvedValueOnce({
+      ok: true,
+      lead: {
+        id: "lead_1",
+        adId: "ad_1",
+        adSetId: "adset_1",
+        campaignId: "cmp_1",
+        ctwaClid: "ctwa_1",
+      },
+    });
     production.emit.mockResolvedValueOnce({
       attempted: true,
       leadId: "lead_1",
@@ -194,6 +206,7 @@ describe("xmax ingest service (shadow)", () => {
 
     expect(result.reasonCode).toBe("production_queued");
     expect(result.shadowMode).toBe(false);
+    expect(production.findPaidLead).toHaveBeenCalled();
     expect(production.emit).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "Purchase",
@@ -201,6 +214,40 @@ describe("xmax ingest service (shadow)", () => {
         contactId: "c1",
       }),
     );
+    expect(dedupCreates).toHaveLength(1);
+  });
+
+  it("discards production tag without burning dedup when phone is not a paid lead", async () => {
+    const live = buildAccount({ shadowMode: false, capiSendEnabled: true });
+    prisma.xmaxAccount.findFirst.mockResolvedValueOnce(live);
+    production.isProductionEnabled.mockReturnValue(true);
+    production.findPaidLead.mockResolvedValueOnce({
+      ok: false,
+      reasonCode: "no_paid_lead",
+    });
+    adapter.getContact.mockResolvedValueOnce({
+      contactId: "c_unpaid",
+      number: "11988441020",
+      tagIds: ["55"],
+      raw: {},
+    });
+
+    const result = await service.ingest({
+      accountId,
+      token: secret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "c_unpaid" }),
+    });
+
+    expect(result).toMatchObject({
+      status: "discarded",
+      reasonCode: "no_paid_lead",
+      eventName: "QualifiedLead",
+    });
+    expect(production.emit).not.toHaveBeenCalled();
+    expect(dedupCreates).toHaveLength(0);
+    expect(shadowCreates.some((r) => r.status === "discarded")).toBe(true);
   });
 
   it("prioritizes Purchase when both tags are present", async () => {

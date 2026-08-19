@@ -3,7 +3,6 @@ import { PrismaModule } from "../common/prisma/prisma.module";
 import { QueueModule } from "../common/queue/queue.module";
 import { RuntimeModule } from "../common/runtime/runtime.module";
 import { ConversionEventsModule } from "../conversion-events/conversion-events.module";
-import { LeadsModule } from "../leads/leads.module";
 import { XmaxCredentialEncryptionService } from "./xmax-credential-encryption.service";
 import { XmaxIngestService } from "./xmax-ingest.service";
 import { XmaxProductionService } from "./xmax-production.service";
@@ -14,7 +13,6 @@ import { XmaxAdapter } from "./xmax.adapter";
   imports: [
     PrismaModule,
     RuntimeModule,
-    LeadsModule,
     ConversionEventsModule,
     QueueModule,
   ],
