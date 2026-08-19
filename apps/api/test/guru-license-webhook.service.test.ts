@@ -16,10 +16,12 @@ function createHarness() {
     licenseWebhookEvent: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const provider = (data.provider as string | undefined) ?? "guru";
+        const eventType = data.eventType as string;
         const externalTransactionId = data.externalTransactionId as string;
         const duplicate = webhookEvents.find(
           (row) =>
             row.provider === provider &&
+            row.eventType === eventType &&
             row.externalTransactionId === externalTransactionId,
         );
         if (duplicate) {
@@ -36,6 +38,35 @@ function createHarness() {
         webhookEvents.push(row);
         return row;
       }),
+      findFirst: vi.fn(
+        async ({
+          where,
+        }: {
+          where: {
+            provider?: string;
+            eventType?: string;
+            externalTransactionId?: string;
+          };
+        }) => {
+          return (
+            webhookEvents.find((row) => {
+              if (where.provider && row.provider !== where.provider) {
+                return false;
+              }
+              if (where.eventType && row.eventType !== where.eventType) {
+                return false;
+              }
+              if (
+                where.externalTransactionId &&
+                row.externalTransactionId !== where.externalTransactionId
+              ) {
+                return false;
+              }
+              return true;
+            }) ?? null
+          );
+        },
+      ),
       update: vi.fn(
         async ({
           where,
@@ -120,16 +151,20 @@ function createHarness() {
   };
 
   const licensingService = {
-    issueLicenseForPurchase: vi.fn(async (input: Record<string, unknown>) => ({
-      license: {
-        id: "lic_issued",
+    issueLicenseForPurchase: vi.fn(async (input: Record<string, unknown>) => {
+      const license = {
+        id: `lic_${String(input.guruTransactionId ?? licenses.size + 1)}`,
         guruTransactionId: input.guruTransactionId,
         buyerEmail: input.buyerEmail,
         productSku: input.productSku ?? "rastrackdash_annual",
+        interval: input.interval ?? "annual",
         status: "active",
-      },
-      rawKey: RAW_KEY,
-    })),
+        expiresAt: daysFromNow(365),
+        revokedAt: null,
+      };
+      licenses.set(license.id, license);
+      return { license, rawKey: RAW_KEY };
+    }),
   };
 
   const service = new GuruLicenseWebhookService(
@@ -162,6 +197,7 @@ describe("GuruLicenseWebhookService", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           provider: "guru",
+          eventType: "invalid:purchase_approved",
           signatureValid: false,
           resultStatus: "signature_invalid",
         }),
@@ -284,5 +320,77 @@ describe("GuruLicenseWebhookService", () => {
         }),
       }),
     );
+  });
+
+  it("issues a license after an invalid-secret attempt for the same transaction", async () => {
+    const { service, licensingService, webhookEvents } = createHarness();
+    const payload = {
+      eventType: "purchase_approved",
+      id: "txn_recover",
+      subscriber: { email: "aluno@example.com" },
+    };
+
+    const invalid = await service.handle(payload, "wrong-secret");
+    const valid = await service.handle(payload, SECRET);
+
+    expect(invalid.httpStatus).toBe(401);
+    expect(invalid.body).toMatchObject({ resultStatus: "signature_invalid" });
+    expect(valid.httpStatus).toBe(200);
+    expect(valid.body).toMatchObject({ resultStatus: "license_issued" });
+    expect(JSON.stringify(valid.body)).not.toContain(RAW_KEY);
+    expect(licensingService.issueLicenseForPurchase).toHaveBeenCalledTimes(1);
+    expect(webhookEvents.map((row) => row.eventType)).toEqual([
+      "invalid:purchase_approved",
+      "purchase_approved",
+    ]);
+  });
+
+  it("revokes after purchase when refund reuses the same payment id", async () => {
+    const { service, licensingService, licenses } = createHarness();
+
+    const purchased = await service.handle(
+      {
+        eventType: "purchase_approved",
+        id: "txn_same",
+        subscriber: { email: "aluno@example.com" },
+      },
+      SECRET,
+    );
+    const refunded = await service.handle(
+      {
+        status: "refund",
+        payment: { id: "txn_same" },
+        contact: { email: "aluno@example.com" },
+      },
+      SECRET,
+    );
+
+    expect(purchased.body).toMatchObject({ resultStatus: "license_issued" });
+    expect(refunded.httpStatus).toBe(200);
+    expect(refunded.body).toMatchObject({ resultStatus: "license_revoked" });
+    expect(licensingService.issueLicenseForPurchase).toHaveBeenCalledTimes(1);
+    expect([...licenses.values()][0]?.status).toBe("refunded");
+  });
+
+  it("returns HTTP 500 when license dispatch throws so Guru can retry", async () => {
+    const { service, licensingService } = createHarness();
+    licensingService.issueLicenseForPurchase.mockRejectedValueOnce(
+      new Error("issue failed"),
+    );
+    const payload = {
+      eventType: "purchase_approved",
+      id: "txn_retry",
+      subscriber: { email: "aluno@example.com" },
+    };
+
+    const failed = await service.handle(payload, SECRET);
+    const retried = await service.handle(payload, SECRET);
+
+    expect(failed.httpStatus).toBe(500);
+    expect(failed.body).toMatchObject({ resultStatus: "error" });
+    expect(JSON.stringify(failed.body)).not.toContain("issue failed");
+    expect(retried.httpStatus).toBe(200);
+    expect(retried.body).toMatchObject({ resultStatus: "license_issued" });
+    expect(licensingService.issueLicenseForPurchase).toHaveBeenCalledTimes(2);
   });
 });

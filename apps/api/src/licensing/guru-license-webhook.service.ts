@@ -13,6 +13,14 @@ const DEFAULT_PRODUCT_SKU = "rastrackdash_annual";
 const DEFAULT_INTERVAL: LicenseInterval = "annual";
 const UNKNOWN_TRANSACTION_ID = "unknown";
 const UNKNOWN_EVENT_TYPE = "unknown";
+const INVALID_EVENT_TYPE_PREFIX = "invalid:";
+const TERMINAL_SUCCESS_STATUSES = new Set([
+  "license_issued",
+  "license_renewed",
+  "license_revoked",
+  "ignored_unknown",
+]);
+const RETRYABLE_STATUSES = new Set(["pending", "error", "signature_invalid"]);
 
 const PURCHASE_EVENTS = new Set([
   "purchase_approved",
@@ -285,7 +293,7 @@ export class GuruLicenseWebhookService {
 
     if (!signatureValid) {
       await this.persistEvent({
-        eventType: normalized.eventType,
+        eventType: `${INVALID_EVENT_TYPE_PREFIX}${normalized.eventType}`,
         externalTransactionId:
           normalized.externalTransactionId ?? UNKNOWN_TRANSACTION_ID,
         signatureValid: false,
@@ -344,7 +352,7 @@ export class GuruLicenseWebhookService {
       this.logger.warn("guru_webhook_handle_failed");
       await this.finalizeEvent(created.id, "error");
       return {
-        httpStatus: 200,
+        httpStatus: 500,
         body: safeBody("error"),
       };
     }
@@ -470,8 +478,45 @@ export class GuruLicenseWebhookService {
       });
     } catch (error) {
       if (isUniqueConstraint(error)) {
+        return this.resolveDuplicateEvent(
+          data.eventType,
+          data.externalTransactionId,
+        );
+      }
+      this.logger.warn("guru_webhook_event_persist_failed");
+      return null;
+    }
+  }
+
+  private async resolveDuplicateEvent(
+    eventType: string,
+    externalTransactionId: string,
+  ): Promise<WebhookEventRow | "duplicate" | null> {
+    try {
+      const existing = await this.prisma.licenseWebhookEvent.findFirst({
+        where: {
+          provider: PROVIDER,
+          eventType,
+          externalTransactionId,
+        },
+        select: { id: true, resultStatus: true, signatureValid: true },
+      });
+      if (!existing) {
+        this.logger.warn("guru_webhook_event_persist_failed");
+        return null;
+      }
+      if (
+        existing.signatureValid === false ||
+        RETRYABLE_STATUSES.has(existing.resultStatus)
+      ) {
+        return { id: existing.id };
+      }
+      if (TERMINAL_SUCCESS_STATUSES.has(existing.resultStatus)) {
         return "duplicate";
       }
+      this.logger.warn("guru_webhook_event_persist_failed");
+      return null;
+    } catch {
       this.logger.warn("guru_webhook_event_persist_failed");
       return null;
     }

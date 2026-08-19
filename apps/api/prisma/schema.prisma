@@ -2560,7 +2560,7 @@ model LicenseWebhookEvent {
   resultStatus          String
   rawPayloadSanitized   Json?
 
-  @@unique([provider, externalTransactionId])
+  @@unique([provider, eventType, externalTransactionId])
   @@index([provider, receivedAt])
   @@index([resultStatus, receivedAt])
 }
