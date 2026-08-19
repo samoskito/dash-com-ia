@@ -238,6 +238,15 @@ export const providerConversionRuleCreateInputSchema = z.union([
   z.object({
     ...providerConversionRuleBaseShape,
     ...providerConversionMessageRuleShape,
+    triggerType: z.literal("message_phrase"),
+    eventName: z.literal("InitiateCheckout"),
+    defaultValueCents: z.number().int().positive(),
+    defaultCurrency: currencySchema.default("BRL"),
+    defaultContentName: catalogTextSchema.nullable().optional(),
+  }),
+  z.object({
+    ...providerConversionRuleBaseShape,
+    ...providerConversionMessageRuleShape,
     triggerType: z.literal("structured_catalog"),
     eventName: z.literal("Purchase"),
     catalog: providerConversionCatalogInputSchema,

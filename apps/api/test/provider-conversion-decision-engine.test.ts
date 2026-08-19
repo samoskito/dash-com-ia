@@ -437,6 +437,56 @@ describe("provider conversion decision engine", () => {
     });
   });
 
+  it("recognizes InitiateCheckout message_phrase with fixed value (U1)", () => {
+    const decision = engine.evaluate(
+      messageInput({
+        messageText: "CLIENTE INICIOU CHECKOUT\nlink enviado",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "InitiateCheckout",
+          triggerPhrases: ["iniciou checkout", "cliente iniciou checkout"],
+          defaultValueCents: 25_000,
+          defaultCurrency: "BRL",
+          defaultContentName: "Checkout medio",
+        }),
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decisionCode: "eligible",
+      reasonCode: "average_value_message_matched",
+      occurrence: { eventName: "InitiateCheckout" },
+      conversion: {
+        valueCents: 25_000,
+        currency: "BRL",
+        contentName: "Checkout medio",
+      },
+      // valued events use rolling 24h business dedupe (not lifetime like QL)
+    });
+    expect(decision?.occurrence.businessDedupePolicy).toMatchObject({
+      mode: "rolling_window",
+      windowSeconds: 24 * 60 * 60,
+    });
+  });
+
+  it("does not match InitiateCheckout when trigger phrase is absent", () => {
+    const decision = engine.evaluate(
+      messageInput({
+        messageText: "ola, quero saber o preco",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "InitiateCheckout",
+          triggerPhrases: ["iniciou checkout"],
+          defaultValueCents: 25_000,
+          defaultCurrency: "BRL",
+        }),
+      }),
+    );
+    expect(decision).toBeNull();
+  });
+
   it("returns a duplicate decision after a valid business match", () => {
     const input = messageInput({
       messageText:

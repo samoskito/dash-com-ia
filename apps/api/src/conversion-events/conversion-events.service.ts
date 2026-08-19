@@ -92,7 +92,7 @@ export type RecordExternalConversionInput = {
   externalConnectorId?: string | null;
   sourceEventId: string;
   sourceTrigger: string;
-  eventName: "LeadSubmitted" | "QualifiedLead" | "Purchase";
+  eventName: "LeadSubmitted" | "QualifiedLead" | "InitiateCheckout" | "Purchase";
   eventId: string;
   dedupeKey: string;
   leadId?: string | null;

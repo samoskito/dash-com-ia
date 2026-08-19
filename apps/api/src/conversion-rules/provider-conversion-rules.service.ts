@@ -701,23 +701,26 @@ export class ProviderConversionRulesService {
     current: PersistedProviderRule,
     input: ProviderConversionRuleUpdateInputDto,
   ): void {
-    const isFixedPurchase =
+    const isFixedValueRule =
       ["provider_automation", "message_phrase"].includes(
         current.conversionRule.triggerType,
-      ) && current.conversionRule.eventName === "Purchase";
+      ) &&
+      ["Purchase", "InitiateCheckout"].includes(
+        current.conversionRule.eventName,
+      );
     const hasValueUpdate =
       input.defaultValueCents !== undefined ||
       input.defaultCurrency !== undefined ||
       input.defaultContentName !== undefined;
 
-    if (hasValueUpdate && !isFixedPurchase) {
+    if (hasValueUpdate && !isFixedValueRule) {
       throw new BadRequestException(
-        "Valores padrao pertencem apenas a regras de compra com valor fixo",
+        "Valores padrao pertencem apenas a regras de compra/checkout com valor fixo",
       );
     }
-    if (isFixedPurchase && input.defaultValueCents === null) {
+    if (isFixedValueRule && input.defaultValueCents === null) {
       throw new BadRequestException(
-        "Regras de compra com valor fixo precisam manter um valor positivo",
+        "Regras com valor fixo precisam manter um valor positivo",
       );
     }
     if (
