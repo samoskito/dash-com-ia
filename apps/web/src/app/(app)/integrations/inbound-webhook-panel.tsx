@@ -634,7 +634,7 @@ export function InboundWebhookPanel({
                         <Settings2 size={18} aria-hidden="true" />
                       </div>
                       <div className="provider-conversion-summary-copy">
-                        <span className="eyebrow">Gatilhos do WhatsApp</span>
+                        <span className="eyebrow">Gatilhos de conversao</span>
                         <strong>
                           {
                             providerRules.filter(

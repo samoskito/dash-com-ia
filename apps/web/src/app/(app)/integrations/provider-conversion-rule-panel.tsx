@@ -250,7 +250,7 @@ export function ProviderConversionRulePanel({
       setCopied(true);
       setNotice({
         tone: "success",
-        message: "URL copiada. Cadastre-a na automacao da Umbler.",
+        message: "URL copiada. Cadastre-a na automacao do provedor.",
       });
     } catch {
       setNotice({
@@ -357,12 +357,12 @@ export function ProviderConversionRulePanel({
         >
           <div>
             <span className="micro-label">URL exibida uma unica vez</span>
-            <strong>Webhook da automacao Umbler</strong>
+            <strong>Webhook da automacao</strong>
           </div>
           <input
             readOnly
             value={oneTimeSecret.webhookUrl}
-            aria-label="URL privada da automacao Umbler"
+            aria-label="URL privada da automacao"
             data-presentation-sensitive-field="true"
           />
           <button className="button" type="button" onClick={copyWebhookUrl}>
@@ -1289,7 +1289,7 @@ function AutomationCallbackAudit({
           <header className="event-audit-dialog-header">
             <div>
               <span className="micro-label">Auditoria do callback</span>
-              <h3>Payload recebido da Umbler</h3>
+              <h3>Payload recebido do provedor</h3>
               <small>
                 {payload
                   ? `Recebido em ${formatDateTime(payload.receivedAt)}`

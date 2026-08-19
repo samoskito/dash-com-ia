@@ -1445,7 +1445,7 @@ describe("integrations route", () => {
         "/integrations/inbound-webhooks/connection_wave7/channels",
       );
       expect(html).toContain("Webhooks de plataformas WhatsApp");
-      expect(html).toContain("Gatilhos do WhatsApp");
+      expect(html).toContain("Gatilhos de conversao");
       expect(html).toContain("Central disponivel");
       expect(html).toContain('href="/settings#whatsapp-triggers"');
       expect(html).toContain("Gerenciar gatilhos");
