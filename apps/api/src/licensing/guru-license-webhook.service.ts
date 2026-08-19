@@ -1,0 +1,496 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { Prisma, type License, type LicenseInterval, type LicenseStatus } from "@prisma/client";
+import { PrismaService } from "../common/prisma/prisma.service";
+import {
+  RUNTIME_ENV,
+  type RuntimeEnv,
+} from "../common/runtime/runtime.module";
+import { LicensingService } from "./licensing.service";
+
+const PROVIDER = "guru";
+const DEFAULT_PRODUCT_SKU = "rastrackdash_annual";
+const DEFAULT_INTERVAL: LicenseInterval = "annual";
+const UNKNOWN_TRANSACTION_ID = "unknown";
+const UNKNOWN_EVENT_TYPE = "unknown";
+
+const PURCHASE_EVENTS = new Set([
+  "purchase_approved",
+  "purchase",
+  "paid",
+  "approved",
+  "subscription_created",
+]);
+const RENEWAL_EVENTS = new Set([
+  "renewal_approved",
+  "renewed",
+  "subscription_renewed",
+  "recurrent_payment",
+]);
+const REFUND_EVENTS = new Set(["refund", "refunded", "payment_refunded"]);
+const CHARGEBACK_EVENTS = new Set(["chargeback", "chargedback"]);
+
+const SENSITIVE_KEY = /password|secret|token|authorization|api[_-]?key|rawkey/i;
+const MAX_SANITIZE_DEPTH = 4;
+const MAX_SANITIZE_KEYS = 40;
+const MAX_SANITIZE_ARRAY = 20;
+const MAX_SANITIZE_STRING = 512;
+const MAX_SANITIZE_JSON = 8192;
+
+export type GuruWebhookHandleResult = {
+  httpStatus: number;
+  body: Record<string, unknown>;
+};
+
+type NormalizedGuruEvent = {
+  eventType: string;
+  externalTransactionId: string | undefined;
+  buyerEmail: string | undefined;
+  buyerName: string | undefined;
+  productSku: string;
+  interval: LicenseInterval;
+};
+
+type MappedKind = "purchase" | "renewal" | "refund" | "chargeback" | "unknown";
+
+type WebhookEventRow = { id: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function asNonEmptyString(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+}
+
+function nestedString(
+  record: Record<string, unknown>,
+  parent: string,
+  child: string,
+): string | undefined {
+  const nested = record[parent];
+  if (!isRecord(nested)) {
+    return undefined;
+  }
+  return asNonEmptyString(nested[child]);
+}
+
+function firstString(
+  record: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = asNonEmptyString(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function parseInterval(value: unknown): LicenseInterval {
+  if (value === "monthly" || value === "semiannual" || value === "annual") {
+    return value;
+  }
+  return DEFAULT_INTERVAL;
+}
+
+function mapEventKind(eventType: string): MappedKind {
+  if (PURCHASE_EVENTS.has(eventType)) {
+    return "purchase";
+  }
+  if (RENEWAL_EVENTS.has(eventType)) {
+    return "renewal";
+  }
+  if (REFUND_EVENTS.has(eventType)) {
+    return "refund";
+  }
+  if (CHARGEBACK_EVENTS.has(eventType)) {
+    return "chargeback";
+  }
+  return "unknown";
+}
+
+function addInterval(start: Date, interval: LicenseInterval): Date {
+  const expires = new Date(start.getTime());
+  if (interval === "monthly") {
+    expires.setUTCMonth(expires.getUTCMonth() + 1);
+    return expires;
+  }
+  if (interval === "semiannual") {
+    expires.setUTCMonth(expires.getUTCMonth() + 6);
+    return expires;
+  }
+  expires.setUTCFullYear(expires.getUTCFullYear() + 1);
+  return expires;
+}
+
+function laterDate(left: Date, right: Date): Date {
+  return left.getTime() >= right.getTime() ? left : right;
+}
+
+function isUniqueConstraint(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "P2002",
+  );
+}
+
+function secretsMatch(
+  expected: string | undefined,
+  received: string | undefined,
+): boolean {
+  const expectedHash = createHash("sha256")
+    .update(expected ?? "", "utf8")
+    .digest();
+  const receivedHash = createHash("sha256")
+    .update(received ?? "", "utf8")
+    .digest();
+  const equal = timingSafeEqual(expectedHash, receivedHash);
+  return Boolean(expected && received && equal);
+}
+
+function sanitizeValue(value: unknown, depth: number): unknown {
+  if (depth > MAX_SANITIZE_DEPTH) {
+    return undefined;
+  }
+  if (value === null || typeof value === "boolean" || typeof value === "number") {
+    return Number.isFinite(value as number) || value === null || typeof value === "boolean"
+      ? value
+      : undefined;
+  }
+  if (typeof value === "string") {
+    return value.length > MAX_SANITIZE_STRING
+      ? value.slice(0, MAX_SANITIZE_STRING)
+      : value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, MAX_SANITIZE_ARRAY)
+      .map((item) => sanitizeValue(item, depth + 1));
+  }
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value).slice(0, MAX_SANITIZE_KEYS)) {
+    if (SENSITIVE_KEY.test(key)) {
+      continue;
+    }
+    const cleaned = sanitizeValue(nested, depth + 1);
+    if (cleaned !== undefined) {
+      sanitized[key] = cleaned;
+    }
+  }
+  return sanitized;
+}
+
+function asInputJsonObject(value: Record<string, unknown>): Prisma.InputJsonObject {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonObject;
+}
+
+function sanitizePayload(body: unknown): Prisma.InputJsonObject {
+  const sanitized = sanitizeValue(body, 0);
+  if (!isRecord(sanitized)) {
+    return {};
+  }
+  try {
+    const encoded = JSON.stringify(sanitized);
+    if (encoded.length > MAX_SANITIZE_JSON) {
+      return { truncated: true };
+    }
+    return asInputJsonObject(sanitized);
+  } catch {
+    return { truncated: true };
+  }
+}
+
+function normalizeEvent(body: unknown): NormalizedGuruEvent {
+  const record = isRecord(body) ? body : {};
+  const eventType = (
+    firstString(record, ["eventType", "type", "event", "status"]) ??
+    UNKNOWN_EVENT_TYPE
+  ).toLowerCase();
+
+  const externalTransactionId =
+    firstString(record, [
+      "id",
+      "transactionId",
+      "transaction_id",
+      "externalTransactionId",
+    ]) ??
+    nestedString(record, "payment", "id") ??
+    nestedString(record, "subscription", "id") ??
+    nestedString(record, "last_transaction", "id");
+
+  const buyerEmail =
+    nestedString(record, "subscriber", "email") ??
+    nestedString(record, "contact", "email") ??
+    firstString(record, ["email", "buyerEmail"]);
+
+  const buyerName =
+    nestedString(record, "subscriber", "name") ??
+    firstString(record, ["name", "buyerName"]);
+
+  const productSku =
+    firstString(record, ["productSku", "product_sku"]) ?? DEFAULT_PRODUCT_SKU;
+
+  return {
+    eventType,
+    externalTransactionId,
+    buyerEmail,
+    buyerName,
+    productSku,
+    interval: parseInterval(record.interval),
+  };
+}
+
+function safeBody(resultStatus: string, extra?: Record<string, unknown>) {
+  const body: Record<string, unknown> = { resultStatus, ...extra };
+  delete body.rawKey;
+  delete body.rawkey;
+  return body;
+}
+
+@Injectable()
+export class GuruLicenseWebhookService {
+  private readonly logger = new Logger(GuruLicenseWebhookService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly licensing: LicensingService,
+    @Optional()
+    @Inject(RUNTIME_ENV)
+    private readonly env: RuntimeEnv = process.env,
+  ) {}
+
+  async handle(
+    body: unknown,
+    secretHeader: string | undefined,
+  ): Promise<GuruWebhookHandleResult> {
+    const normalized = normalizeEvent(body);
+    const sanitized = sanitizePayload(body);
+    const signatureValid = secretsMatch(
+      this.env.GURU_WEBHOOK_SECRET,
+      secretHeader,
+    );
+
+    if (!signatureValid) {
+      await this.persistEvent({
+        eventType: normalized.eventType,
+        externalTransactionId:
+          normalized.externalTransactionId ?? UNKNOWN_TRANSACTION_ID,
+        signatureValid: false,
+        resultStatus: "signature_invalid",
+        processedAt: new Date(),
+        rawPayloadSanitized: sanitized,
+      });
+      this.logger.warn("guru_webhook_signature_invalid");
+      return {
+        httpStatus: 401,
+        body: safeBody("signature_invalid"),
+      };
+    }
+
+    if (!normalized.externalTransactionId) {
+      await this.persistEvent({
+        eventType: normalized.eventType,
+        externalTransactionId: UNKNOWN_TRANSACTION_ID,
+        signatureValid: true,
+        resultStatus: "error",
+        processedAt: new Date(),
+        rawPayloadSanitized: sanitized,
+      });
+      return {
+        httpStatus: 400,
+        body: safeBody("error", { message: "externalTransactionId is required" }),
+      };
+    }
+
+    const created = await this.persistEvent({
+      eventType: normalized.eventType,
+      externalTransactionId: normalized.externalTransactionId,
+      signatureValid: true,
+      resultStatus: "pending",
+      rawPayloadSanitized: sanitized,
+    });
+
+    if (created === "duplicate") {
+      return {
+        httpStatus: 200,
+        body: safeBody("ignored_duplicate"),
+      };
+    }
+
+    if (created === null) {
+      this.logger.warn("guru_webhook_event_persist_failed");
+      return {
+        httpStatus: 500,
+        body: safeBody("error"),
+      };
+    }
+
+    try {
+      return await this.dispatch(created, normalized);
+    } catch {
+      this.logger.warn("guru_webhook_handle_failed");
+      await this.finalizeEvent(created.id, "error");
+      return {
+        httpStatus: 200,
+        body: safeBody("error"),
+      };
+    }
+  }
+
+  private async dispatch(
+    event: WebhookEventRow,
+    normalized: NormalizedGuruEvent,
+  ): Promise<GuruWebhookHandleResult> {
+    const kind = mapEventKind(normalized.eventType);
+
+    if (kind === "purchase") {
+      const issued = await this.licensing.issueLicenseForPurchase({
+        buyerEmail: normalized.buyerEmail,
+        buyerName: normalized.buyerName,
+        guruTransactionId: normalized.externalTransactionId,
+        productSku: normalized.productSku,
+        interval: normalized.interval,
+      });
+      void issued.rawKey;
+      await this.finalizeEvent(event.id, "license_issued");
+      return {
+        httpStatus: 200,
+        body: safeBody("license_issued"),
+      };
+    }
+
+    if (kind === "renewal") {
+      const license = await this.findLicense(normalized);
+      if (!license) {
+        await this.finalizeEvent(event.id, "error");
+        return {
+          httpStatus: 200,
+          body: safeBody("error"),
+        };
+      }
+      const interval = parseInterval(license.interval);
+      const start = laterDate(new Date(), license.expiresAt);
+      await this.prisma.license.update({
+        where: { id: license.id },
+        data: { expiresAt: addInterval(start, interval) },
+      });
+      await this.finalizeEvent(event.id, "license_renewed");
+      return {
+        httpStatus: 200,
+        body: safeBody("license_renewed"),
+      };
+    }
+
+    if (kind === "refund" || kind === "chargeback") {
+      const license = await this.findLicense(normalized);
+      if (!license) {
+        await this.finalizeEvent(event.id, "error");
+        return {
+          httpStatus: 200,
+          body: safeBody("error"),
+        };
+      }
+      const status: LicenseStatus = kind === "refund" ? "refunded" : "chargeback";
+      await this.prisma.license.update({
+        where: { id: license.id },
+        data: {
+          status,
+          revokedAt: new Date(),
+        },
+      });
+      await this.finalizeEvent(event.id, "license_revoked");
+      return {
+        httpStatus: 200,
+        body: safeBody("license_revoked"),
+      };
+    }
+
+    await this.finalizeEvent(event.id, "ignored_unknown");
+    return {
+      httpStatus: 200,
+      body: safeBody("ignored_unknown"),
+    };
+  }
+
+  private async findLicense(
+    normalized: NormalizedGuruEvent,
+  ): Promise<License | null> {
+    const byTransaction = await this.prisma.license.findUnique({
+      where: { guruTransactionId: normalized.externalTransactionId },
+    });
+    if (byTransaction) {
+      return byTransaction;
+    }
+    if (!normalized.buyerEmail) {
+      return null;
+    }
+    return this.prisma.license.findFirst({
+      where: {
+        buyerEmail: normalized.buyerEmail,
+        productSku: normalized.productSku,
+        status: "active",
+      },
+      orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
+    });
+  }
+
+  private async persistEvent(data: {
+    eventType: string;
+    externalTransactionId: string;
+    signatureValid: boolean;
+    resultStatus: string;
+    processedAt?: Date;
+    rawPayloadSanitized: Prisma.InputJsonObject;
+  }): Promise<WebhookEventRow | "duplicate" | null> {
+    try {
+      return await this.prisma.licenseWebhookEvent.create({
+        data: {
+          provider: PROVIDER,
+          eventType: data.eventType,
+          externalTransactionId: data.externalTransactionId,
+          signatureValid: data.signatureValid,
+          resultStatus: data.resultStatus,
+          processedAt: data.processedAt,
+          rawPayloadSanitized: data.rawPayloadSanitized,
+        },
+        select: { id: true },
+      });
+    } catch (error) {
+      if (isUniqueConstraint(error)) {
+        return "duplicate";
+      }
+      this.logger.warn("guru_webhook_event_persist_failed");
+      return null;
+    }
+  }
+
+  private async finalizeEvent(
+    eventId: string,
+    resultStatus: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.licenseWebhookEvent.update({
+        where: { id: eventId },
+        data: {
+          processedAt: new Date(),
+          resultStatus,
+        },
+      });
+    } catch {
+      this.logger.warn("guru_webhook_event_finalize_failed");
+    }
+  }
+}
