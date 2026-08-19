@@ -17,6 +17,7 @@ import { InboundWebhookProductionModule } from "./inbound-webhook-production/inb
 import { InboundWebhookReplayModule } from "./inbound-webhook-replay/inbound-webhook-replay.module";
 import { IntegrationsModule } from "./integrations/integrations.module";
 import { LeadsModule } from "./leads/leads.module";
+import { LicensingModule } from "./licensing/licensing.module";
 import { ReportingModule } from "./reporting/reporting.module";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
@@ -39,6 +40,7 @@ import { XmaxModule } from "./xmax/xmax.module";
     BillingModule,
     ConversionRulesModule,
     LeadsModule,
+    LicensingModule,
     ReportingModule,
     WebhooksModule,
     XmaxModule,
