@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import {
   hashNormalizedPhone,
@@ -113,27 +113,20 @@ export class XmaxIngestService {
       });
     }
 
-    const { contactId, phoneHint, name, ingressKey } = parsed.value;
+    const { contactId, phoneHint, name } = parsed.value;
     const providerAttempt = this.parseAttempt(input.providerAttempt);
+    // XMAX contact-edit webhooks often repeat the same body; tags change only on
+    // getContact. Never short-circuit on body hash — each delivery must re-fetch.
+    // ingressKey is unique per delivery (body hash + nonce) for audit only.
+    // Real anti-replay is semantic dedup (accountId+contactId+eventName).
+    const bodyHash = parsed.value.ingressKey;
+    const ingressKey = `${bodyHash}:${Date.now().toString(36)}:${randomBytes(4).toString("hex")}`;
 
-    // Transport dedup: same ingressKey on this account → duplicate (no re-processing).
-    const existingIngress = await this.prisma.xmaxShadowEvent.findUnique({
-      where: {
-        accountId_ingressKey: {
-          accountId: account.id,
-          ingressKey,
-        },
-      },
-      select: { id: true, status: true, eventName: true, reasonCode: true },
+    // Touch lastWebhookAt early so ops can see deliveries even if getContact fails.
+    await this.prisma.xmaxAccount.update({
+      where: { id: account.id },
+      data: { lastWebhookAt: new Date() },
     });
-    if (existingIngress) {
-      return {
-        status: "duplicate",
-        eventName: existingIngress.eventName ?? undefined,
-        reasonCode: existingIngress.reasonCode ?? "transport_duplicate",
-        shadowMode: true,
-      };
-    }
 
     let apiKey: string;
     try {
@@ -166,7 +159,6 @@ export class XmaxIngestService {
       await this.prisma.xmaxAccount.update({
         where: { id: account.id },
         data: {
-          lastWebhookAt: new Date(),
           lastErrorCode: code,
         },
       });
@@ -182,7 +174,6 @@ export class XmaxIngestService {
     await this.prisma.xmaxAccount.update({
       where: { id: account.id },
       data: {
-        lastWebhookAt: new Date(),
         lastSuccessfulGetContact: new Date(),
         lastErrorCode: null,
       },
