@@ -195,24 +195,49 @@ describe("xmax ingest service (shadow)", () => {
     expect(dedupCreates).toHaveLength(0);
   });
 
-  it("returns transport duplicate when ingressKey already exists", async () => {
-    prisma.xmaxShadowEvent.findUnique.mockResolvedValueOnce({
-      id: "s1",
+  it("re-runs getContact on repeated identical webhook bodies (XMAX tag edits)", async () => {
+    // First delivery: QL
+    adapter.getContact
+      .mockResolvedValueOnce({
+        contactId: "c1",
+        number: "11988441020",
+        tagIds: ["55"],
+        raw: {},
+      })
+      // Second delivery: same body, tags now include Purchase
+      .mockResolvedValueOnce({
+        contactId: "c1",
+        number: "11988441020",
+        tagIds: ["55", "56"],
+        raw: {},
+      });
+
+    const payload = body({ Contact_Id: "c1", Nome: "Lead X" });
+
+    const first = await service.ingest({
+      accountId,
+      token: secret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: payload,
+    });
+    expect(first).toMatchObject({
       status: "observed",
       eventName: "QualifiedLead",
-      reasonCode: "shadow_observed",
     });
 
-    const result = await service.ingest({
+    const second = await service.ingest({
       accountId,
       token: secret,
       contentType: "application/json",
       providerAttempt: 2,
-      rawBody: body({ Contact_Id: "c1" }),
+      rawBody: payload, // identical body — must NOT short-circuit
     });
-
-    expect(result.status).toBe("duplicate");
-    expect(adapter.getContact).not.toHaveBeenCalled();
+    expect(second).toMatchObject({
+      status: "observed",
+      eventName: "Purchase",
+    });
+    expect(adapter.getContact).toHaveBeenCalledTimes(2);
   });
 
   it("returns semantic duplicate when contact+event already fired", async () => {
