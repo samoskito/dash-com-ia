@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { HttpException, HttpStatus, Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import type { EmailQueueService } from "../email/email-queue.service";
@@ -27,6 +27,16 @@ export type NotifyLicenseIssuedInput = {
 export type NotifyLicenseIssuedResult = {
   email: "queued" | "skipped" | "failed";
   whatsapp: "sent" | "skipped" | "failed";
+};
+
+export type ResendLicenseDeliveryInput = {
+  licenseId: string;
+  phoneE164?: string | null;
+  channel?: "email" | "whatsapp" | "both";
+};
+
+export type ResendLicenseDeliveryResult = NotifyLicenseIssuedResult & {
+  licenseId: string;
 };
 
 @Injectable()
@@ -87,8 +97,89 @@ export class LicenseNotificationService {
 
     const email = await this.sendEmail(input);
     const whatsapp = await this.sendWhatsapp(input);
-
     return { email, whatsapp };
+  }
+
+  /**
+   * Admin resend: decrypt short-lived artifact and redeliver.
+   * Never returns the raw key to the HTTP caller.
+   */
+  async resendDelivery(
+    input: ResendLicenseDeliveryInput,
+  ): Promise<ResendLicenseDeliveryResult> {
+    const license = await this.prisma.license.findUnique({
+      where: { id: input.licenseId },
+    });
+    if (!license) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.NOT_FOUND,
+          code: "license_not_found",
+          message: "Licenca nao encontrada",
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const artifact = await this.prisma.licenseDeliveryArtifact.findUnique({
+      where: { licenseId: input.licenseId },
+    });
+    const now = new Date();
+    if (!artifact || artifact.expiresAt.getTime() <= now.getTime()) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.CONFLICT,
+          code: "license_key_unrecoverable",
+          message:
+            "Chave nao recuperavel para reenvio. Artefato expirado ou ausente; emita nova licenca se necessario.",
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    let rawKey: string;
+    try {
+      rawKey = this.deliverySecrets.decrypt(input.licenseId, {
+        ciphertext: artifact.ciphertext,
+        iv: artifact.iv,
+        authTag: artifact.authTag,
+      });
+    } catch {
+      this.logger.warn("license_notify_resend_decrypt_failed");
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.CONFLICT,
+          code: "license_key_unrecoverable",
+          message: "Chave nao recuperavel para reenvio.",
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const channel = input.channel ?? "both";
+    const baseInput: NotifyLicenseIssuedInput = {
+      license: {
+        id: license.id,
+        keyPrefix: license.keyPrefix,
+        buyerEmail: license.buyerEmail,
+        buyerName: license.buyerName,
+        expiresAt: license.expiresAt,
+        issuedAt: license.issuedAt,
+      },
+      rawKey,
+      phoneE164: input.phoneE164 ?? null,
+      reason: "resend",
+      resendNonce: `${now.toISOString()}:${Math.random().toString(36).slice(2, 10)}`,
+    };
+
+    const email =
+      channel === "whatsapp" ? ("skipped" as const) : await this.sendEmail(baseInput);
+    const whatsapp =
+      channel === "email"
+        ? ("skipped" as const)
+        : await this.sendWhatsapp(baseInput);
+
+    return { licenseId: license.id, email, whatsapp };
   }
 
   private async sendEmail(
@@ -122,9 +213,11 @@ export class LicenseNotificationService {
             licenseKey: input.rawKey,
             keyPrefix: input.license.keyPrefix,
             expiresAt: input.license.expiresAt.toISOString(),
-            productName: this.env.LICENSE_NOTIFY_PRODUCT_NAME?.trim() || DEFAULT_PRODUCT_NAME,
+            productName:
+              this.env.LICENSE_NOTIFY_PRODUCT_NAME?.trim() || DEFAULT_PRODUCT_NAME,
             repoUrl: this.env.LICENSE_NOTIFY_REPO_URL?.trim() || DEFAULT_REPO_URL,
-            supportEmail: this.env.LICENSE_NOTIFY_SUPPORT_EMAIL?.trim() || undefined,
+            supportEmail:
+              this.env.LICENSE_NOTIFY_SUPPORT_EMAIL?.trim() || undefined,
           },
         },
       });

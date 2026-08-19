@@ -21,21 +21,51 @@ function baseLicense(overrides: Partial<{
 function createHarness(options: { emailEnabled?: boolean } = {}) {
   const artifacts = new Map<string, Record<string, unknown>>();
 
+  const licenses = new Map<string, Record<string, unknown>>([
+    [
+      "lic_1",
+      {
+        id: "lic_1",
+        keyPrefix: "PALMUP-ABCD",
+        buyerEmail: "aluno@example.com",
+        buyerName: "Aluno",
+        expiresAt: new Date("2027-08-19T00:00:00.000Z"),
+        issuedAt: new Date("2026-08-19T00:00:00.000Z"),
+      },
+    ],
+  ]);
+
   const prisma = {
+    license: {
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+        return licenses.get(where.id) ?? null;
+      }),
+    },
     licenseDeliveryArtifact: {
       upsert: vi.fn(async ({ where, create }: { where: { licenseId: string }; create: Record<string, unknown> }) => {
         artifacts.set(where.licenseId, create);
         return create;
+      }),
+      findUnique: vi.fn(async ({ where }: { where: { licenseId: string } }) => {
+        return artifacts.get(where.licenseId) ?? null;
       }),
     },
   };
 
   const deliverySecrets = {
     encrypt: vi.fn((licenseId: string, rawKey: string) => ({
-      ciphertext: `ct:${licenseId}:${rawKey}`,
+      ciphertext: Buffer.from(`${licenseId}:${rawKey}`).toString("base64"),
       iv: "iv",
       authTag: "tag",
     })),
+    decrypt: vi.fn((licenseId: string, artifact: { ciphertext: string }) => {
+      const decoded = Buffer.from(artifact.ciphertext, "base64").toString("utf8");
+      const prefix = `${licenseId}:`;
+      if (!decoded.startsWith(prefix)) {
+        throw new Error("bad aad");
+      }
+      return decoded.slice(prefix.length);
+    }),
   };
 
   const emailQueue = {
@@ -217,3 +247,52 @@ describe("LicenseNotificationService", () => {
     ).resolves.toMatchObject({ email: "queued" });
   });
 });
+
+  it("resends from a valid delivery artifact without returning the raw key", async () => {
+    const { service, emailQueue, deliverySecrets, artifacts } = createHarness();
+    await service.storeDeliveryArtifact(
+      "lic_1",
+      RAW_KEY,
+      new Date("2026-08-19T00:00:00.000Z"),
+    );
+    // ensure artifact shape includes expiresAt future
+    const stored = artifacts.get("lic_1") as Record<string, unknown>;
+    expect(stored.expiresAt).toBeInstanceOf(Date);
+
+    const result = await service.resendDelivery({ licenseId: "lic_1" });
+    expect(result.email).toBe("queued");
+    expect(result.licenseId).toBe("lic_1");
+    expect(deliverySecrets.decrypt).toHaveBeenCalled();
+    expect(emailQueue.enqueue).toHaveBeenCalled();
+    const payload = emailQueue.enqueue.mock.calls.at(-1)?.[0] as {
+      action: { version: string };
+      envelope: { data: { licenseKey: string } };
+    };
+    expect(payload.action.version.startsWith("resend:")).toBe(true);
+    expect(payload.envelope.data.licenseKey).toBe(RAW_KEY);
+    expect(JSON.stringify(result)).not.toContain(RAW_KEY);
+  });
+
+  it("returns 409 when the delivery artifact is missing", async () => {
+    const { service } = createHarness();
+    await expect(service.resendDelivery({ licenseId: "lic_1" })).rejects.toMatchObject({
+      response: { code: "license_key_unrecoverable" },
+      status: 409,
+    });
+  });
+
+  it("returns 409 when the delivery artifact is expired", async () => {
+    const { service, artifacts } = createHarness();
+    artifacts.set("lic_1", {
+      licenseId: "lic_1",
+      ciphertext: Buffer.from("lic_1:" + RAW_KEY).toString("base64"),
+      iv: "iv",
+      authTag: "tag",
+      expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+    });
+    await expect(service.resendDelivery({ licenseId: "lic_1" })).rejects.toMatchObject({
+      response: { code: "license_key_unrecoverable" },
+      status: 409,
+    });
+  });
+

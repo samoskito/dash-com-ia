@@ -3,6 +3,8 @@ import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PlatformAdminService } from "../src/auth/platform-admin.service";
+import { LicenseNotificationService } from "../src/licensing/license-notification.service";
+import { LicenseRateLimitService } from "../src/licensing/license-rate-limit.service";
 import { LicensingAdminController } from "../src/licensing/licensing.admin.controller";
 import { LicensingModule } from "../src/licensing/licensing.module";
 import { LicensingService } from "../src/licensing/licensing.service";
@@ -66,18 +68,30 @@ async function createApp(options?: { admin?: boolean }) {
       nodApiEnabled: true,
     })),
   };
+  const notifications = {
+    resendDelivery: vi.fn(async () => ({
+      licenseId: "lic_1",
+      email: "queued" as const,
+      whatsapp: "skipped" as const,
+    })),
+  };
+  const rateLimit = {
+    assertAllowed: vi.fn(),
+  };
 
   const moduleRef = await Test.createTestingModule({
     controllers: [LicensingAdminController],
     providers: [
       { provide: PlatformAdminService, useValue: platformAdminService },
       { provide: LicensingService, useValue: licensingService },
+      { provide: LicenseNotificationService, useValue: notifications },
+      { provide: LicenseRateLimitService, useValue: rateLimit },
     ],
   }).compile();
   const app = moduleRef.createNestApplication();
   await app.init();
 
-  return { app, licensingService, platformAdminService };
+  return { app, licensingService, platformAdminService, notifications, rateLimit };
 }
 
 describe("licensing admin controller", () => {
@@ -145,6 +159,31 @@ describe("licensing admin controller", () => {
       .expect(400);
 
     expect(licensingService.revokeLicense).not.toHaveBeenCalled();
+  });
+
+  it("resends delivery without leaking the raw key", async () => {
+    const { app, notifications, platformAdminService, rateLimit } =
+      await createApp();
+    apps.push(app);
+
+    await request(app.getHttpServer())
+      .post("/backoffice/licenses/lic_1/resend")
+      .set("Authorization", "Bearer refresh-token")
+      .send({ channel: "email" })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.licenseId).toBe("lic_1");
+        expect(body.email).toBe("queued");
+        expect(JSON.stringify(body)).not.toMatch(/PALMUP-[A-Z0-9]{4}-[A-Z0-9]{4}/);
+      });
+
+    expect(platformAdminService.assertPlatformAdmin).toHaveBeenCalled();
+    expect(rateLimit.assertAllowed).toHaveBeenCalled();
+    expect(notifications.resendDelivery).toHaveBeenCalledWith({
+      licenseId: "lic_1",
+      channel: "email",
+      phoneE164: undefined,
+    });
   });
 
   it("compiles LicensingModule and resolves the admin controller", async () => {
