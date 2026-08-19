@@ -211,23 +211,84 @@ export class LicensingService {
   ): Promise<IssuedLicense> {
     const now = input.now ?? new Date();
     const interval = input.interval ?? "annual";
+    const productSku = input.productSku ?? DEFAULT_PRODUCT_SKU;
+    const guruTransactionId = input.guruTransactionId?.trim() || null;
+
+    // Dedupe by Guru subscription/transaction id first (same subscription, multiple status webhooks).
+    if (guruTransactionId) {
+      const existingByTxn = await this.prisma.license.findUnique({
+        where: { guruTransactionId },
+      });
+      if (existingByTxn) {
+        return { license: existingByTxn, rawKey: null, created: false };
+      }
+    }
+
+    // Secondary dedupe: same buyer + product already active/unexpired (Iniciada then Ativa with different ids).
+    const buyerEmail = input.buyerEmail?.trim().toLowerCase() || null;
+    if (buyerEmail) {
+      const existingByBuyer = await this.prisma.license.findFirst({
+        where: {
+          buyerEmail,
+          productSku,
+          status: "active",
+          expiresAt: { gt: now },
+        },
+        orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
+      });
+      if (existingByBuyer) {
+        // Bind guruTransactionId if the first event had none / different placeholder.
+        if (guruTransactionId && !existingByBuyer.guruTransactionId) {
+          try {
+            const updated = await this.prisma.license.update({
+              where: { id: existingByBuyer.id },
+              data: { guruTransactionId },
+            });
+            return { license: updated, rawKey: null, created: false };
+          } catch {
+            // unique race — fall through to return existing without binding
+          }
+        }
+        return { license: existingByBuyer, rawKey: null, created: false };
+      }
+    }
+
     const rawKey = generateRawLicenseKey();
     const keyHash = hashLicenseKey(rawKey);
-    const license = await this.prisma.license.create({
-      data: {
-        keyHash,
-        keyPrefix: keyPrefixFromRaw(rawKey),
-        buyerEmail: input.buyerEmail ?? null,
-        buyerName: input.buyerName ?? null,
-        guruTransactionId: input.guruTransactionId ?? undefined,
-        productSku: input.productSku ?? DEFAULT_PRODUCT_SKU,
-        interval,
-        expiresAt: addInterval(now, interval),
-        status: "active",
-        issuedAt: now,
-      },
-    });
-    return { license, rawKey };
+    try {
+      const license = await this.prisma.license.create({
+        data: {
+          keyHash,
+          keyPrefix: keyPrefixFromRaw(rawKey),
+          buyerEmail,
+          buyerName: input.buyerName ?? null,
+          guruTransactionId: guruTransactionId ?? undefined,
+          productSku,
+          interval,
+          expiresAt: addInterval(now, interval),
+          status: "active",
+          issuedAt: now,
+        },
+      });
+      return { license, rawKey, created: true };
+    } catch (error) {
+      // Concurrent duplicate create on guruTransactionId → reuse existing, never notify twice.
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2002" &&
+        guruTransactionId
+      ) {
+        const existing = await this.prisma.license.findUnique({
+          where: { guruTransactionId },
+        });
+        if (existing) {
+          return { license: existing, rawKey: null, created: false };
+        }
+      }
+      throw error;
+    }
   }
 
   async activate(input: ActivateLicenseInput): Promise<LicenseActionResult> {

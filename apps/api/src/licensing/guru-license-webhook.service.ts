@@ -20,6 +20,7 @@ const TERMINAL_SUCCESS_STATUSES = new Set([
   "license_renewed",
   "license_revoked",
   "ignored_unknown",
+  "ignored_duplicate_license",
 ]);
 const RETRYABLE_STATUSES = new Set(["pending", "error", "signature_invalid"]);
 
@@ -401,11 +402,20 @@ export class GuruLicenseWebhookService {
         productSku: normalized.productSku,
         interval: normalized.interval,
       });
-      await this.notify(issued, normalized.phone);
-      await this.finalizeEvent(event.id, "license_issued");
+      // Only the first issue delivers email/WA. Later status webhooks
+      // (Iniciada → Ativa, retries) reuse the license and must NOT renotify.
+      if (issued.created && issued.rawKey) {
+        await this.notify(issued, normalized.phone);
+        await this.finalizeEvent(event.id, "license_issued");
+        return {
+          httpStatus: 200,
+          body: safeBody("license_issued"),
+        };
+      }
+      await this.finalizeEvent(event.id, "ignored_duplicate_license");
       return {
         httpStatus: 200,
-        body: safeBody("license_issued"),
+        body: safeBody("ignored_duplicate_license"),
       };
     }
 
@@ -463,10 +473,10 @@ export class GuruLicenseWebhookService {
   }
 
   private async notify(
-    issued: { license: License; rawKey: string },
+    issued: { license: License; rawKey: string | null },
     phoneE164: string | undefined,
   ): Promise<void> {
-    if (!this.notifications) {
+    if (!this.notifications || !issued.rawKey) {
       return;
     }
     try {

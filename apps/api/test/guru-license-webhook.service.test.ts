@@ -8,7 +8,7 @@ function daysFromNow(days: number, now = new Date()): Date {
   return new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
-function createHarness() {
+function createHarness(options?: { notifications?: { notifyLicenseIssued: ReturnType<typeof vi.fn> } }) {
   const webhookEvents: Array<Record<string, unknown>> = [];
   const licenses = new Map<string, Record<string, unknown>>();
 
@@ -152,18 +152,32 @@ function createHarness() {
 
   const licensingService = {
     issueLicenseForPurchase: vi.fn(async (input: Record<string, unknown>) => {
+      const existing = [...licenses.values()].find(
+        (row) =>
+          (input.guruTransactionId &&
+            row.guruTransactionId === input.guruTransactionId) ||
+          (input.buyerEmail &&
+            row.buyerEmail === input.buyerEmail &&
+            row.status === "active"),
+      );
+      if (existing) {
+        return { license: existing, rawKey: null, created: false };
+      }
       const license = {
         id: `lic_${String(input.guruTransactionId ?? licenses.size + 1)}`,
         guruTransactionId: input.guruTransactionId,
         buyerEmail: input.buyerEmail,
+        buyerName: input.buyerName,
+        keyPrefix: "PALMUP-TEST",
         productSku: input.productSku ?? "rastrackdash_annual",
         interval: input.interval ?? "annual",
         status: "active",
         expiresAt: daysFromNow(365),
+        issuedAt: new Date(),
         revokedAt: null,
       };
-      licenses.set(license.id, license);
-      return { license, rawKey: RAW_KEY };
+      licenses.set(String(license.id), license);
+      return { license, rawKey: RAW_KEY, created: true };
     }),
   };
 
@@ -171,6 +185,7 @@ function createHarness() {
     prisma as never,
     licensingService as never,
     { GURU_WEBHOOK_SECRET: SECRET },
+    options?.notifications as never,
   );
 
   return { service, prisma, licensingService, webhookEvents, licenses };
@@ -392,5 +407,84 @@ describe("GuruLicenseWebhookService", () => {
     expect(retried.httpStatus).toBe(200);
     expect(retried.body).toMatchObject({ resultStatus: "license_issued" });
     expect(licensingService.issueLicenseForPurchase).toHaveBeenCalledTimes(2);
+  });
+
+
+  it("does not renotify when Iniciada and Ativa arrive for the same subscription id", async () => {
+    const notifications = {
+      notifyLicenseIssued: vi.fn(async () => ({
+        email: "queued" as const,
+        whatsapp: "skipped" as const,
+      })),
+    };
+    const { service, licensingService } = createHarness({ notifications });
+
+    const payloadBase = {
+      id: "sub_same",
+      subscriber: {
+        email: "aluno@example.com",
+        name: "Aluno",
+        phone: "5511999999999",
+      },
+      productSku: "rastrackdash_annual",
+    };
+
+    const first = await service.handle(
+      { ...payloadBase, status: "iniciada" },
+      SECRET,
+    );
+    const second = await service.handle(
+      { ...payloadBase, status: "ativa" },
+      SECRET,
+    );
+
+    expect(first.body).toMatchObject({ resultStatus: "license_issued" });
+    expect(second.body).toMatchObject({
+      resultStatus: "ignored_duplicate_license",
+    });
+    expect(licensingService.issueLicenseForPurchase).toHaveBeenCalledTimes(2);
+    expect(notifications.notifyLicenseIssued).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(first.body)).not.toContain(RAW_KEY);
+    expect(JSON.stringify(second.body)).not.toContain(RAW_KEY);
+  });
+
+  it("renewal extends expiry without sending a new license key notification", async () => {
+    const notifications = {
+      notifyLicenseIssued: vi.fn(async () => ({
+        email: "queued" as const,
+        whatsapp: "skipped" as const,
+      })),
+    };
+    const { service, licensingService, prisma, licenses } = createHarness({
+      notifications,
+    });
+
+    licenses.set("lic_1", {
+      id: "lic_1",
+      guruTransactionId: "sub_renew",
+      buyerEmail: "aluno@example.com",
+      productSku: "rastrackdash_annual",
+      interval: "annual",
+      status: "active",
+      expiresAt: daysFromNow(30),
+      issuedAt: new Date(),
+      keyPrefix: "PALMUP-TEST",
+      buyerName: "Aluno",
+      revokedAt: null,
+    });
+
+    const result = await service.handle(
+      {
+        status: "renovada",
+        id: "sub_renew",
+        subscriber: { email: "aluno@example.com" },
+      },
+      SECRET,
+    );
+
+    expect(result.body).toMatchObject({ resultStatus: "license_renewed" });
+    expect(notifications.notifyLicenseIssued).not.toHaveBeenCalled();
+    expect(licensingService.issueLicenseForPurchase).not.toHaveBeenCalled();
+    expect(prisma.license.update).toHaveBeenCalled();
   });
 });
