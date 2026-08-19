@@ -274,6 +274,7 @@ enum AuthActionTokenType {
 enum InboundWebhookProvider {
   umbler
   gupshup
+  uazapi
 }
 
 enum InboundWebhookParserReleaseStatus {
@@ -495,10 +496,11 @@ model WhatsappInstance {
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
 
-  workspace     Workspace                    @relation(fields: [workspaceId], references: [id])
-  activations   WhatsappInstanceActivation[]
-  leads         Lead[]
-  whatsappSeats WhatsappSeat[]
+  workspace             Workspace                    @relation(fields: [workspaceId], references: [id])
+  activations           WhatsappInstanceActivation[]
+  leads                 Lead[]
+  whatsappSeats         WhatsappSeat[]
+  inboundWebhookChannel InboundWebhookChannel?
 
   @@unique([workspaceId, id])
   @@index([workspaceId])
@@ -1857,6 +1859,7 @@ model InboundWebhookChannel {
   status                InboundWebhookChannelStatus  @default(discovered)
   conversionEngineMode  ProviderConversionEngineMode @default(canonical)
   productionActivatedAt DateTime?
+  whatsappInstanceId    String?                      @unique
   firstSeenAt           DateTime                     @default(now())
   lastSeenAt            DateTime                     @default(now())
   createdAt             DateTime                     @default(now())
@@ -1864,6 +1867,7 @@ model InboundWebhookChannel {
 
   workspace                     Workspace                            @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   connection                    InboundWebhookConnection             @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookChannel_connectionId_fkey")
+  whatsappInstance              WhatsappInstance?                    @relation(fields: [whatsappInstanceId], references: [id], onDelete: SetNull)
   routes                        InboundWebhookChannelRoute[]
   events                        InboundWebhookEvent[]
   replayBatches                 InboundWebhookReplayBatch[]

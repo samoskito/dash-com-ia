@@ -30,6 +30,8 @@ import { InboundWebhookProcessor } from "./inbound-webhook.processor";
 import { InboundWebhookPublicController } from "./inbound-webhook-public.controller";
 import { InboundWebhookQueueService } from "./inbound-webhook-queue.service";
 import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser.registry";
+import { UazapiConversionBridgeService } from "./uazapi-conversion-bridge.service";
+import { UazapiProviderConversionService } from "./uazapi-provider-conversion.service";
 
 @Module({
   imports: [
@@ -69,6 +71,8 @@ import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser
     InboundWebhookProcessor,
     InboundWebhookQueueService,
     InboundWebhookParserRegistry,
+    UazapiConversionBridgeService,
+    UazapiProviderConversionService,
   ],
   exports: [
     InboundWebhookChannelRoutesService,
@@ -78,6 +82,8 @@ import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser
     InboundWebhookProductionIntakeService,
     InboundWebhookProductionQueueService,
     InboundWebhookParserRegistry,
+    UazapiConversionBridgeService,
+    UazapiProviderConversionService,
   ],
 })
 export class InboundWebhooksModule {}

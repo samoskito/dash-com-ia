@@ -372,8 +372,12 @@ export class InboundWebhookChannelRoutesService {
       if (
         input.status === "active" &&
         current.connection.status === "production" &&
+        current.connection.provider !== "uazapi" &&
         this.externalChannelEnforcementEnabled()
       ) {
+        // UAZAPI/NOD channels are billed as WhatsappInstance seats already
+        // (see WhatsappSeatProvider "uazapi"); billing them again here as an
+        // "external channel" seat would double-charge the workspace.
         await this.whatsappSeats!.activateExternalChannelSeat(transaction, {
           workspaceId,
           channelId,
