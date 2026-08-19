@@ -8,7 +8,9 @@ import {
   providerConversionAutomationReprocessBatchResultSchema,
   providerConversionRuleAdaptInputSchema,
   providerConversionRuleCreateInputSchema,
+  providerConversionRuleUpdateInputSchema,
   purchaseReviewListQuerySchema,
+  readMessagePhraseConfig,
   structuredCatalogTestMessageInputSchema,
   structuredCatalogTestMessageResultSchema,
 } from "../src";
@@ -153,6 +155,101 @@ describe("provider conversion rule contracts", () => {
         // missing defaultValueCents
       }).success,
     ).toBe(false);
+  });
+
+  it("defaults message_phrase rules to a fixed average value", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "Purchase",
+      triggerPhrases: ["Aviso de compra"],
+      defaultValueCents: 99900,
+    });
+
+    expect(parsed).toMatchObject({
+      valueMode: "fixed",
+      defaultValueCents: 99900,
+      defaultCurrency: "BRL",
+    });
+  });
+
+  it("accepts message_extracted checkout rules with an example and no fixed value", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "InitiateCheckout",
+      triggerPhrases: ["link de pagamento"],
+      valueMode: "message_extracted",
+      exampleMessage: "Segue o link de pagamento de R$ 250,00",
+    });
+
+    expect(parsed).toMatchObject({
+      valueMode: "message_extracted",
+      exampleMessage: "Segue o link de pagamento de R$ 250,00",
+      defaultCurrency: "BRL",
+    });
+    expect(parsed).not.toHaveProperty("defaultValueCents", 0);
+  });
+
+  it("keeps a fallback average value available for message_extracted rules", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "Purchase",
+      triggerPhrases: ["Aviso de compra"],
+      valueMode: "message_extracted",
+      defaultValueCents: 25000,
+    });
+
+    expect(parsed).toMatchObject({
+      valueMode: "message_extracted",
+      defaultValueCents: 25000,
+    });
+  });
+
+  it("rejects fixed message_phrase rules without an average value", () => {
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...messageScope,
+        triggerType: "message_phrase",
+        eventName: "InitiateCheckout",
+        triggerPhrases: ["iniciou checkout"],
+        valueMode: "fixed",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("reads the persisted message_phrase config and falls back to fixed", () => {
+    expect(
+      readMessagePhraseConfig({
+        kind: "message_phrase_config_v1",
+        valueMode: "message_extracted",
+        exampleMessage: "Total: R$ 250,00",
+      }),
+    ).toMatchObject({
+      valueMode: "message_extracted",
+      exampleMessage: "Total: R$ 250,00",
+    });
+
+    for (const legacy of [null, undefined, [{ id: "sku_1", quantity: 1 }]]) {
+      expect(readMessagePhraseConfig(legacy)).toEqual({
+        kind: "message_phrase_config_v1",
+        valueMode: "fixed",
+        exampleMessage: null,
+      });
+    }
+  });
+
+  it("allows updates to switch the message_phrase value pipeline", () => {
+    expect(
+      providerConversionRuleUpdateInputSchema.parse({
+        valueMode: "message_extracted",
+        exampleMessage: "Pagamento de R$ 250,00 confirmado",
+      }),
+    ).toMatchObject({
+      valueMode: "message_extracted",
+      exampleMessage: "Pagamento de R$ 250,00 confirmado",
+    });
   });
 
   it("accepts the approved two-attribute trampoline catalog", () => {

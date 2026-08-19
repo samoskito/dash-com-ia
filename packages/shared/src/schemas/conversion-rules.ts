@@ -45,6 +45,36 @@ export const providerConversionMessageAuthorScopeSchema = z.enum(
   providerConversionMessageAuthorScopes,
 );
 
+export const messagePhraseValueModes = ["fixed", "message_extracted"] as const;
+export const messagePhraseValueModeSchema = z.enum(messagePhraseValueModes);
+
+/**
+ * message_phrase rules reuse ConversionRule.defaultItems (Json?) to persist the
+ * value pipeline. Catalog and legacy rules keep storing product item arrays, so
+ * the object shape below is the only accepted message_phrase payload.
+ */
+export const messagePhraseConfigKind = "message_phrase_config_v1";
+
+export const messagePhraseConfigSchema = z.object({
+  kind: z.literal(messagePhraseConfigKind),
+  valueMode: messagePhraseValueModeSchema,
+  exampleMessage: z.string().max(2_000).nullable(),
+});
+
+/** Rules created before U2 have `defaultItems` null or an item array: fixed value. */
+export function readMessagePhraseConfig(
+  value: unknown,
+): z.infer<typeof messagePhraseConfigSchema> {
+  const parsed = messagePhraseConfigSchema.safeParse(value);
+  return parsed.success
+    ? parsed.data
+    : {
+        kind: messagePhraseConfigKind,
+        valueMode: "fixed",
+        exampleMessage: null,
+      };
+}
+
 export const providerConversionExecutionStatuses = [
   "observed",
   "eligible",
@@ -205,6 +235,39 @@ const providerConversionMessageRuleShape = {
   messageAuthorScope: providerConversionMessageAuthorScopeSchema,
 };
 
+const messagePhraseExampleSchema = z.string().trim().max(2_000);
+
+const messagePhraseValueShape = {
+  valueMode: messagePhraseValueModeSchema.default("fixed"),
+  exampleMessage: messagePhraseExampleSchema.nullable().optional(),
+  // Required when valueMode is "fixed"; optional fallback when extracting.
+  defaultValueCents: z.number().int().positive().nullable().optional(),
+  defaultCurrency: currencySchema.default("BRL"),
+  defaultContentName: catalogTextSchema.nullable().optional(),
+};
+
+function messagePhraseCreateSchema<Event extends "Purchase" | "InitiateCheckout">(
+  eventName: Event,
+) {
+  return z
+    .object({
+      ...providerConversionRuleBaseShape,
+      ...providerConversionMessageRuleShape,
+      ...messagePhraseValueShape,
+      triggerType: z.literal("message_phrase"),
+      eventName: z.literal(eventName),
+    })
+    .superRefine((input, context) => {
+      if (input.valueMode === "fixed" && !input.defaultValueCents) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Informe o valor medio para regras com valor fixo",
+          path: ["defaultValueCents"],
+        });
+      }
+    });
+}
+
 export const providerConversionRuleAdaptInputSchema = z.object({
   connectionId: providerConversionRuleBaseShape.connectionId,
   channelIds: providerConversionRuleBaseShape.channelIds,
@@ -226,24 +289,8 @@ export const providerConversionRuleCreateInputSchema = z.union([
     defaultCurrency: currencySchema.default("BRL"),
     defaultContentName: catalogTextSchema.nullable().optional(),
   }),
-  z.object({
-    ...providerConversionRuleBaseShape,
-    ...providerConversionMessageRuleShape,
-    triggerType: z.literal("message_phrase"),
-    eventName: z.literal("Purchase"),
-    defaultValueCents: z.number().int().positive(),
-    defaultCurrency: currencySchema.default("BRL"),
-    defaultContentName: catalogTextSchema.nullable().optional(),
-  }),
-  z.object({
-    ...providerConversionRuleBaseShape,
-    ...providerConversionMessageRuleShape,
-    triggerType: z.literal("message_phrase"),
-    eventName: z.literal("InitiateCheckout"),
-    defaultValueCents: z.number().int().positive(),
-    defaultCurrency: currencySchema.default("BRL"),
-    defaultContentName: catalogTextSchema.nullable().optional(),
-  }),
+  messagePhraseCreateSchema("Purchase"),
+  messagePhraseCreateSchema("InitiateCheckout"),
   z.object({
     ...providerConversionRuleBaseShape,
     ...providerConversionMessageRuleShape,
@@ -261,6 +308,8 @@ export const providerConversionRuleUpdateInputSchema = z
     defaultValueCents: z.number().int().positive().nullable().optional(),
     defaultCurrency: currencySchema.nullable().optional(),
     defaultContentName: catalogTextSchema.nullable().optional(),
+    valueMode: messagePhraseValueModeSchema.optional(),
+    exampleMessage: messagePhraseExampleSchema.nullable().optional(),
     triggerPhrases: z
       .array(messageTriggerPhraseSchema)
       .min(1)
@@ -411,6 +460,9 @@ export const providerConversionRuleSchema = z.object({
   channelIds: z.array(idSchema),
   triggerPhrases: z.array(messageTriggerPhraseSchema),
   messageAuthorScope: providerConversionMessageAuthorScopeSchema.nullable(),
+  // message_phrase value pipeline; "fixed" for every other trigger type.
+  valueMode: messagePhraseValueModeSchema.default("fixed"),
+  exampleMessage: z.string().max(2_000).nullable().default(null),
   endpoint: providerConversionEndpointSchema.nullable(),
   catalog: providerConversionCatalogSchema.nullable(),
   lastExecution: providerConversionExecutionSchema.nullable(),
@@ -648,6 +700,10 @@ export type ProviderConversionRuleModeDto = z.infer<
 export type ProviderConversionMessageAuthorScopeDto = z.infer<
   typeof providerConversionMessageAuthorScopeSchema
 >;
+export type MessagePhraseValueModeDto = z.infer<
+  typeof messagePhraseValueModeSchema
+>;
+export type MessagePhraseConfigDto = z.infer<typeof messagePhraseConfigSchema>;
 export type ProviderConversionExecutionStatusDto = z.infer<
   typeof providerConversionExecutionStatusSchema
 >;

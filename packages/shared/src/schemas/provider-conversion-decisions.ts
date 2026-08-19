@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { conversionEventNameSchema } from "./conversion-events";
 import {
+  messagePhraseValueModeSchema,
   providerConversionCatalogSchema,
   providerConversionMessageAuthorScopeSchema,
   providerConversionRuleModeSchema,
@@ -141,6 +142,9 @@ export const providerConversionDecisionRuleSnapshotSchema = z.object({
   defaultValueCents: z.number().int().positive().nullable(),
   defaultCurrency: currencySchema.nullable(),
   defaultContentName: z.string().trim().min(1).max(180).nullable(),
+  // Decisions persisted before U2 carry no value pipeline: they were all fixed.
+  valueMode: messagePhraseValueModeSchema.default("fixed"),
+  exampleMessage: z.string().max(2_000).nullable().default(null),
 });
 
 export const providerConversionDecisionCatalogSnapshotSchema = z.object({
