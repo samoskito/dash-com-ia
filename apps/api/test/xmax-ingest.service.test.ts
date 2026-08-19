@@ -2,6 +2,7 @@ import { NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmaxCredentialEncryptionService } from "../src/xmax/xmax-credential-encryption.service";
 import { XmaxIngestService } from "../src/xmax/xmax-ingest.service";
+import { XmaxProductionService } from "../src/xmax/xmax-production.service";
 import { XmaxAdapter, XmaxAdapterError } from "../src/xmax/xmax.adapter";
 
 const accountId = "xmax_acc_1";
@@ -24,6 +25,8 @@ function buildAccount(overrides: Record<string, unknown> = {}) {
     defaultCountryCode: "55",
     qualifiedLeadTagIds: ["55"],
     purchaseTagIds: ["56"],
+    purchaseValueCents: 19900,
+    purchaseCurrency: "BRL",
     status: "active",
     shadowMode: true,
     capiSendEnabled: false,
@@ -34,6 +37,10 @@ function buildAccount(overrides: Record<string, unknown> = {}) {
 describe("xmax ingest service (shadow)", () => {
   let prisma: any;
   let adapter: { getContact: ReturnType<typeof vi.fn> };
+  let production: {
+    isProductionEnabled: ReturnType<typeof vi.fn>;
+    emit: ReturnType<typeof vi.fn>;
+  };
   let service: XmaxIngestService;
   let credentials: XmaxCredentialEncryptionService;
   let shadowCreates: Array<Record<string, unknown>>;
@@ -95,10 +102,16 @@ describe("xmax ingest service (shadow)", () => {
       })),
     };
 
+    production = {
+      isProductionEnabled: vi.fn(() => false),
+      emit: vi.fn(async () => ({ attempted: false, reasonCode: "shadow_only" })),
+    };
+
     service = new XmaxIngestService(
       prisma,
       credentials,
       adapter as unknown as XmaxAdapter,
+      production as unknown as XmaxProductionService,
     );
   });
 
@@ -144,14 +157,50 @@ describe("xmax ingest service (shadow)", () => {
       status: "observed",
       eventName: "QualifiedLead",
       shadowMode: true,
+      reasonCode: "shadow_observed",
     });
     expect(adapter.getContact).toHaveBeenCalledOnce();
+    expect(production.emit).not.toHaveBeenCalled();
     expect(dedupCreates).toHaveLength(1);
     expect(shadowCreates.some((r) => r.status === "observed")).toBe(true);
-    expect(shadowCreates[shadowCreates.length - 1]).toMatchObject({
-      eventName: "QualifiedLead",
-      phoneNormalized: "5511988441020",
+  });
+
+  it("calls production emit when cutover flags are on", async () => {
+    const live = buildAccount({ shadowMode: false, capiSendEnabled: true });
+    prisma.xmaxAccount.findFirst.mockResolvedValueOnce(live);
+    production.isProductionEnabled.mockReturnValue(true);
+    production.emit.mockResolvedValueOnce({
+      attempted: true,
+      leadId: "lead_1",
+      conversionEventLogId: "log_1",
+      deliveryStatus: "ready_to_send",
+      queued: true,
+      reasonCode: "production_queued",
     });
+    adapter.getContact.mockResolvedValueOnce({
+      contactId: "c1",
+      number: "11988441020",
+      tagIds: ["56"],
+      raw: {},
+    });
+
+    const result = await service.ingest({
+      accountId,
+      token: secret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "c1" }),
+    });
+
+    expect(result.reasonCode).toBe("production_queued");
+    expect(result.shadowMode).toBe(false);
+    expect(production.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "Purchase",
+        phoneNormalized: "5511988441020",
+        contactId: "c1",
+      }),
+    );
   });
 
   it("prioritizes Purchase when both tags are present", async () => {
@@ -196,7 +245,6 @@ describe("xmax ingest service (shadow)", () => {
   });
 
   it("re-runs getContact on repeated identical webhook bodies (XMAX tag edits)", async () => {
-    // First delivery: QL
     adapter.getContact
       .mockResolvedValueOnce({
         contactId: "c1",
@@ -204,7 +252,6 @@ describe("xmax ingest service (shadow)", () => {
         tagIds: ["55"],
         raw: {},
       })
-      // Second delivery: same body, tags now include Purchase
       .mockResolvedValueOnce({
         contactId: "c1",
         number: "11988441020",
@@ -231,7 +278,7 @@ describe("xmax ingest service (shadow)", () => {
       token: secret,
       contentType: "application/json",
       providerAttempt: 2,
-      rawBody: payload, // identical body — must NOT short-circuit
+      rawBody: payload,
     });
     expect(second).toMatchObject({
       status: "observed",

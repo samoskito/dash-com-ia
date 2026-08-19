@@ -14,6 +14,10 @@ import { PrismaService } from "../common/prisma/prisma.service";
 import { parseXmaxContactWebhook } from "./xmax-contact.parser";
 import { XmaxCredentialEncryptionService } from "./xmax-credential-encryption.service";
 import { mapXmaxTagsToEvent } from "./xmax-event-mapper";
+import {
+  XmaxProductionService,
+  type XmaxProductionResult,
+} from "./xmax-production.service";
 import { XmaxAdapter, XmaxAdapterError } from "./xmax.adapter";
 
 const publicNotFoundMessage = "Webhook nao encontrado";
@@ -36,7 +40,8 @@ export type XmaxIngestResult = {
     | "accepted";
   eventName?: string;
   reasonCode?: string;
-  shadowMode: true;
+  shadowMode: boolean;
+  production?: XmaxProductionResult;
 };
 
 @Injectable()
@@ -48,6 +53,8 @@ export class XmaxIngestService {
     @Inject(XmaxCredentialEncryptionService)
     private readonly credentials: XmaxCredentialEncryptionService,
     @Inject(XmaxAdapter) private readonly adapter: XmaxAdapter,
+    @Inject(XmaxProductionService)
+    private readonly production: XmaxProductionService,
   ) {}
 
   async ingest(input: XmaxIngestInput): Promise<XmaxIngestResult> {
@@ -261,8 +268,8 @@ export class XmaxIngestService {
             tagIds: contact.tagIds,
             rawSummary: {
               name: contact.name ?? name ?? null,
-              shadowMode: true,
-              capiSendEnabled: false,
+              shadowMode: account.shadowMode,
+              capiSendEnabled: account.capiSendEnabled,
             },
           },
         });
@@ -276,7 +283,7 @@ export class XmaxIngestService {
           status: "duplicate",
           eventName,
           reasonCode: "race_duplicate",
-          shadowMode: true,
+          shadowMode: account.shadowMode,
         };
       }
       this.logger.warn("xmax_shadow_persist_failed");
@@ -292,12 +299,41 @@ export class XmaxIngestService {
       });
     }
 
-    // X1: shadow only — never enqueue CAPI / never create conversion rows.
+    let productionResult: XmaxProductionResult | undefined;
+    if (
+      this.production.isProductionEnabled(account) &&
+      phoneNormalized &&
+      phoneHash
+    ) {
+      try {
+        productionResult = await this.production.emit({
+          account,
+          contactId,
+          eventName,
+          phoneNormalized,
+          phoneHash,
+          contactName: contact.name ?? name ?? null,
+          tagIds: contact.tagIds,
+        });
+      } catch {
+        this.logger.warn("xmax_production_emit_failed");
+        productionResult = {
+          attempted: true,
+          reasonCode: "production_emit_failed",
+        };
+      }
+    }
+
     return {
       status: "observed",
       eventName,
-      reasonCode: "shadow_observed",
-      shadowMode: true,
+      reasonCode: productionResult?.queued
+        ? "production_queued"
+        : productionResult?.attempted
+          ? (productionResult.reasonCode ?? "production_recorded")
+          : "shadow_observed",
+      shadowMode: account.shadowMode,
+      production: productionResult,
     };
   }
 
@@ -305,6 +341,7 @@ export class XmaxIngestService {
     account: {
       id: string;
       workspaceId: string;
+      shadowMode?: boolean;
     },
     input: {
       status: "observed" | "discarded" | "duplicate" | "failed";
@@ -344,7 +381,7 @@ export class XmaxIngestService {
           status: "duplicate",
           eventName: input.eventName,
           reasonCode: "transport_duplicate",
-          shadowMode: true,
+          shadowMode: account.shadowMode ?? true,
         };
       }
       this.logger.warn("xmax_shadow_log_failed");
@@ -354,7 +391,7 @@ export class XmaxIngestService {
       status: input.status,
       eventName: input.eventName,
       reasonCode: input.reasonCode,
-      shadowMode: true,
+      shadowMode: account.shadowMode ?? true,
     };
   }
 
