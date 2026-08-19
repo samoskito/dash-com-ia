@@ -3,7 +3,6 @@ import { XmaxProductionService } from "../src/xmax/xmax-production.service";
 
 describe("xmax production service", () => {
   let prisma: any;
-  let leads: { upsertFromWhatsappWebhook: ReturnType<typeof vi.fn> };
   let conversions: { recordExternalConversion: ReturnType<typeof vi.fn> };
   let queue: { enqueueSend: ReturnType<typeof vi.fn> };
   let service: XmaxProductionService;
@@ -24,9 +23,6 @@ describe("xmax production service", () => {
         findUnique: vi.fn(async () => null),
       },
     };
-    leads = {
-      upsertFromWhatsappWebhook: vi.fn(async () => ({ id: "lead_1" })),
-    };
     conversions = {
       recordExternalConversion: vi.fn(async () => ({
         conversionEventLogId: "log_1",
@@ -43,7 +39,6 @@ describe("xmax production service", () => {
     };
     service = new XmaxProductionService(
       prisma,
-      leads as never,
       conversions as never,
       queue as never,
     );
@@ -61,7 +56,7 @@ describe("xmax production service", () => {
     ).toBe(false);
   });
 
-  it("upserts lead and records conversion without enqueue when CTWA missing", async () => {
+  it("does not create lead or conversion when phone is not in base", async () => {
     const result = await service.emit({
       account,
       contactId: "41854",
@@ -72,33 +67,41 @@ describe("xmax production service", () => {
       tagIds: ["55"],
     });
 
-    expect(leads.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: "ws_1",
-        source: "xmax",
-        phoneHash: "hash_1",
-        preserveExistingSource: true,
-      }),
-    );
-    expect(conversions.recordExternalConversion).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventName: "QualifiedLead",
-        businessSource: "organic",
-        sourceTrigger: "xmax_tag",
-        adId: null,
-        ctwaClid: null,
-      }),
-    );
-    expect(queue.enqueueSend).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       attempted: true,
-      leadId: "lead_1",
-      queued: false,
-      deliveryStatus: "pending_meta_context",
+      reasonCode: "no_paid_lead",
     });
+    expect(conversions.recordExternalConversion).not.toHaveBeenCalled();
+    expect(queue.enqueueSend).not.toHaveBeenCalled();
   });
 
-  it("reuses lead CTWA attribution and enqueues when ready_to_send", async () => {
+  it("does not convert when lead exists without adId+ctwaClid", async () => {
+    prisma.lead.findUnique.mockResolvedValueOnce({
+      id: "lead_organic",
+      adId: null,
+      adSetId: null,
+      campaignId: null,
+      ctwaClid: null,
+    });
+
+    const result = await service.emit({
+      account,
+      contactId: "41854",
+      eventName: "Purchase",
+      phoneNormalized: "5511953016170",
+      phoneHash: "hash_1",
+      tagIds: ["56"],
+    });
+
+    expect(result).toEqual({
+      attempted: true,
+      reasonCode: "lead_missing_attribution",
+    });
+    expect(conversions.recordExternalConversion).not.toHaveBeenCalled();
+    expect(queue.enqueueSend).not.toHaveBeenCalled();
+  });
+
+  it("reuses paid lead CTWA attribution and enqueues when ready_to_send", async () => {
     prisma.lead.findUnique.mockResolvedValueOnce({
       id: "lead_1",
       adId: "ad_9",
@@ -125,6 +128,7 @@ describe("xmax production service", () => {
       expect.objectContaining({
         eventName: "Purchase",
         businessSource: "paid",
+        leadId: "lead_1",
         adId: "ad_9",
         ctwaClid: "ctwa_9",
         valueCents: 25000,
@@ -137,6 +141,7 @@ describe("xmax production service", () => {
       attempted: true,
       queued: true,
       reasonCode: "production_queued",
+      leadId: "lead_1",
     });
   });
 
@@ -150,6 +155,6 @@ describe("xmax production service", () => {
       tagIds: ["56"],
     });
     expect(result).toEqual({ attempted: false, reasonCode: "shadow_only" });
-    expect(leads.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
+    expect(conversions.recordExternalConversion).not.toHaveBeenCalled();
   });
 });
