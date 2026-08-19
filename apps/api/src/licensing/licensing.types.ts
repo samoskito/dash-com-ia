@@ -35,7 +35,9 @@ export type IssueLicenseForPurchaseInput = {
 
 export type IssuedLicense = {
   license: License;
-  rawKey: string;
+  /** Present only on first issue. Null when an existing license was reused (dedupe). */
+  rawKey: string | null;
+  created: boolean;
 };
 
 export type LicenseActionResult = {

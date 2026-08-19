@@ -63,7 +63,7 @@ function createPrismaMock(seed: License[] = []) {
         where,
         include,
       }: {
-        where: { id?: string; keyHash?: string };
+        where: { id?: string; keyHash?: string; guruTransactionId?: string };
         include?: {
           activations?: { orderBy?: { lastHeartbeatAt: "asc" | "desc" } };
         };
@@ -75,6 +75,11 @@ function createPrismaMock(seed: License[] = []) {
           row =
             [...licenses.values()].find((item) => item.keyHash === where.keyHash) ??
             null;
+        } else if (where.guruTransactionId) {
+          row =
+            [...licenses.values()].find(
+              (item) => item.guruTransactionId === where.guruTransactionId,
+            ) ?? null;
         }
         if (!row) {
           return null;
@@ -92,6 +97,35 @@ function createPrismaMock(seed: License[] = []) {
           );
         }
         return { ...row, activations: related };
+      },
+      findFirst: async ({
+        where,
+        orderBy,
+      }: {
+        where?: {
+          buyerEmail?: string;
+          productSku?: string;
+          status?: LicenseStatus;
+          expiresAt?: { gt?: Date };
+        };
+        orderBy?: Array<Record<string, "asc" | "desc">> | Record<string, "asc" | "desc">;
+      }) => {
+        let rows = [...licenses.values()];
+        if (where?.buyerEmail) {
+          rows = rows.filter((item) => item.buyerEmail === where.buyerEmail);
+        }
+        if (where?.productSku) {
+          rows = rows.filter((item) => item.productSku === where.productSku);
+        }
+        if (where?.status) {
+          rows = rows.filter((item) => item.status === where.status);
+        }
+        if (where?.expiresAt?.gt) {
+          const min = where.expiresAt.gt;
+          rows = rows.filter((item) => item.expiresAt.getTime() > min.getTime());
+        }
+        rows.sort((a, b) => b.issuedAt.getTime() - a.issuedAt.getTime());
+        return rows[0] ?? null;
       },
       findMany: async ({
         where,
@@ -568,13 +602,15 @@ describe("licensing service", () => {
       now,
     });
 
+    expect(issued.created).toBe(true);
     expect(issued.rawKey).toMatch(/^PALMUP-[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$/);
-    expect(issued.license.keyHash).toBe(hashLicenseKey(issued.rawKey));
+    expect(issued.rawKey).toBeTruthy();
+    expect(issued.license.keyHash).toBe(hashLicenseKey(issued.rawKey!));
     expect(issued.license.status).toBe("active");
     expect(issued.license.expiresAt.toISOString()).toBe(
       new Date("2027-08-19T12:00:00.000Z").toISOString(),
     );
-    expect(JSON.stringify([...licenses.values()])).not.toContain(issued.rawKey);
+    expect(JSON.stringify([...licenses.values()])).not.toContain(issued.rawKey!);
   });
 
   it("lists licenses newest first without leaking keyHash", async () => {
@@ -644,4 +680,27 @@ describe("licensing service", () => {
     expect(updated.nodApiExpiresAt).toBe(expires.toISOString());
     expect(licenses.get("lic_1")?.nodApiExpiresAt).toEqual(expires);
   });
+
+  it("reuses an existing active license for the same guruTransactionId without a new raw key", async () => {
+    const { service, licenses } = createService();
+    const first = await service.issueLicenseForPurchase({
+      buyerEmail: "aluno@example.com",
+      buyerName: "Aluno",
+      guruTransactionId: "sub_dedupe",
+      productSku: "rastrackdash_annual",
+    });
+    const second = await service.issueLicenseForPurchase({
+      buyerEmail: "aluno@example.com",
+      buyerName: "Aluno",
+      guruTransactionId: "sub_dedupe",
+      productSku: "rastrackdash_annual",
+    });
+    expect(first.created).toBe(true);
+    expect(first.rawKey).toBeTruthy();
+    expect(second.created).toBe(false);
+    expect(second.rawKey).toBeNull();
+    expect(second.license.id).toBe(first.license.id);
+    expect(licenses.size).toBe(1);
+  });
+
 });
