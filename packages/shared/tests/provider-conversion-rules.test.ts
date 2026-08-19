@@ -126,6 +126,35 @@ describe("provider conversion rule contracts", () => {
     });
   });
 
+  it("accepts InitiateCheckout message_phrase with fixed value (U1)", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "InitiateCheckout",
+      triggerPhrases: ["iniciou checkout"],
+      defaultValueCents: 25000,
+      defaultCurrency: "BRL",
+      defaultContentName: "Checkout medio",
+    });
+
+    expect(parsed).toMatchObject({
+      triggerType: "message_phrase",
+      eventName: "InitiateCheckout",
+      defaultValueCents: 25000,
+      defaultCurrency: "BRL",
+      mode: "observation",
+    });
+
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...messageScope,
+        triggerType: "message_phrase",
+        eventName: "InitiateCheckout",
+        // missing defaultValueCents
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts the approved two-attribute trampoline catalog", () => {
     const parsed = providerConversionRuleCreateInputSchema.parse({
       ...messageScope,

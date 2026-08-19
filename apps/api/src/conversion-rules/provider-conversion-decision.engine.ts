@@ -180,6 +180,7 @@ export class ProviderConversionDecisionEngine {
       return { outcome: "not_applicable", reasonCode: "trigger_missing" };
     }
 
+    // Fixed-value message rules (Purchase, InitiateCheckout, …) require cents+currency.
     const match = this.averageValueMatch(input, matchedTriggerPhrase);
     if (!match.matched) {
       return {
@@ -338,6 +339,7 @@ export class ProviderConversionDecisionEngine {
           scopeKey,
         }
       : {
+          // Purchase + InitiateCheckout (and other valued events): 24h window
           mode: "rolling_window",
           scopeKey,
           windowSeconds: PURCHASE_DEDUPE_WINDOW_SECONDS,

@@ -488,17 +488,22 @@ export class ProviderConversionProductionService {
     const lead = decision.leadResolution.lead;
     const occurrence = decision.occurrence;
     const eventName = occurrence.eventName;
-    if (eventName !== "Purchase" && eventName !== "QualifiedLead") {
+    if (
+      eventName !== "Purchase" &&
+      eventName !== "QualifiedLead" &&
+      eventName !== "InitiateCheckout"
+    ) {
       throw new ProviderConversionProductionFailure(
         "provider_conversion_event_unsupported",
       );
     }
-    const purchase = eventName === "Purchase";
-    const valueCents = purchase ? decision.conversion.valueCents : null;
-    const currency = purchase ? decision.conversion.currency : null;
+    const requiresValue =
+      eventName === "Purchase" || eventName === "InitiateCheckout";
+    const valueCents = requiresValue ? decision.conversion.valueCents : null;
+    const currency = requiresValue ? decision.conversion.currency : null;
 
     if (
-      (purchase && (!valueCents || !currency)) ||
+      (requiresValue && (!valueCents || !currency)) ||
       !occurrence.businessDedupePolicy
     ) {
       throw new ProviderConversionProductionFailure(
@@ -675,13 +680,13 @@ export class ProviderConversionProductionService {
           adId: lead.adId,
           ctwaClid: lead.ctwaClid,
           valueCents,
-          valueSource: purchase
+          valueSource: requiresValue
             ? decision.rule.triggerType === "structured_catalog"
               ? "actual"
               : "configured_average"
             : null,
           currency,
-          contentName: purchase ? decision.conversion.contentName : null,
+          contentName: requiresValue ? decision.conversion.contentName : null,
           eventOccurredAt: occurredAt,
           sourcePayload: {
             provider: occurrence.provider,
@@ -1294,7 +1299,9 @@ export class ProviderConversionProductionService {
       !["structured_catalog", "message_phrase"].includes(
         rule.conversionRule.triggerType,
       ) ||
-      rule.conversionRule.eventName !== "Purchase" ||
+      !["Purchase", "InitiateCheckout"].includes(
+        rule.conversionRule.eventName,
+      ) ||
       (!manuallyApproved && rule.mode !== "production") ||
       (!manuallyApproved && !rule.productionActivatedAt) ||
       rule.parserRelease.status !== "certified" ||
@@ -1489,7 +1496,12 @@ export class ProviderConversionProductionService {
 
   private metaEventId(executionId: string, eventName: string): string {
     const digest = createHash("sha256").update(executionId).digest("hex");
-    const prefix = eventName === "QualifiedLead" ? "qualified" : "purchase";
+    const prefix =
+      eventName === "QualifiedLead"
+        ? "qualified"
+        : eventName === "InitiateCheckout"
+          ? "checkout"
+          : "purchase";
     return `umbler_${prefix}_${digest}`;
   }
 
