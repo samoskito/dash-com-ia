@@ -27,6 +27,7 @@ export class XmaxAdapterError extends Error {
 }
 
 export type XmaxGetContactInput = {
+  /** Tenant origin only, e.g. https://tenant.atenderbem.com (no path). */
   baseUrl: string;
   queueId: string;
   apiKey: string;
@@ -36,6 +37,14 @@ export type XmaxGetContactInput = {
   fetchImpl?: typeof fetch;
 };
 
+/**
+ * Real XMAX / AtenderBem contract (from production n8n):
+ *   POST {baseUrl}/int/getContact
+ *   headers: accept: application/json
+ *   body: { queueId, apiKey, id }
+ *
+ * Do NOT use Bearer / GET /api/contacts — that path is not what the tenant uses.
+ */
 @Injectable()
 export class XmaxAdapter {
   private readonly logger = new Logger(XmaxAdapter.name);
@@ -43,18 +52,23 @@ export class XmaxAdapter {
   async getContact(input: XmaxGetContactInput): Promise<XmaxGetContactResult> {
     const timeoutMs = input.timeoutMs ?? 4_000;
     const base = input.baseUrl.replace(/\/+$/, "");
-    const url = `${base}/api/contacts/${encodeURIComponent(input.contactId)}?queueId=${encodeURIComponent(input.queueId)}`;
+    const url = `${base}/int/getContact`;
     const fetchFn = input.fetchImpl ?? fetch;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await fetchFn(url, {
-        method: "GET",
+        method: "POST",
         headers: {
-          Authorization: `Bearer ${input.apiKey}`,
-          Accept: "application/json",
+          accept: "application/json",
+          "content-type": "application/json",
         },
+        body: JSON.stringify({
+          queueId: input.queueId,
+          apiKey: input.apiKey,
+          id: input.contactId,
+        }),
         signal: controller.signal,
       });
 
