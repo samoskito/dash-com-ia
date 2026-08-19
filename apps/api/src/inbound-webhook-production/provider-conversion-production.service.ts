@@ -1299,7 +1299,9 @@ export class ProviderConversionProductionService {
       !["structured_catalog", "message_phrase"].includes(
         rule.conversionRule.triggerType,
       ) ||
-      rule.conversionRule.eventName !== "Purchase" ||
+      !["Purchase", "InitiateCheckout"].includes(
+        rule.conversionRule.eventName,
+      ) ||
       (!manuallyApproved && rule.mode !== "production") ||
       (!manuallyApproved && !rule.productionActivatedAt) ||
       rule.parserRelease.status !== "certified" ||

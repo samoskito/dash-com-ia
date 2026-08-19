@@ -618,7 +618,7 @@ export class ProviderConversionObservationService {
         conversionRule: {
           active: true,
           triggerType: { in: ["structured_catalog", "message_phrase"] },
-          eventName: "Purchase",
+          eventName: { in: ["Purchase", "InitiateCheckout"] },
         },
         channels: {
           some: {
@@ -795,9 +795,13 @@ export class ProviderConversionObservationService {
 
   private providerEventName(
     rule: ObservedRule,
-  ): "Purchase" | "QualifiedLead" {
+  ): "Purchase" | "QualifiedLead" | "InitiateCheckout" {
     const eventName = rule.conversionRule.eventName;
-    if (eventName !== "Purchase" && eventName !== "QualifiedLead") {
+    if (
+      eventName !== "Purchase" &&
+      eventName !== "QualifiedLead" &&
+      eventName !== "InitiateCheckout"
+    ) {
       throw new Error(`Unsupported provider conversion event: ${eventName}`);
     }
 
