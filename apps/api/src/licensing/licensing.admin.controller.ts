@@ -8,9 +8,12 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from "@nestjs/common";
 import { AuthToken } from "../auth/auth-user.decorator";
 import { PlatformAdminService } from "../auth/platform-admin.service";
+import { LicenseNotificationService } from "./license-notification.service";
+import { LicenseRateLimitService } from "./license-rate-limit.service";
 import { LicensingService } from "./licensing.service";
 
 function cleanQueryParam(value: string | undefined): string | undefined {
@@ -54,6 +57,10 @@ export class LicensingAdminController {
     @Inject(PlatformAdminService)
     private readonly platformAdminService: PlatformAdminService,
     @Inject(LicensingService) private readonly licensing: LicensingService,
+    @Inject(LicenseNotificationService)
+    private readonly notifications: LicenseNotificationService,
+    @Inject(LicenseRateLimitService)
+    private readonly rateLimit: LicenseRateLimitService,
   ) {}
 
   @Get()
@@ -105,6 +112,49 @@ export class LicensingAdminController {
       throw new BadRequestException("accountIdentity is required");
     }
     return this.licensing.rebindLicense(id, accountIdentity);
+  }
+
+  @Post(":id/resend")
+  async resend(
+    @AuthToken() refreshToken: string,
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() req: { ip?: string },
+  ) {
+    await this.platformAdminService.assertPlatformAdmin(refreshToken);
+    this.rateLimit.assertAllowed("admin-resend", req.ip || "unknown", id);
+
+    const channelRaw = readStringField(body, "channel");
+    let channel: "email" | "whatsapp" | "both" | undefined;
+    if (channelRaw === undefined || channelRaw === null || channelRaw === "") {
+      channel = "both";
+    } else if (
+      channelRaw === "email" ||
+      channelRaw === "whatsapp" ||
+      channelRaw === "both"
+    ) {
+      channel = channelRaw;
+    } else {
+      throw new BadRequestException("channel invalido");
+    }
+
+    const phoneRaw = readStringField(body, "phoneE164");
+    const phoneE164 =
+      typeof phoneRaw === "string" && phoneRaw.trim()
+        ? phoneRaw.trim()
+        : undefined;
+
+    const result = await this.notifications.resendDelivery({
+      licenseId: id,
+      channel,
+      phoneE164,
+    });
+
+    return {
+      licenseId: result.licenseId,
+      email: result.email,
+      whatsapp: result.whatsapp,
+    };
   }
 
   @Patch(":id/nod-api")

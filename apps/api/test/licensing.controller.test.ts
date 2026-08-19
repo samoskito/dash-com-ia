@@ -192,18 +192,28 @@ describe("licensing controller", () => {
   });
 
   it("compiles LicensingModule and resolves controller plus rate limiter", async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [LicensingModule],
-    }).compile();
+    const previous = process.env.WEB_ORIGIN;
+    process.env.WEB_ORIGIN = "http://localhost:3000";
+    try {
+      const moduleRef = await Test.createTestingModule({
+        imports: [LicensingModule],
+      }).compile();
 
-    expect(
-      moduleRef.get(LicensingController, { strict: false }),
-    ).toBeInstanceOf(LicensingController);
-    expect(
-      moduleRef.get(LicenseRateLimitService, { strict: false }),
-    ).toBeInstanceOf(LicenseRateLimitService);
-    expect(
-      moduleRef.get(LicensingService, { strict: false }),
-    ).toBeInstanceOf(LicensingService);
+      expect(
+        moduleRef.get(LicensingController, { strict: false }),
+      ).toBeInstanceOf(LicensingController);
+      expect(
+        moduleRef.get(LicenseRateLimitService, { strict: false }),
+      ).toBeInstanceOf(LicenseRateLimitService);
+      expect(
+        moduleRef.get(LicensingService, { strict: false }),
+      ).toBeInstanceOf(LicensingService);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.WEB_ORIGIN;
+      } else {
+        process.env.WEB_ORIGIN = previous;
+      }
+    }
   });
 });

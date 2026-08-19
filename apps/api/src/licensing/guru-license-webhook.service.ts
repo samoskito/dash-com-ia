@@ -6,6 +6,7 @@ import {
   RUNTIME_ENV,
   type RuntimeEnv,
 } from "../common/runtime/runtime.module";
+import { LicenseNotificationService } from "./license-notification.service";
 import { LicensingService } from "./licensing.service";
 
 const PROVIDER = "guru";
@@ -55,6 +56,7 @@ type NormalizedGuruEvent = {
   externalTransactionId: string | undefined;
   buyerEmail: string | undefined;
   buyerName: string | undefined;
+  phone: string | undefined;
   productSku: string;
   interval: LicenseInterval;
 };
@@ -248,6 +250,11 @@ function normalizeEvent(body: unknown): NormalizedGuruEvent {
     nestedString(record, "subscriber", "name") ??
     firstString(record, ["name", "buyerName"]);
 
+  const phone =
+    nestedString(record, "subscriber", "phone") ??
+    nestedString(record, "contact", "phone") ??
+    firstString(record, ["phone", "whatsapp"]);
+
   const productSku =
     firstString(record, ["productSku", "product_sku"]) ?? DEFAULT_PRODUCT_SKU;
 
@@ -256,6 +263,7 @@ function normalizeEvent(body: unknown): NormalizedGuruEvent {
     externalTransactionId,
     buyerEmail,
     buyerName,
+    phone,
     productSku,
     interval: parseInterval(record.interval),
   };
@@ -278,6 +286,8 @@ export class GuruLicenseWebhookService {
     @Optional()
     @Inject(RUNTIME_ENV)
     private readonly env: RuntimeEnv = process.env,
+    @Optional()
+    private readonly notifications?: LicenseNotificationService,
   ) {}
 
   async handle(
@@ -372,7 +382,7 @@ export class GuruLicenseWebhookService {
         productSku: normalized.productSku,
         interval: normalized.interval,
       });
-      void issued.rawKey;
+      await this.notify(issued, normalized.phone);
       await this.finalizeEvent(event.id, "license_issued");
       return {
         httpStatus: 200,
@@ -431,6 +441,32 @@ export class GuruLicenseWebhookService {
       httpStatus: 200,
       body: safeBody("ignored_unknown"),
     };
+  }
+
+  private async notify(
+    issued: { license: License; rawKey: string },
+    phoneE164: string | undefined,
+  ): Promise<void> {
+    if (!this.notifications) {
+      return;
+    }
+    try {
+      await this.notifications.notifyLicenseIssued({
+        license: {
+          id: issued.license.id,
+          keyPrefix: issued.license.keyPrefix,
+          buyerEmail: issued.license.buyerEmail,
+          buyerName: issued.license.buyerName,
+          expiresAt: issued.license.expiresAt,
+          issuedAt: issued.license.issuedAt,
+        },
+        rawKey: issued.rawKey,
+        phoneE164: phoneE164 ?? null,
+        reason: "issue",
+      });
+    } catch {
+      this.logger.warn("guru_webhook_notify_failed");
+    }
   }
 
   private async findLicense(

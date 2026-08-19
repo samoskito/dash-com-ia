@@ -2522,11 +2522,28 @@ model License {
   updatedAt          DateTime        @updatedAt
 
   activations LicenseActivation[]
+  deliveryArtifact LicenseDeliveryArtifact?
 
   @@index([status, issuedAt])
   @@index([buyerEmail])
   @@index([boundAccountEmail])
   @@index([expiresAt, status])
+}
+
+/// Short-lived encrypted copy of the raw key (7d TTL) so admin resend can redeliver
+/// without ever storing the raw key in the License row itself.
+model LicenseDeliveryArtifact {
+  id         String   @id @default(cuid())
+  licenseId  String   @unique
+  ciphertext String
+  iv         String
+  authTag    String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  license License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }
 
 /// Telemetry of student instances. Unlimited fingerprints for the same bound account.

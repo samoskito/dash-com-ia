@@ -28,6 +28,14 @@ const recipient = z.object({
   address: z.string().email().max(320),
   name: shortText.optional(),
 });
+const licenseKeyText = z
+  .string()
+  .trim()
+  .min(8)
+  .max(80)
+  .refine((value) => !/[\r\n]/.test(value), "Control characters are not allowed");
+const repoUrl = z.string().trim().url().max(500);
+const supportEmail = z.string().trim().email().max(320);
 
 const transactionalEmailEnvelopeSchema = z.discriminatedUnion("template", [
   z.object({
@@ -75,6 +83,19 @@ const transactionalEmailEnvelopeSchema = z.discriminatedUnion("template", [
     data: z.object({
       recipientName: shortText.optional(),
       workspaceName: shortText,
+    }),
+  }),
+  z.object({
+    to: recipient,
+    template: z.literal("license_key_delivery"),
+    data: z.object({
+      recipientName: shortText.optional(),
+      licenseKey: licenseKeyText,
+      keyPrefix: shortText,
+      expiresAt: expiry,
+      productName: shortText,
+      repoUrl,
+      supportEmail: supportEmail.optional(),
     }),
   }),
 ]);
