@@ -51,6 +51,22 @@ export class LicenseAccountBindingService {
     return looksLikeEmail(trimmed) ? trimmed.toLowerCase() : trimmed;
   }
 
+  bindFieldsForIdentity(accountIdentity: string, now = new Date()) {
+    const normalized = this.normalizeAccountIdentity(accountIdentity);
+    if (looksLikeEmail(normalized)) {
+      return {
+        boundAccountEmail: normalized,
+        boundAccountId: null,
+        boundAt: now,
+      };
+    }
+    return {
+      boundAccountEmail: null,
+      boundAccountId: normalized,
+      boundAt: now,
+    };
+  }
+
   assertCanActivate(
     license: LicenseBindingRecord,
     accountIdentity: string,

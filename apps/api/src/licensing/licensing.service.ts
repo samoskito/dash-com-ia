@@ -1,6 +1,18 @@
 import { createHash } from "node:crypto";
-import { HttpException, HttpStatus, Injectable } from "@nestjs/common";
-import type { License, LicenseHeartbeatStatus, LicenseInterval } from "@prisma/client";
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import type {
+  License,
+  LicenseActivation,
+  LicenseHeartbeatStatus,
+  LicenseInterval,
+  LicenseStatus,
+} from "@prisma/client";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { LicenseAccountBindingService } from "./license-account-binding.service";
 import { LicenseCryptoService } from "./license-crypto.service";
@@ -12,12 +24,71 @@ import {
 import { LICENSE_GRACE_MS } from "./licensing.constants";
 import type {
   ActivateLicenseInput,
+  AdminLicenseList,
+  AdminLicenseView,
   HeartbeatLicenseInput,
   IssueLicenseForPurchaseInput,
   IssuedLicense,
   LicenseActionResult,
   LicenseRuntimeState,
+  ListLicensesQuery,
+  SetNodApiInput,
 } from "./licensing.types";
+
+const LICENSE_STATUSES = new Set<LicenseStatus>([
+  "active",
+  "refunded",
+  "chargeback",
+  "revoked",
+]);
+
+function isLicenseStatus(value: string): value is LicenseStatus {
+  return LICENSE_STATUSES.has(value as LicenseStatus);
+}
+
+function toIso(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null;
+}
+
+function toAdminLicense(
+  license: License & { activations?: LicenseActivation[] },
+): AdminLicenseView {
+  return {
+    id: license.id,
+    keyPrefix: license.keyPrefix,
+    buyerEmail: license.buyerEmail,
+    buyerName: license.buyerName,
+    guruTransactionId: license.guruTransactionId,
+    productSku: license.productSku,
+    interval: license.interval,
+    expiresAt: license.expiresAt.toISOString(),
+    status: license.status,
+    issuedAt: license.issuedAt.toISOString(),
+    revokedAt: toIso(license.revokedAt),
+    revokedReason: license.revokedReason,
+    boundAccountEmail: license.boundAccountEmail,
+    boundAccountId: license.boundAccountId,
+    boundAt: toIso(license.boundAt),
+    nodApiEnabled: license.nodApiEnabled,
+    nodApiExpiresAt: toIso(license.nodApiExpiresAt),
+    createdAt: license.createdAt.toISOString(),
+    updatedAt: license.updatedAt.toISOString(),
+    ...(license.activations
+      ? {
+          activations: license.activations.map((activation) => ({
+            id: activation.id,
+            fingerprint: activation.fingerprint,
+            appVersion: activation.appVersion,
+            deployLabel: activation.deployLabel,
+            firstActivatedAt: activation.firstActivatedAt.toISOString(),
+            lastHeartbeatAt: activation.lastHeartbeatAt.toISOString(),
+            lastHeartbeatStatus: activation.lastHeartbeatStatus,
+            ipAddress: activation.ipAddress,
+          })),
+        }
+      : {}),
+  };
+}
 
 const DEFAULT_PRODUCT_SKU = "rastrackdash_annual";
 
@@ -240,6 +311,113 @@ export class LicensingService {
 
     const identity = license.boundAccountEmail ?? license.boundAccountId ?? undefined;
     return this.toActionResult(license, identity, now);
+  }
+
+  async listLicenses(query: ListLicensesQuery): Promise<AdminLicenseList> {
+    const take = Math.min(Math.max(query.take ?? 50, 1), 100);
+    const skip = Math.max(query.skip ?? 0, 0);
+    const where: {
+      status?: LicenseStatus;
+      OR?: Array<{
+        buyerEmail?: { contains: string; mode: "insensitive" };
+        boundAccountEmail?: { contains: string; mode: "insensitive" };
+      }>;
+    } = {};
+
+    if (query.status) {
+      if (!isLicenseStatus(query.status)) {
+        throw new BadRequestException("status invalido");
+      }
+      where.status = query.status;
+    }
+
+    const email = query.email?.trim();
+    if (email) {
+      where.OR = [
+        { buyerEmail: { contains: email, mode: "insensitive" } },
+        { boundAccountEmail: { contains: email, mode: "insensitive" } },
+      ];
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prisma.license.findMany({
+        where,
+        orderBy: { issuedAt: "desc" },
+        take,
+        skip,
+      }),
+      this.prisma.license.count({ where }),
+    ]);
+
+    return {
+      items: rows.map((row) => toAdminLicense(row)),
+      total,
+    };
+  }
+
+  async getLicense(id: string): Promise<AdminLicenseView> {
+    const license = await this.requireLicense(id, {
+      activations: { orderBy: { lastHeartbeatAt: "desc" } },
+    });
+    return toAdminLicense(license);
+  }
+
+  async revokeLicense(id: string, reason: string): Promise<AdminLicenseView> {
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      throw new BadRequestException("reason is required");
+    }
+    await this.requireLicense(id);
+    const updated = await this.prisma.license.update({
+      where: { id },
+      data: {
+        status: "revoked",
+        revokedAt: new Date(),
+        revokedReason: trimmed,
+      },
+    });
+    return toAdminLicense(updated);
+  }
+
+  async rebindLicense(
+    id: string,
+    accountIdentity: string,
+  ): Promise<AdminLicenseView> {
+    await this.requireLicense(id);
+    const fields = this.binding.bindFieldsForIdentity(accountIdentity);
+    const updated = await this.prisma.license.update({
+      where: { id },
+      data: fields,
+    });
+    return toAdminLicense(updated);
+  }
+
+  async setNodApi(id: string, input: SetNodApiInput): Promise<AdminLicenseView> {
+    await this.requireLicense(id);
+    const updated = await this.prisma.license.update({
+      where: { id },
+      data: {
+        nodApiEnabled: input.enabled,
+        ...(input.expiresAt !== undefined
+          ? { nodApiExpiresAt: input.expiresAt }
+          : {}),
+      },
+    });
+    return toAdminLicense(updated);
+  }
+
+  private async requireLicense(
+    id: string,
+    include?: { activations?: { orderBy: { lastHeartbeatAt: "desc" | "asc" } } },
+  ): Promise<License & { activations?: LicenseActivation[] }> {
+    const license = await this.prisma.license.findUnique({
+      where: { id },
+      ...(include ? { include } : {}),
+    });
+    if (!license) {
+      throw new NotFoundException("Licenca nao encontrada");
+    }
+    return license;
   }
 
   private async findLicenseByKey(rawKey: string): Promise<License> {

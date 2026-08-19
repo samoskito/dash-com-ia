@@ -61,19 +61,95 @@ function createPrismaMock(seed: License[] = []) {
     license: {
       findUnique: async ({
         where,
+        include,
       }: {
         where: { id?: string; keyHash?: string };
+        include?: {
+          activations?: { orderBy?: { lastHeartbeatAt: "asc" | "desc" } };
+        };
       }) => {
+        let row: License | null = null;
         if (where.id) {
-          return licenses.get(where.id) ?? null;
+          row = licenses.get(where.id) ?? null;
+        } else if (where.keyHash) {
+          row =
+            [...licenses.values()].find((item) => item.keyHash === where.keyHash) ??
+            null;
         }
-        if (where.keyHash) {
-          return (
-            [...licenses.values()].find((row) => row.keyHash === where.keyHash) ??
-            null
+        if (!row) {
+          return null;
+        }
+        if (!include?.activations) {
+          return row;
+        }
+        const related = [...activations.values()].filter(
+          (activation) => activation.licenseId === row.id,
+        );
+        if (include.activations.orderBy?.lastHeartbeatAt === "desc") {
+          related.sort(
+            (left, right) =>
+              right.lastHeartbeatAt.getTime() - left.lastHeartbeatAt.getTime(),
           );
         }
-        return null;
+        return { ...row, activations: related };
+      },
+      findMany: async ({
+        where,
+        orderBy,
+        take,
+        skip,
+      }: {
+        where?: {
+          status?: LicenseStatus;
+          OR?: Array<{
+            buyerEmail?: { contains: string; mode?: string };
+            boundAccountEmail?: { contains: string; mode?: string };
+          }>;
+        };
+        orderBy?: { issuedAt: "asc" | "desc" };
+        take?: number;
+        skip?: number;
+      }) => {
+        let rows = [...licenses.values()];
+        if (where?.status) {
+          rows = rows.filter((item) => item.status === where.status);
+        }
+        if (where?.OR?.length) {
+          rows = rows.filter((item) =>
+            where.OR!.some((clause) => {
+              const buyer = clause.buyerEmail?.contains.toLowerCase();
+              const bound = clause.boundAccountEmail?.contains.toLowerCase();
+              return (
+                (buyer != null &&
+                  item.buyerEmail?.toLowerCase().includes(buyer)) ||
+                (bound != null &&
+                  item.boundAccountEmail?.toLowerCase().includes(bound))
+              );
+            }),
+          );
+        }
+        if (orderBy?.issuedAt === "desc") {
+          rows.sort((left, right) => right.issuedAt.getTime() - left.issuedAt.getTime());
+        } else if (orderBy?.issuedAt === "asc") {
+          rows.sort((left, right) => left.issuedAt.getTime() - right.issuedAt.getTime());
+        }
+        const start = skip ?? 0;
+        return rows.slice(start, take == null ? undefined : start + take);
+      },
+      count: async ({
+        where,
+      }: {
+        where?: {
+          status?: LicenseStatus;
+          OR?: Array<{
+            buyerEmail?: { contains: string; mode?: string };
+            boundAccountEmail?: { contains: string; mode?: string };
+          }>;
+        };
+      }) => {
+        const { findMany } = prisma.license;
+        const rows = await findMany({ where });
+        return rows.length;
       },
       update: async ({
         where,
@@ -499,5 +575,73 @@ describe("licensing service", () => {
       new Date("2027-08-19T12:00:00.000Z").toISOString(),
     );
     expect(JSON.stringify([...licenses.values()])).not.toContain(issued.rawKey);
+  });
+
+  it("lists licenses newest first without leaking keyHash", async () => {
+    const older = makeLicense({
+      id: "lic_old",
+      buyerEmail: "old@example.com",
+      issuedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const newer = makeLicense({
+      id: "lic_new",
+      buyerEmail: "new@example.com",
+      issuedAt: new Date("2026-08-01T00:00:00.000Z"),
+    });
+    const { service } = createService([older, newer]);
+
+    const listed = await service.listLicenses({ take: 50, skip: 0 });
+
+    expect(listed.total).toBe(2);
+    expect(listed.items.map((item) => item.id)).toEqual(["lic_new", "lic_old"]);
+    expect(JSON.stringify(listed)).not.toContain("keyHash");
+    expect(JSON.stringify(listed)).not.toContain(KEY_HASH);
+  });
+
+  it("returns 404 when admin fetches a missing license", async () => {
+    const { service } = createService([makeLicense({ id: "lic_1" })]);
+
+    const error = await service.getLicense("missing").catch((caught: unknown) => caught);
+    const { status, body } = httpError(error);
+    expect(status).toBe(HttpStatus.NOT_FOUND);
+    expect(String(body.message)).toContain("Licenca");
+  });
+
+  it("revokes a license with reason and rebinds by email", async () => {
+    const { service, licenses } = createService([
+      makeLicense({
+        id: "lic_1",
+        boundAccountEmail: "old@aluno.com",
+        boundAccountId: "legacy-id",
+        boundAt: new Date("2026-01-01T00:00:00.000Z"),
+      }),
+    ]);
+
+    const revoked = await service.revokeLicense("lic_1", "fraude confirmada");
+    expect(revoked.status).toBe("revoked");
+    expect(revoked.revokedReason).toBe("fraude confirmada");
+    expect(revoked.revokedAt).toBeTruthy();
+    expect(licenses.get("lic_1")?.status).toBe("revoked");
+
+    const rebound = await service.rebindLicense("lic_1", "  Novo@Aluno.com  ");
+    expect(rebound.boundAccountEmail).toBe("novo@aluno.com");
+    expect(rebound.boundAccountId).toBeNull();
+    expect(licenses.get("lic_1")?.boundAccountId).toBeNull();
+  });
+
+  it("sets nod api entitlement without changing omitted expiry", async () => {
+    const expires = new Date("2026-12-01T00:00:00.000Z");
+    const { service, licenses } = createService([
+      makeLicense({
+        id: "lic_1",
+        nodApiEnabled: false,
+        nodApiExpiresAt: expires,
+      }),
+    ]);
+
+    const updated = await service.setNodApi("lic_1", { enabled: true });
+    expect(updated.nodApiEnabled).toBe(true);
+    expect(updated.nodApiExpiresAt).toBe(expires.toISOString());
+    expect(licenses.get("lic_1")?.nodApiExpiresAt).toEqual(expires);
   });
 });
