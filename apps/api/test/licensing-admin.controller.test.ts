@@ -148,12 +148,22 @@ describe("licensing admin controller", () => {
   });
 
   it("compiles LicensingModule and resolves the admin controller", async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [LicensingModule],
-    }).compile();
+    const previous = process.env.WEB_ORIGIN;
+    process.env.WEB_ORIGIN = "http://localhost:3000";
+    try {
+      const moduleRef = await Test.createTestingModule({
+        imports: [LicensingModule],
+      }).compile();
 
-    expect(
-      moduleRef.get(LicensingAdminController, { strict: false }),
-    ).toBeInstanceOf(LicensingAdminController);
+      expect(
+        moduleRef.get(LicensingAdminController, { strict: false }),
+      ).toBeInstanceOf(LicensingAdminController);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.WEB_ORIGIN;
+      } else {
+        process.env.WEB_ORIGIN = previous;
+      }
+    }
   });
 });
