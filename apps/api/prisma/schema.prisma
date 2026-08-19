@@ -2415,9 +2415,12 @@ model XmaxAccount {
   qualifiedLeadTagIds      String[]          @default([])
   /// Configurable tag ids that map to Purchase (defaults for one client: ["56"])
   purchaseTagIds           String[]          @default([])
+  /// Fixed Purchase value in cents when emitting CAPI from XMAX tags (X2+)
+  purchaseValueCents       Int?
+  purchaseCurrency         String            @default("BRL")
   status                   XmaxAccountStatus @default(active)
   shadowMode               Boolean           @default(true)
-  /// Always false in X1 — production CAPI cutover is X2+
+  /// X2+: when true AND shadowMode=false, create conversion + enqueue CAPI
   capiSendEnabled          Boolean           @default(false)
   lastWebhookAt            DateTime?
   lastSuccessfulGetContact DateTime?
