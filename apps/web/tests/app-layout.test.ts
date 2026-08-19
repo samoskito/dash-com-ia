@@ -10,6 +10,12 @@ const requestHeaderState = vi.hoisted(() => ({
   pathname: "/overview",
 }));
 
+const redirectMock = vi.hoisted(() =>
+  vi.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  }),
+);
+
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     toString: () => "",
@@ -25,10 +31,36 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({
     refresh: () => undefined,
   }),
+  redirect: redirectMock,
 }));
+
+const fullOwnerPermissions = {
+  canInviteMembers: true,
+  canManageMembers: true,
+  canGrantMemberManager: true,
+  canManageBilling: true,
+  canManageIntegrations: true,
+  canManageWorkspaceSettings: true,
+  canTransferOwnership: true,
+  canViewReports: true,
+  canExportReports: true,
+};
+
+const analystPermissions = {
+  canInviteMembers: false,
+  canManageMembers: false,
+  canGrantMemberManager: false,
+  canManageBilling: false,
+  canManageIntegrations: false,
+  canManageWorkspaceSettings: false,
+  canTransferOwnership: false,
+  canViewReports: true,
+  canExportReports: true,
+};
 
 afterEach(() => {
   requestHeaderState.pathname = "/overview";
+  redirectMock.mockClear();
   vi.restoreAllMocks();
 });
 
@@ -63,12 +95,7 @@ describe("product app layout", () => {
           slug: "comunidade-nod",
           role: "owner",
           operationalStatus: "active",
-          permissions: {
-            canInviteMembers: true,
-            canManageBilling: true,
-            canManageIntegrations: true,
-            canViewReports: true,
-          },
+          permissions: fullOwnerPermissions,
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -98,12 +125,7 @@ describe("product app layout", () => {
               role: "owner",
               operationalStatus: "active",
               accessMode: "member",
-              permissions: {
-                canInviteMembers: true,
-                canManageBilling: true,
-                canManageIntegrations: true,
-                canViewReports: true,
-              },
+              permissions: fullOwnerPermissions,
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
@@ -165,12 +187,7 @@ describe("product app layout", () => {
             role: "owner",
             operationalStatus: "active",
             accessMode: "member",
-            permissions: {
-              canInviteMembers: true,
-              canManageBilling: true,
-              canManageIntegrations: true,
-              canViewReports: true,
-            },
+            permissions: fullOwnerPermissions,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
@@ -216,12 +233,7 @@ describe("product app layout", () => {
             slug: "empresa-a",
             role: "owner",
             operationalStatus: "active",
-            permissions: {
-              canInviteMembers: true,
-              canManageBilling: true,
-              canManageIntegrations: true,
-              canViewReports: true,
-            },
+            permissions: fullOwnerPermissions,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
@@ -236,12 +248,7 @@ describe("product app layout", () => {
               slug: "empresa-a",
               role: "owner",
               operationalStatus: "active",
-              permissions: {
-                canInviteMembers: true,
-                canManageBilling: true,
-                canManageIntegrations: true,
-                canViewReports: true,
-              },
+              permissions: fullOwnerPermissions,
             },
             {
               id: "workspace_b",
@@ -366,4 +373,41 @@ describe("product app layout", () => {
       "previousAccessPathnameRef.current = pathname;\n    router.refresh();",
     );
   });
+  it("redirects analysts away from management routes", async () => {
+    requestHeaderState.pathname = "/settings";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces/current")) {
+        return new Response(
+          JSON.stringify({
+            id: "workspace_member",
+            name: "Workspace Analista",
+            slug: "workspace-analista",
+            role: "member",
+            operationalStatus: "active",
+            permissions: analystPermissions,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/workspaces")) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ message: "not configured" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    await expect(
+      WorkspaceAccessGate({
+        children: createElement("p", null, "Conteudo privado"),
+      }),
+    ).rejects.toThrow("NEXT_REDIRECT:/overview");
+    expect(redirectMock).toHaveBeenCalledWith("/overview");
+  });
+
 });
