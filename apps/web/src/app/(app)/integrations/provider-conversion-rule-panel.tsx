@@ -25,6 +25,7 @@ import {
   RotateCcw,
   Send,
   ShoppingBag,
+  ShoppingCart,
   Tag,
   Trash2,
   X,
@@ -54,7 +55,29 @@ type RuleKind =
   | "qualified_automation"
   | "purchase_automation"
   | "purchase_message"
-  | "purchase_catalog";
+  | "purchase_catalog"
+  | "checkout_message";
+
+type MessageAuthorScope = "team" | "contact" | "both";
+
+type MessagePhraseValueMode = "fixed" | "message_extracted";
+
+/** Fields shared by the two message_phrase kinds: purchase and checkout. */
+type MessagePhraseValues = {
+  averageValue: string;
+  contentName: string;
+  triggerPhrases: string;
+  exampleMessage: string;
+  valueMode: MessagePhraseValueMode;
+  messageAuthorScope: MessageAuthorScope;
+};
+
+export type MessagePhrasePreview = {
+  matchedPhrase: string | null;
+  valueCents: number | null;
+  valueSource: "fixed" | "message" | "fallback" | null;
+  ambiguousValue: boolean;
+};
 
 type CatalogAttributeDraft = {
   id: number;
@@ -117,9 +140,10 @@ export function ProviderConversionRulePanel({
   const [averageValue, setAverageValue] = useState("");
   const [contentName, setContentName] = useState("");
   const [triggerPhrases, setTriggerPhrases] = useState("");
-  const [messageAuthorScope, setMessageAuthorScope] = useState<
-    "team" | "contact" | "both"
-  >("team");
+  const [exampleMessage, setExampleMessage] = useState("");
+  const [valueMode, setValueMode] = useState<MessagePhraseValueMode>("fixed");
+  const [messageAuthorScope, setMessageAuthorScope] =
+    useState<MessageAuthorScope>("team");
   const [catalogName, setCatalogName] = useState("");
   const [productName, setProductName] = useState("");
   const [attributes, setAttributes] = useState<CatalogAttributeDraft[]>([
@@ -149,6 +173,8 @@ export function ProviderConversionRulePanel({
       averageValue,
       contentName,
       triggerPhrases,
+      exampleMessage,
+      valueMode,
       messageAuthorScope,
       catalogName,
       productName,
@@ -224,7 +250,7 @@ export function ProviderConversionRulePanel({
       setCopied(true);
       setNotice({
         tone: "success",
-        message: "URL copiada. Cadastre-a na automacao da Umbler.",
+        message: "URL copiada. Cadastre-a na automacao do provedor.",
       });
     } catch {
       setNotice({
@@ -296,7 +322,7 @@ export function ProviderConversionRulePanel({
       <header className="provider-conversion-heading">
         <div>
           <span className="eyebrow">Eventos de conversao</span>
-          <h3>Qualificados e compras</h3>
+          <h3>Qualificados, compras e checkout</h3>
           <p className="muted">
             Regras independentes por canal, preservadas em observacao antes de
             qualquer envio.
@@ -331,12 +357,12 @@ export function ProviderConversionRulePanel({
         >
           <div>
             <span className="micro-label">URL exibida uma unica vez</span>
-            <strong>Webhook da automacao Umbler</strong>
+            <strong>Webhook da automacao</strong>
           </div>
           <input
             readOnly
             value={oneTimeSecret.webhookUrl}
-            aria-label="URL privada da automacao Umbler"
+            aria-label="URL privada da automacao"
             data-presentation-sensitive-field="true"
           />
           <button className="button" type="button" onClick={copyWebhookUrl}>
@@ -370,38 +396,13 @@ export function ProviderConversionRulePanel({
 
       {createOpen ? (
         <form className="provider-conversion-builder" onSubmit={handleCreate}>
-          <div className="provider-conversion-kind" role="radiogroup">
-            <RuleKindButton
-              active={kind === "qualified_automation"}
-              icon={<Tag size={15} aria-hidden="true" />}
-              label="Lead qualificado por tag"
-              onClick={() => setKind("qualified_automation")}
-            />
-            <RuleKindButton
-              active={kind === "purchase_automation"}
-              icon={<ShoppingBag size={15} aria-hidden="true" />}
-              label="Compra por tag"
-              onClick={() => setKind("purchase_automation")}
-            />
-            <RuleKindButton
-              active={kind === "purchase_catalog"}
-              icon={<BookOpen size={15} aria-hidden="true" />}
-              label="Compra por catalogo"
-              onClick={() => {
-                setKind("purchase_catalog");
-                setMessageAuthorScope("both");
-              }}
-            />
-            <RuleKindButton
-              active={kind === "purchase_message"}
-              icon={<MessageSquareText size={15} aria-hidden="true" />}
-              label="Compra por mensagem"
-              onClick={() => {
-                setKind("purchase_message");
-                setMessageAuthorScope("team");
-              }}
-            />
-          </div>
+          <RuleKindSelector
+            kind={kind}
+            onSelect={(next) => {
+              setKind(next);
+              setMessageAuthorScope(next === "purchase_catalog" ? "both" : "team");
+            }}
+          />
 
           <div className="provider-conversion-base-fields">
             <label>
@@ -415,7 +416,7 @@ export function ProviderConversionRulePanel({
                 required
               />
             </label>
-            {["purchase_automation", "purchase_message"].includes(kind) ? (
+            {kind === "purchase_automation" ? (
               <>
                 <label>
                   <span className="field-label">Valor medio (R$)</span>
@@ -440,7 +441,39 @@ export function ProviderConversionRulePanel({
             ) : null}
           </div>
 
-          {["purchase_message", "purchase_catalog"].includes(kind) ? (
+          {isMessagePhraseKind(kind) ? (
+            <MessagePhraseFields
+              kind={kind}
+              averageValue={averageValue}
+              contentName={contentName}
+              triggerPhrases={triggerPhrases}
+              exampleMessage={exampleMessage}
+              valueMode={valueMode}
+              messageAuthorScope={messageAuthorScope}
+              onChange={(patch) => {
+                if (patch.averageValue !== undefined) {
+                  setAverageValue(patch.averageValue);
+                }
+                if (patch.contentName !== undefined) {
+                  setContentName(patch.contentName);
+                }
+                if (patch.triggerPhrases !== undefined) {
+                  setTriggerPhrases(patch.triggerPhrases);
+                }
+                if (patch.exampleMessage !== undefined) {
+                  setExampleMessage(patch.exampleMessage);
+                }
+                if (patch.valueMode !== undefined) {
+                  setValueMode(patch.valueMode);
+                }
+                if (patch.messageAuthorScope !== undefined) {
+                  setMessageAuthorScope(patch.messageAuthorScope);
+                }
+              }}
+            />
+          ) : null}
+
+          {kind === "purchase_catalog" ? (
             <div className="provider-conversion-base-fields">
               <label>
                 <span className="field-label">Frases gatilho</span>
@@ -449,11 +482,7 @@ export function ProviderConversionRulePanel({
                   onChange={(event) => setTriggerPhrases(event.target.value)}
                   rows={3}
                   maxLength={4_800}
-                  placeholder={
-                    kind === "purchase_catalog"
-                      ? "Uma por linha. Ex.: Dados para confirmar o pedido"
-                      : "Uma por linha. Ex.: Aviso de compra"
-                  }
+                  placeholder="Uma por linha. Ex.: Dados para confirmar o pedido"
                   required
                 />
               </label>
@@ -463,7 +492,7 @@ export function ProviderConversionRulePanel({
                   value={messageAuthorScope}
                   onChange={(event) =>
                     setMessageAuthorScope(
-                      event.target.value as "team" | "contact" | "both",
+                      event.target.value as MessageAuthorScope,
                     )
                   }
                 >
@@ -719,6 +748,8 @@ export function ProviderConversionRulePanel({
           rules.map((rule) => {
             const automation =
               rule.conversionRule.triggerType === "provider_automation";
+            const messagePhrase =
+              rule.conversionRule.triggerType === "message_phrase";
             const active = rule.conversionRule.active;
             return (
               <article className="provider-conversion-rule" key={rule.id}>
@@ -726,6 +757,9 @@ export function ProviderConversionRulePanel({
                   <div className="provider-conversion-rule-icon">
                     {rule.conversionRule.eventName === "QualifiedLead" ? (
                       <Tag size={17} aria-hidden="true" />
+                    ) : rule.conversionRule.eventName ===
+                      "InitiateCheckout" ? (
+                      <ShoppingCart size={17} aria-hidden="true" />
                     ) : automation ? (
                       <ShoppingBag size={17} aria-hidden="true" />
                     ) : (
@@ -735,6 +769,9 @@ export function ProviderConversionRulePanel({
                   <div className="provider-conversion-rule-copy">
                     <div className="provider-conversion-rule-title">
                       <strong>{rule.conversionRule.name}</strong>
+                      <span className="event-chip neutral">
+                        {eventLabel(rule)}
+                      </span>
                       <span
                         className={`event-chip ${active ? "success" : "warn"}`}
                       >
@@ -746,7 +783,8 @@ export function ProviderConversionRulePanel({
                       </span>
                     </div>
                     <span>
-                      {eventLabel(rule)} / {triggerLabel(rule)} /{" "}
+                      {eventLabel(rule)} / {triggerLabel(rule)}
+                      {messagePhrase ? ` / ${valueModeLabel(rule)}` : ""} /{" "}
                       {rule.channelIds.length} canal(is)
                     </span>
                     <small>
@@ -887,6 +925,18 @@ export function ProviderConversionRulePanel({
                     loadPayloadAction={loadAutomationPayloadAction}
                     reprocessAction={reprocessAutomationCallbacksAction}
                   />
+                ) : null}
+
+                {messagePhrase && rule.exampleMessage ? (
+                  <details className="provider-conversion-rule-scope">
+                    <summary>
+                      <span>Exemplo da mensagem</span>
+                      <strong>{valueModeLabel(rule)}</strong>
+                    </summary>
+                    <p className="provider-conversion-rule-example">
+                      {rule.exampleMessage}
+                    </p>
+                  </details>
                 ) : null}
 
                 {!automation ? (
@@ -1239,7 +1289,7 @@ function AutomationCallbackAudit({
           <header className="event-audit-dialog-header">
             <div>
               <span className="micro-label">Auditoria do callback</span>
-              <h3>Payload recebido da Umbler</h3>
+              <h3>Payload recebido do provedor</h3>
               <small>
                 {payload
                   ? `Recebido em ${formatDateTime(payload.receivedAt)}`
@@ -1706,6 +1756,213 @@ function MessageRuleEditor({
   );
 }
 
+export function RuleKindSelector({
+  kind,
+  onSelect,
+}: {
+  kind: RuleKind;
+  onSelect: (kind: RuleKind) => void;
+}) {
+  return (
+    <div className="provider-conversion-kind" role="radiogroup">
+      <RuleKindButton
+        active={kind === "qualified_automation"}
+        icon={<Tag size={15} aria-hidden="true" />}
+        label="Lead qualificado por tag"
+        onClick={() => onSelect("qualified_automation")}
+      />
+      <RuleKindButton
+        active={kind === "purchase_automation"}
+        icon={<ShoppingBag size={15} aria-hidden="true" />}
+        label="Compra por tag"
+        onClick={() => onSelect("purchase_automation")}
+      />
+      <RuleKindButton
+        active={kind === "purchase_catalog"}
+        icon={<BookOpen size={15} aria-hidden="true" />}
+        label="Compra por catalogo"
+        onClick={() => onSelect("purchase_catalog")}
+      />
+      <RuleKindButton
+        active={kind === "purchase_message"}
+        icon={<MessageSquareText size={15} aria-hidden="true" />}
+        label="Compra por mensagem"
+        onClick={() => onSelect("purchase_message")}
+      />
+      <RuleKindButton
+        active={kind === "checkout_message"}
+        icon={<ShoppingCart size={15} aria-hidden="true" />}
+        label="Checkout por mensagem"
+        onClick={() => onSelect("checkout_message")}
+      />
+    </div>
+  );
+}
+
+/**
+ * Trigger phrases, example message and value pipeline of a message_phrase rule.
+ * The preview mirrors the server heuristics: contains match on the normalized
+ * phrase and a single distinct money value in the message.
+ */
+export function MessagePhraseFields({
+  kind,
+  averageValue,
+  contentName,
+  triggerPhrases,
+  exampleMessage,
+  valueMode,
+  messageAuthorScope,
+  onChange,
+}: MessagePhraseValues & {
+  kind: "purchase_message" | "checkout_message";
+  onChange: (patch: Partial<MessagePhraseValues>) => void;
+}) {
+  const extracting = valueMode === "message_extracted";
+  const preview = previewMessagePhrase({
+    triggerPhrases,
+    exampleMessage,
+    valueMode,
+    averageValue,
+  });
+
+  return (
+    <div className="provider-conversion-message-fields">
+      <div className="provider-conversion-base-fields">
+        <label>
+          <span className="field-label">Frases gatilho</span>
+          <textarea
+            value={triggerPhrases}
+            onChange={(event) => onChange({ triggerPhrases: event.target.value })}
+            rows={3}
+            maxLength={4_800}
+            placeholder={
+              kind === "checkout_message"
+                ? "Uma por linha. Ex.: Segue o link do pagamento"
+                : "Uma por linha. Ex.: Aviso de compra"
+            }
+            required
+          />
+        </label>
+        <label>
+          <span className="field-label">Exemplo da mensagem</span>
+          <textarea
+            value={exampleMessage}
+            onChange={(event) => onChange({ exampleMessage: event.target.value })}
+            rows={3}
+            maxLength={2_000}
+            placeholder={
+              kind === "checkout_message"
+                ? "Ex.: Segue o link do pagamento de R$ 250,00"
+                : "Ex.: Pagamento confirmado no valor de R$ 1.397,00"
+            }
+          />
+        </label>
+        <label>
+          <span className="field-label">Quem pode enviar</span>
+          <select
+            value={messageAuthorScope}
+            onChange={(event) =>
+              onChange({
+                messageAuthorScope: event.target.value as MessageAuthorScope,
+              })
+            }
+          >
+            <option value="team">Equipe ou bot</option>
+            <option value="contact">Somente contato</option>
+            <option value="both">Equipe, bot ou contato</option>
+          </select>
+        </label>
+      </div>
+
+      <fieldset className="provider-conversion-value-modes">
+        <legend className="field-label">Modo de valor</legend>
+        <div>
+          <label>
+            <input
+              type="radio"
+              name="messagePhraseValueMode"
+              value="fixed"
+              checked={!extracting}
+              onChange={() => onChange({ valueMode: "fixed" })}
+            />
+            <span>Valor fixo</span>
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="messagePhraseValueMode"
+              value="message_extracted"
+              checked={extracting}
+              onChange={() => onChange({ valueMode: "message_extracted" })}
+            />
+            <span>Extrair da mensagem</span>
+          </label>
+        </div>
+      </fieldset>
+
+      <div className="provider-conversion-base-fields">
+        <label>
+          <span className="field-label">
+            {extracting ? "Valor medio (fallback, opcional)" : "Valor medio (R$)"}
+          </span>
+          <input
+            value={averageValue}
+            onChange={(event) => onChange({ averageValue: event.target.value })}
+            inputMode="decimal"
+            placeholder="Ex.: 250,00"
+            required={!extracting}
+          />
+        </label>
+        <label>
+          <span className="field-label">Produto (opcional)</span>
+          <input
+            value={contentName}
+            onChange={(event) => onChange({ contentName: event.target.value })}
+            maxLength={180}
+            placeholder="Ex.: Consulta"
+          />
+        </label>
+      </div>
+
+      <div className="provider-conversion-preview">
+        <span className="micro-label">Previa do reconhecimento</span>
+        <strong>
+          {preview.matchedPhrase
+            ? `Frase gatilho reconhecida: ${preview.matchedPhrase}`
+            : exampleMessage.trim()
+              ? "Nenhuma frase gatilho encontrada no exemplo."
+              : "Escreva um exemplo para conferir o reconhecimento."}
+        </strong>
+        <small>{previewValueLabel(preview, extracting)}</small>
+      </div>
+    </div>
+  );
+}
+
+function previewValueLabel(
+  preview: MessagePhrasePreview,
+  extracting: boolean,
+): string {
+  if (preview.ambiguousValue) {
+    return "O exemplo tem mais de um valor. A regra vai pedir revisao manual.";
+  }
+  if (preview.valueCents === null) {
+    return extracting
+      ? "Nenhum valor no exemplo e sem valor medio de fallback: a conversao ficaria em revisao."
+      : "Informe o valor medio enviado por esta regra.";
+  }
+
+  const money = formatMoney(preview.valueCents, "BRL");
+  if (preview.valueSource === "message") {
+    return `Valor extraido do exemplo: ${money}`;
+  }
+  if (preview.valueSource === "fallback") {
+    return `Sem valor no exemplo. Seria enviado o valor medio: ${money}`;
+  }
+
+  return `Valor fixo enviado em toda conversao: ${money}`;
+}
+
 function RuleKindButton({
   active,
   icon,
@@ -2058,7 +2315,7 @@ function catalogAliasDrafts(
   );
 }
 
-function buildCreatePayload(input: {
+export function buildCreatePayload(input: {
   connectionId: string;
   kind: RuleKind;
   name: string;
@@ -2066,7 +2323,9 @@ function buildCreatePayload(input: {
   averageValue: string;
   contentName: string;
   triggerPhrases: string;
-  messageAuthorScope: "team" | "contact" | "both";
+  exampleMessage: string;
+  valueMode: MessagePhraseValueMode;
+  messageAuthorScope: MessageAuthorScope;
   catalogName: string;
   productName: string;
   attributes: CatalogAttributeDraft[];
@@ -2098,19 +2357,39 @@ function buildCreatePayload(input: {
     };
   }
 
-  if (
-    input.kind === "purchase_automation" ||
-    input.kind === "purchase_message"
-  ) {
+  if (input.kind === "purchase_automation") {
     const defaultValueCents = parseMoneyToCents(input.averageValue);
     if (!defaultValueCents) {
       return { ok: false, message: "Informe um valor medio valido." };
     }
+
+    return {
+      ok: true,
+      value: {
+        ...base,
+        triggerType: "provider_automation",
+        eventName: "Purchase",
+        defaultValueCents,
+        defaultCurrency: "BRL",
+        defaultContentName: input.contentName.trim() || null,
+      },
+    };
+  }
+
+  if (isMessagePhraseKind(input.kind)) {
+    const extracting = input.valueMode === "message_extracted";
+    const defaultValueCents = parseMoneyToCents(input.averageValue);
+    if (!defaultValueCents && (!extracting || input.averageValue.trim())) {
+      return { ok: false, message: "Informe um valor medio valido." };
+    }
     const messagePhrases = parseTriggerPhrases(input.triggerPhrases);
-    if (input.kind === "purchase_message" && messagePhrases.length === 0) {
+    if (messagePhrases.length === 0) {
       return {
         ok: false,
-        message: "Informe ao menos uma frase gatilho para reconhecer a compra.",
+        message:
+          input.kind === "checkout_message"
+            ? "Informe ao menos uma frase gatilho para reconhecer o checkout."
+            : "Informe ao menos uma frase gatilho para reconhecer a compra.",
       };
     }
 
@@ -2118,20 +2397,16 @@ function buildCreatePayload(input: {
       ok: true,
       value: {
         ...base,
-        triggerType:
-          input.kind === "purchase_automation"
-            ? "provider_automation"
-            : "message_phrase",
-        eventName: "Purchase",
+        triggerType: "message_phrase",
+        eventName:
+          input.kind === "checkout_message" ? "InitiateCheckout" : "Purchase",
+        valueMode: input.valueMode,
+        exampleMessage: input.exampleMessage.trim() || null,
         defaultValueCents,
         defaultCurrency: "BRL",
         defaultContentName: input.contentName.trim() || null,
-        ...(input.kind === "purchase_message"
-          ? {
-              triggerPhrases: messagePhrases,
-              messageAuthorScope: input.messageAuthorScope,
-            }
-          : {}),
+        triggerPhrases: messagePhrases,
+        messageAuthorScope: input.messageAuthorScope,
       },
     };
   }
@@ -2202,6 +2477,116 @@ function buildCreatePayload(input: {
   };
 }
 
+function isMessagePhraseKind(
+  kind: RuleKind,
+): kind is "purchase_message" | "checkout_message" {
+  return kind === "purchase_message" || kind === "checkout_message";
+}
+
+/**
+ * Client-side rehearsal of the server decision for message_phrase rules:
+ * normalized "contains" match of the trigger phrases plus the money value of
+ * the example. Values only count when the example carries a single amount, the
+ * same guard the parser applies before trusting a message value.
+ */
+export function previewMessagePhrase(input: {
+  triggerPhrases: string;
+  exampleMessage: string;
+  valueMode: MessagePhraseValueMode;
+  averageValue: string;
+}): MessagePhrasePreview {
+  const example = input.exampleMessage.trim();
+  const matchedPhrase = matchTriggerPhrase(
+    example,
+    parseTriggerPhrases(input.triggerPhrases),
+  );
+  const fallbackCents = parseMoneyToCents(input.averageValue);
+
+  if (input.valueMode === "fixed") {
+    return {
+      matchedPhrase,
+      valueCents: fallbackCents,
+      valueSource: fallbackCents === null ? null : "fixed",
+      ambiguousValue: false,
+    };
+  }
+
+  const values = messageMoneyValues(example);
+  if (values.length > 1) {
+    return {
+      matchedPhrase,
+      valueCents: null,
+      valueSource: null,
+      ambiguousValue: true,
+    };
+  }
+
+  const extracted = values[0] ?? null;
+  const valueCents = extracted ?? fallbackCents;
+  return {
+    matchedPhrase,
+    valueCents,
+    valueSource:
+      valueCents === null ? null : extracted === null ? "fallback" : "message",
+    ambiguousValue: false,
+  };
+}
+
+function normalizeMessageText(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleLowerCase("pt-BR")
+    .replace(/\s+/g, " ");
+}
+
+function matchTriggerPhrase(
+  message: string,
+  triggerPhrases: string[],
+): string | null {
+  if (!message) return null;
+
+  const normalizedMessage = normalizeMessageText(message);
+  return (
+    triggerPhrases.find((phrase) => {
+      const normalizedPhrase = normalizeMessageText(phrase);
+      return (
+        normalizedPhrase.length > 0 &&
+        normalizedMessage.includes(normalizedPhrase)
+      );
+    }) ?? null
+  );
+}
+
+const messageMoneyPattern =
+  /(?:^|[^\d])((?:R\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}|(?:US\$\s*|\$\s*)?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2})(?=$|[^\d])/giu;
+
+/** Distinct money values of a message, in cents. Mirrors the server parser. */
+function messageMoneyValues(message: string): number[] {
+  const values = new Set<number>();
+  for (const match of message.matchAll(messageMoneyPattern)) {
+    const cents = parseMessageMoneyToken(match[1]);
+    if (cents !== null) values.add(cents);
+  }
+
+  return [...values];
+}
+
+function parseMessageMoneyToken(token: string): number | null {
+  const normalized = token.replace(/R\$|US\$|\$/giu, "").replace(/\s+/g, "");
+  const decimalSeparator =
+    normalized.lastIndexOf(",") > normalized.lastIndexOf(".") ? "," : ".";
+  const [wholePart, decimalPart] = normalized.split(decimalSeparator);
+  if (!wholePart || !/^\d{2}$/u.test(decimalPart ?? "")) return null;
+
+  const wholeDigits = wholePart.replace(/[.,]/g, "");
+  if (!/^\d+$/u.test(wholeDigits)) return null;
+
+  const cents = Number(wholeDigits) * 100 + Number(decimalPart);
+  return Number.isSafeInteger(cents) && cents > 0 ? cents : null;
+}
+
 function parseTriggerPhrases(value: string): string[] {
   return [
     ...new Set(
@@ -2268,9 +2653,13 @@ export function parseMoneyToCents(value: string): number | null {
 }
 
 function eventLabel(rule: ProviderConversionRuleDto): string {
-  return rule.conversionRule.eventName === "QualifiedLead"
-    ? "Lead qualificado"
-    : "Compra";
+  if (rule.conversionRule.eventName === "QualifiedLead") {
+    return "Lead qualificado";
+  }
+  if (rule.conversionRule.eventName === "InitiateCheckout") {
+    return "Checkout iniciado";
+  }
+  return "Compra";
 }
 
 function triggerLabel(rule: ProviderConversionRuleDto): string {
@@ -2278,9 +2667,15 @@ function triggerLabel(rule: ProviderConversionRuleDto): string {
     return "Mensagem com catalogo";
   }
   if (rule.conversionRule.triggerType === "message_phrase") {
-    return "Mensagem com valor medio";
+    return "Mensagem com frase gatilho";
   }
   return "Automacao por tag";
+}
+
+function valueModeLabel(rule: ProviderConversionRuleDto): string {
+  return rule.valueMode === "message_extracted"
+    ? "Valor na mensagem"
+    : "Valor fixo";
 }
 
 function executionStatusLabel(

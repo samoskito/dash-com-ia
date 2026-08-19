@@ -210,7 +210,7 @@ describe("inbound webhook panel", () => {
   it("keeps integrations focused on connection health and links to trigger settings", () => {
     const html = renderPanel();
 
-    expect(html).toContain("Gatilhos do WhatsApp");
+    expect(html).toContain("Gatilhos de conversao");
     expect(html).toContain("0 regra(s) nesta conexao");
     expect(html).toContain('href="/settings#whatsapp-triggers"');
     expect(html).toContain("Gerenciar gatilhos");

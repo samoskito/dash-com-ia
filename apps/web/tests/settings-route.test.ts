@@ -342,7 +342,7 @@ describe("settings route", () => {
     ).toHaveLength(2);
     expect(html).toMatch(/<details[^>]*id="whatsapp-triggers"[^>]*open=""/);
     expect(html).toContain("Regras por conexao e canal");
-    expect(html).toContain("WhatsApp direto e regras anteriores");
+    expect(html).toContain("Regras antigas sem conexao");
     expect(html).toContain("Jornada do funil");
     expect(html).toContain("Salvar jornada");
     expect(html.match(/name="stageProduct:/g)).toHaveLength(1);
@@ -515,8 +515,8 @@ describe("settings route", () => {
     expect(html).toContain("1 canal(is) descoberto(s)");
     expect(html).toContain("Regras por conexao e canal");
     expect(html).toContain("Compra por aviso");
-    expect(html).toContain("Adaptar para Umbler");
-    expect(html).toContain("WhatsApp direto e regras anteriores");
+    expect(html).toContain("Adaptar para conexao");
+    expect(html).toContain("Regras antigas sem conexao");
     expect(html).toContain('href="/integrations"');
   });
 

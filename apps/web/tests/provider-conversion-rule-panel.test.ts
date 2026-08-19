@@ -7,8 +7,12 @@ import type {
   ProviderConversionRuleDto,
 } from "@wpptrack/shared";
 import {
+  buildCreatePayload,
+  MessagePhraseFields,
   parseMoneyToCents,
+  previewMessagePhrase,
   ProviderConversionRulePanel,
+  RuleKindSelector,
 } from "../src/app/(app)/integrations/provider-conversion-rule-panel";
 import { ProviderCatalogTestResult } from "../src/app/(app)/settings/provider-catalog-test-result";
 
@@ -73,6 +77,8 @@ const catalogRule = {
   channelIds: ["channel_1"],
   triggerPhrases: ["Dados para confirmar o pedido"],
   messageAuthorScope: "both",
+  valueMode: "fixed",
+  exampleMessage: null,
   endpoint: null,
   catalog: {
     id: "catalog_1",
@@ -343,6 +349,214 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain("R$\u00a07.000,00");
   });
 
+  it("keeps catalog and tag rules alongside the new checkout message kind", () => {
+    const html = renderToStaticMarkup(
+      createElement(RuleKindSelector, {
+        kind: "qualified_automation",
+        onSelect: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Lead qualificado por tag");
+    expect(html).toContain("Compra por tag");
+    expect(html).toContain("Compra por catalogo");
+    expect(html).toContain("Compra por mensagem");
+    expect(html).toContain("Checkout por mensagem");
+  });
+
+  it("builds an InitiateCheckout message rule with a fixed average value", () => {
+    const payload = createPayload({
+      kind: "checkout_message",
+      name: "Checkout Dr Hernia",
+      averageValue: "250,00",
+      triggerPhrases: "Segue o link do pagamento",
+      exampleMessage: "Segue o link do pagamento de R$ 250,00",
+      valueMode: "fixed",
+    });
+
+    expect(payload).toMatchObject({
+      connectionId: "connection_1",
+      triggerType: "message_phrase",
+      eventName: "InitiateCheckout",
+      valueMode: "fixed",
+      defaultValueCents: 25_000,
+      defaultCurrency: "BRL",
+      exampleMessage: "Segue o link do pagamento de R$ 250,00",
+      triggerPhrases: ["Segue o link do pagamento"],
+      messageAuthorScope: "team",
+    });
+  });
+
+  it("builds a Purchase message rule that extracts the value from the message", () => {
+    const payload = createPayload({
+      kind: "purchase_message",
+      name: "Compra confirmada",
+      averageValue: "",
+      triggerPhrases: "Pagamento confirmado",
+      exampleMessage: "Pagamento confirmado no valor de R$ 1.397,00",
+      valueMode: "message_extracted",
+    });
+
+    expect(payload).toMatchObject({
+      triggerType: "message_phrase",
+      eventName: "Purchase",
+      valueMode: "message_extracted",
+      defaultValueCents: null,
+      exampleMessage: "Pagamento confirmado no valor de R$ 1.397,00",
+    });
+  });
+
+  it("keeps the average value required for fixed message rules", () => {
+    const result = buildCreatePayload({
+      ...payloadInput,
+      kind: "checkout_message",
+      averageValue: "",
+      valueMode: "fixed",
+      triggerPhrases: "Segue o link do pagamento",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Informe um valor medio valido.",
+    });
+  });
+
+  it("keeps the catalog payload free of message value fields", () => {
+    const payload = createPayload({
+      kind: "purchase_catalog",
+      triggerPhrases: "Dados para confirmar o pedido",
+      catalogName: "Camas elasticas",
+      productName: "Cama elastica",
+      attributes: [{ id: 1, label: "Tamanho" }],
+      variants: [
+        {
+          id: 1,
+          values: ["4,90"],
+          aliases: [""],
+          value: "3.597,00",
+          contentName: "",
+        },
+      ],
+    });
+
+    expect(payload).toMatchObject({
+      triggerType: "structured_catalog",
+      eventName: "Purchase",
+    });
+    expect(payload).not.toHaveProperty("valueMode");
+    expect(payload).not.toHaveProperty("exampleMessage");
+  });
+
+  it("previews the extracted value of the example message", () => {
+    expect(
+      previewMessagePhrase({
+        triggerPhrases: "Segue o link do pagamento",
+        exampleMessage: "Ola! Segue o link do pagamento de R$ 250,00",
+        valueMode: "message_extracted",
+        averageValue: "",
+      }),
+    ).toEqual({
+      matchedPhrase: "Segue o link do pagamento",
+      valueCents: 25_000,
+      valueSource: "message",
+      ambiguousValue: false,
+    });
+  });
+
+  it("refuses to guess when the example carries more than one value", () => {
+    expect(
+      previewMessagePhrase({
+        triggerPhrases: "Pagamento confirmado",
+        exampleMessage: "Pagamento confirmado: R$ 250,00 de R$ 500,00",
+        valueMode: "message_extracted",
+        averageValue: "",
+      }),
+    ).toMatchObject({ valueCents: null, ambiguousValue: true });
+  });
+
+  it("falls back to the average value when the example has no value", () => {
+    expect(
+      previewMessagePhrase({
+        triggerPhrases: "Pagamento confirmado",
+        exampleMessage: "Pagamento confirmado, obrigado!",
+        valueMode: "message_extracted",
+        averageValue: "250,00",
+      }),
+    ).toMatchObject({ valueCents: 25_000, valueSource: "fallback" });
+  });
+
+  it("previews the fixed value and reports an example without the trigger phrase", () => {
+    expect(
+      previewMessagePhrase({
+        triggerPhrases: "Pagamento confirmado",
+        exampleMessage: "Bom dia, tudo certo por aqui",
+        valueMode: "fixed",
+        averageValue: "250,00",
+      }),
+    ).toEqual({
+      matchedPhrase: null,
+      valueCents: 25_000,
+      valueSource: "fixed",
+      ambiguousValue: false,
+    });
+  });
+
+  it("shows the message value fields with a live preview", () => {
+    const html = renderToStaticMarkup(
+      createElement(MessagePhraseFields, {
+        kind: "checkout_message",
+        averageValue: "",
+        contentName: "",
+        triggerPhrases: "Segue o link do pagamento",
+        exampleMessage: "Segue o link do pagamento de R$ 250,00",
+        valueMode: "message_extracted",
+        messageAuthorScope: "team",
+        onChange: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Exemplo da mensagem");
+    expect(html).toContain("Modo de valor");
+    expect(html).toContain("Valor fixo");
+    expect(html).toContain("Extrair da mensagem");
+    expect(html).toContain("Frases gatilho");
+    expect(html).toContain("Quem pode enviar");
+    expect(html).toContain("Frase gatilho reconhecida");
+    expect(html).toContain("Valor extraido do exemplo: R$\u00a0250,00");
+    expect(html).toContain("Valor medio (fallback, opcional)");
+  });
+
+  it("lists a checkout rule with its event, value mode and example", () => {
+    const html = renderPanel({
+      rules: [
+        {
+          ...catalogRule,
+          id: "provider_rule_checkout",
+          conversionRule: {
+            ...catalogRule.conversionRule,
+            id: "conversion_rule_checkout",
+            name: "Checkout Dr Hernia",
+            triggerType: "message_phrase",
+            triggerValue: "message_phrase",
+            eventName: "InitiateCheckout",
+            defaultValueCents: null,
+            defaultContentName: null,
+          },
+          triggerPhrases: ["Segue o link do pagamento"],
+          messageAuthorScope: "team",
+          valueMode: "message_extracted",
+          exampleMessage: "Segue o link do pagamento de R$ 250,00",
+          catalog: null,
+        },
+      ],
+    });
+
+    expect(html).toContain("Checkout iniciado");
+    expect(html).toContain("Valor na mensagem");
+    expect(html).toContain("Exemplo da mensagem");
+    expect(html).toContain("Segue o link do pagamento de R$ 250,00");
+  });
+
   it.each([
     ["3.597,00", 359700],
     ["R$ 1.397,00", 139700],
@@ -353,6 +567,31 @@ describe("provider conversion rule panel", () => {
     expect(parseMoneyToCents(value)).toBe(expected);
   });
 });
+
+const payloadInput = {
+  connectionId: "connection_1",
+  kind: "purchase_message",
+  name: "Regra de teste",
+  selectedChannelIds: ["channel_1"],
+  averageValue: "",
+  contentName: "",
+  triggerPhrases: "",
+  messageAuthorScope: "team",
+  exampleMessage: "",
+  valueMode: "fixed",
+  catalogName: "",
+  productName: "",
+  attributes: [],
+  variants: [],
+} satisfies Parameters<typeof buildCreatePayload>[0];
+
+function createPayload(
+  overrides: Partial<Parameters<typeof buildCreatePayload>[0]>,
+): unknown {
+  const result = buildCreatePayload({ ...payloadInput, ...overrides });
+  if (!result.ok) throw new Error(result.message);
+  return result.value;
+}
 
 function renderPanel({
   rules,

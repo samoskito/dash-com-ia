@@ -8,6 +8,7 @@ import type {
   ProviderConversionDecisionRuleSnapshotDto,
   ProviderConversionPaidLeadResolutionDto,
 } from "@wpptrack/shared";
+import { readMessagePhraseConfig } from "@wpptrack/shared";
 import { hashPhoneIdentity } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
@@ -712,6 +713,9 @@ export class ProviderConversionObservationService {
   ): ProviderConversionDecisionRuleSnapshotDto {
     const triggerType = this.providerTriggerType(rule);
     const eventName = this.providerEventName(rule);
+    const messagePhrase = readMessagePhraseConfig(
+      rule.conversionRule.defaultItems,
+    );
     const base = {
       providerRuleId: rule.id,
       conversionRuleId: rule.conversionRuleId,
@@ -724,7 +728,11 @@ export class ProviderConversionObservationService {
       defaultValueCents: rule.conversionRule.defaultValueCents,
       defaultCurrency: rule.conversionRule.defaultCurrency,
       defaultContentName: rule.conversionRule.defaultContentName,
-    };
+      valueMode:
+        triggerType === "message_phrase" ? messagePhrase.valueMode : "fixed",
+      exampleMessage:
+        triggerType === "message_phrase" ? messagePhrase.exampleMessage : null,
+    } satisfies Omit<ProviderConversionDecisionRuleSnapshotDto, "version">;
 
     return {
       ...base,

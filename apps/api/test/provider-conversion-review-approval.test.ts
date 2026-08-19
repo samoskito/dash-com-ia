@@ -47,7 +47,8 @@ function reviewDecision(
       defaultValueCents: null,
       defaultCurrency: "BRL",
       defaultContentName: "Cama elastica",
-    },
+      valueMode: "fixed",
+      exampleMessage: null,    },
     catalog: {
       version: "catalog-v1",
       catalog: {
@@ -207,7 +208,8 @@ function review(): Record<string, any> {
         defaultValueCents: null,
         defaultCurrency: "BRL",
         defaultContentName: "Cama elastica",
-        updatedAt: new Date("2026-07-23T12:30:00.000Z"),
+      valueMode: "fixed",
+      exampleMessage: null,        updatedAt: new Date("2026-07-23T12:30:00.000Z"),
       },
       connection: {
         status: "production",

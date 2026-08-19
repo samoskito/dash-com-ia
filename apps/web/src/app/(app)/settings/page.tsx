@@ -277,9 +277,8 @@ async function getProviderConversionSettings(): Promise<ProviderConversionSettin
     const connections = await serverApiFetch<InboundWebhookConnectionDto[]>(
       "/integrations/inbound-webhooks",
     );
-    const umblerConnections = connections.filter(
-      (connection) => connection.provider === "umbler",
-    );
+    // Todas as conexões inbound (Umbler, Gupshup, …) usam o mesmo centro de gatilhos.
+    const inboundConnections = connections;
     const [providerRulesResult, channelResults] = await Promise.all([
       serverApiFetch<ProviderConversionRuleDto[]>(
         "/conversion-rules/providers",
@@ -288,7 +287,7 @@ async function getProviderConversionSettings(): Promise<ProviderConversionSettin
         () => ({ ok: false as const, rules: [] }),
       ),
       Promise.allSettled(
-        umblerConnections.map((connection) =>
+        inboundConnections.map((connection) =>
           serverApiFetch<InboundWebhookChannelDto[]>(
             `/integrations/inbound-webhooks/${encodeURIComponent(connection.id)}/channels`,
           ),
@@ -296,7 +295,7 @@ async function getProviderConversionSettings(): Promise<ProviderConversionSettin
       ),
     ]);
     const providerRules = providerRulesResult.rules;
-    const scopedConnections = umblerConnections.map((connection, index) => ({
+    const scopedConnections = inboundConnections.map((connection, index) => ({
       connection,
       channels:
         channelResults[index]?.status === "fulfilled"
@@ -420,6 +419,15 @@ async function getWhatsappLabelSuggestions(): Promise<WhatsappLabelSuggestionsRe
 
 function triggerLabel(rule: Pick<ConversionRuleDto, "triggerType">): string {
   return rule.triggerType === "keyword" ? "Palavra-chave" : "Etiqueta WhatsApp";
+}
+
+function inboundProviderLabel(provider: string): string {
+  const labels: Record<string, string> = {
+    umbler: "Umbler Talk",
+    gupshup: "Gupshup",
+    uazapi: "UAZAPI",
+  };
+  return labels[provider] ?? provider;
 }
 
 function matchLabel(
@@ -913,7 +921,7 @@ export default async function SettingsPage() {
       !providerRuleIds.has(rule.id) &&
       ["keyword", "whatsapp_label"].includes(rule.triggerType),
   );
-  const umblerConnections = providerConversionSettings.connections;
+  const inboundConnections = providerConversionSettings.connections;
   const { workspace, members, invites } = workspaceSettings;
   const accountUser = accountSettings.user;
   const whatsappLabels = whatsappLabelSuggestions.labels;
@@ -1694,10 +1702,10 @@ export default async function SettingsPage() {
               </span>
               <span className="settings-automation-copy">
                 <span className="eyebrow">Mapeamento de eventos</span>
-                <strong>Gatilhos do WhatsApp</strong>
+                <strong>Gatilhos de conversao</strong>
                 <small>
-                  Defina o que precisa acontecer na conversa e qual evento sera
-                  registrado.
+                  Um unico lugar para frase, checkout, compra, catalogo e tags —
+                  vale para qualquer conexao WhatsApp do workspace.
                 </small>
               </span>
               <span
@@ -1719,8 +1727,9 @@ export default async function SettingsPage() {
                     <span className="eyebrow">Origens conectadas</span>
                     <h3>Regras por conexao e canal</h3>
                     <p className="muted">
-                      Escolha a origem Umbler e limite cada gatilho aos canais
-                      que realmente devem gerar conversoes.
+                      Configure checkout, compra, catalogo e tags no mesmo fluxo
+                      para cada conexao (Umbler, Gupshup e demais origens
+                      inbound). Limite o gatilho aos canais que devem converter.
                     </p>
                   </div>
                   <Link className="button" href="/integrations">
@@ -1728,9 +1737,9 @@ export default async function SettingsPage() {
                   </Link>
                 </header>
 
-                {umblerConnections.length > 0 ? (
+                {inboundConnections.length > 0 ? (
                   <div className="trigger-source-list">
-                    {umblerConnections.map(({ connection, channels }) => {
+                    {inboundConnections.map(({ connection, channels }) => {
                       const connectionRules = providerRules.filter(
                         (rule) => rule.connectionId === connection.id,
                       );
@@ -1739,11 +1748,13 @@ export default async function SettingsPage() {
                         <details
                           className="trigger-source-details"
                           key={connection.id}
-                          open={umblerConnections.length === 1}
+                          open={inboundConnections.length === 1}
                         >
                           <summary>
                             <span className="trigger-source-identity">
-                              <span className="micro-label">Umbler Talk</span>
+                              <span className="micro-label">
+                                {inboundProviderLabel(connection.provider)}
+                              </span>
                               <strong>{connection.displayName}</strong>
                               <small>
                                 {channels.length} canal(is) descoberto(s)
@@ -1790,10 +1801,11 @@ export default async function SettingsPage() {
                   </div>
                 ) : (
                   <div className="trigger-source-empty">
-                    <strong>Nenhuma conexao Umbler disponivel</strong>
+                    <strong>Nenhuma conexao WhatsApp disponivel</strong>
                     <span>
-                      Crie a conexao em Integracoes; depois os canais aparecerao
-                      aqui para configurar os gatilhos.
+                      Crie a conexao em Integracoes (Umbler, Gupshup, etc.);
+                      depois os canais aparecem aqui para configurar os
+                      gatilhos no mesmo lugar.
                     </span>
                     <Link className="button" href="/integrations">
                       Abrir Integracoes
@@ -1806,10 +1818,12 @@ export default async function SettingsPage() {
                 <header className="trigger-center-section-heading">
                   <div>
                     <span className="eyebrow">Compatibilidade</span>
-                    <h3>WhatsApp direto e regras anteriores</h3>
+                    <h3>Regras antigas sem conexao</h3>
                     <p className="muted">
-                      Regras sem conexao ou canal permanecem aqui ate serem
-                      adaptadas para uma origem Umbler.
+                      Regras legadas (keyword/etiqueta sem canal) ficam aqui ate
+                      serem adaptadas para uma conexao acima. O fluxo novo de
+                      checkout/compra por mensagem e catalogo e o bloco de
+                      origens conectadas.
                     </p>
                   </div>
                   <span className="status-chip">
@@ -1821,16 +1835,16 @@ export default async function SettingsPage() {
                   <details
                     className="legacy-trigger-create"
                     open={
-                      umblerConnections.length === 0 && legacyRules.length === 0
+                      inboundConnections.length === 0 && legacyRules.length === 0
                     }
                   >
                     <summary>
-                      <span>Criar regra para WhatsApp direto</span>
+                      <span>Criar regra legada (sem conexao)</span>
                       <ChevronDown size={16} aria-hidden="true" />
                     </summary>
                     <p className="muted">
-                      Use apenas para fontes diretas que nao passam pelas
-                      conexoes Umbler acima.
+                      Preferira o bloco de origens conectadas. Use isto so para
+                      fontes que ainda nao tem conexao inbound no workspace.
                     </p>
                     <ConversionRuleBuilder
                       action={createConversionRule}
@@ -1906,10 +1920,10 @@ export default async function SettingsPage() {
                                   rule.defaultValueCents != null &&
                                   rule.defaultValueCents > 0 &&
                                   rule.defaultCurrency &&
-                                  umblerConnections.length > 0 ? (
+                                  inboundConnections.length > 0 ? (
                                     <LegacyRuleAdaptForm
                                       action={adaptProviderConversionRuleAction}
-                                      connections={umblerConnections}
+                                      connections={inboundConnections}
                                       rule={rule}
                                     />
                                   ) : null}

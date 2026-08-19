@@ -153,7 +153,8 @@ function createHarness(
           input.automationEventName === "Purchase" ? "BRL" : null,
         defaultContentName:
           input.automationEventName === "Purchase" ? "Pedido medio" : null,
-      },
+      valueMode: "fixed",
+      exampleMessage: null,      },
       parserRelease: {
         id: isAutomation
           ? "inbound_parser_umbler_automation_v1"
@@ -260,7 +261,8 @@ function createHarness(
           input.automationEventName === "Purchase" ? "BRL" : null,
         defaultContentName:
           input.automationEventName === "Purchase" ? "Pedido medio" : null,
-      },
+      valueMode: "fixed",
+      exampleMessage: null,      },
       catalog: isAutomation
         ? null
         : {
@@ -680,7 +682,8 @@ describe("provider conversion production service", () => {
       defaultValueCents: 29_990,
       defaultCurrency: "BRL",
       defaultContentName: "Pedido medio",
-    };
+      valueMode: "fixed",
+      exampleMessage: null,    };
     harness.execution.valueCents = 29_990;
     harness.execution.currency = "BRL";
     harness.execution.matchedCatalogVariantId = null;
