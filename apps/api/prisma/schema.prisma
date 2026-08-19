@@ -2476,3 +2476,91 @@ model XmaxShadowEvent {
   @@index([accountId, status, createdAt])
   @@index([accountId, contactId, eventName])
 }
+
+enum LicenseInterval {
+  annual
+  monthly
+  semiannual
+}
+
+enum LicenseStatus {
+  active
+  refunded
+  chargeback
+  revoked
+}
+
+enum LicenseHeartbeatStatus {
+  ok
+  stale
+}
+
+/// RastrackDash license server (PalmUP). Raw key is never persisted after issue.
+/// Expiry is derived from expiresAt at validation time; it is not a stored status.
+model License {
+  id                 String          @id @default(cuid())
+  /// SHA-256 hex of the raw key (PALMUP-XXXX-...). Never store the raw key.
+  keyHash            String          @unique
+  /// First segment for support UI, e.g. PALMUP-XXXX. Not secret alone.
+  keyPrefix          String
+  buyerEmail         String?
+  buyerName          String?
+  guruTransactionId  String?         @unique
+  productSku         String          @default("rastrackdash_annual")
+  interval           LicenseInterval @default(annual)
+  expiresAt          DateTime
+  status             LicenseStatus   @default(active)
+  issuedAt           DateTime        @default(now())
+  revokedAt          DateTime?
+  revokedReason      String?
+  boundAccountEmail  String?
+  boundAccountId     String?
+  boundAt            DateTime?
+  nodApiEnabled      Boolean         @default(false)
+  nodApiExpiresAt    DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  activations LicenseActivation[]
+
+  @@index([status, issuedAt])
+  @@index([buyerEmail])
+  @@index([boundAccountEmail])
+  @@index([expiresAt, status])
+}
+
+/// Telemetry of student instances. Unlimited fingerprints for the same bound account.
+model LicenseActivation {
+  id                   String                  @id @default(cuid())
+  licenseId            String
+  fingerprint          String
+  appVersion           String?
+  deployLabel          String?
+  firstActivatedAt     DateTime                @default(now())
+  lastHeartbeatAt      DateTime                @default(now())
+  lastHeartbeatStatus  LicenseHeartbeatStatus  @default(ok)
+  ipAddress            String?
+
+  license License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@unique([licenseId, fingerprint])
+  @@index([licenseId])
+  @@index([lastHeartbeatAt])
+}
+
+/// Idempotent Guru (and future provider) webhook audit. Invalid signatures must not mutate License.
+model LicenseWebhookEvent {
+  id                    String    @id @default(cuid())
+  provider              String    @default("guru")
+  eventType             String
+  externalTransactionId String
+  signatureValid        Boolean
+  receivedAt            DateTime  @default(now())
+  processedAt           DateTime?
+  resultStatus          String
+  rawPayloadSanitized   Json?
+
+  @@unique([provider, eventType, externalTransactionId])
+  @@index([provider, receivedAt])
+  @@index([resultStatus, receivedAt])
+}
