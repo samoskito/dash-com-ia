@@ -23,21 +23,40 @@ const TERMINAL_SUCCESS_STATUSES = new Set([
 ]);
 const RETRYABLE_STATUSES = new Set(["pending", "error", "signature_invalid"]);
 
+// Includes Digital Manager Guru subscription status labels (PT + EN).
 const PURCHASE_EVENTS = new Set([
   "purchase_approved",
   "purchase",
   "paid",
   "approved",
   "subscription_created",
+  "ativa",
+  "active",
+  "iniciada",
+  "started",
+  "trial",
 ]);
 const RENEWAL_EVENTS = new Set([
   "renewal_approved",
   "renewed",
   "subscription_renewed",
   "recurrent_payment",
+  "renovada",
 ]);
-const REFUND_EVENTS = new Set(["refund", "refunded", "payment_refunded"]);
+const REFUND_EVENTS = new Set([
+  "refund",
+  "refunded",
+  "payment_refunded",
+  "cancelada",
+  "canceled",
+  "cancelled",
+  "expirada",
+  "expired",
+  "inativa",
+  "inactive",
+]);
 const CHARGEBACK_EVENTS = new Set(["chargeback", "chargedback"]);
+// "atrasada" is overdue — do not revoke automatically (stays unknown/ignored).
 
 const SENSITIVE_KEY = /password|secret|token|authorization|api[_-]?key|rawkey/i;
 const MAX_SANITIZE_DEPTH = 4;
