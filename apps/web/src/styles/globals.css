@@ -8726,6 +8726,49 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   display: none;
 }
 
+.provider-conversion-secret-group {
+  display: grid;
+  gap: 10px;
+}
+
+.provider-conversion-payload-helper {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-left: 3px solid var(--mint);
+  background: rgba(18, 184, 132, 0.05);
+}
+
+.provider-conversion-payload-helper > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.provider-conversion-payload-helper .payload-block {
+  margin: 0;
+}
+
+.provider-conversion-payload-helper .button {
+  justify-self: start;
+}
+
+.provider-conversion-payload-steps {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.provider-conversion-payload-helper-body {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding: 4px 0 12px;
+}
+
 .provider-conversion-builder {
   display: grid;
   min-width: 0;

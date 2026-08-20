@@ -193,6 +193,10 @@ export function ProviderConversionRulePanel({
   const [notice, setNotice] = useState<Notice | null>(null);
   const [oneTimeSecret, setOneTimeSecret] =
     useState<ProviderConversionRuleOneTimeSecret | null>(null);
+  // Capturado no momento da criacao/rotacao (nao depende do refresh do
+  // servidor) para montar o exemplo de payload junto da URL de uso unico.
+  const [oneTimeSecretEventName, setOneTimeSecretEventName] =
+    useState<ConversionEventNameDto | null>(null);
   const [copied, setCopied] = useState(false);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
@@ -240,6 +244,7 @@ export function ProviderConversionRulePanel({
       setTriggerLabels([]);
       if (result.oneTimeSecret) {
         setOneTimeSecret(result.oneTimeSecret);
+        setOneTimeSecretEventName(origin === "tag" ? eventName : null);
         setCopied(false);
       }
       router.refresh();
@@ -252,6 +257,7 @@ export function ProviderConversionRulePanel({
     key: string,
     action: ProviderRuleAction,
     values: Record<string, string>,
+    automationEventName: ConversionEventNameDto | null = null,
   ) {
     if (pending) return;
 
@@ -268,6 +274,7 @@ export function ProviderConversionRulePanel({
     if (result.ok) {
       if (result.oneTimeSecret) {
         setOneTimeSecret(result.oneTimeSecret);
+        setOneTimeSecretEventName(automationEventName);
         setCopied(false);
       }
       router.refresh();
@@ -420,37 +427,42 @@ export function ProviderConversionRulePanel({
       </header>
 
       {oneTimeSecret ? (
-        <div
-          className="provider-conversion-secret"
-          data-presentation-sensitive-action="true"
-        >
-          <div>
-            <span className="micro-label">URL exibida uma unica vez</span>
-            <strong>Webhook da automacao</strong>
-          </div>
-          <input
-            readOnly
-            value={oneTimeSecret.webhookUrl}
-            aria-label="URL privada da automacao"
-            data-presentation-sensitive-field="true"
-          />
-          <button className="button" type="button" onClick={copyWebhookUrl}>
-            {copied ? (
-              <Check size={15} aria-hidden="true" />
-            ) : (
-              <Copy size={15} aria-hidden="true" />
-            )}
-            {copied ? "Copiada" : "Copiar URL"}
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            title="Ocultar URL"
-            aria-label="Ocultar URL"
-            onClick={() => setOneTimeSecret(null)}
+        <div className="provider-conversion-secret-group">
+          <div
+            className="provider-conversion-secret"
+            data-presentation-sensitive-action="true"
           >
-            <X size={15} aria-hidden="true" />
-          </button>
+            <div>
+              <span className="micro-label">URL exibida uma unica vez</span>
+              <strong>Webhook da automacao</strong>
+            </div>
+            <input
+              readOnly
+              value={oneTimeSecret.webhookUrl}
+              aria-label="URL privada da automacao"
+              data-presentation-sensitive-field="true"
+            />
+            <button className="button" type="button" onClick={copyWebhookUrl}>
+              {copied ? (
+                <Check size={15} aria-hidden="true" />
+              ) : (
+                <Copy size={15} aria-hidden="true" />
+              )}
+              {copied ? "Copiada" : "Copiar URL"}
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title="Ocultar URL"
+              aria-label="Ocultar URL"
+              onClick={() => setOneTimeSecret(null)}
+            >
+              <X size={15} aria-hidden="true" />
+            </button>
+          </div>
+          {connectionProvider === "umbler" && oneTimeSecretEventName ? (
+            <UmblerAutomationPayloadPanel eventName={oneTimeSecretEventName} />
+          ) : null}
         </div>
       ) : null}
 
@@ -858,6 +870,8 @@ export function ProviderConversionRulePanel({
               rule.conversionRule.triggerType === "message_phrase";
             const uazapiAutomation =
               automation && connectionProvider === "uazapi";
+            const umblerAutomation =
+              automation && connectionProvider === "umbler";
             const active = rule.conversionRule.active;
             return (
               <article className="provider-conversion-rule" key={rule.id}>
@@ -989,6 +1003,7 @@ export function ProviderConversionRulePanel({
                               `rotate-${rule.id}`,
                               rotateEndpointAction,
                               { ruleId: rule.id },
+                              rule.conversionRule.eventName,
                             );
                           }
                         }}
@@ -1028,6 +1043,12 @@ export function ProviderConversionRulePanel({
                   updateAction={updateAction}
                   onResult={applyResult}
                 />
+
+                {umblerAutomation ? (
+                  <UmblerAutomationSetupDetails
+                    eventName={rule.conversionRule.eventName}
+                  />
+                ) : null}
 
                 {automation && !uazapiAutomation && canManage ? (
                   <AutomationCallbackAudit
@@ -1863,6 +1884,151 @@ function MessageRuleEditor({
           </button>
         ) : null}
       </form>
+    </details>
+  );
+}
+
+/**
+ * Espelha o contrato aceito pelo parser da automacao da Umbler
+ * (apps/api/src/inbound-webhooks/providers/umbler/umbler-automation-v1.parser.ts).
+ * Mude os dois lados juntos se o schema mudar: o operador copia este JSON
+ * literalmente para a automacao HTTP da Umbler.
+ */
+const UMBLER_AUTOMATION_V1_SCHEMA = "wpptrack.umbler.automation.v1";
+const UMBLER_AUTOMATION_V1_SOURCE = "umbler_tag_automation";
+
+export type UmblerAutomationKey = "lead_qualificado" | "compra_aprovada";
+
+/** O parser da automacao so reconhece estes dois eventos. */
+export function umblerAutomationKeyForEvent(
+  eventName: ConversionEventNameDto,
+): UmblerAutomationKey | null {
+  if (eventName === "QualifiedLead") return "lead_qualificado";
+  if (eventName === "Purchase") return "compra_aprovada";
+  return null;
+}
+
+/** Referencia mais proxima quando o evento da regra nao mapeia para um automation valido. */
+function umblerAutomationFallbackForEvent(
+  eventName: ConversionEventNameDto,
+): UmblerAutomationKey {
+  return conversionEventCarriesValue(eventName)
+    ? "compra_aprovada"
+    : "lead_qualificado";
+}
+
+export function buildUmblerAutomationPayloadExample(
+  automation: UmblerAutomationKey,
+): Record<string, unknown> {
+  return {
+    schema: UMBLER_AUTOMATION_V1_SCHEMA,
+    source: UMBLER_AUTOMATION_V1_SOURCE,
+    automation,
+    contact: { phone: "+55..." },
+    conversation: {
+      id: "CONVERSATION_ID",
+      created_at_utc: "YYYY-MM-DD HH:mm:ss",
+    },
+  };
+}
+
+/**
+ * Corpo JSON que a automacao HTTP da Umbler precisa enviar para o callback de
+ * tag/automacao. Aparece logo apos criar (ou rotacionar) a URL de uso unico e
+ * tambem no "Como configurar" de uma regra ja existente.
+ */
+export function UmblerAutomationPayloadPanel({
+  eventName,
+}: {
+  eventName: ConversionEventNameDto;
+}) {
+  const automation = umblerAutomationKeyForEvent(eventName);
+  const exampleAutomation =
+    automation ?? umblerAutomationFallbackForEvent(eventName);
+  const payloadJson = JSON.stringify(
+    buildUmblerAutomationPayloadExample(exampleAutomation),
+    null,
+    2,
+  );
+  const [copied, setCopied] = useState(false);
+
+  async function copyPayload() {
+    try {
+      await navigator.clipboard.writeText(payloadJson);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="provider-conversion-payload-helper">
+      <div>
+        <span className="micro-label">Corpo JSON da automacao</span>
+        <strong>Configuracao HTTP na Umbler</strong>
+      </div>
+      {automation ? null : (
+        <p className="action-note warn">
+          O callback da Umbler so reconhece os eventos Lead qualificado
+          (lead_qualificado) ou Compra aprovada (compra_aprovada). Troque o
+          evento desta regra para um dos dois, ou use &quot;{exampleAutomation}
+          &quot; como referencia mais proxima.
+        </p>
+      )}
+      <pre className="payload-block" data-presentation-sensitive-field="true">
+        {payloadJson}
+      </pre>
+      <button
+        className="button subtle"
+        type="button"
+        onClick={() => void copyPayload()}
+      >
+        {copied ? (
+          <Check size={14} aria-hidden="true" />
+        ) : (
+          <Copy size={14} aria-hidden="true" />
+        )}
+        {copied ? "Copiado" : "Copiar JSON"}
+      </button>
+      <ol className="provider-conversion-payload-steps">
+        <li>
+          Copie a URL da automacao e cole no campo de URL da acao HTTP na
+          Umbler.
+        </li>
+        <li>
+          Metodo POST; o token de acesso ja esta na URL, sem cabecalho extra.
+        </li>
+        <li>Cole o corpo JSON acima no campo de body da acao HTTP.</li>
+        <li>
+          Mapeie contact.phone, conversation.id e conversation.created_at_utc
+          para os campos reais do contato e da conversa na automacao da
+          Umbler.
+        </li>
+      </ol>
+    </div>
+  );
+}
+
+/** "Como configurar" para uma regra de automacao Umbler ja existente na lista. */
+function UmblerAutomationSetupDetails({
+  eventName,
+}: {
+  eventName: ConversionEventNameDto;
+}) {
+  return (
+    <details className="provider-conversion-rule-scope">
+      <summary>
+        <span>Como configurar na Umbler</span>
+        <strong>Corpo JSON da automacao</strong>
+      </summary>
+      <div className="provider-conversion-payload-helper-body">
+        <p className="action-note">
+          A URL secreta so aparece uma vez, na criacao da regra. Se perdeu,
+          gere uma nova URL acima e repita a configuracao na automacao da
+          Umbler.
+        </p>
+        <UmblerAutomationPayloadPanel eventName={eventName} />
+      </div>
     </details>
   );
 }
