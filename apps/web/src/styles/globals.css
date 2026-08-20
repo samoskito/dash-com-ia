@@ -8357,6 +8357,10 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   gap: 12px;
 }
 
+.provider-conversion-base-fields-2col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .provider-conversion-base-fields > label,
 .provider-catalog-meta > label,
 .provider-catalog-attributes > label,
@@ -8417,6 +8421,88 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   min-width: 15px;
   min-height: 15px;
   accent-color: var(--mint);
+}
+
+.provider-conversion-message-fields {
+  display: grid;
+  min-width: 0;
+  gap: 18px;
+}
+
+.provider-conversion-message-fields > label {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.provider-conversion-value-modes {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.provider-conversion-value-modes > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.provider-conversion-value-modes label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-3);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 750;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.provider-conversion-value-modes label:has(input:checked) {
+  border-color: var(--mint);
+  background: color-mix(in srgb, var(--mint) 10%, var(--surface-3));
+  color: var(--ink);
+}
+
+.provider-conversion-value-modes input {
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  min-height: 14px;
+  accent-color: var(--mint);
+}
+
+.provider-conversion-preview {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.provider-conversion-preview strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.provider-conversion-preview small {
+  color: var(--ink-soft);
+  line-height: 1.5;
 }
 
 .provider-catalog-builder,
@@ -9266,7 +9352,8 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   .provider-catalog-test-result-heading,
   .provider-catalog-test-trigger,
   .provider-catalog-test-item,
-  .provider-catalog-test-values {
+  .provider-catalog-test-values,
+  .provider-conversion-value-modes > div {
     grid-template-columns: minmax(0, 1fr);
   }
 
