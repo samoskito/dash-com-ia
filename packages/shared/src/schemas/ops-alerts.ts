@@ -23,6 +23,23 @@ export const workspaceOpsAlertSettingsInputSchema = z
     }
   });
 
+export const workspaceOpsAlertSettingsSchema = z.object({
+  id: z.string().nullable(),
+  workspaceId: z.string(),
+  enabled: z.boolean(),
+  alertPhoneE164: z.string().nullable(),
+  disconnectAlerts: z.boolean(),
+  webhookSilenceAlerts: z.boolean(),
+  silenceThresholdHours: z.number().int(),
+  debounceHours: z.number().int(),
+  createdAt: z.string().datetime().nullable(),
+  updatedAt: z.string().datetime().nullable(),
+});
+
 export type WorkspaceOpsAlertSettingsInput = z.infer<
   typeof workspaceOpsAlertSettingsInputSchema
+>;
+
+export type WorkspaceOpsAlertSettings = z.infer<
+  typeof workspaceOpsAlertSettingsSchema
 >;

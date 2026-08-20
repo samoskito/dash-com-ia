@@ -74,12 +74,17 @@ function mockSettingsFetch(options: {
   authStatus?: number;
   opsAlertSettings?: unknown;
   opsAlertSettingsStatus?: number;
+  opsAlertSettingsEmptyBody?: boolean;
 }) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
     const role = options.workspaceRole ?? "owner";
 
     if (url.endsWith("/ops-alerts/settings")) {
+      if (options.opsAlertSettingsEmptyBody) {
+        return new Response(null, { status: 200 });
+      }
+
       return new Response(
         JSON.stringify(options.opsAlertSettings ?? null),
         {
@@ -818,6 +823,24 @@ describe("settings route", () => {
     expect(html).toContain('name="debounceHours"');
     expect(html).toContain('value="6"');
     expect(html).toContain("Desativado");
+  });
+
+  it("renders the ops alert form when a legacy API returns an empty body", async () => {
+    mockSettingsFetch({
+      rulesBody: [],
+      opsAlertSettingsEmptyBody: true,
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain('name="workspaceId"');
+    expect(html).toContain('value="workspace_1"');
+    expect(html).toContain("Salvar alertas");
+    expect(html).toContain("Desativado");
+    expect(html).not.toContain(
+      "Nao foi possivel carregar as configuracoes de alerta.",
+    );
   });
 
   it("keeps ops alert settings read-only for workspace members without loading the endpoint", async () => {

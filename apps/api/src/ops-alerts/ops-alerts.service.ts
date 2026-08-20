@@ -1,5 +1,8 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type { WorkspaceOpsAlertSettingsInput } from "@wpptrack/shared";
+import {
+  workspaceOpsAlertSettingsSchema,
+  type WorkspaceOpsAlertSettingsInput,
+} from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { WhatsappConnectionsService } from "../integrations/whatsapp-connections.service";
 import { OpsAlertNotifier } from "./ops-alert.notifier";
@@ -17,11 +20,14 @@ export class OpsAlertService {
   ) {}
 
   async getSettings(workspaceId: string) {
-    return this.prisma.workspaceOpsAlertSettings.findUnique({ where: { workspaceId } });
+    const settings = await this.prisma.workspaceOpsAlertSettings.findUnique({
+      where: { workspaceId },
+    });
+    return this.toSettingsResponse(workspaceId, settings);
   }
 
   async upsertSettings(workspaceId: string, input: WorkspaceOpsAlertSettingsInput, _actorUserId: string) {
-    return this.prisma.workspaceOpsAlertSettings.upsert({
+    const settings = await this.prisma.workspaceOpsAlertSettings.upsert({
       where: { workspaceId },
       create: {
         workspaceId,
@@ -41,6 +47,44 @@ export class OpsAlertService {
         debounceHours: input.debounceHours,
       },
     });
+    return this.toSettingsResponse(workspaceId, settings);
+  }
+
+  private toSettingsResponse(
+    workspaceId: string,
+    settings: {
+      id: string;
+      workspaceId: string;
+      enabled: boolean;
+      alertPhoneE164: string | null;
+      disconnectAlerts: boolean;
+      webhookSilenceAlerts: boolean;
+      silenceThresholdHours: number;
+      debounceHours: number;
+      createdAt: Date;
+      updatedAt: Date;
+    } | null,
+  ) {
+    return workspaceOpsAlertSettingsSchema.parse(
+      settings
+        ? {
+            ...settings,
+            createdAt: settings.createdAt.toISOString(),
+            updatedAt: settings.updatedAt.toISOString(),
+          }
+        : {
+            id: null,
+            workspaceId,
+            enabled: false,
+            alertPhoneE164: null,
+            disconnectAlerts: true,
+            webhookSilenceAlerts: true,
+            silenceThresholdHours: 24,
+            debounceHours: 6,
+            createdAt: null,
+            updatedAt: null,
+          },
+    );
   }
 
   async runScan(now = new Date()): Promise<ScanResult> {
