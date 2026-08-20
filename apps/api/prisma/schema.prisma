@@ -462,9 +462,41 @@ model Workspace {
   purchaseValueAdjustments         PurchaseValueAdjustment[]
   xmaxAccounts                     XmaxAccount[]
   xmaxShadowEvents                 XmaxShadowEvent[]
+  opsAlertSettings                 WorkspaceOpsAlertSettings?
+  opsAlertDeliveries               WorkspaceOpsAlertDelivery[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
+}
+
+model WorkspaceOpsAlertSettings {
+  id                    String   @id @default(cuid())
+  workspaceId           String   @unique
+  enabled               Boolean  @default(false)
+  alertPhoneE164        String?
+  disconnectAlerts      Boolean  @default(true)
+  webhookSilenceAlerts  Boolean  @default(true)
+  silenceThresholdHours Int      @default(24)
+  debounceHours         Int      @default(6)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model WorkspaceOpsAlertDelivery {
+  id          String   @id @default(cuid())
+  workspaceId String
+  alertKey    String
+  channel     String
+  status      String
+  detail      String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, alertKey, createdAt])
+  @@index([workspaceId, createdAt])
 }
 
 model WorkspaceMember {

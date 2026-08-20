@@ -7,6 +7,7 @@ export const EXTERNAL_DATA_SYNC_QUEUE = "external-data-sync";
 export const INBOUND_WEBHOOK_QUEUE = "inbound-webhooks";
 export const INBOUND_WEBHOOK_REPLAY_QUEUE = "inbound-webhook-replay";
 export const INBOUND_WEBHOOK_PRODUCTION_QUEUE = "inbound-webhook-production";
+export const OPS_ALERTS_QUEUE = "ops-alerts";
 
 export interface InboundWebhookJobPayload {
   deliveryId: string;

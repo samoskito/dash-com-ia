@@ -22,6 +22,7 @@ import { ReportingModule } from "./reporting/reporting.module";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
 import { XmaxModule } from "./xmax/xmax.module";
+import { OpsAlertsModule } from "./ops-alerts/ops-alerts.module";
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { XmaxModule } from "./xmax/xmax.module";
     ReportingModule,
     WebhooksModule,
     XmaxModule,
+    OpsAlertsModule,
   ],
   controllers: [HealthController],
   providers: [
