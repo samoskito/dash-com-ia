@@ -9,6 +9,7 @@ import type {
 import {
   buildCreatePayload,
   ConversionRuleOriginEventSelector,
+  mergeTriggerPhrases,
   MessagePhraseFields,
   parseMoneyToCents,
   previewMessagePhrase,
@@ -298,6 +299,20 @@ describe("provider conversion rule panel", () => {
     expect(css).toContain(".provider-catalog-variant-commerce");
   });
 
+  it("styles the value mode toggle as a segmented pill control with spaced fields and preview", () => {
+    const css = readFileSync(
+      new URL("../src/styles/globals.css", import.meta.url),
+      "utf8",
+    );
+
+    expect(css).toContain(".provider-conversion-value-modes label {");
+    expect(css).toContain(
+      ".provider-conversion-value-modes label:has(input:checked) {",
+    );
+    expect(css).toContain(".provider-conversion-message-fields {");
+    expect(css).toContain(".provider-conversion-preview {");
+  });
+
   it("explains the simulated catalog decision with extracted items and values", () => {
     const html = renderToStaticMarkup(
       createElement(ProviderCatalogTestResult, {
@@ -569,6 +584,41 @@ describe("provider conversion rule panel", () => {
     expect(payload).not.toHaveProperty("exampleMessage");
   });
 
+  it("merges the primary phrase and variations into triggerPhrases, deduped and trimmed", () => {
+    expect(
+      mergeTriggerPhrases(
+        "  A sua consulta esta agendada  ",
+        "A sua consulta esta confirmada\nconsulta confirmada\n \nA sua consulta esta agendada",
+      ),
+    ).toBe(
+      "  A sua consulta esta agendada  \nA sua consulta esta confirmada\nconsulta confirmada\n \nA sua consulta esta agendada",
+    );
+  });
+
+  it("builds a message rule payload out of the merged primary phrase and variations", () => {
+    const payload = createPayload({
+      origin: "message",
+      eventName: "Purchase",
+      name: "Consulta confirmada",
+      averageValue: "",
+      valueMode: "message_extracted",
+      triggerPhrases: mergeTriggerPhrases(
+        "A sua consulta esta agendada",
+        "A sua consulta esta confirmada\nconsulta confirmada\n \nA sua consulta esta agendada",
+      ),
+      exampleMessage: "Estou confirmando: consulta confirmada para amanha.",
+    });
+
+    expect(payload).toMatchObject({
+      triggerType: "message_phrase",
+      triggerPhrases: [
+        "A sua consulta esta agendada",
+        "A sua consulta esta confirmada",
+        "consulta confirmada",
+      ],
+    });
+  });
+
   it("previews the extracted value of the example message", () => {
     expect(
       previewMessagePhrase({
@@ -623,13 +673,30 @@ describe("provider conversion rule panel", () => {
     });
   });
 
+  it("matches a variation phrase even when the example does not repeat the primary phrase", () => {
+    const triggerPhrases = mergeTriggerPhrases(
+      "A sua consulta esta agendada",
+      "consulta confirmada\nestou confirmando sua consulta",
+    );
+
+    expect(
+      previewMessagePhrase({
+        triggerPhrases,
+        exampleMessage: "Perfeito, estou confirmando sua consulta para as 14h.",
+        valueMode: "fixed",
+        averageValue: "",
+      }),
+    ).toMatchObject({ matchedPhrase: "estou confirmando sua consulta" });
+  });
+
   it("shows the message value fields with a live preview", () => {
     const html = renderToStaticMarkup(
       createElement(MessagePhraseFields, {
         eventName: "InitiateCheckout",
         averageValue: "",
         contentName: "",
-        triggerPhrases: "Segue o link do pagamento",
+        primaryPhrase: "Segue o link do pagamento",
+        variationPhrases: "",
         exampleMessage: "Segue o link do pagamento de R$ 250,00",
         valueMode: "message_extracted",
         messageAuthorScope: "team",
@@ -641,7 +708,11 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain("Modo de valor");
     expect(html).toContain("Valor fixo");
     expect(html).toContain("Extrair da mensagem");
-    expect(html).toContain("Frases gatilho");
+    expect(html).toContain("Frase principal");
+    expect(html).toContain("Variacoes (opcional)");
+    expect(html).toContain(
+      "Secretarias nem sempre usam a mesma frase. Cadastre variacoes",
+    );
     expect(html).toContain("Quem pode enviar");
     expect(html).toContain("Frase gatilho reconhecida");
     expect(html).toContain("Valor extraido do exemplo: R$\u00a0250,00");
@@ -654,7 +725,8 @@ describe("provider conversion rule panel", () => {
         eventName: "QualifiedLead",
         averageValue: "",
         contentName: "",
-        triggerPhrases: "vou te passar os valores",
+        primaryPhrase: "vou te passar os valores",
+        variationPhrases: "",
         exampleMessage: "Perfeito! Vou te passar os valores agora.",
         valueMode: "fixed",
         messageAuthorScope: "team",
@@ -675,7 +747,8 @@ describe("provider conversion rule panel", () => {
         eventName: "AddToCart",
         averageValue: "",
         contentName: "",
-        triggerPhrases: "vou querer esse",
+        primaryPhrase: "vou querer esse",
+        variationPhrases: "",
         exampleMessage: "",
         valueMode: "fixed",
         messageAuthorScope: "team",
@@ -685,6 +758,28 @@ describe("provider conversion rule panel", () => {
 
     expect(html).toContain("Modo de valor");
     expect(html).toContain("Valor medio (opcional)");
+  });
+
+  it("finds the matching phrase even when the example only contains a variation", () => {
+    const html = renderToStaticMarkup(
+      createElement(MessagePhraseFields, {
+        eventName: "Purchase",
+        averageValue: "",
+        contentName: "",
+        primaryPhrase: "A sua consulta esta agendada",
+        variationPhrases:
+          "consulta confirmada\nestou confirmando sua consulta",
+        exampleMessage:
+          "Perfeito, estou confirmando sua consulta para as 14h.",
+        valueMode: "fixed",
+        messageAuthorScope: "team",
+        onChange: () => undefined,
+      }),
+    );
+
+    expect(html).toContain(
+      "Frase gatilho reconhecida: estou confirmando sua consulta",
+    );
   });
 
   it("lists a checkout rule with its event, value mode and example", () => {

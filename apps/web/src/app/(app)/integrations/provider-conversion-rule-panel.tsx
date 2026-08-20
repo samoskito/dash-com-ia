@@ -89,7 +89,8 @@ type MessagePhraseValueMode = "fixed" | "message_extracted";
 type MessagePhraseValues = {
   averageValue: string;
   contentName: string;
-  triggerPhrases: string;
+  primaryPhrase: string;
+  variationPhrases: string;
   exampleMessage: string;
   valueMode: MessagePhraseValueMode;
   messageAuthorScope: MessageAuthorScope;
@@ -165,6 +166,8 @@ export function ProviderConversionRulePanel({
   const [averageValue, setAverageValue] = useState("");
   const [contentName, setContentName] = useState("");
   const [triggerPhrases, setTriggerPhrases] = useState("");
+  const [primaryPhrase, setPrimaryPhrase] = useState("");
+  const [variationPhrases, setVariationPhrases] = useState("");
   const [exampleMessage, setExampleMessage] = useState("");
   const [valueMode, setValueMode] = useState<MessagePhraseValueMode>("fixed");
   const [messageAuthorScope, setMessageAuthorScope] =
@@ -198,7 +201,10 @@ export function ProviderConversionRulePanel({
       selectedChannelIds,
       averageValue,
       contentName,
-      triggerPhrases,
+      triggerPhrases:
+        origin === "message"
+          ? mergeTriggerPhrases(primaryPhrase, variationPhrases)
+          : triggerPhrases,
       exampleMessage,
       valueMode,
       messageAuthorScope,
@@ -496,7 +502,8 @@ export function ProviderConversionRulePanel({
               eventName={eventName}
               averageValue={averageValue}
               contentName={contentName}
-              triggerPhrases={triggerPhrases}
+              primaryPhrase={primaryPhrase}
+              variationPhrases={variationPhrases}
               exampleMessage={exampleMessage}
               valueMode={valueMode}
               messageAuthorScope={messageAuthorScope}
@@ -507,8 +514,11 @@ export function ProviderConversionRulePanel({
                 if (patch.contentName !== undefined) {
                   setContentName(patch.contentName);
                 }
-                if (patch.triggerPhrases !== undefined) {
-                  setTriggerPhrases(patch.triggerPhrases);
+                if (patch.primaryPhrase !== undefined) {
+                  setPrimaryPhrase(patch.primaryPhrase);
+                }
+                if (patch.variationPhrases !== undefined) {
+                  setVariationPhrases(patch.variationPhrases);
                 }
                 if (patch.exampleMessage !== undefined) {
                   setExampleMessage(patch.exampleMessage);
@@ -1902,7 +1912,8 @@ export function MessagePhraseFields({
   eventName,
   averageValue,
   contentName,
-  triggerPhrases,
+  primaryPhrase,
+  variationPhrases,
   exampleMessage,
   valueMode,
   messageAuthorScope,
@@ -1914,7 +1925,7 @@ export function MessagePhraseFields({
   const carriesValue = conversionEventCarriesValue(eventName);
   const extracting = carriesValue && valueMode === "message_extracted";
   const preview = previewMessagePhrase({
-    triggerPhrases,
+    triggerPhrases: mergeTriggerPhrases(primaryPhrase, variationPhrases),
     exampleMessage,
     valueMode: extracting ? "message_extracted" : "fixed",
     averageValue,
@@ -1922,18 +1933,36 @@ export function MessagePhraseFields({
 
   return (
     <div className="provider-conversion-message-fields">
-      <div className="provider-conversion-base-fields">
-        <label>
-          <span className="field-label">Frases gatilho</span>
-          <textarea
-            value={triggerPhrases}
-            onChange={(event) => onChange({ triggerPhrases: event.target.value })}
-            rows={3}
-            maxLength={4_800}
-            placeholder="Uma por linha. Ex.: vou te passar os valores"
-            required
-          />
-        </label>
+      <label>
+        <span className="field-label">Frase principal</span>
+        <input
+          value={primaryPhrase}
+          onChange={(event) => onChange({ primaryPhrase: event.target.value })}
+          maxLength={2_400}
+          placeholder="Ex.: A sua consulta esta agendada"
+          required
+        />
+      </label>
+      <label>
+        <span className="field-label">Variacoes (opcional)</span>
+        <textarea
+          value={variationPhrases}
+          onChange={(event) =>
+            onChange({ variationPhrases: event.target.value })
+          }
+          rows={3}
+          maxLength={4_800}
+          placeholder={
+            "Uma por linha. Ex.: consulta confirmada\nestou confirmando sua consulta"
+          }
+        />
+        <small className="action-note">
+          Secretarias nem sempre usam a mesma frase. Cadastre variacoes
+          comuns.
+        </small>
+      </label>
+
+      <div className="provider-conversion-base-fields provider-conversion-base-fields-2col">
         <label>
           <span className="field-label">Exemplo da mensagem</span>
           <textarea
@@ -1993,7 +2022,7 @@ export function MessagePhraseFields({
             </div>
           </fieldset>
 
-          <div className="provider-conversion-base-fields">
+          <div className="provider-conversion-base-fields provider-conversion-base-fields-2col">
             <label>
               <span className="field-label">
                 {averageValueLabel(eventName, extracting)}
@@ -2702,6 +2731,19 @@ function parseTriggerPhrases(value: string): string[] {
         .filter(Boolean),
     ),
   ];
+}
+
+/**
+ * Combines the primary phrase and the "one per line" variations into the
+ * single newline-separated string the rest of the pipeline expects.
+ * Deduping, trimming and dropping empties happens downstream in
+ * parseTriggerPhrases, which every caller of this string already runs.
+ */
+export function mergeTriggerPhrases(
+  primaryPhrase: string,
+  variationPhrases: string,
+): string {
+  return [primaryPhrase, variationPhrases].filter((part) => part.trim()).join("\n");
 }
 
 function emptyVariant(id: number, attributeCount: number): CatalogVariantDraft {
