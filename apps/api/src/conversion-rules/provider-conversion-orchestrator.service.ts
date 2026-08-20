@@ -53,11 +53,36 @@ export class ProviderConversionOrchestrator {
   async orchestrate(input: {
     persistedDecision: PersistedProviderConversionDecision;
     disposition: ProviderConversionTechnicalDisposition;
+    /**
+     * A UAZAPI chat-label match in observation mode is useful evidence even
+     * without paid attribution. Keep that one fail-closed outcome visible to
+     * the operator, but never make it eligible for production processing.
+     */
+    recordIgnoredObservation?: boolean;
   }): Promise<ProviderConversionOrchestrationResult> {
     const { persistedDecision } = input;
     const outcome = providerConversionDecisionOutcome(
       persistedDecision.decision,
     );
+
+    if (
+      outcome === "ignored" &&
+      input.recordIgnoredObservation &&
+      persistedDecision.decision.decisionCode === "ignored_untracked_lead" &&
+      persistedDecision.decision.rule.mode === "observation" &&
+      input.disposition.state === "blocked"
+    ) {
+      const execution = await this.persistExecution({
+        persistedDecision,
+        disposition: input.disposition,
+      });
+      this.logResult(input, "execution_blocked", execution.id);
+      return {
+        executionId: execution.id,
+        eligibleExecutionId: null,
+        reviewId: null,
+      };
+    }
 
     if (outcome === "ignored" || outcome === "duplicate") {
       this.logResult(input, "audit_only");

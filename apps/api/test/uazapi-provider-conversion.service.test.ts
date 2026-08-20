@@ -409,6 +409,125 @@ describe("UazapiProviderConversionService", () => {
     });
   });
 
+  it("records a matched unpaid UAZAPI label as a blocked observation", async () => {
+    prisma.providerConversionRuleConfig.findMany.mockResolvedValue([
+      sampleRule({
+        mode: "observation",
+        messageTriggerPhrases: ["Venda fechada"],
+        conversionRule: {
+          ...sampleRule().conversionRule,
+          triggerType: "provider_automation",
+          eventName: "QualifiedLead",
+          defaultValueCents: null,
+          defaultCurrency: null,
+          defaultContentName: null,
+        },
+      }),
+    ]);
+    paidLeads.resolve.mockResolvedValue({
+      status: "not_found",
+      reasonCode: "paid_lead_not_found",
+      candidateLeadId: null,
+    });
+    decisionEngine.evaluate.mockReturnValue({
+      decisionCode: "ignored_untracked_lead",
+      reasonCode: "paid_lead_not_found",
+      rule: { mode: "observation", eventName: "QualifiedLead" },
+    });
+    prisma.inboundWebhookDelivery.findUnique.mockResolvedValue({
+      id: "delivery_label_observation",
+    });
+    decisions.recordInitial.mockResolvedValue({
+      decision: {
+        decisionCode: "ignored_untracked_lead",
+        reasonCode: "paid_lead_not_found",
+        rule: { mode: "observation", eventName: "QualifiedLead" },
+      },
+    });
+    orchestrator.orchestrate.mockResolvedValue({ eligibleExecutionId: null });
+
+    await service.evaluateLabels({
+      workspaceId: "workspace_1",
+      instance: {
+        id: "instance_1",
+        workspaceId: "workspace_1",
+        name: "NOD",
+        providerInstanceId: "p1",
+      },
+      phone: "+5541999999999",
+      labelIds: ["554237420132:10"],
+      waChatId: "5541999999999@s.whatsapp.net",
+      externalEventId: "event_label_observation",
+    });
+
+    expect(orchestrator.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordIgnoredObservation: true,
+        disposition: {
+          state: "blocked",
+          reasonCode: "paid_lead_not_found",
+        },
+      }),
+    );
+    expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
+  });
+
+  it("does not materialize an unpaid UAZAPI label in production", async () => {
+    prisma.providerConversionRuleConfig.findMany.mockResolvedValue([
+      sampleRule({
+        messageTriggerPhrases: ["Venda fechada"],
+        conversionRule: {
+          ...sampleRule().conversionRule,
+          triggerType: "provider_automation",
+          eventName: "QualifiedLead",
+          defaultValueCents: null,
+          defaultCurrency: null,
+          defaultContentName: null,
+        },
+      }),
+    ]);
+    paidLeads.resolve.mockResolvedValue({
+      status: "not_found",
+      reasonCode: "paid_lead_not_found",
+      candidateLeadId: null,
+    });
+    decisionEngine.evaluate.mockReturnValue({
+      decisionCode: "ignored_untracked_lead",
+      reasonCode: "paid_lead_not_found",
+      rule: { mode: "production", eventName: "QualifiedLead" },
+    });
+    prisma.inboundWebhookDelivery.findUnique.mockResolvedValue({
+      id: "delivery_label_production",
+    });
+    decisions.recordInitial.mockResolvedValue({
+      decision: {
+        decisionCode: "ignored_untracked_lead",
+        reasonCode: "paid_lead_not_found",
+        rule: { mode: "production", eventName: "QualifiedLead" },
+      },
+    });
+    orchestrator.orchestrate.mockResolvedValue({ eligibleExecutionId: null });
+
+    await service.evaluateLabels({
+      workspaceId: "workspace_1",
+      instance: {
+        id: "instance_1",
+        workspaceId: "workspace_1",
+        name: "NOD",
+        providerInstanceId: "p1",
+      },
+      phone: "+5541999999999",
+      labelIds: ["554237420132:10"],
+      waChatId: "5541999999999@s.whatsapp.net",
+      externalEventId: "event_label_production",
+    });
+
+    expect(orchestrator.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({ recordIgnoredObservation: false }),
+    );
+    expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
+  });
+
   it("records snapshots but does not evaluate re-delivery or label removal", async () => {
     prisma.uazapiChatLabelState.findUnique.mockResolvedValue({
       labelIds: ["554237420132:10"],

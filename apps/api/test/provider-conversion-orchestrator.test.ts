@@ -8,6 +8,7 @@ function decision(
     | "eligible"
     | "review_required"
     | "ignored_empty_template"
+    | "ignored_untracked_lead"
     | "duplicate",
 ): ProviderConversionDecisionDto {
   const resolvedLead = {
@@ -30,6 +31,8 @@ function decision(
         ? "unknown_combination"
         : decisionCode === "ignored_empty_template"
           ? "empty_template"
+          : decisionCode === "ignored_untracked_lead"
+            ? "paid_lead_not_found"
           : decisionCode === "duplicate"
             ? "business_duplicate"
             : "catalog_matched",
@@ -146,6 +149,21 @@ function decision(
         items: [],
       },
       leadResolution: resolvedLead,
+    };
+  }
+  if (decisionCode === "ignored_untracked_lead") {
+    return {
+      ...base,
+      decisionCode,
+      occurrence: {
+        ...base.occurrence,
+        businessDedupePolicy: null,
+      },
+      leadResolution: {
+        status: "not_found",
+        reasonCode: "paid_lead_not_found",
+        candidateLeadId: null,
+      },
     };
   }
   if (decisionCode === "duplicate") {
@@ -309,6 +327,33 @@ describe("provider conversion orchestrator", () => {
       harness.providerConversionRuleExecution.upsert,
     ).not.toHaveBeenCalled();
     expect(harness.purchaseReview.upsert).not.toHaveBeenCalled();
+  });
+
+  it("records an unpaid observation match as a blocked execution", async () => {
+    const harness = createHarness();
+    const unpaidObservation = decision("ignored_untracked_lead");
+    unpaidObservation.rule.mode = "observation";
+
+    const result = await harness.orchestrator.orchestrate({
+      persistedDecision: persisted(unpaidObservation),
+      disposition: { state: "blocked", reasonCode: "paid_lead_not_found" },
+      recordIgnoredObservation: true,
+    });
+
+    expect(result).toEqual({
+      executionId: "execution_1",
+      eligibleExecutionId: null,
+      reviewId: null,
+    });
+    expect(harness.providerConversionRuleExecution.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          status: "blocked",
+          reasonCode: "paid_lead_not_found",
+          leadId: null,
+        }),
+      }),
+    );
   });
 
   it("creates one linked technical execution for eligible production", async () => {
