@@ -7,6 +7,7 @@ export * from "./schemas/reporting";
 export * from "./schemas/integrations";
 export * from "./schemas/auth";
 export * from "./schemas/conversion-events";
+export * from "./schemas/conversion-event-catalog";
 export * from "./schemas/diagnostics";
 export * from "./schemas/billing";
 export * from "./schemas/conversion-rules";
