@@ -18,9 +18,11 @@ export async function saveOpsAlertSettingsAction(
 ): Promise<BackofficeActionState> {
   const workspaceId = String(formData.get("workspaceId") ?? "").trim();
   const enabled = formData.get("enabled") === "on";
-  const alertPhone = String(formData.get("alertPhone") ?? "").replace(
-    /\D/g,
-    "",
+  const alertPhones = dedupePhones(
+    formData
+      .getAll("alertPhones")
+      .map((value) => String(value).replace(/\D/g, ""))
+      .filter((value) => value.length > 0),
   );
   const disconnectAlerts = formData.get("disconnectAlerts") === "on";
   const webhookSilenceAlerts = formData.get("webhookSilenceAlerts") === "on";
@@ -32,13 +34,17 @@ export async function saveOpsAlertSettingsAction(
     return actionState("error", "Workspace nao identificado.");
   }
 
-  if (enabled && !alertPhone) {
-    return actionState("error", "Informe o telefone para ativar os alertas.");
+  if (enabled && alertPhones.length === 0) {
+    return actionState(
+      "error",
+      "Informe ao menos um telefone para ativar os alertas.",
+    );
   }
 
   const payload: WorkspaceOpsAlertSettingsInput = {
     enabled,
-    alertPhone,
+    alertPhones,
+    alertPhone: alertPhones[0] ?? "",
     disconnectAlerts,
     webhookSilenceAlerts,
     silenceThresholdHours,
@@ -59,6 +65,10 @@ export async function saveOpsAlertSettingsAction(
   } catch (error) {
     return actionState("error", opsAlertSettingsErrorMessage(error));
   }
+}
+
+function dedupePhones(phones: string[]): string[] {
+  return Array.from(new Set(phones));
 }
 
 function opsAlertSettingsErrorMessage(error: unknown): string {

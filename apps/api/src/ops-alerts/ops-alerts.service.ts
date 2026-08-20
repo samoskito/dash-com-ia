@@ -27,12 +27,15 @@ export class OpsAlertService {
   }
 
   async upsertSettings(workspaceId: string, input: WorkspaceOpsAlertSettingsInput, _actorUserId: string) {
+    const alertPhonesE164 = [...new Set(input.alertPhones.map((phone) => phone.replace(/\D/g, "")).filter(Boolean))].slice(0, 10);
+    const alertPhoneE164 = alertPhonesE164[0] ?? null;
     const settings = await this.prisma.workspaceOpsAlertSettings.upsert({
       where: { workspaceId },
       create: {
         workspaceId,
         enabled: input.enabled,
-        alertPhoneE164: input.alertPhone || null,
+        alertPhonesE164,
+        alertPhoneE164,
         disconnectAlerts: input.disconnectAlerts,
         webhookSilenceAlerts: input.webhookSilenceAlerts,
         silenceThresholdHours: input.silenceThresholdHours,
@@ -40,7 +43,8 @@ export class OpsAlertService {
       },
       update: {
         enabled: input.enabled,
-        alertPhoneE164: input.alertPhone || null,
+        alertPhonesE164,
+        alertPhoneE164,
         disconnectAlerts: input.disconnectAlerts,
         webhookSilenceAlerts: input.webhookSilenceAlerts,
         silenceThresholdHours: input.silenceThresholdHours,
@@ -56,6 +60,7 @@ export class OpsAlertService {
       id: string;
       workspaceId: string;
       enabled: boolean;
+      alertPhonesE164: string[];
       alertPhoneE164: string | null;
       disconnectAlerts: boolean;
       webhookSilenceAlerts: boolean;
@@ -69,6 +74,7 @@ export class OpsAlertService {
       settings
         ? {
             ...settings,
+            alertPhoneE164: settings.alertPhonesE164[0] ?? null,
             createdAt: settings.createdAt.toISOString(),
             updatedAt: settings.updatedAt.toISOString(),
           }
@@ -76,6 +82,7 @@ export class OpsAlertService {
             id: null,
             workspaceId,
             enabled: false,
+            alertPhonesE164: [],
             alertPhoneE164: null,
             disconnectAlerts: true,
             webhookSilenceAlerts: true,
@@ -90,12 +97,12 @@ export class OpsAlertService {
   async runScan(now = new Date()): Promise<ScanResult> {
     const result: ScanResult = { checked: 0, notified: 0, skipped: 0 };
     const settings = await this.prisma.workspaceOpsAlertSettings.findMany({
-      where: { enabled: true, alertPhoneE164: { not: null } },
+      where: { enabled: true, alertPhonesE164: { isEmpty: false } },
       include: { workspace: { select: { name: true } }, },
     });
 
     for (const setting of settings) {
-      if (!setting.alertPhoneE164) continue;
+      if (setting.alertPhonesE164.length === 0) continue;
       const instances = await this.prisma.whatsappInstance.findMany({
         where: { workspaceId: setting.workspaceId, status: "active", provider: "uazapi", providerTokenEncrypted: { not: null } },
         select: { id: true, name: true },
@@ -141,7 +148,7 @@ export class OpsAlertService {
     return result;
   }
 
-  private async notify(setting: { workspaceId: string; alertPhoneE164: string | null; debounceHours: number }, alertKey: string, message: string, result: ScanResult, now: Date) {
+  private async notify(setting: { workspaceId: string; alertPhonesE164: string[]; debounceHours: number }, alertKey: string, message: string, result: ScanResult, now: Date) {
     const after = new Date(now.getTime() - setting.debounceHours * 3_600_000);
     const recent = await this.prisma.workspaceOpsAlertDelivery.findFirst({
       where: { workspaceId: setting.workspaceId, alertKey, status: "sent", createdAt: { gte: after } },
@@ -152,9 +159,24 @@ export class OpsAlertService {
       await this.record(setting.workspaceId, alertKey, "skipped", "debounced");
       return;
     }
-    const sent = await this.notifier.sendText(setting.alertPhoneE164 ?? "", message);
-    await this.record(setting.workspaceId, alertKey, sent ? "sent" : "failed", sent ? null : "notify_failed");
-    if (sent) result.notified += 1;
+    const outcomes = await Promise.all(
+      setting.alertPhonesE164.map(async (phone) => {
+        try {
+          return await this.notifier.sendText(phone, message);
+        } catch {
+          return false;
+        }
+      }),
+    );
+    const sent = outcomes.filter(Boolean).length;
+    const failed = outcomes.length - sent;
+    await this.record(
+      setting.workspaceId,
+      alertKey,
+      sent > 0 ? "sent" : "failed",
+      `sent=${sent} failed=${failed}`,
+    );
+    if (sent > 0) result.notified += 1;
     else result.skipped += 1;
   }
 

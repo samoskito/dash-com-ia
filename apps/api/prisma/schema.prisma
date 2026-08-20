@@ -473,6 +473,7 @@ model WorkspaceOpsAlertSettings {
   id                    String   @id @default(cuid())
   workspaceId           String   @unique
   enabled               Boolean  @default(false)
+  alertPhonesE164       String[] @default([])
   alertPhoneE164        String?
   disconnectAlerts      Boolean  @default(true)
   webhookSilenceAlerts  Boolean  @default(true)

@@ -85,13 +85,10 @@ function mockSettingsFetch(options: {
         return new Response(null, { status: 200 });
       }
 
-      return new Response(
-        JSON.stringify(options.opsAlertSettings ?? null),
-        {
-          status: options.opsAlertSettingsStatus ?? 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      );
+      return new Response(JSON.stringify(options.opsAlertSettings ?? null), {
+        status: options.opsAlertSettingsStatus ?? 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     if (url.endsWith("/integrations/inbound-webhooks")) {
@@ -768,6 +765,7 @@ describe("settings route", () => {
         id: "ops_alert_1",
         workspaceId: "workspace_1",
         enabled: true,
+        alertPhonesE164: ["5511999999999", "5511888888888"],
         alertPhoneE164: "5511999999999",
         disconnectAlerts: true,
         webhookSilenceAlerts: false,
@@ -786,8 +784,11 @@ describe("settings route", () => {
     expect(html).toContain('name="workspaceId"');
     expect(html).toContain('value="workspace_1"');
     expect(html).toContain('value="5511999999999"');
-    expect(html).toContain('name="alertPhone"');
-    expect(html).toMatch(/name="enabled"[^>]*checked|checked[^>]*name="enabled"/);
+    expect(html).toContain('value="5511888888888"');
+    expect(html).toContain('name="alertPhones"');
+    expect(html).toMatch(
+      /name="enabled"[^>]*checked|checked[^>]*name="enabled"/,
+    );
     expect(html).toMatch(
       /name="disconnectAlerts"[^>]*checked|checked[^>]*name="disconnectAlerts"/,
     );
@@ -823,6 +824,8 @@ describe("settings route", () => {
     expect(html).toContain('name="debounceHours"');
     expect(html).toContain('value="6"');
     expect(html).toContain("Desativado");
+    expect(html).toContain("Nenhum telefone cadastrado");
+    expect(html).not.toContain('name="alertPhones"');
   });
 
   it("renders the ops alert form when a legacy API returns an empty body", async () => {
@@ -853,7 +856,7 @@ describe("settings route", () => {
       "Sem permissao para gerenciar alertas operacionais.",
     );
     expect(html).not.toContain("Salvar alertas");
-    expect(html).not.toContain('name="alertPhone"');
+    expect(html).not.toContain('name="alertPhones"');
     expect(globalThis.fetch).not.toHaveBeenCalledWith(
       expect.stringContaining("/ops-alerts/settings"),
       expect.anything(),

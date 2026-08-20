@@ -38,6 +38,7 @@ import { ClientSwapPanel } from "../../../components/client-swap-panel";
 import { ConversionRuleBuilder } from "../../../components/conversion-rule-builder";
 import { CopyLinkButton } from "../../../components/copy-link-button";
 import { LinkResultActionForm } from "../../../components/link-result-action-form";
+import { OpsAlertPhonesEditor } from "../../../components/ops-alert-phones-editor";
 import { PendingSubmitButton } from "../../../components/pending-submit-button";
 import { PresentationMask } from "../../../components/presentation-mask";
 import { TeamActionButton } from "../../../components/team-action-button";
@@ -88,6 +89,7 @@ type OpsAlertSettingsResult = {
 const opsAlertSettingsDefaults: Pick<
   WorkspaceOpsAlertSettingsDto,
   | "enabled"
+  | "alertPhonesE164"
   | "alertPhoneE164"
   | "disconnectAlerts"
   | "webhookSilenceAlerts"
@@ -95,6 +97,7 @@ const opsAlertSettingsDefaults: Pick<
   | "debounceHours"
 > = {
   enabled: false,
+  alertPhonesE164: [],
   alertPhoneE164: null,
   disconnectAlerts: true,
   webhookSilenceAlerts: true,
@@ -2157,46 +2160,48 @@ export default async function SettingsPage() {
                   value={opsAlertSettings.workspaceId}
                 />
                 <label className="ops-alert-toggle">
+                  <span className="ops-alert-toggle-copy">
+                    <span className="field-label">Ativar alertas</span>
+                    <small>Envia aviso no telefone cadastrado abaixo.</small>
+                  </span>
                   <input
                     defaultChecked={opsAlertFormValues.enabled}
                     name="enabled"
                     type="checkbox"
                   />
-                  <span>Ativar alertas</span>
                 </label>
-                <label className="ops-alert-phone-field">
-                  <span>Telefone</span>
-                  <input
-                    data-presentation-sensitive-field="true"
-                    defaultValue={opsAlertFormValues.alertPhoneE164 ?? ""}
-                    inputMode="numeric"
-                    name="alertPhone"
-                    placeholder="5511999999999"
-                  />
-                </label>
-                <div className="ops-alert-checks">
-                  <label>
-                    <input
-                      defaultChecked={opsAlertFormValues.disconnectAlerts}
-                      name="disconnectAlerts"
-                      type="checkbox"
-                    />
-                    <span>Desconexao da instancia WhatsApp</span>
-                  </label>
-                  <label>
-                    <input
-                      defaultChecked={opsAlertFormValues.webhookSilenceAlerts}
-                      name="webhookSilenceAlerts"
-                      type="checkbox"
-                    />
-                    <span>Silencio de webhook</span>
-                  </label>
+                <OpsAlertPhonesEditor
+                  initialPhones={opsAlertFormValues.alertPhonesE164}
+                  name="alertPhones"
+                />
+                <div className="ops-alert-checks-group">
+                  <span className="field-label">O que monitorar</span>
+                  <div className="ops-alert-checks">
+                    <label>
+                      <input
+                        defaultChecked={opsAlertFormValues.disconnectAlerts}
+                        name="disconnectAlerts"
+                        type="checkbox"
+                      />
+                      <span>Desconexao da instancia WhatsApp</span>
+                    </label>
+                    <label>
+                      <input
+                        defaultChecked={
+                          opsAlertFormValues.webhookSilenceAlerts
+                        }
+                        name="webhookSilenceAlerts"
+                        type="checkbox"
+                      />
+                      <span>Silencio de webhook</span>
+                    </label>
+                  </div>
                 </div>
                 <details className="ops-alert-advanced">
                   <summary>Configuracoes avancadas</summary>
                   <div className="ops-alert-advanced-fields">
                     <label>
-                      <span>Horas de silencio</span>
+                      <span className="field-label">Horas de silencio</span>
                       <input
                         defaultValue={opsAlertFormValues.silenceThresholdHours}
                         min={1}
@@ -2205,7 +2210,7 @@ export default async function SettingsPage() {
                       />
                     </label>
                     <label>
-                      <span>Horas de debounce</span>
+                      <span className="field-label">Horas de debounce</span>
                       <input
                         defaultValue={opsAlertFormValues.debounceHours}
                         min={1}
