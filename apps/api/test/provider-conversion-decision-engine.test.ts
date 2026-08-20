@@ -1,4 +1,5 @@
 import type {
+  ConversionEventNameDto,
   ProviderConversionCatalogDto,
   ProviderConversionDecisionRuleSnapshotDto,
   ProviderConversionPaidLeadResolutionDto,
@@ -147,7 +148,7 @@ function messageInput(input: {
 }
 
 function automationInput(input: {
-  eventName: "QualifiedLead" | "Purchase";
+  eventName: ConversionEventNameDto;
   valueCents?: number | null;
   leadResolution?: ProviderConversionPaidLeadResolutionDto;
 }): ProviderConversionDecisionInput {
@@ -156,8 +157,7 @@ function automationInput(input: {
     eventName: input.eventName,
     triggerPhrases: [],
     defaultValueCents: input.valueCents ?? null,
-    defaultCurrency:
-      input.eventName === "Purchase" && input.valueCents ? "BRL" : null,
+    defaultCurrency: input.valueCents ? "BRL" : null,
     defaultContentName: input.eventName === "Purchase" ? "Pedido medio" : null,
   });
 
@@ -639,6 +639,142 @@ describe("provider conversion decision engine", () => {
     );
 
     expect(decision).toBeNull();
+  });
+
+  it("recognizes a qualified-lead message rule without asking for a value", () => {
+    const decision = engine.evaluate(
+      messageInput({
+        messageText: "Perfeito! Vou te passar os valores do procedimento",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "QualifiedLead",
+          triggerPhrases: ["vou te passar os valores"],
+          defaultValueCents: null,
+          defaultCurrency: null,
+          defaultContentName: null,
+        }),
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decisionCode: "eligible",
+      reasonCode: "average_value_message_matched",
+      occurrence: { eventName: "QualifiedLead" },
+      conversion: {
+        matchedTriggerPhrase: "vou te passar os valores",
+        valueCents: null,
+        currency: null,
+        contentName: null,
+      },
+    });
+    expect(decision?.occurrence.businessDedupePolicy).toEqual({
+      mode: "lifetime",
+      scopeKey: "QualifiedLead:workspace_1:lead_1",
+    });
+  });
+
+  it("recognizes an AddToCart message rule with a fixed value", () => {
+    const decision = engine.evaluate(
+      messageInput({
+        messageText: "Vou separar o produto pra voce",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "AddToCart",
+          triggerPhrases: ["vou separar o produto"],
+          defaultValueCents: 12_900,
+          defaultCurrency: "BRL",
+          defaultContentName: "Kit basico",
+        }),
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decisionCode: "eligible",
+      reasonCode: "average_value_message_matched",
+      occurrence: { eventName: "AddToCart" },
+      conversion: {
+        valueCents: 12_900,
+        currency: "BRL",
+        contentName: "Kit basico",
+      },
+    });
+    expect(decision?.occurrence.businessDedupePolicy).toMatchObject({
+      mode: "rolling_window",
+      windowSeconds: 24 * 60 * 60,
+    });
+  });
+
+  it("recognizes an AddToCart message rule without a value instead of asking for review", () => {
+    const decision = engine.evaluate(
+      messageInput({
+        messageText: "Vou separar o produto pra voce",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "AddToCart",
+          triggerPhrases: ["vou separar o produto"],
+          defaultValueCents: null,
+          defaultCurrency: null,
+          defaultContentName: null,
+        }),
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decisionCode: "eligible",
+      reasonCode: "average_value_message_matched",
+      conversion: { valueCents: null, currency: null },
+    });
+  });
+
+  it("still asks for review when a purchase message has no value", () => {
+    const decision = engine.evaluate(
+      messageInput({
+        messageText: "AVISO DE COMPRA",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "Purchase",
+          triggerPhrases: ["aviso de compra"],
+          defaultValueCents: null,
+          defaultCurrency: null,
+        }),
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decisionCode: "review_required",
+      reasonCode: "average_value_missing",
+    });
+  });
+
+  it("recognizes a ViewContent automation without a value", () => {
+    const decision = engine.evaluate(
+      automationInput({ eventName: "ViewContent" }),
+    );
+
+    expect(decision).toMatchObject({
+      decisionCode: "eligible",
+      reasonCode: "automation_matched",
+      conversion: { valueCents: null, currency: null },
+    });
+    expect(decision?.occurrence.businessDedupePolicy).toMatchObject({
+      mode: "rolling_window",
+      windowSeconds: 24 * 60 * 60,
+    });
+  });
+
+  it("keeps the lifetime dedupe for lead-submitted automations", () => {
+    const decision = engine.evaluate(
+      automationInput({ eventName: "LeadSubmitted" }),
+    );
+
+    expect(decision?.occurrence.businessDedupePolicy).toEqual({
+      mode: "lifetime",
+      scopeKey: "LeadSubmitted:workspace_1:lead_1",
+    });
   });
 
   it("keeps technical delivery states outside the business decision union", () => {

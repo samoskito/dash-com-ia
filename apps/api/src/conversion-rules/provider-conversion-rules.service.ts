@@ -9,6 +9,8 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
+  conversionEventCarriesValue,
+  conversionEventNameSchema,
   messagePhraseConfigKind,
   readMessagePhraseConfig,
 } from "@wpptrack/shared";
@@ -140,20 +142,20 @@ export class ProviderConversionRulesService {
       let defaultItems: Prisma.InputJsonValue | typeof Prisma.DbNull =
         Prisma.DbNull;
 
+      // Eventos sem valor chegam do schema sem nenhum campo monetario, entao
+      // ler os tres campos direto e o suficiente para nao gravar valor
+      // fantasma em QualifiedLead, OrderShipped e afins.
       if (input.triggerType === "message_phrase") {
         defaultValueCents = input.defaultValueCents ?? null;
-        defaultCurrency = input.defaultCurrency;
+        defaultCurrency = input.defaultCurrency ?? null;
         defaultContentName = input.defaultContentName ?? null;
         defaultItems = this.messagePhraseConfig({
           valueMode: input.valueMode,
           exampleMessage: input.exampleMessage ?? null,
         });
-      } else if (
-        input.triggerType === "provider_automation" &&
-        input.eventName === "Purchase"
-      ) {
-        defaultValueCents = input.defaultValueCents;
-        defaultCurrency = input.defaultCurrency;
+      } else if (input.triggerType === "provider_automation") {
+        defaultValueCents = input.defaultValueCents ?? null;
+        defaultCurrency = input.defaultCurrency ?? null;
         defaultContentName = input.defaultContentName ?? null;
       } else if (input.triggerType === "structured_catalog") {
         defaultCurrency = input.catalog.currency;
@@ -739,15 +741,22 @@ export class ProviderConversionRulesService {
     current: PersistedProviderRule,
     input: ProviderConversionRuleUpdateInputDto,
   ): void {
+    // The event catalog decides whether this rule may carry a value at all:
+    // QualifiedLead, OrderShipped and friends never do.
+    const eventName = conversionEventNameSchema.safeParse(
+      current.conversionRule.eventName,
+    );
     const isValuedRule =
       ["provider_automation", "message_phrase"].includes(
         current.conversionRule.triggerType,
       ) &&
-      ["Purchase", "InitiateCheckout"].includes(
-        current.conversionRule.eventName,
-      );
+      eventName.success &&
+      conversionEventCarriesValue(eventName.data);
     const isMessagePhraseRule =
       current.conversionRule.triggerType === "message_phrase";
+    // The message template is meaningful for every message rule, but the value
+    // mode only exists where the event can carry a value.
+    const isValuedMessageRule = isMessagePhraseRule && isValuedRule;
     const hasValueUpdate =
       input.defaultValueCents !== undefined ||
       input.defaultCurrency !== undefined ||
@@ -758,17 +767,19 @@ export class ProviderConversionRulesService {
         "Valores padrao pertencem apenas a regras de compra/checkout com valor",
       );
     }
-    if (
-      (input.valueMode !== undefined || input.exampleMessage !== undefined) &&
-      !isMessagePhraseRule
-    ) {
+    if (input.exampleMessage !== undefined && !isMessagePhraseRule) {
       throw new BadRequestException(
-        "O modo de valor pertence apenas a regras de compra/checkout por mensagem",
+        "O exemplo de mensagem pertence apenas a regras por mensagem",
+      );
+    }
+    if (input.valueMode !== undefined && !isValuedMessageRule) {
+      throw new BadRequestException(
+        "O modo de valor pertence apenas a regras por mensagem com valor",
       );
     }
     // Only extracted-value message rules may drop the average value: the value
     // then comes from the message itself.
-    const nextValueMode = isMessagePhraseRule
+    const nextValueMode = isValuedMessageRule
       ? (input.valueMode ??
         readMessagePhraseConfig(current.conversionRule.defaultItems).valueMode)
       : "fixed";
@@ -782,7 +793,7 @@ export class ProviderConversionRulesService {
       );
     }
     if (
-      isMessagePhraseRule &&
+      isValuedMessageRule &&
       input.valueMode === "fixed" &&
       !(input.defaultValueCents ?? current.conversionRule.defaultValueCents)
     ) {

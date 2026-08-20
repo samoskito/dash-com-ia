@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { ProviderConversionDecisionRuleSnapshotDto } from "@wpptrack/shared";
-import { readMessagePhraseConfig } from "@wpptrack/shared";
+import {
+  conversionEventNameSchema,
+  readMessagePhraseConfig,
+  type ConversionEventNameDto,
+} from "@wpptrack/shared";
 import { hashPhoneIdentity } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
@@ -204,7 +208,6 @@ export class UazapiProviderConversionService {
         conversionRule: {
           active: true,
           triggerType: "message_phrase",
-          eventName: { in: ["Purchase", "InitiateCheckout"] },
         },
         channels: {
           some: { channelId },
@@ -339,12 +342,17 @@ export class UazapiProviderConversionService {
     };
   }
 
-  private eventName(rule: Rule): "Purchase" | "InitiateCheckout" {
-    const eventName = rule.conversionRule.eventName;
-    if (eventName !== "Purchase" && eventName !== "InitiateCheckout") {
-      throw new Error(`Unsupported uazapi conversion event: ${eventName}`);
+  private eventName(rule: Rule): ConversionEventNameDto {
+    const eventName = conversionEventNameSchema.safeParse(
+      rule.conversionRule.eventName,
+    );
+    // Fail closed on junk in the database, but accept every catalog event.
+    if (!eventName.success) {
+      throw new Error(
+        `Unsupported uazapi conversion event: ${rule.conversionRule.eventName}`,
+      );
     }
-    return eventName;
+    return eventName.data;
   }
 
   private externalEventId(

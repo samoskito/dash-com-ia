@@ -92,7 +92,9 @@ export type RecordExternalConversionInput = {
   externalConnectorId?: string | null;
   sourceEventId: string;
   sourceTrigger: string;
-  eventName: "LeadSubmitted" | "QualifiedLead" | "InitiateCheckout" | "Purchase";
+  // Any catalog event: provider rules can now be built for all of them, and
+  // resolveInitialStatus already gates delivery per event.
+  eventName: ConversionEventNameDto;
   eventId: string;
   dedupeKey: string;
   leadId?: string | null;

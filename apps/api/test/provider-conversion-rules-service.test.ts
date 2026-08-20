@@ -660,8 +660,91 @@ describe("provider conversion rules service", () => {
       ),
     ).rejects.toMatchObject({
       status: 400,
-      message:
-        "O modo de valor pertence apenas a regras de compra/checkout por mensagem",
+      message: "O modo de valor pertence apenas a regras por mensagem com valor",
+    });
+  });
+
+  it("creates a qualified-lead rule by message without any value field", async () => {
+    const harness = createHarness();
+
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Lead qualificado por mensagem",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+        triggerPhrases: ["vou te passar os valores"],
+        messageAuthorScope: "team",
+        // the create schema defaults valueMode to "fixed" even for events
+        // that never carry a value
+        valueMode: "fixed",
+        exampleMessage: "Vou te passar os valores do procedimento",
+      },
+      "user_1",
+    );
+
+    expect(created.rule).toMatchObject({
+      exampleMessage: "Vou te passar os valores do procedimento",
+      conversionRule: {
+        eventName: "QualifiedLead",
+        triggerType: "message_phrase",
+        defaultValueCents: null,
+        defaultCurrency: null,
+        defaultContentName: null,
+      },
+    });
+
+    // A valueless event has no value pipeline to switch.
+    await expect(
+      harness.service.updateRule(
+        "workspace_1",
+        created.rule.id,
+        { valueMode: "message_extracted" },
+        "user_1",
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("persists an AddToCart rule by tag with its average value", async () => {
+    const harness = createHarness();
+
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Carrinho por tag",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "provider_automation",
+        eventName: "AddToCart",
+        defaultValueCents: 12_900,
+        defaultCurrency: "BRL",
+        defaultContentName: "Kit basico",
+      },
+      "user_1",
+    );
+
+    expect(created.rule).toMatchObject({
+      conversionRule: {
+        eventName: "AddToCart",
+        triggerType: "provider_automation",
+        defaultValueCents: 12_900,
+        defaultCurrency: "BRL",
+        defaultContentName: "Kit basico",
+      },
+    });
+
+    const updated = await harness.service.updateRule(
+      "workspace_1",
+      created.rule.id,
+      { defaultValueCents: 19_900 },
+      "user_1",
+    );
+    expect(updated).toMatchObject({
+      conversionRule: { defaultValueCents: 19_900 },
     });
   });
 

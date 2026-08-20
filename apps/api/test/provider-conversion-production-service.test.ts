@@ -541,6 +541,51 @@ function createHarness(
   };
 }
 
+/**
+ * Retunes a canonical-decision harness into a message_phrase rule for any
+ * catalog event, so the frozen-decision path can be exercised beyond the three
+ * events that existed before the event catalog.
+ */
+function materializeAsMessageEvent(
+  harness: ReturnType<typeof createHarness>,
+  eventName: string,
+  conversion: {
+    valueCents: number | null;
+    currency: string | null;
+    contentName?: string | null;
+  },
+) {
+  const execution = harness.execution as any;
+  const decision = execution.providerDecision.decisionJson;
+  const lifetime = ["QualifiedLead", "LeadSubmitted"].includes(eventName);
+
+  execution.matchedCatalogVariantId = null;
+  execution.matchedCatalogVariantWorkspaceId = null;
+  execution.providerRule.conversionRule.triggerType = "message_phrase";
+  execution.providerRule.conversionRule.eventName = eventName;
+  execution.providerDecision.eventName = eventName;
+  decision.rule.triggerType = "message_phrase";
+  decision.rule.eventName = eventName;
+  decision.catalog = null;
+  decision.reasonCode = "average_value_message_matched";
+  decision.occurrence.eventName = eventName;
+  decision.occurrence.businessDedupePolicy = lifetime
+    ? { mode: "lifetime", scopeKey: `${eventName}:${workspaceId}:lead_1` }
+    : {
+        mode: "rolling_window",
+        scopeKey: `${eventName}:${workspaceId}:lead_1`,
+        windowSeconds: 86_400,
+      };
+  decision.conversion = {
+    matchedTriggerPhrase: "Dados para confirmar o pedido",
+    items: [],
+    valueCents: conversion.valueCents,
+    observedPaymentValueCents: null,
+    currency: conversion.currency,
+    contentName: conversion.contentName ?? null,
+  };
+}
+
 describe("provider conversion production service", () => {
   it("materializes and queues an attributed catalog purchase", async () => {
     const harness = createHarness();
@@ -887,6 +932,111 @@ describe("provider conversion production service", () => {
         ctwaClid: "ctwa_1",
         valueCents: null,
         currency: null,
+      }),
+      harness.transaction,
+    );
+  });
+
+  it("keeps the legacy Meta event_id prefixes for the events already in production", async () => {
+    const purchase = createHarness({ canonicalDecision: true });
+    await purchase.service.processExecution({
+      providerConversionExecutionId: purchase.execution.id,
+      workspaceId,
+    });
+    expect(purchase.conversions.recordExternalConversion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "Purchase",
+        eventId: expect.stringMatching(/^umbler_purchase_[0-9a-f]{64}$/),
+      }),
+      purchase.transaction,
+    );
+
+    const qualified = createHarness({
+      automationEventName: "QualifiedLead",
+      canonicalDecision: true,
+    });
+    await qualified.service.processExecution({
+      providerConversionExecutionId: qualified.execution.id,
+      workspaceId,
+    });
+    expect(qualified.conversions.recordExternalConversion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "QualifiedLead",
+        eventId: expect.stringMatching(/^umbler_qualified_[0-9a-f]{64}$/),
+      }),
+      qualified.transaction,
+    );
+
+    const checkout = createHarness({ canonicalDecision: true });
+    materializeAsMessageEvent(checkout, "InitiateCheckout", {
+      valueCents: 25_000,
+      currency: "BRL",
+    });
+    await checkout.service.processExecution({
+      providerConversionExecutionId: checkout.execution.id,
+      workspaceId,
+    });
+    expect(checkout.conversions.recordExternalConversion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "InitiateCheckout",
+        eventId: expect.stringMatching(/^umbler_checkout_[0-9a-f]{64}$/),
+        valueCents: 25_000,
+      }),
+      checkout.transaction,
+    );
+  });
+
+  it("materializes a qualified lead recognized by message without any value", async () => {
+    const harness = createHarness({ canonicalDecision: true });
+    materializeAsMessageEvent(harness, "QualifiedLead", {
+      valueCents: null,
+      currency: null,
+    });
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "materialized" });
+
+    expect(harness.conversions.recordExternalConversion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "QualifiedLead",
+        eventId: expect.stringMatching(/^umbler_qualified_/),
+        sourceTrigger: "inbound_webhook:umbler:message_phrase",
+        valueCents: null,
+        valueSource: null,
+        currency: null,
+        contentName: null,
+      }),
+      harness.transaction,
+    );
+  });
+
+  it("materializes an AddToCart message rule with its configured average value", async () => {
+    const harness = createHarness({ canonicalDecision: true });
+    materializeAsMessageEvent(harness, "AddToCart", {
+      valueCents: 12_900,
+      currency: "BRL",
+      contentName: "Kit basico",
+    });
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "materialized" });
+
+    expect(harness.conversions.recordExternalConversion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "AddToCart",
+        eventId: expect.stringMatching(/^umbler_add_to_cart_/),
+        valueCents: 12_900,
+        currency: "BRL",
+        contentName: "Kit basico",
+        valueSource: "configured_average",
       }),
       harness.transaction,
     );
