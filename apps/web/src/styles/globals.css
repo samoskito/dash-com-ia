@@ -8192,9 +8192,19 @@ html[data-presentation-mode="active"] .inbound-webhook-secret {
   gap: 4px;
 }
 
+.provider-conversion-panel .field-label {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .provider-conversion-secret input,
 .provider-conversion-builder input,
 .provider-conversion-builder select,
+.provider-conversion-builder textarea,
 .provider-catalog-test textarea {
   width: 100%;
   min-width: 0;
@@ -8203,19 +8213,31 @@ html[data-presentation-mode="active"] .inbound-webhook-secret {
   border: 1px solid var(--border);
   border-radius: 8px;
   outline: 0;
-  background: rgba(5, 8, 7, 0.88);
+  background: rgba(255, 255, 255, 0.035);
   color: var(--ink);
   font-family: var(--font-body);
   font-size: 13px;
   font-weight: 750;
 }
 
+.provider-conversion-builder textarea,
+.provider-catalog-test textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
 .provider-conversion-secret input:focus,
 .provider-conversion-builder input:focus,
 .provider-conversion-builder select:focus,
+.provider-conversion-builder textarea:focus,
 .provider-catalog-test textarea:focus {
-  border-color: rgba(66, 240, 168, 0.72);
+  border-color: var(--border-strong);
   box-shadow: 0 0 0 3px rgba(18, 184, 132, 0.16);
+}
+
+.provider-conversion-builder select:disabled {
+  color: var(--ink-muted);
+  cursor: not-allowed;
 }
 
 html[data-presentation-mode="active"] .provider-conversion-secret {
@@ -8226,9 +8248,10 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   display: grid;
   min-width: 0;
   gap: 18px;
-  padding: 18px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
 }
 
 .provider-conversion-target {
@@ -8254,7 +8277,7 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(3, 10, 8, 0.7);
+  background: var(--surface-3);
 }
 
 .provider-conversion-event-hint .micro-label {
@@ -8315,10 +8338,17 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(5, 8, 7, 0.56);
+  background: var(--surface-3);
   color: var(--ink-soft);
   font-size: 12px;
   font-weight: 750;
+}
+
+.provider-conversion-channels label:has(input:checked),
+.provider-conversion-scope-options label:has(input:checked) {
+  border-color: var(--mint);
+  background: color-mix(in srgb, var(--mint) 10%, var(--surface-3));
+  color: var(--ink);
 }
 
 .provider-conversion-channels label span,
