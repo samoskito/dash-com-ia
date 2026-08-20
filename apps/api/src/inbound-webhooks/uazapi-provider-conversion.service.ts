@@ -59,6 +59,15 @@ export type UazapiTeamMessageResult = {
   eligibleExecutionId: string | null;
 };
 
+export type UazapiLabelInput = {
+  workspaceId: string;
+  instance: UazapiBridgeInstance;
+  phone: string;
+  labels: string[];
+  externalEventId?: string | null;
+  occurredAt?: Date;
+};
+
 /**
  * U2c: evaluates message_phrase conversion rules for `fromMe=true` (team)
  * messages on a UAZAPI/NOD WhatsApp instance, reusing the same decision
@@ -195,10 +204,86 @@ export class UazapiProviderConversionService {
     return { evaluated, eligibleExecutionId };
   }
 
+  /** Evaluates UAZAPI WhatsApp labels through the same paid-lead-only path. */
+  async evaluateLabels(input: UazapiLabelInput): Promise<UazapiTeamMessageResult> {
+    const config = parseInboundWebhooksConfig(this.env);
+    const phone = input.phone.trim();
+    const labels = [...new Set(input.labels.map((label) => label.trim()).filter(Boolean))];
+    if (!config.enabled || !config.conversionRulesEnabled || !phone || labels.length === 0) {
+      return { evaluated: false, eligibleExecutionId: null };
+    }
+
+    const bridged = await this.bridge.ensureBridge(input.instance);
+    const rules = await this.loadRules(input.workspaceId, bridged.connectionId, bridged.channelId, "provider_automation");
+    if (rules.length === 0) return { evaluated: false, eligibleExecutionId: null };
+
+    const channel = await this.prisma.inboundWebhookChannel.findFirst({
+      where: { id: bridged.channelId, workspaceId: input.workspaceId },
+      select: { status: true, productionActivatedAt: true },
+    });
+    if (!channel) return { evaluated: false, eligibleExecutionId: null };
+
+    const leadResolution = await this.paidLeads.resolve({ workspaceId: input.workspaceId, phone });
+    const occurredAt = input.occurredAt ?? new Date();
+    const externalEventId = input.externalEventId?.trim() || this.labelEventId(phone, labels, occurredAt);
+    let evaluated = false;
+    let eligibleExecutionId: string | null = null;
+
+    for (const rule of rules) {
+      const ruleSnapshot = this.ruleSnapshot(rule, "provider_automation");
+      const matchedLabel = labels.find((label) =>
+        ruleSnapshot.triggerPhrases.some((phrase) =>
+          phrase.trim().toLocaleLowerCase("pt-BR") === label.trim().toLocaleLowerCase("pt-BR"),
+        ),
+      );
+      if (!matchedLabel) continue;
+
+      const occurrenceKey = `uazapi:label:${bridged.channelId}:${rule.id}:${phone}:${matchedLabel}:${externalEventId}`;
+      const decision = this.decisionEngine.evaluate({
+        parserVersion: PARSER_VERSION,
+        rule: ruleSnapshot,
+        catalog: null,
+        leadResolution,
+        contactIdentityHash: hashPhoneIdentity(phone) ?? null,
+        occurrence: {
+          source: "automation",
+          provider: "uazapi",
+          workspaceId: input.workspaceId,
+          connectionId: bridged.connectionId,
+          channelId: bridged.channelId,
+          externalDeliveryId: null,
+          externalEventId,
+          externalMessageId: null,
+          occurrenceKey,
+          eventName: ruleSnapshot.eventName,
+          occurredAt: occurredAt.toISOString(),
+          authorType: null,
+          automation: "label",
+          labels,
+          matchedLabel,
+        },
+      });
+      if (!decision) continue;
+      evaluated = true;
+      const deliveryId = await this.ensureDelivery({ workspaceId: input.workspaceId, connectionId: bridged.connectionId, ingressKey: occurrenceKey });
+      const persistedDecision = await this.decisions.recordInitial({ decision, sourceDeliveryId: deliveryId });
+      const orchestration = await this.orchestrator.orchestrate({
+        persistedDecision,
+        disposition: this.disposition({ config, decisionMode: persistedDecision.decision.rule.mode, reasonCode: persistedDecision.decision.reasonCode, rule, channel, occurredAt }),
+      });
+      if (orchestration.eligibleExecutionId) {
+        eligibleExecutionId = orchestration.eligibleExecutionId;
+        await this.productionQueue.enqueueProviderConversion({ providerConversionExecutionId: eligibleExecutionId, workspaceId: input.workspaceId });
+      }
+    }
+    return { evaluated, eligibleExecutionId };
+  }
+
   private async loadRules(
     workspaceId: string,
     connectionId: string,
     channelId: string,
+    triggerType: "message_phrase" | "provider_automation" = "message_phrase",
   ): Promise<Rule[]> {
     return this.prisma.providerConversionRuleConfig.findMany({
       where: {
@@ -207,7 +292,7 @@ export class UazapiProviderConversionService {
         removedAt: null,
         conversionRule: {
           active: true,
-          triggerType: "message_phrase",
+          triggerType,
         },
         channels: {
           some: { channelId },
@@ -318,7 +403,10 @@ export class UazapiProviderConversionService {
     return { state: "eligible", reasonCode: input.reasonCode };
   }
 
-  private ruleSnapshot(rule: Rule): ProviderConversionDecisionRuleSnapshotDto {
+  private ruleSnapshot(
+    rule: Rule,
+    triggerType: "message_phrase" | "provider_automation" = "message_phrase",
+  ): ProviderConversionDecisionRuleSnapshotDto {
     const eventName = this.eventName(rule);
     const messagePhrase = readMessagePhraseConfig(
       rule.conversionRule.defaultItems,
@@ -327,7 +415,7 @@ export class UazapiProviderConversionService {
     return {
       providerRuleId: rule.id,
       conversionRuleId: rule.conversionRuleId,
-      triggerType: "message_phrase",
+      triggerType,
       eventName,
       mode: rule.mode,
       active: rule.conversionRule.active && rule.removedAt === null,
@@ -371,6 +459,12 @@ export class UazapiProviderConversionService {
           .slice(0, 16)}`,
         "utf8",
       )
+      .digest("hex");
+  }
+
+  private labelEventId(phone: string, labels: string[], occurredAt: Date): string {
+    return createHash("sha256")
+      .update(`${phone}\u0000${labels.join("\u0000")}\u0000${occurredAt.toISOString().slice(0, 16)}`, "utf8")
       .digest("hex");
   }
 

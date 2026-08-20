@@ -380,6 +380,35 @@ describe("provider conversion decision engine", () => {
     });
   });
 
+  it("matches UAZAPI automation labels case-insensitively", () => {
+    const input = automationInput({ eventName: "QualifiedLead" });
+    input.rule.triggerPhrases = ["Venda fechada"];
+    input.occurrence = {
+      ...input.occurrence,
+      provider: "uazapi",
+      labels: ["VENDA FECHADA", "VIP"],
+      matchedLabel: "VENDA FECHADA",
+    };
+
+    expect(engine.evaluate(input)).toMatchObject({
+      decisionCode: "eligible",
+      reasonCode: "automation_matched",
+    });
+  });
+
+  it("does not match UAZAPI automation labels outside the configured rule", () => {
+    const input = automationInput({ eventName: "QualifiedLead" });
+    input.rule.triggerPhrases = ["Venda fechada"];
+    input.occurrence = {
+      ...input.occurrence,
+      provider: "uazapi",
+      labels: ["VIP"],
+      matchedLabel: "VIP",
+    };
+
+    expect(engine.evaluate(input)).toBeNull();
+  });
+
   it("recognizes an average-value purchase automation", () => {
     const decision = engine.evaluate(
       automationInput({ eventName: "Purchase", valueCents: 250_000 }),

@@ -523,6 +523,13 @@ export class WebhooksController {
       await this.evaluateUazapiTeamMessage(resolvedContext, parsed);
     }
 
+    // Labels can arrive on chat updates as well as inbound CTWA messages.
+    // They are evaluated independently of lead creation, and the conversion
+    // service fails closed unless the contact resolves to a paid lead.
+    if (parsed.labels.length > 0 && parsed.phone && !parsed.isGroupChat) {
+      await this.evaluateUazapiLabels(resolvedContext, parsed);
+    }
+
     // Product rule: Uazapi only creates platform leads for paid CTWA inbound messages.
     if (!isInboundMessage || !parsed.ctwaClid) {
       return {
@@ -643,6 +650,39 @@ export class WebhooksController {
           whatsappInstanceId: context.whatsappInstanceId,
           errorName: error instanceof Error ? error.name : "unknown"
         })
+      );
+    }
+  }
+
+  private async evaluateUazapiLabels(
+    context: VerifiedUazapiContext,
+    parsed: ParsedUazapiWebhook,
+  ): Promise<void> {
+    if (!parsed.phone) return;
+
+    try {
+      const instance = await this.prisma.whatsappInstance.findFirst({
+        where: { id: context.whatsappInstanceId, workspaceId: context.workspaceId },
+        select: { id: true, workspaceId: true, name: true, providerInstanceId: true },
+      });
+      if (!instance) return;
+
+      await this.uazapiProviderConversion.evaluateLabels({
+        workspaceId: context.workspaceId,
+        instance,
+        phone: parsed.phone,
+        labels: parsed.labels,
+        externalEventId: parsed.externalEventId,
+        occurredAt: new Date(),
+      });
+    } catch (error) {
+      this.logger.error(
+        JSON.stringify({
+          event: "uazapi_label_evaluation_failed",
+          workspaceId: context.workspaceId,
+          whatsappInstanceId: context.whatsappInstanceId,
+          errorName: error instanceof Error ? error.name : "unknown",
+        }),
       );
     }
   }

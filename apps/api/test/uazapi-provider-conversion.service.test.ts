@@ -314,4 +314,38 @@ describe("UazapiProviderConversionService", () => {
       }),
     );
   });
+
+  it("evaluates matching UAZAPI labels and queues eligible production", async () => {
+    prisma.providerConversionRuleConfig.findMany.mockResolvedValue([
+      sampleRule({
+        messageTriggerPhrases: ["Venda fechada"],
+        conversionRule: {
+          ...sampleRule().conversionRule,
+          triggerType: "provider_automation",
+          eventName: "QualifiedLead",
+          defaultValueCents: null,
+          defaultCurrency: null,
+          defaultContentName: null,
+        },
+      }),
+    ]);
+    paidLeads.resolve.mockResolvedValue({ status: "resolved", reasonCode: "paid_lead_resolved", leadId: "lead_1", candidateLeadId: "lead_1" });
+    decisionEngine.evaluate.mockReturnValue({ decisionCode: "eligible", reasonCode: "automation_matched", rule: { mode: "production", eventName: "QualifiedLead" } });
+    prisma.inboundWebhookDelivery.findUnique.mockResolvedValue({ id: "delivery_label_1" });
+    decisions.recordInitial.mockResolvedValue({ decision: { decisionCode: "eligible", reasonCode: "automation_matched", rule: { mode: "production", eventName: "QualifiedLead" } } });
+    orchestrator.orchestrate.mockResolvedValue({ eligibleExecutionId: "execution_label_1" });
+
+    await expect(service.evaluateLabels({
+      workspaceId: "workspace_1",
+      instance: { id: "instance_1", workspaceId: "workspace_1", name: "NOD", providerInstanceId: "p1" },
+      phone: "+5541999999999",
+      labels: ["venda FECHADA"],
+      externalEventId: "event_label_1",
+    })).resolves.toEqual({ evaluated: true, eligibleExecutionId: "execution_label_1" });
+
+    expect(decisionEngine.evaluate).toHaveBeenCalledWith(expect.objectContaining({
+      occurrence: expect.objectContaining({ labels: ["venda FECHADA"], matchedLabel: "venda FECHADA" }),
+    }));
+    expect(productionQueue.enqueueProviderConversion).toHaveBeenCalledWith({ providerConversionExecutionId: "execution_label_1", workspaceId: "workspace_1" });
+  });
 });

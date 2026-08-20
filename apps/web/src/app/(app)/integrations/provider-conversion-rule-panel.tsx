@@ -533,6 +533,25 @@ export function ProviderConversionRulePanel({
             />
           ) : null}
 
+          {origin === "tag" ? (
+            <div className="provider-conversion-message-fields">
+              <label>
+                <span className="field-label">Etiquetas do WhatsApp</span>
+                <textarea
+                  value={triggerPhrases}
+                  onChange={(event) => setTriggerPhrases(event.target.value)}
+                  rows={3}
+                  maxLength={4_800}
+                  placeholder="Uma por linha. Ex.: Venda fechada"
+                  required
+                />
+                <small className="action-note">
+                  No UAZAPI, a regra dispara quando a conversa receber uma dessas etiquetas.
+                </small>
+              </label>
+            </div>
+          ) : null}
+
           {origin === "catalog" ? (
             <div className="provider-conversion-base-fields">
               <label>
@@ -2477,10 +2496,15 @@ export function buildCreatePayload(input: {
   const carriesValue = conversionEventCarriesValue(input.eventName);
 
   if (input.origin === "tag") {
+    const triggerPhrases = parseTriggerPhrases(input.triggerPhrases);
+    if (triggerPhrases.length === 0) {
+      return { ok: false, message: "Informe ao menos uma etiqueta para a regra." };
+    }
     const automation = {
       ...base,
       triggerType: "provider_automation",
       eventName: input.eventName,
+      triggerPhrases,
     };
     if (!carriesValue) return { ok: true, value: automation };
 

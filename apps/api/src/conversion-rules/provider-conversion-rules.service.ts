@@ -91,10 +91,7 @@ export class ProviderConversionRulesService {
   ): Promise<ProviderConversionRuleCreateResultDto> {
     const config = this.requireRulesEnabled();
     this.assertUniqueCatalogVariants(input);
-    const secret =
-      input.triggerType === "provider_automation"
-        ? this.generateSecret()
-        : null;
+    let secret: string | null = null;
 
     const created = await this.prisma.$transaction(async (transaction) => {
       const connection = await transaction.inboundWebhookConnection.findFirst({
@@ -110,6 +107,13 @@ export class ProviderConversionRulesService {
         throw new NotFoundException(connectionNotFoundMessage);
       }
 
+      if (
+        input.triggerType === "provider_automation" &&
+        connection.provider === "umbler"
+      ) {
+        secret = this.generateSecret();
+      }
+
       await this.assertChannelsBelongToConnection(
         transaction,
         workspaceId,
@@ -119,7 +123,7 @@ export class ProviderConversionRulesService {
 
       if (
         input.triggerType === "provider_automation" &&
-        connection.provider !== "umbler"
+        !["umbler", "uazapi"].includes(connection.provider)
       ) {
         throw new BadRequestException(
           "Automacao por tag ainda so esta disponivel para este provedor",
@@ -127,7 +131,7 @@ export class ProviderConversionRulesService {
       }
 
       const parserRelease =
-        input.triggerType === "provider_automation"
+        input.triggerType === "provider_automation" && connection.provider === "umbler"
           ? await transaction.inboundWebhookParserRelease.findFirst({
               where: {
                 provider: "umbler",
@@ -140,6 +144,22 @@ export class ProviderConversionRulesService {
       if (!parserRelease) {
         throw new ConflictException(
           "Parser da conexao ainda nao esta disponivel",
+        );
+      }
+
+      const automationTriggerPhrases =
+        input.triggerType === "provider_automation" && connection.provider === "uazapi"
+          ? (input.triggerPhrases ?? [])
+              .map((phrase) => phrase.trim())
+              .filter(Boolean)
+          : [];
+      if (
+        input.triggerType === "provider_automation" &&
+        connection.provider === "uazapi" &&
+        automationTriggerPhrases.length === 0
+      ) {
+        throw new BadRequestException(
+          "Informe ao menos uma etiqueta para automacao por tag UAZAPI",
         );
       }
 
@@ -177,7 +197,7 @@ export class ProviderConversionRulesService {
           triggerType: input.triggerType,
           triggerValue:
             input.triggerType === "provider_automation"
-              ? input.triggerType
+              ? (automationTriggerPhrases[0] ?? input.triggerType)
               : input.triggerPhrases[0],
           matchMode: "exact",
           eventName: input.eventName,
@@ -200,7 +220,7 @@ export class ProviderConversionRulesService {
             mode: input.mode,
             messageTriggerPhrases:
               input.triggerType === "provider_automation"
-                ? []
+                ? automationTriggerPhrases
                 : input.triggerPhrases,
             messageAuthorScope:
               input.triggerType === "provider_automation"
@@ -220,7 +240,7 @@ export class ProviderConversionRulesService {
         })),
       });
 
-      if (secret) {
+      if (secret && connection.provider === "umbler") {
         await transaction.providerConversionRuleEndpoint.create({
           data: {
             workspaceId,

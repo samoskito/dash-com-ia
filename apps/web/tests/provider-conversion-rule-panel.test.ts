@@ -491,14 +491,14 @@ describe("provider conversion rule panel", () => {
     });
   });
 
-  it("builds a Purchase tag rule with the fixed value and no message fields", () => {
+  it("builds a Purchase tag rule with label names and no message fields", () => {
     const payload = createPayload({
       origin: "tag",
       eventName: "Purchase",
       name: "Compra por tag",
       averageValue: "299,90",
       contentName: "Pedido medio",
-      triggerPhrases: "ignorado pela origem tag",
+      triggerPhrases: "Venda fechada",
     });
 
     expect(payload).toMatchObject({
@@ -508,7 +508,7 @@ describe("provider conversion rule panel", () => {
       defaultCurrency: "BRL",
       defaultContentName: "Pedido medio",
     });
-    expect(payload).not.toHaveProperty("triggerPhrases");
+    expect(payload).toMatchObject({ triggerPhrases: ["Venda fechada"] });
     expect(payload).not.toHaveProperty("valueMode");
   });
 
@@ -518,6 +518,7 @@ describe("provider conversion rule panel", () => {
       eventName: "QualifiedLead",
       name: "Lead qualificado por tag",
       averageValue: "250,00",
+      triggerPhrases: "Lead qualificado",
     });
 
     expect(payload).toMatchObject({
@@ -549,6 +550,7 @@ describe("provider conversion rule panel", () => {
       origin: "tag",
       eventName: "Purchase",
       averageValue: "",
+      triggerPhrases: "Venda fechada",
     });
 
     expect(result).toEqual({

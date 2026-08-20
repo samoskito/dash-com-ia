@@ -8,6 +8,7 @@ import { ConversionEventsQueueService } from "../src/common/queue/conversion-eve
 import { ConversionEventsService } from "../src/conversion-events/conversion-events.service";
 import { ConversionRulesService } from "../src/conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../src/diagnostics/diagnostics.service";
+import { UazapiProviderConversionService } from "../src/inbound-webhooks/uazapi-provider-conversion.service";
 import { LeadsService } from "../src/leads/leads.service";
 import { PrismaService } from "../src/common/prisma/prisma.service";
 import { WebhooksController } from "../src/webhooks/webhooks.controller";
@@ -96,6 +97,10 @@ async function createApp() {
       id: "lead_1"
     }))
   };
+  const uazapiProviderConversion = {
+    evaluateTeamMessage: vi.fn(),
+    evaluateLabels: vi.fn(),
+  };
   const prismaService = {
     whatsappInstance: {
       findFirst: vi.fn(
@@ -147,6 +152,10 @@ async function createApp() {
         useValue: conversionEventsQueueService
       },
       { provide: LeadsService, useValue: leadsService },
+      {
+        provide: UazapiProviderConversionService,
+        useValue: uazapiProviderConversion,
+      },
       { provide: PrismaService, useValue: prismaService }
     ]
   }).compile();
@@ -163,6 +172,7 @@ async function createApp() {
     conversionEventsService,
     conversionEventsQueueService,
     leadsService,
+    uazapiProviderConversion,
     prismaService
   };
 }
@@ -220,8 +230,15 @@ describe("webhooks controller", () => {
       conversionRulesService,
       conversionEventsService,
       conversionEventsQueueService,
-      leadsService
+      leadsService,
+      prismaService,
+      uazapiProviderConversion,
     } = await createApp();
+    prismaService.whatsappInstance.findFirst.mockResolvedValueOnce({
+      id: "wpp_1",
+      workspaceId: "workspace_1",
+      providerInstanceId: "provider_instance_1",
+    });
 
     await request(app.getHttpServer())
       .post("/webhooks/uazapi")
@@ -269,6 +286,14 @@ describe("webhooks controller", () => {
         adSetId: "adset_1",
         adId: "ad_1"
       })
+    );
+    expect(uazapiProviderConversion.evaluateLabels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        phone: "+55 11 98844-1020",
+        labels: ["Venda fechada"],
+        externalEventId: "evt_uazapi_1",
+      }),
     );
     expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
     expect(conversionEventsService.recordRuleMatches).not.toHaveBeenCalled();

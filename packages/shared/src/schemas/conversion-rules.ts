@@ -340,6 +340,9 @@ export const providerConversionRuleAdaptInputSchema = z.object({
 const providerAutomationCreateSchema = z
   .object({
     ...providerConversionRuleBaseShape,
+    // Umbler callbacks select the automation server-side and leave this
+    // empty. UAZAPI uses these as the WhatsApp label names to match.
+    triggerPhrases: providerConversionMessageRuleShape.triggerPhrases.optional(),
     ...eventValueShape,
     triggerType: z.literal("provider_automation"),
     eventName: conversionEventNameSchema,
