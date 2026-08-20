@@ -391,3 +391,283 @@ describe("xmax ingest service (shadow)", () => {
     expect(observed?.phoneNormalized).toBe("595981234567");
   });
 });
+
+describe("xmax ingest service (global ingress)", () => {
+  const ingressId = "xmax_ingress_1";
+  const ingressSecret = "ingress-super-secret";
+  const bentoAccountId = "xmax_acc_bento";
+  const bentoWorkspaceId = "workspace_bento";
+  const chapecoAccountId = "xmax_acc_chapeco";
+  const chapecoWorkspaceId = "workspace_chapeco";
+
+  let prisma: any;
+  let adapter: { getContact: ReturnType<typeof vi.fn> };
+  let production: {
+    isProductionEnabled: ReturnType<typeof vi.fn>;
+    findPaidLead: ReturnType<typeof vi.fn>;
+    emit: ReturnType<typeof vi.fn>;
+  };
+  let service: XmaxIngestService;
+  let credentials: XmaxCredentialEncryptionService;
+  let ingress: Record<string, unknown>;
+  let bento: Record<string, unknown>;
+  let chapeco: Record<string, unknown>;
+  let shadowCreates: Array<Record<string, unknown>>;
+  let dedupCreates: Array<Record<string, unknown>>;
+
+  function buildAccountRow(overrides: Record<string, unknown>) {
+    const crypto = new XmaxCredentialEncryptionService({
+      META_TOKEN_ENCRYPTION_KEY: "test-meta-key-for-xmax",
+    } as NodeJS.ProcessEnv);
+    const encrypted = crypto.encrypt("api-key-value");
+    return {
+      displayName: "Conta",
+      baseUrl: "https://xmax.example",
+      ...encrypted,
+      webhookSecretHash: crypto.hashWebhookSecret("unused-per-account-secret"),
+      defaultCountryCode: "55",
+      qualifiedLeadTagIds: ["55"],
+      purchaseTagIds: ["56"],
+      purchaseValueCents: 300000,
+      purchaseCurrency: "BRL",
+      status: "active",
+      shadowMode: true,
+      capiSendEnabled: false,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    process.env.META_TOKEN_ENCRYPTION_KEY = "test-meta-key-for-xmax";
+    credentials = new XmaxCredentialEncryptionService(process.env);
+    shadowCreates = [];
+    dedupCreates = [];
+
+    ingress = {
+      id: ingressId,
+      label: "Dr. Hernia",
+      webhookSecretHash: credentials.hashWebhookSecret(ingressSecret),
+      status: "active",
+    };
+    bento = buildAccountRow({
+      id: bentoAccountId,
+      workspaceId: bentoWorkspaceId,
+      queueId: "12",
+      queueName: "Bento Gonçalves",
+      ingressId,
+    });
+    chapeco = buildAccountRow({
+      id: chapecoAccountId,
+      workspaceId: chapecoWorkspaceId,
+      queueId: "13",
+      queueName: "Chapecó",
+      ingressId,
+    });
+
+    prisma = {
+      xmaxIngress: {
+        findFirst: vi.fn(async ({ where }: any) =>
+          where.id === ingressId && where.status === "active" ? ingress : null,
+        ),
+        update: vi.fn(async () => ingress),
+      },
+      xmaxAccount: {
+        findFirst: vi.fn(async ({ where }: any) => {
+          if (where.status !== "active") return null;
+          if (where.ingressId !== ingressId) return null;
+          if (where.queueId === bento.queueId) return bento;
+          if (where.queueId === chapeco.queueId) return chapeco;
+          return null;
+        }),
+        update: vi.fn(async () => bento),
+      },
+      xmaxShadowEvent: {
+        findUnique: vi.fn(async () => null),
+        create: vi.fn(async ({ data }: any) => {
+          shadowCreates.push(data);
+          return data;
+        }),
+      },
+      xmaxContactEventDedup: {
+        findUnique: vi.fn(async () => null),
+        create: vi.fn(async ({ data }: any) => {
+          dedupCreates.push(data);
+          return data;
+        }),
+      },
+      $transaction: vi.fn(async (fn: any) =>
+        fn({
+          xmaxContactEventDedup: {
+            create: vi.fn(async ({ data }: any) => {
+              dedupCreates.push(data);
+              return data;
+            }),
+          },
+          xmaxShadowEvent: {
+            create: vi.fn(async ({ data }: any) => {
+              shadowCreates.push(data);
+              return data;
+            }),
+          },
+        }),
+      ),
+    };
+
+    adapter = {
+      getContact: vi.fn(async () => ({
+        contactId: "c1",
+        number: "11988441020",
+        name: "Lead X",
+        tagIds: ["55"],
+        raw: {},
+      })),
+    };
+
+    production = {
+      isProductionEnabled: vi.fn(() => false),
+      findPaidLead: vi.fn(async () => ({ ok: false, reasonCode: "no_paid_lead" })),
+      emit: vi.fn(async () => ({ attempted: false, reasonCode: "shadow_only" })),
+    };
+
+    service = new XmaxIngestService(
+      prisma,
+      credentials,
+      adapter as unknown as XmaxAdapter,
+      production as unknown as XmaxProductionService,
+    );
+  });
+
+  function body(payload: Record<string, unknown>) {
+    return Buffer.from(JSON.stringify(payload), "utf8");
+  }
+
+  it("returns uniform 404 for unknown ingress", async () => {
+    await expect(
+      service.ingestGlobal({
+        ingressId: "missing",
+        token: ingressSecret,
+        contentType: "application/json",
+        providerAttempt: 1,
+        rawBody: body({ Contact_Id: "c1", Queue_id: "12" }),
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("returns uniform 404 for wrong ingress token", async () => {
+    await expect(
+      service.ingestGlobal({
+        ingressId,
+        token: "wrong",
+        contentType: "application/json",
+        providerAttempt: 1,
+        rawBody: body({ Contact_Id: "c1", Queue_id: "12" }),
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("discards without a DB write when Queue_id is absent from the body", async () => {
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "c1" }),
+    });
+
+    expect(result).toMatchObject({
+      status: "discarded",
+      reasonCode: "queue_id_absent",
+    });
+    expect(prisma.xmaxShadowEvent.create).not.toHaveBeenCalled();
+    expect(adapter.getContact).not.toHaveBeenCalled();
+  });
+
+  it("discards an unknown Queue_id without scanning other accounts", async () => {
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "c1", Queue_id: "999" }),
+    });
+
+    expect(result).toMatchObject({
+      status: "discarded",
+      reasonCode: "queue_unresolved",
+    });
+    expect(prisma.xmaxShadowEvent.create).not.toHaveBeenCalled();
+    expect(adapter.getContact).not.toHaveBeenCalled();
+  });
+
+  it("routes Queue_id 12 to the Bento account and workspace", async () => {
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "c1", Queue_id: "12", Queue_name: "Bento Gonçalves" }),
+    });
+
+    expect(result).toMatchObject({ status: "observed", eventName: "QualifiedLead" });
+    expect(shadowCreates).toHaveLength(1);
+    expect(shadowCreates[0]).toMatchObject({ workspaceId: bentoWorkspaceId, accountId: bentoAccountId });
+    expect(prisma.xmaxIngress.update).toHaveBeenCalledWith({
+      where: { id: ingressId },
+      data: { lastWebhookAt: expect.any(Date) },
+    });
+  });
+
+  it("never leaks an event into the neighbouring workspace for a different Queue_id", async () => {
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "c2", Queue_id: "13" }),
+    });
+
+    expect(result.status).toBe("observed");
+    expect(shadowCreates).toHaveLength(1);
+    expect(shadowCreates[0].workspaceId).toBe(chapecoWorkspaceId);
+    expect(shadowCreates[0].workspaceId).not.toBe(bentoWorkspaceId);
+    expect(shadowCreates[0].accountId).toBe(chapecoAccountId);
+  });
+
+  it("calls getContact with account.queueId from config, never the payload value", async () => {
+    // account.queueId differs from the payload's Queue_id on purpose: routing
+    // matched by (ingressId, queueId), but the outbound call must always use
+    // the stored config value, never anything attacker/payload controlled.
+    const spoofedQueueAccount = { ...bento, queueId: "12-config" };
+    prisma.xmaxAccount.findFirst = vi.fn(async ({ where }: any) => {
+      if (where.ingressId === ingressId && where.queueId === "12") {
+        return spoofedQueueAccount;
+      }
+      return null;
+    });
+
+    await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "c1", Queue_id: "12" }),
+    });
+
+    expect(adapter.getContact).toHaveBeenCalledWith(
+      expect.objectContaining({ queueId: "12-config" }),
+    );
+  });
+
+  it("discards invalid JSON before any account is resolved", async () => {
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: Buffer.from("not-json{", "utf8"),
+    });
+
+    expect(result).toMatchObject({ status: "discarded", reasonCode: "invalid_json" });
+    expect(prisma.xmaxAccount.findFirst).not.toHaveBeenCalled();
+  });
+});

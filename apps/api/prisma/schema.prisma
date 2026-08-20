@@ -2400,6 +2400,23 @@ enum XmaxShadowEventStatus {
   failed
 }
 
+/// One row per XMAX tenant webhook (today: 1 for Dr. Hernia). Global ingress
+/// auth boundary — routing to XmaxAccount happens only after this passes.
+model XmaxIngress {
+  id                String            @id @default(cuid())
+  label             String
+  /// SHA-256 of webhook secret; compared with timing-safe equality
+  webhookSecretHash String
+  status            XmaxAccountStatus @default(active)
+  lastWebhookAt     DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  accounts XmaxAccount[]
+
+  @@index([status])
+}
+
 /// XMAX multi-account integration (shadow ingest first; no CAPI in X1).
 model XmaxAccount {
   id                       String            @id @default(cuid())
@@ -2407,6 +2424,8 @@ model XmaxAccount {
   displayName              String
   baseUrl                  String
   queueId                  String
+  /// Label only from Queue_name (payload) / ops seed. Never decides routing.
+  queueName                String?
   /// AES-256-GCM ciphertext of API key (base64)
   apiKeyEncrypted          String
   apiKeyIv                 String
@@ -2426,6 +2445,9 @@ model XmaxAccount {
   shadowMode               Boolean           @default(true)
   /// X2+: when true AND shadowMode=false, create conversion + enqueue CAPI
   capiSendEnabled          Boolean           @default(false)
+  /// Nullable — accounts not yet wired to the global ingress keep working via
+  /// the per-account webhook. Set once linked to a global XmaxIngress.
+  ingressId                String?
   lastWebhookAt            DateTime?
   lastSuccessfulGetContact DateTime?
   lastErrorCode            String?
@@ -2433,11 +2455,14 @@ model XmaxAccount {
   updatedAt                DateTime          @updatedAt
 
   workspace    Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  ingress      XmaxIngress?             @relation(fields: [ingressId], references: [id], onDelete: Restrict)
   eventDedups  XmaxContactEventDedup[]
   shadowEvents XmaxShadowEvent[]
 
+  @@unique([ingressId, queueId])
   @@index([workspaceId, status])
   @@index([workspaceId, createdAt])
+  @@index([ingressId, status])
 }
 
 /// Semantic dedup: 1 event per contact+eventName forever (tag re-add must not re-fire).
