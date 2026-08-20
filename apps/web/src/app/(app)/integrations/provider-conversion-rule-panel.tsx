@@ -127,6 +127,7 @@ type Notice = {
 
 export type ProviderConversionRulePanelProps = {
   connectionId: string;
+  connectionProvider: "umbler" | "gupshup" | "uazapi";
   channels: InboundWebhookChannelDto[];
   rules: ProviderConversionRuleDto[];
   enabled: boolean;
@@ -144,6 +145,7 @@ export type ProviderConversionRulePanelProps = {
 
 export function ProviderConversionRulePanel({
   connectionId,
+  connectionProvider,
   channels,
   rules,
   enabled,
@@ -854,6 +856,8 @@ export function ProviderConversionRulePanel({
               rule.conversionRule.triggerType === "provider_automation";
             const messagePhrase =
               rule.conversionRule.triggerType === "message_phrase";
+            const uazapiAutomation =
+              automation && connectionProvider === "uazapi";
             const active = rule.conversionRule.active;
             return (
               <article className="provider-conversion-rule" key={rule.id}>
@@ -884,15 +888,21 @@ export function ProviderConversionRulePanel({
                       </span>
                     </div>
                     <span>
-                      {eventLabel(rule)} / {triggerLabel(rule)}
+                      {eventLabel(rule)} / {uazapiAutomation
+                        ? "Lista WhatsApp (chat_labels)"
+                        : triggerLabel(rule)}
                       {messagePhrase ? ` / ${valueModeLabel(rule)}` : ""} /{" "}
                       {rule.channelIds.length} canal(is)
                     </span>
                     <small>
                       {rule.lastExecution
                         ? `Ultimo resultado: ${executionStatusLabel(rule.lastExecution.status)} / ${executionReasonLabel(rule.lastExecution.reasonCode)} / ${formatDateTime(rule.lastExecution.occurredAt)}`
-                        : automation
-                          ? `Ultimo callback: ${formatDateTime(rule.endpoint?.lastDeliveryAt ?? null)}`
+                        : uazapiAutomation
+                          ? rule.mode === "observation"
+                            ? "Aguardando contato entrar na lista. Em observacao, lead pago nao e obrigatorio para validar o match."
+                            : "Aguardando contato entrar na lista. Em producao, apenas leads pagos podem gerar eventos."
+                          : automation
+                            ? `Ultimo callback: ${formatDateTime(rule.endpoint?.lastDeliveryAt ?? null)}`
                           : `${rule.catalog?.variants.length ?? 0} variante(s) cadastrada(s)`}
                     </small>
                   </div>
@@ -1019,7 +1029,7 @@ export function ProviderConversionRulePanel({
                   onResult={applyResult}
                 />
 
-                {automation && canManage ? (
+                {automation && !uazapiAutomation && canManage ? (
                   <AutomationCallbackAudit
                     rule={rule}
                     loadAuditAction={loadAutomationAuditAction}

@@ -230,6 +230,30 @@ describe("provider conversion rule panel", () => {
     expect(html).not.toContain("Reprocessar ultimo callback observado");
   });
 
+  it("shows UAZAPI tag observation status without the Umbler callback audit", () => {
+    const html = renderPanel({
+      connectionProvider: "uazapi",
+      rules: [
+        {
+          ...catalogRule,
+          id: "provider_rule_uazapi_automation",
+          conversionRule: {
+            ...catalogRule.conversionRule,
+            triggerType: "provider_automation",
+            triggerValue: "provider_automation",
+          },
+          catalog: null,
+          endpoint: null,
+          lastExecution: null,
+        },
+      ],
+    });
+
+    expect(html).toContain("Lista WhatsApp (chat_labels)");
+    expect(html).toContain("Aguardando contato entrar na lista");
+    expect(html).not.toContain("Auditar eventos recebidos");
+  });
+
   it("keeps a scoped alias editor wired to the existing catalog update", () => {
     const source = readFileSync(
       new URL(
@@ -857,9 +881,11 @@ function createPayload(
 function renderPanel({
   rules,
   canManage = true,
+  connectionProvider = "umbler",
 }: {
   rules: ProviderConversionRuleDto[];
   canManage?: boolean;
+  connectionProvider?: "umbler" | "gupshup" | "uazapi";
 }) {
   const action = vi.fn(async (_formData: FormData) => ({
     ok: true as const,
@@ -869,6 +895,7 @@ function renderPanel({
   return renderToStaticMarkup(
     createElement(ProviderConversionRulePanel, {
       connectionId: "connection_1",
+      connectionProvider,
       channels: [channel],
       rules,
       enabled: true,

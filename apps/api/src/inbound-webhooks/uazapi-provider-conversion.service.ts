@@ -210,7 +210,11 @@ export class UazapiProviderConversionService {
     return { evaluated, eligibleExecutionId };
   }
 
-  /** Evaluates only newly-added UAZAPI chat label ids through the paid-lead-only path. */
+  /**
+   * Evaluates only newly-added UAZAPI chat labels. Production remains
+   * paid-lead-only; observation records a matched unpaid label as a blocked
+   * execution so Settings can show the validation result.
+   */
   async evaluateLabels(
     input: UazapiLabelInput,
   ): Promise<UazapiTeamMessageResult> {
@@ -324,16 +328,25 @@ export class UazapiProviderConversionService {
         decision,
         sourceDeliveryId: deliveryId,
       });
+      const recordIgnoredObservation =
+        persistedDecision.decision.decisionCode === "ignored_untracked_lead" &&
+        persistedDecision.decision.rule.mode === "observation";
       const orchestration = await this.orchestrator.orchestrate({
         persistedDecision,
-        disposition: this.disposition({
-          config,
-          decisionMode: persistedDecision.decision.rule.mode,
-          reasonCode: persistedDecision.decision.reasonCode,
-          rule,
-          channel,
-          occurredAt,
-        }),
+        disposition: recordIgnoredObservation
+          ? {
+              state: "blocked",
+              reasonCode: persistedDecision.decision.reasonCode,
+            }
+          : this.disposition({
+              config,
+              decisionMode: persistedDecision.decision.rule.mode,
+              reasonCode: persistedDecision.decision.reasonCode,
+              rule,
+              channel,
+              occurredAt,
+            }),
+        recordIgnoredObservation,
       });
       if (orchestration.eligibleExecutionId) {
         eligibleExecutionId = orchestration.eligibleExecutionId;
@@ -528,7 +541,7 @@ export class UazapiProviderConversionService {
     // fingerprint so identical retried webhooks still dedupe.
     return createHash("sha256")
       .update(
-        `${input.phone} ${input.messageText} ${occurredAt
+        `${input.phone}\u0000${input.messageText}\u0000${occurredAt
           .toISOString()
           .slice(0, 16)}`,
         "utf8",

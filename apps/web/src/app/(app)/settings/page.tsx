@@ -1852,6 +1852,7 @@ export default async function SettingsPage() {
                           <div className="trigger-source-body">
                             <ProviderConversionRulePanel
                               connectionId={connection.id}
+                              connectionProvider={connection.provider}
                               channels={channels}
                               rules={connectionRules}
                               enabled={providerConversionSettings.enabled}
