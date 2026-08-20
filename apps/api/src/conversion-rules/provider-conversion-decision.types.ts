@@ -43,6 +43,8 @@ export type ProviderConversionAutomationOccurrenceInput = OccurrenceIdentity & {
   eventName: ProviderConversionDecisionRuleSnapshotDto["eventName"];
   authorType: null;
   automation: string;
+  labels?: string[];
+  matchedLabel?: string;
 };
 
 export type ProviderConversionDecisionInput =

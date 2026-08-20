@@ -402,6 +402,7 @@ model Workspace {
   members                          WorkspaceMember[]
   invites                          WorkspaceInvite[]
   whatsappInstances                WhatsappInstance[]
+  uazapiChatLabelStates            UazapiChatLabelState[]
   diagnosticEvents                 DiagnosticEvent[]
   webhookLogs                      WebhookLog[]
   integrationLogs                  IntegrationLog[]
@@ -534,10 +535,26 @@ model WhatsappInstance {
   leads                 Lead[]
   whatsappSeats         WhatsappSeat[]
   inboundWebhookChannel InboundWebhookChannel?
+  uazapiChatLabelStates UazapiChatLabelState[]
 
   @@unique([workspaceId, id])
   @@index([workspaceId])
   @@index([providerInstanceId])
+}
+
+model UazapiChatLabelState {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  whatsappInstanceId String
+  contactKey         String
+  labelIds           String[] @default([])
+  updatedAt          DateTime @updatedAt
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  whatsappInstance WhatsappInstance @relation(fields: [whatsappInstanceId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, whatsappInstanceId, contactKey])
+  @@index([workspaceId, whatsappInstanceId])
 }
 
 model AuthSession {

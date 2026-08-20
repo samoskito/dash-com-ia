@@ -91,10 +91,7 @@ export class ProviderConversionRulesService {
   ): Promise<ProviderConversionRuleCreateResultDto> {
     const config = this.requireRulesEnabled();
     this.assertUniqueCatalogVariants(input);
-    const secret =
-      input.triggerType === "provider_automation"
-        ? this.generateSecret()
-        : null;
+    let secret: string | null = null;
 
     const created = await this.prisma.$transaction(async (transaction) => {
       const connection = await transaction.inboundWebhookConnection.findFirst({
@@ -110,6 +107,13 @@ export class ProviderConversionRulesService {
         throw new NotFoundException(connectionNotFoundMessage);
       }
 
+      if (
+        input.triggerType === "provider_automation" &&
+        connection.provider === "umbler"
+      ) {
+        secret = this.generateSecret();
+      }
+
       await this.assertChannelsBelongToConnection(
         transaction,
         workspaceId,
@@ -119,7 +123,7 @@ export class ProviderConversionRulesService {
 
       if (
         input.triggerType === "provider_automation" &&
-        connection.provider !== "umbler"
+        !["umbler", "uazapi"].includes(connection.provider)
       ) {
         throw new BadRequestException(
           "Automacao por tag ainda so esta disponivel para este provedor",
@@ -127,7 +131,8 @@ export class ProviderConversionRulesService {
       }
 
       const parserRelease =
-        input.triggerType === "provider_automation"
+        input.triggerType === "provider_automation" &&
+        connection.provider === "umbler"
           ? await transaction.inboundWebhookParserRelease.findFirst({
               where: {
                 provider: "umbler",
@@ -140,6 +145,27 @@ export class ProviderConversionRulesService {
       if (!parserRelease) {
         throw new ConflictException(
           "Parser da conexao ainda nao esta disponivel",
+        );
+      }
+
+      const automationTriggerPhrases =
+        input.triggerType === "provider_automation" &&
+        connection.provider === "uazapi"
+          ? (
+              input.triggerLabels?.map((label) => label.name) ??
+              input.triggerPhrases ??
+              []
+            )
+              .map((phrase) => phrase.trim())
+              .filter(Boolean)
+          : [];
+      if (
+        input.triggerType === "provider_automation" &&
+        connection.provider === "uazapi" &&
+        automationTriggerPhrases.length === 0
+      ) {
+        throw new BadRequestException(
+          "Informe ao menos uma etiqueta para automacao por tag UAZAPI",
         );
       }
 
@@ -165,6 +191,9 @@ export class ProviderConversionRulesService {
         defaultValueCents = input.defaultValueCents ?? null;
         defaultCurrency = input.defaultCurrency ?? null;
         defaultContentName = input.defaultContentName ?? null;
+        if (connection.provider === "uazapi") {
+          defaultItems = this.uazapiLabelsConfig(input.triggerLabels ?? []);
+        }
       } else if (input.triggerType === "structured_catalog") {
         defaultCurrency = input.catalog.currency;
         defaultContentName = input.catalog.productName;
@@ -177,7 +206,7 @@ export class ProviderConversionRulesService {
           triggerType: input.triggerType,
           triggerValue:
             input.triggerType === "provider_automation"
-              ? input.triggerType
+              ? (automationTriggerPhrases[0] ?? input.triggerType)
               : input.triggerPhrases[0],
           matchMode: "exact",
           eventName: input.eventName,
@@ -200,7 +229,7 @@ export class ProviderConversionRulesService {
             mode: input.mode,
             messageTriggerPhrases:
               input.triggerType === "provider_automation"
-                ? []
+                ? automationTriggerPhrases
                 : input.triggerPhrases,
             messageAuthorScope:
               input.triggerType === "provider_automation"
@@ -220,7 +249,7 @@ export class ProviderConversionRulesService {
         })),
       });
 
-      if (secret) {
+      if (secret && connection.provider === "umbler") {
         await transaction.providerConversionRuleEndpoint.create({
           data: {
             workspaceId,
@@ -337,7 +366,9 @@ export class ProviderConversionRulesService {
       );
 
       if (!connection.parserRelease) {
-        throw new ConflictException("Parser da conexao ainda nao esta disponivel");
+        throw new ConflictException(
+          "Parser da conexao ainda nao esta disponivel",
+        );
       }
       this.assertModeAllowed("observation", connection.parserRelease.status);
 
@@ -449,6 +480,12 @@ export class ProviderConversionRulesService {
       if (input.triggerPhrases !== undefined) {
         conversionRuleData.triggerValue = input.triggerPhrases[0];
       }
+      if (input.triggerLabels !== undefined) {
+        conversionRuleData.triggerValue = input.triggerLabels[0]?.name;
+        conversionRuleData.defaultItems = this.uazapiLabelsConfig(
+          input.triggerLabels,
+        );
+      }
       if (input.valueMode !== undefined || input.exampleMessage !== undefined) {
         const messagePhrase = readMessagePhraseConfig(
           current.conversionRule.defaultItems,
@@ -473,6 +510,7 @@ export class ProviderConversionRulesService {
         input.mode !== undefined ||
         input.active === false ||
         input.triggerPhrases !== undefined ||
+        input.triggerLabels !== undefined ||
         input.messageAuthorScope !== undefined
       ) {
         const mode = nextMode ?? current.mode;
@@ -482,6 +520,13 @@ export class ProviderConversionRulesService {
             mode,
             ...(input.triggerPhrases !== undefined
               ? { messageTriggerPhrases: input.triggerPhrases }
+              : {}),
+            ...(input.triggerLabels !== undefined
+              ? {
+                  messageTriggerPhrases: input.triggerLabels.map(
+                    (label) => label.name,
+                  ),
+                }
               : {}),
             ...(input.messageAuthorScope !== undefined
               ? { messageAuthorScope: input.messageAuthorScope }
@@ -1120,6 +1165,23 @@ export class ProviderConversionRulesService {
       createdAt: rule.createdAt.toISOString(),
       updatedAt: rule.updatedAt.toISOString(),
     };
+  }
+
+  private uazapiLabelsConfig(
+    labels: Array<{ id: string; name: string }>,
+  ): Prisma.InputJsonValue {
+    return {
+      uazapiLabels: labels.map((label) => {
+        const id = label.id.trim();
+        const localId = id.includes(":") ? id.split(":").pop()! : id;
+        return {
+          id,
+          labelId: localId,
+          matchKeys: [...new Set([id, localId])],
+          name: label.name.trim(),
+        };
+      }),
+    } as Prisma.InputJsonValue;
   }
 
   private endpointToDto(

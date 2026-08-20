@@ -8,6 +8,9 @@ export type UazapiBridgeInstance = {
   workspaceId: string;
   name: string;
   providerInstanceId: string | null;
+  providerTokenEncrypted?: string | null;
+  providerTokenIv?: string | null;
+  providerTokenTag?: string | null;
 };
 
 export type UazapiBridgeResult = {

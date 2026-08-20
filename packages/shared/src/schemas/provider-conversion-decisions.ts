@@ -127,6 +127,8 @@ export const providerConversionDecisionOccurrenceSchema = z.object({
   occurredAt: z.string().datetime(),
   authorType: providerConversionDecisionAuthorTypeSchema.nullable(),
   contactIdentityHash: optionalIdentifierSchema,
+  labels: z.array(z.string().trim().min(1).max(240)).max(100).optional(),
+  matchedLabel: z.string().trim().min(1).max(240).optional(),
 });
 
 export const providerConversionDecisionRuleSnapshotSchema = z.object({

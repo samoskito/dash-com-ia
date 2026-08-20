@@ -229,6 +229,21 @@ export class ProviderConversionDecisionEngine {
       return { outcome: "not_applicable", reasonCode: "source_mismatch" };
     }
 
+    // Umbler's signed callback has already selected its automation rule and
+    // therefore arrives without labels. UAZAPI label webhooks must intersect
+    // the labels configured on the rule before entering the value policy.
+    if (input.occurrence.labels) {
+      const labels = new Set(
+        input.occurrence.labels.map((label) => label.trim().toLocaleLowerCase("pt-BR")),
+      );
+      const matched = input.rule.triggerPhrases.some((phrase) =>
+        labels.has(phrase.trim().toLocaleLowerCase("pt-BR")),
+      );
+      if (!matched) {
+        return { outcome: "not_applicable", reasonCode: "trigger_missing" };
+      }
+    }
+
     const valuePolicy = conversionEventValuePolicy(input.rule.eventName);
     if (valuePolicy === "none") {
       return {

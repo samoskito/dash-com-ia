@@ -53,6 +53,10 @@ import {
   purchaseReviewStatusLabel,
   purchaseReviewTone,
 } from "../settings/provider-conversion-labels";
+import {
+  UazapiLabelPicker,
+  type UazapiTriggerLabel,
+} from "./uazapi-label-picker";
 
 type ProviderRuleAction = (
   formData: FormData,
@@ -166,6 +170,7 @@ export function ProviderConversionRulePanel({
   const [averageValue, setAverageValue] = useState("");
   const [contentName, setContentName] = useState("");
   const [triggerPhrases, setTriggerPhrases] = useState("");
+  const [triggerLabels, setTriggerLabels] = useState<UazapiTriggerLabel[]>([]);
   const [primaryPhrase, setPrimaryPhrase] = useState("");
   const [variationPhrases, setVariationPhrases] = useState("");
   const [exampleMessage, setExampleMessage] = useState("");
@@ -205,6 +210,7 @@ export function ProviderConversionRulePanel({
         origin === "message"
           ? mergeTriggerPhrases(primaryPhrase, variationPhrases)
           : triggerPhrases,
+      triggerLabels,
       exampleMessage,
       valueMode,
       messageAuthorScope,
@@ -229,6 +235,7 @@ export function ProviderConversionRulePanel({
     if (result.ok) {
       setCreateOpen(false);
       setName("");
+      setTriggerLabels([]);
       if (result.oneTimeSecret) {
         setOneTimeSecret(result.oneTimeSecret);
         setCopied(false);
@@ -369,6 +376,13 @@ export function ProviderConversionRulePanel({
       ),
     );
   }
+
+  // Somente canais UAZAPI trazem whatsappInstanceId; conexoes como Umbler
+  // mantem o textarea de frases gatilho.
+  const resolvedWhatsappInstanceId = resolveUazapiWhatsappInstanceId(
+    channels,
+    selectedChannelIds,
+  );
 
   return (
     <section className="provider-conversion-panel">
@@ -531,6 +545,36 @@ export function ProviderConversionRulePanel({
                 }
               }}
             />
+          ) : null}
+
+          {origin === "tag" ? (
+            <div className="provider-conversion-message-fields">
+              {resolvedWhatsappInstanceId ? (
+                <UazapiLabelPicker
+                  whatsappInstanceId={resolvedWhatsappInstanceId}
+                  selectedLabels={triggerLabels}
+                  onLabelsChange={setTriggerLabels}
+                  fallbackValue={triggerPhrases}
+                  onFallbackChange={setTriggerPhrases}
+                />
+              ) : (
+                <label>
+                  <span className="field-label">Etiquetas do WhatsApp</span>
+                  <textarea
+                    value={triggerPhrases}
+                    onChange={(event) => setTriggerPhrases(event.target.value)}
+                    rows={3}
+                    maxLength={4_800}
+                    placeholder="Uma por linha. Ex.: Venda fechada"
+                    required
+                  />
+                  <small className="action-note">
+                    A regra dispara quando a conversa receber uma dessas
+                    etiquetas ou automacoes.
+                  </small>
+                </label>
+              )}
+            </div>
           ) : null}
 
           {origin === "catalog" ? (
@@ -2451,6 +2495,7 @@ export function buildCreatePayload(input: {
   averageValue: string;
   contentName: string;
   triggerPhrases: string;
+  triggerLabels?: UazapiTriggerLabel[];
   exampleMessage: string;
   valueMode: MessagePhraseValueMode;
   messageAuthorScope: MessageAuthorScope;
@@ -2477,10 +2522,28 @@ export function buildCreatePayload(input: {
   const carriesValue = conversionEventCarriesValue(input.eventName);
 
   if (input.origin === "tag") {
+    const selectedLabels = (input.triggerLabels ?? [])
+      .map((label) => ({
+        id: label.id.trim(),
+        name: label.name.trim(),
+      }))
+      .filter((label) => label.id.length > 0 && label.name.length > 0);
+    const triggerPhrases =
+      selectedLabels.length > 0
+        ? selectedLabels.map((label) => label.name)
+        : parseTriggerPhrases(input.triggerPhrases);
+    if (triggerPhrases.length === 0) {
+      return {
+        ok: false,
+        message: "Selecione ou informe ao menos uma etiqueta para a regra.",
+      };
+    }
     const automation = {
       ...base,
       triggerType: "provider_automation",
       eventName: input.eventName,
+      triggerPhrases,
+      ...(selectedLabels.length > 0 ? { triggerLabels: selectedLabels } : {}),
     };
     if (!carriesValue) return { ok: true, value: automation };
 
@@ -2720,6 +2783,24 @@ function parseMessageMoneyToken(token: string): number | null {
 
   const cents = Number(wholeDigits) * 100 + Number(decimalPart);
   return Number.isSafeInteger(cents) && cents > 0 ? cents : null;
+}
+
+/**
+ * First selected channel bridged to a WhatsApp instance, in selection order.
+ * UAZAPI channels carry this id; other providers (Umbler, Gupshup) leave it
+ * null, which keeps the free-text trigger phrases textarea instead of the
+ * live label picker.
+ */
+function resolveUazapiWhatsappInstanceId(
+  channels: InboundWebhookChannelDto[],
+  selectedChannelIds: string[],
+): string | null {
+  for (const channelId of selectedChannelIds) {
+    const channel = channels.find((item) => item.id === channelId);
+    if (channel?.whatsappInstanceId) return channel.whatsappInstanceId;
+  }
+
+  return null;
 }
 
 function parseTriggerPhrases(value: string): string[] {

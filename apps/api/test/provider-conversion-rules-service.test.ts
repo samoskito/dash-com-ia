@@ -568,7 +568,36 @@ describe("provider conversion rules service", () => {
     );
   });
 
-  it("rejects tag automation on a UAZAPI connection", async () => {
+  it("creates tag automation on a UAZAPI connection using configured labels", async () => {
+    const harness = createHarness();
+    harness.connection.provider = "uazapi";
+    harness.connection.parserRelease = {
+      ...harness.connection.parserRelease,
+      provider: "uazapi",
+      version: "uazapi-v1",
+    };
+
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Tag UAZAPI",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "provider_automation",
+        eventName: "QualifiedLead",
+        triggerPhrases: ["  Venda fechada  ", "VIP"],
+      },
+      "user_1",
+    );
+
+    expect(created.webhookUrl).toBeNull();
+    expect(created.rule.triggerPhrases).toEqual(["Venda fechada", "VIP"]);
+    expect(created.rule.conversionRule.triggerValue).toBe("Venda fechada");
+    expect(harness.prisma.providerConversionRuleEndpoint.create).not.toHaveBeenCalled();
+  });
+
+  it("requires at least one label for UAZAPI tag automation", async () => {
     const harness = createHarness();
     harness.connection.provider = "uazapi";
 
@@ -582,12 +611,13 @@ describe("provider conversion rules service", () => {
           mode: "observation",
           triggerType: "provider_automation",
           eventName: "QualifiedLead",
+          triggerPhrases: [],
         },
         "user_1",
       ),
     ).rejects.toMatchObject({
       status: 400,
-      message: "Automacao por tag ainda so esta disponivel para este provedor",
+      message: "Informe ao menos uma etiqueta para automacao por tag UAZAPI",
     });
   });
 

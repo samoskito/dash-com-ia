@@ -71,6 +71,7 @@ const connectionView = {
       providerChannelId: "umbler_channel_1",
       connectedPhone: "+5511999990001",
       channelName: "Comercial Sao Paulo",
+      whatsappInstanceId: null,
       status: "active",
       productionActivatedAt: null,
       firstSeenAt: "2026-07-17T18:15:00.000Z",
