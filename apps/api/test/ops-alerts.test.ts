@@ -7,6 +7,7 @@ const now = new Date("2026-08-20T12:00:00.000Z");
 function makePrisma(input: { recentSent?: boolean; instances?: Array<Record<string, unknown>>; connections?: Array<Record<string, unknown>> } = {}) {
   return {
     workspaceOpsAlertSettings: {
+      findUnique: vi.fn(async () => null),
       findMany: vi.fn(async () => [{ workspaceId: "ws_1", alertPhoneE164: "5511999999999", disconnectAlerts: true, webhookSilenceAlerts: true, silenceThresholdHours: 24, debounceHours: 6, workspace: { name: "Acme" } }]),
       upsert: vi.fn(async ({ create }) => create),
     },
@@ -23,6 +24,24 @@ describe("workspace ops alerts", () => {
   it("requires a phone when settings are enabled and normalizes it", () => {
     expect(workspaceOpsAlertSettingsInputSchema.safeParse({ enabled: true, alertPhone: "" }).success).toBe(false);
     expect(workspaceOpsAlertSettingsInputSchema.parse({ enabled: true, alertPhone: "+55 (11) 99999-9999" }).alertPhone).toBe("5511999999999");
+  });
+
+  it("returns stable defaults when alert settings have not been persisted", async () => {
+    const prisma = makePrisma();
+    const service = new OpsAlertService(prisma as never, {} as never, {} as never);
+
+    await expect(service.getSettings("ws_1")).resolves.toEqual({
+      id: null,
+      workspaceId: "ws_1",
+      enabled: false,
+      alertPhoneE164: null,
+      disconnectAlerts: true,
+      webhookSilenceAlerts: true,
+      silenceThresholdHours: 24,
+      debounceHours: 6,
+      createdAt: null,
+      updatedAt: null,
+    });
   });
 
   it("notifies a disconnected UAZAPI instance once", async () => {

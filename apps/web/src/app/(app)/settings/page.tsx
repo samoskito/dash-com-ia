@@ -9,10 +9,14 @@ import type {
   ProviderConversionRuleDto,
   WhatsappInstanceSummaryDto,
   WhatsappLabelDto,
+  WorkspaceOpsAlertSettings,
   WorkspaceInviteDto,
   WorkspaceMemberDto,
 } from "@wpptrack/shared";
-import { conversionEventDisplayLabels } from "@wpptrack/shared";
+import {
+  conversionEventDisplayLabels,
+  workspaceOpsAlertSettingsSchema,
+} from "@wpptrack/shared";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import {
@@ -73,18 +77,7 @@ type AccountSettingsResult = {
   state: "real" | "error";
 };
 
-type WorkspaceOpsAlertSettingsDto = {
-  id: string;
-  workspaceId: string;
-  enabled: boolean;
-  alertPhoneE164: string | null;
-  disconnectAlerts: boolean;
-  webhookSilenceAlerts: boolean;
-  silenceThresholdHours: number;
-  debounceHours: number;
-  createdAt: string;
-  updatedAt: string;
-};
+type WorkspaceOpsAlertSettingsDto = WorkspaceOpsAlertSettings;
 
 type OpsAlertSettingsResult = {
   settings: WorkspaceOpsAlertSettingsDto | null;
@@ -108,6 +101,16 @@ const opsAlertSettingsDefaults: Pick<
   silenceThresholdHours: 24,
   debounceHours: 6,
 };
+
+function defaultOpsAlertSettings(workspaceId: string): WorkspaceOpsAlertSettingsDto {
+  return workspaceOpsAlertSettingsSchema.parse({
+    id: null,
+    workspaceId,
+    ...opsAlertSettingsDefaults,
+    createdAt: null,
+    updatedAt: null,
+  });
+}
 
 type ConversionRulesResult = {
   rules: ConversionRuleDto[];
@@ -294,20 +297,27 @@ async function getAccountSettings(): Promise<AccountSettingsResult> {
 }
 
 async function getOpsAlertSettings(): Promise<OpsAlertSettingsResult> {
+  let workspaceId: string | null = null;
+
   try {
     const workspace = await getCurrentWorkspace();
+    workspaceId = workspace.id;
 
     if (!workspace.permissions.canManageWorkspaceSettings) {
       return { settings: null, state: "forbidden", workspaceId: workspace.id };
     }
 
-    const settings = await serverApiFetch<WorkspaceOpsAlertSettingsDto | null>(
+    const payload = await serverApiFetch<unknown>(
       `/workspaces/${encodeURIComponent(workspace.id)}/ops-alerts/settings`,
     );
+    const parsed = workspaceOpsAlertSettingsSchema.safeParse(payload);
+    const settings = parsed.success
+      ? parsed.data
+      : defaultOpsAlertSettings(workspace.id);
 
     return { settings, state: "real", workspaceId: workspace.id };
   } catch {
-    return { settings: null, state: "error", workspaceId: null };
+    return { settings: null, state: "error", workspaceId };
   }
 }
 
