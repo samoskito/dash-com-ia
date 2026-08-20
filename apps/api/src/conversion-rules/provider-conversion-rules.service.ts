@@ -32,7 +32,7 @@ import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
 
 const ruleNotFoundMessage = "Regra de conversao do provedor nao encontrada";
-const connectionNotFoundMessage = "Conexao Umbler nao encontrada";
+const connectionNotFoundMessage = "Conexao nao encontrada";
 const endpointNotFoundMessage = "Endpoint de automacao nao encontrado";
 
 const providerRuleInclude = {
@@ -97,14 +97,10 @@ export class ProviderConversionRulesService {
         : null;
 
     const created = await this.prisma.$transaction(async (transaction) => {
-      // U2c: UAZAPI connections appear in the same Gatilhos UI. Message/catalog
-      // rules must resolve the real connection provider — not hard-code Umbler.
-      // Tag automation endpoints remain Umbler-only until a UAZAPI tag path exists.
       const connection = await transaction.inboundWebhookConnection.findFirst({
         where: {
           id: input.connectionId,
           workspaceId,
-          provider: { in: ["umbler", "uazapi"] },
           removedAt: null,
         },
         include: { parserRelease: true },
@@ -126,7 +122,7 @@ export class ProviderConversionRulesService {
         connection.provider !== "umbler"
       ) {
         throw new BadRequestException(
-          "Automacao por tag ainda so esta disponivel para conexoes Umbler",
+          "Automacao por tag ainda so esta disponivel para este provedor",
         );
       }
 
@@ -143,9 +139,7 @@ export class ProviderConversionRulesService {
 
       if (!parserRelease) {
         throw new ConflictException(
-          connection.provider === "uazapi"
-            ? "Parser da conexao UAZAPI ainda nao esta disponivel"
-            : "Parser de automacao Umbler ainda nao esta disponivel",
+          "Parser da conexao ainda nao esta disponivel",
         );
       }
 
@@ -326,7 +320,6 @@ export class ProviderConversionRulesService {
         where: {
           id: input.connectionId,
           workspaceId,
-          provider: "umbler",
           removedAt: null,
         },
         include: { parserRelease: true },
@@ -344,7 +337,7 @@ export class ProviderConversionRulesService {
       );
 
       if (!connection.parserRelease) {
-        throw new ConflictException("Parser Umbler ainda nao esta disponivel");
+        throw new ConflictException("Parser da conexao ainda nao esta disponivel");
       }
       this.assertModeAllowed("observation", connection.parserRelease.status);
 

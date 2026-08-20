@@ -39,7 +39,7 @@ function createHarness(
   const connection = {
     id: "connection_1",
     workspaceId: "workspace_1",
-    provider: "umbler" as "umbler" | "uazapi",
+    provider: "umbler" as "umbler" | "gupshup" | "uazapi",
     displayName: "Umbler Cliente",
     parserReleaseId: "inbound_parser_umbler_v1",
     secretHash: "connection-hash",
@@ -54,7 +54,7 @@ function createHarness(
     parserRelease: {
       ...parserRelease,
       id: "inbound_parser_umbler_v1",
-      provider: "umbler" as "umbler" | "uazapi",
+      provider: "umbler" as "umbler" | "gupshup" | "uazapi",
       version: "v1",
       status: "certified" as const,
     },
@@ -87,16 +87,7 @@ function createHarness(
         if (where.id !== connection.id || where.workspaceId !== connection.workspaceId) {
           return null;
         }
-        const providerFilter = where.provider;
-        if (typeof providerFilter === "string" && providerFilter !== connection.provider) {
-          return null;
-        }
-        if (
-          providerFilter &&
-          typeof providerFilter === "object" &&
-          Array.isArray(providerFilter.in) &&
-          !providerFilter.in.includes(connection.provider)
-        ) {
+        if ("provider" in where) {
           return null;
         }
         return connection;
@@ -537,6 +528,46 @@ describe("provider conversion rules service", () => {
     expect(harness.prisma.conversionRule.create).toHaveBeenCalled();
   });
 
+  it("creates a message_phrase rule on a Gupshup connection", async () => {
+    const harness = createHarness();
+    harness.connection.provider = "gupshup";
+    harness.connection.displayName = "Gupshup Cliente";
+    harness.connection.parserRelease = {
+      ...harness.connection.parserRelease,
+      provider: "gupshup",
+      version: "gupshup-v1",
+    };
+
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Lead qualificado Gupshup",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+        triggerPhrases: ["A sua consulta esta agendada"],
+        messageAuthorScope: "team",
+        valueMode: "fixed",
+      },
+      "user_1",
+    );
+
+    expect(created.rule.conversionRule.triggerType).toBe("message_phrase");
+    expect(created.rule.connectionId).toBe("connection_1");
+    expect(created.webhookUrl).toBeNull();
+    expect(harness.prisma.inboundWebhookConnection.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: "connection_1",
+          workspaceId: "workspace_1",
+          removedAt: null,
+        },
+      }),
+    );
+  });
+
   it("rejects tag automation on a UAZAPI connection", async () => {
     const harness = createHarness();
     harness.connection.provider = "uazapi";
@@ -556,7 +587,7 @@ describe("provider conversion rules service", () => {
       ),
     ).rejects.toMatchObject({
       status: 400,
-      message: "Automacao por tag ainda so esta disponivel para conexoes Umbler",
+      message: "Automacao por tag ainda so esta disponivel para este provedor",
     });
   });
 
