@@ -243,40 +243,169 @@ function sanitizePayload(body: unknown): Prisma.InputJsonObject {
   }
 }
 
+function deepString(
+  record: Record<string, unknown>,
+  path: string[],
+): string | undefined {
+  let current: unknown = record;
+  for (const key of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[key];
+  }
+  return asNonEmptyString(current);
+}
+
+function normalizePhone(record: Record<string, unknown>): string | undefined {
+  // Digital Manager Guru: subscriber.phone_local_code + subscriber.phone_number
+  const local =
+    nestedString(record, "subscriber", "phone_local_code") ??
+    nestedString(record, "contact", "phone_local_code");
+  const number =
+    nestedString(record, "subscriber", "phone_number") ??
+    nestedString(record, "contact", "phone_number") ??
+    nestedString(record, "subscriber", "phone") ??
+    nestedString(record, "contact", "phone") ??
+    firstString(record, ["phone", "whatsapp"]);
+  if (!number) {
+    return undefined;
+  }
+  const digitsNumber = number.replace(/\D/g, "");
+  const digitsLocal = (local ?? "").replace(/\D/g, "");
+  if (!digitsNumber) {
+    return undefined;
+  }
+  if (digitsLocal && !digitsNumber.startsWith(digitsLocal)) {
+    return `${digitsLocal}${digitsNumber}`;
+  }
+  return digitsNumber;
+}
+
+function normalizeInterval(record: Record<string, unknown>): LicenseInterval {
+  const direct = parseInterval(record.interval);
+  if (record.interval === "monthly" || record.interval === "semiannual" || record.interval === "annual") {
+    return direct;
+  }
+  const intervalType =
+    deepString(record, ["product", "offer", "plan", "interval_type"]) ??
+    deepString(record, ["next_product", "offer", "plan", "interval_type"]);
+  if (intervalType === "year" || intervalType === "yearly" || intervalType === "annual") {
+    return "annual";
+  }
+  if (intervalType === "month" || intervalType === "monthly") {
+    return "monthly";
+  }
+  if (intervalType === "semiannual" || intervalType === "semester") {
+    return "semiannual";
+  }
+  return DEFAULT_INTERVAL;
+}
+
+/**
+ * Digital Manager Guru subscription webhooks look like:
+ * {
+ *   id/subscription_code: "sub_...",
+ *   last_status: "active"|"inactive"|...,
+ *   webhook_type: "subscription",
+ *   subscriber: { email, name, phone_local_code, phone_number },
+ *   current_invoice: { status: "paid" },
+ *   last_transaction: { status: "approved", contact: {...} }
+ * }
+ * Root `status`/`eventType` are often absent — do not rely on them alone.
+ */
+function resolveGuruEventType(record: Record<string, unknown>): string {
+  const lastStatus = (
+    firstString(record, ["last_status", "status", "eventType", "type", "event"]) ??
+    ""
+  ).toLowerCase();
+  const txnStatus = (
+    deepString(record, ["last_transaction", "status"]) ?? ""
+  ).toLowerCase();
+  const invoiceStatus = (
+    deepString(record, ["current_invoice", "status"]) ?? ""
+  ).toLowerCase();
+  const canceledAt =
+    deepString(record, ["dates", "canceled_at"]) ??
+    deepString(record, ["cancelled_by", "date"]);
+  const hasCancelMarker = Boolean(canceledAt && canceledAt.trim());
+
+  // Explicit cancellation / expiry always wins.
+  if (
+    hasCancelMarker ||
+    ["cancelada", "canceled", "cancelled", "expirada", "expired"].includes(
+      lastStatus,
+    )
+  ) {
+    return lastStatus || "cancelada";
+  }
+
+  // Happy-path subscription labels from Guru UI/API.
+  if (
+    ["ativa", "active", "iniciada", "started", "trial", "trialing"].includes(
+      lastStatus,
+    )
+  ) {
+    return lastStatus;
+  }
+
+  // Paid/approved money movement => issue even if last_status is still settling
+  // (real payload observed: last_status=inactive + invoice paid + txn approved).
+  if (
+    txnStatus === "approved" ||
+    txnStatus === "paid" ||
+    invoiceStatus === "paid"
+  ) {
+    // inactive without cancel markers after a paid invoice still means access granted.
+    if (!lastStatus || lastStatus === "inactive" || lastStatus === "inativa") {
+      return "approved";
+    }
+    return lastStatus;
+  }
+
+  if (lastStatus) {
+    return lastStatus;
+  }
+  return UNKNOWN_EVENT_TYPE;
+}
+
 function normalizeEvent(body: unknown): NormalizedGuruEvent {
   const record = isRecord(body) ? body : {};
-  const eventType = (
-    firstString(record, ["eventType", "type", "event", "status"]) ??
-    UNKNOWN_EVENT_TYPE
-  ).toLowerCase();
+  const eventType = resolveGuruEventType(record);
 
   const externalTransactionId =
     firstString(record, [
+      "subscription_code",
       "id",
       "transactionId",
       "transaction_id",
       "externalTransactionId",
+      "internal_id",
     ]) ??
     nestedString(record, "payment", "id") ??
     nestedString(record, "subscription", "id") ??
-    nestedString(record, "last_transaction", "id");
+    nestedString(record, "last_transaction", "id") ??
+    deepString(record, ["current_invoice", "subscription_id"]);
 
   const buyerEmail =
     nestedString(record, "subscriber", "email") ??
     nestedString(record, "contact", "email") ??
+    deepString(record, ["last_transaction", "contact", "email"]) ??
     firstString(record, ["email", "buyerEmail"]);
 
   const buyerName =
     nestedString(record, "subscriber", "name") ??
+    deepString(record, ["last_transaction", "contact", "name"]) ??
     firstString(record, ["name", "buyerName"]);
 
-  const phone =
-    nestedString(record, "subscriber", "phone") ??
-    nestedString(record, "contact", "phone") ??
-    firstString(record, ["phone", "whatsapp"]);
+  const phone = normalizePhone(record) ??
+    deepString(record, ["last_transaction", "contact", "phone_number"]);
 
   const productSku =
-    firstString(record, ["productSku", "product_sku"]) ?? DEFAULT_PRODUCT_SKU;
+    firstString(record, ["productSku", "product_sku"]) ??
+    deepString(record, ["product", "offer", "id"]) ??
+    deepString(record, ["product", "marketplace_id"]) ??
+    DEFAULT_PRODUCT_SKU;
 
   return {
     eventType,
@@ -285,7 +414,7 @@ function normalizeEvent(body: unknown): NormalizedGuruEvent {
     buyerName,
     phone,
     productSku,
-    interval: parseInterval(record.interval),
+    interval: normalizeInterval(record),
   };
 }
 
