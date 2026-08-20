@@ -8243,32 +8243,65 @@ html[data-presentation-mode="active"] .inbound-webhook-secret {
 
 .provider-conversion-builder select {
   appearance: none;
-  background-image:
+  color: var(--ink);
+  /* Layered fill + chevron: a lone background-image was wiping the dark surface
+     and left native menus with white-on-white text in Chromium. */
+  background:
     linear-gradient(45deg, transparent 50%, var(--ink-muted) 50%),
-    linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%);
+    linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent),
+    rgba(5, 8, 7, 0.92);
   background-position:
     calc(100% - 16px) calc(50% - 3px),
-    calc(100% - 11px) calc(50% - 3px);
+    calc(100% - 11px) calc(50% - 3px),
+    0 0,
+    0 0;
   background-size:
     5px 5px,
-    5px 5px;
+    5px 5px,
+    auto,
+    auto;
   background-repeat: no-repeat;
   padding-right: 34px;
   cursor: pointer;
 }
 
+.provider-conversion-builder select option,
+.provider-conversion-builder select optgroup {
+  background-color: var(--graphite-900);
+  color: var(--ink);
+}
+
 .provider-conversion-secret input:hover,
 .provider-conversion-builder input:hover,
-.provider-conversion-builder select:hover:not(:disabled),
 .provider-conversion-builder textarea:hover,
 .provider-catalog-test textarea:hover {
   border-color: rgba(190, 226, 215, 0.22);
   background: rgba(255, 255, 255, 0.05);
 }
 
+.provider-conversion-builder select:hover:not(:disabled) {
+  border-color: rgba(190, 226, 215, 0.22);
+  background:
+    linear-gradient(45deg, transparent 50%, var(--ink-muted) 50%),
+    linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent),
+    rgba(8, 14, 12, 0.96);
+  background-position:
+    calc(100% - 16px) calc(50% - 3px),
+    calc(100% - 11px) calc(50% - 3px),
+    0 0,
+    0 0;
+  background-size:
+    5px 5px,
+    5px 5px,
+    auto,
+    auto;
+  background-repeat: no-repeat;
+}
+
 .provider-conversion-secret input:focus,
 .provider-conversion-builder input:focus,
-.provider-conversion-builder select:focus,
 .provider-conversion-builder textarea:focus,
 .provider-catalog-test textarea:focus {
   border-color: rgba(66, 240, 168, 0.7);
@@ -8276,11 +8309,44 @@ html[data-presentation-mode="active"] .inbound-webhook-secret {
   box-shadow: 0 0 0 3px rgba(18, 184, 132, 0.14);
 }
 
+.provider-conversion-builder select:focus {
+  border-color: rgba(66, 240, 168, 0.7);
+  box-shadow: 0 0 0 3px rgba(18, 184, 132, 0.14);
+  background:
+    linear-gradient(45deg, transparent 50%, var(--ink-muted) 50%),
+    linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent),
+    rgba(5, 8, 7, 0.96);
+  background-position:
+    calc(100% - 16px) calc(50% - 3px),
+    calc(100% - 11px) calc(50% - 3px),
+    0 0,
+    0 0;
+  background-size:
+    5px 5px,
+    5px 5px,
+    auto,
+    auto;
+  background-repeat: no-repeat;
+}
+
 .provider-conversion-builder select:disabled {
   opacity: 0.62;
   cursor: not-allowed;
-  background-color: rgba(255, 255, 255, 0.02);
   color: var(--ink-soft);
+  background:
+    linear-gradient(45deg, transparent 50%, var(--ink-muted) 50%),
+    linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%),
+    rgba(5, 8, 7, 0.7);
+  background-position:
+    calc(100% - 16px) calc(50% - 3px),
+    calc(100% - 11px) calc(50% - 3px),
+    0 0;
+  background-size:
+    5px 5px,
+    5px 5px,
+    auto;
+  background-repeat: no-repeat;
 }
 
 html[data-presentation-mode="active"] .provider-conversion-secret {
