@@ -39,7 +39,7 @@ function createHarness(
   const connection = {
     id: "connection_1",
     workspaceId: "workspace_1",
-    provider: "umbler" as const,
+    provider: "umbler" as "umbler" | "gupshup" | "uazapi",
     displayName: "Umbler Cliente",
     parserReleaseId: "inbound_parser_umbler_v1",
     secretHash: "connection-hash",
@@ -54,6 +54,7 @@ function createHarness(
     parserRelease: {
       ...parserRelease,
       id: "inbound_parser_umbler_v1",
+      provider: "umbler" as "umbler" | "gupshup" | "uazapi",
       version: "v1",
       status: "certified" as const,
     },
@@ -82,12 +83,15 @@ function createHarness(
 
   const prisma: Record<string, any> = {
     inboundWebhookConnection: {
-      findFirst: vi.fn(async ({ where }) =>
-        where.id === connection.id &&
-        where.workspaceId === connection.workspaceId
-          ? connection
-          : null,
-      ),
+      findFirst: vi.fn(async ({ where }) => {
+        if (where.id !== connection.id || where.workspaceId !== connection.workspaceId) {
+          return null;
+        }
+        if ("provider" in where) {
+          return null;
+        }
+        return connection;
+      }),
     },
     inboundWebhookChannel: {
       count: vi.fn(async () => channelCount),
@@ -287,6 +291,7 @@ function createHarness(
 
   return {
     audits,
+    connection,
     get endpoint() {
       return endpoint;
     },
@@ -488,6 +493,102 @@ describe("provider conversion rules service", () => {
     expect(listed).toHaveLength(1);
     expect(JSON.stringify(listed)).not.toContain(plaintextSecret);
     expect(JSON.stringify(listed)).not.toContain(harness.endpoint?.secretHash);
+  });
+
+  it("creates a message_phrase rule on a UAZAPI connection without requiring Umbler", async () => {
+    const harness = createHarness();
+    harness.connection.provider = "uazapi";
+    harness.connection.displayName = "Whats Bento";
+    harness.connection.parserRelease = {
+      ...harness.connection.parserRelease,
+      provider: "uazapi",
+      version: "uazapi-v1",
+    };
+
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Lead qualificado por mensagem",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+        triggerPhrases: ["A sua consulta esta agendada"],
+        messageAuthorScope: "team",
+        valueMode: "fixed",
+      },
+      "user_1",
+    );
+
+    expect(created.rule.conversionRule.triggerType).toBe("message_phrase");
+    expect(created.rule.conversionRule.eventName).toBe("QualifiedLead");
+    expect(created.rule.connectionId).toBe("connection_1");
+    expect(created.webhookUrl).toBeNull();
+    expect(harness.prisma.conversionRule.create).toHaveBeenCalled();
+  });
+
+  it("creates a message_phrase rule on a Gupshup connection", async () => {
+    const harness = createHarness();
+    harness.connection.provider = "gupshup";
+    harness.connection.displayName = "Gupshup Cliente";
+    harness.connection.parserRelease = {
+      ...harness.connection.parserRelease,
+      provider: "gupshup",
+      version: "gupshup-v1",
+    };
+
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Lead qualificado Gupshup",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+        triggerPhrases: ["A sua consulta esta agendada"],
+        messageAuthorScope: "team",
+        valueMode: "fixed",
+      },
+      "user_1",
+    );
+
+    expect(created.rule.conversionRule.triggerType).toBe("message_phrase");
+    expect(created.rule.connectionId).toBe("connection_1");
+    expect(created.webhookUrl).toBeNull();
+    expect(harness.prisma.inboundWebhookConnection.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: "connection_1",
+          workspaceId: "workspace_1",
+          removedAt: null,
+        },
+      }),
+    );
+  });
+
+  it("rejects tag automation on a UAZAPI connection", async () => {
+    const harness = createHarness();
+    harness.connection.provider = "uazapi";
+
+    await expect(
+      harness.service.createRule(
+        "workspace_1",
+        {
+          name: "Tag UAZAPI",
+          connectionId: "connection_1",
+          channelIds: ["channel_1"],
+          mode: "observation",
+          triggerType: "provider_automation",
+          eventName: "QualifiedLead",
+        },
+        "user_1",
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: "Automacao por tag ainda so esta disponivel para este provedor",
+    });
   });
 
   it("rejects a channel that is outside the selected workspace connection", async () => {

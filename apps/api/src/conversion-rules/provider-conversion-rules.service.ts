@@ -32,7 +32,7 @@ import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
 
 const ruleNotFoundMessage = "Regra de conversao do provedor nao encontrada";
-const connectionNotFoundMessage = "Conexao Umbler nao encontrada";
+const connectionNotFoundMessage = "Conexao nao encontrada";
 const endpointNotFoundMessage = "Endpoint de automacao nao encontrado";
 
 const providerRuleInclude = {
@@ -101,7 +101,6 @@ export class ProviderConversionRulesService {
         where: {
           id: input.connectionId,
           workspaceId,
-          provider: "umbler",
           removedAt: null,
         },
         include: { parserRelease: true },
@@ -118,6 +117,15 @@ export class ProviderConversionRulesService {
         input.channelIds,
       );
 
+      if (
+        input.triggerType === "provider_automation" &&
+        connection.provider !== "umbler"
+      ) {
+        throw new BadRequestException(
+          "Automacao por tag ainda so esta disponivel para este provedor",
+        );
+      }
+
       const parserRelease =
         input.triggerType === "provider_automation"
           ? await transaction.inboundWebhookParserRelease.findFirst({
@@ -131,7 +139,7 @@ export class ProviderConversionRulesService {
 
       if (!parserRelease) {
         throw new ConflictException(
-          "Parser de automacao Umbler ainda nao esta disponivel",
+          "Parser da conexao ainda nao esta disponivel",
         );
       }
 
@@ -312,7 +320,6 @@ export class ProviderConversionRulesService {
         where: {
           id: input.connectionId,
           workspaceId,
-          provider: "umbler",
           removedAt: null,
         },
         include: { parserRelease: true },
@@ -330,7 +337,7 @@ export class ProviderConversionRulesService {
       );
 
       if (!connection.parserRelease) {
-        throw new ConflictException("Parser Umbler ainda nao esta disponivel");
+        throw new ConflictException("Parser da conexao ainda nao esta disponivel");
       }
       this.assertModeAllowed("observation", connection.parserRelease.status);
 
