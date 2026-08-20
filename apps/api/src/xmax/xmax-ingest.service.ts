@@ -5,13 +5,16 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma, type XmaxAccount } from "@prisma/client";
 import {
   hashNormalizedPhone,
   normalizePhoneIdentityWithCountry,
 } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
-import { parseXmaxContactWebhook } from "./xmax-contact.parser";
+import {
+  parseXmaxContactWebhook,
+  type ParsedXmaxContactWebhook,
+} from "./xmax-contact.parser";
 import { XmaxCredentialEncryptionService } from "./xmax-credential-encryption.service";
 import { mapXmaxTagsToEvent } from "./xmax-event-mapper";
 import {
@@ -31,6 +34,14 @@ export type XmaxIngestInput = {
   rawBody: Buffer | undefined;
 };
 
+export type XmaxGlobalIngestInput = {
+  ingressId: string;
+  token: unknown;
+  contentType: string | undefined;
+  providerAttempt: unknown;
+  rawBody: Buffer | undefined;
+};
+
 export type XmaxIngestResult = {
   status:
     | "observed"
@@ -43,6 +54,13 @@ export type XmaxIngestResult = {
   shadowMode: boolean;
   production?: XmaxProductionResult;
 };
+
+type BodyGuardResult =
+  | { ok: true; body: unknown }
+  | {
+      ok: false;
+      reasonCode: "empty_body" | "payload_too_large" | "invalid_json";
+    };
 
 @Injectable()
 export class XmaxIngestService {
@@ -57,6 +75,7 @@ export class XmaxIngestService {
     private readonly production: XmaxProductionService,
   ) {}
 
+  /** Legacy / compat path: one URL per account, `:accountId` in the path. */
   async ingest(input: XmaxIngestInput): Promise<XmaxIngestResult> {
     const account = await this.prisma.xmaxAccount.findFirst({
       where: {
@@ -70,63 +89,122 @@ export class XmaxIngestService {
       throw new NotFoundException(publicNotFoundMessage);
     }
 
-    const token =
-      typeof input.token === "string" && input.token.trim()
-        ? input.token.trim()
-        : undefined;
+    const token = this.readToken(input.token);
     if (
       !this.credentials.matchesWebhookSecret(token, account.webhookSecretHash)
     ) {
       throw new NotFoundException(publicNotFoundMessage);
     }
 
-    if (!input.rawBody || input.rawBody.length === 0) {
+    const providerAttempt = this.parseAttempt(input.providerAttempt);
+    const guard = this.checkBodyGuards(input.rawBody);
+    if (!guard.ok) {
       return this.recordAndReturn(account, {
         status: "discarded",
-        reasonCode: "empty_body",
-        ingressKey: "empty",
-        providerAttempt: this.parseAttempt(input.providerAttempt),
+        reasonCode: guard.reasonCode,
+        ingressKey: this.guardIngressKey(guard.reasonCode, input.rawBody),
+        providerAttempt,
       });
     }
 
-    if (input.rawBody.length > MAX_BODY_BYTES) {
-      return this.recordAndReturn(account, {
-        status: "discarded",
-        reasonCode: "payload_too_large",
-        ingressKey: `oversized:${input.rawBody.length}`,
-        providerAttempt: this.parseAttempt(input.providerAttempt),
-      });
-    }
-
-    let body: unknown;
-    try {
-      body = JSON.parse(input.rawBody.toString("utf8"));
-    } catch {
-      return this.recordAndReturn(account, {
-        status: "discarded",
-        reasonCode: "invalid_json",
-        ingressKey: `badjson:${this.hash(input.rawBody)}`,
-        providerAttempt: this.parseAttempt(input.providerAttempt),
-      });
-    }
-
-    const parsed = parseXmaxContactWebhook(body, input.rawBody);
+    const parsed = parseXmaxContactWebhook(guard.body, input.rawBody);
     if (!parsed.ok) {
       return this.recordAndReturn(account, {
         status: "discarded",
         reasonCode: parsed.reason,
-        ingressKey: `parse:${this.hash(input.rawBody)}`,
-        providerAttempt: this.parseAttempt(input.providerAttempt),
+        ingressKey: `parse:${this.hash(input.rawBody!)}`,
+        providerAttempt,
       });
     }
 
-    const { contactId, phoneHint, name } = parsed.value;
+    return this.processResolvedAccount(account, parsed.value, providerAttempt);
+  }
+
+  /**
+   * Global ingress path: one URL for the whole XMAX tenant, `Queue_id` in the
+   * body selects the account. Auth happens against the ingress — before any
+   * routing, before any database write. `Queue_id` is only a lookup key: the
+   * outbound getContact call always uses `account.queueId` from config, never
+   * the payload.
+   */
+  async ingestGlobal(input: XmaxGlobalIngestInput): Promise<XmaxIngestResult> {
+    const ingress = await this.prisma.xmaxIngress.findFirst({
+      where: { id: input.ingressId, status: "active" },
+    });
+
+    // Uniform 404 — never leak whether the ingress exists.
+    if (!ingress) {
+      throw new NotFoundException(publicNotFoundMessage);
+    }
+
+    const token = this.readToken(input.token);
+    if (
+      !this.credentials.matchesWebhookSecret(token, ingress.webhookSecretHash)
+    ) {
+      throw new NotFoundException(publicNotFoundMessage);
+    }
+
     const providerAttempt = this.parseAttempt(input.providerAttempt);
+    const bodyBytes = input.rawBody?.length ?? 0;
+
+    const guard = this.checkBodyGuards(input.rawBody);
+    if (!guard.ok) {
+      this.logIngressDiscard(ingress.id, guard.reasonCode, bodyBytes);
+      return { status: "discarded", reasonCode: guard.reasonCode, shadowMode: true };
+    }
+
+    const parsed = parseXmaxContactWebhook(guard.body, input.rawBody);
+    if (!parsed.ok) {
+      this.logIngressDiscard(ingress.id, parsed.reason, bodyBytes);
+      return { status: "discarded", reasonCode: parsed.reason, shadowMode: true };
+    }
+
+    const queueId = parsed.value.queueId;
+    if (!queueId) {
+      this.logIngressDiscard(ingress.id, "queue_id_absent", bodyBytes);
+      return { status: "discarded", reasonCode: "queue_id_absent", shadowMode: true };
+    }
+
+    // Single indexed lookup — never a scan across accounts/workspaces.
+    const account = await this.prisma.xmaxAccount.findFirst({
+      where: {
+        ingressId: ingress.id,
+        queueId,
+        status: "active",
+      },
+    });
+
+    if (!account) {
+      this.logIngressDiscard(ingress.id, "queue_unresolved", bodyBytes, queueId);
+      return { status: "discarded", reasonCode: "queue_unresolved", shadowMode: true };
+    }
+
+    await this.prisma.xmaxIngress.update({
+      where: { id: ingress.id },
+      data: { lastWebhookAt: new Date() },
+    });
+
+    return this.processResolvedAccount(account, parsed.value, providerAttempt);
+  }
+
+  /**
+   * Shared tail for both ingest paths: decrypt, getContact (always with
+   * account.queueId from config), map tags, paid-only gate, semantic dedup,
+   * persist, production emit. Kept as one method so the two entry points can
+   * never diverge in behavior.
+   */
+  private async processResolvedAccount(
+    account: XmaxAccount,
+    parsed: ParsedXmaxContactWebhook,
+    providerAttempt: number | null,
+  ): Promise<XmaxIngestResult> {
+    const { contactId, phoneHint, name } = parsed;
+
     // XMAX contact-edit webhooks often repeat the same body; tags change only on
     // getContact. Never short-circuit on body hash — each delivery must re-fetch.
     // ingressKey is unique per delivery (body hash + nonce) for audit only.
     // Real anti-replay is semantic dedup (accountId+contactId+eventName).
-    const bodyHash = parsed.value.ingressKey;
+    const bodyHash = parsed.ingressKey;
     const ingressKey = `${bodyHash}:${Date.now().toString(36)}:${randomBytes(4).toString("hex")}`;
 
     // Touch lastWebhookAt early so ops can see deliveries even if getContact fails.
@@ -156,6 +234,7 @@ export class XmaxIngestService {
     try {
       contact = await this.adapter.getContact({
         baseUrl: account.baseUrl,
+        // From CONFIG, never from the payload — the payload is a selector only.
         queueId: account.queueId,
         apiKey,
         contactId,
@@ -370,6 +449,55 @@ export class XmaxIngestService {
       shadowMode: account.shadowMode,
       production: productionResult,
     };
+  }
+
+  private readToken(token: unknown): string | undefined {
+    return typeof token === "string" && token.trim() ? token.trim() : undefined;
+  }
+
+  private checkBodyGuards(rawBody: Buffer | undefined): BodyGuardResult {
+    if (!rawBody || rawBody.length === 0) {
+      return { ok: false, reasonCode: "empty_body" };
+    }
+    if (rawBody.length > MAX_BODY_BYTES) {
+      return { ok: false, reasonCode: "payload_too_large" };
+    }
+    try {
+      return { ok: true, body: JSON.parse(rawBody.toString("utf8")) };
+    } catch {
+      return { ok: false, reasonCode: "invalid_json" };
+    }
+  }
+
+  private guardIngressKey(
+    reasonCode: "empty_body" | "payload_too_large" | "invalid_json",
+    rawBody: Buffer | undefined,
+  ): string {
+    if (reasonCode === "empty_body") return "empty";
+    if (reasonCode === "payload_too_large") {
+      return `oversized:${rawBody?.length ?? 0}`;
+    }
+    return `badjson:${this.hash(rawBody!)}`;
+  }
+
+  /** No account is resolved yet — log only, no PII, no DB write. */
+  private logIngressDiscard(
+    ingressId: string,
+    reasonCode: string,
+    bodyBytes: number,
+    queueId?: string,
+  ): void {
+    this.logger.warn(
+      JSON.stringify({
+        event: "xmax_ingress.queue_unresolved",
+        ingressId,
+        reasonCode,
+        bodyBytes,
+        queueIdHash: queueId
+          ? createHash("sha256").update(queueId).digest("hex").slice(0, 16)
+          : undefined,
+      }),
+    );
   }
 
   private async recordAndReturn(
