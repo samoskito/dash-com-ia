@@ -8,11 +8,11 @@ import type {
 } from "@wpptrack/shared";
 import {
   buildCreatePayload,
+  ConversionRuleOriginEventSelector,
   MessagePhraseFields,
   parseMoneyToCents,
   previewMessagePhrase,
   ProviderConversionRulePanel,
-  RuleKindSelector,
 } from "../src/app/(app)/integrations/provider-conversion-rule-panel";
 import { ProviderCatalogTestResult } from "../src/app/(app)/settings/provider-catalog-test-result";
 
@@ -349,24 +349,49 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain("R$\u00a07.000,00");
   });
 
-  it("keeps catalog and tag rules alongside the new checkout message kind", () => {
+  it("offers every catalog event under the origin dropdown", () => {
     const html = renderToStaticMarkup(
-      createElement(RuleKindSelector, {
-        kind: "qualified_automation",
-        onSelect: () => undefined,
+      createElement(ConversionRuleOriginEventSelector, {
+        origin: "message",
+        eventName: "QualifiedLead",
+        onOriginChange: () => undefined,
+        onEventChange: () => undefined,
       }),
     );
 
-    expect(html).toContain("Lead qualificado por tag");
-    expect(html).toContain("Compra por tag");
-    expect(html).toContain("Compra por catalogo");
-    expect(html).toContain("Compra por mensagem");
-    expect(html).toContain("Checkout por mensagem");
+    expect(html).toContain("Origem do gatilho");
+    expect(html).toContain("Evento enviado a Meta");
+    expect(html).toContain("Mensagem no WhatsApp");
+    expect(html).toContain("Tag ou automacao do provedor");
+    expect(html).toContain("Catalogo estruturado");
+    expect(html).toContain("Lead recebido");
+    expect(html).toContain("Adicionou ao carrinho");
+    expect(html).toContain("Checkout iniciado");
+    expect(html).toContain("Lead qualificado");
+    expect(html).toContain("Compra realizada");
+    expect(html).toContain("Pedido enviado");
+    expect(html).toContain("Nao carrega valor");
+  });
+
+  it("locks the catalog origin on the only event it supports", () => {
+    const html = renderToStaticMarkup(
+      createElement(ConversionRuleOriginEventSelector, {
+        origin: "catalog",
+        eventName: "Purchase",
+        onOriginChange: () => undefined,
+        onEventChange: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Compra realizada");
+    expect(html).not.toContain("Adicionou ao carrinho");
+    expect(html).not.toContain("Lead qualificado");
   });
 
   it("builds an InitiateCheckout message rule with a fixed average value", () => {
     const payload = createPayload({
-      kind: "checkout_message",
+      origin: "message",
+      eventName: "InitiateCheckout",
       name: "Checkout Dr Hernia",
       averageValue: "250,00",
       triggerPhrases: "Segue o link do pagamento",
@@ -389,7 +414,8 @@ describe("provider conversion rule panel", () => {
 
   it("builds a Purchase message rule that extracts the value from the message", () => {
     const payload = createPayload({
-      kind: "purchase_message",
+      origin: "message",
+      eventName: "Purchase",
       name: "Compra confirmada",
       averageValue: "",
       triggerPhrases: "Pagamento confirmado",
@@ -406,10 +432,91 @@ describe("provider conversion rule panel", () => {
     });
   });
 
+  it("builds a QualifiedLead message rule without any monetary field", () => {
+    const payload = createPayload({
+      origin: "message",
+      eventName: "QualifiedLead",
+      name: "Lead qualificado por resposta",
+      averageValue: "250,00",
+      contentName: "Consulta",
+      triggerPhrases: "vou te passar os valores",
+      exampleMessage: "Perfeito! Vou te passar os valores agora.",
+      valueMode: "message_extracted",
+    });
+
+    expect(payload).toMatchObject({
+      triggerType: "message_phrase",
+      eventName: "QualifiedLead",
+      valueMode: "fixed",
+      triggerPhrases: ["vou te passar os valores"],
+      exampleMessage: "Perfeito! Vou te passar os valores agora.",
+      messageAuthorScope: "team",
+    });
+    expect(payload).not.toHaveProperty("defaultValueCents");
+    expect(payload).not.toHaveProperty("defaultCurrency");
+    expect(payload).not.toHaveProperty("defaultContentName");
+  });
+
+  it("keeps the average value optional for an AddToCart message rule", () => {
+    const payload = createPayload({
+      origin: "message",
+      eventName: "AddToCart",
+      name: "Carrinho montado",
+      averageValue: "",
+      triggerPhrases: "vou querer esse",
+      valueMode: "fixed",
+    });
+
+    expect(payload).toMatchObject({
+      triggerType: "message_phrase",
+      eventName: "AddToCart",
+      valueMode: "fixed",
+      defaultValueCents: null,
+      defaultCurrency: "BRL",
+    });
+  });
+
+  it("builds a Purchase tag rule with the fixed value and no message fields", () => {
+    const payload = createPayload({
+      origin: "tag",
+      eventName: "Purchase",
+      name: "Compra por tag",
+      averageValue: "299,90",
+      contentName: "Pedido medio",
+      triggerPhrases: "ignorado pela origem tag",
+    });
+
+    expect(payload).toMatchObject({
+      triggerType: "provider_automation",
+      eventName: "Purchase",
+      defaultValueCents: 29_990,
+      defaultCurrency: "BRL",
+      defaultContentName: "Pedido medio",
+    });
+    expect(payload).not.toHaveProperty("triggerPhrases");
+    expect(payload).not.toHaveProperty("valueMode");
+  });
+
+  it("builds a QualifiedLead tag rule without monetary fields", () => {
+    const payload = createPayload({
+      origin: "tag",
+      eventName: "QualifiedLead",
+      name: "Lead qualificado por tag",
+      averageValue: "250,00",
+    });
+
+    expect(payload).toMatchObject({
+      triggerType: "provider_automation",
+      eventName: "QualifiedLead",
+    });
+    expect(payload).not.toHaveProperty("defaultValueCents");
+  });
+
   it("keeps the average value required for fixed message rules", () => {
     const result = buildCreatePayload({
       ...payloadInput,
-      kind: "checkout_message",
+      origin: "message",
+      eventName: "InitiateCheckout",
       averageValue: "",
       valueMode: "fixed",
       triggerPhrases: "Segue o link do pagamento",
@@ -421,9 +528,24 @@ describe("provider conversion rule panel", () => {
     });
   });
 
+  it("keeps the average value required for a Purchase tag rule", () => {
+    const result = buildCreatePayload({
+      ...payloadInput,
+      origin: "tag",
+      eventName: "Purchase",
+      averageValue: "",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Informe um valor medio valido.",
+    });
+  });
+
   it("keeps the catalog payload free of message value fields", () => {
     const payload = createPayload({
-      kind: "purchase_catalog",
+      origin: "catalog",
+      eventName: "Purchase",
       triggerPhrases: "Dados para confirmar o pedido",
       catalogName: "Camas elasticas",
       productName: "Cama elastica",
@@ -504,7 +626,7 @@ describe("provider conversion rule panel", () => {
   it("shows the message value fields with a live preview", () => {
     const html = renderToStaticMarkup(
       createElement(MessagePhraseFields, {
-        kind: "checkout_message",
+        eventName: "InitiateCheckout",
         averageValue: "",
         contentName: "",
         triggerPhrases: "Segue o link do pagamento",
@@ -524,6 +646,45 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain("Frase gatilho reconhecida");
     expect(html).toContain("Valor extraido do exemplo: R$\u00a0250,00");
     expect(html).toContain("Valor medio (fallback, opcional)");
+  });
+
+  it("hides the whole value block for an event that carries no value", () => {
+    const html = renderToStaticMarkup(
+      createElement(MessagePhraseFields, {
+        eventName: "QualifiedLead",
+        averageValue: "",
+        contentName: "",
+        triggerPhrases: "vou te passar os valores",
+        exampleMessage: "Perfeito! Vou te passar os valores agora.",
+        valueMode: "fixed",
+        messageAuthorScope: "team",
+        onChange: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Frase gatilho reconhecida");
+    expect(html).toContain("Este evento nao envia valor monetario.");
+    expect(html).not.toContain("Modo de valor");
+    expect(html).not.toContain("Extrair da mensagem");
+    expect(html).not.toContain("Valor medio");
+  });
+
+  it("marks the average value as optional for an event that may carry value", () => {
+    const html = renderToStaticMarkup(
+      createElement(MessagePhraseFields, {
+        eventName: "AddToCart",
+        averageValue: "",
+        contentName: "",
+        triggerPhrases: "vou querer esse",
+        exampleMessage: "",
+        valueMode: "fixed",
+        messageAuthorScope: "team",
+        onChange: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Modo de valor");
+    expect(html).toContain("Valor medio (opcional)");
   });
 
   it("lists a checkout rule with its event, value mode and example", () => {
@@ -570,7 +731,8 @@ describe("provider conversion rule panel", () => {
 
 const payloadInput = {
   connectionId: "connection_1",
-  kind: "purchase_message",
+  origin: "message",
+  eventName: "Purchase",
   name: "Regra de teste",
   selectedChannelIds: ["channel_1"],
   averageValue: "",
