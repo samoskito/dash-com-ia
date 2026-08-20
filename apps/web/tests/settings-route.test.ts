@@ -72,10 +72,22 @@ function mockSettingsFetch(options: {
   workspacePlatformRole?: "platform_owner" | "platform_operator" | null;
   membersStatus?: number;
   authStatus?: number;
+  opsAlertSettings?: unknown;
+  opsAlertSettingsStatus?: number;
 }) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
     const role = options.workspaceRole ?? "owner";
+
+    if (url.endsWith("/ops-alerts/settings")) {
+      return new Response(
+        JSON.stringify(options.opsAlertSettings ?? null),
+        {
+          status: options.opsAlertSettingsStatus ?? 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
 
     if (url.endsWith("/integrations/inbound-webhooks")) {
       return new Response(JSON.stringify(options.providerConnections ?? []), {
@@ -198,6 +210,13 @@ describe("settings route", () => {
   it("renders workspace, members and invite controls from backend data", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
+
+      if (url.endsWith("/ops-alerts/settings")) {
+        return new Response(JSON.stringify(null), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
 
       if (url.endsWith("/conversion-rules")) {
         return new Response(JSON.stringify([]), {
@@ -330,13 +349,15 @@ describe("settings route", () => {
     expect(html).toContain('href="#configuracao-conta"');
     expect(html).toContain('href="#configuracao-equipe"');
     expect(html).toContain('href="#configuracao-conversoes"');
+    expect(html).toContain('href="#configuracao-operacao"');
     expect(html).toContain('href="#configuracao-trocar-cliente"');
     expect(html).toContain('id="configuracao-conta"');
     expect(html).toContain('id="configuracao-equipe"');
     expect(html).toContain('id="configuracao-conversoes"');
+    expect(html).toContain('id="configuracao-operacao"');
     expect(html).toContain('id="configuracao-trocar-cliente"');
     expect(html).toContain("Trocar de cliente");
-    expect(html.match(/class="settings-domain-section/g)).toHaveLength(4);
+    expect(html.match(/class="settings-domain-section/g)).toHaveLength(5);
     expect(
       html.match(/class="surface-panel settings-automation-details [^"]+"/g),
     ).toHaveLength(2);
@@ -523,6 +544,13 @@ describe("settings route", () => {
   it("renders WhatsApp label suggestions from active Uazapi instances", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
+
+      if (url.endsWith("/ops-alerts/settings")) {
+        return new Response(JSON.stringify(null), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
 
       if (url.endsWith("/conversion-rules")) {
         return new Response(JSON.stringify([]), {
@@ -726,5 +754,86 @@ describe("settings route", () => {
     expect(html).not.toContain("Novo lead");
     expect(html).not.toContain("Compra confirmada");
     expect(html).not.toContain("Venda fechada");
+  });
+
+  it("renders configured ops alert settings for an owner", async () => {
+    mockSettingsFetch({
+      rulesBody: [],
+      opsAlertSettings: {
+        id: "ops_alert_1",
+        workspaceId: "workspace_1",
+        enabled: true,
+        alertPhoneE164: "5511999999999",
+        disconnectAlerts: true,
+        webhookSilenceAlerts: false,
+        silenceThresholdHours: 48,
+        debounceHours: 3,
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+      },
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Alertas WhatsApp");
+    expect(html).toContain("Ativar alertas");
+    expect(html).toContain('name="workspaceId"');
+    expect(html).toContain('value="workspace_1"');
+    expect(html).toContain('value="5511999999999"');
+    expect(html).toContain('name="alertPhone"');
+    expect(html).toMatch(/name="enabled"[^>]*checked|checked[^>]*name="enabled"/);
+    expect(html).toMatch(
+      /name="disconnectAlerts"[^>]*checked|checked[^>]*name="disconnectAlerts"/,
+    );
+    expect(html).toContain('name="webhookSilenceAlerts"');
+    expect(html).not.toMatch(
+      /name="webhookSilenceAlerts"[^>]*checked|checked[^>]*name="webhookSilenceAlerts"/,
+    );
+    expect(html).toContain('name="silenceThresholdHours"');
+    expect(html).toContain('value="48"');
+    expect(html).toContain('name="debounceHours"');
+    expect(html).toContain('value="3"');
+    expect(html).toContain("Salvar alertas");
+    expect(html).toContain("Ativado");
+  });
+
+  it("shows defaults when ops alert settings were never configured", async () => {
+    mockSettingsFetch({ rulesBody: [], opsAlertSettings: null });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).not.toMatch(
+      /name="enabled"[^>]*checked|checked[^>]*name="enabled"/,
+    );
+    expect(html).toMatch(
+      /name="disconnectAlerts"[^>]*checked|checked[^>]*name="disconnectAlerts"/,
+    );
+    expect(html).toMatch(
+      /name="webhookSilenceAlerts"[^>]*checked|checked[^>]*name="webhookSilenceAlerts"/,
+    );
+    expect(html).toContain('name="silenceThresholdHours"');
+    expect(html).toContain('value="24"');
+    expect(html).toContain('name="debounceHours"');
+    expect(html).toContain('value="6"');
+    expect(html).toContain("Desativado");
+  });
+
+  it("keeps ops alert settings read-only for workspace members without loading the endpoint", async () => {
+    mockSettingsFetch({ rulesBody: [], workspaceRole: "member" });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain(
+      "Sem permissao para gerenciar alertas operacionais.",
+    );
+    expect(html).not.toContain("Salvar alertas");
+    expect(html).not.toContain('name="alertPhone"');
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/ops-alerts/settings"),
+      expect.anything(),
+    );
   });
 });

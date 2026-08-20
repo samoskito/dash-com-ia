@@ -17,6 +17,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import {
   ArrowLeftRight,
+  Bell,
   Building2,
   ChevronDown,
   ShieldCheck,
@@ -41,6 +42,7 @@ import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { ProviderConversionRulePanel } from "../integrations/provider-conversion-rule-panel";
 import { clientSwapAction } from "./client-swap-actions";
+import { saveOpsAlertSettingsAction } from "./ops-alert-settings-actions";
 import {
   adaptProviderConversionRuleAction,
   createProviderConversionRuleAction,
@@ -69,6 +71,42 @@ type AccountUserDto = {
 type AccountSettingsResult = {
   user: AccountUserDto | null;
   state: "real" | "error";
+};
+
+type WorkspaceOpsAlertSettingsDto = {
+  id: string;
+  workspaceId: string;
+  enabled: boolean;
+  alertPhoneE164: string | null;
+  disconnectAlerts: boolean;
+  webhookSilenceAlerts: boolean;
+  silenceThresholdHours: number;
+  debounceHours: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type OpsAlertSettingsResult = {
+  settings: WorkspaceOpsAlertSettingsDto | null;
+  workspaceId: string | null;
+  state: "real" | "forbidden" | "error";
+};
+
+const opsAlertSettingsDefaults: Pick<
+  WorkspaceOpsAlertSettingsDto,
+  | "enabled"
+  | "alertPhoneE164"
+  | "disconnectAlerts"
+  | "webhookSilenceAlerts"
+  | "silenceThresholdHours"
+  | "debounceHours"
+> = {
+  enabled: false,
+  alertPhoneE164: null,
+  disconnectAlerts: true,
+  webhookSilenceAlerts: true,
+  silenceThresholdHours: 24,
+  debounceHours: 6,
 };
 
 type ConversionRulesResult = {
@@ -252,6 +290,24 @@ async function getAccountSettings(): Promise<AccountSettingsResult> {
       user: null,
       state: "error",
     };
+  }
+}
+
+async function getOpsAlertSettings(): Promise<OpsAlertSettingsResult> {
+  try {
+    const workspace = await getCurrentWorkspace();
+
+    if (!workspace.permissions.canManageWorkspaceSettings) {
+      return { settings: null, state: "forbidden", workspaceId: workspace.id };
+    }
+
+    const settings = await serverApiFetch<WorkspaceOpsAlertSettingsDto | null>(
+      `/workspaces/${encodeURIComponent(workspace.id)}/ops-alerts/settings`,
+    );
+
+    return { settings, state: "real", workspaceId: workspace.id };
+  } catch {
+    return { settings: null, state: "error", workspaceId: null };
   }
 }
 
@@ -903,6 +959,7 @@ export default async function SettingsPage() {
     funnelConfiguration,
     accountSettings,
     whatsappLabelSuggestions,
+    opsAlertSettings,
   ] = await Promise.all([
     getWorkspaceSettings(),
     getConversionRules(),
@@ -910,6 +967,7 @@ export default async function SettingsPage() {
     getFunnelConfiguration(),
     getAccountSettings(),
     getWhatsappLabelSuggestions(),
+    getOpsAlertSettings(),
   ]);
   const { rules } = conversionRules;
   const providerRules = providerConversionSettings.rules;
@@ -949,6 +1007,15 @@ export default async function SettingsPage() {
     workspace?.permissions.canGrantMemberManager &&
     (!isPlatformSupport || isPlatformOwnerSupport),
   );
+  const opsAlertFormValues = opsAlertSettings.settings ?? opsAlertSettingsDefaults;
+  const opsAlertStatusLabel =
+    opsAlertSettings.state === "forbidden"
+      ? "Sem permissao"
+      : opsAlertSettings.state === "error"
+        ? "Indisponivel"
+        : opsAlertFormValues.enabled
+          ? "Ativado"
+          : "Desativado";
   const pendingInviteCount = invites.filter((invite) =>
     ["pending", "sent", "failed"].includes(invite.status),
   ).length;
@@ -1101,6 +1168,10 @@ export default async function SettingsPage() {
         <a href="#configuracao-conversoes">
           <Workflow size={16} aria-hidden="true" />
           Conversoes
+        </a>
+        <a href="#configuracao-operacao">
+          <Bell size={16} aria-hidden="true" />
+          Operacao
         </a>
         {canSwapClient ? (
           <a href="#configuracao-trocar-cliente">
@@ -2026,6 +2097,131 @@ export default async function SettingsPage() {
         </div>
       </section>
 
+      <section
+        className="settings-domain-section settings-ops-alerts-domain"
+        id="configuracao-operacao"
+        aria-labelledby="settings-ops-alerts-title"
+      >
+        <div className="settings-domain-heading">
+          <span className="settings-domain-number" aria-hidden="true">
+            04
+          </span>
+          <div>
+            <span className="eyebrow">Operacao</span>
+            <h2 id="settings-ops-alerts-title">Alertas WhatsApp</h2>
+            <p>
+              Aviso no celular se a instancia NOD desconectar ou o webhook
+              ficar sem entrega.
+            </p>
+          </div>
+          <span
+            className={`status-chip${
+              opsAlertSettings.state === "real" && opsAlertFormValues.enabled
+                ? ""
+                : " neutral"
+            }`}
+          >
+            {opsAlertStatusLabel}
+          </span>
+        </div>
+
+        <div className="surface-panel ops-alert-settings-panel">
+          {opsAlertSettings.state === "forbidden" ? (
+            <p className="muted">
+              Sem permissao para gerenciar alertas operacionais.
+            </p>
+          ) : opsAlertSettings.state === "error" ||
+            !opsAlertSettings.workspaceId ? (
+            <p className="muted">
+              Nao foi possivel carregar as configuracoes de alerta.
+            </p>
+          ) : (
+            <div data-presentation-sensitive-action="true">
+              <BackofficeActionForm
+                action={saveOpsAlertSettingsAction}
+                className="ops-alert-settings-form"
+              >
+                <input
+                  name="workspaceId"
+                  type="hidden"
+                  value={opsAlertSettings.workspaceId}
+                />
+                <label className="ops-alert-toggle">
+                  <input
+                    defaultChecked={opsAlertFormValues.enabled}
+                    name="enabled"
+                    type="checkbox"
+                  />
+                  <span>Ativar alertas</span>
+                </label>
+                <label className="ops-alert-phone-field">
+                  <span>Telefone</span>
+                  <input
+                    data-presentation-sensitive-field="true"
+                    defaultValue={opsAlertFormValues.alertPhoneE164 ?? ""}
+                    inputMode="numeric"
+                    name="alertPhone"
+                    placeholder="5511999999999"
+                  />
+                </label>
+                <div className="ops-alert-checks">
+                  <label>
+                    <input
+                      defaultChecked={opsAlertFormValues.disconnectAlerts}
+                      name="disconnectAlerts"
+                      type="checkbox"
+                    />
+                    <span>Desconexao da instancia WhatsApp</span>
+                  </label>
+                  <label>
+                    <input
+                      defaultChecked={opsAlertFormValues.webhookSilenceAlerts}
+                      name="webhookSilenceAlerts"
+                      type="checkbox"
+                    />
+                    <span>Silencio de webhook</span>
+                  </label>
+                </div>
+                <details className="ops-alert-advanced">
+                  <summary>Configuracoes avancadas</summary>
+                  <div className="ops-alert-advanced-fields">
+                    <label>
+                      <span>Horas de silencio</span>
+                      <input
+                        defaultValue={opsAlertFormValues.silenceThresholdHours}
+                        min={1}
+                        name="silenceThresholdHours"
+                        type="number"
+                      />
+                    </label>
+                    <label>
+                      <span>Horas de debounce</span>
+                      <input
+                        defaultValue={opsAlertFormValues.debounceHours}
+                        min={1}
+                        name="debounceHours"
+                        type="number"
+                      />
+                    </label>
+                  </div>
+                </details>
+                <div className="form-command-row">
+                  <span>
+                    Silencio padrao 24h. Nao dispara se o telefone estiver
+                    vazio ou os alertas estiverem desligados.
+                  </span>
+                  <PendingSubmitButton
+                    className="button primary"
+                    label="Salvar alertas"
+                    pendingLabel="Salvando..."
+                  />
+                </div>
+              </BackofficeActionForm>
+            </div>
+          )}
+        </div>
+      </section>
+
       {canSwapClient && workspace ? (
         <section
           className="settings-domain-section settings-client-swap-domain"
@@ -2034,7 +2230,7 @@ export default async function SettingsPage() {
         >
           <div className="settings-domain-heading">
             <span className="settings-domain-number" aria-hidden="true">
-              04
+              05
             </span>
             <div>
               <span className="eyebrow">Operacao da agencia</span>
