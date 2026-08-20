@@ -698,6 +698,9 @@ export const inboundWebhookChannelSchema = z.object({
   providerChannelId: idSchema,
   connectedPhone: z.string().trim().min(1).max(32),
   channelName: z.string().trim().min(1).max(160).nullable(),
+  // Set only for UAZAPI channels bridged to a WhatsApp instance; drives the
+  // live label picker in the tag conversion rule builder.
+  whatsappInstanceId: idSchema.nullable(),
   status: inboundWebhookChannelStatusSchema,
   productionActivatedAt: dateTimeSchema.nullable(),
   firstSeenAt: dateTimeSchema,

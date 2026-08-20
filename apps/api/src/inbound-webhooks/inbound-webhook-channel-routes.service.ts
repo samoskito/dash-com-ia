@@ -1337,6 +1337,7 @@ export class InboundWebhookChannelRoutesService {
       providerChannelId: channel.providerChannelId,
       connectedPhone: channel.connectedPhone,
       channelName: channel.channelName,
+      whatsappInstanceId: channel.whatsappInstanceId,
       status: channel.status,
       productionActivatedAt:
         channel.productionActivatedAt?.toISOString() ?? null,
