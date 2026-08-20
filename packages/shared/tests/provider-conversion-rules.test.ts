@@ -477,6 +477,114 @@ describe("provider conversion rule contracts", () => {
       }),
     ).toMatchObject({ matched: true, parsedValueCents: 359700 });
   });
+
+  it("aceita lead qualificado por mensagem sem valor", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "QualifiedLead",
+      exampleMessage: "Vou te passar os valores do procedimento",
+    });
+
+    expect(parsed).toMatchObject({
+      triggerType: "message_phrase",
+      eventName: "QualifiedLead",
+      mode: "observation",
+      valueMode: "fixed",
+    });
+    expect("defaultValueCents" in parsed).toBe(false);
+    expect("defaultCurrency" in parsed).toBe(false);
+  });
+
+  it("recusa valor em evento que nao carrega valor", () => {
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...messageScope,
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+        defaultValueCents: 19900,
+      }).success,
+    ).toBe(false);
+
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...channelScope,
+        triggerType: "provider_automation",
+        eventName: "OrderShipped",
+        defaultValueCents: 19900,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("recusa extrair valor da mensagem em evento sem valor", () => {
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...messageScope,
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+        valueMode: "message_extracted",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("aceita valor opcional em AddToCart por mensagem", () => {
+    const semValor = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "AddToCart",
+    });
+    expect(semValor).toMatchObject({
+      eventName: "AddToCart",
+      defaultCurrency: "BRL",
+    });
+
+    const comValor = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "AddToCart",
+      defaultValueCents: 12900,
+    });
+    expect(comValor).toMatchObject({ defaultValueCents: 12900 });
+  });
+
+  it("aceita AddToCart por tag com valor medio", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...channelScope,
+      triggerType: "provider_automation",
+      eventName: "AddToCart",
+      defaultValueCents: 12900,
+    });
+
+    expect(parsed).toMatchObject({
+      triggerType: "provider_automation",
+      eventName: "AddToCart",
+      defaultValueCents: 12900,
+      defaultCurrency: "BRL",
+    });
+  });
+
+  it("aceita pedido enviado por tag sem nenhum campo de valor", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...channelScope,
+      triggerType: "provider_automation",
+      eventName: "OrderShipped",
+    });
+
+    expect(parsed).toMatchObject({ eventName: "OrderShipped" });
+    expect("defaultValueCents" in parsed).toBe(false);
+    expect("defaultCurrency" in parsed).toBe(false);
+  });
+
+  it("mantem o catalogo estruturado restrito a compra", () => {
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...messageScope,
+        triggerType: "structured_catalog",
+        eventName: "AddToCart",
+        catalog: trampolineCatalog,
+      }).success,
+    ).toBe(false);
+  });
 });
 
 function automationPayloadFixture() {

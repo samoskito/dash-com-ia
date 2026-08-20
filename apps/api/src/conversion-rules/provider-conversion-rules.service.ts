@@ -140,20 +140,20 @@ export class ProviderConversionRulesService {
       let defaultItems: Prisma.InputJsonValue | typeof Prisma.DbNull =
         Prisma.DbNull;
 
+      // Eventos sem valor chegam do schema sem nenhum campo monetario, entao
+      // ler os tres campos direto e o suficiente para nao gravar valor
+      // fantasma em QualifiedLead, OrderShipped e afins.
       if (input.triggerType === "message_phrase") {
         defaultValueCents = input.defaultValueCents ?? null;
-        defaultCurrency = input.defaultCurrency;
+        defaultCurrency = input.defaultCurrency ?? null;
         defaultContentName = input.defaultContentName ?? null;
         defaultItems = this.messagePhraseConfig({
           valueMode: input.valueMode,
           exampleMessage: input.exampleMessage ?? null,
         });
-      } else if (
-        input.triggerType === "provider_automation" &&
-        input.eventName === "Purchase"
-      ) {
-        defaultValueCents = input.defaultValueCents;
-        defaultCurrency = input.defaultCurrency;
+      } else if (input.triggerType === "provider_automation") {
+        defaultValueCents = input.defaultValueCents ?? null;
+        defaultCurrency = input.defaultCurrency ?? null;
         defaultContentName = input.defaultContentName ?? null;
       } else if (input.triggerType === "structured_catalog") {
         defaultCurrency = input.catalog.currency;

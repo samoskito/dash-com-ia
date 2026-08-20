@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+  conversionEventCarriesValue,
+  conversionEventRequiresValue,
+} from "./conversion-event-catalog";
+import {
   conversionEventItemSchema,
   conversionEventNameSchema,
 } from "./conversion-events";
@@ -237,36 +241,94 @@ const providerConversionMessageRuleShape = {
 
 const messagePhraseExampleSchema = z.string().trim().max(2_000);
 
-const messagePhraseValueShape = {
-  valueMode: messagePhraseValueModeSchema.default("fixed"),
-  exampleMessage: messagePhraseExampleSchema.nullable().optional(),
-  // Required when valueMode is "fixed"; optional fallback when extracting.
-  defaultValueCents: z.number().int().positive().nullable().optional(),
-  defaultCurrency: currencySchema.default("BRL"),
-  defaultContentName: catalogTextSchema.nullable().optional(),
+type ValuedRuleInput = {
+  eventName: z.infer<typeof conversionEventNameSchema>;
+  valueMode?: z.infer<typeof messagePhraseValueModeSchema>;
+  defaultValueCents?: number | null;
+  defaultCurrency?: string;
+  defaultContentName?: string | null;
 };
 
-function messagePhraseCreateSchema<Event extends "Purchase" | "InitiateCheckout">(
-  eventName: Event,
-) {
-  return z
-    .object({
-      ...providerConversionRuleBaseShape,
-      ...providerConversionMessageRuleShape,
-      ...messagePhraseValueShape,
-      triggerType: z.literal("message_phrase"),
-      eventName: z.literal(eventName),
-    })
-    .superRefine((input, context) => {
-      if (input.valueMode === "fixed" && !input.defaultValueCents) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Informe o valor medio para regras com valor fixo",
-          path: ["defaultValueCents"],
-        });
-      }
+/**
+ * O evento decide o que pode ser configurado: eventos sem valor
+ * (QualifiedLead, OrderShipped, ...) recusam qualquer campo monetario e
+ * recusam extrair valor da mensagem; Purchase e InitiateCheckout exigem um
+ * valor medio quando o modo e "fixed".
+ */
+function refineEventValueFields(
+  input: ValuedRuleInput,
+  context: z.RefinementCtx,
+): void {
+  if (!conversionEventCarriesValue(input.eventName)) {
+    if (input.defaultValueCents != null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Este evento nao envia valor monetario",
+        path: ["defaultValueCents"],
+      });
+    }
+    if (input.defaultContentName != null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Este evento nao envia produto",
+        path: ["defaultContentName"],
+      });
+    }
+    if (input.valueMode === "message_extracted") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Este evento nao extrai valor da mensagem",
+        path: ["valueMode"],
+      });
+    }
+    return;
+  }
+
+  if (
+    conversionEventRequiresValue(input.eventName) &&
+    input.valueMode !== "message_extracted" &&
+    !input.defaultValueCents
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Informe o valor medio para regras com valor fixo",
+      path: ["defaultValueCents"],
     });
+  }
 }
+
+/**
+ * Eventos sem valor saem do parse sem nenhuma chave monetaria; eventos com
+ * valor ganham "BRL" como moeda padrao. Manter os campos ausentes (em vez de
+ * nulos) e o que impede o servico de gravar valor fantasma.
+ *
+ * O transform nao mexe em valueMode: o refine acima ja recusa
+ * "message_extracted" em evento sem valor, e o default do proprio campo
+ * garante "fixed".
+ */
+function normalizeEventValueFields<Input extends ValuedRuleInput>(
+  input: Input,
+): Input {
+  if (conversionEventCarriesValue(input.eventName)) {
+    return { ...input, defaultCurrency: input.defaultCurrency ?? "BRL" };
+  }
+
+  const {
+    defaultValueCents: _valueCents,
+    defaultCurrency: _currency,
+    defaultContentName: _contentName,
+    ...rest
+  } = input;
+
+  return rest as Input;
+}
+
+const eventValueShape = {
+  // Required when valueMode is "fixed"; optional fallback when extracting.
+  defaultValueCents: z.number().int().positive().nullable().optional(),
+  defaultCurrency: currencySchema.optional(),
+  defaultContentName: catalogTextSchema.nullable().optional(),
+};
 
 export const providerConversionRuleAdaptInputSchema = z.object({
   connectionId: providerConversionRuleBaseShape.connectionId,
@@ -275,29 +337,41 @@ export const providerConversionRuleAdaptInputSchema = z.object({
   messageAuthorScope: providerConversionMessageRuleShape.messageAuthorScope,
 });
 
-export const providerConversionRuleCreateInputSchema = z.union([
-  z.object({
+const providerAutomationCreateSchema = z
+  .object({
     ...providerConversionRuleBaseShape,
+    ...eventValueShape,
     triggerType: z.literal("provider_automation"),
-    eventName: z.literal("QualifiedLead"),
-  }),
-  z.object({
-    ...providerConversionRuleBaseShape,
-    triggerType: z.literal("provider_automation"),
-    eventName: z.literal("Purchase"),
-    defaultValueCents: z.number().int().positive(),
-    defaultCurrency: currencySchema.default("BRL"),
-    defaultContentName: catalogTextSchema.nullable().optional(),
-  }),
-  messagePhraseCreateSchema("Purchase"),
-  messagePhraseCreateSchema("InitiateCheckout"),
-  z.object({
+    eventName: conversionEventNameSchema,
+  })
+  .superRefine(refineEventValueFields)
+  .transform(normalizeEventValueFields);
+
+const messagePhraseCreateSchema = z
+  .object({
     ...providerConversionRuleBaseShape,
     ...providerConversionMessageRuleShape,
-    triggerType: z.literal("structured_catalog"),
-    eventName: z.literal("Purchase"),
-    catalog: providerConversionCatalogInputSchema,
-  }),
+    ...eventValueShape,
+    triggerType: z.literal("message_phrase"),
+    eventName: conversionEventNameSchema,
+    valueMode: messagePhraseValueModeSchema.default("fixed"),
+    exampleMessage: messagePhraseExampleSchema.nullable().optional(),
+  })
+  .superRefine(refineEventValueFields)
+  .transform(normalizeEventValueFields);
+
+const structuredCatalogCreateSchema = z.object({
+  ...providerConversionRuleBaseShape,
+  ...providerConversionMessageRuleShape,
+  triggerType: z.literal("structured_catalog"),
+  eventName: z.literal("Purchase"),
+  catalog: providerConversionCatalogInputSchema,
+});
+
+export const providerConversionRuleCreateInputSchema = z.union([
+  providerAutomationCreateSchema,
+  messagePhraseCreateSchema,
+  structuredCatalogCreateSchema,
 ]);
 
 export const providerConversionRuleUpdateInputSchema = z
