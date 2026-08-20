@@ -8,10 +8,16 @@ const boundedString = (max: number) =>
     .min(1)
     .max(max);
 
+const idLike = z.union([z.string(), z.number()]).optional();
+
 /**
  * XMAX webhook body (contact edit). Tags in the webhook are always empty —
  * real tags come from getContact. We still accept optional Tags and ignore them
  * for event decisions.
+ *
+ * Queue_id / Queue_name identify the unit (queue) for the global multi-tenant
+ * ingress. Queue_id is the routing selector; Queue_name is a label only and
+ * never decides routing.
  */
 export const xmaxContactWebhookSchema = z
   .object({
@@ -30,6 +36,21 @@ export const xmaxContactWebhookSchema = z
     Name: z.string().optional(),
     Tags: z.unknown().optional(),
     tags: z.unknown().optional(),
+    Queue_id: idLike,
+    Queue_Id: idLike,
+    QueueId: idLike,
+    queue_id: idLike,
+    queueId: idLike,
+    queueid: idLike,
+    Fila_id: idLike,
+    fila_id: idLike,
+    Queue_name: idLike,
+    Queue_Name: idLike,
+    QueueName: idLike,
+    queue_name: idLike,
+    queueName: idLike,
+    Fila: idLike,
+    fila_nome: idLike,
   })
   .passthrough();
 
@@ -40,6 +61,11 @@ export type ParsedXmaxContactWebhook = {
   /** Always ignored for decisions; kept for diagnostics only. */
   webhookTagIds: string[];
   ingressKey: string;
+  /** Routing selector for the global ingress. Config (account.queueId) is the
+   * authority for outbound calls — this is only used to find the account. */
+  queueId?: string;
+  /** Label only, from Queue_name. Never decides routing. */
+  queueName?: string;
 };
 
 function asId(value: unknown): string | undefined {
@@ -65,6 +91,17 @@ function asPhone(value: unknown): string | undefined {
 function asName(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim()) {
     return value.trim().slice(0, 200);
+  }
+  return undefined;
+}
+
+/** Queue_id / Queue_name: normalize to a trimmed string, max 128 chars. */
+function asQueueField(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(Math.trunc(value)).slice(0, 128);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.trim().slice(0, 128);
   }
   return undefined;
 }
@@ -133,6 +170,25 @@ export function parseXmaxContactWebhook(
     asName(data.name) ??
     asName(data.Name);
 
+  const queueId =
+    asQueueField(data.Queue_id) ??
+    asQueueField(data.Queue_Id) ??
+    asQueueField(data.QueueId) ??
+    asQueueField(data.queue_id) ??
+    asQueueField(data.queueId) ??
+    asQueueField(data.queueid) ??
+    asQueueField(data.Fila_id) ??
+    asQueueField(data.fila_id);
+
+  const queueName =
+    asQueueField(data.Queue_name) ??
+    asQueueField(data.Queue_Name) ??
+    asQueueField(data.QueueName) ??
+    asQueueField(data.queue_name) ??
+    asQueueField(data.queueName) ??
+    asQueueField(data.Fila) ??
+    asQueueField(data.fila_nome);
+
   const ingressKey = rawBody?.length
     ? createHash("sha256").update(rawBody).digest("hex")
     : createHash("sha256")
@@ -147,6 +203,8 @@ export function parseXmaxContactWebhook(
       name,
       webhookTagIds: extractXmaxTagIds(data.Tags ?? data.tags),
       ingressKey,
+      queueId,
+      queueName,
     },
   };
 }

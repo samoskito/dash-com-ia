@@ -40,6 +40,81 @@ describe("xmax contact parser", () => {
       "57",
     ]);
   });
+
+  it.each([
+    "Queue_id",
+    "Queue_Id",
+    "QueueId",
+    "queue_id",
+    "queueId",
+    "queueid",
+    "Fila_id",
+    "fila_id",
+  ])("extracts queueId from alias %s", (alias) => {
+    const parsed = parseXmaxContactWebhook({
+      Contact_Id: "1",
+      [alias]: "12",
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.queueId).toBe("12");
+  });
+
+  it.each([
+    "Queue_name",
+    "Queue_Name",
+    "QueueName",
+    "queue_name",
+    "queueName",
+    "Fila",
+    "fila_nome",
+  ])("extracts queueName from alias %s", (alias) => {
+    const parsed = parseXmaxContactWebhook({
+      Contact_Id: "1",
+      [alias]: "Bento Gonçalves",
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.queueName).toBe("Bento Gonçalves");
+  });
+
+  it("normalizes a numeric Queue_id to a trimmed string", () => {
+    const parsed = parseXmaxContactWebhook({ Contact_Id: "1", Queue_id: 12 });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.queueId).toBe("12");
+  });
+
+  it("trims whitespace and caps Queue_id at 128 chars", () => {
+    const long = "9".repeat(200);
+    const parsed = parseXmaxContactWebhook({
+      Contact_Id: "1",
+      Queue_id: `  ${long}  `,
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.queueId).toHaveLength(128);
+    expect(parsed.value.queueId).toBe(long.slice(0, 128));
+  });
+
+  it("leaves queueId undefined when absent", () => {
+    const parsed = parseXmaxContactWebhook({ Contact_Id: "1" });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.queueId).toBeUndefined();
+    expect(parsed.value.queueName).toBeUndefined();
+  });
+
+  it("prefers Queue_id over lowercase aliases when both are present", () => {
+    const parsed = parseXmaxContactWebhook({
+      Contact_Id: "1",
+      Queue_id: "12",
+      queue_id: "99",
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.queueId).toBe("12");
+  });
 });
 
 describe("xmax event mapper", () => {
