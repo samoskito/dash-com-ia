@@ -3,17 +3,21 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type {
+  ConversionEventNameDto,
   InboundWebhookChannelDto,
   ProviderConversionRuleDto,
 } from "@wpptrack/shared";
 import {
   buildCreatePayload,
+  buildUmblerAutomationPayloadExample,
   ConversionRuleOriginEventSelector,
   mergeTriggerPhrases,
   MessagePhraseFields,
   parseMoneyToCents,
   previewMessagePhrase,
   ProviderConversionRulePanel,
+  UmblerAutomationPayloadPanel,
+  umblerAutomationKeyForEvent,
 } from "../src/app/(app)/integrations/provider-conversion-rule-panel";
 import { ProviderCatalogTestResult } from "../src/app/(app)/settings/provider-catalog-test-result";
 
@@ -252,6 +256,61 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain("Lista WhatsApp (chat_labels)");
     expect(html).toContain("Aguardando contato entrar na lista");
     expect(html).not.toContain("Auditar eventos recebidos");
+    expect(html).not.toContain("Como configurar na Umbler");
+  });
+
+  it("shows how to configure the Umbler HTTP automation on an existing tag rule", () => {
+    const html = renderPanel({
+      connectionProvider: "umbler",
+      rules: [
+        {
+          ...catalogRule,
+          id: "provider_rule_umbler_automation",
+          conversionRule: {
+            ...catalogRule.conversionRule,
+            triggerType: "provider_automation",
+            triggerValue: "provider_automation",
+            eventName: "QualifiedLead",
+            defaultCurrency: null,
+            defaultContentName: null,
+          },
+          triggerPhrases: [],
+          messageAuthorScope: null,
+          catalog: null,
+        },
+      ],
+    });
+
+    expect(html).toContain("Como configurar na Umbler");
+    expect(html).toContain("Corpo JSON da automacao");
+    expect(html).toContain("wpptrack.umbler.automation.v1");
+    expect(html).toContain("umbler_tag_automation");
+    expect(html).toContain("lead_qualificado");
+    expect(html).toContain("CONVERSATION_ID");
+  });
+
+  it("keeps the Umbler payload helper off a Gupshup automation rule", () => {
+    const html = renderPanel({
+      connectionProvider: "gupshup",
+      rules: [
+        {
+          ...catalogRule,
+          id: "provider_rule_gupshup_automation",
+          conversionRule: {
+            ...catalogRule.conversionRule,
+            triggerType: "provider_automation",
+            triggerValue: "provider_automation",
+            eventName: "Purchase",
+          },
+          triggerPhrases: [],
+          messageAuthorScope: null,
+          catalog: null,
+        },
+      ],
+    });
+
+    expect(html).toContain("Auditar eventos recebidos");
+    expect(html).not.toContain("Como configurar na Umbler");
   });
 
   it("keeps a scoped alias editor wired to the existing catalog update", () => {
