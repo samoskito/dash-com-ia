@@ -342,7 +342,18 @@ const providerAutomationCreateSchema = z
     ...providerConversionRuleBaseShape,
     // Umbler callbacks select the automation server-side and leave this
     // empty. UAZAPI uses these as the WhatsApp label names to match.
-    triggerPhrases: providerConversionMessageRuleShape.triggerPhrases.optional(),
+    triggerPhrases:
+      providerConversionMessageRuleShape.triggerPhrases.optional(),
+    triggerLabels: z
+      .array(
+        z.object({
+          id: z.string().trim().min(1).max(240),
+          name: messageTriggerPhraseSchema,
+        }),
+      )
+      .min(1)
+      .max(50)
+      .optional(),
     ...eventValueShape,
     triggerType: z.literal("provider_automation"),
     eventName: conversionEventNameSchema,
@@ -391,6 +402,16 @@ export const providerConversionRuleUpdateInputSchema = z
       .array(messageTriggerPhraseSchema)
       .min(1)
       .max(20)
+      .optional(),
+    triggerLabels: z
+      .array(
+        z.object({
+          id: z.string().trim().min(1).max(240),
+          name: messageTriggerPhraseSchema,
+        }),
+      )
+      .min(1)
+      .max(50)
       .optional(),
     messageAuthorScope: providerConversionMessageAuthorScopeSchema.optional(),
     catalog: providerConversionCatalogInputSchema.optional(),
@@ -656,11 +677,7 @@ export const purchaseReviewStatuses = [
 ] as const;
 export const purchaseReviewStatusSchema = z.enum(purchaseReviewStatuses);
 
-export const purchaseReviewViews = [
-  "actionable",
-  "history",
-  "all",
-] as const;
+export const purchaseReviewViews = ["actionable", "history", "all"] as const;
 export const purchaseReviewViewSchema = z.enum(purchaseReviewViews);
 
 export const purchaseReviewSourceTypes = [

@@ -35,25 +35,25 @@ async function createApp() {
     recordWebhookLog: vi.fn(async () => ({
       webhookLogId: "webhook_1",
       diagnosticEventId: "diag_1",
-      status: "received"
-    }))
+      status: "received",
+    })),
   };
   const billingService = {
     resolveAsaasPaymentWebhookContext: vi.fn(async () => ({
       workspaceId: "workspace_1",
-      paymentId: "pay_asaas_1"
+      paymentId: "pay_asaas_1",
     })),
     processAsaasPaymentWebhook: vi.fn(async () => ({
       processed: true,
       status: "paid",
       chargeId: "charge_1",
-      activationId: "activation_1"
-    }))
+      activationId: "activation_1",
+    })),
   };
   const packageBillingWebhook = {
     tryProcess: vi.fn(async () => ({
-      handled: false
-    }))
+      handled: false,
+    })),
   };
   const conversionRulesService = {
     evaluateTriggers: vi.fn(async () => [
@@ -68,34 +68,34 @@ async function createApp() {
         pixelId: null,
         active: true,
         createdAt: "2026-07-02T03:00:00.000Z",
-        updatedAt: "2026-07-02T03:00:00.000Z"
-      }
-    ])
+        updatedAt: "2026-07-02T03:00:00.000Z",
+      },
+    ]),
   };
   const conversionEventsService = {
     recordAutomaticLeadSubmitted: vi.fn(async () => ({
       created: ["automatic_1"],
-      duplicates: []
+      duplicates: [],
     })),
     recordRuleMatches: vi.fn(async () => ({
       created: ["conversion_1"],
-      duplicates: []
+      duplicates: [],
     })),
-    listReadyLogIds: vi.fn(async (logIds: string[]) => logIds)
+    listReadyLogIds: vi.fn(async (logIds: string[]) => logIds),
   };
   const conversionEventsQueueService = {
     enqueueSend: vi.fn(
       async (conversionEventLogId: string, _workspaceId: string) => ({
-      conversionEventLogId,
-      jobId: `conversion-send_${conversionEventLogId}`,
-      status: "queued"
-      })
-    )
+        conversionEventLogId,
+        jobId: `conversion-send_${conversionEventLogId}`,
+        status: "queued",
+      }),
+    ),
   };
   const leadsService = {
     upsertFromWhatsappWebhook: vi.fn(async () => ({
-      id: "lead_1"
-    }))
+      id: "lead_1",
+    })),
   };
   const uazapiProviderConversion = {
     evaluateTeamMessage: vi.fn(),
@@ -109,31 +109,31 @@ async function createApp() {
           workspaceId: string;
           providerInstanceId: string | null;
           webhookTokenHash?: string;
-        } | null> => null
+        } | null> => null,
       ),
       findMany: vi.fn(async () => [
         {
           id: "wpp_1",
           workspaceId: "workspace_1",
-          providerInstanceId: "provider_instance_1"
-        }
-      ])
+          providerInstanceId: "provider_instance_1",
+        },
+      ]),
     },
     metaAd: {
       findFirst: vi.fn(
         async (): Promise<{
           campaignId: string | null;
           adSetId: string | null;
-        } | null> => null
-      )
+        } | null> => null,
+      ),
     },
     metaConversionDestination: {
       findMany: vi.fn(async () => [
         {
-          workspaceId: "workspace_1"
-        }
-      ])
-    }
+          workspaceId: "workspace_1",
+        },
+      ]),
+    },
   };
 
   const moduleRef = await Test.createTestingModule({
@@ -143,21 +143,21 @@ async function createApp() {
       { provide: BillingService, useValue: billingService },
       {
         provide: PackageBillingWebhookService,
-        useValue: packageBillingWebhook
+        useValue: packageBillingWebhook,
       },
       { provide: ConversionRulesService, useValue: conversionRulesService },
       { provide: ConversionEventsService, useValue: conversionEventsService },
       {
         provide: ConversionEventsQueueService,
-        useValue: conversionEventsQueueService
+        useValue: conversionEventsQueueService,
       },
       { provide: LeadsService, useValue: leadsService },
       {
         provide: UazapiProviderConversionService,
         useValue: uazapiProviderConversion,
       },
-      { provide: PrismaService, useValue: prismaService }
-    ]
+      { provide: PrismaService, useValue: prismaService },
+    ],
   }).compile();
 
   const app = moduleRef.createNestApplication({ rawBody: true });
@@ -173,7 +173,7 @@ async function createApp() {
     conversionEventsQueueService,
     leadsService,
     uazapiProviderConversion,
-    prismaService
+    prismaService,
   };
 }
 
@@ -193,7 +193,7 @@ describe("webhooks controller", () => {
       .query({
         "hub.mode": "subscribe",
         "hub.verify_token": "secure-meta-verify-token",
-        "hub.challenge": "challenge_123"
+        "hub.challenge": "challenge_123",
       })
       .expect(200, "challenge_123");
 
@@ -211,7 +211,7 @@ describe("webhooks controller", () => {
       .query({
         "hub.mode": "subscribe",
         "hub.verify_token": "wrong-token",
-        "hub.challenge": "challenge_123"
+        "hub.challenge": "challenge_123",
       })
       .expect(401);
 
@@ -245,22 +245,26 @@ describe("webhooks controller", () => {
       .set("x-workspace-id", "workspace_1")
       .set("x-wpptrack-webhook-token", uazapiWebhookToken)
       .send({
-        event: "message.received",
+        EventType: "chat_labels",
         id: "evt_uazapi_1",
         instance: {
-          id: "provider_instance_1"
+          id: "provider_instance_1",
         },
         message: {
           text: "Oi, quero comprar",
-          fromMe: false
+          fromMe: false,
         },
-        labels: ["Venda fechada"],
-        phone: "+55 11 98844-1020",
+        chat: {
+          phone: "+55 11 98844-1020",
+          wa_chatid: "5511988441020@s.whatsapp.net",
+          wa_isGroup: false,
+          wa_label: ["554237420132:10"],
+        },
         leadId: "lead_external_1",
         name: "Mariana Alves",
         campaignId: "cmp_1",
         adSetId: "adset_1",
-        adId: "ad_1"
+        adId: "ad_1",
       })
       .expect(202)
       .expect(({ body }) => {
@@ -269,7 +273,7 @@ describe("webhooks controller", () => {
         expect(body.conversion).toEqual({
           created: [],
           duplicates: [],
-          queued: []
+          queued: [],
         });
       });
 
@@ -277,28 +281,28 @@ describe("webhooks controller", () => {
       expect.objectContaining({
         workspaceId: "workspace_1",
         source: "uazapi",
-        eventType: "message.received",
+        eventType: "chat_labels",
         externalEventId: "evt_uazapi_1",
         idempotencyKey: "uazapi:workspace_1:wpp_1:evt_uazapi_1",
         leadId: "lead_external_1",
         phoneHash: expectedPhoneHash,
         campaignId: "cmp_1",
         adSetId: "adset_1",
-        adId: "ad_1"
-      })
+        adId: "ad_1",
+      }),
     );
     expect(uazapiProviderConversion.evaluateLabels).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
         phone: "+55 11 98844-1020",
-        labels: ["Venda fechada"],
+        labelIds: ["554237420132:10"],
         externalEventId: "evt_uazapi_1",
       }),
     );
     expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
     expect(conversionEventsService.recordRuleMatches).not.toHaveBeenCalled();
     expect(
-      conversionEventsService.recordAutomaticLeadSubmitted
+      conversionEventsService.recordAutomaticLeadSubmitted,
     ).not.toHaveBeenCalled();
     expect(conversionEventsService.listReadyLogIds).not.toHaveBeenCalled();
     expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
@@ -316,22 +320,22 @@ describe("webhooks controller", () => {
       diagnosticsService,
       conversionEventsService,
       leadsService,
-      prismaService
+      prismaService,
     } = await createApp();
     prismaService.metaAd.findFirst.mockResolvedValueOnce({
       campaignId: "cmp_from_meta",
-      adSetId: "adset_from_meta"
+      adSetId: "adset_from_meta",
     });
     conversionEventsService.recordAutomaticLeadSubmitted.mockResolvedValueOnce({
       created: ["automatic_1"],
-      duplicates: []
+      duplicates: [],
     });
     conversionEventsService.recordRuleMatches.mockResolvedValueOnce({
       created: [],
-      duplicates: []
+      duplicates: [],
     });
     conversionEventsService.listReadyLogIds.mockResolvedValueOnce([
-      "automatic_1"
+      "automatic_1",
     ]);
 
     await request(app.getHttpServer())
@@ -342,7 +346,7 @@ describe("webhooks controller", () => {
         event: "message.received",
         id: "evt_uazapi_meta_resolve_1",
         instance: {
-          id: "provider_instance_1"
+          id: "provider_instance_1",
         },
         message: {
           text: "Oi",
@@ -351,35 +355,35 @@ describe("webhooks controller", () => {
             contextInfo: {
               externalAdReply: {
                 ctwaClid: "ctwa_meta_1",
-                sourceID: "ad_only_1"
-              }
-            }
-          }
+                sourceID: "ad_only_1",
+              },
+            },
+          },
         },
         chat: {
           wa_name: "Luciane",
           phone: "5511988441020",
-          wa_isGroup: false
-        }
+          wa_isGroup: false,
+        },
       })
       .expect(202);
 
     expect(prismaService.metaAd.findFirst).toHaveBeenCalledWith({
       where: {
         workspaceId: "workspace_1",
-        adId: "ad_only_1"
+        adId: "ad_only_1",
       },
       select: {
         campaignId: true,
-        adSetId: true
-      }
+        adSetId: true,
+      },
     });
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
       expect.objectContaining({
         campaignId: "cmp_from_meta",
         adSetId: "adset_from_meta",
-        adId: "ad_only_1"
-      })
+        adId: "ad_only_1",
+      }),
     );
     expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -387,10 +391,12 @@ describe("webhooks controller", () => {
         campaignId: "cmp_from_meta",
         adSetId: "adset_from_meta",
         adId: "ad_only_1",
-        ctwaClid: "ctwa_meta_1"
-      })
+        ctwaClid: "ctwa_meta_1",
+      }),
     );
-    expect(conversionEventsService.recordAutomaticLeadSubmitted).toHaveBeenCalledWith(
+    expect(
+      conversionEventsService.recordAutomaticLeadSubmitted,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
         leadId: "lead_1",
@@ -398,8 +404,8 @@ describe("webhooks controller", () => {
         campaignId: "cmp_from_meta",
         adSetId: "adset_from_meta",
         adId: "ad_only_1",
-        ctwaClid: "ctwa_meta_1"
-      })
+        ctwaClid: "ctwa_meta_1",
+      }),
     );
 
     await app.close();
@@ -415,18 +421,18 @@ describe("webhooks controller", () => {
       conversionRulesService,
       conversionEventsService,
       conversionEventsQueueService,
-      leadsService
+      leadsService,
     } = await createApp();
     conversionEventsService.recordAutomaticLeadSubmitted.mockResolvedValueOnce({
       created: ["automatic_pending_meta"],
-      duplicates: []
+      duplicates: [],
     });
     conversionEventsService.recordRuleMatches.mockResolvedValueOnce({
       created: ["conversion_ready_1"],
-      duplicates: []
+      duplicates: [],
     });
     conversionEventsService.listReadyLogIds.mockResolvedValueOnce([
-      "conversion_ready_1"
+      "conversion_ready_1",
     ]);
 
     await request(app.getHttpServer())
@@ -437,7 +443,7 @@ describe("webhooks controller", () => {
         event: "message.received",
         id: "evt_uazapi_referral_1",
         instance: {
-          id: "provider_instance_1"
+          id: "provider_instance_1",
         },
         message: {
           text: "fechei",
@@ -449,22 +455,22 @@ describe("webhooks controller", () => {
             ads_context_data: {
               campaign_id: "cmp_ref_1",
               adset_id: "adset_ref_1",
-              ad_id: "ad_ref_1"
-            }
-          }
+              ad_id: "ad_ref_1",
+            },
+          },
         },
         chat: {
           labels: [
             {
-              name: "Venda fechada"
+              name: "Venda fechada",
             },
             {
-              label: "Cliente VIP"
-            }
-          ]
+              label: "Cliente VIP",
+            },
+          ],
         },
         phone: "+55 11 98844-1020",
-        name: "Mariana Alves"
+        name: "Mariana Alves",
       })
       .expect(202);
 
@@ -476,15 +482,15 @@ describe("webhooks controller", () => {
         externalEventId: "evt_uazapi_referral_1",
         campaignId: "cmp_ref_1",
         adSetId: "adset_ref_1",
-        adId: "ad_ref_1"
-      })
+        adId: "ad_ref_1",
+      }),
     );
     expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
       "workspace_1",
       {
         messageText: "fechei",
-        labels: ["Venda fechada", "Cliente VIP"]
-      }
+        labels: ["Venda fechada", "Cliente VIP"],
+      },
     );
     expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -494,10 +500,12 @@ describe("webhooks controller", () => {
         adSetId: "adset_ref_1",
         adId: "ad_ref_1",
         ctwaClid: "ctwa_click_1",
-        ctwaSourceUrl: "https://fb.com/ad/ref"
-      })
+        ctwaSourceUrl: "https://fb.com/ad/ref",
+      }),
     );
-    expect(conversionEventsService.recordAutomaticLeadSubmitted).toHaveBeenCalledWith(
+    expect(
+      conversionEventsService.recordAutomaticLeadSubmitted,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
         leadId: "lead_1",
@@ -505,8 +513,8 @@ describe("webhooks controller", () => {
         campaignId: "cmp_ref_1",
         adSetId: "adset_ref_1",
         adId: "ad_ref_1",
-        ctwaClid: "ctwa_click_1"
-      })
+        ctwaClid: "ctwa_click_1",
+      }),
     );
     expect(conversionEventsService.recordRuleMatches).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -516,17 +524,17 @@ describe("webhooks controller", () => {
         campaignId: "cmp_ref_1",
         adSetId: "adset_ref_1",
         adId: "ad_ref_1",
-        ctwaClid: "ctwa_click_1"
-      })
+        ctwaClid: "ctwa_click_1",
+      }),
     );
     expect(conversionEventsService.listReadyLogIds).toHaveBeenCalledWith([
       "automatic_pending_meta",
-      "conversion_ready_1"
+      "conversion_ready_1",
     ]);
     expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledOnce();
     expect(conversionEventsQueueService.enqueueSend).toHaveBeenCalledWith(
       "conversion_ready_1",
-      "workspace_1"
+      "workspace_1",
     );
 
     await app.close();
@@ -539,12 +547,12 @@ describe("webhooks controller", () => {
       conversionRulesService,
       conversionEventsService,
       conversionEventsQueueService,
-      leadsService
+      leadsService,
     } = await createApp();
     diagnosticsService.recordWebhookLog.mockResolvedValueOnce({
       webhookLogId: "webhook_1",
       diagnosticEventId: "diag_1",
-      status: "duplicate"
+      status: "duplicate",
     });
 
     await request(app.getHttpServer())
@@ -555,11 +563,11 @@ describe("webhooks controller", () => {
         event: "message.received",
         id: "evt_uazapi_1",
         instance: {
-          id: "provider_instance_1"
+          id: "provider_instance_1",
         },
         message: {
-          text: "Oi, quero comprar"
-        }
+          text: "Oi, quero comprar",
+        },
       })
       .expect(202)
       .expect(({ body }) => {
@@ -567,14 +575,14 @@ describe("webhooks controller", () => {
         expect(body.conversion).toEqual({
           created: [],
           duplicates: [],
-          queued: []
+          queued: [],
         });
       });
 
     expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
     expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
     expect(
-      conversionEventsService.recordAutomaticLeadSubmitted
+      conversionEventsService.recordAutomaticLeadSubmitted,
     ).not.toHaveBeenCalled();
     expect(conversionEventsService.recordRuleMatches).not.toHaveBeenCalled();
     expect(conversionEventsService.listReadyLogIds).not.toHaveBeenCalled();
@@ -585,18 +593,14 @@ describe("webhooks controller", () => {
 
   it("rejects Uazapi webhooks with invalid auth token when configured", async () => {
     process.env.UAZAPI_WEBHOOK_AUTH_TOKEN = "secure-uazapi-webhook-token";
-    const {
-      app,
-      diagnosticsService,
-      conversionRulesService,
-      leadsService
-    } = await createApp();
+    const { app, diagnosticsService, conversionRulesService, leadsService } =
+      await createApp();
 
     await request(app.getHttpServer())
       .post("/webhooks/uazapi")
       .send({
         event: "message.received",
-        id: "evt_uazapi_2"
+        id: "evt_uazapi_2",
       })
       .expect(401);
 
@@ -605,7 +609,7 @@ describe("webhooks controller", () => {
       .set("x-wpptrack-webhook-token", "wrong-token")
       .send({
         event: "message.received",
-        id: "evt_uazapi_2"
+        id: "evt_uazapi_2",
       })
       .expect(401);
 
@@ -628,8 +632,8 @@ describe("webhooks controller", () => {
         event: "message.received",
         id: "evt_uazapi_missing_secret",
         instance: {
-          id: "provider_instance_1"
-        }
+          id: "provider_instance_1",
+        },
       })
       .expect(401);
 
@@ -646,14 +650,14 @@ describe("webhooks controller", () => {
       diagnosticsService,
       conversionRulesService,
       leadsService,
-      prismaService
+      prismaService,
     } = await createApp();
     prismaService.whatsappInstance.findMany.mockResolvedValueOnce([
       {
         id: "wpp_b",
         workspaceId: "workspace_b",
-        providerInstanceId: "provider_instance_b"
-      }
+        providerInstanceId: "provider_instance_b",
+      },
     ]);
 
     await request(app.getHttpServer())
@@ -666,8 +670,8 @@ describe("webhooks controller", () => {
         workspaceId: "workspace_a",
         whatsappInstanceId: "wpp_a",
         instance: {
-          id: "provider_instance_b"
-        }
+          id: "provider_instance_b",
+        },
       })
       .expect(401);
 
@@ -688,8 +692,8 @@ describe("webhooks controller", () => {
         event: "message.received",
         id: "evt_uazapi_2",
         instance: {
-          id: "provider_instance_1"
-        }
+          id: "provider_instance_1",
+        },
       })
       .expect(202);
 
@@ -699,8 +703,8 @@ describe("webhooks controller", () => {
         event: "message.received",
         id: "evt_uazapi_3",
         instance: {
-          id: "provider_instance_1"
-        }
+          id: "provider_instance_1",
+        },
       })
       .expect(202);
 
@@ -715,14 +719,14 @@ describe("webhooks controller", () => {
       diagnosticsService,
       conversionRulesService,
       leadsService,
-      prismaService
+      prismaService,
     } = await createApp();
     prismaService.whatsappInstance.findMany.mockResolvedValueOnce([
       {
-      id: "wpp_1",
-      workspaceId: "workspace_1",
-      providerInstanceId: "provider_instance_1"
-      }
+        id: "wpp_1",
+        workspaceId: "workspace_1",
+        providerInstanceId: "provider_instance_1",
+      },
     ]);
 
     await request(app.getHttpServer())
@@ -732,48 +736,48 @@ describe("webhooks controller", () => {
         event: "message.received",
         id: "evt_uazapi_2",
         instance: {
-          id: "provider_instance_1"
+          id: "provider_instance_1",
         },
         message: {
           text: "Oi, quero comprar",
-          fromMe: false
+          fromMe: false,
         },
         phone: "+55 11 98844-1020",
-        ctwaClid: "ctwa_resolve_1"
+        ctwaClid: "ctwa_resolve_1",
       })
       .expect(202);
 
     expect(prismaService.whatsappInstance.findMany).toHaveBeenCalledWith({
       where: {
         provider: "uazapi",
-        providerInstanceId: "provider_instance_1"
+        providerInstanceId: "provider_instance_1",
       },
       select: {
         id: true,
         workspaceId: true,
-        providerInstanceId: true
+        providerInstanceId: true,
       },
-      take: 2
+      take: 2,
     });
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
         source: "uazapi",
-        externalEventId: "evt_uazapi_2"
-      })
+        externalEventId: "evt_uazapi_2",
+      }),
     );
     expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
       "workspace_1",
       expect.objectContaining({
-        messageText: "Oi, quero comprar"
-      })
+        messageText: "Oi, quero comprar",
+      }),
     );
     expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
         whatsappInstanceId: "wpp_1",
-        ctwaClid: "ctwa_resolve_1"
-      })
+        ctwaClid: "ctwa_resolve_1",
+      }),
     );
 
     await app.close();
@@ -785,7 +789,7 @@ describe("webhooks controller", () => {
       diagnosticsService,
       conversionRulesService,
       leadsService,
-      prismaService
+      prismaService,
     } = await createApp();
     prismaService.whatsappInstance.findFirst.mockResolvedValueOnce({
       id: "wpp_1",
@@ -793,7 +797,7 @@ describe("webhooks controller", () => {
       providerInstanceId: "provider_instance_1",
       webhookTokenHash: createHash("sha256")
         .update("instance-webhook-secret")
-        .digest("hex")
+        .digest("hex"),
     });
 
     await request(app.getHttpServer())
@@ -803,44 +807,44 @@ describe("webhooks controller", () => {
         id: "evt_uazapi_instance_1",
         message: {
           text: "Oi, quero comprar",
-          fromMe: false
+          fromMe: false,
         },
         phone: "+55 11 98844-1020",
-        ctwaClid: "ctwa_instance_1"
+        ctwaClid: "ctwa_instance_1",
       })
       .expect(202);
 
     expect(prismaService.whatsappInstance.findFirst).toHaveBeenCalledWith({
       where: {
         id: "wpp_1",
-        provider: "uazapi"
+        provider: "uazapi",
       },
       select: {
         id: true,
         workspaceId: true,
         providerInstanceId: true,
-        webhookTokenHash: true
-      }
+        webhookTokenHash: true,
+      },
     });
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
         source: "uazapi",
-        externalEventId: "evt_uazapi_instance_1"
-      })
+        externalEventId: "evt_uazapi_instance_1",
+      }),
     );
     expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
       "workspace_1",
       expect.objectContaining({
-        messageText: "Oi, quero comprar"
-      })
+        messageText: "Oi, quero comprar",
+      }),
     );
     expect(leadsService.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
         whatsappInstanceId: "wpp_1",
-        ctwaClid: "ctwa_instance_1"
-      })
+        ctwaClid: "ctwa_instance_1",
+      }),
     );
 
     await app.close();
@@ -852,7 +856,7 @@ describe("webhooks controller", () => {
       diagnosticsService,
       conversionRulesService,
       leadsService,
-      prismaService
+      prismaService,
     } = await createApp();
     prismaService.whatsappInstance.findFirst.mockResolvedValueOnce({
       id: "wpp_1",
@@ -860,14 +864,14 @@ describe("webhooks controller", () => {
       providerInstanceId: "provider_instance_1",
       webhookTokenHash: createHash("sha256")
         .update("instance-webhook-secret")
-        .digest("hex")
+        .digest("hex"),
     });
 
     await request(app.getHttpServer())
       .post("/webhooks/uazapi/instances/wpp_1?token=wrong-secret")
       .send({
         event: "message.received",
-        id: "evt_uazapi_instance_2"
+        id: "evt_uazapi_instance_2",
       })
       .expect(401);
 
@@ -884,7 +888,7 @@ describe("webhooks controller", () => {
       diagnosticsService,
       conversionRulesService,
       leadsService,
-      prismaService
+      prismaService,
     } = await createApp();
     prismaService.whatsappInstance.findFirst.mockResolvedValueOnce({
       id: "wpp_a",
@@ -892,7 +896,7 @@ describe("webhooks controller", () => {
       providerInstanceId: "provider_instance_a",
       webhookTokenHash: createHash("sha256")
         .update("instance-webhook-secret")
-        .digest("hex")
+        .digest("hex"),
     });
 
     await request(app.getHttpServer())
@@ -901,8 +905,8 @@ describe("webhooks controller", () => {
         event: "message.received",
         id: "evt_uazapi_instance_cross_tenant",
         instance: {
-          id: "provider_instance_b"
-        }
+          id: "provider_instance_b",
+        },
       })
       .expect(401);
 
@@ -920,7 +924,7 @@ describe("webhooks controller", () => {
       conversionRulesService,
       conversionEventsService,
       conversionEventsQueueService,
-      leadsService
+      leadsService,
     } = await createApp();
 
     await request(app.getHttpServer())
@@ -929,7 +933,7 @@ describe("webhooks controller", () => {
       .set("x-wpptrack-webhook-token", uazapiWebhookToken)
       .send({
         instance: {
-          id: "provider_instance_1"
+          id: "provider_instance_1",
         },
         chat: {
           name: "Elisandra Castro",
@@ -937,8 +941,8 @@ describe("webhooks controller", () => {
           wa_name: "",
           wa_label: ["555197120433:39"],
           wa_isGroup: false,
-          wa_chatid: "555186700577@s.whatsapp.net"
-        }
+          wa_chatid: "555186700577@s.whatsapp.net",
+        },
       })
       .expect(202)
       .expect(({ body }) => {
@@ -946,20 +950,20 @@ describe("webhooks controller", () => {
         expect(body.conversion).toEqual({
           created: [],
           duplicates: [],
-          queued: []
+          queued: [],
         });
       });
 
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
-        source: "uazapi"
-      })
+        source: "uazapi",
+      }),
     );
     expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
     expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
     expect(
-      conversionEventsService.recordAutomaticLeadSubmitted
+      conversionEventsService.recordAutomaticLeadSubmitted,
     ).not.toHaveBeenCalled();
     expect(conversionEventsService.recordRuleMatches).not.toHaveBeenCalled();
     expect(conversionEventsQueueService.enqueueSend).not.toHaveBeenCalled();
@@ -972,7 +976,7 @@ describe("webhooks controller", () => {
       app,
       conversionRulesService,
       conversionEventsService,
-      leadsService
+      leadsService,
     } = await createApp();
 
     await request(app.getHttpServer())
@@ -981,7 +985,7 @@ describe("webhooks controller", () => {
       .set("x-wpptrack-webhook-token", uazapiWebhookToken)
       .send({
         instance: {
-          id: "provider_instance_1"
+          id: "provider_instance_1",
         },
         chat: {
           id: "",
@@ -994,7 +998,7 @@ describe("webhooks controller", () => {
           wa_chatid: "555481241163@s.whatsapp.net",
           wa_chatlid: "271411952234508@lid",
           lead_name: "",
-          lead_tags: []
+          lead_tags: [],
         },
         owner: "555481240263",
         message: {
@@ -1016,11 +1020,11 @@ describe("webhooks controller", () => {
                 ctwaClid:
                   "AfjIU6RQYlpYayfNA2FofVXxkeliu6BysDwemrjwWsYkf-_ONOcY41s3dxRY7EUKC9ohLo6fgLcH6vg35S3k29Q5NoxEzOAgiIvcn6gCIvcEyaVoEno2XI36dwlCGvo",
                 sourceID: "120233998877665544",
-                sourceUrl: "https://fb.me/current-uazapi-ad"
-              }
-            }
-          }
-        }
+                sourceUrl: "https://fb.me/current-uazapi-ad",
+              },
+            },
+          },
+        },
       })
       .expect(202);
 
@@ -1032,24 +1036,24 @@ describe("webhooks controller", () => {
         ctwaClid:
           "AfjIU6RQYlpYayfNA2FofVXxkeliu6BysDwemrjwWsYkf-_ONOcY41s3dxRY7EUKC9ohLo6fgLcH6vg35S3k29Q5NoxEzOAgiIvcn6gCIvcEyaVoEno2XI36dwlCGvo",
         adId: "120233998877665544",
-        ctwaSourceUrl: "https://fb.me/current-uazapi-ad"
-      })
+        ctwaSourceUrl: "https://fb.me/current-uazapi-ad",
+      }),
     );
     expect(conversionRulesService.evaluateTriggers).toHaveBeenCalledWith(
       "workspace_1",
       expect.objectContaining({
-        messageText: "Boa tarde"
-      })
+        messageText: "Boa tarde",
+      }),
     );
     expect(
-      conversionEventsService.recordAutomaticLeadSubmitted
+      conversionEventsService.recordAutomaticLeadSubmitted,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace_1",
         leadId: "lead_1",
         ctwaClid:
-          "AfjIU6RQYlpYayfNA2FofVXxkeliu6BysDwemrjwWsYkf-_ONOcY41s3dxRY7EUKC9ohLo6fgLcH6vg35S3k29Q5NoxEzOAgiIvcn6gCIvcEyaVoEno2XI36dwlCGvo"
-      })
+          "AfjIU6RQYlpYayfNA2FofVXxkeliu6BysDwemrjwWsYkf-_ONOcY41s3dxRY7EUKC9ohLo6fgLcH6vg35S3k29Q5NoxEzOAgiIvcn6gCIvcEyaVoEno2XI36dwlCGvo",
+      }),
     );
 
     await app.close();
@@ -1061,7 +1065,7 @@ describe("webhooks controller", () => {
       diagnosticsService,
       conversionRulesService,
       conversionEventsService,
-      leadsService
+      leadsService,
     } = await createApp();
 
     await request(app.getHttpServer())
@@ -1070,27 +1074,27 @@ describe("webhooks controller", () => {
       .set("x-wpptrack-webhook-token", uazapiWebhookToken)
       .send({
         instance: {
-          id: "provider_instance_1"
+          id: "provider_instance_1",
         },
         chat: {
           phone: "555481241163",
           wa_name: "Luciane",
-          wa_isGroup: false
+          wa_isGroup: false,
         },
         message: {
           id: "555481240263:3EB0FROMME",
           text: "resposta da clinica",
           type: "text",
           fromMe: true,
-          chatid: "555481241163@s.whatsapp.net"
-        }
+          chatid: "555481241163@s.whatsapp.net",
+        },
       })
       .expect(202)
       .expect(({ body }) => {
         expect(body.conversion).toEqual({
           created: [],
           duplicates: [],
-          queued: []
+          queued: [],
         });
       });
 
@@ -1098,19 +1102,15 @@ describe("webhooks controller", () => {
     expect(leadsService.upsertFromWhatsappWebhook).not.toHaveBeenCalled();
     expect(conversionRulesService.evaluateTriggers).not.toHaveBeenCalled();
     expect(
-      conversionEventsService.recordAutomaticLeadSubmitted
+      conversionEventsService.recordAutomaticLeadSubmitted,
     ).not.toHaveBeenCalled();
 
     await app.close();
   });
 
   it("does not create a lead for inbound group chat messages", async () => {
-    const {
-      app,
-      diagnosticsService,
-      conversionRulesService,
-      leadsService
-    } = await createApp();
+    const { app, diagnosticsService, conversionRulesService, leadsService } =
+      await createApp();
 
     await request(app.getHttpServer())
       .post("/webhooks/uazapi")
@@ -1118,20 +1118,20 @@ describe("webhooks controller", () => {
       .set("x-wpptrack-webhook-token", uazapiWebhookToken)
       .send({
         instance: {
-          id: "provider_instance_1"
+          id: "provider_instance_1",
         },
         chat: {
           name: "Grupo Clinica",
           wa_isGroup: true,
-          wa_chatid: "120363025812345678@g.us"
+          wa_chatid: "120363025812345678@g.us",
         },
         message: {
           id: "555481240263:3EB0GROUPMSG",
           text: "aviso do grupo",
           type: "text",
           fromMe: false,
-          chatid: "120363025812345678@g.us"
-        }
+          chatid: "120363025812345678@g.us",
+        },
       })
       .expect(202);
 
@@ -1151,9 +1151,9 @@ describe("webhooks controller", () => {
       entry: [
         {
           id: "page_1",
-          changes: []
-        }
-      ]
+          changes: [],
+        },
+      ],
     };
 
     await request(app.getHttpServer())
@@ -1164,8 +1164,8 @@ describe("webhooks controller", () => {
         id: "evt_asaas_1",
         payment: {
           id: "pay_asaas_1",
-          status: "RECEIVED"
-        }
+          status: "RECEIVED",
+        },
       })
       .expect(202);
 
@@ -1180,45 +1180,45 @@ describe("webhooks controller", () => {
         source: "asaas",
         eventType: "PAYMENT_RECEIVED",
         workspaceId: "workspace_1",
-        idempotencyKey: "asaas:workspace_1:pay_asaas_1:evt_asaas_1"
-      })
+        idempotencyKey: "asaas:workspace_1:pay_asaas_1:evt_asaas_1",
+      }),
     );
     expect(
-      billingService.resolveAsaasPaymentWebhookContext
+      billingService.resolveAsaasPaymentWebhookContext,
     ).toHaveBeenCalledWith({
       event: "PAYMENT_RECEIVED",
       id: "evt_asaas_1",
       payment: {
         id: "pay_asaas_1",
-        status: "RECEIVED"
-      }
+        status: "RECEIVED",
+      },
     });
     expect(billingService.processAsaasPaymentWebhook).toHaveBeenCalledWith({
       event: "PAYMENT_RECEIVED",
       id: "evt_asaas_1",
       payment: {
         id: "pay_asaas_1",
-        status: "RECEIVED"
-      }
+        status: "RECEIVED",
+      },
     });
     expect(diagnosticsService.recordWebhookLog).toHaveBeenCalledWith(
       expect.objectContaining({
         source: "meta",
         eventType: "page",
         workspaceId: "workspace_1",
-        idempotencyKey: "meta:workspace_1:page_1:evt_meta_1"
-      })
+        idempotencyKey: "meta:workspace_1:page_1:evt_meta_1",
+      }),
     );
     expect(
-      prismaService.metaConversionDestination.findMany
+      prismaService.metaConversionDestination.findMany,
     ).toHaveBeenCalledWith({
       where: {
-        pageId: "page_1"
+        pageId: "page_1",
       },
       select: {
-        workspaceId: true
+        workspaceId: true,
       },
-      take: 2
+      take: 2,
     });
 
     await app.close();
@@ -1227,23 +1227,23 @@ describe("webhooks controller", () => {
   it("extracts attribution fields from Meta leadgen webhooks", async () => {
     const { app, diagnosticsService } = await createApp();
     const payload = {
-        object: "page",
-        entry: [
-          {
-            id: "page_1",
-            changes: [
-              {
-                field: "leadgen",
-                value: {
-                  leadgen_id: "leadgen_1",
-                  campaign_id: "cmp_1",
-                  adset_id: "adset_1",
-                  ad_id: "ad_1"
-                }
-              }
-            ]
-          }
-        ]
+      object: "page",
+      entry: [
+        {
+          id: "page_1",
+          changes: [
+            {
+              field: "leadgen",
+              value: {
+                leadgen_id: "leadgen_1",
+                campaign_id: "cmp_1",
+                adset_id: "adset_1",
+                ad_id: "ad_1",
+              },
+            },
+          ],
+        },
+      ],
     };
 
     await request(app.getHttpServer())
@@ -1262,8 +1262,8 @@ describe("webhooks controller", () => {
         idempotencyKey: "meta:workspace_1:page_1:leadgen_1",
         campaignId: "cmp_1",
         adSetId: "adset_1",
-        adId: "ad_1"
-      })
+        adId: "ad_1",
+      }),
     );
 
     await app.close();
@@ -1273,7 +1273,7 @@ describe("webhooks controller", () => {
     const { app, diagnosticsService, prismaService } = await createApp();
     const payload = {
       object: "page",
-      entry: [{ id: "page_1", changes: [] }]
+      entry: [{ id: "page_1", changes: [] }],
     };
 
     await request(app.getHttpServer())
@@ -1283,7 +1283,7 @@ describe("webhooks controller", () => {
       .expect(401);
 
     expect(
-      prismaService.metaConversionDestination.findMany
+      prismaService.metaConversionDestination.findMany,
     ).not.toHaveBeenCalled();
     expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
 
@@ -1297,12 +1297,12 @@ describe("webhooks controller", () => {
       .post("/webhooks/meta")
       .send({
         object: "page",
-        entry: [{ id: "page_1", changes: [] }]
+        entry: [{ id: "page_1", changes: [] }],
       })
       .expect(401);
 
     expect(
-      prismaService.metaConversionDestination.findMany
+      prismaService.metaConversionDestination.findMany,
     ).not.toHaveBeenCalled();
     expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
 
@@ -1314,7 +1314,7 @@ describe("webhooks controller", () => {
     const { app, diagnosticsService, prismaService } = await createApp();
     const payload = {
       object: "page",
-      entry: [{ id: "page_1", changes: [] }]
+      entry: [{ id: "page_1", changes: [] }],
     };
 
     await request(app.getHttpServer())
@@ -1324,7 +1324,7 @@ describe("webhooks controller", () => {
       .expect(401);
 
     expect(
-      prismaService.metaConversionDestination.findMany
+      prismaService.metaConversionDestination.findMany,
     ).not.toHaveBeenCalled();
     expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
 
@@ -1335,7 +1335,7 @@ describe("webhooks controller", () => {
     const { app, diagnosticsService } = await createApp();
     const payload = {
       object: "page",
-      entry: [{ id: "page_1", changes: [] }]
+      entry: [{ id: "page_1", changes: [] }],
     };
 
     await request(app.getHttpServer())
@@ -1354,11 +1354,11 @@ describe("webhooks controller", () => {
     const { app, diagnosticsService, prismaService } = await createApp();
     prismaService.metaConversionDestination.findMany.mockResolvedValueOnce([
       { workspaceId: "workspace_1" },
-      { workspaceId: "workspace_2" }
+      { workspaceId: "workspace_2" },
     ]);
     const payload = {
       object: "page",
-      entry: [{ id: "page_shared", changes: [] }]
+      entry: [{ id: "page_shared", changes: [] }],
     };
 
     await request(app.getHttpServer())
@@ -1377,7 +1377,7 @@ describe("webhooks controller", () => {
     diagnosticsService.recordWebhookLog.mockResolvedValueOnce({
       webhookLogId: "webhook_1",
       diagnosticEventId: "diag_1",
-      status: "duplicate"
+      status: "duplicate",
     });
 
     await request(app.getHttpServer())
@@ -1388,15 +1388,15 @@ describe("webhooks controller", () => {
         id: "evt_asaas_1",
         payment: {
           id: "pay_asaas_1",
-          status: "RECEIVED"
-        }
+          status: "RECEIVED",
+        },
       })
       .expect(202)
       .expect(({ body }) => {
         expect(body.status).toBe("duplicate");
         expect(body.billing).toEqual({
           processed: false,
-          status: "ignored"
+          status: "ignored",
         });
       });
 
@@ -1406,14 +1406,15 @@ describe("webhooks controller", () => {
   });
 
   it("rejects Asaas webhooks with invalid auth token when configured", async () => {
-    process.env.ASAAS_WEBHOOK_AUTH_TOKEN = "secure-webhook-token-123456789012345";
+    process.env.ASAAS_WEBHOOK_AUTH_TOKEN =
+      "secure-webhook-token-123456789012345";
     const { app, billingService, diagnosticsService } = await createApp();
 
     await request(app.getHttpServer())
       .post("/webhooks/asaas")
       .send({
         event: "PAYMENT_RECEIVED",
-        id: "evt_asaas_1"
+        id: "evt_asaas_1",
       })
       .expect(401);
 
@@ -1422,13 +1423,13 @@ describe("webhooks controller", () => {
       .set("asaas-access-token", "wrong-token")
       .send({
         event: "PAYMENT_RECEIVED",
-        id: "evt_asaas_1"
+        id: "evt_asaas_1",
       })
       .expect(401);
 
     expect(billingService.processAsaasPaymentWebhook).not.toHaveBeenCalled();
     expect(
-      billingService.resolveAsaasPaymentWebhookContext
+      billingService.resolveAsaasPaymentWebhookContext,
     ).not.toHaveBeenCalled();
     expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
 
@@ -1446,13 +1447,13 @@ describe("webhooks controller", () => {
         event: "PAYMENT_RECEIVED",
         id: "evt_asaas_missing_secret",
         payment: {
-          id: "pay_asaas_1"
-        }
+          id: "pay_asaas_1",
+        },
       })
       .expect(401);
 
     expect(
-      billingService.resolveAsaasPaymentWebhookContext
+      billingService.resolveAsaasPaymentWebhookContext,
     ).not.toHaveBeenCalled();
     expect(billingService.processAsaasPaymentWebhook).not.toHaveBeenCalled();
     expect(diagnosticsService.recordWebhookLog).not.toHaveBeenCalled();
@@ -1464,7 +1465,7 @@ describe("webhooks controller", () => {
     const { app, billingService, diagnosticsService } = await createApp();
     billingService.resolveAsaasPaymentWebhookContext.mockResolvedValueOnce({
       workspaceId: "workspace_b",
-      paymentId: "pay_asaas_b"
+      paymentId: "pay_asaas_b",
     });
 
     await request(app.getHttpServer())
@@ -1475,8 +1476,8 @@ describe("webhooks controller", () => {
         event: "PAYMENT_RECEIVED",
         id: "evt_asaas_cross_tenant",
         payment: {
-          id: "pay_asaas_b"
-        }
+          id: "pay_asaas_b",
+        },
       })
       .expect(401);
 
@@ -1487,7 +1488,8 @@ describe("webhooks controller", () => {
   });
 
   it("accepts Asaas webhooks with valid auth token when configured", async () => {
-    process.env.ASAAS_WEBHOOK_AUTH_TOKEN = "secure-webhook-token-123456789012345";
+    process.env.ASAAS_WEBHOOK_AUTH_TOKEN =
+      "secure-webhook-token-123456789012345";
     const { app, billingService } = await createApp();
 
     await request(app.getHttpServer())
@@ -1497,8 +1499,8 @@ describe("webhooks controller", () => {
         event: "PAYMENT_RECEIVED",
         id: "evt_asaas_1",
         payment: {
-          id: "pay_asaas_1"
-        }
+          id: "pay_asaas_1",
+        },
       })
       .expect(202);
 
@@ -1514,12 +1516,12 @@ describe("webhooks controller", () => {
         findUnique: vi.fn(async () => ({
           id: "webhook_workspace_b",
           workspaceId: "workspace_b",
-          source: "uazapi"
-        }))
+          source: "uazapi",
+        })),
       },
       diagnosticEvent: {
-        findMany: diagnosticEventFindMany
-      }
+        findMany: diagnosticEventFindMany,
+      },
     } as never);
 
     await expect(
@@ -1528,8 +1530,8 @@ describe("webhooks controller", () => {
         source: "uazapi",
         eventType: "message.received",
         externalEventId: "evt_shared",
-        idempotencyKey: "uazapi:workspace_a:wpp_a:evt_shared"
-      })
+        idempotencyKey: "uazapi:workspace_a:wpp_a:evt_shared",
+      }),
     ).rejects.toMatchObject({ status: 409 });
 
     expect(diagnosticEventFindMany).not.toHaveBeenCalled();

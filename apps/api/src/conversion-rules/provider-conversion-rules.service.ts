@@ -131,7 +131,8 @@ export class ProviderConversionRulesService {
       }
 
       const parserRelease =
-        input.triggerType === "provider_automation" && connection.provider === "umbler"
+        input.triggerType === "provider_automation" &&
+        connection.provider === "umbler"
           ? await transaction.inboundWebhookParserRelease.findFirst({
               where: {
                 provider: "umbler",
@@ -148,8 +149,13 @@ export class ProviderConversionRulesService {
       }
 
       const automationTriggerPhrases =
-        input.triggerType === "provider_automation" && connection.provider === "uazapi"
-          ? (input.triggerPhrases ?? [])
+        input.triggerType === "provider_automation" &&
+        connection.provider === "uazapi"
+          ? (
+              input.triggerLabels?.map((label) => label.name) ??
+              input.triggerPhrases ??
+              []
+            )
               .map((phrase) => phrase.trim())
               .filter(Boolean)
           : [];
@@ -185,6 +191,9 @@ export class ProviderConversionRulesService {
         defaultValueCents = input.defaultValueCents ?? null;
         defaultCurrency = input.defaultCurrency ?? null;
         defaultContentName = input.defaultContentName ?? null;
+        if (connection.provider === "uazapi") {
+          defaultItems = this.uazapiLabelsConfig(input.triggerLabels ?? []);
+        }
       } else if (input.triggerType === "structured_catalog") {
         defaultCurrency = input.catalog.currency;
         defaultContentName = input.catalog.productName;
@@ -357,7 +366,9 @@ export class ProviderConversionRulesService {
       );
 
       if (!connection.parserRelease) {
-        throw new ConflictException("Parser da conexao ainda nao esta disponivel");
+        throw new ConflictException(
+          "Parser da conexao ainda nao esta disponivel",
+        );
       }
       this.assertModeAllowed("observation", connection.parserRelease.status);
 
@@ -469,6 +480,12 @@ export class ProviderConversionRulesService {
       if (input.triggerPhrases !== undefined) {
         conversionRuleData.triggerValue = input.triggerPhrases[0];
       }
+      if (input.triggerLabels !== undefined) {
+        conversionRuleData.triggerValue = input.triggerLabels[0]?.name;
+        conversionRuleData.defaultItems = this.uazapiLabelsConfig(
+          input.triggerLabels,
+        );
+      }
       if (input.valueMode !== undefined || input.exampleMessage !== undefined) {
         const messagePhrase = readMessagePhraseConfig(
           current.conversionRule.defaultItems,
@@ -493,6 +510,7 @@ export class ProviderConversionRulesService {
         input.mode !== undefined ||
         input.active === false ||
         input.triggerPhrases !== undefined ||
+        input.triggerLabels !== undefined ||
         input.messageAuthorScope !== undefined
       ) {
         const mode = nextMode ?? current.mode;
@@ -502,6 +520,13 @@ export class ProviderConversionRulesService {
             mode,
             ...(input.triggerPhrases !== undefined
               ? { messageTriggerPhrases: input.triggerPhrases }
+              : {}),
+            ...(input.triggerLabels !== undefined
+              ? {
+                  messageTriggerPhrases: input.triggerLabels.map(
+                    (label) => label.name,
+                  ),
+                }
               : {}),
             ...(input.messageAuthorScope !== undefined
               ? { messageAuthorScope: input.messageAuthorScope }
@@ -1140,6 +1165,23 @@ export class ProviderConversionRulesService {
       createdAt: rule.createdAt.toISOString(),
       updatedAt: rule.updatedAt.toISOString(),
     };
+  }
+
+  private uazapiLabelsConfig(
+    labels: Array<{ id: string; name: string }>,
+  ): Prisma.InputJsonValue {
+    return {
+      uazapiLabels: labels.map((label) => {
+        const id = label.id.trim();
+        const localId = id.includes(":") ? id.split(":").pop()! : id;
+        return {
+          id,
+          labelId: localId,
+          matchKeys: [...new Set([id, localId])],
+          name: label.name.trim(),
+        };
+      }),
+    } as Prisma.InputJsonValue;
   }
 
   private endpointToDto(

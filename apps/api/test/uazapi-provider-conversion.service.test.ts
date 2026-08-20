@@ -55,6 +55,7 @@ function sampleRule(overrides: Record<string, unknown> = {}) {
 
 describe("UazapiProviderConversionService", () => {
   const prisma = {
+    uazapiChatLabelState: { findUnique: vi.fn(), upsert: vi.fn() },
     inboundWebhookChannel: { findFirst: vi.fn() },
     inboundWebhookDelivery: {
       findUnique: vi.fn(),
@@ -68,6 +69,8 @@ describe("UazapiProviderConversionService", () => {
   const orchestrator = { orchestrate: vi.fn() };
   const paidLeads = { resolve: vi.fn() };
   const productionQueue = { enqueueProviderConversion: vi.fn() };
+  const uazapi = { listLabels: vi.fn() };
+  const tokenEncryption = { decrypt: vi.fn() };
 
   const service = new UazapiProviderConversionService(
     prisma as never,
@@ -78,6 +81,8 @@ describe("UazapiProviderConversionService", () => {
     orchestrator as never,
     paidLeads as never,
     productionQueue as never,
+    uazapi as never,
+    tokenEncryption as never,
   );
 
   beforeEach(() => {
@@ -89,6 +94,11 @@ describe("UazapiProviderConversionService", () => {
     prisma.inboundWebhookChannel.findFirst.mockResolvedValue({
       status: "active",
       productionActivatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    prisma.uazapiChatLabelState.findUnique.mockResolvedValue(null);
+    prisma.uazapiChatLabelState.upsert.mockResolvedValue({});
+    uazapi.listLabels.mockResolvedValue({
+      labels: [{ id: "10", name: "Venda fechada" }],
     });
   });
 
@@ -150,7 +160,9 @@ describe("UazapiProviderConversionService", () => {
       leadResolution: { status: "not_found" },
     });
     prisma.inboundWebhookDelivery.findUnique.mockResolvedValue(null);
-    prisma.inboundWebhookDelivery.create.mockResolvedValue({ id: "delivery_1" });
+    prisma.inboundWebhookDelivery.create.mockResolvedValue({
+      id: "delivery_1",
+    });
     decisions.recordInitial.mockResolvedValue({
       decision: {
         decisionCode: "ignored_untracked_lead",
@@ -249,6 +261,16 @@ describe("UazapiProviderConversionService", () => {
           defaultValueCents: null,
           defaultCurrency: null,
           defaultContentName: null,
+          defaultItems: {
+            uazapiLabels: [
+              {
+                id: "10",
+                labelId: "10",
+                matchKeys: ["10", "554237420132:10"],
+                name: "Venda fechada",
+              },
+            ],
+          },
         },
       }),
     ]);
@@ -329,23 +351,97 @@ describe("UazapiProviderConversionService", () => {
         },
       }),
     ]);
-    paidLeads.resolve.mockResolvedValue({ status: "resolved", reasonCode: "paid_lead_resolved", leadId: "lead_1", candidateLeadId: "lead_1" });
-    decisionEngine.evaluate.mockReturnValue({ decisionCode: "eligible", reasonCode: "automation_matched", rule: { mode: "production", eventName: "QualifiedLead" } });
-    prisma.inboundWebhookDelivery.findUnique.mockResolvedValue({ id: "delivery_label_1" });
-    decisions.recordInitial.mockResolvedValue({ decision: { decisionCode: "eligible", reasonCode: "automation_matched", rule: { mode: "production", eventName: "QualifiedLead" } } });
-    orchestrator.orchestrate.mockResolvedValue({ eligibleExecutionId: "execution_label_1" });
+    paidLeads.resolve.mockResolvedValue({
+      status: "resolved",
+      reasonCode: "paid_lead_resolved",
+      leadId: "lead_1",
+      candidateLeadId: "lead_1",
+    });
+    decisionEngine.evaluate.mockReturnValue({
+      decisionCode: "eligible",
+      reasonCode: "automation_matched",
+      rule: { mode: "production", eventName: "QualifiedLead" },
+    });
+    prisma.inboundWebhookDelivery.findUnique.mockResolvedValue({
+      id: "delivery_label_1",
+    });
+    decisions.recordInitial.mockResolvedValue({
+      decision: {
+        decisionCode: "eligible",
+        reasonCode: "automation_matched",
+        rule: { mode: "production", eventName: "QualifiedLead" },
+      },
+    });
+    orchestrator.orchestrate.mockResolvedValue({
+      eligibleExecutionId: "execution_label_1",
+    });
 
-    await expect(service.evaluateLabels({
+    await expect(
+      service.evaluateLabels({
+        workspaceId: "workspace_1",
+        instance: {
+          id: "instance_1",
+          workspaceId: "workspace_1",
+          name: "NOD",
+          providerInstanceId: "p1",
+        },
+        phone: "+5541999999999",
+        labelIds: ["554237420132:10"],
+        waChatId: "5541999999999@s.whatsapp.net",
+        externalEventId: "event_label_1",
+      }),
+    ).resolves.toEqual({
+      evaluated: true,
+      eligibleExecutionId: "execution_label_1",
+    });
+
+    expect(decisionEngine.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        occurrence: expect.objectContaining({
+          labels: ["554237420132:10", "10"],
+          matchedLabel: "Venda fechada",
+        }),
+      }),
+    );
+    expect(productionQueue.enqueueProviderConversion).toHaveBeenCalledWith({
+      providerConversionExecutionId: "execution_label_1",
       workspaceId: "workspace_1",
-      instance: { id: "instance_1", workspaceId: "workspace_1", name: "NOD", providerInstanceId: "p1" },
-      phone: "+5541999999999",
-      labels: ["venda FECHADA"],
-      externalEventId: "event_label_1",
-    })).resolves.toEqual({ evaluated: true, eligibleExecutionId: "execution_label_1" });
+    });
+  });
 
-    expect(decisionEngine.evaluate).toHaveBeenCalledWith(expect.objectContaining({
-      occurrence: expect.objectContaining({ labels: ["venda FECHADA"], matchedLabel: "venda FECHADA" }),
-    }));
-    expect(productionQueue.enqueueProviderConversion).toHaveBeenCalledWith({ providerConversionExecutionId: "execution_label_1", workspaceId: "workspace_1" });
+  it("records snapshots but does not evaluate re-delivery or label removal", async () => {
+    prisma.uazapiChatLabelState.findUnique.mockResolvedValue({
+      labelIds: ["554237420132:10"],
+    });
+    await expect(
+      service.evaluateLabels({
+        workspaceId: "workspace_1",
+        instance: {
+          id: "instance_1",
+          workspaceId: "workspace_1",
+          name: "NOD",
+          providerInstanceId: "p1",
+        },
+        phone: "+5541999999999",
+        waChatId: "5541999999999@s.whatsapp.net",
+        labelIds: ["554237420132:10"],
+      }),
+    ).resolves.toEqual({ evaluated: false, eligibleExecutionId: null });
+    await expect(
+      service.evaluateLabels({
+        workspaceId: "workspace_1",
+        instance: {
+          id: "instance_1",
+          workspaceId: "workspace_1",
+          name: "NOD",
+          providerInstanceId: "p1",
+        },
+        phone: "+5541999999999",
+        waChatId: "5541999999999@s.whatsapp.net",
+        labelIds: [],
+      }),
+    ).resolves.toEqual({ evaluated: false, eligibleExecutionId: null });
+    expect(prisma.uazapiChatLabelState.upsert).toHaveBeenCalledTimes(2);
+    expect(decisionEngine.evaluate).not.toHaveBeenCalled();
   });
 });

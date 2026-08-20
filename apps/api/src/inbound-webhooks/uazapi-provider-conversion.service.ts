@@ -27,6 +27,8 @@ import {
   UazapiConversionBridgeService,
   type UazapiBridgeInstance,
 } from "./uazapi-conversion-bridge.service";
+import { UazapiAdapter } from "../integrations/uazapi/uazapi.adapter";
+import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
 
 const PARSER_VERSION = "v1";
 
@@ -63,7 +65,8 @@ export type UazapiLabelInput = {
   workspaceId: string;
   instance: UazapiBridgeInstance;
   phone: string;
-  labels: string[];
+  labelIds: string[];
+  waChatId?: string;
   externalEventId?: string | null;
   occurredAt?: Date;
 };
@@ -94,6 +97,9 @@ export class UazapiProviderConversionService {
     private readonly paidLeads: ProviderConversionPaidLeadResolver,
     @Inject(InboundWebhookProductionQueueService)
     private readonly productionQueue: InboundWebhookProductionQueueService,
+    @Inject(UazapiAdapter) private readonly uazapi: UazapiAdapter,
+    @Inject(MetaTokenEncryptionService)
+    private readonly tokenEncryption: MetaTokenEncryptionService,
   ) {}
 
   async evaluateTeamMessage(
@@ -204,18 +210,60 @@ export class UazapiProviderConversionService {
     return { evaluated, eligibleExecutionId };
   }
 
-  /** Evaluates UAZAPI WhatsApp labels through the same paid-lead-only path. */
-  async evaluateLabels(input: UazapiLabelInput): Promise<UazapiTeamMessageResult> {
+  /** Evaluates only newly-added UAZAPI chat label ids through the paid-lead-only path. */
+  async evaluateLabels(
+    input: UazapiLabelInput,
+  ): Promise<UazapiTeamMessageResult> {
     const config = parseInboundWebhooksConfig(this.env);
     const phone = input.phone.trim();
-    const labels = [...new Set(input.labels.map((label) => label.trim()).filter(Boolean))];
-    if (!config.enabled || !config.conversionRulesEnabled || !phone || labels.length === 0) {
+    const labelIds = [
+      ...new Set(input.labelIds.map((label) => label.trim()).filter(Boolean)),
+    ];
+    if (!config.enabled || !config.conversionRulesEnabled || !phone) {
       return { evaluated: false, eligibleExecutionId: null };
     }
+    const contactKey = input.waChatId?.trim() || hashPhoneIdentity(phone);
+    if (!contactKey) return { evaluated: false, eligibleExecutionId: null };
+    const previous = await this.prisma.uazapiChatLabelState.findUnique({
+      where: {
+        workspaceId_whatsappInstanceId_contactKey: {
+          workspaceId: input.workspaceId,
+          whatsappInstanceId: input.instance.id,
+          contactKey,
+        },
+      },
+      select: { labelIds: true },
+    });
+    const previousIds = new Set(previous?.labelIds ?? []);
+    const newIds = labelIds.filter((id) => !previousIds.has(id));
+    await this.prisma.uazapiChatLabelState.upsert({
+      where: {
+        workspaceId_whatsappInstanceId_contactKey: {
+          workspaceId: input.workspaceId,
+          whatsappInstanceId: input.instance.id,
+          contactKey,
+        },
+      },
+      create: {
+        workspaceId: input.workspaceId,
+        whatsappInstanceId: input.instance.id,
+        contactKey,
+        labelIds,
+      },
+      update: { labelIds },
+    });
+    if (newIds.length === 0)
+      return { evaluated: false, eligibleExecutionId: null };
 
     const bridged = await this.bridge.ensureBridge(input.instance);
-    const rules = await this.loadRules(input.workspaceId, bridged.connectionId, bridged.channelId, "provider_automation");
-    if (rules.length === 0) return { evaluated: false, eligibleExecutionId: null };
+    const rules = await this.loadRules(
+      input.workspaceId,
+      bridged.connectionId,
+      bridged.channelId,
+      "provider_automation",
+    );
+    if (rules.length === 0)
+      return { evaluated: false, eligibleExecutionId: null };
 
     const channel = await this.prisma.inboundWebhookChannel.findFirst({
       where: { id: bridged.channelId, workspaceId: input.workspaceId },
@@ -223,22 +271,24 @@ export class UazapiProviderConversionService {
     });
     if (!channel) return { evaluated: false, eligibleExecutionId: null };
 
-    const leadResolution = await this.paidLeads.resolve({ workspaceId: input.workspaceId, phone });
+    const leadResolution = await this.paidLeads.resolve({
+      workspaceId: input.workspaceId,
+      phone,
+    });
     const occurredAt = input.occurredAt ?? new Date();
-    const externalEventId = input.externalEventId?.trim() || this.labelEventId(phone, labels, occurredAt);
+    const externalEventId =
+      input.externalEventId?.trim() ||
+      this.labelEventId(phone, labelIds, occurredAt);
+    const catalog = await this.listLabelCatalog(input.instance);
     let evaluated = false;
     let eligibleExecutionId: string | null = null;
 
     for (const rule of rules) {
       const ruleSnapshot = this.ruleSnapshot(rule, "provider_automation");
-      const matchedLabel = labels.find((label) =>
-        ruleSnapshot.triggerPhrases.some((phrase) =>
-          phrase.trim().toLocaleLowerCase("pt-BR") === label.trim().toLocaleLowerCase("pt-BR"),
-        ),
-      );
-      if (!matchedLabel) continue;
+      const matched = this.matchLabels(rule, newIds, catalog);
+      if (!matched) continue;
 
-      const occurrenceKey = `uazapi:label:${bridged.channelId}:${rule.id}:${phone}:${matchedLabel}:${externalEventId}`;
+      const occurrenceKey = `uazapi:label:${bridged.channelId}:${rule.id}:${contactKey}:${matched.id}:${externalEventId}`;
       const decision = this.decisionEngine.evaluate({
         parserVersion: PARSER_VERSION,
         rule: ruleSnapshot,
@@ -259,21 +309,38 @@ export class UazapiProviderConversionService {
           occurredAt: occurredAt.toISOString(),
           authorType: null,
           automation: "label",
-          labels,
-          matchedLabel,
+          labels: matched.matchKeys,
+          matchedLabel: matched.name,
         },
       });
       if (!decision) continue;
       evaluated = true;
-      const deliveryId = await this.ensureDelivery({ workspaceId: input.workspaceId, connectionId: bridged.connectionId, ingressKey: occurrenceKey });
-      const persistedDecision = await this.decisions.recordInitial({ decision, sourceDeliveryId: deliveryId });
+      const deliveryId = await this.ensureDelivery({
+        workspaceId: input.workspaceId,
+        connectionId: bridged.connectionId,
+        ingressKey: occurrenceKey,
+      });
+      const persistedDecision = await this.decisions.recordInitial({
+        decision,
+        sourceDeliveryId: deliveryId,
+      });
       const orchestration = await this.orchestrator.orchestrate({
         persistedDecision,
-        disposition: this.disposition({ config, decisionMode: persistedDecision.decision.rule.mode, reasonCode: persistedDecision.decision.reasonCode, rule, channel, occurredAt }),
+        disposition: this.disposition({
+          config,
+          decisionMode: persistedDecision.decision.rule.mode,
+          reasonCode: persistedDecision.decision.reasonCode,
+          rule,
+          channel,
+          occurredAt,
+        }),
       });
       if (orchestration.eligibleExecutionId) {
         eligibleExecutionId = orchestration.eligibleExecutionId;
-        await this.productionQueue.enqueueProviderConversion({ providerConversionExecutionId: eligibleExecutionId, workspaceId: input.workspaceId });
+        await this.productionQueue.enqueueProviderConversion({
+          providerConversionExecutionId: eligibleExecutionId,
+          workspaceId: input.workspaceId,
+        });
       }
     }
     return { evaluated, eligibleExecutionId };
@@ -420,7 +487,14 @@ export class UazapiProviderConversionService {
       mode: rule.mode,
       active: rule.conversionRule.active && rule.removedAt === null,
       authorScope: rule.messageAuthorScope,
-      triggerPhrases: [...rule.messageTriggerPhrases],
+      triggerPhrases: [
+        ...rule.messageTriggerPhrases,
+        ...(triggerType === "provider_automation"
+          ? this.storedLabels(rule.conversionRule.defaultItems).flatMap(
+              (label) => label.matchKeys,
+            )
+          : []),
+      ],
       defaultValueCents: rule.conversionRule.defaultValueCents,
       defaultCurrency: rule.conversionRule.defaultCurrency,
       defaultContentName: rule.conversionRule.defaultContentName,
@@ -462,10 +536,119 @@ export class UazapiProviderConversionService {
       .digest("hex");
   }
 
-  private labelEventId(phone: string, labels: string[], occurredAt: Date): string {
+  private labelEventId(
+    phone: string,
+    labels: string[],
+    occurredAt: Date,
+  ): string {
     return createHash("sha256")
-      .update(`${phone}\u0000${labels.join("\u0000")}\u0000${occurredAt.toISOString().slice(0, 16)}`, "utf8")
+      .update(
+        `${phone}\u0000${labels.join("\u0000")}\u0000${occurredAt.toISOString().slice(0, 16)}`,
+        "utf8",
+      )
       .digest("hex");
+  }
+
+  private async listLabelCatalog(
+    instance: UazapiBridgeInstance,
+  ): Promise<Array<{ name: string; keys: string[] }>> {
+    const result = await this.uazapi.listLabels(
+      instance.providerInstanceId ?? instance.id,
+      this.instanceToken(instance),
+    );
+    return result.labels.map((label) => ({
+      name: label.name.trim(),
+      keys: this.labelKeys(label.id),
+    }));
+  }
+
+  private instanceToken(instance: UazapiBridgeInstance): string | undefined {
+    if (
+      !instance.providerTokenEncrypted ||
+      !instance.providerTokenIv ||
+      !instance.providerTokenTag
+    )
+      return undefined;
+    return this.tokenEncryption.decrypt({
+      encryptedAccessToken: instance.providerTokenEncrypted,
+      tokenIv: instance.providerTokenIv,
+      tokenTag: instance.providerTokenTag,
+    });
+  }
+
+  private matchLabels(
+    rule: Rule,
+    newIds: string[],
+    catalog: Array<{ name: string; keys: string[] }>,
+  ): { id: string; name: string; matchKeys: string[] } | null {
+    const stored = this.storedLabels(rule.conversionRule.defaultItems);
+    for (const id of newIds) {
+      const keys = this.labelKeys(id);
+      const catalogName = catalog.find((label) =>
+        label.keys.some((key) => keys.includes(key)),
+      )?.name;
+      const configured =
+        stored.find((label) =>
+          label.matchKeys.some((key) => keys.includes(key)),
+        ) ??
+        (catalogName
+          ? stored.find((label) => this.sameName(label.name, catalogName))
+          : undefined);
+      if (
+        configured ||
+        (catalogName &&
+          rule.messageTriggerPhrases.some((phrase) =>
+            this.sameName(phrase, catalogName),
+          ))
+      ) {
+        return {
+          id,
+          name: configured?.name ?? catalogName ?? id,
+          matchKeys: keys,
+        };
+      }
+    }
+    return null;
+  }
+
+  private storedLabels(
+    value: Prisma.JsonValue | null,
+  ): Array<{ name: string; matchKeys: string[] }> {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const raw = (value as Record<string, unknown>).uazapiLabels;
+    if (!Array.isArray(raw)) return [];
+    return raw.flatMap((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      const value = item as Record<string, unknown>;
+      const name = typeof value.name === "string" ? value.name.trim() : "";
+      const matchKeys = Array.isArray(value.matchKeys)
+        ? value.matchKeys
+            .filter((key): key is string => typeof key === "string")
+            .flatMap((key) => this.labelKeys(key))
+        : [];
+      return name ? [{ name, matchKeys }] : [];
+    });
+  }
+
+  private labelKeys(id: string): string[] {
+    const normalized = id.trim();
+    const localId = normalized.includes(":")
+      ? normalized.split(":").pop()!
+      : normalized;
+    return [...new Set([normalized, localId])];
+  }
+
+  private sameName(left: string, right: string): boolean {
+    return (
+      left
+        .replace(/\u200e/g, "")
+        .trim()
+        .toLocaleLowerCase("pt-BR") ===
+      right
+        .replace(/\u200e/g, "")
+        .trim()
+        .toLocaleLowerCase("pt-BR")
+    );
   }
 
   private isUniqueConstraintError(error: unknown): boolean {

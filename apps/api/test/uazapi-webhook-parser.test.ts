@@ -13,10 +13,10 @@ describe("Uazapi webhook parser", () => {
           source_url: "https://fb.com/ad",
           ad_id: "ad_1",
           adset_id: "adset_1",
-          campaign_id: "cmp_1"
-        }
+          campaign_id: "cmp_1",
+        },
       },
-      contact: { phone: "+55 11 99999-1234", name: "Maria" }
+      contact: { phone: "+55 11 99999-1234", name: "Maria" },
     });
 
     expect(parsed).toMatchObject({
@@ -29,22 +29,54 @@ describe("Uazapi webhook parser", () => {
       adSetId: "adset_1",
       adId: "ad_1",
       ctwaClid: "clid_1",
-      ctwaSourceUrl: "https://fb.com/ad"
+      ctwaSourceUrl: "https://fb.com/ad",
     });
   });
 
   it("extracts labels from strings and label objects", () => {
     const parsed = parseUazapiWebhook({
-      labels: ["Venda fechada", { name: "VIP" }, { title: "BPC" }]
+      labels: ["Venda fechada", { name: "VIP" }, { title: "BPC" }],
     });
 
     expect(parsed.labels).toEqual(["Venda fechada", "VIP", "BPC"]);
   });
 
+  it("distinguishes the live labels catalog event from a chat_labels snapshot", () => {
+    expect(
+      parseUazapiWebhook({
+        type: "LabelEdit",
+        EventType: "labels",
+        event: { LabelID: "9" },
+      }),
+    ).toMatchObject({
+      eventType: "labels",
+      labelEventKind: "labels_catalog",
+      waLabelIds: [],
+    });
+    expect(
+      parseUazapiWebhook({
+        EventType: "chat_labels",
+        chat: {
+          phone: "+55 11 95301-6170",
+          wa_chatid: "5511953016170@s.whatsapp.net",
+          wa_isGroup: false,
+          wa_label: ["554237420132:10"],
+        },
+      }),
+    ).toMatchObject({
+      eventType: "chat_labels",
+      labelEventKind: "chat_labels",
+      phone: "+55 11 95301-6170",
+      waChatId: "5511953016170@s.whatsapp.net",
+      isGroupChat: false,
+      waLabelIds: ["554237420132:10"],
+    });
+  });
+
   it("does not treat ctwaPayload as ctwa_clid", () => {
     const parsed = parseUazapiWebhook({
       ctwaPayload: "internal_blob",
-      message: { referral: { ctwaPayload: "nested_blob" } }
+      message: { referral: { ctwaPayload: "nested_blob" } },
     });
 
     expect(parsed.ctwaClid).toBeUndefined();
@@ -58,7 +90,7 @@ describe("Uazapi webhook parser", () => {
 
   it("extracts ctwaClid from context referral", () => {
     const parsed = parseUazapiWebhook({
-      context: { referral: { ctwaClid: "clid_context" } }
+      context: { referral: { ctwaClid: "clid_context" } },
     });
 
     expect(parsed.ctwaClid).toBe("clid_context");
@@ -68,7 +100,7 @@ describe("Uazapi webhook parser", () => {
     const parsed = parseUazapiWebhook({
       referral: { ad_id: "ad_top" },
       message: { referral: { campaign_id: "cmp_message" } },
-      context: { referral: { ctwa_clid: "clid_context" } }
+      context: { referral: { ctwa_clid: "clid_context" } },
     });
 
     expect(parsed.ctwaClid).toBe("clid_context");
@@ -79,7 +111,7 @@ describe("Uazapi webhook parser", () => {
     const parsed = parseUazapiWebhook({
       referral: { ad_id: "ad_top" },
       message: { referral: { campaign_id: "cmp_message" } },
-      context: { referral: { source_url: "https://fb.com/context-ad" } }
+      context: { referral: { source_url: "https://fb.com/context-ad" } },
     });
 
     expect(parsed.ctwaSourceUrl).toBe("https://fb.com/context-ad");
@@ -88,25 +120,24 @@ describe("Uazapi webhook parser", () => {
 
   it("extracts provider instance id from nested instance records", () => {
     expect(
-      parseUazapiWebhook({ instance: { id: "instance_1" } })
-        .providerInstanceId
+      parseUazapiWebhook({ instance: { id: "instance_1" } }).providerInstanceId,
     ).toBe("instance_1");
     expect(
       parseUazapiWebhook({
-        whatsappInstance: { providerInstanceId: "provider_instance_1" }
-      }).providerInstanceId
+        whatsappInstance: { providerInstanceId: "provider_instance_1" },
+      }).providerInstanceId,
     ).toBe("provider_instance_1");
   });
 
   it("extracts message text from top-level fallbacks", () => {
     expect(parseUazapiWebhook({ text: "from text" }).messageText).toBe(
-      "from text"
+      "from text",
     );
     expect(parseUazapiWebhook({ body: "from body" }).messageText).toBe(
-      "from body"
+      "from body",
     );
     expect(
-      parseUazapiWebhook({ messageText: "from messageText" }).messageText
+      parseUazapiWebhook({ messageText: "from messageText" }).messageText,
     ).toBe("from messageText");
   });
 
@@ -115,12 +146,10 @@ describe("Uazapi webhook parser", () => {
 
     expect(parsed.contactName).toBe("Luciane");
     expect(parsed.ctwaClid).toBe(
-      "AfjIU6RQYlpYayfNA2FofVXxkeliu6BysDwemrjwWsYkf-_ONOcY41s3dxRY7EUKC9ohLo6fgLcH6vg35S3k29Q5NoxEzOAgiIvcn6gCIvcEyaVoEno2XI36dwlCGvo"
+      "AfjIU6RQYlpYayfNA2FofVXxkeliu6BysDwemrjwWsYkf-_ONOcY41s3dxRY7EUKC9ohLo6fgLcH6vg35S3k29Q5NoxEzOAgiIvcn6gCIvcEyaVoEno2XI36dwlCGvo",
     );
     expect(parsed.adId).toBe("120233998877665544");
-    expect(parsed.ctwaSourceUrl).toBe(
-      "https://fb.me/current-uazapi-ad"
-    );
+    expect(parsed.ctwaSourceUrl).toBe("https://fb.me/current-uazapi-ad");
     expect(parsed.externalEventId).toBe("555481240263:3EB0REALMESSAGEID");
     expect(parsed.phone).toBe("555481241163");
     expect(parsed.isGroupChat).toBe(false);
@@ -166,13 +195,13 @@ describe("Uazapi webhook parser", () => {
   it("falls back to message.chatid and chat.wa_chatid when chat.phone is absent", () => {
     expect(
       parseUazapiWebhook({
-        message: { chatid: "555481241163@s.whatsapp.net" }
-      }).phone
+        message: { chatid: "555481241163@s.whatsapp.net" },
+      }).phone,
     ).toBe("555481241163@s.whatsapp.net");
     expect(
       parseUazapiWebhook({
-        chat: { wa_chatid: "555186700577@s.whatsapp.net" }
-      }).phone
+        chat: { wa_chatid: "555186700577@s.whatsapp.net" },
+      }).phone,
     ).toBe("555186700577@s.whatsapp.net");
   });
 });
@@ -191,7 +220,7 @@ const realInboundMessageWithCtwa = {
     wa_unreadCount: 1,
     wa_lastMessageType: "ExtendedTextMessage",
     lead_name: "",
-    lead_tags: []
+    lead_tags: [],
   },
   owner: "555481240263",
   message: {
@@ -213,11 +242,11 @@ const realInboundMessageWithCtwa = {
           ctwaClid:
             "AfjIU6RQYlpYayfNA2FofVXxkeliu6BysDwemrjwWsYkf-_ONOcY41s3dxRY7EUKC9ohLo6fgLcH6vg35S3k29Q5NoxEzOAgiIvcn6gCIvcEyaVoEno2XI36dwlCGvo",
           sourceID: "120233998877665544",
-          sourceUrl: "https://fb.me/current-uazapi-ad"
-        }
-      }
-    }
-  }
+          sourceUrl: "https://fb.me/current-uazapi-ad",
+        },
+      },
+    },
+  },
 };
 
 const realInboundMessageWithoutCtwa = {
@@ -232,7 +261,7 @@ const realInboundMessageWithoutCtwa = {
     wa_chatid: "555481241163@s.whatsapp.net",
     wa_chatlid: "271411952234508@lid",
     lead_name: "",
-    lead_tags: []
+    lead_tags: [],
   },
   owner: "555481240263",
   message: {
@@ -244,9 +273,9 @@ const realInboundMessageWithoutCtwa = {
     sender: "271411952234508@lid",
     chatlid: "271411952234508@lid",
     content: {
-      text: "Boa tarde"
-    }
-  }
+      text: "Boa tarde",
+    },
+  },
 };
 
 const realChatUpdateEvent = {
@@ -257,16 +286,16 @@ const realChatUpdateEvent = {
     wa_name: "",
     wa_label: ["555197120433:39"],
     wa_isGroup: false,
-    wa_chatid: "555186700577@s.whatsapp.net"
-  }
+    wa_chatid: "555186700577@s.whatsapp.net",
+  },
 };
 
 const realReadReceiptEvent = {
   type: "ReadReceipt",
   event: {
     Chat: "555481241163@s.whatsapp.net",
-    Sender: "271411952234508@lid"
-  }
+    Sender: "271411952234508@lid",
+  },
 };
 
 const realGroupChatMessage = {
@@ -276,13 +305,13 @@ const realGroupChatMessage = {
     wa_name: "",
     wa_label: [],
     wa_isGroup: true,
-    wa_chatid: "120363025812345678@g.us"
+    wa_chatid: "120363025812345678@g.us",
   },
   message: {
     id: "555481240263:3EB0GROUPMSG",
     text: "aviso do grupo",
     type: "text",
     fromMe: false,
-    chatid: "120363025812345678@g.us"
-  }
+    chatid: "120363025812345678@g.us",
+  },
 };

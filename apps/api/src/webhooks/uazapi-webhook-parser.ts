@@ -7,10 +7,13 @@ export type ParsedUazapiWebhook = {
   externalEventId?: string;
   leadId?: string;
   phone?: string;
+  waChatId?: string;
   phoneHash?: string;
   contactName?: string;
   messageText?: string;
   labels: string[];
+  waLabelIds: string[];
+  labelEventKind: "chat_labels" | "labels_catalog" | "other";
   campaignId?: string;
   adSetId?: string;
   adId?: string;
@@ -21,7 +24,7 @@ export type ParsedUazapiWebhook = {
 };
 
 export function parseUazapiWebhook(
-  body: UazapiWebhookBody
+  body: UazapiWebhookBody,
 ): ParsedUazapiWebhook {
   const message = recordValue(body.message);
   const context = recordValue(body.context);
@@ -39,7 +42,12 @@ export function parseUazapiWebhook(
   const phone = getPhone(body, message);
 
   return {
-    eventType: firstString(body.event) ?? firstString(body.type) ?? "uazapi.webhook",
+    eventType:
+      firstString(body.EventType) ??
+      firstString(body.event) ??
+      firstString(body.type) ??
+      "uazapi.webhook",
+    labelEventKind: getLabelEventKind(body),
     externalEventId:
       firstString(body.id) ??
       firstString(body.eventId) ??
@@ -47,10 +55,12 @@ export function parseUazapiWebhook(
       firstString(message?.id),
     leadId: firstString(body.leadId),
     phone,
+    waChatId: firstString(recordValue(body.chat)?.wa_chatid),
     phoneHash: firstString(body.phoneHash) ?? hashPhoneIdentity(phone),
     contactName: getContactName(body),
     messageText: getMessageText(body),
     labels: getLabels(body),
+    waLabelIds: getWaLabelIds(body),
     campaignId:
       firstString(body.campaignId) ??
       firstString(body.campaign_id) ??
@@ -96,7 +106,7 @@ export function parseUazapiWebhook(
       firstStringFromRecords(referralCandidates, ["source_url", "sourceUrl"]) ??
       firstString(externalAdReply?.sourceUrl),
     providerInstanceId: getProviderInstanceId(body),
-    isGroupChat: getIsGroupChat(body)
+    isGroupChat: getIsGroupChat(body),
   };
 }
 
@@ -112,7 +122,7 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
 
 function firstStringFromRecords(
   records: Array<Record<string, unknown> | undefined>,
-  keys: string[]
+  keys: string[],
 ): string | undefined {
   for (const record of records) {
     if (!record) {
@@ -157,8 +167,7 @@ function getMessageText(body: UazapiWebhookBody): string | undefined {
 
 function getLabels(body: UazapiWebhookBody): string[] {
   const chat = recordValue(body.chat);
-  const rawLabels =
-    body.labels ?? chat?.labels ?? chat?.wa_label ?? body.label;
+  const rawLabels = body.labels ?? chat?.labels ?? chat?.wa_label ?? body.label;
 
   if (!rawLabels) {
     return [];
@@ -171,9 +180,44 @@ function getLabels(body: UazapiWebhookBody): string[] {
     .filter((label): label is string => Boolean(label));
 }
 
+function getWaLabelIds(body: UazapiWebhookBody): string[] {
+  const chat = recordValue(body.chat);
+  const labels = chat?.wa_label;
+  const values = Array.isArray(labels)
+    ? labels
+    : labels === undefined
+      ? []
+      : [labels];
+  return [
+    ...new Set(
+      values
+        .map(labelToString)
+        .filter((label): label is string => Boolean(label)),
+    ),
+  ];
+}
+
+function getLabelEventKind(
+  body: UazapiWebhookBody,
+): ParsedUazapiWebhook["labelEventKind"] {
+  const eventType = (
+    firstString(body.EventType) ??
+    firstString(body.type) ??
+    ""
+  ).toLocaleLowerCase("en-US");
+  if (eventType === "chat_labels") return "chat_labels";
+  if (
+    eventType === "labels" ||
+    (firstString(body.type) ?? "").toLocaleLowerCase("en-US") === "labeledit"
+  ) {
+    return "labels_catalog";
+  }
+  return "other";
+}
+
 function getPhone(
   body: UazapiWebhookBody,
-  message?: Record<string, unknown>
+  message?: Record<string, unknown>,
 ): string | undefined {
   const contact = recordValue(body.contact);
   const chat = recordValue(body.chat);
@@ -211,7 +255,7 @@ function getIsGroupChat(body: UazapiWebhookBody): boolean | undefined {
 
 function getExternalAdReply(
   body: UazapiWebhookBody,
-  message?: Record<string, unknown>
+  message?: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
   const content = recordValue(message?.content);
   const contentContext = recordValue(content?.contextInfo);
@@ -234,16 +278,16 @@ function getProviderInstanceId(body: UazapiWebhookBody): string | undefined {
     firstString(body.instanceId) ??
     firstString(body.instance_id) ??
     (instance && typeof instance === "object" && !Array.isArray(instance)
-      ? firstString((instance as Record<string, unknown>).id) ??
+      ? (firstString((instance as Record<string, unknown>).id) ??
         firstString((instance as Record<string, unknown>).instanceId) ??
-        firstString((instance as Record<string, unknown>).instance_id)
+        firstString((instance as Record<string, unknown>).instance_id))
       : undefined) ??
     (whatsappInstance &&
     typeof whatsappInstance === "object" &&
     !Array.isArray(whatsappInstance)
-      ? firstString(
-          (whatsappInstance as Record<string, unknown>).providerInstanceId
-        ) ?? firstString((whatsappInstance as Record<string, unknown>).id)
+      ? (firstString(
+          (whatsappInstance as Record<string, unknown>).providerInstanceId,
+        ) ?? firstString((whatsappInstance as Record<string, unknown>).id))
       : undefined)
   );
 }
