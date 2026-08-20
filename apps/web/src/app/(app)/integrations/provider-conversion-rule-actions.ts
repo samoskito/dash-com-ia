@@ -80,7 +80,9 @@ export async function createProviderConversionRuleAction(
       ok: true,
       message: result.data.webhookUrl
         ? "Regra criada. Copie a URL da automacao agora; ela nao sera exibida novamente."
-        : "Catalogo criado em modo de observacao.",
+        : result.data.rule.conversionRule.triggerType === "message_phrase"
+          ? "Regra criada em modo de observacao."
+          : "Catalogo criado em modo de observacao.",
       ...(result.data.webhookUrl
         ? {
             oneTimeSecret: {
@@ -90,7 +92,10 @@ export async function createProviderConversionRuleAction(
           }
         : {}),
     };
-  } catch {
+  } catch (error) {
+    if (isApiRequestError(error) && error.message.trim()) {
+      return failure(error.message);
+    }
     return failure("Nao foi possivel criar a regra de conversao.");
   }
 }

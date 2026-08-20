@@ -97,11 +97,14 @@ export class ProviderConversionRulesService {
         : null;
 
     const created = await this.prisma.$transaction(async (transaction) => {
+      // U2c: UAZAPI connections appear in the same Gatilhos UI. Message/catalog
+      // rules must resolve the real connection provider — not hard-code Umbler.
+      // Tag automation endpoints remain Umbler-only until a UAZAPI tag path exists.
       const connection = await transaction.inboundWebhookConnection.findFirst({
         where: {
           id: input.connectionId,
           workspaceId,
-          provider: "umbler",
+          provider: { in: ["umbler", "uazapi"] },
           removedAt: null,
         },
         include: { parserRelease: true },
@@ -118,6 +121,15 @@ export class ProviderConversionRulesService {
         input.channelIds,
       );
 
+      if (
+        input.triggerType === "provider_automation" &&
+        connection.provider !== "umbler"
+      ) {
+        throw new BadRequestException(
+          "Automacao por tag ainda so esta disponivel para conexoes Umbler",
+        );
+      }
+
       const parserRelease =
         input.triggerType === "provider_automation"
           ? await transaction.inboundWebhookParserRelease.findFirst({
@@ -131,7 +143,9 @@ export class ProviderConversionRulesService {
 
       if (!parserRelease) {
         throw new ConflictException(
-          "Parser de automacao Umbler ainda nao esta disponivel",
+          connection.provider === "uazapi"
+            ? "Parser da conexao UAZAPI ainda nao esta disponivel"
+            : "Parser de automacao Umbler ainda nao esta disponivel",
         );
       }
 
