@@ -6,6 +6,10 @@ import type {
 } from "@wpptrack/shared";
 import { Injectable } from "@nestjs/common";
 import {
+  conversionEventDedupeMode,
+  conversionEventValuePolicy,
+} from "@wpptrack/shared";
+import {
   extractSingleMoneyValueCents,
   matchProviderMessageTrigger,
   matchStructuredCatalogMessage,
@@ -181,14 +185,33 @@ export class ProviderConversionDecisionEngine {
       return { outcome: "not_applicable", reasonCode: "trigger_missing" };
     }
 
-    // Message rules (Purchase, InitiateCheckout, …) need a value: either the
-    // configured average or, for valueMode "message_extracted", the message.
+    // Only events whose catalog policy is "required" (Purchase,
+    // InitiateCheckout) are held back for review without a value. Events that
+    // never carry value (QualifiedLead, OrderShipped, …) go straight through,
+    // and "optional" events travel without value when none was configured.
+    const valuePolicy = conversionEventValuePolicy(input.rule.eventName);
+    if (valuePolicy === "none") {
+      return {
+        outcome: "eligible",
+        reasonCode: "average_value_message_matched",
+        match: this.valuelessMatch(matchedTriggerPhrase),
+      };
+    }
+
     const match = this.averageValueMatch(input, matchedTriggerPhrase);
     if (!match.matched) {
+      if (valuePolicy === "required") {
+        return {
+          outcome: "review_required",
+          reasonCode: "average_value_missing",
+          match,
+        };
+      }
+
       return {
-        outcome: "review_required",
-        reasonCode: "average_value_missing",
-        match,
+        outcome: "eligible",
+        reasonCode: "average_value_message_matched",
+        match: this.valuelessMatch(matchedTriggerPhrase),
       };
     }
 
@@ -206,22 +229,36 @@ export class ProviderConversionDecisionEngine {
       return { outcome: "not_applicable", reasonCode: "source_mismatch" };
     }
 
-    const match = this.averageValueMatch(input, null);
-    if (input.rule.eventName === "Purchase" && !match.matched) {
+    const valuePolicy = conversionEventValuePolicy(input.rule.eventName);
+    if (valuePolicy === "none") {
       return {
-        outcome: "review_required",
-        reasonCode: "average_value_missing",
-        match,
+        outcome: "eligible",
+        reasonCode: "automation_matched",
+        match: this.valuelessMatch(null),
+      };
+    }
+
+    const match = this.averageValueMatch(input, null);
+    if (!match.matched) {
+      if (valuePolicy === "required") {
+        return {
+          outcome: "review_required",
+          reasonCode: "average_value_missing",
+          match,
+        };
+      }
+
+      return {
+        outcome: "eligible",
+        reasonCode: "automation_matched",
+        match: this.valuelessMatch(null),
       };
     }
 
     return {
       outcome: "eligible",
       reasonCode: "automation_matched",
-      match:
-        input.rule.eventName === "QualifiedLead"
-          ? this.qualifiedLeadMatch()
-          : match,
+      match,
     };
   }
 
@@ -264,12 +301,15 @@ export class ProviderConversionDecisionEngine {
     return extractSingleMoneyValueCents(input.occurrence.messageText);
   }
 
-  private qualifiedLeadMatch(): StructuredCatalogTestMessageResultDto {
+  /** Recognized match for events that travel to Meta without a value. */
+  private valuelessMatch(
+    matchedTriggerPhrase: string | null,
+  ): StructuredCatalogTestMessageResultDto {
     return {
       matched: true,
       reasonCode: "matched",
       classification: "recognized",
-      matchedTriggerPhrase: null,
+      matchedTriggerPhrase,
       parsedAttributes: [],
       items: [],
       parsedValueCents: null,
@@ -350,13 +390,15 @@ export class ProviderConversionDecisionEngine {
       input.leadResolution.lead.id,
     ].join(":");
 
-    return input.rule.eventName === "QualifiedLead"
+    // "lifetime" is reserved by the catalog for events that only make sense
+    // once per lead (LeadSubmitted, QualifiedLead); everything else keeps the
+    // 24h rolling window used by Purchase and InitiateCheckout.
+    return conversionEventDedupeMode(input.rule.eventName) === "lifetime"
       ? {
           mode: "lifetime",
           scopeKey,
         }
       : {
-          // Purchase + InitiateCheckout (and other valued events): 24h window
           mode: "rolling_window",
           scopeKey,
           windowSeconds: PURCHASE_DEDUPE_WINDOW_SECONDS,

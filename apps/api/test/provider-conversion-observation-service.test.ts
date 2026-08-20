@@ -520,6 +520,53 @@ describe("provider conversion observation service", () => {
     expect(harness.purchaseReview.upsert).not.toHaveBeenCalled();
   });
 
+  it("observes a qualified lead recognized by message without a value", async () => {
+    const harness = createHarness("production");
+    harness.rule.messageTriggerPhrases = ["vou te passar os valores"];
+    harness.rule.messageAuthorScope = "both";
+    Object.assign(harness.rule.conversionRule, {
+      triggerType: "message_phrase",
+      eventName: "QualifiedLead",
+      defaultValueCents: null,
+      defaultCurrency: null,
+      defaultContentName: null,
+    });
+    const event = outboundCatalogEvent();
+    event.message.text = "Vou te passar os valores do procedimento";
+
+    const result = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_ql",
+      externalDeliveryId: "external_delivery_ql",
+      deliveryReceivedAt: new Date("2026-07-18T12:00:00.000Z"),
+      events: [event],
+    });
+
+    expect(result.eligibleExecutionIds).toEqual(["execution_1"]);
+    // The rule query must not filter events, otherwise a QualifiedLead rule by
+    // message is never even loaded.
+    expect(
+      harness.prisma.providerConversionRuleConfig.findMany.mock.calls[0][0]
+        .where.conversionRule,
+    ).not.toHaveProperty("eventName");
+    expect(harness.recordInitial).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: expect.objectContaining({
+          decisionCode: "eligible",
+          occurrence: expect.objectContaining({
+            eventName: "QualifiedLead",
+            businessDedupePolicy: expect.objectContaining({ mode: "lifetime" }),
+          }),
+          conversion: expect.objectContaining({
+            valueCents: null,
+            currency: null,
+          }),
+        }),
+      }),
+    );
+  });
+
   it("uses one authoritative decision and one execution while the channel is in shadow mode", async () => {
     const harness = createHarness("production", "team", true, "shadow");
     const event = outboundCatalogEvent();

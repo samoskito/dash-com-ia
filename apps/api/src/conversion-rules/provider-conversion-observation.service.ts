@@ -8,7 +8,11 @@ import type {
   ProviderConversionDecisionRuleSnapshotDto,
   ProviderConversionPaidLeadResolutionDto,
 } from "@wpptrack/shared";
-import { readMessagePhraseConfig } from "@wpptrack/shared";
+import {
+  conversionEventNameSchema,
+  readMessagePhraseConfig,
+  type ConversionEventNameDto,
+} from "@wpptrack/shared";
 import { hashPhoneIdentity } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
@@ -619,7 +623,6 @@ export class ProviderConversionObservationService {
         conversionRule: {
           active: true,
           triggerType: { in: ["structured_catalog", "message_phrase"] },
-          eventName: { in: ["Purchase", "InitiateCheckout"] },
         },
         channels: {
           some: {
@@ -801,19 +804,18 @@ export class ProviderConversionObservationService {
     return triggerType;
   }
 
-  private providerEventName(
-    rule: ObservedRule,
-  ): "Purchase" | "QualifiedLead" | "InitiateCheckout" {
-    const eventName = rule.conversionRule.eventName;
-    if (
-      eventName !== "Purchase" &&
-      eventName !== "QualifiedLead" &&
-      eventName !== "InitiateCheckout"
-    ) {
-      throw new Error(`Unsupported provider conversion event: ${eventName}`);
+  private providerEventName(rule: ObservedRule): ConversionEventNameDto {
+    const eventName = conversionEventNameSchema.safeParse(
+      rule.conversionRule.eventName,
+    );
+    // Fail closed on junk in the database, but accept every catalog event.
+    if (!eventName.success) {
+      throw new Error(
+        `Unsupported provider conversion event: ${rule.conversionRule.eventName}`,
+      );
     }
 
-    return eventName;
+    return eventName.data;
   }
 
   private requiredExistingDecision(

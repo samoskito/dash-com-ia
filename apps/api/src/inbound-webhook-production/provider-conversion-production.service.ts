@@ -2,7 +2,13 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import {
+  conversionEventCarriesValue,
+  conversionEventDedupeMode,
+  conversionEventMetaEventIdPrefix,
+  conversionEventNameSchema,
+  conversionEventRequiresValue,
   providerConversionDecisionSchema,
+  type ConversionEventNameDto,
   type ProviderConversionDecisionDto,
   type ProviderConversionTechnicalDeliveryStateDto,
   type StructuredCatalogTestMessageResultDto,
@@ -487,20 +493,13 @@ export class ProviderConversionProductionService {
   > {
     const lead = decision.leadResolution.lead;
     const occurrence = decision.occurrence;
-    const eventName = occurrence.eventName;
-    if (
-      eventName !== "Purchase" &&
-      eventName !== "QualifiedLead" &&
-      eventName !== "InitiateCheckout"
-    ) {
-      throw new ProviderConversionProductionFailure(
-        "provider_conversion_event_unsupported",
-      );
-    }
-    const requiresValue =
-      eventName === "Purchase" || eventName === "InitiateCheckout";
-    const valueCents = requiresValue ? decision.conversion.valueCents : null;
-    const currency = requiresValue ? decision.conversion.currency : null;
+    const eventName = this.supportedEventName(occurrence.eventName);
+    // The catalog decides whether the event may travel with a value at all;
+    // only "required" events are refused when the frozen decision has none.
+    const requiresValue = conversionEventRequiresValue(eventName);
+    const carriesValue = conversionEventCarriesValue(eventName);
+    const valueCents = carriesValue ? decision.conversion.valueCents : null;
+    const currency = carriesValue ? decision.conversion.currency : null;
 
     if (
       (requiresValue && (!valueCents || !currency)) ||
@@ -680,11 +679,9 @@ export class ProviderConversionProductionService {
           adId: lead.adId,
           ctwaClid: lead.ctwaClid,
           valueCents,
-          valueSource: requiresValue
-            ? this.decisionValueSource(decision)
-            : null,
+          valueSource: valueCents ? this.decisionValueSource(decision) : null,
           currency,
-          contentName: requiresValue ? decision.conversion.contentName : null,
+          contentName: carriesValue ? decision.conversion.contentName : null,
           eventOccurredAt: occurredAt,
           sourcePayload: {
             provider: occurrence.provider,
@@ -812,14 +809,18 @@ export class ProviderConversionProductionService {
       );
     }
 
-    const isPurchase = parsed.eventName === "Purchase";
-    const valueCents = isPurchase ? rule.defaultValueCents : null;
-    const currency = isPurchase ? rule.defaultCurrency : null;
-    if (isPurchase && (!valueCents || !currency)) {
+    const eventName = this.supportedEventName(parsed.eventName);
+    const carriesValue = conversionEventCarriesValue(eventName);
+    const valueCents = carriesValue ? rule.defaultValueCents : null;
+    const currency = carriesValue ? rule.defaultCurrency : null;
+    if (conversionEventRequiresValue(eventName) && (!valueCents || !currency)) {
       throw new ProviderConversionProductionFailure(
         "provider_conversion_value_missing",
       );
     }
+    // Events that only make sense once per lead (QualifiedLead, LeadSubmitted)
+    // dedupe for a lifetime; the rest keeps the 24h rolling window.
+    const rollingWindow = conversionEventDedupeMode(eventName) !== "lifetime";
 
     const lock = this.lockKeys(
       execution.workspaceId,
@@ -867,7 +868,7 @@ export class ProviderConversionProductionService {
             workspaceId: execution.workspaceId,
             contactIdentityHash: lead.phoneHash,
             status: "materialized",
-            ...(isPurchase
+            ...(rollingWindow
               ? {
                   occurredAt: {
                     gt: new Date(
@@ -889,7 +890,7 @@ export class ProviderConversionProductionService {
         });
 
       if (duplicate) {
-        const reasonCode = isPurchase
+        const reasonCode = rollingWindow
           ? "purchase_within_24h"
           : "qualified_lead_already_materialized";
         await transaction.providerConversionRuleExecution.update({
@@ -937,9 +938,9 @@ export class ProviderConversionProductionService {
           adId: lead.adId,
           ctwaClid: lead.ctwaClid,
           valueCents,
-          valueSource: isPurchase ? "configured_average" : null,
+          valueSource: valueCents ? "configured_average" : null,
           currency,
-          contentName: isPurchase ? rule.defaultContentName : null,
+          contentName: carriesValue ? rule.defaultContentName : null,
           eventOccurredAt: execution.occurredAt,
           sourcePayload: {
             provider: "umbler",
@@ -1297,9 +1298,9 @@ export class ProviderConversionProductionService {
       !["structured_catalog", "message_phrase"].includes(
         rule.conversionRule.triggerType,
       ) ||
-      !["Purchase", "InitiateCheckout"].includes(
-        rule.conversionRule.eventName,
-      ) ||
+      // Legacy path only: executions without a frozen decision are reparsed
+      // and always materialized as Purchase, so no other event may enter here.
+      rule.conversionRule.eventName !== "Purchase" ||
       (!manuallyApproved && rule.mode !== "production") ||
       (!manuallyApproved && !rule.productionActivatedAt) ||
       rule.parserRelease.status !== "certified" ||
@@ -1337,7 +1338,6 @@ export class ProviderConversionProductionService {
       rule.removedAt ||
       !rule.conversionRule.active ||
       rule.conversionRule.triggerType !== "provider_automation" ||
-      !["QualifiedLead", "Purchase"].includes(rule.conversionRule.eventName) ||
       rule.mode !== "production" ||
       !rule.productionActivatedAt ||
       rule.parserRelease.status !== "certified" ||
@@ -1508,15 +1508,31 @@ export class ProviderConversionProductionService {
       : "configured_average";
   }
 
-  private metaEventId(executionId: string, eventName: string): string {
+  /**
+   * Fail closed on an event the catalog does not know: an unsupported name
+   * must never reach Meta.
+   */
+  private supportedEventName(eventName: string): ConversionEventNameDto {
+    const parsed = conversionEventNameSchema.safeParse(eventName);
+    if (!parsed.success) {
+      throw new ProviderConversionProductionFailure(
+        "provider_conversion_event_unsupported",
+      );
+    }
+    return parsed.data;
+  }
+
+  /**
+   * Purchase/QualifiedLead/InitiateCheckout carry legacy prefixes in the
+   * catalog: changing them would break deduplication of events already sent
+   * to Meta.
+   */
+  private metaEventId(
+    executionId: string,
+    eventName: ConversionEventNameDto,
+  ): string {
     const digest = createHash("sha256").update(executionId).digest("hex");
-    const prefix =
-      eventName === "QualifiedLead"
-        ? "qualified"
-        : eventName === "InitiateCheckout"
-          ? "checkout"
-          : "purchase";
-    return `umbler_${prefix}_${digest}`;
+    return `umbler_${conversionEventMetaEventIdPrefix(eventName)}_${digest}`;
   }
 
   private productionEnabled(): boolean {

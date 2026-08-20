@@ -19,6 +19,7 @@ import type {
   ProviderConversionAutomationReprocessBatchResultDto,
   ProviderConversionAutomationReprocessResultDto,
 } from "@wpptrack/shared";
+import { conversionEventNameSchema } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import {
@@ -1075,7 +1076,10 @@ export class InboundConversionAutomationIngestionService {
   private conversionEventName(
     value: Prisma.JsonValue | undefined,
   ): ProviderConversionAutomationAuditItemDto["eventName"] {
-    return value === "QualifiedLead" || value === "Purchase" ? value : null;
+    // Any catalog event may reach the audit screens now that tag rules are
+    // not limited to QualifiedLead/Purchase.
+    const parsed = conversionEventNameSchema.safeParse(value);
+    return parsed.success ? parsed.data : null;
   }
 
   private assertFeatureEnabled(): void {
