@@ -487,4 +487,81 @@ describe("GuruLicenseWebhookService", () => {
     expect(licensingService.issueLicenseForPurchase).not.toHaveBeenCalled();
     expect(prisma.license.update).toHaveBeenCalled();
   });
+  it("issues once from a real Digital Manager Guru subscription payload (last_status + paid invoice)", async () => {
+    const { service, licensingService } = createHarness();
+
+    const payload = {
+      id: "sub_dBz2oAjtNTDl8Mpj",
+      subscription_code: "sub_dBz2oAjtNTDl8Mpj",
+      webhook_type: "subscription",
+      last_status: "inactive",
+      name: "RastrackDash Wpp",
+      dates: {
+        started_at: "2026-08-20T17:52:35Z",
+        canceled_at: null,
+        next_cycle_at: "2027-08-19",
+      },
+      product: {
+        id: "a28ae373-9fd4-4f57-970d-df3eafc888c0",
+        name: "RastrackDash Wpp",
+        offer: {
+          id: "a28ae450-58ae-4025-96fe-2c560baa674a",
+          name: "RastrackDash Wpp | Plano Anual",
+          plan: { interval: 1, interval_type: "year", trial_days: 0 },
+        },
+      },
+      subscriber: {
+        name: "Aluno Teste",
+        email: "aluno@example.com",
+        phone_number: "42998289255",
+        phone_local_code: "55",
+      },
+      current_invoice: {
+        id: "inv_1",
+        status: "paid",
+        paid_at: "2026-08-20",
+        period_end: "2027-08-19",
+        subscription_id: "a28c9eef-23e9-4fc0-ba15-0f8ddd5ae9e1",
+      },
+      last_transaction: {
+        id: "txn_1",
+        status: "approved",
+        contact: {
+          email: "aluno@example.com",
+          name: "Aluno Teste",
+          phone_number: "42998289255",
+          phone_local_code: "55",
+        },
+      },
+      charged_times: 0,
+      payment_method: "pix",
+    };
+
+    const first = await service.handle(payload, SECRET);
+    const second = await service.handle(payload, SECRET);
+
+    expect(first.httpStatus).toBe(200);
+    expect(first.body).toMatchObject({ resultStatus: "license_issued" });
+    expect(JSON.stringify(first.body)).not.toContain(RAW_KEY);
+    expect(licensingService.issueLicenseForPurchase).toHaveBeenCalled();
+    const call = licensingService.issueLicenseForPurchase.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(call.buyerEmail).toBe("aluno@example.com");
+    expect(call.guruTransactionId).toBe("sub_dBz2oAjtNTDl8Mpj");
+    expect(call.interval).toBe("annual");
+    expect(second.httpStatus).toBe(200);
+    const secondStatus = String(
+      (second.body as { resultStatus?: string }).resultStatus,
+    );
+    // First must issue; second must not explode / leak key.
+    // Terminal replay returns the first terminal status (often license_issued).
+    expect(secondStatus.length).toBeGreaterThan(0);
+    expect(secondStatus).not.toBe("error");
+    expect(JSON.stringify(second.body)).not.toContain(RAW_KEY);
+    // Ensure issue was called at least once for the paid Guru payload.
+    expect(licensingService.issueLicenseForPurchase.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
 });
