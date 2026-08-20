@@ -38,6 +38,7 @@ import { ClientSwapPanel } from "../../../components/client-swap-panel";
 import { ConversionRuleBuilder } from "../../../components/conversion-rule-builder";
 import { CopyLinkButton } from "../../../components/copy-link-button";
 import { LinkResultActionForm } from "../../../components/link-result-action-form";
+import { OpsAlertPhonesEditor } from "../../../components/ops-alert-phones-editor";
 import { PendingSubmitButton } from "../../../components/pending-submit-button";
 import { PresentationMask } from "../../../components/presentation-mask";
 import { TeamActionButton } from "../../../components/team-action-button";
@@ -88,6 +89,7 @@ type OpsAlertSettingsResult = {
 const opsAlertSettingsDefaults: Pick<
   WorkspaceOpsAlertSettingsDto,
   | "enabled"
+  | "alertPhonesE164"
   | "alertPhoneE164"
   | "disconnectAlerts"
   | "webhookSilenceAlerts"
@@ -95,6 +97,7 @@ const opsAlertSettingsDefaults: Pick<
   | "debounceHours"
 > = {
   enabled: false,
+  alertPhonesE164: [],
   alertPhoneE164: null,
   disconnectAlerts: true,
   webhookSilenceAlerts: true,
@@ -2167,17 +2170,10 @@ export default async function SettingsPage() {
                     type="checkbox"
                   />
                 </label>
-                <label className="ops-alert-phone-field">
-                  <span className="field-label">Telefone</span>
-                  <input
-                    data-presentation-sensitive-field="true"
-                    defaultValue={opsAlertFormValues.alertPhoneE164 ?? ""}
-                    inputMode="numeric"
-                    name="alertPhone"
-                    placeholder="5511999999999"
-                  />
-                  <small>DDI+DDD+numero, so digitos.</small>
-                </label>
+                <OpsAlertPhonesEditor
+                  initialPhones={opsAlertFormValues.alertPhonesE164}
+                  name="alertPhones"
+                />
                 <div className="ops-alert-checks-group">
                   <span className="field-label">O que monitorar</span>
                   <div className="ops-alert-checks">

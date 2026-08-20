@@ -31,15 +31,17 @@ describe("ops alert settings server action", () => {
 
     const result = await saveOpsAlertSettingsAction(
       initialBackofficeActionState,
-      form({
-        workspaceId: "workspace_1",
-        enabled: "on",
-        alertPhone: "(55) 11 99999-9999",
-        disconnectAlerts: "on",
-        webhookSilenceAlerts: "on",
-        silenceThresholdHours: "48",
-        debounceHours: "3",
-      }),
+      form(
+        {
+          workspaceId: "workspace_1",
+          enabled: "on",
+          disconnectAlerts: "on",
+          webhookSilenceAlerts: "on",
+          silenceThresholdHours: "48",
+          debounceHours: "3",
+        },
+        { alertPhones: ["(55) 11 99999-9999"] },
+      ),
     );
 
     expect(serverApiFetch).toHaveBeenCalledWith(
@@ -48,6 +50,7 @@ describe("ops alert settings server action", () => {
         method: "PUT",
         body: JSON.stringify({
           enabled: true,
+          alertPhones: ["5511999999999"],
           alertPhone: "5511999999999",
           disconnectAlerts: true,
           webhookSilenceAlerts: true,
@@ -64,10 +67,40 @@ describe("ops alert settings server action", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/settings");
   });
 
+  it("saves multiple phones, deduping and stripping non-digit characters", async () => {
+    serverApiFetch.mockResolvedValueOnce({});
+
+    await saveOpsAlertSettingsAction(
+      initialBackofficeActionState,
+      form(
+        { workspaceId: "workspace_1", enabled: "on" },
+        {
+          alertPhones: ["5511999999999", "(55) 11 88888-8888", "5511999999999"],
+        },
+      ),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/workspaces/workspace_1/ops-alerts/settings",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: true,
+          alertPhones: ["5511999999999", "5511888888888"],
+          alertPhone: "5511999999999",
+          disconnectAlerts: false,
+          webhookSilenceAlerts: false,
+          silenceThresholdHours: 24,
+          debounceHours: 6,
+        }),
+      },
+    );
+  });
+
   it("rejects enabling alerts without a phone before calling the API", async () => {
     const result = await saveOpsAlertSettingsAction(
       initialBackofficeActionState,
-      form({ workspaceId: "workspace_1", enabled: "on", alertPhone: "" }),
+      form({ workspaceId: "workspace_1", enabled: "on" }),
     );
 
     expect(result.status).toBe("error");
@@ -89,6 +122,7 @@ describe("ops alert settings server action", () => {
         method: "PUT",
         body: JSON.stringify({
           enabled: false,
+          alertPhones: [],
           alertPhone: "",
           disconnectAlerts: false,
           webhookSilenceAlerts: false,
@@ -128,10 +162,18 @@ describe("ops alert settings server action", () => {
   });
 });
 
-function form(values: Record<string, string>): FormData {
+function form(
+  values: Record<string, string>,
+  multiValues: Record<string, string[]> = {},
+): FormData {
   const formData = new FormData();
   for (const [key, value] of Object.entries(values)) {
     formData.set(key, value);
+  }
+  for (const [key, values2] of Object.entries(multiValues)) {
+    for (const value of values2) {
+      formData.append(key, value);
+    }
   }
   return formData;
 }
