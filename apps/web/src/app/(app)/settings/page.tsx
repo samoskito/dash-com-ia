@@ -2157,15 +2157,18 @@ export default async function SettingsPage() {
                   value={opsAlertSettings.workspaceId}
                 />
                 <label className="ops-alert-toggle">
+                  <span className="ops-alert-toggle-copy">
+                    <span className="field-label">Ativar alertas</span>
+                    <small>Envia aviso no telefone cadastrado abaixo.</small>
+                  </span>
                   <input
                     defaultChecked={opsAlertFormValues.enabled}
                     name="enabled"
                     type="checkbox"
                   />
-                  <span>Ativar alertas</span>
                 </label>
                 <label className="ops-alert-phone-field">
-                  <span>Telefone</span>
+                  <span className="field-label">Telefone</span>
                   <input
                     data-presentation-sensitive-field="true"
                     defaultValue={opsAlertFormValues.alertPhoneE164 ?? ""}
@@ -2173,30 +2176,36 @@ export default async function SettingsPage() {
                     name="alertPhone"
                     placeholder="5511999999999"
                   />
+                  <small>DDI+DDD+numero, so digitos.</small>
                 </label>
-                <div className="ops-alert-checks">
-                  <label>
-                    <input
-                      defaultChecked={opsAlertFormValues.disconnectAlerts}
-                      name="disconnectAlerts"
-                      type="checkbox"
-                    />
-                    <span>Desconexao da instancia WhatsApp</span>
-                  </label>
-                  <label>
-                    <input
-                      defaultChecked={opsAlertFormValues.webhookSilenceAlerts}
-                      name="webhookSilenceAlerts"
-                      type="checkbox"
-                    />
-                    <span>Silencio de webhook</span>
-                  </label>
+                <div className="ops-alert-checks-group">
+                  <span className="field-label">O que monitorar</span>
+                  <div className="ops-alert-checks">
+                    <label>
+                      <input
+                        defaultChecked={opsAlertFormValues.disconnectAlerts}
+                        name="disconnectAlerts"
+                        type="checkbox"
+                      />
+                      <span>Desconexao da instancia WhatsApp</span>
+                    </label>
+                    <label>
+                      <input
+                        defaultChecked={
+                          opsAlertFormValues.webhookSilenceAlerts
+                        }
+                        name="webhookSilenceAlerts"
+                        type="checkbox"
+                      />
+                      <span>Silencio de webhook</span>
+                    </label>
+                  </div>
                 </div>
                 <details className="ops-alert-advanced">
                   <summary>Configuracoes avancadas</summary>
                   <div className="ops-alert-advanced-fields">
                     <label>
-                      <span>Horas de silencio</span>
+                      <span className="field-label">Horas de silencio</span>
                       <input
                         defaultValue={opsAlertFormValues.silenceThresholdHours}
                         min={1}
@@ -2205,7 +2214,7 @@ export default async function SettingsPage() {
                       />
                     </label>
                     <label>
-                      <span>Horas de debounce</span>
+                      <span className="field-label">Horas de debounce</span>
                       <input
                         defaultValue={opsAlertFormValues.debounceHours}
                         min={1}
