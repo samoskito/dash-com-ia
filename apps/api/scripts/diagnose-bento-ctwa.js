@@ -15,7 +15,7 @@
 //
 // Prints ONLY Bento data. No secrets. Phones/tokens are masked.
 
-console.error("BENTO_DIAGNOSE_VERSION=2026-08-21c");
+console.error("BENTO_DIAGNOSE_VERSION=2026-08-21d");
 
 const { PrismaClient } = require("@prisma/client");
 
@@ -51,6 +51,40 @@ function dayKeySaoPaulo(date) {
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+}
+
+const CTWA_TEXT_RE = /ctwa|externaladreply|sourceid/i;
+
+function looksInboundPayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const message = payload.message;
+  if (!message || typeof message !== "object" || Array.isArray(message)) return false;
+  return message.fromMe === false;
+}
+
+function payloadMentionsCtwa(payload) {
+  try {
+    return CTWA_TEXT_RE.test(JSON.stringify(payload ?? {}));
+  } catch {
+    return false;
+  }
+}
+
+// Structure only — never a value. This is what makes these paths safe to
+// print: a key path like "message.contextInfo.externalAdReply.sourceID"
+// tells us the payload SHAPE without ever touching the actual phone/token/
+// message content sitting at that path.
+function collectKeyPaths(value, prefix, paths, depth) {
+  if (depth <= 0 || value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    if (value.length > 0) collectKeyPaths(value[0], `${prefix}[]`, paths, depth - 1);
+    return;
+  }
+  for (const key of Object.keys(value)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    paths.add(path);
+    collectKeyPaths(value[key], path, paths, depth - 1);
+  }
 }
 
 function bucketByDay(rows, dateField, extra) {
@@ -336,6 +370,58 @@ async function main() {
   });
   if (erroredWebhookLogs.length === 0) console.log("NONE");
   for (const row of erroredWebhookLogs) console.log(row);
+
+  // 9. Sample last 30 messages/messages_update WebhookLog rows — payload
+  // shape check straight off summaryPayload (bypassing the parser). If
+  // "mentions ctwa text" is near-zero here too, UAZAPI itself is not sending
+  // ad-attributed payloads for Bento (provider/session config), not a parser
+  // gap. If it's non-zero but "inbound-looking" is low, most delivered
+  // messages are non-customer events (acks/status/outbound) — expected noise.
+  section("Sample: last 30 messages/messages_update WebhookLog — payload shape");
+  const messageSample = await prisma.webhookLog.findMany({
+    where: {
+      workspaceId: WORKSPACE_ID,
+      source: "uazapi",
+      eventType: { in: ["messages", "messages_update"] },
+    },
+    orderBy: { receivedAt: "desc" },
+    take: 30,
+    select: { id: true, eventType: true, receivedAt: true, summaryPayload: true },
+  });
+  console.log(
+    `Sampled ${messageSample.length} rows (eventType in [messages, messages_update], most recent first, no window limit beyond take 30).`,
+  );
+  const inboundLookingCount = messageSample.filter((row) =>
+    looksInboundPayload(row.summaryPayload),
+  ).length;
+  const ctwaTextCount = messageSample.filter((row) =>
+    payloadMentionsCtwa(row.summaryPayload),
+  ).length;
+  console.log(
+    `inbound-looking (message.fromMe === false): ${inboundLookingCount} / ${messageSample.length}`,
+  );
+  console.log(
+    `summaryPayload text mentions ctwa/externalAdReply/sourceID (case-insensitive): ${ctwaTextCount} / ${messageSample.length}`,
+  );
+  if (messageSample.length > 0 && ctwaTextCount === 0) {
+    console.log(
+      "=> ZERO sampled payloads mention ctwa/externalAdReply/sourceID anywhere in the JSON.",
+      "UAZAPI is not attaching ad-click context to these messages at all — check the Meta",
+      "catalog/WABA connection and ad-click-to-WhatsApp session on the provider side.",
+    );
+  }
+
+  section("Sample: 3 redacted payload key paths (structure only, no values printed)");
+  const keyPathSamples = messageSample.slice(0, 3);
+  if (keyPathSamples.length === 0) {
+    console.log("NONE — no messages/messages_update rows to sample.");
+  }
+  for (const row of keyPathSamples) {
+    const paths = new Set();
+    collectKeyPaths(row.summaryPayload, "", paths, 6);
+    console.log(`-- ${row.eventType} ${row.receivedAt.toISOString()} (id=${row.id}) --`);
+    console.log([...paths].sort());
+  }
 
   section("Done");
   console.log(
