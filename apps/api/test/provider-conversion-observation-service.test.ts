@@ -824,6 +824,62 @@ describe("provider conversion observation service", () => {
     expect(harness.persistedDecisions.size).toBe(1);
   });
 
+  it("recovers a frozen observation-mode decision after the live rule is activated", async () => {
+    // Walace / Umbler tag case: callback arrived while rule was Observando,
+    // freezing decision.rule.mode = observation. Operator later flips Envio
+    // ativo and reprocesses; recovery must use the LIVE rule mode.
+    const harness = createHarness("observation");
+    const event = outboundCatalogEvent();
+    const receivedAt = new Date("2026-08-20T21:12:38.000Z");
+
+    const observed = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_walace",
+      deliveryReceivedAt: receivedAt,
+      events: [event],
+    });
+
+    expect(observed).toEqual({ executionIds: [], eligibleExecutionIds: [] });
+    expect(harness.recordInitial).toHaveBeenCalledTimes(1);
+    expect(
+      harness.recordInitial.mock.calls[0]?.[0].decision.rule.mode,
+    ).toBe("observation");
+
+    const activatedAt = new Date("2026-08-20T22:00:00.000Z");
+    harness.rule.mode = "production";
+    harness.rule.productionActivatedAt = activatedAt;
+    harness.channel.productionActivatedAt = null;
+
+    const stillObservedWithoutRecovery = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_walace",
+      deliveryReceivedAt: receivedAt,
+      events: [event],
+    });
+    expect(stillObservedWithoutRecovery).toEqual({
+      executionIds: [],
+      eligibleExecutionIds: [],
+    });
+
+    const recovered = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_walace",
+      deliveryReceivedAt: receivedAt,
+      events: [event],
+      manualRecovery: true,
+    });
+
+    expect(recovered).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: ["execution_1"],
+    });
+    expect(harness.recordInitial).toHaveBeenCalledTimes(1);
+    expect(harness.persistedDecisions.size).toBe(1);
+  });
+
   it("does not evaluate a contact message outside the rule author scope", async () => {
     const harness = createHarness("production");
     const event = outboundCatalogEvent();
