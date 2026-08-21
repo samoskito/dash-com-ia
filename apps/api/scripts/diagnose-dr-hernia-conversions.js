@@ -14,6 +14,8 @@
 const { createHash } = require("node:crypto");
 const { PrismaClient } = require("@prisma/client");
 
+console.error("DIAGNOSE_SCRIPT_VERSION=2026-08-21b");
+
 const prisma = new PrismaClient();
 const INGRESS_ID = process.env.INGRESS_ID || "cmt0t7kvv0000o25mefvu6fzx";
 const HOURS = Math.max(1, Number(process.env.HOURS || 48));
@@ -240,7 +242,7 @@ async function main() {
           eventOccurredAt: true,
           valueCents: true,
           phoneHash: true,
-          source: true,
+          sourceTrigger: true,
         },
       }),
     ]);
@@ -308,7 +310,7 @@ async function main() {
         at: e.eventOccurredAt,
         eventName: e.eventName,
         status: e.status,
-        source: e.source,
+        source: e.sourceTrigger,
         valueCents: e.valueCents,
         phoneHash8: e.phoneHash ? e.phoneHash.slice(0, 8) : null,
       })),
@@ -348,7 +350,7 @@ async function main() {
         status: true,
         eventOccurredAt: true,
         valueCents: true,
-        source: true,
+        sourceTrigger: true,
       },
     });
     const xmaxShadows = await prisma.xmaxShadowEvent.findMany({
