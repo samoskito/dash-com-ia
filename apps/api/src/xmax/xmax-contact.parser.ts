@@ -174,6 +174,13 @@ export function parseXmaxContactWebhook(
     asQueueField(data.Queue_id) ??
     asQueueField(data.Queue_Id) ??
     asQueueField(data.QueueId) ??
+    // XMAX n8n/template variants observed in ops (Samuel 2026-08-21):
+    // Queue_id_v2={{chatQueueId}} and bare chatQueueId.
+    asQueueField(data.Queue_id_v2) ??
+    asQueueField(data.Queue_Id_v2) ??
+    asQueueField(data.queue_id_v2) ??
+    asQueueField(data.chatQueueId) ??
+    asQueueField(data.chat_queue_id) ??
     asQueueField(data.queue_id) ??
     asQueueField(data.queueId) ??
     asQueueField(data.queueid) ??
