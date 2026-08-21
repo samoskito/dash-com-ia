@@ -415,7 +415,9 @@ describe("xmax ingest service (global ingress)", () => {
   let shadowCreates: Array<Record<string, unknown>>;
   let dedupCreates: Array<Record<string, unknown>>;
 
-  function buildAccountRow(overrides: Record<string, unknown>) {
+  function buildAccountRow(
+    overrides: Record<string, unknown>,
+  ): Record<string, unknown> {
     const crypto = new XmaxCredentialEncryptionService({
       META_TOKEN_ENCRYPTION_KEY: "test-meta-key-for-xmax",
     } as NodeJS.ProcessEnv);
@@ -479,6 +481,12 @@ describe("xmax ingest service (global ingress)", () => {
           if (where.queueId === chapeco.queueId) return chapeco;
           return null;
         }),
+        // Backs the fallback fan-out: all active accounts for this ingress.
+        findMany: vi.fn(async ({ where }: any) =>
+          where.ingressId === ingressId && where.status === "active"
+            ? [bento, chapeco]
+            : [],
+        ),
         update: vi.fn(async () => bento),
       },
       xmaxShadowEvent: {
@@ -565,7 +573,11 @@ describe("xmax ingest service (global ingress)", () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it("discards without a DB write when Queue_id is absent from the body", async () => {
+  it("falls back to a getContact fan-out when Queue_id is absent, then discards if no account claims the contact", async () => {
+    adapter.getContact.mockRejectedValue(
+      new XmaxAdapterError("xmax_http_error", "not found", 404),
+    );
+
     const result = await service.ingestGlobal({
       ingressId,
       token: ingressSecret,
@@ -576,13 +588,24 @@ describe("xmax ingest service (global ingress)", () => {
 
     expect(result).toMatchObject({
       status: "discarded",
-      reasonCode: "queue_id_absent",
+      reasonCode: "contact_not_found_in_tenant",
     });
+    // Fallback tried every active account for the ingress (bounded, ~9 max).
+    expect(adapter.getContact).toHaveBeenCalledTimes(2);
     expect(prisma.xmaxShadowEvent.create).not.toHaveBeenCalled();
-    expect(adapter.getContact).not.toHaveBeenCalled();
+    // lastWebhookAt still moves — auth+parse(contactId) succeeded even though
+    // no account was ever resolved.
+    expect(prisma.xmaxIngress.update).toHaveBeenCalledWith({
+      where: { id: ingressId },
+      data: { lastWebhookAt: expect.any(Date) },
+    });
   });
 
-  it("discards an unknown Queue_id without scanning other accounts", async () => {
+  it("falls back to a getContact fan-out for an unknown Queue_id, then discards if no account claims the contact", async () => {
+    adapter.getContact.mockRejectedValue(
+      new XmaxAdapterError("xmax_http_error", "not found", 404),
+    );
+
     const result = await service.ingestGlobal({
       ingressId,
       token: ingressSecret,
@@ -595,8 +618,120 @@ describe("xmax ingest service (global ingress)", () => {
       status: "discarded",
       reasonCode: "queue_unresolved",
     });
+    expect(adapter.getContact).toHaveBeenCalledTimes(2);
     expect(prisma.xmaxShadowEvent.create).not.toHaveBeenCalled();
-    expect(adapter.getContact).not.toHaveBeenCalled();
+  });
+
+  it("resolves via fallback fan-out when Queue_id is absent and one account owns the contact", async () => {
+    adapter.getContact.mockImplementation(async ({ queueId }: any) => {
+      if (queueId === chapeco.queueId) {
+        return { contactId: "c1", number: "11988441020", name: "Lead X", tagIds: ["55"], raw: {} };
+      }
+      throw new XmaxAdapterError("xmax_http_error", "not found", 404);
+    });
+
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "c1" }),
+    });
+
+    expect(result).toMatchObject({ status: "observed", eventName: "QualifiedLead" });
+    expect(shadowCreates).toHaveLength(1);
+    expect(shadowCreates[0]).toMatchObject({
+      workspaceId: chapecoWorkspaceId,
+      accountId: chapecoAccountId,
+    });
+  });
+
+  it("resolves via fallback fan-out when Queue_id is wrong/unresolved and one account owns the contact", async () => {
+    adapter.getContact.mockImplementation(async ({ queueId }: any) => {
+      if (queueId === bento.queueId) {
+        return { contactId: "c1", number: "11988441020", name: "Lead X", tagIds: ["55"], raw: {} };
+      }
+      throw new XmaxAdapterError("xmax_http_error", "not found", 404);
+    });
+
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "c1", Queue_id: "999" }),
+    });
+
+    expect(result).toMatchObject({ status: "observed", eventName: "QualifiedLead" });
+    expect(shadowCreates[0]).toMatchObject({
+      workspaceId: bentoWorkspaceId,
+      accountId: bentoAccountId,
+    });
+  });
+
+  it("does not attempt the fallback fan-out when the fast path already resolves the account", async () => {
+    await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "c1", Queue_id: "12" }),
+    });
+
+    // Only the one getContact call from processResolvedAccount's fast path.
+    expect(adapter.getContact).toHaveBeenCalledTimes(1);
+    expect(prisma.xmaxAccount.findMany).not.toHaveBeenCalled();
+  });
+
+  it("fans out with bounded concurrency and stops early once a match is found", async () => {
+    const foz = buildAccountRow({
+      id: "acc_foz",
+      workspaceId: "ws_foz",
+      queueId: "10",
+      ingressId,
+    });
+    const caxias = buildAccountRow({
+      id: "acc_caxias",
+      workspaceId: "ws_caxias",
+      queueId: "11",
+      ingressId,
+    });
+    const canoas = buildAccountRow({
+      id: "acc_canoas",
+      workspaceId: "ws_canoas",
+      queueId: "16",
+      ingressId,
+    });
+    // 4 accounts, concurrency 3: canoas (4th) must never be reached because
+    // chapeco (in the first batch of 3) resolves quickly and short-circuits.
+    prisma.xmaxAccount.findMany = vi.fn(async ({ where }: any) =>
+      where.ingressId === ingressId ? [foz, caxias, chapeco, canoas] : [],
+    );
+
+    const calledQueueIds: string[] = [];
+    adapter.getContact.mockImplementation(async ({ queueId }: any) => {
+      calledQueueIds.push(queueId);
+      if (queueId === chapeco.queueId) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return { contactId: "c1", number: "11988441020", name: "Lead X", tagIds: ["55"], raw: {} };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      throw new XmaxAdapterError("xmax_http_error", "not found", 404);
+    });
+
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "c1" }),
+    });
+
+    expect(result).toMatchObject({ status: "observed", eventName: "QualifiedLead" });
+    expect(shadowCreates[0]).toMatchObject({ accountId: chapecoAccountId });
+    // Only the first 3 (bounded concurrency) were ever dispatched.
+    expect(calledQueueIds).toHaveLength(3);
+    expect(calledQueueIds).not.toContain(canoas.queueId);
   });
 
   it("routes Queue_id 12 to the Bento account and workspace", async () => {
@@ -658,7 +793,7 @@ describe("xmax ingest service (global ingress)", () => {
     );
   });
 
-  it("discards invalid JSON before any account is resolved", async () => {
+  it("discards invalid JSON before any account is resolved, without touching lastWebhookAt", async () => {
     const result = await service.ingestGlobal({
       ingressId,
       token: ingressSecret,
@@ -668,6 +803,25 @@ describe("xmax ingest service (global ingress)", () => {
     });
 
     expect(result).toMatchObject({ status: "discarded", reasonCode: "invalid_json" });
+    expect(prisma.xmaxIngress.update).not.toHaveBeenCalled();
     expect(prisma.xmaxAccount.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("discards a body with no contact id field, without touching lastWebhookAt", async () => {
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Queue_id: "12" }),
+    });
+
+    expect(result).toMatchObject({
+      status: "discarded",
+      reasonCode: "missing_contact_id",
+    });
+    expect(prisma.xmaxIngress.update).not.toHaveBeenCalled();
+    expect(prisma.xmaxAccount.findFirst).not.toHaveBeenCalled();
+    expect(adapter.getContact).not.toHaveBeenCalled();
   });
 });

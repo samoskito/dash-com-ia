@@ -21,10 +21,27 @@ import {
   XmaxProductionService,
   type XmaxProductionResult,
 } from "./xmax-production.service";
-import { XmaxAdapter, XmaxAdapterError } from "./xmax.adapter";
+import {
+  XmaxAdapter,
+  XmaxAdapterError,
+  type XmaxGetContactResult,
+} from "./xmax.adapter";
 
 const publicNotFoundMessage = "Webhook nao encontrado";
 const MAX_BODY_BYTES = 64 * 1024;
+
+// Bounded multi-queue fallback (getContact fan-out) — see
+// docs/spikes/2026-08-21-xmax-multi-queue-fallback.md. Kept small on purpose:
+// this is a last-resort resolver, not a primary routing path.
+const FALLBACK_MAX_ACCOUNTS = 12;
+const FALLBACK_CONCURRENCY = 3;
+const FALLBACK_PER_CALL_TIMEOUT_MS = 4_000;
+const FALLBACK_BUDGET_MS = 9_000;
+
+type FallbackResolution = {
+  account: XmaxAccount;
+  contact: XmaxGetContactResult;
+};
 
 export type XmaxIngestInput = {
   accountId: string;
@@ -126,6 +143,11 @@ export class XmaxIngestService {
    * routing, before any database write. `Queue_id` is only a lookup key: the
    * outbound getContact call always uses `account.queueId` from config, never
    * the payload.
+   *
+   * If `Queue_id` is missing or does not resolve to an active account, we
+   * fall back to a bounded getContact fan-out across the ingress's other
+   * active accounts (source of truth = XMAX itself) rather than discarding —
+   * see docs/spikes/2026-08-21-xmax-multi-queue-fallback.md.
    */
   async ingestGlobal(input: XmaxGlobalIngestInput): Promise<XmaxIngestResult> {
     const ingress = await this.prisma.xmaxIngress.findFirst({
@@ -159,32 +181,141 @@ export class XmaxIngestService {
       return { status: "discarded", reasonCode: parsed.reason, shadowMode: true };
     }
 
-    const queueId = parsed.value.queueId;
-    if (!queueId) {
-      this.logIngressDiscard(ingress.id, "queue_id_absent", bodyBytes);
-      return { status: "discarded", reasonCode: "queue_id_absent", shadowMode: true };
-    }
-
-    // Single indexed lookup — never a scan across accounts/workspaces.
-    const account = await this.prisma.xmaxAccount.findFirst({
-      where: {
-        ingressId: ingress.id,
-        queueId,
-        status: "active",
-      },
-    });
-
-    if (!account) {
-      this.logIngressDiscard(ingress.id, "queue_unresolved", bodyBytes, queueId);
-      return { status: "discarded", reasonCode: "queue_unresolved", shadowMode: true };
-    }
-
+    // Auth + parse(contactId) succeeded — touch lastWebhookAt now, before
+    // queue resolution, so the ops stale detector reflects real traffic even
+    // when Queue_id is missing/wrong or every fallback account misses.
     await this.prisma.xmaxIngress.update({
       where: { id: ingress.id },
       data: { lastWebhookAt: new Date() },
     });
 
-    return this.processResolvedAccount(account, parsed.value, providerAttempt);
+    const queueId = parsed.value.queueId;
+
+    // Fast path: single indexed lookup — never a scan — when Queue_id is
+    // present and matches an active account under this ingress.
+    const fastAccount = queueId
+      ? await this.prisma.xmaxAccount.findFirst({
+          where: { ingressId: ingress.id, queueId, status: "active" },
+        })
+      : null;
+
+    if (fastAccount) {
+      return this.processResolvedAccount(
+        fastAccount,
+        parsed.value,
+        providerAttempt,
+      );
+    }
+
+    // Fallback: bounded getContact fan-out across this ingress's other
+    // active accounts. Cheap (max ~9 accounts, low concurrency, hard budget)
+    // and fail-closed — never a DB lead scan.
+    const fallback = await this.resolveAccountViaFallback(
+      ingress.id,
+      parsed.value.contactId,
+    );
+
+    if (fallback) {
+      this.logger.log(
+        JSON.stringify({
+          event: "xmax_ingress.queue_resolved_via_fallback",
+          ingressId: ingress.id,
+          accountId: fallback.account.id,
+          queueId: fallback.account.queueId,
+          queueIdInPayloadHash: queueId
+            ? createHash("sha256").update(queueId).digest("hex").slice(0, 16)
+            : undefined,
+        }),
+      );
+      return this.processResolvedAccount(
+        fallback.account,
+        parsed.value,
+        providerAttempt,
+        fallback.contact,
+      );
+    }
+
+    // No account claims this contact anywhere in the tenant. Distinguish the
+    // two discard reasons for ops: a wrong/unknown Queue_id vs. one that was
+    // simply never sent.
+    const reasonCode = queueId ? "queue_unresolved" : "contact_not_found_in_tenant";
+    this.logIngressDiscard(ingress.id, reasonCode, bodyBytes, queueId);
+    return { status: "discarded", reasonCode, shadowMode: true };
+  }
+
+  /**
+   * Last-resort resolver when Queue_id is missing or doesn't match an active
+   * account: ask XMAX itself which account owns this contact, bounded and
+   * cheap. Loads at most FALLBACK_MAX_ACCOUNTS active accounts for this
+   * ingress, then fans out getContact with low concurrency, a per-call
+   * timeout, and a hard overall budget; stops at the first account that
+   * returns a valid contact.
+   */
+  private async resolveAccountViaFallback(
+    ingressId: string,
+    contactId: string,
+  ): Promise<FallbackResolution | null> {
+    const accounts = await this.prisma.xmaxAccount.findMany({
+      where: { ingressId, status: "active" },
+      take: FALLBACK_MAX_ACCOUNTS,
+    });
+    if (accounts.length === 0) {
+      return null;
+    }
+
+    const deadline = Date.now() + FALLBACK_BUDGET_MS;
+    let nextIndex = 0;
+    let winner: FallbackResolution | null = null;
+
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        if (winner || Date.now() >= deadline) {
+          return;
+        }
+        const index = nextIndex++;
+        if (index >= accounts.length) {
+          return;
+        }
+        const account = accounts[index];
+
+        let apiKey: string;
+        try {
+          apiKey = this.credentials.decrypt({
+            apiKeyEncrypted: account.apiKeyEncrypted,
+            apiKeyIv: account.apiKeyIv,
+            apiKeyTag: account.apiKeyTag,
+          });
+        } catch {
+          continue;
+        }
+
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+          return;
+        }
+
+        try {
+          const contact = await this.adapter.getContact({
+            baseUrl: account.baseUrl,
+            // From CONFIG, never from the payload — same rule as the fast path.
+            queueId: account.queueId,
+            apiKey,
+            contactId,
+            timeoutMs: Math.min(FALLBACK_PER_CALL_TIMEOUT_MS, remainingMs),
+          });
+          if (!winner) {
+            winner = { account, contact };
+          }
+        } catch {
+          // Not found / error on this account — try the next one.
+        }
+      }
+    };
+
+    const workerCount = Math.min(FALLBACK_CONCURRENCY, accounts.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+    return winner;
   }
 
   /**
@@ -197,6 +328,7 @@ export class XmaxIngestService {
     account: XmaxAccount,
     parsed: ParsedXmaxContactWebhook,
     providerAttempt: number | null,
+    prefetchedContact?: XmaxGetContactResult,
   ): Promise<XmaxIngestResult> {
     const { contactId, phoneHint, name } = parsed;
 
@@ -213,57 +345,70 @@ export class XmaxIngestService {
       data: { lastWebhookAt: new Date() },
     });
 
-    let apiKey: string;
-    try {
-      apiKey = this.credentials.decrypt({
-        apiKeyEncrypted: account.apiKeyEncrypted,
-        apiKeyIv: account.apiKeyIv,
-        apiKeyTag: account.apiKeyTag,
-      });
-    } catch {
-      return this.recordAndReturn(account, {
-        status: "failed",
-        reasonCode: "credential_decrypt_failed",
-        ingressKey,
-        contactId,
-        providerAttempt,
-      });
-    }
-
-    let contact;
-    try {
-      contact = await this.adapter.getContact({
-        baseUrl: account.baseUrl,
-        // From CONFIG, never from the payload — the payload is a selector only.
-        queueId: account.queueId,
-        apiKey,
-        contactId,
-      });
-    } catch (error) {
-      const code =
-        error instanceof XmaxAdapterError ? error.code : "xmax_network_error";
+    let contact: XmaxGetContactResult;
+    if (prefetchedContact) {
+      // Already resolved via the fallback fan-out — don't call getContact
+      // twice (budget + rate limit); just record the account as fresh.
+      contact = prefetchedContact;
       await this.prisma.xmaxAccount.update({
         where: { id: account.id },
         data: {
-          lastErrorCode: code,
+          lastSuccessfulGetContact: new Date(),
+          lastErrorCode: null,
         },
       });
-      return this.recordAndReturn(account, {
-        status: "failed",
-        reasonCode: code,
-        ingressKey,
-        contactId,
-        providerAttempt,
+    } else {
+      let apiKey: string;
+      try {
+        apiKey = this.credentials.decrypt({
+          apiKeyEncrypted: account.apiKeyEncrypted,
+          apiKeyIv: account.apiKeyIv,
+          apiKeyTag: account.apiKeyTag,
+        });
+      } catch {
+        return this.recordAndReturn(account, {
+          status: "failed",
+          reasonCode: "credential_decrypt_failed",
+          ingressKey,
+          contactId,
+          providerAttempt,
+        });
+      }
+
+      try {
+        contact = await this.adapter.getContact({
+          baseUrl: account.baseUrl,
+          // From CONFIG, never from the payload — the payload is a selector only.
+          queueId: account.queueId,
+          apiKey,
+          contactId,
+        });
+      } catch (error) {
+        const code =
+          error instanceof XmaxAdapterError ? error.code : "xmax_network_error";
+        await this.prisma.xmaxAccount.update({
+          where: { id: account.id },
+          data: {
+            lastErrorCode: code,
+          },
+        });
+        return this.recordAndReturn(account, {
+          status: "failed",
+          reasonCode: code,
+          ingressKey,
+          contactId,
+          providerAttempt,
+        });
+      }
+
+      await this.prisma.xmaxAccount.update({
+        where: { id: account.id },
+        data: {
+          lastSuccessfulGetContact: new Date(),
+          lastErrorCode: null,
+        },
       });
     }
-
-    await this.prisma.xmaxAccount.update({
-      where: { id: account.id },
-      data: {
-        lastSuccessfulGetContact: new Date(),
-        lastErrorCode: null,
-      },
-    });
 
     const eventName = mapXmaxTagsToEvent(contact.tagIds, {
       qualifiedLeadTagIds: account.qualifiedLeadTagIds,
