@@ -404,6 +404,7 @@ function createHarness(
   );
 
   return {
+    channel,
     decisions,
     appendReevaluation,
     executions,
@@ -791,10 +792,11 @@ describe("provider conversion observation service", () => {
     },
   );
 
-  it("reuses the frozen decision during manual recovery", async () => {
+  it("recovers an observed callback when the active channel has no production activation timestamp", async () => {
     const harness = createHarness("production");
     const event = outboundCatalogEvent();
     const historicalReceivedAt = new Date("2026-07-17T12:00:00.000Z");
+    harness.channel.productionActivatedAt = null;
 
     const observed = await harness.service.observeDelivery({
       workspaceId,

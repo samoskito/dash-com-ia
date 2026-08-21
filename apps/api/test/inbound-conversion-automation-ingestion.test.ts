@@ -780,6 +780,7 @@ function createHarness(options?: {
   );
 
   return {
+    channel,
     deliveries,
     decisions,
     encryption,
@@ -1119,6 +1120,7 @@ describe("inbound conversion automation ingestion", () => {
     harness.endpoint.providerRule.connection.productionActivatedAt = new Date(
       "2026-07-22T18:00:00.000Z",
     );
+    harness.channel.productionActivatedAt = null;
 
     const replay = await harness.service.reprocessSelectedCallbacks(
       "workspace_safe",
