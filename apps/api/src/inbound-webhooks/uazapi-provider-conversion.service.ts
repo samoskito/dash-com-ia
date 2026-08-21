@@ -53,6 +53,8 @@ export type UazapiTeamMessageInput = {
   messageText: string;
   externalMessageId?: string | null;
   occurredAt?: Date;
+  /** Explicit backoffice recovery only; never set by normal webhook intake. */
+  manualRecovery?: boolean;
 };
 
 export type UazapiTeamMessageResult = {
@@ -69,6 +71,14 @@ export type UazapiLabelInput = {
   waChatId?: string;
   externalEventId?: string | null;
   occurredAt?: Date;
+  /** Explicit backoffice recovery only; never set by normal webhook intake. */
+  manualRecovery?: boolean;
+};
+
+export type UazapiConversionRecoveryActor = {
+  id: string;
+  actorType: string;
+  sourceIp: string | null;
 };
 
 /**
@@ -192,6 +202,7 @@ export class UazapiProviderConversionService {
         rule,
         channel,
         occurredAt,
+        manualRecovery: input.manualRecovery === true,
       });
       const orchestration = await this.orchestrator.orchestrate({
         persistedDecision,
@@ -345,6 +356,7 @@ export class UazapiProviderConversionService {
               rule,
               channel,
               occurredAt,
+              manualRecovery: input.manualRecovery === true,
             }),
         recordIgnoredObservation,
       });
@@ -357,6 +369,173 @@ export class UazapiProviderConversionService {
       }
     }
     return { evaluated, eligibleExecutionId };
+  }
+
+  /**
+   * Recover one frozen UAZAPI decision that was observed solely because the
+   * original occurrence predates production activation. UAZAPI deliveries are
+   * synthetic, so replaying their raw payload is neither possible nor safe.
+   * The frozen decision is used only after its current production context and
+   * paid-lead attribution have been checked again.
+   */
+  async recoverObservedDecision(input: {
+    decisionId: string;
+    confirm: boolean;
+    actor: UazapiConversionRecoveryActor;
+  }): Promise<{
+    decisionId: string;
+    dryRun: boolean;
+    recoverable: boolean;
+    reasonCode: string;
+    executionId: string | null;
+    queued: boolean;
+  }> {
+    const record = await this.prisma.providerConversionDecisionAudit.findFirst({
+      where: { id: input.decisionId, supersededBy: { none: {} } },
+      select: {
+        id: true,
+        workspaceId: true,
+        providerRuleId: true,
+        sourceDeliveryId: true,
+        occurredAt: true,
+        decisionCode: true,
+        leadId: true,
+        contactIdentityHash: true,
+        sourceDelivery: { select: { provider: true } },
+        providerRule: { include: ruleInclude },
+        channel: { select: { status: true, productionActivatedAt: true } },
+      },
+    });
+    if (!record || record.sourceDelivery.provider !== "uazapi") {
+      return this.unrecoverable(input.decisionId, input.confirm, "not_found");
+    }
+    if (!record.channel) {
+      return this.unrecoverable(
+        record.id,
+        input.confirm,
+        "automation_channel_unresolved",
+      );
+    }
+    if (record.decisionCode !== "eligible" || !record.leadId) {
+      return this.unrecoverable(
+        record.id,
+        input.confirm,
+        "paid_lead_not_eligible",
+      );
+    }
+    if (
+      !record.providerRule.productionActivatedAt ||
+      !record.channel.productionActivatedAt ||
+      (record.occurredAt >= record.providerRule.productionActivatedAt &&
+        record.occurredAt >= record.channel.productionActivatedAt)
+    ) {
+      return this.unrecoverable(
+        record.id,
+        input.confirm,
+        "not_before_production_activation",
+      );
+    }
+
+    // Recheck the original resolved lead without needing to retain plaintext
+    // webhook phone data. This remains fail-closed if attribution changed.
+    const lead = await this.prisma.lead.findFirst({
+      where: {
+        id: record.leadId,
+        workspaceId: record.workspaceId,
+        phoneHash: record.contactIdentityHash ?? undefined,
+        adId: { not: null },
+        ctwaClid: { not: null },
+      },
+      select: { id: true, adId: true, ctwaClid: true },
+    });
+    if (!lead?.adId?.trim() || !lead.ctwaClid?.trim()) {
+      return this.unrecoverable(record.id, input.confirm, "paid_attribution_missing");
+    }
+
+    const config = parseInboundWebhooksConfig(this.env);
+    const disposition = this.disposition({
+      config,
+      decisionMode: record.providerRule.mode,
+      reasonCode: "manual_recovery",
+      rule: record.providerRule,
+      channel: record.channel,
+      occurredAt: record.occurredAt,
+      manualRecovery: true,
+    });
+    if (disposition.state !== "eligible") {
+      return this.unrecoverable(record.id, input.confirm, disposition.reasonCode);
+    }
+
+    const persistedDecision = await this.decisions.findById({
+      workspaceId: record.workspaceId,
+      decisionId: record.id,
+    });
+    if (!persistedDecision) {
+      return this.unrecoverable(record.id, input.confirm, "decision_unavailable");
+    }
+
+    if (!input.confirm) {
+      return {
+        decisionId: record.id,
+        dryRun: true,
+        recoverable: true,
+        reasonCode: "before_production_activation",
+        executionId: null,
+        queued: false,
+      };
+    }
+
+    const orchestration = await this.orchestrator.orchestrate({
+      persistedDecision,
+      disposition,
+    });
+    if (orchestration.eligibleExecutionId) {
+      await this.productionQueue.enqueueProviderConversion({
+        providerConversionExecutionId: orchestration.eligibleExecutionId,
+        workspaceId: record.workspaceId,
+      });
+    }
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: record.workspaceId,
+        actorUserId: input.actor.id,
+        actorType: input.actor.actorType,
+        action: "provider_conversion.uazapi.manual_recovery",
+        targetType: "provider_conversion_decision",
+        targetId: record.id,
+        reason: "Explicit recovery of UAZAPI pre-activation observation",
+        sourceIp: input.actor.sourceIp,
+        resultStatus: "completed",
+        afterSummary: {
+          executionId: orchestration.executionId,
+          eligibleExecutionId: orchestration.eligibleExecutionId,
+        },
+      },
+    });
+
+    return {
+      decisionId: record.id,
+      dryRun: false,
+      recoverable: true,
+      reasonCode: "before_production_activation",
+      executionId: orchestration.executionId,
+      queued: orchestration.eligibleExecutionId !== null,
+    };
+  }
+
+  private unrecoverable(
+    decisionId: string,
+    confirm: boolean,
+    reasonCode: string,
+  ) {
+    return {
+      decisionId,
+      dryRun: !confirm,
+      recoverable: false,
+      reasonCode,
+      executionId: null,
+      queued: false,
+    };
   }
 
   private async loadRules(
@@ -451,6 +630,7 @@ export class UazapiProviderConversionService {
     rule: Rule;
     channel: { status: string; productionActivatedAt: Date | null };
     occurredAt: Date;
+    manualRecovery?: boolean;
   }): ProviderConversionTechnicalDisposition {
     if (
       !input.config.conversionProductionEnabled ||
@@ -474,8 +654,9 @@ export class UazapiProviderConversionService {
     if (
       !input.rule.productionActivatedAt ||
       !input.channel.productionActivatedAt ||
-      input.occurredAt < input.rule.productionActivatedAt ||
-      input.occurredAt < input.channel.productionActivatedAt
+      (!input.manualRecovery &&
+        (input.occurredAt < input.rule.productionActivatedAt ||
+          input.occurredAt < input.channel.productionActivatedAt))
     ) {
       return { state: "observed", reasonCode: "before_production_activation" };
     }

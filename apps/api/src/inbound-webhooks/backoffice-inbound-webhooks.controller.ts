@@ -23,6 +23,7 @@ import { AuthService } from "../auth/auth.service";
 import { PlatformAdminService } from "../auth/platform-admin.service";
 import { ProviderConversionTraceService } from "../conversion-rules/provider-conversion-trace.service";
 import { BackofficeInboundWebhooksService } from "./backoffice-inbound-webhooks.service";
+import { UazapiProviderConversionService } from "./uazapi-provider-conversion.service";
 
 type InboundBackofficeRequest = {
   ip?: string;
@@ -38,6 +39,8 @@ export class BackofficeInboundWebhooksController {
     private readonly inboundWebhooks: BackofficeInboundWebhooksService,
     @Inject(ProviderConversionTraceService)
     private readonly conversionTraces: ProviderConversionTraceService,
+    @Inject(UazapiProviderConversionService)
+    private readonly uazapiProviderConversions: UazapiProviderConversionService,
   ) {}
 
   @Get("scope")
@@ -221,6 +224,36 @@ export class BackofficeInboundWebhooksController {
         sourceIp: request.ip ?? null,
       },
     );
+  }
+
+  /**
+   * UAZAPI's conversion deliveries are synthetic and cannot be replayed from a
+   * retained payload. This explicitly promotes one pre-activation observation
+   * after a dry-run; it is deliberately separate from activation workflows.
+   */
+  @Post("provider-conversion-decisions/:decisionId/recover")
+  async recoverUazapiProviderConversionDecision(
+    @AuthToken() refreshToken: string,
+    @Param("decisionId") decisionId: string,
+    @Body() body: unknown,
+    @Req() request: InboundBackofficeRequest,
+  ) {
+    const owner =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const confirm =
+      typeof body === "object" &&
+      body !== null &&
+      (body as Record<string, unknown>).confirm === true;
+
+    return this.uazapiProviderConversions.recoverObservedDecision({
+      decisionId: this.identifier(decisionId, "Decisao invalida"),
+      confirm,
+      actor: {
+        id: owner.id,
+        actorType: owner.role,
+        sourceIp: request.ip ?? null,
+      },
+    });
   }
 
   @Post("deliveries/:deliveryId/reprocess-provider-conversions")
