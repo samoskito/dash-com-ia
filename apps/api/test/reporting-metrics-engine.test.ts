@@ -441,4 +441,79 @@ describe("ReportingMetricsEngine", () => {
       },
     ]);
   });
+
+  it("counts InitiateCheckout from funnel stages with cost per checkout", () => {
+    const metrics = engine.calculate({
+      funnelStages: [
+        {
+          eventName: "LeadSubmitted",
+          label: "Conversas reais iniciadas",
+          position: 1,
+          visible: true,
+        },
+        {
+          eventName: "InitiateCheckout",
+          label: "Checkout iniciado",
+          position: 2,
+          visible: true,
+        },
+        {
+          eventName: "Purchase",
+          label: "Compras",
+          position: 3,
+          visible: true,
+        },
+      ],
+      events: [
+        event({
+          campaignId: "cmp_1",
+          eventName: "InitiateCheckout",
+          id: "ic_1",
+          valueCents: 25000,
+        }),
+        event({
+          campaignId: "cmp_1",
+          eventName: "InitiateCheckout",
+          id: "ic_2",
+          valueCents: 25000,
+        }),
+        event({
+          campaignId: "cmp_1",
+          eventName: "Purchase",
+          id: "purchase_1",
+          valueCents: 300000,
+        }),
+      ],
+      insight,
+      leads: [lead({ campaignId: "cmp_1" })],
+      scope: { campaignId: "cmp_1" },
+    });
+
+    expect(metrics.funnelSteps).toEqual([
+      {
+        key: "real_conversations",
+        label: "Conversas reais iniciadas",
+        value: 1,
+        costCents: 100000,
+      },
+      {
+        key: "event_initiate_checkout",
+        label: "Checkout iniciado",
+        value: 2,
+        costCents: 50000,
+      },
+      {
+        key: "purchase",
+        label: "Compras",
+        value: 1,
+        costCents: 100000,
+      },
+      {
+        key: "first_purchase",
+        label: "Primeira compra",
+        value: 1,
+        costCents: 100000,
+      },
+    ]);
+  });
 });

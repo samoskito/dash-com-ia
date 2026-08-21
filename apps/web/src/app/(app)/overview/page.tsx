@@ -151,11 +151,6 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
     (total, campaign) => total + campaign.estimatedRevenueCents,
     0,
   );
-  const visibleFunnelKeys = new Set(
-    campaigns.flatMap((campaign) =>
-      campaign.funnelSteps.map((step) => step.key),
-    ),
-  );
 
   return {
     id: "all_campaigns",
@@ -197,55 +192,42 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
       campaigns,
       (campaign) => campaign.roasWithRepurchase,
     ),
-    funnelSteps: [
-      funnelStep(
-        "real_conversations",
-        "Conversas reais iniciadas",
-        realConversations,
-        costPer(spendCents, realConversations),
-      ),
-      ...(visibleFunnelKeys.has("qualified_lead") || qualifiedLead > 0
-        ? [
-            funnelStep(
-              "qualified_lead",
-              "Lead qualificado",
-              qualifiedLead,
-              costPer(spendCents, qualifiedLead),
-            ),
-          ]
-        : []),
-      ...(visibleFunnelKeys.has("purchase") || purchases > 0
-        ? [
-            funnelStep(
-              "purchase",
-              "Compras",
-              purchases,
-              costPer(spendCents, purchases),
-            ),
-          ]
-        : []),
-      ...(visibleFunnelKeys.has("first_purchase") || firstPurchases > 0
-        ? [
-            funnelStep(
-              "first_purchase",
-              "Primeira compra",
-              firstPurchases,
-              costPer(spendCents, firstPurchases),
-            ),
-          ]
-        : []),
-      ...(visibleFunnelKeys.has("repurchase") || repurchases > 0
-        ? [
-            funnelStep(
-              "repurchase",
-              "Recompra",
-              repurchases,
-              costPer(spendCents, repurchases),
-            ),
-          ]
-        : []),
-    ],
+    // R1: preserve every configured funnel stage from the API (IC, AddToCart,
+    // custom events). Hardcoding QL/Purchase dropped InitiateCheckout when the
+    // overview fell back to client-side aggregation.
+    funnelSteps: aggregateFunnelSteps(campaigns, spendCents),
   };
+}
+
+function aggregateFunnelSteps(
+  campaigns: CampaignReportRowDto[],
+  spendCents: number,
+): ReportFunnelStepDto[] {
+  const steps = new Map<string, ReportFunnelStepDto>();
+  const order: string[] = [];
+
+  for (const campaign of campaigns) {
+    for (const step of campaign.funnelSteps) {
+      const current = steps.get(step.key);
+      if (!current) {
+        order.push(step.key);
+      }
+      steps.set(step.key, {
+        key: step.key,
+        label: current?.label ?? step.label,
+        value: (current?.value ?? 0) + step.value,
+        costCents: null,
+      });
+    }
+  }
+
+  return order.map((key) => {
+    const step = steps.get(key)!;
+    return {
+      ...step,
+      costCents: costPer(spendCents, step.value),
+    };
+  });
 }
 
 function costPer(spendCents: number, count: number): number | null {
@@ -306,20 +288,6 @@ function purchaseBreakdownLabel(
   return `${firstPurchaseLabel}, ${repurchases} ${repurchases === 1 ? "recompra" : "recompras"}`;
 }
 
-function funnelStep(
-  key: ReportFunnelStepDto["key"],
-  label: ReportFunnelStepDto["label"],
-  value: number,
-  costCents: number | null,
-): ReportFunnelStepDto {
-  return {
-    key,
-    label,
-    value,
-    costCents,
-  };
-}
-
 function funnelStageCostLabel(stage: ReportFunnelStepDto): string {
   const labels: Record<string, string> = {
     meta_conversations: "Custo por conversa Meta",
@@ -328,9 +296,40 @@ function funnelStageCostLabel(stage: ReportFunnelStepDto): string {
     purchase: "Custo por compra",
     first_purchase: "Custo por primeira compra",
     repurchase: "Custo por recompra",
+    event_initiate_checkout: "Custo por checkout iniciado",
+    event_add_to_cart: "Custo por adicao ao carrinho",
   };
 
-  return labels[stage.key] ?? "Custo por etapa";
+  if (labels[stage.key]) {
+    return labels[stage.key]!;
+  }
+
+  const normalized = stage.label.trim().toLocaleLowerCase("pt-BR");
+  return normalized.length > 0
+    ? `Custo por ${normalized}`
+    : "Custo por etapa";
+}
+
+/** Primary KPI cards for configured journey events beyond the fixed set. */
+function configuredJourneyMetric(
+  funnelSteps: ReportFunnelStepDto[],
+): ReportFunnelStepDto | null {
+  const preferredKeys = [
+    "event_initiate_checkout",
+    "event_add_to_cart",
+    "event_view_content",
+  ];
+  for (const key of preferredKeys) {
+    const step = funnelSteps.find((item) => item.key === key);
+    if (step) return step;
+  }
+  return (
+    funnelSteps.find(
+      (step) =>
+        step.key.startsWith("event_") &&
+        !["event_purchase", "event_qualified_lead"].includes(step.key),
+    ) ?? null
+  );
 }
 
 function reportsHref(filters: OverviewFiltersInput): string {
@@ -381,6 +380,7 @@ export default async function OverviewPage({
     },
     ...campaign.funnelSteps,
   ];
+  const journeyMetric = configuredJourneyMetric(campaign.funnelSteps);
   const selectedBusiness = reportingAccounts.find(
     (account) => account.businessId === filters.businessId,
   );
@@ -478,6 +478,20 @@ export default async function OverviewPage({
           }
           unavailable={!dataAvailable}
         />
+        {journeyMetric ? (
+          <Metric
+            label={journeyMetric.label}
+            value={dataAvailable ? String(journeyMetric.value) : "-"}
+            delta={
+              !dataAvailable
+                ? "Aguardando resposta da API"
+                : journeyMetric.costCents != null
+                  ? funnelStageCostLabel(journeyMetric)
+                  : report.rangeLabel
+            }
+            unavailable={!dataAvailable}
+          />
+        ) : null}
         <Metric
           label="Compras"
           value={dataAvailable ? String(campaign.purchases) : "-"}

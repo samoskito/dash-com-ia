@@ -311,6 +311,88 @@ describe("overview route", () => {
     expect(html).not.toContain("ROAS com recompra");
   });
 
+  it("aggregates InitiateCheckout into the overview funnel and primary metrics", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            rangeLabel: "Ultimos 7 dias",
+            campaigns: [
+              {
+                id: "cmp_1",
+                name: "Campanha IC A",
+                status: "active",
+                ...reportMetrics({
+                  spendCents: 20000,
+                  funnelSteps: [
+                    ...reportMetrics().funnelSteps,
+                    {
+                      key: "event_initiate_checkout",
+                      label: "Checkout iniciado",
+                      value: 3,
+                      costCents: 6666,
+                    },
+                  ],
+                }),
+              },
+              {
+                id: "cmp_2",
+                name: "Campanha IC B",
+                status: "active",
+                ...reportMetrics({
+                  spendCents: 10000,
+                  qualifiedLead: 0,
+                  purchases: 0,
+                  firstPurchases: 0,
+                  trafficRevenueCents: 0,
+                  totalRevenueCents: 0,
+                  firstPurchaseRevenueCents: 0,
+                  funnelSteps: [
+                    {
+                      key: "real_conversations",
+                      label: "Conversas reais iniciadas",
+                      value: 2,
+                      costCents: 5000,
+                    },
+                    {
+                      key: "event_initiate_checkout",
+                      label: "Checkout iniciado",
+                      value: 2,
+                      costCents: 5000,
+                    },
+                  ],
+                }),
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: "workspace_1",
+            status: "connected",
+            businesses: [],
+            adAccounts: [],
+            pixels: [],
+            reportingAccounts: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const element = await OverviewPage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Checkout iniciado");
+    expect(html).toContain("Custo por checkout iniciado");
+    // Aggregated IC value 3+2 across campaigns
+    expect(html).toContain(">5<");
+    expect(html.match(/class=\"metric-card/g)).toHaveLength(6);
+  });
+
   it("renders an empty overview state without mock campaign data", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(
