@@ -669,9 +669,16 @@ export class ProviderConversionObservationService {
         reasonCode: "automation_channel_unresolved",
       };
     }
+    // Manual recovery reuses the frozen decision snapshot (including the mode
+    // from when the callback first arrived). After the operator activates the
+    // rule, production eligibility must follow the LIVE rule mode — otherwise
+    // observed callbacks stay stuck as "1 ignorado" forever.
+    const effectiveMode = input.manualRecovery
+      ? input.rule.mode
+      : input.decision.rule.mode;
     if (
       !input.config.conversionProductionEnabled ||
-      input.decision.rule.mode !== "production"
+      effectiveMode !== "production"
     ) {
       return {
         state: "observed",
