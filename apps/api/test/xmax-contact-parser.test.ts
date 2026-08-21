@@ -115,6 +115,30 @@ describe("xmax contact parser", () => {
     if (!parsed.ok) return;
     expect(parsed.value.queueId).toBe("12");
   });
+
+  it.each(["Queue_id_v2", "chatQueueId", "chat_queue_id"] as const)(
+    "extracts queueId from ops alias %s",
+    (alias) => {
+      const parsed = parseXmaxContactWebhook({
+        Contact_Id: "1",
+        [alias]: "12",
+      });
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+      expect(parsed.value.queueId).toBe("12");
+    },
+  );
+
+  it("prefers Queue_id over Queue_id_v2 when both are present", () => {
+    const parsed = parseXmaxContactWebhook({
+      Contact_Id: "1",
+      Queue_id: "12",
+      Queue_id_v2: "43",
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.queueId).toBe("12");
+  });
 });
 
 describe("xmax event mapper", () => {
