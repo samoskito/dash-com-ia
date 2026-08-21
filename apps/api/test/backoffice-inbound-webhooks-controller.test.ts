@@ -7,6 +7,7 @@ import { PlatformAdminService } from "../src/auth/platform-admin.service";
 import { ProviderConversionTraceService } from "../src/conversion-rules/provider-conversion-trace.service";
 import { BackofficeInboundWebhooksController } from "../src/inbound-webhooks/backoffice-inbound-webhooks.controller";
 import { BackofficeInboundWebhooksService } from "../src/inbound-webhooks/backoffice-inbound-webhooks.service";
+import { UazapiProviderConversionService } from "../src/inbound-webhooks/uazapi-provider-conversion.service";
 
 const delivery = {
   id: "delivery_1",
@@ -290,6 +291,16 @@ async function createApp() {
       },
     })),
   };
+  const uazapiProviderConversions = {
+    recoverObservedDecision: vi.fn(async (input) => ({
+      decisionId: input.decisionId,
+      dryRun: !input.confirm,
+      recoverable: true,
+      reasonCode: "before_production_activation",
+      executionId: input.confirm ? "execution_1" : null,
+      queued: input.confirm,
+    })),
+  };
   const moduleRef = await Test.createTestingModule({
     controllers: [BackofficeInboundWebhooksController],
     providers: [
@@ -297,6 +308,10 @@ async function createApp() {
       { provide: AuthService, useValue: authService },
       { provide: BackofficeInboundWebhooksService, useValue: service },
       { provide: ProviderConversionTraceService, useValue: conversionTraces },
+      {
+        provide: UazapiProviderConversionService,
+        useValue: uazapiProviderConversions,
+      },
     ],
   }).compile();
   const app = moduleRef.createNestApplication();
@@ -308,10 +323,43 @@ async function createApp() {
     platformAdminService,
     service,
     conversionTraces,
+    uazapiProviderConversions,
   };
 }
 
 describe("backoffice inbound webhooks controller", () => {
+  it("defaults UAZAPI observation recovery to dry-run and requires confirm to queue", async () => {
+    const { app, uazapiProviderConversions } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/backoffice/inbound-webhooks/provider-conversion-decisions/decision_1/recover")
+      .set("Authorization", "Bearer owner-token")
+      .send({})
+      .expect(201)
+      .expect({
+        decisionId: "decision_1",
+        dryRun: true,
+        recoverable: true,
+        reasonCode: "before_production_activation",
+        executionId: null,
+        queued: false,
+      });
+    expect(uazapiProviderConversions.recoverObservedDecision).toHaveBeenLastCalledWith(
+      expect.objectContaining({ decisionId: "decision_1", confirm: false }),
+    );
+
+    await request(app.getHttpServer())
+      .post("/backoffice/inbound-webhooks/provider-conversion-decisions/decision_1/recover")
+      .set("Authorization", "Bearer owner-token")
+      .send({ confirm: true })
+      .expect(201)
+      .expect(({ body }) => expect(body.queued).toBe(true));
+    expect(uazapiProviderConversions.recoverObservedDecision).toHaveBeenLastCalledWith(
+      expect.objectContaining({ decisionId: "decision_1", confirm: true }),
+    );
+    await app.close();
+  });
+
   it("returns a human-readable workspace, connection and channel scope to the platform owner", async () => {
     const { app, service } = await createApp();
 

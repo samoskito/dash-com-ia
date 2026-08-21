@@ -62,10 +62,13 @@ describe("UazapiProviderConversionService", () => {
       create: vi.fn(),
     },
     providerConversionRuleConfig: { findMany: vi.fn() },
+    providerConversionDecisionAudit: { findFirst: vi.fn() },
+    lead: { findFirst: vi.fn() },
+    auditLog: { create: vi.fn() },
   };
   const bridge = { ensureBridge: vi.fn() };
   const decisionEngine = { evaluate: vi.fn() };
-  const decisions = { recordInitial: vi.fn() };
+  const decisions = { recordInitial: vi.fn(), findById: vi.fn() };
   const orchestrator = { orchestrate: vi.fn() };
   const paidLeads = { resolve: vi.fn() };
   const productionQueue = { enqueueProviderConversion: vi.fn() };
@@ -249,6 +252,152 @@ describe("UazapiProviderConversionService", () => {
       providerConversionExecutionId: "execution_1",
       workspaceId: "workspace_1",
     });
+  });
+
+  it("keeps pre-activation UAZAPI events observed unless manual recovery is explicit", async () => {
+    prisma.providerConversionRuleConfig.findMany.mockResolvedValue([
+      sampleRule(),
+    ]);
+    paidLeads.resolve.mockResolvedValue({
+      status: "resolved",
+      reasonCode: "paid_lead_resolved",
+      lead: { id: "lead_1" },
+    });
+    decisionEngine.evaluate.mockReturnValue({
+      decisionCode: "eligible",
+      reasonCode: "matched_message_phrase",
+      rule: { mode: "production", eventName: "InitiateCheckout" },
+    });
+    prisma.inboundWebhookDelivery.findUnique.mockResolvedValue({
+      id: "delivery_1",
+    });
+    decisions.recordInitial.mockResolvedValue({
+      decision: {
+        decisionCode: "eligible",
+        reasonCode: "matched_message_phrase",
+        rule: { mode: "production", eventName: "InitiateCheckout" },
+      },
+    });
+    orchestrator.orchestrate.mockResolvedValue({ eligibleExecutionId: null });
+
+    const input = {
+      workspaceId: "workspace_1",
+      instance: {
+        id: "instance_1",
+        workspaceId: "workspace_1",
+        name: "NOD",
+      },
+      phone: "+5541999999999",
+      messageText: "Cliente iniciou checkout",
+      occurredAt: new Date("2025-12-31T23:59:00.000Z"),
+    };
+    await service.evaluateTeamMessage(input);
+    expect(orchestrator.orchestrate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        disposition: {
+          state: "observed",
+          reasonCode: "before_production_activation",
+        },
+      }),
+    );
+
+    await service.evaluateTeamMessage({ ...input, manualRecovery: true });
+    expect(orchestrator.orchestrate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        disposition: {
+          state: "eligible",
+          reasonCode: "matched_message_phrase",
+        },
+      }),
+    );
+  });
+
+  it("dry-runs UAZAPI recovery by default and only queues a paid lead on confirm", async () => {
+    const rule = sampleRule();
+    prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
+      id: "decision_1",
+      workspaceId: "workspace_1",
+      providerRuleId: "provider_rule_1",
+      sourceDeliveryId: "delivery_1",
+      occurredAt: new Date("2025-12-31T23:59:00.000Z"),
+      decisionCode: "eligible",
+      leadId: "lead_1",
+      contactIdentityHash: "phone_hash",
+      sourceDelivery: { provider: "uazapi" },
+      providerRule: rule,
+      channel: {
+        status: "active",
+        productionActivatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+    });
+    prisma.lead.findFirst.mockResolvedValue({
+      id: "lead_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+    });
+    decisions.findById.mockResolvedValue({ id: "decision_1" });
+    orchestrator.orchestrate.mockResolvedValue({
+      executionId: "execution_1",
+      eligibleExecutionId: "execution_1",
+    });
+    const actor = {
+      id: "owner_1",
+      actorType: "platform_owner",
+      sourceIp: null,
+    };
+
+    await expect(
+      service.recoverObservedDecision({
+        decisionId: "decision_1",
+        confirm: false,
+        actor,
+      }),
+    ).resolves.toMatchObject({ dryRun: true, recoverable: true, queued: false });
+    expect(orchestrator.orchestrate).not.toHaveBeenCalled();
+    expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
+
+    await expect(
+      service.recoverObservedDecision({
+        decisionId: "decision_1",
+        confirm: true,
+        actor,
+      }),
+    ).resolves.toMatchObject({
+      dryRun: false,
+      recoverable: true,
+      executionId: "execution_1",
+      queued: true,
+    });
+    expect(productionQueue.enqueueProviderConversion).toHaveBeenCalledWith({
+      providerConversionExecutionId: "execution_1",
+      workspaceId: "workspace_1",
+    });
+    expect(prisma.auditLog.create).toHaveBeenCalledOnce();
+  });
+
+  it("does not recover an unpaid UAZAPI decision", async () => {
+    prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
+      id: "decision_1",
+      workspaceId: "workspace_1",
+      sourceDelivery: { provider: "uazapi" },
+      channel: { status: "active", productionActivatedAt: new Date() },
+      providerRule: sampleRule(),
+      decisionCode: "ignored_untracked_lead",
+      leadId: null,
+    });
+
+    await expect(
+      service.recoverObservedDecision({
+        decisionId: "decision_1",
+        confirm: true,
+        actor: { id: "owner_1", actorType: "platform_owner", sourceIp: null },
+      }),
+    ).resolves.toMatchObject({
+      recoverable: false,
+      reasonCode: "paid_lead_not_eligible",
+      queued: false,
+    });
+    expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
   });
 
   it("evaluates a qualified-lead message rule without a value", async () => {
