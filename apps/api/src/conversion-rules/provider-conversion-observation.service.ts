@@ -694,9 +694,9 @@ export class ProviderConversionObservationService {
     }
     if (
       !input.rule.productionActivatedAt ||
-      !input.channel.productionActivatedAt ||
       (!input.manualRecovery &&
-        (input.deliveryReceivedAt < input.rule.productionActivatedAt ||
+        (!input.channel.productionActivatedAt ||
+          input.deliveryReceivedAt < input.rule.productionActivatedAt ||
           input.deliveryReceivedAt < input.channel.productionActivatedAt))
     ) {
       return {

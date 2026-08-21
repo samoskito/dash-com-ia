@@ -54,14 +54,14 @@ function createHarness(options?: {
   const eventName = options?.eventName ?? "QualifiedLead";
   const production = options?.production ?? false;
   const channel = {
-    id: "channel_1",
-    workspaceId: "workspace_safe",
-    connectionId: "connection_1",
-    channelName: "Comercial",
-    connectedPhone: "+5511999999999",
-    status: "active" as const,
-    productionActivatedAt: activatedAt,
-  };
+      id: "channel_1",
+      workspaceId: "workspace_safe",
+      connectionId: "connection_1",
+      channelName: "Comercial",
+      connectedPhone: "+551****9999",
+      status: "active" as const,
+      productionActivatedAt: activatedAt as Date | null,
+    };
   const endpoint = {
     id: "endpoint_1",
     workspaceId: "workspace_safe",
@@ -780,6 +780,7 @@ function createHarness(options?: {
   );
 
   return {
+    channel,
     deliveries,
     decisions,
     encryption,
@@ -1119,6 +1120,7 @@ describe("inbound conversion automation ingestion", () => {
     harness.endpoint.providerRule.connection.productionActivatedAt = new Date(
       "2026-07-22T18:00:00.000Z",
     );
+    harness.channel.productionActivatedAt = null;
 
     const replay = await harness.service.reprocessSelectedCallbacks(
       "workspace_safe",
