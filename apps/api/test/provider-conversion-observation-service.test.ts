@@ -49,7 +49,7 @@ function createHarness(
     organizationId: "org_fixture_001",
     providerChannelId: "channel_fixture_001",
     status: "active",
-    productionActivatedAt: activatedAt,
+    productionActivatedAt: activatedAt as Date | null,
     conversionEngineMode,
   };
   const rule = {

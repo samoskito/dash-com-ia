@@ -54,14 +54,14 @@ function createHarness(options?: {
   const eventName = options?.eventName ?? "QualifiedLead";
   const production = options?.production ?? false;
   const channel = {
-    id: "channel_1",
-    workspaceId: "workspace_safe",
-    connectionId: "connection_1",
-    channelName: "Comercial",
-    connectedPhone: "+5511999999999",
-    status: "active" as const,
-    productionActivatedAt: activatedAt,
-  };
+      id: "channel_1",
+      workspaceId: "workspace_safe",
+      connectionId: "connection_1",
+      channelName: "Comercial",
+      connectedPhone: "+551****9999",
+      status: "active" as const,
+      productionActivatedAt: activatedAt as Date | null,
+    };
   const endpoint = {
     id: "endpoint_1",
     workspaceId: "workspace_safe",
