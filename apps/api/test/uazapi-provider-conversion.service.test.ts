@@ -190,6 +190,73 @@ describe("UazapiProviderConversionService", () => {
     expect(result.eligibleExecutionId).toBeNull();
     expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
     expect(decisionEngine.evaluate).toHaveBeenCalled();
+    // Production stays fail-closed: an unpaid contact is never materialized
+    // as a visible observation.
+    expect(orchestrator.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({ recordIgnoredObservation: false }),
+    );
+  });
+
+  it("records an unpaid team message in observation mode as a blocked observation", async () => {
+    prisma.providerConversionRuleConfig.findMany.mockResolvedValue([
+      sampleRule({
+        mode: "observation",
+        messageTriggerPhrases: ["consulta esta agendada"],
+      }),
+    ]);
+    paidLeads.resolve.mockResolvedValue({
+      status: "not_found",
+      reasonCode: "paid_lead_not_found",
+      candidateLeadId: null,
+    });
+    decisionEngine.evaluate.mockReturnValue({
+      decisionCode: "ignored_untracked_lead",
+      reasonCode: "paid_lead_not_found",
+      rule: {
+        mode: "observation",
+        eventName: "InitiateCheckout",
+        triggerType: "message_phrase",
+      },
+      occurrence: {},
+      conversion: { valueCents: null },
+      leadResolution: { status: "not_found" },
+    });
+    prisma.inboundWebhookDelivery.findUnique.mockResolvedValue({
+      id: "delivery_team_observation",
+    });
+    decisions.recordInitial.mockResolvedValue({
+      decision: {
+        decisionCode: "ignored_untracked_lead",
+        reasonCode: "paid_lead_not_found",
+        rule: { mode: "observation", eventName: "InitiateCheckout" },
+      },
+    });
+    orchestrator.orchestrate.mockResolvedValue({ eligibleExecutionId: null });
+
+    const result = await service.evaluateTeamMessage({
+      workspaceId: "workspace_1",
+      instance: {
+        id: "instance_1",
+        workspaceId: "workspace_1",
+        name: "NOD",
+        providerInstanceId: "p1",
+      },
+      phone: "+5541999999999",
+      messageText: "Sua consulta esta agendada para amanha",
+      externalMessageId: "msg_observation",
+    });
+
+    expect(result).toEqual({ evaluated: true, eligibleExecutionId: null });
+    expect(orchestrator.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordIgnoredObservation: true,
+        disposition: {
+          state: "blocked",
+          reasonCode: "paid_lead_not_found",
+        },
+      }),
+    );
+    expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
   });
 
   it("enqueues CAPI when orchestrator marks execution eligible", async () => {

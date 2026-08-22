@@ -16,9 +16,13 @@ import {
 } from "../config/deployment-config";
 import { ProviderConversionDecisionEngine } from "../conversion-rules/provider-conversion-decision.engine";
 import type { ProviderConversionDecisionInput } from "../conversion-rules/provider-conversion-decision.types";
-import { ProviderConversionDecisionRepository } from "../conversion-rules/provider-conversion-decision.repository";
+import {
+  ProviderConversionDecisionRepository,
+  type PersistedProviderConversionDecision,
+} from "../conversion-rules/provider-conversion-decision.repository";
 import {
   ProviderConversionOrchestrator,
+  type ProviderConversionOrchestrationResult,
   type ProviderConversionTechnicalDisposition,
 } from "../conversion-rules/provider-conversion-orchestrator.service";
 import { ProviderConversionPaidLeadResolver } from "../conversion-rules/provider-conversion-paid-lead-resolver.service";
@@ -185,17 +189,12 @@ export class UazapiProviderConversionService {
         decision,
         sourceDeliveryId: deliveryId,
       });
-      const disposition = this.disposition({
+      const orchestration = await this.orchestrate({
+        persistedDecision,
         config,
-        decisionMode: persistedDecision.decision.rule.mode,
-        reasonCode: persistedDecision.decision.reasonCode,
         rule,
         channel,
         occurredAt,
-      });
-      const orchestration = await this.orchestrator.orchestrate({
-        persistedDecision,
-        disposition,
       });
 
       if (orchestration.eligibleExecutionId) {
@@ -328,25 +327,12 @@ export class UazapiProviderConversionService {
         decision,
         sourceDeliveryId: deliveryId,
       });
-      const recordIgnoredObservation =
-        persistedDecision.decision.decisionCode === "ignored_untracked_lead" &&
-        persistedDecision.decision.rule.mode === "observation";
-      const orchestration = await this.orchestrator.orchestrate({
+      const orchestration = await this.orchestrate({
         persistedDecision,
-        disposition: recordIgnoredObservation
-          ? {
-              state: "blocked",
-              reasonCode: persistedDecision.decision.reasonCode,
-            }
-          : this.disposition({
-              config,
-              decisionMode: persistedDecision.decision.rule.mode,
-              reasonCode: persistedDecision.decision.reasonCode,
-              rule,
-              channel,
-              occurredAt,
-            }),
-        recordIgnoredObservation,
+        config,
+        rule,
+        channel,
+        occurredAt,
       });
       if (orchestration.eligibleExecutionId) {
         eligibleExecutionId = orchestration.eligibleExecutionId;
@@ -357,6 +343,40 @@ export class UazapiProviderConversionService {
       }
     }
     return { evaluated, eligibleExecutionId };
+  }
+
+  /**
+   * A match that only fails the paid-lead gate is the operator's proof that
+   * the trigger works. In observation mode we keep it visible as a blocked
+   * execution (Settings reads the rule's last execution) instead of dropping
+   * it as audit-only; production stays fail-closed and never materializes it.
+   */
+  private async orchestrate(input: {
+    persistedDecision: PersistedProviderConversionDecision;
+    config: ReturnType<typeof parseInboundWebhooksConfig>;
+    rule: Rule;
+    channel: { status: string; productionActivatedAt: Date | null };
+    occurredAt: Date;
+  }): Promise<ProviderConversionOrchestrationResult> {
+    const decision = input.persistedDecision.decision;
+    const recordIgnoredObservation =
+      decision.decisionCode === "ignored_untracked_lead" &&
+      decision.rule.mode === "observation";
+
+    return this.orchestrator.orchestrate({
+      persistedDecision: input.persistedDecision,
+      disposition: recordIgnoredObservation
+        ? { state: "blocked", reasonCode: decision.reasonCode }
+        : this.disposition({
+            config: input.config,
+            decisionMode: decision.rule.mode,
+            reasonCode: decision.reasonCode,
+            rule: input.rule,
+            channel: input.channel,
+            occurredAt: input.occurredAt,
+          }),
+      recordIgnoredObservation,
+    });
   }
 
   private async loadRules(

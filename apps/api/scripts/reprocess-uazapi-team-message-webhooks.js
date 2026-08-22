@@ -8,16 +8,16 @@
 //
 // Safety:
 // - Dry-run by default; only reads WebhookLog + ProviderConversionRuleConfig.
-// - --execute does not have a safe non-Nest path to call evaluateTeamMessage
-//   (it needs UazapiConversionBridgeService, ProviderConversionDecisionEngine,
-//   ProviderConversionOrchestrator, ProviderConversionPaidLeadResolver,
-//   InboundWebhookProductionQueueService, UazapiAdapter and
-//   MetaTokenEncryptionService wired via Nest DI) so it refuses to run and
-//   prints how to do it instead.
+// - --execute bootstraps a minimal Nest application context (just enough DI
+//   to construct UazapiProviderConversionService) and calls
+//   evaluateTeamMessage() for real, the same code path production webhooks
+//   go through. This can enqueue a production execution if a rule matches.
 //
-// Requires DATABASE_URL. Run from /app/apps/api so @prisma/client resolves.
+// Requires DATABASE_URL (and REDIS_URL for --execute, since
+// InboundWebhookProductionQueueService needs the production BullMQ queue).
+// Run from /app/apps/api so @prisma/client and the compiled dist/ resolve.
 
-console.error("REPROCESS_TEAM_MSG_VERSION=2026-08-22a");
+console.error("REPROCESS_TEAM_MSG_VERSION=2026-08-22b");
 
 const { PrismaClient } = require("@prisma/client");
 
@@ -79,8 +79,9 @@ function extractFromSummaryPayload(body) {
     firstString(body.messageText);
 
   const fromMe = message ? message.fromMe === true : undefined;
+  const externalMessageId = firstString(body.id) || firstString(message?.id);
 
-  return { phone, messageText, fromMe };
+  return { phone, messageText, fromMe, externalMessageId };
 }
 
 async function loadActiveMessagePhraseRules(workspaceId) {
@@ -115,6 +116,78 @@ function hasPhraseMatch(rules, messageText) {
   });
 }
 
+// Minimal Nest application context: just enough DI to construct
+// UazapiProviderConversionService, without pulling in HTTP controllers,
+// AuthModule, WorkspacesModule, or the unrelated queues that the full
+// AppModule wires up. Loaded lazily (only for --execute) because it needs
+// the compiled dist/ output and reflect-metadata.
+async function buildExecuteContext() {
+  require("reflect-metadata");
+  const { Module } = require("@nestjs/common");
+  const { NestFactory } = require("@nestjs/core");
+  const { BullModule } = require("@nestjs/bullmq");
+  const { PrismaModule } = require("../dist/apps/api/src/common/prisma/prisma.module");
+  const { RuntimeModule } = require("../dist/apps/api/src/common/runtime/runtime.module");
+  const {
+    INBOUND_WEBHOOK_PRODUCTION_QUEUE,
+  } = require("../dist/apps/api/src/common/queue/queue.constants");
+  const {
+    ProviderConversionDecisionEngine,
+  } = require("../dist/apps/api/src/conversion-rules/provider-conversion-decision.engine");
+  const {
+    ProviderConversionDecisionRepository,
+  } = require("../dist/apps/api/src/conversion-rules/provider-conversion-decision.repository");
+  const {
+    ProviderConversionOrchestrator,
+  } = require("../dist/apps/api/src/conversion-rules/provider-conversion-orchestrator.service");
+  const {
+    ProviderConversionPaidLeadResolver,
+  } = require("../dist/apps/api/src/conversion-rules/provider-conversion-paid-lead-resolver.service");
+  const {
+    InboundWebhookProductionQueueService,
+  } = require("../dist/apps/api/src/inbound-webhooks/inbound-webhook-production-queue.service");
+  const {
+    UazapiConversionBridgeService,
+  } = require("../dist/apps/api/src/inbound-webhooks/uazapi-conversion-bridge.service");
+  const {
+    UazapiProviderConversionService,
+  } = require("../dist/apps/api/src/inbound-webhooks/uazapi-provider-conversion.service");
+  const { UazapiAdapter } = require("../dist/apps/api/src/integrations/uazapi/uazapi.adapter");
+  const {
+    MetaTokenEncryptionService,
+  } = require("../dist/apps/api/src/integrations/meta/meta-token-encryption.service");
+  const { INTEGRATION_ENV } = require("../dist/apps/api/src/integrations/integration.types");
+
+  class ReprocessTeamMessageModule {}
+  Module({
+    imports: [
+      PrismaModule,
+      RuntimeModule,
+      BullModule.forRoot({
+        connection: { url: process.env.REDIS_URL ?? "redis://localhost:6379" },
+      }),
+      BullModule.registerQueue({ name: INBOUND_WEBHOOK_PRODUCTION_QUEUE }),
+    ],
+    providers: [
+      ProviderConversionDecisionEngine,
+      ProviderConversionDecisionRepository,
+      ProviderConversionOrchestrator,
+      ProviderConversionPaidLeadResolver,
+      InboundWebhookProductionQueueService,
+      UazapiConversionBridgeService,
+      UazapiProviderConversionService,
+      UazapiAdapter,
+      MetaTokenEncryptionService,
+      { provide: INTEGRATION_ENV, useValue: process.env },
+    ],
+  })(ReprocessTeamMessageModule);
+
+  const app = await NestFactory.createApplicationContext(ReprocessTeamMessageModule, {
+    logger: ["error", "warn"],
+  });
+  return { app, UazapiProviderConversionService };
+}
+
 async function main() {
   console.log("=== REPROCESS UAZAPI TEAM MESSAGE (message_phrase) ===");
   console.log({ mode, webhookLogId });
@@ -146,7 +219,8 @@ async function main() {
     process.exit(1);
   }
 
-  const { phone, messageText, fromMe } = extractFromSummaryPayload(body);
+  const { phone, messageText, fromMe, externalMessageId } =
+    extractFromSummaryPayload(body);
   const rules = await loadActiveMessagePhraseRules(log.workspaceId);
   const targetPhrase = "consulta está agendada";
   const hasTargetPhraseMatch = Boolean(
@@ -182,25 +256,49 @@ async function main() {
     return;
   }
 
-  console.error("EXECUTE_NOT_WIRED");
-  console.error(
-    [
-      "evaluateTeamMessage() vive em UazapiProviderConversionService e depende de",
-      "servicos injetados via Nest DI (UazapiConversionBridgeService,",
-      "ProviderConversionDecisionEngine, ProviderConversionOrchestrator,",
-      "ProviderConversionPaidLeadResolver, InboundWebhookProductionQueueService,",
-      "UazapiAdapter, MetaTokenEncryptionService). Nao ha um jeito seguro de",
-      "instancia-los fora do bootstrap do Nest a partir deste script.",
-      "",
-      "Para reprocessar de verdade, replaye o payload original contra o endpoint",
-      "de producao (o mesmo body de summaryPayload, no webhook Uazapi real), ou",
-      "escreva um teste/e2e do Nest (ver apps/api/test) que monte o AppModule",
-      "(ou pelo menos UazapiProviderConversionService + suas dependencias) e",
-      "chame evaluateTeamMessage() diretamente com os campos impressos acima",
-      "(phone, messageText, workspaceId, instance).",
-    ].join("\n"),
-  );
-  process.exit(2);
+  if (!phone || !messageText) {
+    console.error("ERRO: sem phone/messageText utilizavel neste WebhookLog, evaluateTeamMessage sempre retornaria evaluated=false.");
+    process.exit(1);
+  }
+  if (!log.whatsappInstanceId) {
+    console.error("ERRO: WebhookLog sem whatsappInstanceId, nao da para montar UazapiBridgeInstance.");
+    process.exit(1);
+  }
+
+  const instance = await prisma.whatsappInstance.findUnique({
+    where: { id: log.whatsappInstanceId },
+    select: {
+      id: true,
+      workspaceId: true,
+      name: true,
+      providerInstanceId: true,
+      providerTokenEncrypted: true,
+      providerTokenIv: true,
+      providerTokenTag: true,
+    },
+  });
+  if (!instance) {
+    console.error("ERRO: WhatsappInstance nao encontrada:", log.whatsappInstanceId);
+    process.exit(1);
+  }
+
+  console.log("=== EXECUTE (Nest application context) ===");
+  const { app, UazapiProviderConversionService } = await buildExecuteContext();
+  try {
+    const service = app.get(UazapiProviderConversionService);
+    const result = await service.evaluateTeamMessage({
+      workspaceId: log.workspaceId,
+      instance,
+      phone,
+      messageText,
+      externalMessageId,
+      occurredAt: log.receivedAt ?? undefined,
+    });
+    console.log("=== EVALUATE RESULT ===");
+    console.log(result);
+  } finally {
+    await app.close();
+  }
 }
 
 main()
