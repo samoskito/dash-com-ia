@@ -43,6 +43,19 @@ type FallbackResolution = {
   contact: XmaxGetContactResult;
 };
 
+/** How the account for a global-ingress delivery was resolved — persisted to
+ * rawSummary on every shadow row so ops can see routing decisions without
+ * storing the raw payload. */
+type ResolvePath = "fast_queue_id" | "fallback_paid_lead" | "fallback_getcontact";
+
+type ResolveMeta = {
+  queueIdInPayload?: string;
+  queueNameInPayload?: string;
+  resolvePath: ResolvePath;
+  resolvedQueueId?: string | null;
+  resolvedAccountId: string;
+};
+
 export type XmaxIngestInput = {
   accountId: string;
   token: unknown;
@@ -204,35 +217,112 @@ export class XmaxIngestService {
         fastAccount,
         parsed.value,
         providerAttempt,
+        {
+          resolvePath: "fast_queue_id",
+          queueIdInPayload: queueId,
+          queueNameInPayload: parsed.value.queueName,
+          resolvedQueueId: fastAccount.queueId,
+          resolvedAccountId: fastAccount.id,
+        },
       );
     }
 
-    // Fallback: bounded getContact fan-out across this ingress's other
-    // active accounts. Cheap (max ~9 accounts, low concurrency, hard budget)
-    // and fail-closed — never a DB lead scan.
-    const fallback = await this.resolveAccountViaFallback(
-      ingress.id,
-      parsed.value.contactId,
-    );
+    // Queue_id absent or unresolved — load this ingress's active accounts
+    // once (bounded) and share the list across both fallback strategies below.
+    const candidateAccounts = await this.prisma.xmaxAccount.findMany({
+      where: { ingressId: ingress.id, status: "active" },
+      take: FALLBACK_MAX_ACCOUNTS,
+    });
 
-    if (fallback) {
+    // NEW preferred fallback: resolve by the paid lead itself (adId+ctwaClid),
+    // not by asking XMAX who owns the contact. If the webhook carried a phone
+    // hint and exactly one of this ingress's workspaces already has a paid
+    // lead for that phone, that workspace is authoritative — skip the
+    // getContact fan-out entirely.
+    const paidLeadAccount = await this.resolveViaPaidLeadPhone(
+      candidateAccounts,
+      parsed.value.phoneHint,
+    );
+    if (paidLeadAccount) {
       this.logger.log(
         JSON.stringify({
-          event: "xmax_ingress.queue_resolved_via_fallback",
+          event: "xmax_ingress.queue_resolved_via_paid_lead",
           ingressId: ingress.id,
-          accountId: fallback.account.id,
-          queueId: fallback.account.queueId,
+          accountId: paidLeadAccount.id,
+          queueId: paidLeadAccount.queueId,
           queueIdInPayloadHash: queueId
             ? createHash("sha256").update(queueId).digest("hex").slice(0, 16)
             : undefined,
         }),
       );
       return this.processResolvedAccount(
-        fallback.account,
+        paidLeadAccount,
         parsed.value,
         providerAttempt,
-        fallback.contact,
+        {
+          resolvePath: "fallback_paid_lead",
+          queueIdInPayload: queueId,
+          queueNameInPayload: parsed.value.queueName,
+          resolvedQueueId: paidLeadAccount.queueId,
+          resolvedAccountId: paidLeadAccount.id,
+        },
       );
+    }
+
+    // Last resort: ask XMAX itself which account(s) own this contact. Never
+    // stop at the first HTTP 200 — multiple accounts under the same ingress
+    // can legitimately return a contact for the same id, and picking the
+    // first responder at random is exactly what stole the Farroupilha lead
+    // into Foz. Collect every hit within the bound/budget, then disambiguate.
+    const hits = await this.fanOutGetContact(
+      candidateAccounts,
+      parsed.value.contactId,
+    );
+
+    if (hits.length > 0) {
+      const chosen = await this.disambiguateFallbackHits(hits, queueId);
+      if (chosen) {
+        this.logger.log(
+          JSON.stringify({
+            event: "xmax_ingress.queue_resolved_via_fallback",
+            ingressId: ingress.id,
+            accountId: chosen.account.id,
+            queueId: chosen.account.queueId,
+            candidateCount: hits.length,
+            queueIdInPayloadHash: queueId
+              ? createHash("sha256").update(queueId).digest("hex").slice(0, 16)
+              : undefined,
+          }),
+        );
+        return this.processResolvedAccount(
+          chosen.account,
+          parsed.value,
+          providerAttempt,
+          {
+            resolvePath: "fallback_getcontact",
+            queueIdInPayload: queueId,
+            queueNameInPayload: parsed.value.queueName,
+            resolvedQueueId: chosen.account.queueId,
+            resolvedAccountId: chosen.account.id,
+          },
+          chosen.contact,
+        );
+      }
+
+      // Multiple accounts claimed the contact and neither a paid-lead
+      // workspace nor the payload Queue_id broke the tie — fail closed
+      // rather than guess (never pick the first responder at random).
+      this.logIngressDiscard(
+        ingress.id,
+        "ambiguous_queue_resolve",
+        bodyBytes,
+        queueId,
+      );
+      return {
+        status: "discarded",
+        reasonCode: "ambiguous_queue_resolve",
+        shadowMode: true,
+      };
     }
 
     // No account claims this contact anywhere in the tenant. Distinguish the
@@ -244,32 +334,65 @@ export class XmaxIngestService {
   }
 
   /**
-   * Last-resort resolver when Queue_id is missing or doesn't match an active
-   * account: ask XMAX itself which account owns this contact, bounded and
-   * cheap. Loads at most FALLBACK_MAX_ACCOUNTS active accounts for this
-   * ingress, then fans out getContact with low concurrency, a per-call
-   * timeout, and a hard overall budget; stops at the first account that
-   * returns a valid contact.
+   * Preferred fallback (ranked above the getContact fan-out): resolve the
+   * account by asking who already has a **paid lead** for this phone, in the
+   * workspaces of this ingress's own accounts only. Only used when the
+   * webhook carried a phone hint and exactly one workspace matches — ties or
+   * misses fall through to the getContact fan-out.
    */
-  private async resolveAccountViaFallback(
-    ingressId: string,
-    contactId: string,
-  ): Promise<FallbackResolution | null> {
-    const accounts = await this.prisma.xmaxAccount.findMany({
-      where: { ingressId, status: "active" },
-      take: FALLBACK_MAX_ACCOUNTS,
-    });
-    if (accounts.length === 0) {
+  private async resolveViaPaidLeadPhone(
+    accounts: XmaxAccount[],
+    phoneHint: string | undefined,
+  ): Promise<XmaxAccount | null> {
+    if (!phoneHint) {
       return null;
+    }
+
+    const matches: XmaxAccount[] = [];
+    for (const account of accounts) {
+      const phoneNormalized = normalizePhoneIdentityWithCountry(
+        phoneHint,
+        account.defaultCountryCode,
+      );
+      const phoneHash = hashNormalizedPhone(phoneNormalized);
+      if (!phoneHash) {
+        continue;
+      }
+      const paid = await this.production.findPaidLead(
+        account.workspaceId,
+        phoneHash,
+      );
+      if (paid.ok) {
+        matches.push(account);
+      }
+    }
+
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  /**
+   * Ask XMAX itself which account(s) own this contact, bounded and cheap.
+   * Fans out getContact over the given (already-loaded, bounded) accounts
+   * with low concurrency, a per-call timeout, and a hard overall budget.
+   * Unlike a "first wins" race, every worker keeps draining the shared queue
+   * until it is empty or the budget expires, so all hits within the bound
+   * are collected — callers must disambiguate, never just take the first.
+   */
+  private async fanOutGetContact(
+    accounts: XmaxAccount[],
+    contactId: string,
+  ): Promise<FallbackResolution[]> {
+    if (accounts.length === 0) {
+      return [];
     }
 
     const deadline = Date.now() + FALLBACK_BUDGET_MS;
     let nextIndex = 0;
-    let winner: FallbackResolution | null = null;
+    const hits: FallbackResolution[] = [];
 
     const worker = async (): Promise<void> => {
       for (;;) {
-        if (winner || Date.now() >= deadline) {
+        if (Date.now() >= deadline) {
           return;
         }
         const index = nextIndex++;
@@ -303,9 +426,7 @@ export class XmaxIngestService {
             contactId,
             timeoutMs: Math.min(FALLBACK_PER_CALL_TIMEOUT_MS, remainingMs),
           });
-          if (!winner) {
-            winner = { account, contact };
-          }
+          hits.push({ account, contact });
         } catch {
           // Not found / error on this account — try the next one.
         }
@@ -315,7 +436,64 @@ export class XmaxIngestService {
     const workerCount = Math.min(FALLBACK_CONCURRENCY, accounts.length);
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
-    return winner;
+    return hits;
+  }
+
+  /**
+   * Disambiguate multiple getContact hits for the same contactId. Preference
+   * order: (1) the workspace that already has a paid lead for this phone —
+   * this is what protects a paid-lead workspace (e.g. Farroupilha) from
+   * losing its contact to whichever account happened to answer first (e.g.
+   * Foz); (2) if that is still a tie (or nobody has a paid lead), the
+   * account whose queueId matches the payload's Queue_id, only if that
+   * narrows it to exactly one. Otherwise return null — fail closed, never
+   * guess.
+   */
+  private async disambiguateFallbackHits(
+    hits: FallbackResolution[],
+    queueIdInPayload: string | undefined,
+  ): Promise<FallbackResolution | null> {
+    if (hits.length === 1) {
+      return hits[0];
+    }
+    if (hits.length === 0) {
+      return null;
+    }
+
+    const paidHits: FallbackResolution[] = [];
+    for (const hit of hits) {
+      const phoneNormalized = normalizePhoneIdentityWithCountry(
+        hit.contact.number,
+        hit.account.defaultCountryCode,
+      );
+      const phoneHash = hashNormalizedPhone(phoneNormalized);
+      if (!phoneHash) {
+        continue;
+      }
+      const paid = await this.production.findPaidLead(
+        hit.account.workspaceId,
+        phoneHash,
+      );
+      if (paid.ok) {
+        paidHits.push(hit);
+      }
+    }
+
+    if (paidHits.length === 1) {
+      return paidHits[0];
+    }
+
+    const candidates = paidHits.length > 1 ? paidHits : hits;
+    if (queueIdInPayload) {
+      const byQueueId = candidates.filter(
+        (hit) => hit.account.queueId === queueIdInPayload,
+      );
+      if (byQueueId.length === 1) {
+        return byQueueId[0];
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -328,9 +506,11 @@ export class XmaxIngestService {
     account: XmaxAccount,
     parsed: ParsedXmaxContactWebhook,
     providerAttempt: number | null,
+    resolveMeta?: ResolveMeta,
     prefetchedContact?: XmaxGetContactResult,
   ): Promise<XmaxIngestResult> {
     const { contactId, phoneHint, name } = parsed;
+    const resolveSummary = this.resolveMetaSummary(resolveMeta);
 
     // XMAX contact-edit webhooks often repeat the same body; tags change only on
     // getContact. Never short-circuit on body hash — each delivery must re-fetch.
@@ -372,6 +552,7 @@ export class XmaxIngestService {
           ingressKey,
           contactId,
           providerAttempt,
+          rawSummary: resolveSummary,
         });
       }
 
@@ -398,6 +579,7 @@ export class XmaxIngestService {
           ingressKey,
           contactId,
           providerAttempt,
+          rawSummary: resolveSummary,
         });
       }
 
@@ -428,6 +610,7 @@ export class XmaxIngestService {
         ),
         providerAttempt,
         rawSummary: {
+          ...resolveSummary,
           name: contact.name ?? name ?? null,
           tagCount: contact.tagIds.length,
         },
@@ -452,6 +635,7 @@ export class XmaxIngestService {
           contactId,
           tagIds: contact.tagIds,
           providerAttempt,
+          rawSummary: resolveSummary,
         });
       }
 
@@ -470,6 +654,7 @@ export class XmaxIngestService {
           phoneNormalized,
           providerAttempt,
           rawSummary: {
+            ...resolveSummary,
             name: contact.name ?? name ?? null,
             paidOnlyGate: true,
           },
@@ -500,6 +685,7 @@ export class XmaxIngestService {
         tagIds: contact.tagIds,
         phoneNormalized,
         providerAttempt,
+        rawSummary: resolveSummary,
       });
     }
 
@@ -526,6 +712,7 @@ export class XmaxIngestService {
             providerAttempt,
             tagIds: contact.tagIds,
             rawSummary: {
+              ...resolveSummary,
               name: contact.name ?? name ?? null,
               shadowMode: account.shadowMode,
               capiSendEnabled: account.capiSendEnabled,
@@ -555,6 +742,7 @@ export class XmaxIngestService {
         tagIds: contact.tagIds,
         phoneNormalized,
         providerAttempt,
+        rawSummary: resolveSummary,
       });
     }
 
@@ -716,5 +904,27 @@ export class XmaxIngestService {
 
   private hash(buf: Buffer): string {
     return createHash("sha256").update(buf).digest("hex").slice(0, 32);
+  }
+
+  /** Flatten routing debug fields for rawSummary — never the raw payload/secrets. */
+  private resolveMetaSummary(
+    meta: ResolveMeta | undefined,
+  ): Prisma.InputJsonObject | undefined {
+    if (!meta) {
+      return undefined;
+    }
+    return {
+      resolvePath: meta.resolvePath,
+      resolvedAccountId: meta.resolvedAccountId,
+      ...(meta.queueIdInPayload !== undefined
+        ? { queueIdInPayload: meta.queueIdInPayload }
+        : {}),
+      ...(meta.queueNameInPayload !== undefined
+        ? { queueNameInPayload: meta.queueNameInPayload }
+        : {}),
+      ...(meta.resolvedQueueId !== undefined && meta.resolvedQueueId !== null
+        ? { resolvedQueueId: meta.resolvedQueueId }
+        : {}),
+    };
   }
 }

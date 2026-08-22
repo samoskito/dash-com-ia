@@ -683,7 +683,7 @@ describe("xmax ingest service (global ingress)", () => {
     expect(prisma.xmaxAccount.findMany).not.toHaveBeenCalled();
   });
 
-  it("fans out with bounded concurrency and stops early once a match is found", async () => {
+  it("fans out with bounded concurrency but never stops early once a match is found (no Foz-steals-Farroupilha)", async () => {
     const foz = buildAccountRow({
       id: "acc_foz",
       workspaceId: "ws_foz",
@@ -702,8 +702,9 @@ describe("xmax ingest service (global ingress)", () => {
       queueId: "16",
       ingressId,
     });
-    // 4 accounts, concurrency 3: canoas (4th) must never be reached because
-    // chapeco (in the first batch of 3) resolves quickly and short-circuits.
+    // 4 accounts, concurrency 3: chapeco (in the first batch of 3) resolves
+    // quickly, but that must NOT short-circuit the fan-out — the worker that
+    // freed up must still pick up canoas (the 4th) before deciding.
     prisma.xmaxAccount.findMany = vi.fn(async ({ where }: any) =>
       where.ingressId === ingressId ? [foz, caxias, chapeco, canoas] : [],
     );
@@ -729,9 +730,215 @@ describe("xmax ingest service (global ingress)", () => {
 
     expect(result).toMatchObject({ status: "observed", eventName: "QualifiedLead" });
     expect(shadowCreates[0]).toMatchObject({ accountId: chapecoAccountId });
-    // Only the first 3 (bounded concurrency) were ever dispatched.
-    expect(calledQueueIds).toHaveLength(3);
-    expect(calledQueueIds).not.toContain(canoas.queueId);
+    // All 4 accounts were dispatched (bounded concurrency of 3, but no early
+    // stop) — canoas WAS reached even though chapeco already had a hit.
+    expect(calledQueueIds).toHaveLength(4);
+    expect(calledQueueIds).toContain(canoas.queueId);
+  });
+
+  it("prefers the paid-lead workspace when multiple getContact hits claim the same contact (Farroupilha over Foz)", async () => {
+    const foz = buildAccountRow({
+      id: "acc_foz",
+      workspaceId: "ws_foz",
+      queueId: "10",
+      ingressId,
+    });
+    const farroupilha = buildAccountRow({
+      id: "acc_farroupilha",
+      workspaceId: "ws_farroupilha",
+      queueId: "42",
+      ingressId,
+    });
+    prisma.xmaxAccount.findMany = vi.fn(async ({ where }: any) =>
+      where.ingressId === ingressId ? [foz, farroupilha] : [],
+    );
+
+    // Both accounts claim the contact — the getContact fan-out sees two hits.
+    adapter.getContact.mockImplementation(async ({ queueId }: any) => {
+      if (queueId === "10") {
+        return { contactId: "41837", number: "555181309849", tagIds: ["55"], raw: {} };
+      }
+      if (queueId === "42") {
+        return { contactId: "41837", number: "555181309849", tagIds: ["55"], raw: {} };
+      }
+      throw new XmaxAdapterError("xmax_http_error", "not found", 404);
+    });
+
+    // Only Farroupilha's workspace already has a paid lead for this phone.
+    production.findPaidLead.mockImplementation(async (workspaceId: string) =>
+      workspaceId === "ws_farroupilha"
+        ? {
+            ok: true,
+            lead: {
+              id: "lead_farroupilha",
+              adId: "ad_1",
+              adSetId: "adset_1",
+              campaignId: "cmp_1",
+              ctwaClid: "ctwa_1",
+            },
+          }
+        : { ok: false, reasonCode: "no_paid_lead" },
+    );
+
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "41837" }),
+    });
+
+    expect(result).toMatchObject({ status: "observed", eventName: "QualifiedLead" });
+    expect(shadowCreates).toHaveLength(1);
+    expect(shadowCreates[0]).toMatchObject({
+      workspaceId: "ws_farroupilha",
+      accountId: "acc_farroupilha",
+    });
+    expect(shadowCreates[0].rawSummary).toMatchObject({
+      resolvePath: "fallback_getcontact",
+      resolvedAccountId: "acc_farroupilha",
+      resolvedQueueId: "42",
+    });
+  });
+
+  it("resolves via the paid-lead-by-phone shortcut before ever calling getContact, when the webhook includes a phone hint", async () => {
+    const farroupilha = buildAccountRow({
+      id: "acc_farroupilha",
+      workspaceId: "ws_farroupilha",
+      queueId: "42",
+      ingressId,
+    });
+    prisma.xmaxAccount.findMany = vi.fn(async ({ where }: any) =>
+      where.ingressId === ingressId ? [bento, chapeco, farroupilha] : [],
+    );
+
+    production.findPaidLead.mockImplementation(async (workspaceId: string) =>
+      workspaceId === "ws_farroupilha"
+        ? {
+            ok: true,
+            lead: {
+              id: "lead_farroupilha",
+              adId: "ad_1",
+              adSetId: "adset_1",
+              campaignId: "cmp_1",
+              ctwaClid: "ctwa_1",
+            },
+          }
+        : { ok: false, reasonCode: "no_paid_lead" },
+    );
+
+    adapter.getContact.mockImplementation(async ({ queueId }: any) => {
+      if (queueId === "42") {
+        return { contactId: "41837", number: "555181309849", tagIds: ["55"], raw: {} };
+      }
+      throw new XmaxAdapterError("xmax_http_error", "not found", 404);
+    });
+
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "41837", Telefone: "555181309849" }),
+    });
+
+    expect(result).toMatchObject({ status: "observed", eventName: "QualifiedLead" });
+    expect(shadowCreates[0]).toMatchObject({
+      workspaceId: "ws_farroupilha",
+      accountId: "acc_farroupilha",
+    });
+    expect(shadowCreates[0].rawSummary).toMatchObject({
+      resolvePath: "fallback_paid_lead",
+      resolvedAccountId: "acc_farroupilha",
+    });
+    // The phone-based paid-lead lookup resolved the account without any
+    // fan-out — only the one real getContact call from processResolvedAccount.
+    expect(adapter.getContact).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards ambiguous_queue_resolve when multiple getContact hits exist and neither paid lead nor payload Queue_id can break the tie", async () => {
+    const foz = buildAccountRow({
+      id: "acc_foz",
+      workspaceId: "ws_foz",
+      queueId: "10",
+      ingressId,
+    });
+    const farroupilha = buildAccountRow({
+      id: "acc_farroupilha",
+      workspaceId: "ws_farroupilha",
+      queueId: "42",
+      ingressId,
+    });
+    prisma.xmaxAccount.findMany = vi.fn(async ({ where }: any) =>
+      where.ingressId === ingressId ? [foz, farroupilha] : [],
+    );
+
+    adapter.getContact.mockImplementation(async ({ queueId }: any) => {
+      if (queueId === "10" || queueId === "42") {
+        return { contactId: "41837", number: "555181309849", tagIds: ["55"], raw: {} };
+      }
+      throw new XmaxAdapterError("xmax_http_error", "not found", 404);
+    });
+    // Neither workspace has a paid lead — no way to disambiguate.
+    production.findPaidLead.mockResolvedValue({ ok: false, reasonCode: "no_paid_lead" });
+
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      rawBody: body({ Contact_Id: "41837" }),
+    });
+
+    expect(result).toMatchObject({
+      status: "discarded",
+      reasonCode: "ambiguous_queue_resolve",
+    });
+    expect(shadowCreates).toHaveLength(0);
+  });
+
+  it("breaks a tie between two paid-lead hits using the payload Queue_id", async () => {
+    const foz = buildAccountRow({
+      id: "acc_foz",
+      workspaceId: "ws_foz",
+      queueId: "10",
+      ingressId,
+    });
+    const farroupilha = buildAccountRow({
+      id: "acc_farroupilha",
+      workspaceId: "ws_farroupilha",
+      queueId: "42",
+      ingressId,
+    });
+    prisma.xmaxAccount.findMany = vi.fn(async ({ where }: any) =>
+      where.ingressId === ingressId ? [foz, farroupilha] : [],
+    );
+
+    adapter.getContact.mockImplementation(async ({ queueId }: any) => {
+      if (queueId === "10" || queueId === "42") {
+        return { contactId: "41837", number: "555181309849", tagIds: ["55"], raw: {} };
+      }
+      throw new XmaxAdapterError("xmax_http_error", "not found", 404);
+    });
+    // Both workspaces (implausibly) have a paid lead for this phone — the
+    // payload's Queue_id is the only remaining signal.
+    production.findPaidLead.mockResolvedValue({
+      ok: true,
+      lead: { id: "lead_x", adId: "ad_1", adSetId: null, campaignId: null, ctwaClid: "ctwa_1" },
+    });
+
+    const result = await service.ingestGlobal({
+      ingressId,
+      token: ingressSecret,
+      contentType: "application/json",
+      providerAttempt: 1,
+      // Unresolved on its own (queue "999" isn't a real account) — but once
+      // both hits are paid, the payload Queue_id "42" breaks the tie.
+      rawBody: body({ Contact_Id: "41837", Queue_id: "42" }),
+    });
+
+    expect(result).toMatchObject({ status: "observed" });
+    expect(shadowCreates[0]).toMatchObject({ accountId: "acc_farroupilha" });
   });
 
   it("routes Queue_id 12 to the Bento account and workspace", async () => {
