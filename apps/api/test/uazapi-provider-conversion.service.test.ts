@@ -53,6 +53,52 @@ function sampleRule(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * Mirrors the shape of the production row that exposed the bug: an `eligible`
+ * decision for a paid lead, frozen while the rule was in observation mode and
+ * left without any linked ProviderConversionRuleExecution.
+ */
+function frozenDecision(
+  overrides: { ruleMode?: string; provider?: string } = {},
+) {
+  const ruleMode = overrides.ruleMode ?? "observation";
+  return {
+    id: "decision_frozen",
+    workspaceId: "workspace_1",
+    providerRuleId: "provider_rule_1",
+    sourceDeliveryId: "delivery_frozen",
+    channelId: "channel_1",
+    leadId: "lead_1",
+    evaluationKey: "initial",
+    decisionFingerprint: "fingerprint_frozen",
+    decisionVersion: 1,
+    supersedesDecisionId: null,
+    decisionCode: "eligible",
+    reasonCode: "average_value_message_matched",
+    eventName: "InitiateCheckout",
+    occurredAt: new Date("2026-08-22T12:00:00.000Z"),
+    occurrenceKey: "uazapi:channel_1:msg_frozen",
+    createdAt: new Date("2026-08-22T12:00:01.000Z"),
+    decision: {
+      decisionCode: "eligible",
+      reasonCode: "average_value_message_matched",
+      rule: {
+        mode: ruleMode,
+        eventName: "InitiateCheckout",
+        triggerType: "message_phrase",
+      },
+      occurrence: {
+        provider: overrides.provider ?? "uazapi",
+        channelId: "channel_1",
+        eventName: "InitiateCheckout",
+        matchedTriggerPhrase: "A sua consulta está agendada",
+      },
+      conversion: { valueCents: 25_000, currency: "BRL" },
+      leadResolution: { status: "resolved", leadId: "lead_1" },
+    },
+  };
+}
+
 describe("UazapiProviderConversionService", () => {
   const prisma = {
     uazapiChatLabelState: { findUnique: vi.fn(), upsert: vi.fn() },
@@ -61,11 +107,16 @@ describe("UazapiProviderConversionService", () => {
       findUnique: vi.fn(),
       create: vi.fn(),
     },
-    providerConversionRuleConfig: { findMany: vi.fn() },
+    providerConversionRuleConfig: { findMany: vi.fn(), findFirst: vi.fn() },
+    providerConversionDecisionAudit: { findFirst: vi.fn() },
   };
   const bridge = { ensureBridge: vi.fn() };
   const decisionEngine = { evaluate: vi.fn() };
-  const decisions = { recordInitial: vi.fn() };
+  const decisions = {
+    recordInitial: vi.fn(),
+    findLatestByOccurrence: vi.fn(),
+    findById: vi.fn(),
+  };
   const orchestrator = { orchestrate: vi.fn() };
   const paidLeads = { resolve: vi.fn() };
   const productionQueue = { enqueueProviderConversion: vi.fn() };
@@ -96,6 +147,7 @@ describe("UazapiProviderConversionService", () => {
       productionActivatedAt: new Date("2026-01-01T00:00:00.000Z"),
     });
     prisma.uazapiChatLabelState.findUnique.mockResolvedValue(null);
+    decisions.findLatestByOccurrence.mockResolvedValue(null);
     prisma.uazapiChatLabelState.upsert.mockResolvedValue({});
     uazapi.listLabels.mockResolvedValue({
       labels: [{ id: "10", name: "Venda fechada" }],
@@ -593,6 +645,190 @@ describe("UazapiProviderConversionService", () => {
       expect.objectContaining({ recordIgnoredObservation: false }),
     );
     expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
+  });
+
+  it("reuses the frozen decision of a re-delivered occurrence", async () => {
+    prisma.providerConversionRuleConfig.findMany.mockResolvedValue([
+      sampleRule({ mode: "observation" }),
+    ]);
+    paidLeads.resolve.mockResolvedValue({
+      status: "resolved",
+      reasonCode: "paid_lead_resolved",
+      candidateLeadId: "lead_1",
+      leadId: "lead_1",
+    });
+    decisionEngine.evaluate.mockReturnValue({
+      decisionCode: "eligible",
+      reasonCode: "average_value_message_matched",
+      rule: {
+        mode: "observation",
+        eventName: "InitiateCheckout",
+        triggerType: "message_phrase",
+      },
+      occurrence: {},
+      conversion: { valueCents: 25_000 },
+      leadResolution: { status: "resolved", leadId: "lead_1" },
+    });
+    prisma.inboundWebhookDelivery.findUnique.mockResolvedValue({
+      id: "delivery_frozen",
+    });
+    decisions.findLatestByOccurrence.mockResolvedValue(frozenDecision());
+    orchestrator.orchestrate.mockResolvedValue({
+      executionId: "execution_observed",
+      eligibleExecutionId: null,
+      reviewId: null,
+    });
+
+    const result = await service.evaluateTeamMessage({
+      workspaceId: "workspace_1",
+      instance: {
+        id: "instance_1",
+        workspaceId: "workspace_1",
+        name: "NOD",
+        providerInstanceId: "p1",
+      },
+      phone: "+5541999999999",
+      messageText: "A sua consulta esta agendada",
+      externalMessageId: "msg_frozen",
+    });
+
+    expect(result).toEqual({ evaluated: true, eligibleExecutionId: null });
+    // Re-recording would explode with evaluation_key_conflict as soon as any
+    // rule/lead input drifted since the original webhook.
+    expect(decisions.recordInitial).not.toHaveBeenCalled();
+    expect(orchestrator.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        persistedDecision: expect.objectContaining({ id: "decision_frozen" }),
+      }),
+    );
+  });
+
+  it("recovers a frozen eligible observation decision by id", async () => {
+    prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
+      id: "decision_frozen",
+      workspaceId: "workspace_1",
+      providerRuleId: "provider_rule_1",
+    });
+    decisions.findById.mockResolvedValue(frozenDecision());
+    prisma.providerConversionRuleConfig.findFirst.mockResolvedValue(
+      sampleRule({ mode: "observation" }),
+    );
+    orchestrator.orchestrate.mockResolvedValue({
+      executionId: "execution_recovered",
+      eligibleExecutionId: null,
+      reviewId: null,
+    });
+
+    const result = await service.recoverDecision({
+      decisionId: "decision_frozen",
+      execute: true,
+    });
+
+    expect(result).toMatchObject({
+      mode: "execute",
+      decisionId: "decision_frozen",
+      decisionCode: "eligible",
+      ruleMode: "observation",
+      disposition: {
+        state: "observed",
+        reasonCode: "average_value_message_matched_observation",
+      },
+      executionId: "execution_recovered",
+      eligibleExecutionId: null,
+      enqueued: false,
+    });
+    // Recovery must never freeze a second decision for the same occurrence.
+    expect(decisions.recordInitial).not.toHaveBeenCalled();
+    expect(orchestrator.orchestrate).toHaveBeenCalledWith({
+      persistedDecision: expect.objectContaining({ id: "decision_frozen" }),
+      disposition: {
+        state: "observed",
+        reasonCode: "average_value_message_matched_observation",
+      },
+      recordIgnoredObservation: false,
+    });
+    expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
+  });
+
+  it("does not write anything when recovering in dry-run", async () => {
+    prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
+      id: "decision_frozen",
+      workspaceId: "workspace_1",
+      providerRuleId: "provider_rule_1",
+    });
+    decisions.findById.mockResolvedValue(frozenDecision());
+    prisma.providerConversionRuleConfig.findFirst.mockResolvedValue(
+      sampleRule({ mode: "observation" }),
+    );
+
+    const result = await service.recoverDecision({
+      decisionId: "decision_frozen",
+    });
+
+    expect(result).toMatchObject({
+      mode: "dry-run",
+      disposition: {
+        state: "observed",
+        reasonCode: "average_value_message_matched_observation",
+      },
+      executionId: null,
+      enqueued: false,
+    });
+    expect(orchestrator.orchestrate).not.toHaveBeenCalled();
+    expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
+  });
+
+  it("queues a recovered production decision on an activated channel", async () => {
+    prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
+      id: "decision_frozen",
+      workspaceId: "workspace_1",
+      providerRuleId: "provider_rule_1",
+    });
+    decisions.findById.mockResolvedValue(
+      frozenDecision({ ruleMode: "production" }),
+    );
+    prisma.providerConversionRuleConfig.findFirst.mockResolvedValue(
+      sampleRule(),
+    );
+    orchestrator.orchestrate.mockResolvedValue({
+      executionId: "execution_recovered",
+      eligibleExecutionId: "execution_recovered",
+      reviewId: null,
+    });
+
+    const result = await service.recoverDecision({
+      decisionId: "decision_frozen",
+      execute: true,
+    });
+
+    expect(result).toMatchObject({
+      disposition: {
+        state: "eligible",
+        reasonCode: "average_value_message_matched",
+      },
+      eligibleExecutionId: "execution_recovered",
+      enqueued: true,
+    });
+    expect(productionQueue.enqueueProviderConversion).toHaveBeenCalledWith({
+      providerConversionExecutionId: "execution_recovered",
+      workspaceId: "workspace_1",
+    });
+  });
+
+  it("refuses to recover a decision from another provider", async () => {
+    prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
+      id: "decision_umbler",
+      workspaceId: "workspace_1",
+      providerRuleId: "provider_rule_1",
+    });
+    decisions.findById.mockResolvedValue(
+      frozenDecision({ provider: "umbler" }),
+    );
+
+    await expect(
+      service.recoverDecision({ decisionId: "decision_umbler" }),
+    ).rejects.toThrow(/uazapi/i);
+    expect(orchestrator.orchestrate).not.toHaveBeenCalled();
   });
 
   it("records snapshots but does not evaluate re-delivery or label removal", async () => {

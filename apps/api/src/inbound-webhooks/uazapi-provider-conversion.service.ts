@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import type { ProviderConversionDecisionRuleSnapshotDto } from "@wpptrack/shared";
+import type {
+  ProviderConversionDecisionDto,
+  ProviderConversionDecisionRuleSnapshotDto,
+} from "@wpptrack/shared";
 import {
   conversionEventNameSchema,
   readMessagePhraseConfig,
@@ -17,6 +20,7 @@ import {
 import { ProviderConversionDecisionEngine } from "../conversion-rules/provider-conversion-decision.engine";
 import type { ProviderConversionDecisionInput } from "../conversion-rules/provider-conversion-decision.types";
 import {
+  ProviderConversionDecisionPersistenceError,
   ProviderConversionDecisionRepository,
   type PersistedProviderConversionDecision,
 } from "../conversion-rules/provider-conversion-decision.repository";
@@ -63,6 +67,25 @@ export type UazapiTeamMessageResult = {
   /** True once at least one active message_phrase rule matched the event. */
   evaluated: boolean;
   eligibleExecutionId: string | null;
+};
+
+export type UazapiDecisionRecoveryResult = {
+  mode: "dry-run" | "execute";
+  decisionId: string;
+  workspaceId: string;
+  providerRuleId: string;
+  occurrenceKey: string;
+  decisionCode: string;
+  reasonCode: string;
+  ruleMode: string;
+  eventName: string;
+  valueCents: number | null;
+  leadId: string | null;
+  disposition: ProviderConversionTechnicalDisposition;
+  executionId: string | null;
+  eligibleExecutionId: string | null;
+  reviewId: string | null;
+  enqueued: boolean;
 };
 
 export type UazapiLabelInput = {
@@ -185,8 +208,11 @@ export class UazapiProviderConversionService {
         connectionId: bridged.connectionId,
         ingressKey: occurrenceKey,
       });
-      const persistedDecision = await this.decisions.recordInitial({
+      const persistedDecision = await this.resolveDecision({
         decision,
+        workspaceId: input.workspaceId,
+        providerRuleId: rule.id,
+        occurrenceKey,
         sourceDeliveryId: deliveryId,
       });
       const orchestration = await this.orchestrate({
@@ -207,6 +233,191 @@ export class UazapiProviderConversionService {
     }
 
     return { evaluated, eligibleExecutionId };
+  }
+
+  /**
+   * Re-runs the orchestrator for an already frozen decision, without ever
+   * evaluating the message again. This recovers occurrences that were audited
+   * but left without a linked execution (the pre-fix observation path), and it
+   * is the only safe way to do so: re-evaluating would try to freeze a second
+   * `initial` decision and fail with `evaluation_key_conflict` as soon as the
+   * rule snapshot or the lead resolution drifted. Nothing here talks to
+   * WhatsApp; the contact is never messaged again.
+   */
+  async recoverDecision(input: {
+    decisionId: string;
+    workspaceId?: string;
+    execute?: boolean;
+  }): Promise<UazapiDecisionRecoveryResult> {
+    const config = parseInboundWebhooksConfig(this.env);
+    if (!config.enabled || !config.conversionRulesEnabled) {
+      throw new Error(
+        "Inbound webhooks / conversion rules are disabled: nothing to recover",
+      );
+    }
+
+    const decisionId = input.decisionId.trim();
+    const audit = await this.prisma.providerConversionDecisionAudit.findFirst({
+      where: {
+        id: decisionId,
+        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      },
+      select: { id: true, workspaceId: true, providerRuleId: true },
+    });
+    if (!audit) {
+      throw new Error(`Provider conversion decision not found: ${decisionId}`);
+    }
+
+    const persistedDecision = await this.decisions.findById({
+      workspaceId: audit.workspaceId,
+      decisionId: audit.id,
+    });
+    if (!persistedDecision) {
+      throw new Error(`Provider conversion decision not found: ${decisionId}`);
+    }
+    if (persistedDecision.decision.occurrence.provider !== "uazapi") {
+      throw new Error(
+        `Decision ${decisionId} belongs to provider ${persistedDecision.decision.occurrence.provider}, not uazapi`,
+      );
+    }
+
+    const rule = await this.prisma.providerConversionRuleConfig.findFirst({
+      where: {
+        id: persistedDecision.providerRuleId,
+        workspaceId: persistedDecision.workspaceId,
+      },
+      include: ruleInclude,
+    });
+    if (!rule) {
+      throw new Error(
+        `Provider conversion rule not found: ${persistedDecision.providerRuleId}`,
+      );
+    }
+
+    const channel = persistedDecision.channelId
+      ? await this.prisma.inboundWebhookChannel.findFirst({
+          where: {
+            id: persistedDecision.channelId,
+            workspaceId: persistedDecision.workspaceId,
+          },
+          select: { status: true, productionActivatedAt: true },
+        })
+      : null;
+
+    const decision = persistedDecision.decision;
+    const plan = this.dispositionPlan({
+      persistedDecision,
+      config,
+      rule,
+      channel,
+      occurredAt: persistedDecision.occurredAt,
+    });
+    const summary = {
+      decisionId: persistedDecision.id,
+      workspaceId: persistedDecision.workspaceId,
+      providerRuleId: persistedDecision.providerRuleId,
+      occurrenceKey: persistedDecision.occurrenceKey,
+      decisionCode: persistedDecision.decisionCode,
+      reasonCode: persistedDecision.reasonCode,
+      ruleMode: decision.rule.mode,
+      eventName: persistedDecision.eventName,
+      valueCents: decision.conversion.valueCents ?? null,
+      leadId: persistedDecision.leadId,
+      disposition: plan.disposition,
+    };
+
+    if (input.execute !== true) {
+      return {
+        ...summary,
+        mode: "dry-run",
+        executionId: null,
+        eligibleExecutionId: null,
+        reviewId: null,
+        enqueued: false,
+      };
+    }
+
+    const orchestration = await this.orchestrator.orchestrate({
+      persistedDecision,
+      disposition: plan.disposition,
+      recordIgnoredObservation: plan.recordIgnoredObservation,
+    });
+
+    let enqueued = false;
+    if (orchestration.eligibleExecutionId) {
+      await this.productionQueue.enqueueProviderConversion({
+        providerConversionExecutionId: orchestration.eligibleExecutionId,
+        workspaceId: persistedDecision.workspaceId,
+      });
+      enqueued = true;
+    }
+    this.logger.log(
+      JSON.stringify({
+        event: "uazapi_provider_conversion_decision_recovered",
+        ...summary,
+        disposition: plan.disposition.state,
+        executionId: orchestration.executionId,
+        eligibleExecutionId: orchestration.eligibleExecutionId,
+        enqueued,
+      }),
+    );
+
+    return {
+      ...summary,
+      mode: "execute",
+      executionId: orchestration.executionId,
+      eligibleExecutionId: orchestration.eligibleExecutionId,
+      reviewId: orchestration.reviewId,
+      enqueued,
+    };
+  }
+
+  /**
+   * A webhook can arrive twice (provider retry, manual reprocess) for the same
+   * occurrenceKey. The decision for an occurrence is frozen once and only an
+   * explicit reevaluation may replace it, so a second `recordInitial` throws.
+   * Reuse the frozen decision instead — same contract as the Umbler
+   * observation path's `reuse` evaluation mode.
+   */
+  private async resolveDecision(input: {
+    decision: ProviderConversionDecisionDto;
+    workspaceId: string;
+    providerRuleId: string;
+    occurrenceKey: string;
+    sourceDeliveryId: string;
+  }): Promise<PersistedProviderConversionDecision> {
+    const existing = await this.decisions.findLatestByOccurrence({
+      workspaceId: input.workspaceId,
+      providerRuleId: input.providerRuleId,
+      occurrenceKey: input.occurrenceKey,
+    });
+    if (existing) return existing;
+
+    try {
+      return await this.decisions.recordInitial({
+        decision: input.decision,
+        sourceDeliveryId: input.sourceDeliveryId,
+      });
+    } catch (error) {
+      // Concurrent delivery of the same occurrence won the advisory lock.
+      if (!this.isFrozenDecisionConflict(error)) throw error;
+
+      const raced = await this.decisions.findLatestByOccurrence({
+        workspaceId: input.workspaceId,
+        providerRuleId: input.providerRuleId,
+        occurrenceKey: input.occurrenceKey,
+      });
+      if (raced) return raced;
+      throw error;
+    }
+  }
+
+  private isFrozenDecisionConflict(error: unknown): boolean {
+    return (
+      error instanceof ProviderConversionDecisionPersistenceError &&
+      (error.code === "evaluation_key_conflict" ||
+        error.code === "implicit_reevaluation_not_allowed")
+    );
   }
 
   /**
@@ -323,8 +534,11 @@ export class UazapiProviderConversionService {
         connectionId: bridged.connectionId,
         ingressKey: occurrenceKey,
       });
-      const persistedDecision = await this.decisions.recordInitial({
+      const persistedDecision = await this.resolveDecision({
         decision,
+        workspaceId: input.workspaceId,
+        providerRuleId: rule.id,
+        occurrenceKey,
         sourceDeliveryId: deliveryId,
       });
       const orchestration = await this.orchestrate({
@@ -345,26 +559,45 @@ export class UazapiProviderConversionService {
     return { evaluated, eligibleExecutionId };
   }
 
+  private async orchestrate(input: {
+    persistedDecision: PersistedProviderConversionDecision;
+    config: ReturnType<typeof parseInboundWebhooksConfig>;
+    rule: Rule;
+    channel: { status: string; productionActivatedAt: Date | null } | null;
+    occurredAt: Date;
+  }): Promise<ProviderConversionOrchestrationResult> {
+    const plan = this.dispositionPlan(input);
+
+    return this.orchestrator.orchestrate({
+      persistedDecision: input.persistedDecision,
+      disposition: plan.disposition,
+      recordIgnoredObservation: plan.recordIgnoredObservation,
+    });
+  }
+
   /**
    * A match that only fails the paid-lead gate is the operator's proof that
    * the trigger works. In observation mode we keep it visible as a blocked
    * execution (Settings reads the rule's last execution) instead of dropping
    * it as audit-only; production stays fail-closed and never materializes it.
    */
-  private async orchestrate(input: {
+  private dispositionPlan(input: {
     persistedDecision: PersistedProviderConversionDecision;
     config: ReturnType<typeof parseInboundWebhooksConfig>;
     rule: Rule;
-    channel: { status: string; productionActivatedAt: Date | null };
+    channel: { status: string; productionActivatedAt: Date | null } | null;
     occurredAt: Date;
-  }): Promise<ProviderConversionOrchestrationResult> {
+  }): {
+    disposition: ProviderConversionTechnicalDisposition;
+    recordIgnoredObservation: boolean;
+  } {
     const decision = input.persistedDecision.decision;
     const recordIgnoredObservation =
       decision.decisionCode === "ignored_untracked_lead" &&
       decision.rule.mode === "observation";
 
-    return this.orchestrator.orchestrate({
-      persistedDecision: input.persistedDecision,
+    return {
+      recordIgnoredObservation,
       disposition: recordIgnoredObservation
         ? { state: "blocked", reasonCode: decision.reasonCode }
         : this.disposition({
@@ -375,8 +608,7 @@ export class UazapiProviderConversionService {
             channel: input.channel,
             occurredAt: input.occurredAt,
           }),
-      recordIgnoredObservation,
-    });
+    };
   }
 
   private async loadRules(
@@ -463,13 +695,16 @@ export class UazapiProviderConversionService {
    * -> observed; parser/connection/channel not production-ready -> blocked;
    * production not yet activated for the rule or channel at occurredAt ->
    * observed; otherwise eligible (CAPI queued by the caller).
+   *
+   * `observed` is not a no-op: the orchestrator persists it as an `observed`
+   * execution, which the audit UI lists and the production pipeline ignores.
    */
   private disposition(input: {
     config: ReturnType<typeof parseInboundWebhooksConfig>;
     decisionMode: "observation" | "production";
     reasonCode: string;
     rule: Rule;
-    channel: { status: string; productionActivatedAt: Date | null };
+    channel: { status: string; productionActivatedAt: Date | null } | null;
     occurredAt: Date;
   }): ProviderConversionTechnicalDisposition {
     if (
@@ -487,6 +722,7 @@ export class UazapiProviderConversionService {
       input.rule.parserReleaseId !== input.rule.connection.parserReleaseId ||
       input.rule.connection.status !== "production" ||
       input.rule.connection.removedAt !== null ||
+      !input.channel ||
       input.channel.status !== "active"
     ) {
       return { state: "blocked", reasonCode: "production_context_invalid" };

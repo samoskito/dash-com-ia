@@ -1,23 +1,41 @@
-// Reprocess a single Uazapi WebhookLog row through the U2c message_phrase
+// Reprocess a single Uazapi WebhookLog row, or recover a single already
+// frozen ProviderConversionDecisionAudit row, through the U2c message_phrase
 // team-message (fromMe=true) evaluation path, for diagnosing why a rule did
-// or did not match.
+// or did not match and for recovering occurrences that were audited but left
+// without a linked execution.
 //
 // Usage (from apps/api):
+//   DECISION_ID=<id> node scripts/reprocess-uazapi-team-message-webhooks.js --dry-run
+//   DECISION_ID=<id> node scripts/reprocess-uazapi-team-message-webhooks.js --execute
+//
 //   WEBHOOK_LOG_ID=<id> node scripts/reprocess-uazapi-team-message-webhooks.js --dry-run
 //   WEBHOOK_LOG_ID=<id> node scripts/reprocess-uazapi-team-message-webhooks.js --execute
 //
+// DECISION_ID takes priority over WEBHOOK_LOG_ID when both are set.
+//
 // Safety:
-// - Dry-run by default; only reads WebhookLog + ProviderConversionRuleConfig.
-// - --execute bootstraps a minimal Nest application context (just enough DI
-//   to construct UazapiProviderConversionService) and calls
+// - Dry-run by default in both modes.
+// - DECISION_ID always bootstraps a minimal Nest application context (just
+//   enough DI to construct UazapiProviderConversionService) and calls
+//   recoverDecision(), which re-runs the orchestrator for the already
+//   frozen decision without ever re-evaluating the message. Nothing here
+//   talks to WhatsApp; the contact is never messaged again. --execute makes
+//   it write (execution row + CAPI enqueue if eligible); dry-run only reads.
+// - WEBHOOK_LOG_ID dry-run only reads WebhookLog + ProviderConversionRuleConfig.
+//   --execute bootstraps the same Nest application context and calls
 //   evaluateTeamMessage() for real, the same code path production webhooks
 //   go through. This can enqueue a production execution if a rule matches.
+//   If that call fails with evaluation_key_conflict (the occurrence was
+//   already frozen by an earlier delivery), the script falls back to
+//   locating that frozen decision and recovering it via recoverDecision()
+//   instead of failing hard.
 //
-// Requires DATABASE_URL (and REDIS_URL for --execute, since
-// InboundWebhookProductionQueueService needs the production BullMQ queue).
-// Run from /app/apps/api so @prisma/client and the compiled dist/ resolve.
+// Requires DATABASE_URL (and REDIS_URL whenever a Nest application context is
+// built, since InboundWebhookProductionQueueService needs the production
+// BullMQ queue). Run from /app/apps/api so @prisma/client and the compiled
+// dist/ resolve.
 
-console.error("REPROCESS_TEAM_MSG_VERSION=2026-08-22b");
+console.error("REPROCESS_TEAM_MSG_VERSION=2026-08-22c");
 
 const { PrismaClient } = require("@prisma/client");
 
@@ -25,9 +43,13 @@ const prisma = new PrismaClient();
 
 const mode = process.argv.includes("--execute") ? "execute" : "dry-run";
 
+const decisionId = (process.env.DECISION_ID || "").trim() || undefined;
 const webhookLogId = process.env.WEBHOOK_LOG_ID;
-if (!webhookLogId) {
-  console.error("Uso: WEBHOOK_LOG_ID=<id> node scripts/reprocess-uazapi-team-message-webhooks.js [--dry-run|--execute]");
+if (!decisionId && !webhookLogId) {
+  console.error(
+    "Uso: DECISION_ID=<id> node scripts/reprocess-uazapi-team-message-webhooks.js [--dry-run|--execute]\n" +
+      "  ou WEBHOOK_LOG_ID=<id> node scripts/reprocess-uazapi-team-message-webhooks.js [--dry-run|--execute]",
+  );
   process.exit(1);
 }
 
@@ -116,11 +138,36 @@ function hasPhraseMatch(rules, messageText) {
   });
 }
 
+// True for the ProviderConversionDecisionPersistenceError raised when a
+// second `recordInitial` targets an occurrence that already has a frozen
+// decision. Duck-typed on `code` (not `instanceof`) because this script runs
+// outside the compiled class hierarchy of the Nest application context.
+function isEvaluationKeyConflict(error) {
+  return Boolean(error) && error.code === "evaluation_key_conflict";
+}
+
+// Locates the frozen decision for an occurrence when evaluateTeamMessage
+// could not freeze a new one. occurrenceKey is `uazapi:<channelId>:<id>`
+// (see UazapiProviderConversionService), and the channelId is only known
+// after bridging the instance, which this diagnostic script does not do, so
+// match on the externalMessageId suffix instead.
+async function findFrozenDecisionForOccurrence({ workspaceId, externalMessageId }) {
+  if (!externalMessageId) return null;
+  return prisma.providerConversionDecisionAudit.findFirst({
+    where: {
+      workspaceId,
+      occurrenceKey: { endsWith: `:${externalMessageId}` },
+    },
+    orderBy: { decisionVersion: "desc" },
+    select: { id: true },
+  });
+}
+
 // Minimal Nest application context: just enough DI to construct
 // UazapiProviderConversionService, without pulling in HTTP controllers,
 // AuthModule, WorkspacesModule, or the unrelated queues that the full
-// AppModule wires up. Loaded lazily (only for --execute) because it needs
-// the compiled dist/ output and reflect-metadata.
+// AppModule wires up. Loaded lazily (only when a Nest context is actually
+// needed) because it needs the compiled dist/ output and reflect-metadata.
 async function buildExecuteContext() {
   require("reflect-metadata");
   const { Module } = require("@nestjs/common");
@@ -188,12 +235,32 @@ async function buildExecuteContext() {
   return { app, UazapiProviderConversionService };
 }
 
-async function main() {
-  console.log("=== REPROCESS UAZAPI TEAM MESSAGE (message_phrase) ===");
-  console.log({ mode, webhookLogId });
+async function recoverByDecisionId(id) {
+  console.log("=== RECOVER DECISION (recoverDecision) ===");
+  console.log({ mode, decisionId: id });
 
+  const { app, UazapiProviderConversionService } = await buildExecuteContext();
+  try {
+    const service = app.get(UazapiProviderConversionService);
+    const result = await service.recoverDecision({
+      decisionId: id,
+      execute: mode === "execute",
+    });
+    console.log("=== RECOVER RESULT ===");
+    console.log(result);
+    if (mode !== "execute") {
+      console.log(
+        "DRY-RUN: nada foi executado. Rode com --execute para recuperar de verdade (reexecuta o orchestrator e pode enfileirar a CAPI).",
+      );
+    }
+  } finally {
+    await app.close();
+  }
+}
+
+async function reprocessByWebhookLogId(id) {
   const log = await prisma.webhookLog.findUnique({
-    where: { id: webhookLogId },
+    where: { id },
     select: {
       id: true,
       workspaceId: true,
@@ -205,17 +272,17 @@ async function main() {
   });
 
   if (!log) {
-    console.error("ERRO: WebhookLog nao encontrado:", webhookLogId);
+    console.error("ERRO: WebhookLog nao encontrado:", id);
     process.exit(1);
   }
   if (!log.workspaceId) {
-    console.error("ERRO: WebhookLog sem workspaceId:", webhookLogId);
+    console.error("ERRO: WebhookLog sem workspaceId:", id);
     process.exit(1);
   }
 
   const body = recordValue(log.summaryPayload);
   if (!body) {
-    console.error("ERRO: WebhookLog sem summaryPayload utilizavel:", webhookLogId);
+    console.error("ERRO: WebhookLog sem summaryPayload utilizavel:", id);
     process.exit(1);
   }
 
@@ -286,19 +353,61 @@ async function main() {
   const { app, UazapiProviderConversionService } = await buildExecuteContext();
   try {
     const service = app.get(UazapiProviderConversionService);
-    const result = await service.evaluateTeamMessage({
-      workspaceId: log.workspaceId,
-      instance,
-      phone,
-      messageText,
-      externalMessageId,
-      occurredAt: log.receivedAt ?? undefined,
-    });
-    console.log("=== EVALUATE RESULT ===");
-    console.log(result);
+    let result;
+    try {
+      result = await service.evaluateTeamMessage({
+        workspaceId: log.workspaceId,
+        instance,
+        phone,
+        messageText,
+        externalMessageId,
+        occurredAt: log.receivedAt ?? undefined,
+      });
+      console.log("=== EVALUATE RESULT ===");
+      console.log(result);
+    } catch (error) {
+      if (!isEvaluationKeyConflict(error)) throw error;
+
+      console.error(
+        "AVISO: evaluation_key_conflict ao reavaliar (ocorrencia ja tem decisao congelada). Tentando recuperar a decisao existente em vez de falhar...",
+      );
+      const frozen = await findFrozenDecisionForOccurrence({
+        workspaceId: log.workspaceId,
+        externalMessageId,
+      });
+      if (!frozen) {
+        console.error(
+          "ERRO: nao foi possivel localizar a decisao congelada desta ocorrencia (evaluation_key_conflict sem decisao correspondente).",
+        );
+        throw error;
+      }
+
+      console.log("=== RECOVER RESULT (fallback via decisao congelada) ===");
+      const recovered = await service.recoverDecision({
+        decisionId: frozen.id,
+        execute: true,
+      });
+      console.log(recovered);
+    }
   } finally {
     await app.close();
   }
+}
+
+async function main() {
+  console.log("=== REPROCESS UAZAPI TEAM MESSAGE (message_phrase) ===");
+  console.log({
+    mode,
+    decisionId: decisionId ?? null,
+    webhookLogId: decisionId ? null : (webhookLogId ?? null),
+  });
+
+  if (decisionId) {
+    await recoverByDecisionId(decisionId);
+    return;
+  }
+
+  await reprocessByWebhookLogId(webhookLogId);
 }
 
 main()
