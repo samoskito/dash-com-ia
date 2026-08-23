@@ -1,6 +1,7 @@
-import type {
-  ConversionEventCustomDataDto,
-  ConversionEventNameDto
+import {
+  conversionEventMetadata,
+  type ConversionEventCustomDataDto,
+  type ConversionEventNameDto
 } from "@wpptrack/shared";
 
 export type MetaCapiPayloadInput = {
@@ -39,13 +40,15 @@ export function buildMetaCapiPayload(
   input: MetaCapiPayloadInput
 ): MetaCapiPayload {
   const baseCustomData = input.customData ?? {};
-  const purchaseDefaults =
-    input.eventName === "Purchase"
-      ? buildPurchaseCustomDataDefaults(input.eventId, baseCustomData)
-      : {};
+  const catalogDefaults = buildCatalogCustomDataDefaults(
+    input.eventName,
+    input.eventId,
+    baseCustomData,
+    input.valueCents,
+  );
   const customData: ConversionEventCustomDataDto = {
     ...baseCustomData,
-    ...purchaseDefaults,
+    ...catalogDefaults,
     ad_id: input.adId,
     ...(typeof input.valueCents === "number"
       ? { value: input.valueCents / 100 }
@@ -74,18 +77,42 @@ export function buildMetaCapiPayload(
   };
 }
 
-function buildPurchaseCustomDataDefaults(
+/**
+ * O catalogo decide quais eventos carregam order_id e contents. Antes so
+ * "Purchase" recebia esses defaults, o que fazia InitiateCheckout (e todos os
+ * eventos de pedido) chegarem a Meta sem order_id, content_type e num_items.
+ */
+function buildCatalogCustomDataDefaults(
+  eventName: ConversionEventNameDto,
   eventId: string,
-  customData: ConversionEventCustomDataDto
+  customData: ConversionEventCustomDataDto,
+  valueCents?: number | null,
 ): Partial<ConversionEventCustomDataDto> {
+  const metadata = conversionEventMetadata(eventName);
   const defaults: Partial<ConversionEventCustomDataDto> = {};
 
-  if (!customData.order_id) {
+  if (metadata.hasOrderId && !customData.order_id) {
     defaults.order_id = eventId;
   }
 
-  if (!customData.contents?.length) {
+  if (!metadata.hasItems) {
     return defaults;
+  }
+
+  const contents = customData.contents?.length
+    ? customData.contents
+    : [
+        {
+          id: eventId,
+          quantity: 1,
+          ...(typeof valueCents === "number"
+            ? { item_price: valueCents / 100 }
+            : {}),
+        },
+      ];
+
+  if (!customData.contents?.length) {
+    defaults.contents = contents;
   }
 
   if (!customData.content_type) {
@@ -93,7 +120,7 @@ function buildPurchaseCustomDataDefaults(
   }
 
   if (customData.num_items == null) {
-    defaults.num_items = customData.contents.reduce(
+    defaults.num_items = contents.reduce(
       (total, item) => total + (item.quantity ?? 1),
       0
     );

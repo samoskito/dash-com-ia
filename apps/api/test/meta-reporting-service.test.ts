@@ -1712,6 +1712,65 @@ describe("meta reporting service", () => {
     });
   });
 
+  it("includes provider conversion webhook events in the WhatsApp automation audit filter", async () => {
+    const { db, service } = createHarness();
+    db.conversionLogs = [
+      {
+        id: "conversion_provider_checkout",
+        workspaceId: "workspace_1",
+        eventName: "InitiateCheckout",
+        eventOccurredAt: new Date("2026-07-02T12:00:00.000Z"),
+        sentAt: null,
+        status: "error",
+        sourceTrigger: "inbound_webhook:umbler:structured_catalog",
+        leadId: null,
+        phoneHash: null,
+        campaignId: null,
+        adSetId: null,
+        adId: null,
+        pixelId: null,
+        pageId: null,
+        providerResponseSummary: null,
+        errorCode: "MetaCapiSendError",
+        errorMessage: "Meta rejected the event",
+        valueSource: "catalog",
+      },
+      {
+        id: "conversion_external_checkout",
+        workspaceId: "workspace_1",
+        eventName: "InitiateCheckout",
+        eventOccurredAt: new Date("2026-07-02T12:00:00.000Z"),
+        sentAt: null,
+        status: "error",
+        sourceTrigger: "external_mysql:kinbox_mysql",
+        leadId: null,
+        phoneHash: null,
+        campaignId: null,
+        adSetId: null,
+        adId: null,
+        pixelId: null,
+        pageId: null,
+        providerResponseSummary: null,
+        errorCode: "MetaCapiSendError",
+        errorMessage: "Meta rejected the event",
+        valueSource: "catalog",
+      },
+    ];
+
+    const result = await service.getConversionEventAudit({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      source: "whatsapp_automation",
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]?.id).toBe("conversion_provider_checkout");
+  });
+
   it("marks only Meta network failures as eligible for manual retry", async () => {
     const { db, service } = createHarness();
     db.conversionLogs = [

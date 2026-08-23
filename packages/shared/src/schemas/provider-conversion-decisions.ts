@@ -5,6 +5,8 @@ import {
   providerConversionCatalogSchema,
   providerConversionMessageAuthorScopeSchema,
   providerConversionRuleModeSchema,
+  providerConversionTechnicalDeliveryStateSchema,
+  providerConversionTechnicalDeliveryStates,
   providerConversionTriggerTypeSchema,
   structuredCatalogParsedItemSchema,
 } from "./conversion-rules";
@@ -29,18 +31,10 @@ export const providerConversionDecisionCodeSchema = z.enum(
   providerConversionDecisionCodes,
 );
 
-export const providerConversionTechnicalDeliveryStates = [
-  "observed",
-  "queued",
-  "sent",
-  "blocked_configuration",
-  "failed_retryable",
-  "failed_permanent",
-] as const;
-
-export const providerConversionTechnicalDeliveryStateSchema = z.enum(
+export {
   providerConversionTechnicalDeliveryStates,
-);
+  providerConversionTechnicalDeliveryStateSchema,
+};
 
 export const providerConversionDecisionAuthorTypeSchema = z.enum([
   "contact",

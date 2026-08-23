@@ -8,6 +8,7 @@ import {
   providerConversionAutomationReprocessBatchResultSchema,
   providerConversionRuleAdaptInputSchema,
   providerConversionRuleCreateInputSchema,
+  providerConversionRuleExecutionAuditSchema,
   providerConversionRuleUpdateInputSchema,
   purchaseReviewListQuerySchema,
   readMessagePhraseConfig,
@@ -46,6 +47,55 @@ const trampolineCatalog = {
 };
 
 describe("provider conversion rule contracts", () => {
+  it("validates technical Meta delivery evidence in execution audits", () => {
+    const audit = providerConversionRuleExecutionAuditSchema.parse({
+      providerRuleId: "provider_rule_1",
+      eventName: "InitiateCheckout",
+      summary: {
+        total: 1,
+        observed: 0,
+        eligible: 0,
+        materialized: 1,
+        duplicate: 0,
+        blocked: 0,
+        failed: 0,
+      },
+      items: [
+        {
+          executionId: "execution_1",
+          sourceDeliveryId: "delivery_1",
+          occurredAt: "2026-07-22T15:00:00.000Z",
+          status: "materialized",
+          reasonCode: null,
+          matchedTriggerPhrase: null,
+          channel: null,
+          leadId: "lead_1",
+          leadName: "Cliente IC",
+          phoneDisplay: "+5511999990000",
+          valueCents: 19900,
+          currency: "BRL",
+          conversionEventLogId: "conversion_1",
+          purchaseReviewId: null,
+          attemptCount: 1,
+          processedAt: "2026-07-22T15:00:01.000Z",
+          technicalDelivery: {
+            state: "failed_permanent",
+            retryable: false,
+            reasonCode: "MetaCapiSendError",
+            updatedAt: "2026-07-22T15:00:02.000Z",
+          },
+          lastProductionFailure: {
+            code: "provider_conversion_delivery_failed",
+            failedAt: "2026-07-22T15:00:02.000Z",
+          },
+        },
+      ],
+      pagination: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 },
+    });
+
+    expect(audit.items[0]?.technicalDelivery?.state).toBe("failed_permanent");
+  });
+
   it("defaults purchase review lists to the actionable queue", () => {
     expect(purchaseReviewListQuerySchema.parse({})).toMatchObject({
       view: "actionable",
