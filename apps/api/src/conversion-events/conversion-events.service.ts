@@ -733,7 +733,8 @@ export class ConversionEventsService {
         errorMessage: result.errorMessage,
       },
     });
-    if (log.eventName === "Purchase" && log.workspaceId) {
+    await this.syncProviderConversionDelivery(log, result);
+    if (log.workspaceId) {
       await this.prisma.purchaseReview.updateMany({
         where: {
           workspaceId: log.workspaceId,
@@ -769,6 +770,92 @@ export class ConversionEventsService {
             errorMessage: result.errorMessage,
           }
         : {}),
+    };
+  }
+
+  /**
+   * A execucao da regra guarda o estado tecnico de entrega em
+   * normalizedResult.technicalDelivery. Sem este espelhamento ela ficava
+   * "queued" para sempre: a auditoria da regra mostrava o evento como criado e
+   * a caminho da Meta mesmo depois de a Meta ter recusado o envio.
+   */
+  private async syncProviderConversionDelivery(
+    log: ConversionEventLogRecord,
+    result: {
+      status: SendReadyEventResult["status"];
+      errorCode: MetaCapiSendEventErrorCode;
+    },
+  ): Promise<void> {
+    if (!log.workspaceId) {
+      return;
+    }
+
+    const execution =
+      await this.prisma.providerConversionRuleExecution.findFirst({
+        where: {
+          workspaceId: log.workspaceId,
+          conversionEventLogId: log.id,
+        },
+        select: { id: true, normalizedResult: true },
+      });
+    if (!execution) {
+      return;
+    }
+
+    const delivery = this.providerConversionTechnicalDelivery(result);
+    const normalized =
+      execution.normalizedResult &&
+      typeof execution.normalizedResult === "object" &&
+      !Array.isArray(execution.normalizedResult)
+        ? (execution.normalizedResult as Record<string, unknown>)
+        : {};
+
+    await this.prisma.providerConversionRuleExecution.update({
+      where: { id: execution.id },
+      data: {
+        normalizedResult: {
+          ...normalized,
+          technicalDelivery: {
+            ...delivery,
+            updatedAt: new Date().toISOString(),
+          },
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private providerConversionTechnicalDelivery(result: {
+    status: SendReadyEventResult["status"];
+    errorCode: MetaCapiSendEventErrorCode;
+  }): {
+    state: "sent" | "blocked_configuration" | "failed_retryable" | "failed_permanent";
+    retryable: boolean;
+    reasonCode: string | null;
+  } {
+    if (result.status === "sent") {
+      return { state: "sent", retryable: false, reasonCode: null };
+    }
+
+    if (result.status === "not_configured") {
+      return {
+        state: "blocked_configuration",
+        retryable: false,
+        reasonCode: result.errorCode ?? "MetaCapiNotConfigured",
+      };
+    }
+
+    if (result.errorCode === "MetaCapiNetworkError") {
+      return {
+        state: "failed_retryable",
+        retryable: true,
+        reasonCode: result.errorCode,
+      };
+    }
+
+    return {
+      state: "failed_permanent",
+      retryable: false,
+      reasonCode: result.errorCode ?? "MetaCapiSendError",
     };
   }
 

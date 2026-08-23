@@ -13,6 +13,7 @@ import {
   conversionEventCarriesValue,
   conversionEventNameSchema,
   messagePhraseConfigKind,
+  providerConversionTechnicalDeliveryStateSchema,
   readMessagePhraseConfig,
 } from "@wpptrack/shared";
 import type {
@@ -26,6 +27,7 @@ import type {
   ProviderConversionRuleCreateInputDto,
   ProviderConversionRuleCreateResultDto,
   ProviderConversionRuleExecutionAuditDto,
+  ProviderConversionRuleExecutionAuditItemDto,
   ProviderConversionRuleExecutionAuditQueryDto,
   ProviderConversionRuleDto,
   ProviderConversionRuleUpdateInputDto,
@@ -205,6 +207,8 @@ export class ProviderConversionRulesService {
           purchaseReviewId: execution.purchaseReview?.id ?? null,
           attemptCount: execution.attemptCount,
           processedAt: execution.processedAt?.toISOString() ?? null,
+          technicalDelivery: this.auditTechnicalDelivery(normalized),
+          lastProductionFailure: this.auditProductionFailure(normalized),
         };
       }),
       pagination: {
@@ -214,6 +218,65 @@ export class ProviderConversionRulesService {
         totalPages: Math.max(1, Math.ceil(totalItems / query.pageSize)),
       },
     };
+  }
+
+  private auditJsonObject(
+    value: Prisma.JsonValue | null | undefined,
+  ): Record<string, unknown> | null {
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  }
+
+  private auditIsoDate(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const parsed = new Date(value);
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+
+  private auditReasonCode(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0
+      ? value.trim().slice(0, 160)
+      : null;
+  }
+
+  private auditTechnicalDelivery(
+    normalizedResult: Prisma.JsonValue | null,
+  ): ProviderConversionRuleExecutionAuditItemDto["technicalDelivery"] {
+    const technical = this.auditJsonObject(
+      this.auditJsonObject(normalizedResult)?.technicalDelivery as
+        | Prisma.JsonValue
+        | undefined,
+    );
+    const state = providerConversionTechnicalDeliveryStateSchema.safeParse(
+      technical?.state,
+    );
+    if (!state.success) {
+      return null;
+    }
+
+    return {
+      state: state.data,
+      retryable: technical?.retryable === true,
+      reasonCode: this.auditReasonCode(technical?.reasonCode),
+      updatedAt: this.auditIsoDate(technical?.updatedAt),
+    };
+  }
+
+  private auditProductionFailure(
+    normalizedResult: Prisma.JsonValue | null,
+  ): ProviderConversionRuleExecutionAuditItemDto["lastProductionFailure"] {
+    const failure = this.auditJsonObject(
+      this.auditJsonObject(normalizedResult)?.lastProductionFailure as
+        | Prisma.JsonValue
+        | undefined,
+    );
+    const code = this.auditReasonCode(failure?.code);
+
+    return code
+      ? { code, failedAt: this.auditIsoDate(failure?.failedAt) }
+      : null;
   }
 
   async createRule(

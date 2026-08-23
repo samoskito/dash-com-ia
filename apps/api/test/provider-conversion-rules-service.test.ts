@@ -572,7 +572,19 @@ describe("provider conversion rules service", () => {
         occurredAt: new Date("2026-07-22T15:00:00.000Z"),
         status: "observed",
         reasonCode: "message_matched_observation",
-        normalizedResult: { matchedTriggerPhrase: "quero saber mais" },
+        normalizedResult: {
+          matchedTriggerPhrase: "quero saber mais",
+          technicalDelivery: {
+            state: "failed_retryable",
+            retryable: true,
+            reasonCode: "MetaCapiNetworkError",
+            updatedAt: "2026-07-22T15:01:00.000Z",
+          },
+          lastProductionFailure: {
+            code: "provider_conversion_delivery_failed",
+            failedAt: "2026-07-22T15:01:00.000Z",
+          },
+        },
         leadId: "lead_1",
         valueCents: null,
         currency: null,
@@ -620,6 +632,16 @@ describe("provider conversion rules service", () => {
       leadName: "Cliente IC",
       phoneDisplay: "+5511999990000",
       matchedTriggerPhrase: "quero saber mais",
+      technicalDelivery: {
+        state: "failed_retryable",
+        retryable: true,
+        reasonCode: "MetaCapiNetworkError",
+        updatedAt: "2026-07-22T15:01:00.000Z",
+      },
+      lastProductionFailure: {
+        code: "provider_conversion_delivery_failed",
+        failedAt: "2026-07-22T15:01:00.000Z",
+      },
     });
     expect(harness.prisma.lead.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -4387,7 +4387,12 @@ export class MetaReportingService {
     }
 
     if (source === "whatsapp_automation") {
-      return { sourceTrigger: { in: ["keyword", "whatsapp_label"] } };
+      return {
+        OR: [
+          { sourceTrigger: { in: ["keyword", "whatsapp_label"] } },
+          { sourceTrigger: { startsWith: "inbound_webhook:" } },
+        ],
+      };
     }
 
     if (source === "system") {

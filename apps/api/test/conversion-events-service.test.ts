@@ -27,6 +27,7 @@ function createHarness(
     countQueries: [] as Array<Record<string, unknown>>,
     funnelDefaults: [] as Array<Record<string, unknown>>,
     purchaseReviewUpdates: [] as Array<Record<string, unknown>>,
+    providerExecutions: [] as Array<Record<string, unknown>>,
   };
   const prisma = {
     externalCapiCutover: {
@@ -180,6 +181,28 @@ function createHarness(
       }) => {
         db.purchaseReviewUpdates.push({ data, where });
         return { count: 1 };
+      },
+    },
+    providerConversionRuleExecution: {
+      findFirst: async ({ where }: { where: Record<string, unknown> }) =>
+        db.providerExecutions.find(
+          (execution) =>
+            execution.workspaceId === where.workspaceId &&
+            execution.conversionEventLogId === where.conversionEventLogId,
+        ) ?? null,
+      update: async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: Record<string, unknown>;
+      }) => {
+        const execution = db.providerExecutions.find(
+          (candidate) => candidate.id === where.id,
+        );
+        if (!execution) throw new Error("provider execution not found");
+        Object.assign(execution, data);
+        return execution;
       },
     },
     integrationLog: {
@@ -572,6 +595,47 @@ describe("conversion events service", () => {
     expect(adapter.sendEvent).toHaveBeenCalledWith(
       expect.objectContaining({ dedupeKey: "qualified_ctwa_1" }),
     );
+  });
+
+  it("writes the Meta delivery result back to its provider conversion execution", async () => {
+    const adapter = {
+      sendEvent: vi.fn(async () => ({
+        status: "error" as const,
+        responseSummary: { error: "invalid_parameter" },
+        errorMessage: "Meta rejected the event",
+        errorCode: "MetaCapiSendError" as const,
+      })),
+    };
+    const { db, service } = createHarness(adapter);
+    db.destinations.push({
+      workspaceId: "workspace_1",
+      pixelId: "pixel_1",
+      pageId: "page_1",
+    });
+    await service.recordAutomaticLeadSubmitted({
+      workspaceId: "workspace_1",
+      leadId: "lead_1",
+      phoneHash: "phone_hash_1",
+      adId: "ad_1",
+      ctwaClid: "clid_1",
+    });
+    db.providerExecutions.push({
+      id: "execution_1",
+      workspaceId: "workspace_1",
+      conversionEventLogId: "conversion_1",
+      normalizedResult: { technicalDelivery: { state: "queued" } },
+    });
+
+    await service.sendReadyEvent("conversion_1");
+
+    expect(db.providerExecutions[0].normalizedResult).toMatchObject({
+      technicalDelivery: {
+        state: "failed_permanent",
+        retryable: false,
+        reasonCode: "MetaCapiSendError",
+        updatedAt: expect.any(String),
+      },
+    });
   });
 
   it("promotes one historical purchase when the live ledger event arrives", async () => {

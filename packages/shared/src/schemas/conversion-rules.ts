@@ -22,6 +22,24 @@ export const conversionTriggerTypes = [
   ...providerConversionTriggerTypes,
 ] as const;
 
+/**
+ * Estado tecnico de entrega de uma execucao de regra. Vive aqui (e nao em
+ * provider-conversion-decisions) porque a auditoria da regra tambem precisa
+ * dele e aquele modulo ja depende deste.
+ */
+export const providerConversionTechnicalDeliveryStates = [
+  "observed",
+  "queued",
+  "sent",
+  "blocked_configuration",
+  "failed_retryable",
+  "failed_permanent",
+] as const;
+
+export const providerConversionTechnicalDeliveryStateSchema = z.enum(
+  providerConversionTechnicalDeliveryStates,
+);
+
 export const legacyConversionTriggerTypeSchema = z.enum(
   legacyConversionTriggerTypes,
 );
@@ -663,6 +681,26 @@ export const providerConversionRuleExecutionAuditItemSchema = z.object({
   purchaseReviewId: idSchema.nullable(),
   attemptCount: z.number().int().nonnegative(),
   processedAt: z.string().datetime().nullable(),
+  /**
+   * Estado tecnico da entrega gravado pela producao. Sem ele o painel so sabia
+   * dizer "Falhou" e nao conseguia distinguir uma falha transitoria (que a fila
+   * ainda vai tentar de novo) de uma permanente (que exige acao do operador).
+   */
+  technicalDelivery: z
+    .object({
+      state: providerConversionTechnicalDeliveryStateSchema,
+      retryable: z.boolean(),
+      reasonCode: z.string().trim().min(1).max(160).nullable(),
+      updatedAt: z.string().datetime().nullable(),
+    })
+    .nullable(),
+  /** Codigo bruto da ultima falha de producao, para diagnostico do operador. */
+  lastProductionFailure: z
+    .object({
+      code: z.string().trim().min(1).max(160),
+      failedAt: z.string().datetime().nullable(),
+    })
+    .nullable(),
 });
 
 export const providerConversionRuleExecutionAuditSchema = z.object({
