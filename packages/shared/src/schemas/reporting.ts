@@ -309,12 +309,22 @@ export const conversionAuditSummarySchema = z.object({
   discarded: z.number().int().nonnegative(),
 });
 
+export const conversionAuditEventOptionSchema = z.object({
+  eventName: z.string().min(1),
+  label: z.string().min(1),
+});
+
 export const conversionAuditOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
   summary: conversionAuditSummarySchema,
   pagination: reportPaginationSchema,
   events: z.array(conversionAuditEventSchema),
+  /**
+   * Eventos configurados no workspace, na ordem do funil. Opcional para o web
+   * continuar funcionando enquanto a API ainda nao subiu.
+   */
+  availableEvents: z.array(conversionAuditEventOptionSchema).optional(),
 });
 
 export const reportFiltersSchema = z.object({
@@ -357,6 +367,9 @@ export type ConversionAuditEventDto = z.infer<
 >;
 export type ConversionAuditEventDetailDto = z.infer<
   typeof conversionAuditEventDetailSchema
+>;
+export type ConversionAuditEventOptionDto = z.infer<
+  typeof conversionAuditEventOptionSchema
 >;
 export type ConversionAuditPayloadModeDto = z.infer<
   typeof conversionAuditPayloadModeSchema

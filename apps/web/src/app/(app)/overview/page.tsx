@@ -207,11 +207,23 @@ function aggregateFunnelSteps(
   const order: string[] = [];
 
   for (const campaign of campaigns) {
+    // Merge estavel: a API ja manda as etapas na ordem do funil, mas linhas sem
+    // compra omitem first_purchase/repurchase. Anexar no fim jogaria uma etapa
+    // do meio do funil para o final; inserimos logo apos a etapa anterior desta
+    // mesma linha.
+    let insertAt = 0;
+
     for (const step of campaign.funnelSteps) {
       const current = steps.get(step.key);
-      if (!current) {
-        order.push(step.key);
+      const known = order.indexOf(step.key);
+
+      if (known >= 0) {
+        insertAt = known + 1;
+      } else {
+        order.splice(insertAt, 0, step.key);
+        insertAt += 1;
       }
+
       steps.set(step.key, {
         key: step.key,
         label: current?.label ?? step.label,

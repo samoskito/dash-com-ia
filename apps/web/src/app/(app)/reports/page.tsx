@@ -1015,10 +1015,25 @@ function aggregateFunnelSteps(
   spendCents: number,
 ): ReportFunnelStepDto[] {
   const steps = new Map<string, ReportFunnelStepDto>();
+  const order: string[] = [];
 
   for (const row of rows) {
+    // Merge estavel: a API ja manda as etapas na ordem do funil, mas linhas sem
+    // compra omitem first_purchase/repurchase. Anexar no fim jogaria uma etapa
+    // do meio do funil para o final; inserimos logo apos a etapa anterior desta
+    // mesma linha.
+    let insertAt = 0;
+
     for (const step of row.funnelSteps) {
       const current = steps.get(step.key);
+      const known = order.indexOf(step.key);
+
+      if (known >= 0) {
+        insertAt = known + 1;
+      } else {
+        order.splice(insertAt, 0, step.key);
+        insertAt += 1;
+      }
 
       steps.set(step.key, {
         key: step.key,
@@ -1029,10 +1044,14 @@ function aggregateFunnelSteps(
     }
   }
 
-  return Array.from(steps.values()).map((step) => ({
-    ...step,
-    costCents: step.value > 0 ? Math.floor(spendCents / step.value) : null,
-  }));
+  return order.map((key) => {
+    const step = steps.get(key)!;
+
+    return {
+      ...step,
+      costCents: step.value > 0 ? Math.floor(spendCents / step.value) : null,
+    };
+  });
 }
 
 function reportTotals(rows: PerformanceRow[]): ReportTotals {
