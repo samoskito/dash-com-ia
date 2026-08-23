@@ -23,17 +23,20 @@ import { WhatsappSeatService } from "../billing/whatsapp-seat.service";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
+import {
+  applyInboundWebhookConnectionStatus,
+  concurrentMutationMessage,
+  connectionAuditSummary,
+  connectionNotFoundMessage,
+  type ExternalChannelSeatHook,
+  metaRouteRequiredForProvider,
+  nextMutationTime,
+  type PersistedInboundWebhookConnection,
+  requireInboundWebhookConnection,
+} from "./inbound-webhook-production-activation";
 import { UazapiConversionBridgeService } from "./uazapi-conversion-bridge.service";
 
 const parserVersion = "v1";
-const connectionNotFoundMessage = "Conexao de webhook nao encontrada";
-const concurrentMutationMessage =
-  "A conexao foi alterada por outra operacao; tente novamente";
-
-type PersistedInboundWebhookConnection =
-  Prisma.InboundWebhookConnectionGetPayload<{
-    include: { parserRelease: true };
-  }>;
 
 @Injectable()
 export class InboundWebhookConnectionsService {
@@ -331,62 +334,14 @@ export class InboundWebhookConnectionsService {
         connectionId,
       );
 
-      if (input.status === "production") {
-        await this.assertProductionReady(transaction, current);
-        await this.activateProductionSeats(
-          transaction,
-          current,
-          actorUserId,
-        );
-      }
-
-      const updatedAt = this.nextMutationTime(current.updatedAt);
-      const claimed = await transaction.inboundWebhookConnection.updateMany({
-        where: this.activeMutationWhere(current),
-        data: {
-          status: input.status,
-          productionActivatedAt:
-            input.status === "production"
-              ? current.status === "production"
-                ? (current.productionActivatedAt ?? updatedAt)
-                : updatedAt
-              : null,
-          updatedAt,
-        },
-      });
-
-      this.assertMutationClaimed(claimed.count);
-
-      await transaction.inboundWebhookChannel.updateMany({
-        where: {
-          workspaceId,
-          connectionId,
-          status: "active",
-        },
-        data: {
-          productionActivatedAt:
-            input.status === "production" ? updatedAt : null,
-          updatedAt,
-        },
-      });
-
-      const connection = await this.requireConnection(
-        transaction,
+      return applyInboundWebhookConnectionStatus(transaction, {
         workspaceId,
         connectionId,
-      );
-
-      await this.createAudit(transaction, {
-        workspaceId,
+        status: input.status,
         actorUserId,
-        action: this.statusAuditAction(input.status),
-        targetId: connection.id,
-        resultStatus: connection.status,
-        beforeSummary: this.auditSummary(current),
-        afterSummary: this.auditSummary(connection),
+        requireValidMetaRoute: metaRouteRequiredForProvider(current.provider),
+        seats: this.seatHook(),
       });
-
-      return connection;
     });
 
     return this.toDto(updated);
@@ -510,7 +465,7 @@ export class InboundWebhookConnectionsService {
   }
 
   private nextMutationTime(previous: Date): Date {
-    return new Date(Math.max(Date.now(), previous.getTime() + 1));
+    return nextMutationTime(previous);
   }
 
   private async requireConnection(
@@ -518,22 +473,20 @@ export class InboundWebhookConnectionsService {
     workspaceId: string,
     connectionId: string,
   ): Promise<PersistedInboundWebhookConnection> {
-    const connection = await client.inboundWebhookConnection.findFirst({
-      where: {
-        id: connectionId,
-        workspaceId,
-        removedAt: null,
-      },
-      include: {
-        parserRelease: true,
-      },
-    });
+    return requireInboundWebhookConnection(client, workspaceId, connectionId);
+  }
 
-    if (!connection) {
-      throw new NotFoundException(connectionNotFoundMessage);
-    }
-
-    return connection;
+  /**
+   * Seat enforcement is resolved lazily: externalChannelEnforcementEnabled()
+   * throws when enforcement is on without a seat service, so it must only run
+   * at the points the activation flow actually bills a seat.
+   */
+  private seatHook(): ExternalChannelSeatHook {
+    return {
+      enforcementEnabled: () => this.externalChannelEnforcementEnabled(),
+      activateSeat: (transaction, seatInput) =>
+        this.whatsappSeats!.activateExternalChannelSeat(transaction, seatInput),
+    };
   }
 
   private requireEnabledConfig() {
@@ -594,14 +547,7 @@ export class InboundWebhookConnectionsService {
   private auditSummary(
     connection: PersistedInboundWebhookConnection,
   ): Prisma.InputJsonObject {
-    return {
-      connectionId: connection.id,
-      provider: connection.provider,
-      parserVersion: connection.parserRelease.version,
-      status: connection.status,
-      productionActivatedAt:
-        connection.productionActivatedAt?.toISOString() ?? null,
-    };
+    return connectionAuditSummary(connection);
   }
 
   private requireProductionEnabledConfig() {
@@ -616,103 +562,6 @@ export class InboundWebhookConnectionsService {
     return config;
   }
 
-  private async assertProductionReady(
-    transaction: Prisma.TransactionClient,
-    connection: PersistedInboundWebhookConnection,
-  ): Promise<void> {
-    if (connection.parserRelease.status !== "certified") {
-      throw new ConflictException(
-        "Certifique o parser antes de ativar o envio automatico",
-      );
-    }
-
-    const activeChannels = await transaction.inboundWebhookChannel.findMany({
-      where: {
-        workspaceId: connection.workspaceId,
-        connectionId: connection.id,
-        status: "active",
-      },
-      select: {
-        id: true,
-        routes: {
-          where: {
-            active: true,
-            validationStatus: "valid",
-            metaBusinessConnectionId: { not: null },
-            metaReportingAccountId: { not: null },
-            metaConversionDestinationId: { not: null },
-          },
-          select: { id: true },
-        },
-      },
-    });
-
-    if (activeChannels.length === 0) {
-      throw new ConflictException(
-        "Ative ao menos um canal validado antes da producao",
-      );
-    }
-
-    if (activeChannels.some((channel) => channel.routes.length === 0)) {
-      throw new ConflictException(
-        "Todo canal ativo precisa de uma rota Meta valida",
-      );
-    }
-
-    const activeReplay = await transaction.inboundWebhookReplayBatch.count({
-      where: {
-        workspaceId: connection.workspaceId,
-        connectionId: connection.id,
-        status: { in: ["queued", "processing"] },
-      },
-    });
-
-    if (activeReplay > 0) {
-      throw new ConflictException(
-        "Finalize o replay em andamento antes de ativar a producao",
-      );
-    }
-  }
-
-  private async activateProductionSeats(
-    transaction: Prisma.TransactionClient,
-    connection: PersistedInboundWebhookConnection,
-    actorUserId: string,
-  ): Promise<void> {
-    if (
-      !this.externalChannelEnforcementEnabled() ||
-      connection.provider === "uazapi"
-    ) {
-      // UAZAPI/NOD channels are billed as WhatsappInstance seats already
-      // (see WhatsappSeatProvider "uazapi"); billing them again here as an
-      // "external channel" seat would double-charge the workspace.
-      return;
-    }
-
-    const channels = await transaction.inboundWebhookChannel.findMany({
-      where: {
-        workspaceId: connection.workspaceId,
-        connectionId: connection.id,
-        status: "active",
-      },
-      select: {
-        id: true,
-        connectedPhone: true,
-      },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    });
-
-    for (const channel of channels) {
-      await this.whatsappSeats!.activateExternalChannelSeat(transaction, {
-        workspaceId: connection.workspaceId,
-        channelId: channel.id,
-        provider: connection.provider,
-        normalizedPhone: channel.connectedPhone || null,
-        actorUserId,
-      });
-    }
-  }
-
   private externalChannelEnforcementEnabled(): boolean {
     const enabled =
       this.billingConfiguration?.isPackageBillingEnabled() === true &&
@@ -725,20 +574,6 @@ export class InboundWebhookConnectionsService {
     }
 
     return enabled;
-  }
-
-  private statusAuditAction(
-    status: InboundWebhookConnectionStatusUpdateInputDto["status"],
-  ): string {
-    if (status === "production") {
-      return "inbound_webhook.connection_promoted";
-    }
-
-    if (status === "paused") {
-      return "inbound_webhook.connection_paused";
-    }
-
-    return "inbound_webhook.connection_observation";
   }
 
   private async createAudit(

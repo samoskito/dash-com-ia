@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
@@ -29,9 +30,19 @@ import type {
   ProviderConversionRuleDto,
   ProviderConversionRuleUpdateInputDto,
 } from "@wpptrack/shared";
+import { PackageBillingConfiguration } from "../billing/package-billing.configuration";
+import { WhatsappSeatService } from "../billing/whatsapp-seat.service";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
+import {
+  applyInboundWebhookChannelStatus,
+  applyInboundWebhookConnectionStatus,
+  type ExternalChannelSeatHook,
+  metaRouteRequiredForProvider,
+  requireInboundWebhookChannel,
+  requireInboundWebhookConnection,
+} from "../inbound-webhooks/inbound-webhook-production-activation";
 
 const ruleNotFoundMessage = "Regra de conversao do provedor nao encontrada";
 const connectionNotFoundMessage = "Conexao nao encontrada";
@@ -70,6 +81,12 @@ export class ProviderConversionRulesService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(RUNTIME_ENV) private readonly env: RuntimeEnv = process.env,
+    @Optional()
+    @Inject(PackageBillingConfiguration)
+    private readonly billingConfiguration?: PackageBillingConfiguration,
+    @Optional()
+    @Inject(WhatsappSeatService)
+    private readonly whatsappSeats?: WhatsappSeatService,
   ) {}
 
   async listRules(workspaceId: string): Promise<ProviderConversionRuleDto[]> {
@@ -381,6 +398,15 @@ export class ProviderConversionRulesService {
           providerRule.id,
           input.catalog,
         );
+      }
+
+      if (input.mode === "production") {
+        await this.cascadeProductionActivation(transaction, {
+          workspaceId,
+          connectionId: connection.id,
+          channelIds: input.channelIds,
+          actorUserId,
+        });
       }
 
       await this.createAudit(transaction, {
@@ -711,6 +737,28 @@ export class ProviderConversionRulesService {
         }
       }
 
+      // A rename must not touch the inbound connection, but every edit that
+      // turns "Envio ativo" on, re-enables the rule, or re-scopes its channels
+      // has to promote the connection and those channels with it.
+      const effectiveMode = nextMode ?? current.mode;
+      const staysActive = input.active ?? current.conversionRule.active;
+      if (
+        effectiveMode === "production" &&
+        staysActive &&
+        (input.mode !== undefined ||
+          input.active === true ||
+          input.channelIds !== undefined)
+      ) {
+        await this.cascadeProductionActivation(transaction, {
+          workspaceId,
+          connectionId: current.connectionId,
+          channelIds:
+            input.channelIds ??
+            current.channels.map((channel) => channel.channelId),
+          actorUserId,
+        });
+      }
+
       const result = await this.requireRule(
         transaction,
         workspaceId,
@@ -869,6 +917,132 @@ export class ProviderConversionRulesService {
         "Certifique o parser antes de ativar esta regra em producao",
       );
     }
+  }
+
+  /**
+   * The operator only sees one switch: "Envio ativo" on the conversion rule.
+   * Before this cascade existed, flipping it stamped the rule alone, so the
+   * inbound connection stayed in `observation` and its channels in
+   * `discovered`, and every decision was later blocked with
+   * `connection_not_production` / `channel_not_active`. Turning the rule on now
+   * runs exactly the same activation the Integrations panel buttons run, so the
+   * three switches can never drift apart again.
+   *
+   * Fail-closed on purpose: when the connection cannot be promoted (parser not
+   * certified, replay in flight, missing Meta route) the whole rule update
+   * rolls back with that reason instead of leaving a green "Envio ativo" that
+   * sends nothing.
+   */
+  private async cascadeProductionActivation(
+    transaction: Prisma.TransactionClient,
+    input: {
+      workspaceId: string;
+      connectionId: string;
+      channelIds: string[];
+      actorUserId: string;
+    },
+  ): Promise<void> {
+    this.requireProductionEnabledConfig();
+
+    const { workspaceId, connectionId, actorUserId } = input;
+    const connection = await requireInboundWebhookConnection(
+      transaction,
+      workspaceId,
+      connectionId,
+    );
+    const requireValidMetaRoute = metaRouteRequiredForProvider(
+      connection.provider,
+    );
+    const seats = this.seatHook();
+
+    // Channels first: promoting the connection refuses to run without at least
+    // one active channel, and it stamps productionActivatedAt on every channel
+    // that is already active by then.
+    for (const channelId of [...new Set(input.channelIds)]) {
+      const channel = await requireInboundWebhookChannel(
+        transaction,
+        workspaceId,
+        channelId,
+      );
+
+      if (channel.connectionId !== connectionId) {
+        throw new BadRequestException(
+          "Um ou mais canais nao pertencem a esta conexao e workspace",
+        );
+      }
+
+      // An already-active channel only needs a rewrite when the connection is
+      // production and its stamp was lost; otherwise the connection promote
+      // below stamps it.
+      if (
+        channel.status === "active" &&
+        (connection.status !== "production" ||
+          channel.productionActivatedAt !== null)
+      ) {
+        continue;
+      }
+
+      await applyInboundWebhookChannelStatus(transaction, {
+        workspaceId,
+        channelId,
+        status: "active",
+        actorUserId,
+        requireValidMetaRoute,
+        seats,
+      });
+    }
+
+    if (connection.status === "production") {
+      return;
+    }
+
+    await applyInboundWebhookConnectionStatus(transaction, {
+      workspaceId,
+      connectionId,
+      status: "production",
+      actorUserId,
+      requireValidMetaRoute,
+      seats,
+    });
+  }
+
+  private requireProductionEnabledConfig() {
+    const config = this.requireRulesEnabled();
+
+    if (!config.productionEnabled) {
+      throw new ServiceUnavailableException(
+        "Envio automatico de webhooks ainda nao esta habilitado",
+      );
+    }
+
+    return config;
+  }
+
+  /**
+   * Mirrors InboundWebhookConnectionsService: enforcement is resolved lazily
+   * because it throws when billing is on without a seat service wired, and the
+   * cascade must only reach that point when it actually bills a seat.
+   */
+  private seatHook(): ExternalChannelSeatHook {
+    return {
+      enforcementEnabled: () => this.externalChannelEnforcementEnabled(),
+      activateSeat: (transaction, seatInput) =>
+        this.whatsappSeats!.activateExternalChannelSeat(transaction, seatInput),
+    };
+  }
+
+  private externalChannelEnforcementEnabled(): boolean {
+    const enabled =
+      this.billingConfiguration?.isPackageBillingEnabled() === true &&
+      this.billingConfiguration.isExternalChannelEnforcementEnabled();
+
+    if (enabled && !this.whatsappSeats) {
+      throw new ServiceUnavailableException(
+        "Controle de vagas dos canais externos indisponivel",
+      );
+    }
+
+    return enabled;
   }
 
   private async assertChannelsBelongToConnection(

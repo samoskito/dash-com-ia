@@ -21,9 +21,17 @@ function jsonOrNull(value: unknown) {
   return value === Prisma.DbNull || value === undefined ? null : value;
 }
 
+type HarnessOptions = {
+  connectionProvider?: "umbler" | "gupshup" | "uazapi";
+  connectionStatus?: "observation" | "production";
+  channelStatus?: "discovered" | "active" | "paused";
+  channelHasValidRoute?: boolean;
+};
+
 function createHarness(
   channelCount = 1,
   initialConversionRule: Record<string, any> | null = null,
+  options: HarnessOptions = {},
 ) {
   const now = new Date("2026-07-21T21:00:00.000Z");
   const parserRelease = {
@@ -36,15 +44,17 @@ function createHarness(
     createdAt: now,
     updatedAt: now,
   };
+  const connectionStatus = options.connectionStatus ?? "production";
+  const connectionProvider = options.connectionProvider ?? "umbler";
   const connection = {
     id: "connection_1",
     workspaceId: "workspace_1",
-    provider: "umbler" as "umbler" | "gupshup" | "uazapi",
+    provider: connectionProvider as "umbler" | "gupshup" | "uazapi",
     displayName: "Umbler Cliente",
     parserReleaseId: "inbound_parser_umbler_v1",
     secretHash: "connection-hash",
-    status: "production" as const,
-    productionActivatedAt: now,
+    status: connectionStatus as "observation" | "production" | "paused",
+    productionActivatedAt: connectionStatus === "production" ? now : null,
     createdByUserId: "user_1",
     lastDeliveryAt: null,
     lastSuccessfulParseAt: now,
@@ -64,6 +74,47 @@ function createHarness(
   let endpoint: Record<string, any> | null = null;
   let catalog: Record<string, any> | null = null;
   const channels: Array<Record<string, any>> = [];
+  // The real InboundWebhookChannel rows the "Envio ativo" cascade promotes,
+  // as opposed to `channels` above, which are the rule -> channel links.
+  const inboundChannelStatus = options.channelStatus ?? "active";
+  const inboundChannels: Array<Record<string, any>> = Array.from(
+    { length: Math.max(channelCount, 1) },
+    (_, index) => ({
+      id: `channel_${index + 1}`,
+      workspaceId: "workspace_1",
+      connectionId: connection.id,
+      connectedPhone: `551199999000${index}`,
+      status: inboundChannelStatus,
+      productionActivatedAt:
+        inboundChannelStatus === "active" && connectionStatus === "production"
+          ? now
+          : null,
+      createdAt: now,
+      updatedAt: now,
+      routes:
+        options.channelHasValidRoute === false
+          ? []
+          : [
+              {
+                id: `route_${index + 1}`,
+                workspaceId: "workspace_1",
+                channelId: `channel_${index + 1}`,
+                active: true,
+                validationStatus: "valid",
+                metaBusinessConnectionId: "meta_business_1",
+                metaReportingAccountId: "act_1",
+                metaConversionDestinationId: "dataset_1",
+                createdAt: now,
+              },
+            ],
+    }),
+  );
+  const findInboundChannel = (channelId: string, workspaceId: string) => {
+    const channel = inboundChannels.find(
+      (item) => item.id === channelId && item.workspaceId === workspaceId,
+    );
+    return channel ? { ...channel, connection } : null;
+  };
   const executions: Array<Record<string, any>> = [];
   const leads: Array<Record<string, any>> = [];
   const audits: Array<Record<string, any>> = [];
@@ -93,9 +144,73 @@ function createHarness(
         }
         return connection;
       }),
+      updateMany: vi.fn(async ({ where, data }) => {
+        if (
+          where.id !== connection.id ||
+          where.workspaceId !== connection.workspaceId ||
+          (where.updatedAt && where.updatedAt !== connection.updatedAt)
+        ) {
+          return { count: 0 };
+        }
+        Object.assign(connection, data);
+        return { count: 1 };
+      }),
     },
     inboundWebhookChannel: {
-      count: vi.fn(async () => channelCount),
+      count: vi.fn(
+        async ({ where }) =>
+          inboundChannels.filter(
+            (channel) =>
+              channel.workspaceId === where.workspaceId &&
+              (!where.connectionId ||
+                channel.connectionId === where.connectionId) &&
+              (!where.id?.in || where.id.in.includes(channel.id)),
+          ).length,
+      ),
+      findFirst: vi.fn(async ({ where }) =>
+        findInboundChannel(where.id, where.workspaceId),
+      ),
+      findMany: vi.fn(async ({ where }) =>
+        inboundChannels
+          .filter(
+            (channel) =>
+              channel.workspaceId === where.workspaceId &&
+              (!where.connectionId ||
+                channel.connectionId === where.connectionId) &&
+              (!where.status || channel.status === where.status),
+          )
+          .map((channel) => ({
+            ...channel,
+            // assertProductionReady only counts routes that are already
+            // filtered to the valid/complete ones by the query.
+            routes: channel.routes.filter(
+              (route: Record<string, any>) =>
+                route.active &&
+                route.validationStatus === "valid" &&
+                route.metaBusinessConnectionId !== null &&
+                route.metaReportingAccountId !== null &&
+                route.metaConversionDestinationId !== null,
+            ),
+          })),
+      ),
+      updateMany: vi.fn(async ({ where, data }) => {
+        const matches = inboundChannels.filter(
+          (channel) =>
+            channel.workspaceId === where.workspaceId &&
+            (!where.id || channel.id === where.id) &&
+            (!where.connectionId ||
+              channel.connectionId === where.connectionId) &&
+            (!where.status || channel.status === where.status) &&
+            (!where.updatedAt || channel.updatedAt === where.updatedAt),
+        );
+        for (const channel of matches) {
+          Object.assign(channel, data);
+        }
+        return { count: matches.length };
+      }),
+    },
+    inboundWebhookReplayBatch: {
+      count: vi.fn(async () => 0),
     },
     inboundWebhookParserRelease: {
       findFirst: vi.fn(async () => parserRelease),
@@ -178,6 +293,17 @@ function createHarness(
           })),
         );
         return { count: data.length };
+      }),
+      deleteMany: vi.fn(async ({ where }) => {
+        const remaining = channels.filter(
+          (channel) =>
+            channel.workspaceId !== where.workspaceId ||
+            channel.providerRuleId !== where.providerRuleId,
+        );
+        const removedCount = channels.length - remaining.length;
+        channels.length = 0;
+        channels.push(...remaining);
+        return { count: removedCount };
       }),
     },
     providerConversionRuleEndpoint: {
@@ -353,6 +479,7 @@ function createHarness(
       return conversionRule;
     },
     executions,
+    inboundChannels,
     leads,
     prisma,
     service,
@@ -1231,5 +1358,213 @@ describe("provider conversion rules service", () => {
     expect(
       harness.prisma.conversionCatalogVariant.updateMany,
     ).not.toHaveBeenCalled();
+  });
+});
+
+describe("provider conversion rules Envio ativo cascade", () => {
+  const messageRuleInput = (mode: "observation" | "production") => ({
+    name: "Consulta agendada",
+    connectionId: "connection_1",
+    channelIds: ["channel_1"],
+    mode,
+    triggerType: "message_phrase" as const,
+    eventName: "InitiateCheckout" as const,
+    triggerPhrases: ["consulta agendada"],
+    messageAuthorScope: "team" as const,
+    valueMode: "fixed" as const,
+  });
+
+  it("promotes the connection and the rule channels when Envio ativo is turned on", async () => {
+    const harness = createHarness(1, null, {
+      connectionProvider: "uazapi",
+      connectionStatus: "observation",
+      channelStatus: "discovered",
+    });
+    const created = await harness.service.createRule(
+      "workspace_1",
+      messageRuleInput("observation"),
+      "user_1",
+    );
+
+    expect(harness.connection.status).toBe("observation");
+    expect(harness.inboundChannels[0]?.status).toBe("discovered");
+
+    const activated = await harness.service.updateRule(
+      "workspace_1",
+      created.rule.id,
+      { mode: "production" },
+      "user_1",
+    );
+
+    expect(activated.mode).toBe("production");
+    expect(harness.connection.status).toBe("production");
+    expect(harness.connection.productionActivatedAt).toBeTruthy();
+    expect(harness.inboundChannels[0]).toMatchObject({ status: "active" });
+    expect(harness.inboundChannels[0]?.productionActivatedAt).toBeTruthy();
+    expect(harness.audits.map((audit) => audit.action)).toEqual(
+      expect.arrayContaining([
+        "inbound_webhook.channel_activated",
+        "inbound_webhook.connection_promoted",
+        "provider_conversion_rule.activated",
+      ]),
+    );
+  });
+
+  it("cascades when the rule is created straight in production", async () => {
+    const harness = createHarness(1, null, {
+      connectionProvider: "uazapi",
+      connectionStatus: "observation",
+      channelStatus: "discovered",
+    });
+
+    const created = await harness.service.createRule(
+      "workspace_1",
+      messageRuleInput("production"),
+      "user_1",
+    );
+
+    expect(created.rule.mode).toBe("production");
+    expect(harness.connection.status).toBe("production");
+    expect(harness.inboundChannels[0]).toMatchObject({ status: "active" });
+    expect(harness.inboundChannels[0]?.productionActivatedAt).toBeTruthy();
+  });
+
+  it("activates only the channels linked to the rule", async () => {
+    const harness = createHarness(2, null, {
+      connectionProvider: "uazapi",
+      connectionStatus: "observation",
+      channelStatus: "discovered",
+    });
+
+    await harness.service.createRule(
+      "workspace_1",
+      messageRuleInput("production"),
+      "user_1",
+    );
+
+    expect(harness.inboundChannels[0]).toMatchObject({ status: "active" });
+    expect(harness.inboundChannels[1]).toMatchObject({
+      status: "discovered",
+      productionActivatedAt: null,
+    });
+  });
+
+  it("activates a channel added to a rule that is already in production", async () => {
+    const harness = createHarness(2, null, {
+      connectionProvider: "uazapi",
+      connectionStatus: "observation",
+      channelStatus: "discovered",
+    });
+    const created = await harness.service.createRule(
+      "workspace_1",
+      messageRuleInput("production"),
+      "user_1",
+    );
+
+    await harness.service.updateRule(
+      "workspace_1",
+      created.rule.id,
+      { channelIds: ["channel_1", "channel_2"] },
+      "user_1",
+    );
+
+    expect(harness.inboundChannels[1]).toMatchObject({ status: "active" });
+    expect(harness.inboundChannels[1]?.productionActivatedAt).toBeTruthy();
+  });
+
+  it("leaves the connection alone when the rule is only renamed", async () => {
+    const harness = createHarness(1, null, {
+      connectionProvider: "uazapi",
+      connectionStatus: "observation",
+      channelStatus: "discovered",
+    });
+    const created = await harness.service.createRule(
+      "workspace_1",
+      messageRuleInput("observation"),
+      "user_1",
+    );
+
+    await harness.service.updateRule(
+      "workspace_1",
+      created.rule.id,
+      { name: "Consulta agendada (novo nome)" },
+      "user_1",
+    );
+
+    expect(harness.connection.status).toBe("observation");
+    expect(harness.inboundChannels[0]).toMatchObject({
+      status: "discovered",
+      productionActivatedAt: null,
+    });
+  });
+
+  it("never downgrades the connection when the rule goes back to observation", async () => {
+    const harness = createHarness(1, null, {
+      connectionProvider: "uazapi",
+      connectionStatus: "observation",
+      channelStatus: "discovered",
+    });
+    const created = await harness.service.createRule(
+      "workspace_1",
+      messageRuleInput("production"),
+      "user_1",
+    );
+
+    const paused = await harness.service.updateRule(
+      "workspace_1",
+      created.rule.id,
+      { mode: "observation" },
+      "user_1",
+    );
+
+    expect(paused.mode).toBe("observation");
+    expect(harness.connection.status).toBe("production");
+    expect(harness.inboundChannels[0]).toMatchObject({ status: "active" });
+  });
+
+  it("fails closed instead of showing Envio ativo over a channel without a Meta route", async () => {
+    const harness = createHarness(1, null, {
+      connectionStatus: "observation",
+      channelStatus: "discovered",
+      channelHasValidRoute: false,
+    });
+    const created = await harness.service.createRule(
+      "workspace_1",
+      messageRuleInput("observation"),
+      "user_1",
+    );
+
+    await expect(
+      harness.service.updateRule(
+        "workspace_1",
+        created.rule.id,
+        { mode: "production" },
+        "user_1",
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      message: "Configure uma rota Meta valida antes de ativar o canal",
+    });
+
+    expect(harness.connection.status).toBe("observation");
+    expect(harness.inboundChannels[0]).toMatchObject({ status: "discovered" });
+  });
+
+  it("skips the Meta route requirement for UAZAPI, which resolves the destination per ad", async () => {
+    const harness = createHarness(1, null, {
+      connectionProvider: "uazapi",
+      connectionStatus: "observation",
+      channelStatus: "discovered",
+      channelHasValidRoute: false,
+    });
+
+    await harness.service.createRule(
+      "workspace_1",
+      messageRuleInput("production"),
+      "user_1",
+    );
+
+    expect(harness.connection.status).toBe("production");
+    expect(harness.inboundChannels[0]).toMatchObject({ status: "active" });
   });
 });

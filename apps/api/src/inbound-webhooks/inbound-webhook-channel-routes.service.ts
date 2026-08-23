@@ -24,30 +24,21 @@ import {
   type InboundWebhookMetaRoutePreview,
   InboundWebhookMetaRouteReaderService,
 } from "./inbound-webhook-meta-route-reader.service";
+import {
+  applyInboundWebhookChannelStatus,
+  channelActivationInclude,
+  type ExternalChannelSeatHook,
+  metaRouteRequiredForProvider,
+  requireInboundWebhookChannel,
+  resourceNotFoundMessage,
+} from "./inbound-webhook-production-activation";
 
-const resourceNotFoundMessage = "Recurso de webhook nao encontrado";
 const validRouteStatus = "valid";
 const removedRouteStatus = "inactive";
 const removedRouteReason = "route_removed";
 const payloadExpiryWarningMs = 48 * 60 * 60 * 1_000;
 
-const channelInclude = {
-  connection: {
-    select: {
-      id: true,
-      workspaceId: true,
-      provider: true,
-      status: true,
-      removedAt: true,
-    },
-  },
-  routes: {
-    where: {
-      active: true,
-    },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-  },
-} satisfies Prisma.InboundWebhookChannelInclude;
+const channelInclude = channelActivationInclude;
 
 type PersistedChannel = Prisma.InboundWebhookChannelGetPayload<{
   include: typeof channelInclude;
@@ -347,92 +338,23 @@ export class InboundWebhookChannelRoutesService {
     input: InboundWebhookChannelStatusUpdateInputDto,
     actorUserId: string,
   ): Promise<InboundWebhookChannelDto> {
-    const channel = await this.prisma.$transaction(async (transaction) => {
+    await this.prisma.$transaction(async (transaction) => {
       const current = await this.requireChannel(
         transaction,
         workspaceId,
         channelId,
       );
 
-      if (
-        input.status === "active" &&
-        !current.routes.some(
-          (route) =>
-            route.validationStatus === validRouteStatus &&
-            route.metaBusinessConnectionId !== null &&
-            route.metaReportingAccountId !== null &&
-            route.metaConversionDestinationId !== null,
-        )
-      ) {
-        throw new ConflictException(
-          "Configure uma rota Meta valida antes de ativar o canal",
-        );
-      }
-
-      if (
-        input.status === "active" &&
-        current.connection.status === "production" &&
-        current.connection.provider !== "uazapi" &&
-        this.externalChannelEnforcementEnabled()
-      ) {
-        // UAZAPI/NOD channels are billed as WhatsappInstance seats already
-        // (see WhatsappSeatProvider "uazapi"); billing them again here as an
-        // "external channel" seat would double-charge the workspace.
-        await this.whatsappSeats!.activateExternalChannelSeat(transaction, {
-          workspaceId,
-          channelId,
-          provider: current.connection.provider,
-          normalizedPhone: current.connectedPhone || null,
-          actorUserId,
-        });
-      }
-
-      const updatedAt = new Date(
-        Math.max(Date.now(), current.updatedAt.getTime() + 1),
-      );
-      const changed = await transaction.inboundWebhookChannel.updateMany({
-        where: {
-          id: channelId,
-          workspaceId,
-          updatedAt: current.updatedAt,
-        },
-        data: {
-          status: input.status,
-          productionActivatedAt:
-            input.status === "active" &&
-            current.connection.status === "production"
-              ? current.status === "active"
-                ? (current.productionActivatedAt ?? updatedAt)
-                : updatedAt
-              : null,
-          updatedAt,
-        },
-      });
-
-      if (changed.count !== 1) {
-        this.throwNotFound();
-      }
-
-      const updated = await this.requireChannel(
-        transaction,
+      return applyInboundWebhookChannelStatus(transaction, {
         workspaceId,
         channelId,
-      );
-      await this.createAudit(transaction, {
-        workspaceId,
+        status: input.status,
         actorUserId,
-        action:
-          input.status === "paused"
-            ? "inbound_webhook.channel_paused"
-            : "inbound_webhook.channel_activated",
-        targetType: "InboundWebhookChannel",
-        targetId: channelId,
-        resultStatus: input.status,
-        beforeSummary: this.channelStatusAuditSummary(current),
-        afterSummary: this.channelStatusAuditSummary(updated),
+        requireValidMetaRoute: metaRouteRequiredForProvider(
+          current.connection.provider,
+        ),
+        seats: this.seatHook(),
       });
-
-      return updated;
     });
 
     await this.reevaluateOpenEvents(workspaceId, channelId);
@@ -1099,34 +1021,24 @@ export class InboundWebhookChannelRoutesService {
     workspaceId: string,
     channelId: string,
   ): Promise<PersistedChannel> {
-    const channel = await client.inboundWebhookChannel.findFirst({
-      where: {
-        id: channelId,
-        workspaceId,
-        connection: {
-          is: {
-            workspaceId,
-            removedAt: null,
-          },
-        },
-      },
-      include: channelInclude,
-    });
-
-    if (
-      !channel ||
-      channel.workspaceId !== workspaceId ||
-      channel.connection.workspaceId !== workspaceId ||
-      channel.connection.removedAt !== null
-    ) {
-      this.throwNotFound();
-    }
-
-    return channel;
+    return requireInboundWebhookChannel(client, workspaceId, channelId);
   }
 
   private throwNotFound(): never {
     throw new NotFoundException(resourceNotFoundMessage);
+  }
+
+  /**
+   * Seat enforcement is resolved lazily: externalChannelEnforcementEnabled()
+   * throws when enforcement is on without a seat service, so it must only run
+   * at the points the activation flow actually bills a seat.
+   */
+  private seatHook(): ExternalChannelSeatHook {
+    return {
+      enforcementEnabled: () => this.externalChannelEnforcementEnabled(),
+      activateSeat: (transaction, seatInput) =>
+        this.whatsappSeats!.activateExternalChannelSeat(transaction, seatInput),
+    };
   }
 
   private externalChannelEnforcementEnabled(): boolean {
@@ -1377,21 +1289,6 @@ export class InboundWebhookChannelRoutesService {
       channelStatus: channel.status,
       routeCount: routes.length,
       routes: routes.map((route) => this.routeAuditSummary(route)),
-    };
-  }
-
-  private channelStatusAuditSummary(
-    channel: Pick<
-      PersistedChannel,
-      "id" | "connectionId" | "status" | "productionActivatedAt"
-    >,
-  ): Prisma.InputJsonObject {
-    return {
-      channelId: channel.id,
-      connectionId: channel.connectionId,
-      status: channel.status,
-      productionActivatedAt:
-        channel.productionActivatedAt?.toISOString() ?? null,
     };
   }
 
