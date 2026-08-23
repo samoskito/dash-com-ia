@@ -518,6 +518,19 @@ describe("reports route", () => {
     expect(tableIndex).toBeGreaterThan(resultsIndex);
     expect(html).toContain('class="report-analysis-switcher"');
     expect(html).toContain('class="report-period-context"');
+    expect(html).toContain('aria-label="Periodo"');
+    expect(html).toContain('aria-label="Escopo"');
+    expect(html).toContain('aria-label="Acoes"');
+    // Periodo comes before escopo, which comes before acoes.
+    expect(html.indexOf('aria-label="Periodo"')).toBeLessThan(
+      html.indexOf('aria-label="Escopo"'),
+    );
+    expect(html.indexOf('aria-label="Escopo"')).toBeLessThan(
+      html.indexOf('aria-label="Acoes"'),
+    );
+    // The Meta sync window is a hint on the sync action, not a floating tag.
+    expect(html).toContain('class="report-sync-hint"');
+    expect(html).toContain("Janela ja sincronizada da Meta:");
     expect(html).not.toContain("Estrutura e filtros");
     expect(html).toContain('aria-label="Grupo de metricas"');
     expect(html).toContain('aria-label="Filtros avancados"');
@@ -549,20 +562,29 @@ describe("reports route", () => {
     );
   });
 
-  it("uses two compact desktop control rows with advanced filters on demand", () => {
+  it("groups the toolbar into periodo, escopo and acoes with advanced filters on demand", () => {
     const css = readFileSync(
       join(process.cwd(), "src/styles/layout-system.css"),
       "utf8",
     );
 
     expect(css).toMatch(
-      /\.report-command-body\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto[^}]*padding:\s*12px 14px/s,
+      /\.report-toolbar\s*{[^}]*grid-template-areas:\s*"period actions"\s*"scope scope"/s,
+    );
+    expect(css).toMatch(/\.report-toolbar-period\s*{[^}]*grid-area:\s*period/s);
+    expect(css).toMatch(/\.report-toolbar-scope\s*{[^}]*grid-area:\s*scope/s);
+    expect(css).toMatch(
+      /\.report-toolbar-actions\s*{[^}]*grid-area:\s*actions[^}]*justify-content:\s*flex-end/s,
+    );
+    // Narrow viewports must still read periodo -> escopo -> acoes.
+    expect(css).toMatch(
+      /@media \(max-width: 1280px\)\s*{\s*\.report-toolbar\s*{[^}]*grid-template-areas:\s*"period"\s*"scope"\s*"actions"/s,
     );
     expect(css).toMatch(
-      /\.report-analysis-controls\s*{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\)/s,
+      /\.report-period-range\s*{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(126px,\s*168px\)\)/s,
     );
     expect(css).toMatch(
-      /\.report-filter-primary\s*{[^}]*grid-template-columns:[^}]*auto\s*auto[^}]*padding:\s*10px 12px/s,
+      /\.report-filter-primary\s*{[^}]*grid-template-columns:[^}]*auto\s*auto[^}]*padding:\s*10px 14px/s,
     );
     expect(css).toMatch(
       /\.report-advanced-filters\[open\]\s*{[^}]*grid-column:\s*1\s*\/\s*-1/s,
