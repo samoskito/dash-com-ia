@@ -13,6 +13,7 @@ import type {
   WhatsappSeatDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
+import { UazapiConversionBridgeService } from "../inbound-webhooks/uazapi-conversion-bridge.service";
 import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
 import {
   UazapiAdapter,
@@ -36,6 +37,8 @@ export class PackageUazapiProvisioningService {
     private readonly uazapi: UazapiAdapter,
     @Inject(MetaTokenEncryptionService)
     private readonly tokenEncryption: MetaTokenEncryptionService,
+    @Inject(UazapiConversionBridgeService)
+    private readonly uazapiBridge: UazapiConversionBridgeService,
   ) {}
 
   async provision(
@@ -52,6 +55,7 @@ export class PackageUazapiProvisioningService {
       );
     }
 
+    await this.assertNoQrFlowInProgress(workspaceId);
     await this.contracts.getCurrentAccessContract(workspaceId);
     const instance = await this.prisma.whatsappInstance.create({
       data: {
@@ -339,6 +343,19 @@ export class PackageUazapiProvisioningService {
       instance.status === "disconnected" &&
       (!seat || seat.status === "released")
     ) {
+      // Idempotent replay: the number is already gone, but a bridge created
+      // before this cleanup existed may still be listed as a live origin.
+      try {
+        await this.uazapiBridge.retireBridge({
+          workspaceId,
+          whatsappInstanceId: instance.id,
+          reason: "uazapi_instance_removed_by_user",
+          actorUserId,
+        });
+      } catch {
+        // best-effort; see the removal path below
+      }
+
       return {
         whatsappInstanceId,
         instanceName: instance.name,
@@ -477,6 +494,23 @@ export class PackageUazapiProvisioningService {
     );
     await this.prisma.$transaction(operations);
 
+    // The number is gone, so its bridged origin must stop being listed as a
+    // live connection. Soft-remove only: the channel and every execution or
+    // decision recorded against it stay untouched, and the rules scoped to it
+    // are not re-pointed at another number the user never configured.
+    try {
+      await this.uazapiBridge.retireBridge({
+        workspaceId,
+        whatsappInstanceId: instance.id,
+        reason: "uazapi_instance_removed_by_user",
+        actorUserId,
+      });
+    } catch {
+      // Best-effort: the number is already removed and the seat released, so a
+      // stale origin card must not fail the removal. The reconcile pass on the
+      // next connections list picks it up.
+    }
+
     return {
       whatsappInstanceId: instance.id,
       instanceName: instance.name,
@@ -484,6 +518,33 @@ export class PackageUazapiProvisioningService {
       removedAt: removedAt.toISOString(),
       providerAlreadyMissing: deletion.alreadyMissing,
     };
+  }
+
+  /**
+   * Every provision creates a fresh WhatsappInstance, and the conversion bridge
+   * keys its InboundWebhookConnection off that instance id — so a second
+   * provision started while the first QR is still on screen leaves the
+   * workspace with two "active-looking" origin cards for a single number.
+   * Reserved seats expire on their own (reservationTtlMinutes), so this only
+   * blocks a QR flow that is genuinely still running.
+   */
+  private async assertNoQrFlowInProgress(workspaceId: string): Promise<void> {
+    const pending = await this.prisma.whatsappSeat.findFirst({
+      where: {
+        workspaceId,
+        provider: "uazapi",
+        status: "reserved",
+        whatsappInstanceId: { not: null },
+        reservationExpiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { whatsappInstanceId: true },
+    });
+    if (!pending) return;
+
+    throw new ConflictException(
+      "Ja existe uma conexao NOD API aguardando a leitura do QR code. Conclua ou aguarde a expiracao antes de criar outra",
+    );
   }
 
   private assertProvisioningEnabled(): void {

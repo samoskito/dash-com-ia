@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../common/prisma/prisma.module";
+import { UazapiConversionBridgeModule } from "../inbound-webhooks/uazapi-conversion-bridge.module";
 import { IntegrationsModule } from "../integrations/integrations.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AsaasAdapter } from "./asaas.adapter";
@@ -35,6 +36,7 @@ import { WorkspacePackageAccessService } from "./workspace-package-access.servic
     PrismaModule,
     IntegrationsModule,
     BillingSeatModule,
+    UazapiConversionBridgeModule,
   ],
   controllers: [
     BillingController,

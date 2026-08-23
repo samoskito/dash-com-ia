@@ -683,3 +683,72 @@ describe("inbound webhook connections service", () => {
     expect(harness.audits).toEqual([]);
   });
 });
+
+function createUazapiSyncHarness() {
+  const uazapiBridge = {
+    ensureBridge: vi.fn(async () => ({
+      connectionId: "connection_bridged",
+      channelId: "channel_bridged",
+    })),
+    reconcileWorkspaceBridges: vi.fn(async () => []),
+  };
+  const prisma = {
+    whatsappInstance: {
+      findMany: vi.fn(async () => [
+        {
+          id: "instance_a",
+          workspaceId: "workspace_1",
+          name: "Whats Foz do Iguacu",
+          providerInstanceId: "prov_a",
+        },
+        {
+          id: "instance_b",
+          workspaceId: "workspace_1",
+          name: "Whats Foz",
+          providerInstanceId: "prov_b",
+        },
+      ]),
+    },
+    inboundWebhookConnection: {
+      findMany: vi.fn(async () => []),
+    },
+  };
+  const service = new InboundWebhookConnectionsService(
+    prisma as unknown as PrismaService,
+    enabledEnvironment(),
+    undefined,
+    undefined,
+    uazapiBridge as never,
+  );
+
+  return { prisma, service, uazapiBridge };
+}
+
+describe("inbound webhook connections service uazapi sync", () => {
+  it("collapses duplicate NOD origins before listing the workspace connections", async () => {
+    const harness = createUazapiSyncHarness();
+
+    await harness.service.listConnections("workspace_1");
+
+    expect(harness.uazapiBridge.ensureBridge).toHaveBeenCalledTimes(2);
+    expect(
+      harness.uazapiBridge.reconcileWorkspaceBridges,
+    ).toHaveBeenCalledWith("workspace_1");
+    expect(harness.prisma.inboundWebhookConnection.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { workspaceId: "workspace_1", removedAt: null },
+      }),
+    );
+  });
+
+  it("still lists connections when the reconcile pass fails", async () => {
+    const harness = createUazapiSyncHarness();
+    harness.uazapiBridge.reconcileWorkspaceBridges.mockRejectedValueOnce(
+      new Error("reconcile unavailable"),
+    );
+
+    await expect(
+      harness.service.listConnections("workspace_1"),
+    ).resolves.toEqual([]);
+  });
+});
