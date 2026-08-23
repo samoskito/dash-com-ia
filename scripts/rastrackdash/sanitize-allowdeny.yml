@@ -75,6 +75,62 @@ remove_paths:
   - apps/web/src/app/(app)/integrations/meta-oauth-button.tsx
   - apps/web/src/app/(app)/integrations/meta-oauth-actions.ts
 
+  # F3.3: two more staff-only "backoffice/*" HTTP controllers that were missed
+  # in the F3.1 inventory because their filenames don't start with
+  # "backoffice-" (unlike the ones above). Both @Inject(PlatformAdminService)
+  # directly to call assertPlatformAdmin(), so once auth/platform-admin.service.ts
+  # is stripped there is no way to satisfy that dependency short of
+  # reinventing the multi-client staff model — delete, matching the sibling
+  # backoffice-*.controller.ts precedent above.
+  - apps/api/src/diagnostics/diagnostics.controller.ts
+  - apps/api/src/external-data/backoffice-external-data.controller.ts
+
+  # F3.3: PlatformWorkspaceAccessService's only caller was
+  # backoffice-workspaces.controller.ts (removed above); it has no remaining
+  # consumer once that controller is gone (only imports PlatformAdminUser as
+  # a TYPE, never calls PlatformAdminService itself, but is meaningless
+  # without a caller that already resolved that actor).
+  - apps/api/src/workspaces/platform-workspace-access.service.ts
+
+  # F3.3: WhatsApp "instance" marketplace (buy/checkout additional numbers via
+  # Asaas, WhatsappInstanceActivation/PaymentCharge-backed) is a second,
+  # separate billing surface missed by the F3.1 apps/api/src/billing/ walk
+  # because it lives under integrations/, not billing/. Its Prisma include
+  # (`activations -> paymentCharge`) already references relation fields the
+  # F3.2 Prisma strip removed (WhatsappInstanceActivation), so it no longer
+  # type-checks even before considering the missing billing/ backend. Distinct
+  # from the kept single BYO Uazapi instance token (integrations/uazapi/).
+  - apps/api/src/integrations/whatsapp-connections.service.ts
+  - apps/api/src/integrations/whatsapp-connections.controller.ts
+
+  # F3.3: root backoffice dashboard page — every backoffice/* subsection
+  # linked from it was already removed above (clients/billing/diagnostics/
+  # inbound-webhooks/webhooks), but the parent page.tsx itself (staff-only,
+  # imports Backoffice*/Split*/WorkspaceBilling* DTOs from the now-stripped
+  # billing/platform-administration shared schemas) was missed.
+  - apps/web/src/app/(backoffice)/backoffice/page.tsx
+
+  # F3.3: apps/web/tests/ was intentionally left in place in F3.2 (unlike
+  # apps/api/test/), but ~16 findings in the dangling-import scan are test
+  # files that only exercise now-removed backoffice/meta-oauth-broker/
+  # subscription pages. Curated per EXPORT_REPORT F3.2 "Known limitations".
+  - apps/web/tests/backoffice-route.test.ts
+  - apps/web/tests/backoffice-clients-route.test.ts
+  - apps/web/tests/diagnostic-detail-route.test.ts
+  - apps/web/tests/inbound-webhook-parser-recovery-actions.test.ts
+  - apps/web/tests/inbound-webhook-parser-recovery-route.test.ts
+  - apps/web/tests/inbound-webhook-payload-route.test.ts
+  - apps/web/tests/inbound-webhook-recovery-actions.test.ts
+  - apps/web/tests/inbound-webhook-recovery-route.test.ts
+  - apps/web/tests/inbound-webhook-replay-actions.test.ts
+  - apps/web/tests/inbound-webhook-replay-route.test.ts
+  - apps/web/tests/meta-oauth-actions.test.ts
+  - apps/web/tests/meta-oauth-button.test.ts
+  - apps/web/tests/provider-conversion-trace-actions.test.ts
+  - apps/web/tests/provider-conversion-trace-route.test.ts
+  - apps/web/tests/subscription-route.test.ts
+  - apps/web/tests/webhook-payload-route.test.ts
+
   # F3.2 MVP default (design-system): OUT of v1 export entirely, do not copy.
   - design-system/
   - wpptrack-design-system/
@@ -188,21 +244,13 @@ keep_paths:
 # loudly if a defer_review path is reachable from keep_paths without an
 # explicit resolution (README gate #3).
 #
-# F3.2 note: every entry that was here in F3.1 has been resolved by Samuel's
-# MVP-default lock (see remove_paths / app_module_imports_remove /
-# prisma_models_remove above) EXCEPT meta/oauth/advanced below, which the
-# MVP-default list did not cover. It stays deferred.
+# F3.3: the one remaining F3.1 entry (meta/oauth/advanced) is now resolved —
+# Samuel's F3.3 MVP call is STRIP (manual Meta only, matching
+# meta-oauth-broker-removal). See rewrite_rules.meta-oauth-advanced-removal
+# for the applied codemod. Empty on purpose: every ambiguity from F3.1 is now
+# either an explicit remove_paths entry or an applied rewrite_rules codemod.
 # ---------------------------------------------------------------------------
-defer_review:
-  - path: apps/api/src/integrations/integrations.controller.ts#meta/oauth/advanced
-    reason: >
-      Unclear if "advanced" Meta credential/routing endpoints are wired only
-      to legacy_oauth connections (strip) or also usable from manual
-      connections (keep). meta-connection-resolver.service.ts tags both
-      "legacy_oauth" and "manual" sources; needs a read-through before F3.3.
-      Not part of the F3.2 MVP-default lock (that only resolved the
-      start/callback/state broker + UI button, see rewrite_rules
-      .meta-oauth-broker-removal) — left untouched by the exporter.
+defer_review: []
 
 # ---------------------------------------------------------------------------
 # rewrite_rules — descriptive only in F3.1; F3.2 turns these into codemods.
@@ -238,12 +286,32 @@ rewrite_rules:
       sanitize-export.mjs) — removes the two controller endpoint methods
       plus their now-dead private HTML-popup helpers, and removes the
       MetaOAuthButton import + JSX usage + its server-action file from the
-      web integrations page. meta/oauth/advanced endpoints (separate
-      ambiguity, see defer_review) are left untouched.
+      web integrations page. meta/oauth/advanced endpoints were a separate
+      ambiguity at the time (see defer_review, F3.1/F3.2) — now resolved,
+      see rewrite_rules.meta-oauth-advanced-removal below.
     evidence:
       - apps/api/src/integrations/integrations.controller.ts:75-99
       - apps/api/src/integrations/meta/meta-connection-resolver.service.ts
       - apps/web/src/app/(app)/integrations/meta-oauth-button.tsx
+  - id: meta-oauth-advanced-removal
+    description: >
+      F3.3 resolution of the meta/oauth/advanced defer_review entry: Samuel's
+      MVP call is STRIP (manual Meta only, same call as the OAuth broker
+      above). Applied as a codemod (applyMetaOAuthAdvancedRemoval in
+      sanitize-export.mjs) — removes the 11 GET/POST/PUT/DELETE
+      "meta/oauth/advanced*" endpoint methods (credential prep, asset
+      discovery, business connections, reporting-account/ad destination
+      routing) from integrations.controller.ts plus the now-unused
+      metaOAuthAdvancedRoutingInputSchema import. Mirrors
+      meta-oauth-broker-removal in leaving the corresponding
+      IntegrationsService methods and the web "advanced" panel
+      (integrations/page.tsx, meta-manual-actions.ts) in place as dead code
+      that degrades gracefully against the removed endpoints (404s are
+      caught the same way getBillingSubscription()/getAsaasStatusAction()
+      already were) — a full UI removal is a separate, larger follow-up (see
+      EXPORT_REPORT "Known limitations").
+    evidence:
+      - apps/api/src/integrations/integrations.controller.ts:219-432
   - id: uazapi-byo-only
     description: >
       Strip every code path that reads UAZAPI_ADMIN_TOKEN (a PalmUP fleet
@@ -261,6 +329,120 @@ rewrite_rules:
     description: Remove all references to license keys/activation/Guru in docs, error messages, and onboarding copy once licensing/ is stripped.
     evidence:
       - apps/api/src/licensing/**
+  - id: external-channel-seat-gate-noop
+    description: >
+      F3.3: three kept services (@Optional()-inject PackageBillingConfiguration
+      + WhatsappSeatService from the removed billing/) already treat both as
+      possibly-undefined at runtime — with billing/ stripped they always are,
+      so externalChannelEnforcementEnabled() already always returned false in
+      practice. Codemod (applySeatGateNoop) makes that the literal source
+      instead of an inferred runtime outcome: drops the two billing/ type
+      imports + optional constructor params, hardcodes
+      externalChannelEnforcementEnabled() to `return false`, and stubs
+      seatHook().activateSeat() to throw (unreachable, since it's only
+      called when enforcement is enabled). No behavior change vs. the F3.2
+      export, just resolves the dangling type import.
+    evidence:
+      - apps/api/src/conversion-rules/provider-conversion-rules.service.ts
+      - apps/api/src/inbound-webhooks/inbound-webhook-channel-routes.service.ts
+      - apps/api/src/inbound-webhooks/inbound-webhook-connections.service.ts
+  - id: external-channel-billing-access-stub
+    description: >
+      F3.3: unlike the @Optional() services above, InboundWebhookProductionService
+      and ProviderConversionProductionService @Inject() ExternalChannelBillingAccessService
+      as a REQUIRED dependency provided by billing/billing-seat.module.ts — with
+      BillingSeatModule already removed from their modules (F3.2), this is a
+      real Nest DI break, not just a dangling type. Codemod
+      (applyExternalChannelBillingAccessStub) replaces the import with a local
+      always-allow stand-in (assertProductionAccess() no-ops, matching
+      ExternalChannelBillingAccessService.isEnforced() === false once
+      PackageBillingConfiguration is gone) and switches the constructor
+      parameter to a plain instantiated field so there is no DI token left to
+      resolve.
+    evidence:
+      - apps/api/src/inbound-webhook-production/inbound-webhook-production.service.ts
+      - apps/api/src/inbound-webhook-production/provider-conversion-production.service.ts
+  - id: platform-admin-user-local-type
+    description: >
+      F3.3: InboundWebhookReplayService imports the PlatformAdminUser TYPE
+      only (never injects PlatformAdminService) to type an `actor` parameter
+      on certifyParserRelease/authorizeReplay/retryTransientFailures — all
+      three only ever called from inbound-webhook-replay.controller.ts, which
+      is already removed (backoffice recovery/replay strip). The methods
+      themselves are real per-workspace product logic (not billing/staff-only),
+      so codemod (applyPlatformAdminUserLocalType) keeps them and swaps the
+      import for a local `{ id: string; role: string }` type instead of
+      deleting ~260 lines of business logic that a future single-owner
+      bootstrap (F3.3/F6 TODO) can re-wire a caller to.
+    evidence:
+      - apps/api/src/inbound-webhook-replay/inbound-webhook-replay.service.ts
+  - id: asaas-adapter-removal
+    description: >
+      F3.3: integrations.service.ts constructs AsaasAdapter as a plain
+      (non-@Inject) constructor parameter, so removing just the module
+      registration (integrations.module.ts, handled generically) is not
+      enough — Nest's reflection-based DI still needs the class reference to
+      resolve the parameter type. Codemod (applyAsaasAdapterRemoval) drops
+      the import, the constructor parameter, and the
+      `this.asaasAdapter.getHealth()` call in getHealthSummary().
+    evidence:
+      - apps/api/src/integrations/integrations.service.ts
+  - id: client-swap-web-panel-removal
+    description: >
+      F3.3: settings/page.tsx's "Trocar de cliente" section is the client-swap
+      staff feature's web half (workspaces/client-swap/ removed in F3.2).
+      Codemod (applyClientSwapWebRemoval) drops the ClientSwapPanel/
+      clientSwapAction imports, the sidebar nav anchor, and the whole
+      canSwapClient-gated <section>. client-swap-actions.ts is left in place
+      (dead but not import-broken) pending a decision on whether
+      canSwapClient/isPlatformOwnerSupport survive a future single-owner
+      bootstrap in some other form.
+    evidence:
+      - apps/web/src/app/(app)/settings/page.tsx
+  - id: subscription-dead-links-removal
+    description: >
+      F3.3: apps/web/src/app/(app)/subscription/ was removed in F3.2, but
+      several kept files still reference the "/subscription" route as a nav
+      item, redirect target, or route-matcher entry. Codemod
+      (applySubscriptionDeadLinksRemoval) removes: the "subscription" entry
+      + its canManageBilling permission mapping from
+      packages/shared/src/navigation.ts (clientNavigation is the single
+      source of the nav item — removing it there fixes app-shell.tsx's
+      derived nav automatically); the CreditCard icon mapping + "subscription"
+      group id in app-shell.tsx; "/subscription" prefixes from
+      middleware.ts's protectedPrefixes/matcher; the whole billing_blocked
+      branch + subscription case in managementNavIdForPath in
+      workspace-access-gate.tsx, plus its now-unused
+      getWorkspacePackageAccess() call/import and the WorkspacePackageAccessDto
+      import + export in lib/current-workspace.ts (no other caller). The two
+      dead "Gerenciar assinatura" CTAs in integrations/page.tsx (inside a
+      packageBillingEnabled block that is always false once billing/ is
+      stripped) are repointed to /settings rather than deleted, since the
+      surrounding billing-status panel in that file is a separate, larger
+      known limitation (see EXPORT_REPORT).
+    evidence:
+      - packages/shared/src/navigation.ts
+      - apps/web/src/components/app-shell.tsx
+      - apps/web/src/middleware.ts
+      - apps/web/src/components/workspace-access-gate.tsx
+      - apps/web/src/lib/current-workspace.ts
+      - apps/web/src/app/(app)/integrations/page.tsx
+  - id: ops-alerts-whatsapp-connections-stub
+    description: >
+      F3.3: OpsAlertService.runScan()'s disconnect-check branch calls
+      WhatsappConnectionsService.getStatus() (the billing-only instance
+      marketplace, removed above) purely to read a BYO Uazapi instance's
+      connection status — a real product feature (disconnect alerts), not
+      billing-gated itself, that just happened to route status reads through
+      the marketplace service instead of UazapiAdapter directly. Codemod
+      (applyOpsAlertsWhatsappConnectionsStub) drops the import/constructor
+      dependency and replaces the status check with a skip-and-record call
+      (status "skipped", detail "disconnect_status_check_unavailable"),
+      matching the file's existing skip pattern for disabled alerts. Re-wiring
+      the check directly against UazapiAdapter is a real feature change left
+      for a follow-up slice (F3.3/F4 TODO), not guessed here.
+    evidence:
+      - apps/api/src/ops-alerts/ops-alerts.service.ts
 
 # ---------------------------------------------------------------------------
 # secret_fail_patterns — export MUST fail (non-zero exit, no output written)
@@ -474,9 +656,21 @@ module_registrations_strip:
   - file: apps/api/src/inbound-webhook-replay/inbound-webhook-replay.module.ts
     identifiers: [InboundWebhookReplayController]
   - file: apps/api/src/workspaces/workspaces.module.ts
-    identifiers: [BackofficeWorkspacesController]
+    identifiers:
+      - BackofficeWorkspacesController
+      - PlatformWorkspaceAccessService   # F3.3: only caller (BackofficeWorkspacesController) removed above
+      - ClientSwapModule                 # F3.3: workspaces/client-swap/ dir already removed above
   - file: apps/api/src/auth/auth.module.ts
     identifiers: [PlatformAdminService, BackofficePlatformUsersController]
+  - file: apps/api/src/diagnostics/diagnostics.module.ts
+    identifiers: [DiagnosticsController]   # F3.3: controller deleted above (staff-only backoffice/diagnostics)
+  - file: apps/api/src/external-data/external-data.module.ts
+    identifiers: [BackofficeExternalDataController]   # F3.3: controller deleted above
+  - file: apps/api/src/integrations/integrations.module.ts
+    identifiers:
+      - AsaasAdapter                    # F3.3: asaas/ integration dir removed, see integrations.service.ts residue codemod for the constructor/call-site cleanup
+      - WhatsappConnectionsController   # F3.3: whatsapp-connections.* removed above (billing-only instance marketplace)
+      - WhatsappConnectionsService
 
 # ---------------------------------------------------------------------------
 # barrel_exports_remove — `export * from "X";` lines dropped from shared

@@ -583,6 +583,574 @@ function applyResidueCodemods(out, log) {
 }
 
 // ---------------------------------------------------------------------------
+// F3.3 dangling-import resolution codemods — each documented as an "Applied
+// as a codemod" rewrite_rules entry in sanitize-allowdeny.yml. Small,
+// self-contained, exact-text replacements (no regex) so a source drift shows
+// up as a loud FAILED line in EXPORT_REPORT.md instead of a silent no-op.
+// ---------------------------------------------------------------------------
+
+function applyStringCodemod(out, file, steps, log) {
+  const target = join(out, file);
+  if (!existsSync(target)) {
+    log.f33CodemodFailed.push(`${file}: file absent`);
+    return;
+  }
+  let content = readFileSync(target, "utf8");
+  for (const step of steps) {
+    if (content.includes(step.search)) {
+      content = content.replace(step.search, step.replace ?? "");
+      log.f33Codemod.push(`${file}: ${step.label}`);
+    } else {
+      log.f33CodemodFailed.push(`${file}: ${step.label} — marker not found (source may have drifted)`);
+    }
+  }
+  writeFileSync(target, content);
+}
+
+// rewrite_rules.external-channel-seat-gate-noop
+function applySeatGateNoop(out, log) {
+  const files = [
+    "apps/api/src/conversion-rules/provider-conversion-rules.service.ts",
+    "apps/api/src/inbound-webhooks/inbound-webhook-channel-routes.service.ts",
+    "apps/api/src/inbound-webhooks/inbound-webhook-connections.service.ts",
+  ];
+
+  const enforcementBefore =
+    'private externalChannelEnforcementEnabled(): boolean {\n' +
+    '    const enabled =\n' +
+    '      this.billingConfiguration?.isPackageBillingEnabled() === true &&\n' +
+    '      this.billingConfiguration.isExternalChannelEnforcementEnabled();\n' +
+    '\n' +
+    '    if (enabled && !this.whatsappSeats) {\n' +
+    '      throw new ServiceUnavailableException(\n' +
+    '        "Controle de vagas dos canais externos indisponivel",\n' +
+    '      );\n' +
+    '    }\n' +
+    '\n' +
+    '    return enabled;\n' +
+    '  }';
+  const enforcementAfter =
+    'private externalChannelEnforcementEnabled(): boolean {\n' +
+    '    // rastrackdash sanitize (rewrite_rules.external-channel-seat-gate-noop):\n' +
+    '    // billing/ is stripped in this edition, so external-channel seat\n' +
+    '    // enforcement can never be enabled — hardcode the noop outcome instead\n' +
+    '    // of inferring it from now-absent optional billing deps.\n' +
+    '    return false;\n' +
+    '  }';
+
+  const activateSeatBefore =
+    '      activateSeat: (transaction, seatInput) =>\n' +
+    '        this.whatsappSeats!.activateExternalChannelSeat(transaction, seatInput),';
+  const activateSeatAfter =
+    '      activateSeat: () => {\n' +
+    '        throw new Error(\n' +
+    '          "External channel seat activation is unavailable once billing/ is removed.",\n' +
+    '        );\n' +
+    '      },';
+
+  const steps = [
+    {
+      search: 'import { PackageBillingConfiguration } from "../billing/package-billing.configuration";\n',
+      replace: "",
+      label: "PackageBillingConfiguration import removed",
+    },
+    {
+      search: 'import { WhatsappSeatService } from "../billing/whatsapp-seat.service";\n',
+      replace: "",
+      label: "WhatsappSeatService import removed",
+    },
+    {
+      search:
+        "    @Optional()\n" +
+        "    @Inject(PackageBillingConfiguration)\n" +
+        "    private readonly billingConfiguration?: PackageBillingConfiguration,\n" +
+        "    @Optional()\n" +
+        "    @Inject(WhatsappSeatService)\n" +
+        "    private readonly whatsappSeats?: WhatsappSeatService,\n",
+      replace: "",
+      label: "billingConfiguration/whatsappSeats constructor params removed",
+    },
+    {
+      search: activateSeatBefore,
+      replace: activateSeatAfter,
+      label: "seatHook().activateSeat() stubbed to throw (unreachable)",
+    },
+    {
+      search: enforcementBefore,
+      replace: enforcementAfter,
+      label: "externalChannelEnforcementEnabled() hardcoded to false",
+    },
+  ];
+
+  for (const file of files) applyStringCodemod(out, file, steps, log);
+}
+
+// rewrite_rules.external-channel-billing-access-stub
+function applyExternalChannelBillingAccessStub(out, log) {
+  const targets = [
+    {
+      file: "apps/api/src/inbound-webhook-production/inbound-webhook-production.service.ts",
+      className: "InboundWebhookProductionService",
+    },
+    {
+      file: "apps/api/src/inbound-webhook-production/provider-conversion-production.service.ts",
+      className: "ProviderConversionProductionService",
+    },
+  ];
+
+  const importBefore =
+    "import {\n" +
+    "  ExternalChannelBillingAccessError,\n" +
+    "  ExternalChannelBillingAccessService,\n" +
+    '} from "../billing/external-channel-billing-access.service";';
+  const importAfter =
+    "// rastrackdash sanitize (rewrite_rules.external-channel-billing-access-stub):\n" +
+    "// billing/ is stripped in this edition; ExternalChannelBillingAccessService\n" +
+    "// was a REQUIRED (non-@Optional) constructor dependency here, so removing\n" +
+    "// just the import isn't enough — this local always-allow stand-in matches\n" +
+    "// ExternalChannelBillingAccessService.isEnforced() === false once\n" +
+    "// PackageBillingConfiguration is gone, and keeps\n" +
+    "// ExternalChannelBillingAccessError as a real class so the existing\n" +
+    "// instanceof error-code narrowing below still compiles (it is now\n" +
+    "// unreachable, since assertProductionAccess() never throws).\n" +
+    "class ExternalChannelBillingAccessError extends Error {\n" +
+    "  constructor(readonly code: string) {\n" +
+    '    super("External WhatsApp channel billing access denied");\n' +
+    '    this.name = "ExternalChannelBillingAccessError";\n' +
+    "  }\n" +
+    "}\n" +
+    "class ExternalChannelBillingAccessStub {\n" +
+    "  async assertProductionAccess(\n" +
+    "    _workspaceId: string,\n" +
+    "    _channelId: string,\n" +
+    "  ): Promise<void> {\n" +
+    "    // no-op: external-channel billing enforcement is always disabled once\n" +
+    "    // billing/ is removed.\n" +
+    "  }\n" +
+    "}";
+
+  const paramBefore =
+    "    @Inject(ExternalChannelBillingAccessService)\n" +
+    "    private readonly billingAccess: ExternalChannelBillingAccessService,\n";
+
+  for (const { file, className } of targets) {
+    const fieldBefore = `export class ${className} {\n`;
+    const fieldAfter =
+      `export class ${className} {\n` +
+      "  private readonly billingAccess = new ExternalChannelBillingAccessStub();\n" +
+      "\n";
+
+    applyStringCodemod(out, file, [
+      { search: importBefore, replace: importAfter, label: "billing-access import replaced with local stub" },
+      { search: paramBefore, replace: "", label: "billingAccess @Inject constructor param removed" },
+      { search: fieldBefore, replace: fieldAfter, label: "billingAccess field wired to stub instance" },
+    ], log);
+  }
+}
+
+// rewrite_rules.platform-admin-user-local-type
+function applyPlatformAdminUserLocalType(out, log) {
+  applyStringCodemod(
+    out,
+    "apps/api/src/inbound-webhook-replay/inbound-webhook-replay.service.ts",
+    [
+      {
+        search: 'import type { PlatformAdminUser } from "../auth/platform-admin.service";',
+        replace:
+          "// rastrackdash sanitize (rewrite_rules.platform-admin-user-local-type):\n" +
+          "// auth/platform-admin.service.ts is stripped (multi-client staff model);\n" +
+          "// this file only ever imported the PlatformAdminUser TYPE to type an\n" +
+          "// `actor` parameter, never PlatformAdminService itself. Local structural\n" +
+          "// type keeps certifyParserRelease/authorizeReplay/retryTransientFailures\n" +
+          "// intact for a future single-owner bootstrap caller (F3.3/F6 TODO)\n" +
+          "// instead of deleting real per-workspace business logic.\n" +
+          "type PlatformAdminUser = { id: string; role: string };",
+        label: "PlatformAdminUser import replaced with local structural type",
+      },
+    ],
+    log,
+  );
+}
+
+// rewrite_rules.asaas-adapter-removal
+function applyAsaasAdapterRemoval(out, log) {
+  applyStringCodemod(
+    out,
+    "apps/api/src/integrations/integrations.service.ts",
+    [
+      {
+        search: 'import { AsaasAdapter } from "./asaas/asaas.adapter";\n',
+        replace: "",
+        label: "AsaasAdapter import removed",
+      },
+      {
+        search: "    private readonly asaasAdapter: AsaasAdapter,\n",
+        replace: "",
+        label: "asaasAdapter constructor param removed",
+      },
+      {
+        search: "        this.asaasAdapter.getHealth(),\n",
+        replace: "",
+        label: "asaasAdapter.getHealth() call removed from getHealthSummary()",
+      },
+    ],
+    log,
+  );
+}
+
+// rewrite_rules.client-swap-web-panel-removal
+function applyClientSwapWebRemoval(out, log) {
+  applyStringCodemod(
+    out,
+    "apps/web/src/app/(app)/settings/page.tsx",
+    [
+      {
+        search: 'import { ClientSwapPanel } from "../../../components/client-swap-panel";\n',
+        replace: "",
+        label: "ClientSwapPanel import removed",
+      },
+      {
+        search: 'import { clientSwapAction } from "./client-swap-actions";\n',
+        replace: "",
+        label: "clientSwapAction import removed",
+      },
+      {
+        search: "  ArrowLeftRight,\n",
+        replace: "",
+        label: "ArrowLeftRight icon import removed (only used by the removed section)",
+      },
+      {
+        search:
+          "  const canSwapClient = Boolean(\n" +
+          "    workspace &&\n" +
+          '    workspace.role === "owner" &&\n' +
+          "    (!isPlatformSupport || isPlatformOwnerSupport),\n" +
+          "  );\n",
+        replace: "",
+        label: "canSwapClient flag removed",
+      },
+      {
+        search:
+          "        {canSwapClient ? (\n" +
+          '          <a href="#configuracao-trocar-cliente">\n' +
+          '            <ArrowLeftRight size={16} aria-hidden="true" />\n' +
+          "            Trocar cliente\n" +
+          "          </a>\n" +
+          "        ) : null}\n",
+        replace: "",
+        label: "sidebar nav anchor removed",
+      },
+      {
+        search:
+          "      {canSwapClient && workspace ? (\n" +
+          "        <section\n" +
+          '          className="settings-domain-section settings-client-swap-domain"\n' +
+          '          id="configuracao-trocar-cliente"\n' +
+          '          aria-labelledby="settings-client-swap-title"\n' +
+          "        >\n" +
+          '          <div className="settings-domain-heading">\n' +
+          '            <span className="settings-domain-number" aria-hidden="true">\n' +
+          "              05\n" +
+          "            </span>\n" +
+          "            <div>\n" +
+          '              <span className="eyebrow">Operacao da agencia</span>\n' +
+          '              <h2 id="settings-client-swap-title">Trocar de cliente</h2>\n' +
+          "              <p>\n" +
+          "                Use quando este workspace deixar de atender o cliente atual e\n" +
+          "                for reaproveitado para outro. A assinatura e a equipe da\n" +
+          "                agencia permanecem; os dados operacionais do cliente sao\n" +
+          "                apagados.\n" +
+          "              </p>\n" +
+          "            </div>\n" +
+          '            <span className="status-chip warn">Acao destrutiva</span>\n' +
+          "          </div>\n" +
+          "\n" +
+          '          <div className="surface-panel client-swap-panel-shell">\n' +
+          "            <ClientSwapPanel\n" +
+          "              workspaceId={workspace.id}\n" +
+          "              workspaceName={workspace.name}\n" +
+          "              swapAction={clientSwapAction}\n" +
+          "              successRedirect={\n" +
+          "                isPlatformOwnerSupport\n" +
+          '                  ? "/backoffice/clients?swapped=1"\n' +
+          "                  : undefined\n" +
+          "              }\n" +
+          "            />\n" +
+          "          </div>\n" +
+          "        </section>\n" +
+          "      ) : null}\n",
+        replace: "",
+        label: "canSwapClient-gated <section> removed",
+      },
+    ],
+    log,
+  );
+}
+
+// rewrite_rules.meta-oauth-advanced-removal
+function applyMetaOAuthAdvancedRemoval(out, log) {
+  const file = "apps/api/src/integrations/integrations.controller.ts";
+  const target = join(out, file);
+  if (!existsSync(target)) {
+    log.f33CodemodFailed.push(`${file}: file absent`);
+    return;
+  }
+  let content = readFileSync(target, "utf8");
+  const before = content;
+
+  content = content.replace(
+    /\n {2}@Get\("meta\/oauth\/advanced"\)[\s\S]*?(?=\n {2}@Get\("meta\/manual"\))/,
+    "\n",
+  );
+  content = content.replace(/^ {2}metaOAuthAdvancedRoutingInputSchema,\r?\n/m, "");
+
+  if (content !== before) {
+    writeFileSync(target, content);
+    log.f33Codemod.push(`${file}: meta/oauth/advanced endpoints (11) + unused schema import removed`);
+  } else {
+    log.f33CodemodFailed.push(`${file}: meta/oauth/advanced removal — marker not found (source may have drifted)`);
+  }
+}
+
+// rewrite_rules.subscription-dead-links-removal
+function applySubscriptionDeadLinksRemoval(out, log) {
+  applyStringCodemod(out, "packages/shared/src/navigation.ts", [
+    {
+      search: '  { id: "settings", label: "Configuracoes" },\n  { id: "subscription", label: "Assinatura" }\n',
+      replace: '  { id: "settings", label: "Configuracoes" }\n',
+      label: 'clientNavigation "subscription" entry removed',
+    },
+    {
+      search: '  settings: "canManageWorkspaceSettings",\n  subscription: "canManageBilling"\n',
+      replace: '  settings: "canManageWorkspaceSettings"\n',
+      label: "subscription permission mapping removed",
+    },
+  ], log);
+
+  applyStringCodemod(out, "apps/web/src/components/app-shell.tsx", [
+    {
+      search: "  Plug,\n  CreditCard,\n  Send,\n",
+      replace: "  Plug,\n  Send,\n",
+      label: "CreditCard icon import removed",
+    },
+    {
+      search: "  settings: Settings2,\n  subscription: CreditCard,\n",
+      replace: "  settings: Settings2,\n",
+      label: "subscription icon mapping removed",
+    },
+    {
+      search: '    ids: ["integrations", "settings", "subscription"],\n',
+      replace: '    ids: ["integrations", "settings"],\n',
+      label: '"subscription" removed from Gestao nav group ids',
+    },
+  ], log);
+
+  applyStringCodemod(out, "apps/web/src/middleware.ts", [
+    {
+      search: '  "/settings",\n  "/subscription",\n  "/backoffice",\n',
+      replace: '  "/settings",\n  "/backoffice",\n',
+      label: "/subscription removed from protectedPrefixes",
+    },
+    {
+      search: '    "/settings/:path*",\n    "/subscription/:path*",\n    "/backoffice/:path*",\n',
+      replace: '    "/settings/:path*",\n    "/backoffice/:path*",\n',
+      label: "/subscription/:path* removed from matcher",
+    },
+  ], log);
+
+  applyStringCodemod(out, "apps/web/src/components/workspace-access-gate.tsx", [
+    {
+      search: 'import Link from "next/link";\n',
+      replace: "",
+      label: "Link import removed (only used by the removed billing_blocked branch)",
+    },
+    {
+      search: "  getAvailableWorkspaces,\n  getCurrentWorkspace,\n  getWorkspacePackageAccess,\n} from \"../lib/current-workspace\";",
+      replace: "  getAvailableWorkspaces,\n  getCurrentWorkspace,\n} from \"../lib/current-workspace\";",
+      label: "getWorkspacePackageAccess import removed",
+    },
+    {
+      search:
+        "  if (\n" +
+        '    workspaceAccess.state === "billing_blocked" &&\n' +
+        '    !pathname.startsWith("/subscription")\n' +
+        "  ) {\n" +
+        "    const canOpenSubscription = clientNavVisibleForPermissions(\n" +
+        '      "subscription",\n' +
+        "      workspaceAccess.workspace.permissions,\n" +
+        "    );\n" +
+        "\n" +
+        "    return (\n" +
+        "      <AppShell workspace={workspaceAccess.workspace} workspaces={workspaces}>\n" +
+        '        <section className="page-stack">\n' +
+        '          <header className="page-header">\n' +
+        "            <div>\n" +
+        '              <span className="eyebrow">Assinatura</span>\n' +
+        "              <h1>Acesso suspenso</h1>\n" +
+        "              <p>\n" +
+        "                {canOpenSubscription\n" +
+        '                  ? "Regularize a assinatura para voltar a acessar os dados e as operacoes deste workspace."\n' +
+        '                  : "A assinatura deste workspace precisa ser regularizada pelo responsavel da conta."}\n' +
+        "              </p>\n" +
+        "            </div>\n" +
+        '            <div className="header-actions">\n' +
+        '              <span className="status-chip warn">pagamento pendente</span>\n' +
+        "              {canOpenSubscription ? (\n" +
+        '                <Link className="button primary" href="/subscription">\n' +
+        "                  Gerenciar assinatura\n" +
+        "                </Link>\n" +
+        "              ) : null}\n" +
+        "            </div>\n" +
+        "          </header>\n" +
+        "        </section>\n" +
+        "      </AppShell>\n" +
+        "    );\n" +
+        "  }\n" +
+        "\n",
+      replace: "",
+      label: "billing_blocked branch removed",
+    },
+    {
+      search:
+        '  if (pathname === "/subscription" || pathname.startsWith("/subscription/")) {\n' +
+        '    return "subscription";\n' +
+        "  }\n",
+      replace: "",
+      label: "subscription case removed from managementNavIdForPath",
+    },
+    {
+      search:
+        "  // Fail-closed management routes: analyst (member) and others without the\n" +
+        "  // matching permission cannot open integrations/settings/subscription by URL.\n",
+      replace:
+        "  // Fail-closed management routes: analyst (member) and others without the\n" +
+        "  // matching permission cannot open integrations/settings by URL.\n",
+      label: "stale /subscription mention removed from comment",
+    },
+    {
+      search:
+        "    const workspace = await getCurrentWorkspace();\n" +
+        "\n" +
+        '    if (workspace.accessMode !== "platform_support") {\n' +
+        "      try {\n" +
+        "        const packageAccess = await getWorkspacePackageAccess();\n" +
+        "\n" +
+        "        if (packageAccess.enforcementEnabled && !packageAccess.allowed) {\n" +
+        "          return {\n" +
+        '            state: "billing_blocked",\n' +
+        "            workspace,\n" +
+        "          };\n" +
+        "        }\n" +
+        "      } catch {\n" +
+        "        // The API guard remains authoritative if the lightweight UI check fails.\n" +
+        "      }\n" +
+        "    }\n" +
+        "\n" +
+        "    return {\n",
+      replace: "    const workspace = await getCurrentWorkspace();\n\n    return {\n",
+      label: "getWorkspacePackageAccess() billing_blocked check removed",
+    },
+    {
+      search:
+        "  | {\n" +
+        '      state: "operational_blocked";\n' +
+        "      workspace: CurrentWorkspaceDto | null;\n" +
+        "    }\n" +
+        '  | { state: "billing_blocked"; workspace: CurrentWorkspaceDto }\n',
+      replace:
+        "  | {\n" +
+        '      state: "operational_blocked";\n' +
+        "      workspace: CurrentWorkspaceDto | null;\n" +
+        "    }\n",
+      label: "billing_blocked state removed from getWorkspaceAccessState() return type",
+    },
+  ], log);
+
+  applyStringCodemod(out, "apps/web/src/lib/current-workspace.ts", [
+    {
+      search: "  WorkspaceListDto,\n  WorkspacePackageAccessDto,\n} from \"@wpptrack/shared\";",
+      replace: "  WorkspaceListDto,\n} from \"@wpptrack/shared\";",
+      label: "WorkspacePackageAccessDto import removed",
+    },
+    {
+      search:
+        "\n" +
+        "export const getWorkspacePackageAccess = cache(() =>\n" +
+        '  serverApiFetch<WorkspacePackageAccessDto>("/billing/package/access"),\n' +
+        ");\n",
+      replace: "\n",
+      label: "getWorkspacePackageAccess() export removed",
+    },
+  ], log);
+
+  applyStringCodemod(out, "apps/web/src/app/(app)/integrations/page.tsx", [
+    {
+      search:
+        '                <Link className="button primary" href="/subscription">\n' +
+        "                  Gerenciar assinatura e QR\n" +
+        "                </Link>\n",
+      replace:
+        '                <Link className="button primary" href="/settings">\n' +
+        "                  Gerenciar assinatura e QR\n" +
+        "                </Link>\n",
+      label: 'dead "Gerenciar assinatura e QR" CTA repointed to /settings',
+    },
+    {
+      search:
+        '                  <Link className="button primary" href="/subscription">\n' +
+        "                    Abrir assinatura\n" +
+        "                  </Link>\n",
+      replace:
+        '                  <Link className="button primary" href="/settings">\n' +
+        "                    Abrir assinatura\n" +
+        "                  </Link>\n",
+      label: 'dead "Abrir assinatura" CTA repointed to /settings',
+    },
+  ], log);
+}
+
+// rewrite_rules.ops-alerts-whatsapp-connections-stub
+function applyOpsAlertsWhatsappConnectionsStub(out, log) {
+  applyStringCodemod(
+    out,
+    "apps/api/src/ops-alerts/ops-alerts.service.ts",
+    [
+      {
+        search: 'import { WhatsappConnectionsService } from "../integrations/whatsapp-connections.service";\n',
+        replace: "",
+        label: "WhatsappConnectionsService import removed",
+      },
+      {
+        search: "    @Inject(WhatsappConnectionsService) private readonly whatsappConnections: WhatsappConnectionsService,\n",
+        replace: "",
+        label: "whatsappConnections constructor param removed",
+      },
+      {
+        search:
+          "        try {\n" +
+          "          const status = await this.whatsappConnections.getStatus(setting.workspaceId, instance.id);\n" +
+          '          if (status.connectionStatus === "disconnected") {\n' +
+          "            await this.notify(setting, `disconnect:${instance.id}`, `[WppTrack] WhatsApp desconectado no workspace \"${setting.workspace.name}\" (instancia \"${instance.name}\"). Reconecte no painel.`, result, now);\n" +
+          "          }\n" +
+          "        } catch (error) {\n" +
+          "          this.logger.warn(`ops_alert_disconnect_status_failed workspace=${setting.workspaceId} instance=${instance.id}`);\n" +
+          "        }\n",
+        replace:
+          "        // rastrackdash sanitize (rewrite_rules.ops-alerts-whatsapp-connections-stub):\n" +
+          "        // WhatsappConnectionsService (billing-only instance marketplace) is\n" +
+          "        // stripped in this edition. Re-wiring this check directly against\n" +
+          "        // UazapiAdapter is a real feature change left for a follow-up slice\n" +
+          "        // (F3.3/F4 TODO); skip rather than guess at the replacement call shape.\n" +
+          "        result.skipped += 1;\n" +
+          "        await this.record(setting.workspaceId, `disconnect:${instance.id}`, \"skipped\", \"disconnect_status_check_unavailable\");\n",
+        label: "disconnect-status check stubbed to skip",
+      },
+    ],
+    log,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Prisma model stripping
 // ---------------------------------------------------------------------------
 
@@ -811,6 +1379,16 @@ function writeExportReport(out, ctx) {
   for (const a of log.residueCodemod) lines.push(`- OK: ${a}`);
   for (const a of log.residueCodemodFailed) lines.push(`- FAILED: ${a}`);
   lines.push("");
+  lines.push("## F3.3 dangling-import resolution codemods");
+  lines.push(
+    "Seat-gate noop, external-channel billing-access stub, platform-admin local " +
+      "type, asaas adapter removal, client-swap web panel removal, meta/oauth/advanced " +
+      "removal, subscription dead-link cleanup, ops-alerts whatsapp-connections stub " +
+      "— see sanitize-allowdeny.yml rewrite_rules for the full rationale per entry.",
+  );
+  for (const a of log.f33Codemod) lines.push(`- OK: ${a}`);
+  for (const a of log.f33CodemodFailed) lines.push(`- FAILED: ${a}`);
+  lines.push("");
   lines.push("## .env.example");
   lines.push(`- Vars kept: ${log.envVarsKept.length}`);
   lines.push(`- Vars stripped: ${log.envVarsStripped.length}`);
@@ -825,41 +1403,33 @@ function writeExportReport(out, ctx) {
     lines.push(`  - pattern "${f.pattern}" in ${f.file}:${f.line}`);
   }
   lines.push("");
-  lines.push("## Known limitations / residual TODOs (F3.3+)");
+  lines.push("## Known limitations / residual TODOs (F3.4+)");
   lines.push(
-    "- billing/ was stripped wholesale (MVP default). Files outside billing/ that " +
-      "still import from it (WhatsappSeatService, PackageBillingConfiguration, " +
-      "BillingService, PackageBillingWebhookService, ExternalChannelBillingAccessService, " +
-      "PlatformAdminService cross-references) are NOT rewritten — see dangling-import " +
-      "scan below for the exact file:line list. Deciding how to re-architect those call " +
-      "sites (drop the gate vs. reimplement a BYO capacity concept) is deliberately left " +
-      "for a follow-up slice rather than guessed here.",
+    "- billing/ was stripped wholesale (MVP default). F3.3 resolved every cross-file " +
+      "reference into it left dangling by that strip (seat-gate noop, external-channel " +
+      "billing-access stub, asaas adapter removal — see 'F3.3 dangling-import resolution " +
+      "codemods' above) rather than reimplementing a BYO capacity concept. Re-architecting " +
+      "seat/capacity tracking as a standalone concept remains a genuine follow-up (F4+), " +
+      "just no longer a compile/import break.",
   );
   lines.push(
     "- Single-owner platform-admin bootstrap not designed/rewritten (create-platform-admin.ts, " +
       "promote-platform-owner.ts, platform-admin.service.ts stripped along with the multi-client " +
-      "staff model). create-user.ts is kept as the generic helper. F3.3/F6 TODO.",
+      "staff model). create-user.ts is kept as the generic helper. inbound-webhook-replay.service.ts " +
+      "kept its business logic behind a local PlatformAdminUser-shaped type (F3.3) pending a real " +
+      "caller. F3.3/F6 TODO.",
   );
   lines.push(
-    "- meta/oauth/advanced endpoints in integrations.controller.ts remain deferred " +
-      "(ambiguous legacy_oauth vs. manual usage) — not touched by this export.",
-  );
-  lines.push(
-    "- workspace-access-gate.tsx / app-shell.tsx still reference the removed /subscription " +
-      "route (nav icon + redirect string) — dead link, not a build break, needs UI cleanup.",
+    "- ops-alerts.service.ts's Uazapi disconnect-status check is stubbed to always skip (F3.3) " +
+      "since WhatsappConnectionsService, the billing-only instance marketplace it read status " +
+      "through, is stripped. Re-wiring the check directly against UazapiAdapter is a real feature " +
+      "change, left for a follow-up slice rather than guessed here.",
   );
   lines.push(
     "- Full `pnpm install && build` of the export was not run in this environment (no " +
       "node_modules / prisma CLI available in the sandbox) — see EXPORT_NOTES.md and the F3.4 " +
       "task note. Only textual/static checks (paths absent, secret scan, dangling-import scan) " +
       "were performed.",
-  );
-  lines.push(
-    "- apps/web/tests/ was left in place (unlike apps/api/test/, which was stripped wholesale " +
-      "because it hard-failed the secret scan). ~11 web test files still import now-removed " +
-      "pages (backoffice/*, subscription/, meta-oauth-*) — see the dangling-import scan below " +
-      "for the exact list; they only trip the informational scanner, not the fail-closed gate, " +
-      "so they're left for F3.3 test-suite curation rather than deleted here.",
   );
   lines.push("");
   lines.push(`## Dangling relative-import scan (informational, ${danglingFindings.length} finding(s))`);
@@ -1061,6 +1631,8 @@ async function main() {
     metaOAuthCodemodFailed: [],
     residueCodemod: [],
     residueCodemodFailed: [],
+    f33Codemod: [],
+    f33CodemodFailed: [],
     envVarsKept: [],
     envVarsStripped: [],
   };
@@ -1100,6 +1672,16 @@ async function main() {
 
   console.log("Applying leftover license/asaas/uazapi-admin residue codemods ...");
   applyResidueCodemods(out, log);
+
+  console.log("Applying F3.3 dangling-import resolution codemods ...");
+  applySeatGateNoop(out, log);
+  applyExternalChannelBillingAccessStub(out, log);
+  applyPlatformAdminUserLocalType(out, log);
+  applyAsaasAdapterRemoval(out, log);
+  applyClientSwapWebRemoval(out, log);
+  applyMetaOAuthAdvancedRemoval(out, log);
+  applySubscriptionDeadLinksRemoval(out, log);
+  applyOpsAlertsWhatsappConnectionsStub(out, log);
 
   console.log("Stripping Prisma models ...");
   const prismaRemove = doc.prisma_models_remove?.remove ?? [];
