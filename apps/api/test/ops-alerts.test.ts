@@ -4,7 +4,7 @@ import { OpsAlertService } from "../src/ops-alerts/ops-alerts.service";
 
 const now = new Date("2026-08-20T12:00:00.000Z");
 
-function makePrisma(input: { recentSent?: boolean; alertPhones?: string[]; instances?: Array<Record<string, unknown>>; connections?: Array<Record<string, unknown>> } = {}) {
+function makePrisma(input: { recentSent?: boolean; lastDeliveryDetail?: string; alertPhones?: string[]; instances?: Array<Record<string, unknown>>; connections?: Array<Record<string, unknown>> } = {}) {
   const alertPhones = input.alertPhones ?? ["5511999999999"];
   return {
     workspaceOpsAlertSettings: {
@@ -15,11 +15,19 @@ function makePrisma(input: { recentSent?: boolean; alertPhones?: string[]; insta
     whatsappInstance: { findMany: vi.fn(async () => input.instances ?? []) },
     inboundWebhookConnection: { findMany: vi.fn(async () => input.connections ?? []) },
     workspaceOpsAlertDelivery: {
-      findFirst: vi.fn(async () => input.recentSent ? { id: "sent_1" } : null),
+      findFirst: vi.fn(async (args: { where?: { status?: string } } = {}) => {
+        // The debounce lookup filters by sent deliveries; the streak lookup reads the latest row.
+        if (args.where?.status === "sent") return input.recentSent ? { id: "sent_1" } : null;
+        return input.lastDeliveryDetail === undefined ? null : { id: "delivery_0", detail: input.lastDeliveryDetail };
+      }),
       create: vi.fn(async () => ({ id: "delivery_1" })),
     },
   };
 }
+
+// A previous scan already saw this instance disconnected, so the next one confirms it.
+const confirmedDisconnect = { lastDeliveryDetail: "disconnect_observed streak=1" };
+const disconnectedStatus = { connectionStatus: "disconnected", providerStatusText: "disconnected" };
 
 describe("workspace ops alerts", () => {
   it("requires at least one phone when settings are enabled and normalizes phones", () => {
@@ -73,9 +81,9 @@ describe("workspace ops alerts", () => {
     }));
   });
 
-  it("notifies a disconnected UAZAPI instance once", async () => {
-    const prisma = makePrisma({ instances: [{ id: "instance_1", name: "Vendas" }] });
-    const connections = { getStatus: vi.fn(async () => ({ connectionStatus: "disconnected" })) };
+  it("notifies a confirmed disconnected UAZAPI instance once", async () => {
+    const prisma = makePrisma({ ...confirmedDisconnect, instances: [{ id: "instance_1", name: "Vendas" }] });
+    const connections = { getStatus: vi.fn(async () => disconnectedStatus) };
     const notifier = { sendText: vi.fn(async () => true) };
     const service = new OpsAlertService(prisma as never, connections as never, notifier as never);
 
@@ -84,10 +92,65 @@ describe("workspace ops alerts", () => {
     expect(prisma.workspaceOpsAlertDelivery.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ alertKey: "disconnect:instance_1", status: "sent" }) }));
   });
 
-  it("notifies every configured phone while recording one delivery", async () => {
-    const prisma = makePrisma({ alertPhones: ["5511999999999", "5521988888888"], instances: [{ id: "instance_1", name: "Vendas" }] });
+  it("does not notify on a single disconnected observation", async () => {
+    const prisma = makePrisma({ instances: [{ id: "instance_1", name: "Vendas" }] });
     const notifier = { sendText: vi.fn(async () => true) };
-    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => ({ connectionStatus: "disconnected" })) } as never, notifier as never);
+    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => disconnectedStatus) } as never, notifier as never);
+
+    await expect(service.runScan(now)).resolves.toEqual({ checked: 1, notified: 0, skipped: 1 });
+    expect(notifier.sendText).not.toHaveBeenCalled();
+    expect(prisma.workspaceOpsAlertDelivery.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ alertKey: "disconnect:instance_1", status: "skipped", detail: "disconnect_observed streak=1" }) }));
+  });
+
+  it("does not notify when the provider status is a transient non-logout state", async () => {
+    const prisma = makePrisma({ ...confirmedDisconnect, instances: [{ id: "instance_1", name: "Vendas" }] });
+    const notifier = { sendText: vi.fn(async () => true) };
+    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => ({ connectionStatus: "disconnected", providerStatusText: "hibernated" })) } as never, notifier as never);
+
+    await expect(service.runScan(now)).resolves.toEqual({ checked: 1, notified: 0, skipped: 0 });
+    expect(notifier.sendText).not.toHaveBeenCalled();
+  });
+
+  it("does not notify while the connection status is still ambiguous", async () => {
+    const prisma = makePrisma({ ...confirmedDisconnect, instances: [{ id: "instance_1", name: "Vendas" }] });
+    const notifier = { sendText: vi.fn(async () => true) };
+    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => ({ connectionStatus: "error", providerStatusText: null })) } as never, notifier as never);
+
+    await expect(service.runScan(now)).resolves.toEqual({ checked: 1, notified: 0, skipped: 0 });
+    expect(notifier.sendText).not.toHaveBeenCalled();
+  });
+
+  it("does not notify when the status check throws", async () => {
+    const prisma = makePrisma({ ...confirmedDisconnect, instances: [{ id: "instance_1", name: "Vendas" }] });
+    const notifier = { sendText: vi.fn(async () => true) };
+    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => { throw new Error("uazapi timeout"); }) } as never, notifier as never);
+
+    await expect(service.runScan(now)).resolves.toEqual({ checked: 1, notified: 0, skipped: 0 });
+    expect(notifier.sendText).not.toHaveBeenCalled();
+  });
+
+  it("clears a pending disconnect streak when the instance is connected again", async () => {
+    const prisma = makePrisma({ ...confirmedDisconnect, instances: [{ id: "instance_1", name: "Vendas" }] });
+    const notifier = { sendText: vi.fn(async () => true) };
+    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => ({ connectionStatus: "connected", providerStatusText: "connected" })) } as never, notifier as never);
+
+    await expect(service.runScan(now)).resolves.toEqual({ checked: 1, notified: 0, skipped: 0 });
+    expect(notifier.sendText).not.toHaveBeenCalled();
+    expect(prisma.workspaceOpsAlertDelivery.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ alertKey: "disconnect:instance_1", status: "skipped", detail: "connected_observed" }) }));
+  });
+
+  it("does not record a clearing row when a connected instance has no pending streak", async () => {
+    const prisma = makePrisma({ instances: [{ id: "instance_1", name: "Vendas" }] });
+    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => ({ connectionStatus: "connected", providerStatusText: "connected" })) } as never, { sendText: vi.fn(async () => true) } as never);
+
+    await expect(service.runScan(now)).resolves.toEqual({ checked: 1, notified: 0, skipped: 0 });
+    expect(prisma.workspaceOpsAlertDelivery.create).not.toHaveBeenCalled();
+  });
+
+  it("notifies every configured phone while recording one delivery", async () => {
+    const prisma = makePrisma({ ...confirmedDisconnect, alertPhones: ["5511999999999", "5521988888888"], instances: [{ id: "instance_1", name: "Vendas" }] });
+    const notifier = { sendText: vi.fn(async () => true) };
+    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => disconnectedStatus) } as never, notifier as never);
 
     await expect(service.runScan(now)).resolves.toEqual({ checked: 1, notified: 1, skipped: 0 });
     expect(notifier.sendText).toHaveBeenCalledTimes(2);
@@ -97,9 +160,9 @@ describe("workspace ops alerts", () => {
   });
 
   it("debounces a second identical alert within the configured window", async () => {
-    const prisma = makePrisma({ recentSent: true, instances: [{ id: "instance_1", name: "Vendas" }] });
+    const prisma = makePrisma({ ...confirmedDisconnect, recentSent: true, instances: [{ id: "instance_1", name: "Vendas" }] });
     const notifier = { sendText: vi.fn(async () => true) };
-    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => ({ connectionStatus: "disconnected" })) } as never, notifier as never);
+    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => disconnectedStatus) } as never, notifier as never);
 
     await expect(service.runScan(now)).resolves.toEqual({ checked: 1, notified: 0, skipped: 1 });
     expect(notifier.sendText).not.toHaveBeenCalled();
@@ -116,8 +179,8 @@ describe("workspace ops alerts", () => {
   });
 
   it("records notifier failures without throwing from the scan", async () => {
-    const prisma = makePrisma({ instances: [{ id: "instance_1", name: "Vendas" }] });
-    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => ({ connectionStatus: "disconnected" })) } as never, { sendText: vi.fn(async () => false) } as never);
+    const prisma = makePrisma({ ...confirmedDisconnect, instances: [{ id: "instance_1", name: "Vendas" }] });
+    const service = new OpsAlertService(prisma as never, { getStatus: vi.fn(async () => disconnectedStatus) } as never, { sendText: vi.fn(async () => false) } as never);
 
     await expect(service.runScan(now)).resolves.toEqual({ checked: 1, notified: 0, skipped: 1 });
     expect(prisma.workspaceOpsAlertDelivery.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed", detail: "sent=0 failed=1" }) }));
