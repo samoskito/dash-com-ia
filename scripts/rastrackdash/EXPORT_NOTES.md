@@ -3,9 +3,9 @@
 Auto-written by `scripts/rastrackdash/sanitize-export.mjs` after each run.
 Never contains secret values, only counts/paths/pattern names.
 
-- When: 2026-08-23T13:22:56.060Z
-- Source commit: 0ddeec4
-- Destination: /tmp/rastrackdash-export-f33v
+- When: 2026-08-23T14:41:46.950Z
+- Source commit: 9c6a4f1
+- Destination: /tmp/rastrackdash-export
 - Result: OK (secret scan passed)
 - remove_paths deleted: 57
 - Prisma models removed: 21

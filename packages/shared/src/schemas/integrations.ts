@@ -581,3 +581,18 @@ export type MetaOAuthAdvancedRoutingInputDto = z.infer<
 export type MetaManualConfigurationDto = z.infer<
   typeof metaManualConfigurationSchema
 >;
+
+// WhatsApp instance conversation labels (UAZAPI). Not billing-related — kept
+// here (rather than schemas/billing.ts) since it's used by the WhatsApp
+// integration adapter/label picker regardless of billing edition.
+export const whatsappLabelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  colorHex: z.string().min(1).nullable(),
+  labelId: z.string().min(1).nullable(),
+});
+
+export const whatsappLabelListSchema = z.array(whatsappLabelSchema);
+
+export type WhatsappLabelDto = z.infer<typeof whatsappLabelSchema>;
+export type WhatsappLabelListDto = z.infer<typeof whatsappLabelListSchema>;
