@@ -311,6 +311,7 @@ export class UazapiProviderConversionService {
       rule,
       channel,
       occurredAt: persistedDecision.occurredAt,
+      manualRecovery: true,
     });
     const summary = {
       decisionId: persistedDecision.id,
@@ -587,6 +588,7 @@ export class UazapiProviderConversionService {
     rule: Rule;
     channel: { status: string; productionActivatedAt: Date | null } | null;
     occurredAt: Date;
+    manualRecovery?: boolean;
   }): {
     disposition: ProviderConversionTechnicalDisposition;
     recordIgnoredObservation: boolean;
@@ -602,7 +604,13 @@ export class UazapiProviderConversionService {
         ? { state: "blocked", reasonCode: decision.reasonCode }
         : this.disposition({
             config: input.config,
-            decisionMode: decision.rule.mode,
+            // A recovery reuses the frozen decision for its event payload and
+            // paid-lead result, but its technical disposition must follow the
+            // mode the operator has enabled now. Otherwise an observation
+            // execution can never be promoted after Envio ativo is enabled.
+            decisionMode: input.manualRecovery
+              ? input.rule.mode
+              : decision.rule.mode,
             reasonCode: decision.reasonCode,
             rule: input.rule,
             channel: input.channel,
