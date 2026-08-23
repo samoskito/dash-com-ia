@@ -22,6 +22,7 @@ import {
   createProviderConversionRuleAction,
   loadProviderConversionAutomationAuditAction,
   loadProviderConversionAutomationPayloadAction,
+  loadProviderConversionExecutionAuditAction,
   loadProviderConversionPurchaseAuditAction,
   removeProviderConversionRuleAction,
   reprocessProviderConversionAutomationCallbacksAction,
@@ -342,6 +343,57 @@ describe("provider conversion rule server actions", () => {
       "/purchase-reviews?providerRuleId=provider_rule_1&page=1&pageSize=50&view=all",
     );
     expect(result.purchaseAudit?.pagination.totalItems).toBe(1);
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("loads executions scoped to the selected provider rule", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      providerRuleId: "provider_rule_1",
+      eventName: "QualifiedLead",
+      summary: {
+        total: 1,
+        observed: 1,
+        eligible: 0,
+        materialized: 0,
+        duplicate: 0,
+        blocked: 0,
+        failed: 0,
+      },
+      items: [
+        {
+          executionId: "execution_1",
+          sourceDeliveryId: "delivery_1",
+          occurredAt: "2026-07-22T18:00:00.000Z",
+          status: "observed",
+          reasonCode: "message_matched_observation",
+          matchedTriggerPhrase: "quero saber mais",
+          channel: null,
+          leadId: null,
+          leadName: null,
+          phoneDisplay: null,
+          valueCents: null,
+          currency: null,
+          conversionEventLogId: null,
+          purchaseReviewId: null,
+          attemptCount: 0,
+          processedAt: null,
+        },
+      ],
+      pagination: { page: 1, pageSize: 50, totalItems: 1, totalPages: 1 },
+    });
+
+    const result = await loadProviderConversionExecutionAuditAction(
+      form({ ruleId: "provider_rule_1" }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/conversion-rules/providers/provider_rule_1/executions?page=1&pageSize=50",
+    );
+    expect(result).toEqual({
+      ok: true,
+      message: "Auditoria de execucoes atualizada.",
+      executionAudit: expect.anything(),
+    });
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 

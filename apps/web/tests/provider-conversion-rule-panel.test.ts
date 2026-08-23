@@ -897,6 +897,8 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain("Valor na mensagem");
     expect(html).toContain("Exemplo da mensagem");
     expect(html).toContain("Segue o link do pagamento de R$ 250,00");
+    expect(html).toContain("Auditar execucoes reconhecidas");
+    expect(html).not.toContain("Auditar compras reconhecidas");
   });
 
   it.each([
@@ -965,6 +967,7 @@ function renderPanel({
       loadAutomationAuditAction: action,
       loadAutomationPayloadAction: action,
       loadPurchaseAuditAction: action,
+      loadExecutionAuditAction: action,
       reprocessAutomationCallbacksAction: action,
       removeAction: action,
       testMessageAction: action,

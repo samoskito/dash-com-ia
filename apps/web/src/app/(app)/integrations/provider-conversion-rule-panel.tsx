@@ -7,6 +7,8 @@ import type {
   ProviderConversionAutomationAuditDto,
   ProviderConversionAutomationAuditItemDto,
   ProviderConversionAutomationPayloadDto,
+  ProviderConversionRuleExecutionAuditDto,
+  ProviderConversionRuleExecutionAuditItemDto,
   ProviderConversionRuleDto,
   PurchaseReviewDto,
   PurchaseReviewListDto,
@@ -138,6 +140,7 @@ export type ProviderConversionRulePanelProps = {
   loadAutomationAuditAction: ProviderRuleAction;
   loadAutomationPayloadAction: ProviderRuleAction;
   loadPurchaseAuditAction: ProviderRuleAction;
+  loadExecutionAuditAction: ProviderRuleAction;
   reprocessAutomationCallbacksAction: ProviderRuleAction;
   removeAction: ProviderRuleAction;
   testMessageAction: ProviderRuleAction;
@@ -156,6 +159,7 @@ export function ProviderConversionRulePanel({
   loadAutomationAuditAction,
   loadAutomationPayloadAction,
   loadPurchaseAuditAction,
+  loadExecutionAuditAction,
   reprocessAutomationCallbacksAction,
   removeAction,
   testMessageAction,
@@ -868,6 +872,9 @@ export function ProviderConversionRulePanel({
               rule.conversionRule.triggerType === "provider_automation";
             const messagePhrase =
               rule.conversionRule.triggerType === "message_phrase";
+            const isPurchaseRule =
+              rule.conversionRule.triggerType === "structured_catalog" ||
+              rule.conversionRule.eventName === "Purchase";
             const uazapiAutomation =
               automation && connectionProvider === "uazapi";
             const umblerAutomation =
@@ -1091,10 +1098,17 @@ export function ProviderConversionRulePanel({
                 ) : null}
 
                 {!automation && canManage ? (
-                  <PurchaseRuleAudit
-                    rule={rule}
-                    loadAuditAction={loadPurchaseAuditAction}
-                  />
+                  isPurchaseRule ? (
+                    <PurchaseRuleAudit
+                      rule={rule}
+                      loadAuditAction={loadPurchaseAuditAction}
+                    />
+                  ) : (
+                    <ExecutionRuleAudit
+                      rule={rule}
+                      loadAuditAction={loadExecutionAuditAction}
+                    />
+                  )
                 ) : null}
               </article>
             );
@@ -1792,6 +1806,224 @@ function PurchaseAuditRow({ review }: { review: PurchaseReviewDto }) {
         >
           <Eye size={15} aria-hidden="true" />
         </Link>
+      </span>
+    </div>
+  );
+}
+
+type ExecutionAuditFilter =
+  | "all"
+  | "observed"
+  | "eligible"
+  | "materialized"
+  | "blocked"
+  | "failed";
+
+function ExecutionRuleAudit({
+  rule,
+  loadAuditAction,
+}: {
+  rule: ProviderConversionRuleDto;
+  loadAuditAction: ProviderRuleAction;
+}) {
+  const [audit, setAudit] = useState<ProviderConversionRuleExecutionAuditDto | null>(
+    null,
+  );
+  const [filter, setFilter] = useState<ExecutionAuditFilter>("all");
+  const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
+
+  async function loadAudit(showSuccess = false) {
+    if (loading) return;
+    const formData = new FormData();
+    formData.set("ruleId", rule.id);
+    setLoading(true);
+    if (!showSuccess) setNotice(null);
+    const result = await loadAuditAction(formData);
+    if (result.ok && result.executionAudit) {
+      setAudit(result.executionAudit);
+      setNotice(
+        showSuccess ? { tone: "success", message: result.message } : null,
+      );
+    } else {
+      setNotice({ tone: "error", message: result.message });
+    }
+    setLoading(false);
+  }
+
+  const visibleItems = (audit?.items ?? []).filter(
+    (item) => filter === "all" || item.status === filter,
+  );
+
+  return (
+    <details
+      className="provider-callback-audit provider-purchase-audit"
+      onToggle={(event) => {
+        if (event.currentTarget.open && !audit && !loading) {
+          void loadAudit();
+        }
+      }}
+    >
+      <summary>
+        <span className="provider-callback-audit-heading">
+          <ListChecks size={17} aria-hidden="true" />
+          <span>
+            <strong>Auditar execucoes reconhecidas</strong>
+            <small>Diagnostico e status desta regra fora do fluxo de compra</small>
+          </span>
+        </span>
+        <span className="status-chip">
+          {audit ? `${audit.summary.total} registro(s)` : "Abrir"}
+        </span>
+      </summary>
+
+      <div className="provider-callback-audit-body">
+        {notice ? (
+          <div className={`inline-notice ${notice.tone}`}>{notice.message}</div>
+        ) : null}
+
+        {loading && !audit ? (
+          <div className="provider-conversion-empty">
+            <RefreshCw size={17} aria-hidden="true" />
+            <span>Carregando execucoes reconhecidas...</span>
+          </div>
+        ) : audit ? (
+          <>
+            <div
+              className="provider-callback-summary provider-purchase-summary"
+              aria-label="Resumo das execucoes reconhecidas"
+            >
+              <AuditMetric label="Total" value={audit.summary.total} />
+              <AuditMetric label="Observados" value={audit.summary.observed} />
+              <AuditMetric label="Elegiveis" value={audit.summary.eligible} tone="info" />
+              <AuditMetric label="Eventos criados" value={audit.summary.materialized} tone="success" />
+              <AuditMetric label="Duplicados" value={audit.summary.duplicate} tone="warn" />
+              <AuditMetric label="Bloqueados" value={audit.summary.blocked} tone="warn" />
+              <AuditMetric label="Falhas" value={audit.summary.failed} tone="warn" />
+            </div>
+
+            <div className="provider-callback-toolbar">
+              <div
+                className="provider-callback-filters"
+                aria-label="Filtrar execucoes reconhecidas"
+              >
+                {(
+                  [
+                    ["all", "Todas"],
+                    ["observed", "Observados"],
+                    ["eligible", "Elegiveis"],
+                    ["materialized", "Eventos criados"],
+                    ["blocked", "Bloqueados"],
+                    ["failed", "Falhas"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    className={filter === value ? "active" : undefined}
+                    key={value}
+                    type="button"
+                    onClick={() => setFilter(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="provider-callback-toolbar-actions">
+                <button
+                  className="button ghost compact-button"
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void loadAudit(true)}
+                >
+                  <RefreshCw size={14} aria-hidden="true" />
+                  Atualizar
+                </button>
+              </div>
+            </div>
+
+            {audit.summary.total === 0 ? (
+              <p className="action-note">
+                Nenhuma execucao registrada para esta regra ainda.
+              </p>
+            ) : (
+              <div className="provider-purchase-table" role="table">
+                <div
+                  className="provider-purchase-row provider-callback-row-head"
+                  role="row"
+                >
+                  <span>Recebido</span>
+                  <span>Canal</span>
+                  <span>Diagnostico</span>
+                  <span>Lead</span>
+                  <span>Acao</span>
+                </div>
+                {visibleItems.length > 0 ? (
+                  visibleItems.map((item) => (
+                    <ExecutionAuditRow key={item.executionId} item={item} />
+                  ))
+                ) : (
+                  <div className="provider-callback-empty">
+                    Nenhuma execucao encontrada neste filtro.
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function ExecutionAuditRow({
+  item,
+}: {
+  item: ProviderConversionRuleExecutionAuditItemDto;
+}) {
+  return (
+    <div className="provider-purchase-row" role="row">
+      <span>
+        <strong>{formatDateTime(item.occurredAt)}</strong>
+        <small>{item.attemptCount} tentativa(s)</small>
+      </span>
+      <span>
+        <strong>
+          {item.channel?.name ??
+            item.channel?.connectedPhone ??
+            "Canal nao localizado"}
+        </strong>
+        {item.channel ? (
+          <small>
+            <PresentationMask placeholder="Numero oculto">
+              {item.channel.connectedPhone}
+            </PresentationMask>
+          </small>
+        ) : null}
+      </span>
+      <span className="provider-callback-diagnosis">
+        <span className={`event-chip ${executionAuditTone(item.status)}`}>
+          {executionStatusLabel(item.status)}
+        </span>
+        <small>{executionReasonLabel(item.reasonCode)}</small>
+      </span>
+      <span>
+        <strong>{item.leadName ?? item.phoneDisplay ?? "Lead nao localizado"}</strong>
+        <small>
+          {item.valueCents !== null && item.currency
+            ? formatMoney(item.valueCents, item.currency)
+            : item.matchedTriggerPhrase ?? "Sem valor identificado"}
+        </small>
+      </span>
+      <span className="provider-callback-row-actions">
+        {item.leadId ? (
+          <Link
+            className="icon-button"
+            href={`/leads/${encodeURIComponent(item.leadId)}`}
+            title="Abrir lead"
+            aria-label={`Abrir lead de ${formatDateTime(item.occurredAt)}`}
+          >
+            <Eye size={15} aria-hidden="true" />
+          </Link>
+        ) : null}
       </span>
     </div>
   );
@@ -3135,6 +3367,15 @@ function automationAuditTone(
     return "neutral";
   }
   if (status === "blocked" || status === "duplicate") return "warn";
+  return "bad";
+}
+
+function executionAuditTone(
+  status: ProviderConversionRuleExecutionAuditItemDto["status"],
+): "" | "warn" | "bad" | "neutral" {
+  if (status === "materialized") return "";
+  if (status === "observed" || status === "eligible") return "neutral";
+  if (status === "duplicate" || status === "blocked") return "warn";
   return "bad";
 }
 

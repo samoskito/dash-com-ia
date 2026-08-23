@@ -53,6 +53,7 @@ import {
   createProviderConversionRuleAction,
   loadProviderConversionAutomationAuditAction,
   loadProviderConversionAutomationPayloadAction,
+  loadProviderConversionExecutionAuditAction,
   loadProviderConversionPurchaseAuditAction,
   removeProviderConversionRuleAction,
   reprocessProviderConversionAutomationCallbacksAction,
@@ -1870,6 +1871,9 @@ export default async function SettingsPage() {
                               }
                               loadPurchaseAuditAction={
                                 loadProviderConversionPurchaseAuditAction
+                              }
+                              loadExecutionAuditAction={
+                                loadProviderConversionExecutionAuditAction
                               }
                               reprocessAutomationCallbacksAction={
                                 reprocessProviderConversionAutomationCallbacksAction
