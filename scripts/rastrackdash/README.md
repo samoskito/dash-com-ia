@@ -20,8 +20,15 @@ description against the real tree.
   `apps/api/src/*` module, `apps/web` area, and package, each with a
   KEEP / STRIP / REWRITE / DEFER(F4+) verdict and a one-line reason citing
   real file paths.
-- **`sanitize-export.mjs`** — a stub only (see below). It loads and validates
-  the yml and prints counts. It does **not** perform any export.
+- **`sanitize-export.mjs`** — the real F3.2 dry-run exporter. Copies the
+  monorepo minus `remove_paths`/`remove_path_patterns`, applies the Nest
+  module/barrel registration codemods, the Meta OAuth broker removal
+  codemod, and a handful of leftover license/Asaas/Uazapi-admin residue
+  codemods (see "F3.2 status" below), strips the listed Prisma models,
+  regenerates `.env.example`, then runs the `secret_fail_patterns` scan as a
+  fail-closed gate. Writes `EXPORT_REPORT.md` into the output dir and
+  `EXPORT_NOTES.md` (this directory) summarizing the last run. Never writes
+  to the public repo or pushes anywhere — see gates below.
 
 ## Why this exists (F1–F3 context)
 
@@ -76,17 +83,62 @@ Full detail with file-level citations lives in `INVENTORY.md` and the
 ## Validating this slice
 
 ```bash
-cd /home/ai-runner/worktrees/dash-com-ia-f3-sanitize
+cd /home/ai-runner/worktrees/dash-com-ia-f3-export
 python3 -c "import yaml; yaml.safe_load(open('scripts/rastrackdash/sanitize-allowdeny.yml')); print('yml_ok')"
-node scripts/rastrackdash/sanitize-export.mjs   # loads yml, prints counts, exits 0
+node scripts/rastrackdash/sanitize-export.mjs --self-test   # unit-tests the scanner + yml gates
+node scripts/rastrackdash/sanitize-export.mjs --out /tmp/rastrackdash-export --force
+cat /tmp/rastrackdash-export/EXPORT_REPORT.md
 ```
 
-## Next step (F3.2)
+## F3.2 status (Samuel-approved MVP defaults, applied)
 
-Implement the real `sanitize-export.mjs`: copy `keep_paths`, delete
-`remove_paths` + `remove_path_patterns`, apply `rewrite_rules` as codemods,
-drop the listed Prisma models and `app.module.ts` imports, generate a trimmed
-`.env.example` from `env_allow`, and run the `secret_fail_patterns` scan as a
-hard gate before writing anything — with `defer_review` entries resolved (or
-explicitly failing the run) first. See `INVENTORY.md` § "Open questions" for
-what needs a decision before F3.2 starts.
+F3.2 resolved every F3.1 `defer_review` item except `meta/oauth/advanced`
+(still ambiguous, still deferred — see the yml). Applied MVP defaults:
+
+1. **billing/** — the WhatsApp-seat concept turned out not cleanly isolable
+   (BillingSeatModule/WhatsappSeatService are wired into inbound-webhooks,
+   inbound-webhook-production and conversion-rules; BillingService/
+   PackageBillingWebhookService/ExternalChannelBillingAccessService are
+   *required* deps of webhooks.controller.ts and the production conversion
+   services). Per the locked default, the **whole `billing/` module is
+   stripped** for v1. The Nest module registrations pointing at it are
+   removed by the exporter; the deeper service-level imports in those
+   dependent files are **not** rewritten — the exporter's dangling-import
+   scan reports them by file:line in `EXPORT_REPORT.md` instead of guessing
+   a replacement. Re-adding a standalone BYO capacity-tracking concept is a
+   follow-up slice, not invented here.
+2. **Meta OAuth** — the broker (`meta/start`, `meta/callback`,
+   `MetaOAuthState`, the web `MetaOAuthButton`) is removed by a real codemod
+   (`applyMetaOAuthBrokerRemoval`). Manual connection stays. `meta/oauth/
+   advanced` is untouched (separate, still-open ambiguity).
+3. **Backoffice inbound recovery/replay** — the cross-workspace PalmUP staff
+   controllers/services are stripped; the workspace-scoped registry/
+   ingestion/channel-routes code stays.
+4. **web subscription/** — stripped.
+5. **design-system/ + wpptrack-design-system/** — excluded at copy time,
+   never land in the export.
+6. **platform-admin bootstrap** — the multi-client staff bootstrap/admin-mgmt
+   surface (`platform-admin.service.ts`, `platform-admin-bootstrap.ts`,
+   `create-platform-admin.ts`, `promote-platform-owner.ts`,
+   `backoffice-workspaces.controller.ts`) is stripped. `create-user.ts`
+   stays as the generic helper.
+   **TODO (F3.3/F6):** design and implement a single-owner self-host
+   bootstrap flow (the student becomes sole platform owner of their own
+   deploy) — not invented in this slice. Several kept files
+   (`diagnostics.controller.ts`, `platform-workspace-access.service.ts`,
+   `external-data/backoffice-external-data.controller.ts`,
+   `inbound-webhook-replay.service.ts`) still import the now-removed
+   `platform-admin.service.ts`; the exporter's dangling-import scan reports
+   these too.
+
+Also resolved during the F3.2 real-run pass (secret-scan-driven, not in the
+original MVP-default list but required for a passing dry run):
+`docs/`, `apps/api/test/`, and this `scripts/rastrackdash/` tooling
+directory itself are stripped wholesale (internal-only / test fixtures
+naming secret identifiers / PalmUP-only export tooling); a few otherwise-kept
+files (`integrations.service.ts`, `uazapi.adapter.ts`,
+`webhooks.controller.ts`, `ops-alert.notifier.ts`) had small, self-contained
+UAZAPI_ADMIN_TOKEN/Asaas/license-notify-fallback branches removed by
+dedicated codemods (`applyResidueCodemods`). Full detail + exact counts are
+in `EXPORT_REPORT.md` after each run; nothing here is invented without an
+evidence trail back to a specific file.

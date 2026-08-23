@@ -25,10 +25,17 @@ remove_paths:
 
   # Asaas payment gateway — PalmUP's own billing provider, not generic.
   - apps/api/src/integrations/asaas/
-  - apps/api/src/billing/asaas.adapter.ts
-  - apps/api/src/billing/package-asaas.adapter.ts
-  - apps/api/src/billing/split.controller.ts
-  - apps/api/src/billing/split.service.ts
+
+  # F3.2 MVP default (billing/): whatsapp-seat.service.ts / billing-seat.module.ts
+  # turned out NOT cleanly isolable from asaas/subscription billing — they're
+  # imported (BillingSeatModule) by inbound-webhooks, inbound-webhook-production
+  # and conversion-rules modules, and BillingService/PackageBillingWebhookService/
+  # ExternalChannelBillingAccessService are REQUIRED (non-optional) constructor
+  # deps of webhooks.controller.ts and the two production conversion services.
+  # Samuel-approved MVP default: STRIP the whole module for v1, re-add a
+  # standalone BYO "capacity" concept later (see EXPORT_REPORT known
+  # limitations for the exact dangling cross-file references this leaves).
+  - apps/api/src/billing/
 
   # Platform-owner support/staff tooling (cross-client operations).
   - apps/api/src/workspaces/client-swap/
@@ -37,8 +44,51 @@ remove_paths:
   - apps/web/src/app/(backoffice)/backoffice/clients/
   - apps/web/src/app/(backoffice)/backoffice/billing/
 
+  # F3.2 MVP default (platform-admin bootstrap): strip the multi-client staff
+  # bootstrap/admin-mgmt surface; create-user.ts (keep_paths) stays as the
+  # generic helper. Single-owner self-host bootstrap is a REWRITE left for
+  # F3.3/F6, not invented here — see README "Known limitations".
+  - apps/api/src/auth/platform-admin.service.ts
+  - apps/api/src/auth/platform-admin-bootstrap.ts
+  - apps/api/src/scripts/create-platform-admin.ts
+  - apps/api/src/scripts/promote-platform-owner.ts
+  - apps/api/src/workspaces/backoffice-workspaces.controller.ts
+
+  # F3.2 MVP default (backoffice inbound recovery/replay): cross-workspace
+  # PalmUP staff triage tools stripped; workspace-scoped inbound webhook
+  # product paths (registry, ingestion, channel routes) stay.
+  - apps/api/src/inbound-webhooks/backoffice-inbound-webhooks.controller.ts
+  - apps/api/src/inbound-webhooks/backoffice-inbound-webhooks.service.ts
+  - apps/api/src/inbound-webhooks/backoffice-inbound-webhook-recovery.controller.ts
+  - apps/api/src/inbound-webhooks/backoffice-inbound-webhook-recovery.service.ts
+  - apps/api/src/inbound-webhook-replay/inbound-webhook-replay.controller.ts
+  - apps/web/src/app/(backoffice)/backoffice/diagnostics/
+  - apps/web/src/app/(backoffice)/backoffice/inbound-webhooks/
+  - apps/web/src/app/(backoffice)/backoffice/webhooks/
+
+  # F3.2 MVP default (web subscription/): STRIP, wired to Asaas/package billing.
+  - apps/web/src/app/(app)/subscription/
+
+  # F3.2 MVP default (Meta OAuth broker): STRIP start/callback/button, keep
+  # manual connection only (see rewrite_rules.meta-oauth-broker-removal —
+  # now an applied codemod, not just descriptive).
+  - apps/web/src/app/(app)/integrations/meta-oauth-button.tsx
+  - apps/web/src/app/(app)/integrations/meta-oauth-actions.ts
+
+  # F3.2 MVP default (design-system): OUT of v1 export entirely, do not copy.
+  - design-system/
+  - wpptrack-design-system/
+
+  # packages/shared schemas with no remaining backend consumer once billing/
+  # and platform-admin backoffice are stripped above.
+  - packages/shared/src/schemas/billing.ts
+  - packages/shared/src/schemas/platform-administration.ts
+
   # PalmUP-internal ops/audit scripts.
   - apps/api/src/scripts/audit-gupshup-ctwa.ts
+
+  # Internal task-tracking file for this export slice itself, never public.
+  - .claude-task-f3-2-export.md
 
   # XMAX = bespoke integration with a single external CRM tenant
   # ("atenderbem.com"), not a generic student-facing feature.
@@ -53,6 +103,28 @@ remove_paths:
   - artifacts/
   - visualizacao-wpptrack.html
   - wpptrack-saas-visual.html
+
+  # F3.2 secret-scan finding: docs/ was never classified in F3.1 (not in
+  # keep_paths) and turned out to be entirely PalmUP-internal engineering
+  # notes (superpowers plans/spikes, Asaas/Uazapi fleet setup runbooks,
+  # deploy notes for PalmUP's own infra) — several of which name
+  # secret_fail_patterns identifiers. STRIP wholesale for v1; the public
+  # template gets its own onboarding/deploy docs authored fresh in F3.3/F4.
+  - docs/
+
+  # F3.2 secret-scan finding: apps/api/test/ (198 files) is the private
+  # test suite, largely covering the modules stripped above (licensing,
+  # billing, Asaas, admin-token Uazapi) and referencing their env var names
+  # as fixtures. Shipping it as-is would both fail the secret scan and test
+  # against deleted code. STRIP wholesale for v1; F3.3/F3.4 should build a
+  # curated test suite for the surviving student-edition modules.
+  - apps/api/test/
+
+  # This F3 export-tooling directory itself (yml/README/INVENTORY/script)
+  # documents PalmUP-internal strip decisions and secret_fail_patterns
+  # identifier names — it is the private maintainer tooling that PRODUCES
+  # the public template, not part of the template itself.
+  - scripts/rastrackdash/
 
 # ---------------------------------------------------------------------------
 # remove_path_patterns — glob/regex patterns applied repo-wide in addition
@@ -112,61 +184,25 @@ keep_paths:
 
 # ---------------------------------------------------------------------------
 # defer_review — ambiguous modules that need a product decision before F3.2
-# commits to strip or keep. Do not auto-delete these.
+# commits to strip or keep. Do not auto-delete these. The exporter fails
+# loudly if a defer_review path is reachable from keep_paths without an
+# explicit resolution (README gate #3).
+#
+# F3.2 note: every entry that was here in F3.1 has been resolved by Samuel's
+# MVP-default lock (see remove_paths / app_module_imports_remove /
+# prisma_models_remove above) EXCEPT meta/oauth/advanced below, which the
+# MVP-default list did not cover. It stays deferred.
 # ---------------------------------------------------------------------------
 defer_review:
-  - path: apps/api/src/billing/
-    reason: >
-      Bulk of directory is Asaas/package/subscription billing (PalmUP-only
-      monetization) and should strip, but whatsapp-seat.service.ts and
-      billing-seat.module.ts encode a generic "seat = WhatsApp instance"
-      concept the student edition may still want for BYO Uazapi capacity
-      planning. Split before deleting; do not blanket-remove.
-  - path: apps/api/prisma/schema.prisma#WhatsappSeat
-    reason: Same seat-concept ambiguity as billing/ above.
-  - path: apps/api/prisma/schema.prisma#WhatsappInstanceActivation
-    reason: Same seat-concept ambiguity as billing/ above.
   - path: apps/api/src/integrations/integrations.controller.ts#meta/oauth/advanced
     reason: >
       Unclear if "advanced" Meta credential/routing endpoints are wired only
       to legacy_oauth connections (strip) or also usable from manual
       connections (keep). meta-connection-resolver.service.ts tags both
-      "legacy_oauth" and "manual" sources; needs a read-through before F3.2.
-  - path: apps/api/src/auth/platform-admin.service.ts
-  - path: apps/api/src/auth/platform-admin-bootstrap.ts
-  - path: apps/api/src/scripts/create-platform-admin.ts
-  - path: apps/api/src/scripts/promote-platform-owner.ts
-    reason: >
-      Self-host deploy still needs *one* bootstrap admin/owner path (the
-      student becomes sole platform owner of their instance), but current
-      code assumes a PalmUP multi-client staff hierarchy. Needs REWRITE to
-      a single-owner bootstrap, not a straight keep or strip.
-  - path: apps/api/src/workspaces/backoffice-workspaces.controller.ts
-    reason: Cross-client workspace listing for PalmUP staff; may become a self-host single-owner admin view in F4, or strip outright.
-  - path: apps/api/src/inbound-webhooks/backoffice-inbound-webhooks.controller.ts
-  - path: apps/api/src/inbound-webhooks/backoffice-inbound-webhooks.service.ts
-  - path: apps/api/src/inbound-webhooks/backoffice-inbound-webhook-recovery.controller.ts
-  - path: apps/api/src/inbound-webhooks/backoffice-inbound-webhook-recovery.service.ts
-  - path: apps/api/src/inbound-webhook-replay/inbound-webhook-replay.controller.ts
-    reason: >
-      Built as PalmUP-staff, cross-workspace triage tools. Student edition
-      may want a workspace-scoped version of webhook recovery/replay, but
-      that's a rewrite (scope to caller's own workspace), not a keep-as-is.
-  - path: apps/web/src/app/(backoffice)/backoffice/diagnostics/
-  - path: apps/web/src/app/(backoffice)/backoffice/inbound-webhooks/
-  - path: apps/web/src/app/(backoffice)/backoffice/webhooks/
-    reason: Mirrors the API-side backoffice ambiguity above; UI depends on the API decision.
-  - path: apps/web/src/app/(app)/subscription/
-    reason: >
-      Subscription page is presumably wired to package-billing/Asaas
-      checkout flows; confirm full removal or a BYO-billing stub before F3.2.
-  - path: design-system/
-  - path: wpptrack-design-system/
-    reason: >
-      Large branded design-system asset bundle (PDF, PNGs, component/token
-      library). Needs its own review pass for (a) WppTrack->RastrackDash
-      rebrand scope and (b) whether any third-party/commercial asset
-      licensing blocks public redistribution. Out of scope for F3.1.
+      "legacy_oauth" and "manual" sources; needs a read-through before F3.3.
+      Not part of the F3.2 MVP-default lock (that only resolved the
+      start/callback/state broker + UI button, see rewrite_rules
+      .meta-oauth-broker-removal) — left untouched by the exporter.
 
 # ---------------------------------------------------------------------------
 # rewrite_rules — descriptive only in F3.1; F3.2 turns these into codemods.
@@ -198,6 +234,12 @@ rewrite_rules:
       PalmUP's own META_APP_ID/SECRET. Keep only the "manual" connection
       path (POST /integrations/meta/manual/*) where the student supplies
       their own long-lived token.
+      F3.2: applied as a real codemod (applyMetaOAuthBrokerRemoval in
+      sanitize-export.mjs) — removes the two controller endpoint methods
+      plus their now-dead private HTML-popup helpers, and removes the
+      MetaOAuthButton import + JSX usage + its server-action file from the
+      web integrations page. meta/oauth/advanced endpoints (separate
+      ambiguity, see defer_review) are left untouched.
     evidence:
       - apps/api/src/integrations/integrations.controller.ts:75-99
       - apps/api/src/integrations/meta/meta-connection-resolver.service.ts
@@ -386,10 +428,14 @@ prisma_models_remove:
     - XmaxContactEventDedup
     - XmaxShadowEvent
     - MetaOAuthState   # only used by the OAuth broker flow being removed
+    - WhatsappSeat                # F3.2 MVP default: billing/ strip resolved the seat ambiguity to STRIP
+    - WhatsappInstanceActivation  # same seat-concept resolution as WhatsappSeat
   notes: >
-    WhatsappSeat and WhatsappInstanceActivation are intentionally NOT in this
-    list — see defer_review above. Do not remove them without a product
-    decision on the BYO seat-tracking concept.
+    F3.1 deferred WhatsappSeat/WhatsappInstanceActivation pending a product
+    decision on the BYO seat-tracking concept. F3.2 MVP-default lock
+    resolved this to STRIP (whole billing/ module, seat concept not cleanly
+    isolable in this slice — see remove_paths.apps/api/src/billing/ note).
+    Re-add as a standalone concept later if the student edition needs it.
 
 # ---------------------------------------------------------------------------
 # app_module_imports_remove — Nest modules dropped from app.module.ts.
@@ -398,5 +444,46 @@ app_module_imports_remove:
   remove:
     - LicensingModule
     - XmaxModule
-  defer_review:
-    - BillingModule   # split before removing; see defer_review.apps/api/src/billing/ above
+    - BillingModule   # F3.2 MVP default: whole billing/ module stripped (see remove_paths note)
+
+# ---------------------------------------------------------------------------
+# module_registrations_strip — mechanical Nest import/registration cleanup
+# in files OTHER than app.module.ts that reference a module/controller/
+# service being deleted above. Each entry removes the matching
+# `import { X } from "...";` line and any X occurrence inside a
+# @Module({ imports/controllers/providers/exports: [...] }) array in that
+# file. This does NOT rewrite deeper call-site logic (constructor injection
+# of billing services still imported by their own relative path in a few
+# service files) — those are left for the dangling-import scan to surface;
+# see EXPORT_REPORT.md "Known limitations" after each run.
+# ---------------------------------------------------------------------------
+module_registrations_strip:
+  - file: apps/api/src/webhooks/webhooks.module.ts
+    identifiers: [BillingModule]
+  - file: apps/api/src/inbound-webhooks/inbound-webhooks.module.ts
+    identifiers:
+      - BillingSeatModule
+      - BackofficeInboundWebhookRecoveryController
+      - BackofficeInboundWebhooksController
+      - BackofficeInboundWebhookRecoveryService
+      - BackofficeInboundWebhooksService
+  - file: apps/api/src/inbound-webhook-production/inbound-webhook-production.module.ts
+    identifiers: [BillingSeatModule]
+  - file: apps/api/src/conversion-rules/conversion-rules.module.ts
+    identifiers: [BillingSeatModule]
+  - file: apps/api/src/inbound-webhook-replay/inbound-webhook-replay.module.ts
+    identifiers: [InboundWebhookReplayController]
+  - file: apps/api/src/workspaces/workspaces.module.ts
+    identifiers: [BackofficeWorkspacesController]
+  - file: apps/api/src/auth/auth.module.ts
+    identifiers: [PlatformAdminService, BackofficePlatformUsersController]
+
+# ---------------------------------------------------------------------------
+# barrel_exports_remove — `export * from "X";` lines dropped from shared
+# package barrels once the schema file they point to is removed above.
+# ---------------------------------------------------------------------------
+barrel_exports_remove:
+  - file: packages/shared/src/index.ts
+    export_paths:
+      - ./schemas/billing
+      - ./schemas/platform-administration
