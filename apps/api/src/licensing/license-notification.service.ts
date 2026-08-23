@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Inject, Injectable, Logger, Optional } from 
 import { z, ZodError } from "zod";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
-import type { EmailQueueService } from "../email/email-queue.service";
+import { EmailQueueService } from "../email/email-queue.service";
 import { LicenseDeliverySecretService } from "./license-delivery-secret.service";
 import { LicenseWhatsappNotifier } from "./license-whatsapp.notifier";
 
@@ -62,9 +62,25 @@ export type NotifyLicenseIssuedInput = {
   resendNonce?: string;
 };
 
+export type EmailSkipOrFailReason =
+  | "missing_email"
+  | "queue_disabled"
+  | "channel_excluded"
+  | "zod_envelope"
+  | "enqueue_failed";
+
+export type WhatsappSkipOrFailReason =
+  | "empty_phone"
+  | "not_configured"
+  | "channel_excluded"
+  | "send_failed"
+  | "network";
+
 export type NotifyLicenseIssuedResult = {
   email: "queued" | "skipped" | "failed";
+  emailReason?: EmailSkipOrFailReason;
   whatsapp: "sent" | "skipped" | "failed";
+  whatsappReason?: WhatsappSkipOrFailReason;
 };
 
 export type ResendLicenseDeliveryInput = {
@@ -83,9 +99,18 @@ export class LicenseNotificationService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() private readonly emailQueue: EmailQueueService | undefined,
+    // Explicit @Inject(EmailQueueService) — required, not @Optional(). A prior
+    // `import type { EmailQueueService }` erased the class at runtime, so
+    // Nest's implicit (design:paramtypes) resolution silently injected
+    // undefined and every resend/notify email was skipped even with SMTP
+    // configured. EmailModule is @Global() and always loaded (see
+    // licensing.module.ts imports), so this fails fast at boot instead.
+    @Inject(EmailQueueService) private readonly emailQueue: EmailQueueService,
     private readonly deliverySecrets: LicenseDeliverySecretService,
-    @Optional() private readonly whatsapp: LicenseWhatsappNotifier | undefined,
+    // Same rationale: required + explicit token rather than relying on
+    // implicit type-based DI for a same-module provider.
+    @Inject(LicenseWhatsappNotifier)
+    private readonly whatsapp: LicenseWhatsappNotifier,
     @Optional()
     @Inject(RUNTIME_ENV)
     private readonly env: RuntimeEnv = process.env,
@@ -135,7 +160,12 @@ export class LicenseNotificationService {
 
     const email = await this.sendEmail(input);
     const whatsapp = await this.sendWhatsapp(input);
-    return { email, whatsapp };
+    return {
+      email: email.status,
+      emailReason: email.reason,
+      whatsapp: whatsapp.status,
+      whatsappReason: whatsapp.reason,
+    };
   }
 
   /**
@@ -211,25 +241,34 @@ export class LicenseNotificationService {
     };
 
     const email =
-      channel === "whatsapp" ? ("skipped" as const) : await this.sendEmail(baseInput);
+      channel === "whatsapp"
+        ? { status: "skipped" as const, reason: "channel_excluded" as const }
+        : await this.sendEmail(baseInput);
     const whatsapp =
       channel === "email"
-        ? ("skipped" as const)
+        ? { status: "skipped" as const, reason: "channel_excluded" as const }
         : await this.sendWhatsapp(baseInput);
 
-    return { licenseId: license.id, email, whatsapp };
+    return {
+      licenseId: license.id,
+      email: email.status,
+      emailReason: email.reason,
+      whatsapp: whatsapp.status,
+      whatsappReason: whatsapp.reason,
+    };
   }
 
-  private async sendEmail(
-    input: NotifyLicenseIssuedInput,
-  ): Promise<NotifyLicenseIssuedResult["email"]> {
+  private async sendEmail(input: NotifyLicenseIssuedInput): Promise<{
+    status: NotifyLicenseIssuedResult["email"];
+    reason?: EmailSkipOrFailReason;
+  }> {
     if (!input.license.buyerEmail) {
       this.logger.debug("license_notify_email_skipped reason=missing_email");
-      return "skipped";
+      return { status: "skipped", reason: "missing_email" };
     }
-    if (!this.emailQueue || !this.emailQueue.isEnabled()) {
+    if (!this.emailQueue.isEnabled()) {
       this.logger.debug("license_notify_email_skipped reason=queue_disabled");
-      return "skipped";
+      return { status: "skipped", reason: "queue_disabled" };
     }
     try {
       await this.emailQueue.enqueue({
@@ -259,33 +298,35 @@ export class LicenseNotificationService {
           },
         },
       });
-      return "queued";
+      return { status: "queued" };
     } catch (error) {
-      const reason = error instanceof ZodError ? "zod_envelope" : "enqueue_failed";
+      const reason: EmailSkipOrFailReason =
+        error instanceof ZodError ? "zod_envelope" : "enqueue_failed";
       this.logger.warn(`license_notify_email_failed reason=${reason}`);
-      return "failed";
+      return { status: "failed", reason };
     }
   }
 
-  private async sendWhatsapp(
-    input: NotifyLicenseIssuedInput,
-  ): Promise<NotifyLicenseIssuedResult["whatsapp"]> {
+  private async sendWhatsapp(input: NotifyLicenseIssuedInput): Promise<{
+    status: NotifyLicenseIssuedResult["whatsapp"];
+    reason?: WhatsappSkipOrFailReason;
+  }> {
     if (!input.phoneE164) {
       this.logger.debug("license_notify_whatsapp_skipped reason=empty_phone");
-      return "skipped";
+      return { status: "skipped", reason: "empty_phone" };
     }
-    if (!this.whatsapp || !this.whatsapp.isConfigured()) {
+    if (!this.whatsapp.isConfigured()) {
       this.logger.debug("license_notify_whatsapp_skipped reason=not_configured");
-      return "skipped";
+      return { status: "skipped", reason: "not_configured" };
     }
     try {
       const productName = sanitizeProductName(this.env.LICENSE_NOTIFY_PRODUCT_NAME);
       const message = `${productName}: sua licenca e ${input.rawKey}. Guarde este codigo em local seguro.`;
       const sent = await this.whatsapp.sendLicenseKey(input.phoneE164, message);
-      return sent ? "sent" : "failed";
+      return sent ? { status: "sent" } : { status: "failed", reason: "send_failed" };
     } catch {
       this.logger.warn("license_notify_whatsapp_failed reason=network");
-      return "failed";
+      return { status: "failed", reason: "network" };
     }
   }
 }

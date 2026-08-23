@@ -249,6 +249,7 @@ describe("LicenseNotificationService", () => {
     });
 
     expect(result.email).toBe("skipped");
+    expect(result.emailReason).toBe("missing_email");
     expect(emailQueue.enqueue).not.toHaveBeenCalled();
   });
 
@@ -262,6 +263,7 @@ describe("LicenseNotificationService", () => {
     });
 
     expect(result.email).toBe("skipped");
+    expect(result.emailReason).toBe("queue_disabled");
     expect(emailQueue.enqueue).not.toHaveBeenCalled();
   });
 
@@ -277,6 +279,7 @@ describe("LicenseNotificationService", () => {
     });
 
     expect(result.email).toBe("failed");
+    expect(result.emailReason).toBe("enqueue_failed");
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("license_notify_email_failed reason=enqueue_failed"),
     );
@@ -293,6 +296,7 @@ describe("LicenseNotificationService", () => {
     });
 
     expect(result.whatsapp).toBe("skipped");
+    expect(result.whatsappReason).toBe("empty_phone");
     expect(whatsapp.sendLicenseKey).not.toHaveBeenCalled();
   });
 
@@ -307,7 +311,40 @@ describe("LicenseNotificationService", () => {
     });
 
     expect(result.whatsapp).toBe("skipped");
+    expect(result.whatsappReason).toBe("not_configured");
     expect(whatsapp.sendLicenseKey).not.toHaveBeenCalled();
+  });
+
+  it("returns failed with reason send_failed when the whatsapp notifier reports a failed send", async () => {
+    const { service, whatsapp } = createHarness();
+    whatsapp.isConfigured.mockReturnValue(true);
+    whatsapp.sendLicenseKey.mockResolvedValueOnce(false);
+
+    const result = await service.notifyLicenseIssued({
+      license: baseLicense(),
+      rawKey: RAW_KEY,
+      phoneE164: "+5511999998888",
+      reason: "issue",
+    });
+
+    expect(result.whatsapp).toBe("failed");
+    expect(result.whatsappReason).toBe("send_failed");
+  });
+
+  it("returns failed with reason network when the whatsapp notifier throws", async () => {
+    const { service, whatsapp } = createHarness();
+    whatsapp.isConfigured.mockReturnValue(true);
+    whatsapp.sendLicenseKey.mockRejectedValueOnce(new Error("boom"));
+
+    const result = await service.notifyLicenseIssued({
+      license: baseLicense(),
+      rawKey: RAW_KEY,
+      phoneE164: "+5511999998888",
+      reason: "issue",
+    });
+
+    expect(result.whatsapp).toBe("failed");
+    expect(result.whatsappReason).toBe("network");
   });
 
   it("sends whatsapp when configured and a phone is provided", async () => {
@@ -377,6 +414,37 @@ describe("LicenseNotificationService", () => {
     expect(payload.action.version.startsWith("resend:")).toBe(true);
     expect(payload.envelope.data.licenseKey).toBe(RAW_KEY);
     expect(JSON.stringify(result)).not.toContain(RAW_KEY);
+  });
+
+  it("skips whatsapp with reason channel_excluded when channel is email", async () => {
+    const { service, whatsapp, emailQueue } = createHarness();
+    await service.storeDeliveryArtifact("lic_1", RAW_KEY, new Date("2026-08-19T00:00:00.000Z"));
+
+    const result = await service.resendDelivery({ licenseId: "lic_1", channel: "email" });
+
+    expect(result.email).toBe("queued");
+    expect(result.whatsapp).toBe("skipped");
+    expect(result.whatsappReason).toBe("channel_excluded");
+    expect(whatsapp.sendLicenseKey).not.toHaveBeenCalled();
+    expect(emailQueue.enqueue).toHaveBeenCalled();
+  });
+
+  it("skips email with reason channel_excluded when channel is whatsapp", async () => {
+    const { service, whatsapp, emailQueue } = createHarness();
+    whatsapp.isConfigured.mockReturnValue(true);
+    await service.storeDeliveryArtifact("lic_1", RAW_KEY, new Date("2026-08-19T00:00:00.000Z"));
+
+    const result = await service.resendDelivery({
+      licenseId: "lic_1",
+      channel: "whatsapp",
+      phoneE164: "+5511999998888",
+    });
+
+    expect(result.email).toBe("skipped");
+    expect(result.emailReason).toBe("channel_excluded");
+    expect(result.whatsapp).toBe("sent");
+    expect(emailQueue.enqueue).not.toHaveBeenCalled();
+    expect(whatsapp.sendLicenseKey).toHaveBeenCalled();
   });
 
   it("returns 409 when the delivery artifact is missing", async () => {
