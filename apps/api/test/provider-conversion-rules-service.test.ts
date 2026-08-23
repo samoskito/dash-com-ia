@@ -425,6 +425,7 @@ describe("provider conversion rules service", () => {
         eventName: "QualifiedLead",
         triggerPhrases: ["quero saber mais"],
         messageAuthorScope: "contact",
+        valueMode: "fixed",
       },
       "user_1",
     );
@@ -451,7 +452,11 @@ describe("provider conversion rules service", () => {
         conversionEventLogId: null,
         attemptCount: 1,
         processedAt: null,
-        channel: { id: "channel_1", name: "Comercial", connectedPhone: "+5511888880000" },
+        channel: {
+          id: "channel_1",
+          channelName: "Comercial",
+          connectedPhone: "+5511888880000",
+        },
         purchaseReview: null,
       },
       {
@@ -509,6 +514,7 @@ describe("provider conversion rules service", () => {
         eventName: "QualifiedLead",
         triggerPhrases: ["quero contato"],
         messageAuthorScope: "contact",
+        valueMode: "fixed",
       },
       "user_1",
     );

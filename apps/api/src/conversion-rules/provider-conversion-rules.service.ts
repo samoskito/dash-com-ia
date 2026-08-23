@@ -175,7 +175,7 @@ export class ProviderConversionRulesService {
           channel: execution.channel
             ? {
                 id: execution.channel.id,
-                name: execution.channel.name,
+                name: execution.channel.channelName,
                 connectedPhone: execution.channel.connectedPhone,
               }
             : null,
