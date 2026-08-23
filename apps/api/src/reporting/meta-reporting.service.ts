@@ -1822,6 +1822,12 @@ export class MetaReportingService {
       events: events.map((event) =>
         this.conversionAuditEventDto(event, eventLabels, context),
       ),
+      // Todo evento configurado no workspace precisa aparecer no filtro, na
+      // mesma ordem do funil. Escopo: funnelStages ja vem por workspaceId.
+      availableEvents: funnelStages.map((stage) => ({
+        eventName: stage.eventName,
+        label: stage.label,
+      })),
     };
   }
 
@@ -4522,13 +4528,13 @@ export class MetaReportingService {
   }
 
   private conversionAuditSource(
-    sourceTrigger: string,
+    sourceTrigger?: string | null,
   ): ConversionAuditSourceDto {
-    if (sourceTrigger.startsWith("external_mysql:")) {
+    if ((sourceTrigger ?? "").startsWith("external_mysql:")) {
       return "external_integration";
     }
 
-    if (["keyword", "whatsapp_label"].includes(sourceTrigger)) {
+    if (["keyword", "whatsapp_label"].includes(sourceTrigger ?? "")) {
       return "whatsapp_automation";
     }
 

@@ -8,6 +8,39 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function auditEvent(overrides: Record<string, unknown>) {
+  return {
+    id: "event_1",
+    eventName: "Purchase",
+    eventLabel: "Compras",
+    deliveryState: "sent",
+    statusLabel: "Enviado",
+    statusDetail: "Recebido pela Meta",
+    source: "external_integration",
+    sourceLabel: "Integracao externa",
+    leadId: null,
+    leadName: null,
+    phoneDisplay: null,
+    campaignId: null,
+    campaignName: null,
+    adSetId: null,
+    adSetName: null,
+    adId: null,
+    adName: null,
+    pixelId: null,
+    pageId: null,
+    occurredAt: "2026-07-12T15:00:00.000Z",
+    sentAt: "2026-07-12T15:01:00.000Z",
+    status: "sent",
+    canRetry: false,
+    providerResponseSummary: null,
+    errorCode: null,
+    errorMessage: null,
+    valueSource: null,
+    ...overrides,
+  };
+}
+
 function auditResponse(events: unknown[]) {
   return {
     workspaceId: "workspace_1",
@@ -243,6 +276,88 @@ describe("events route", () => {
     expect(html).toContain("API indisponivel");
     expect(html).toContain("Nao foi possivel carregar a auditoria");
     expect(html).not.toContain("Mariana Alves");
+  });
+
+  it("offers every event configured in the workspace in the filter", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ...auditResponse([auditEvent({})]),
+          availableEvents: [
+            { eventName: "LeadSubmitted", label: "Conversas reais iniciadas" },
+            { eventName: "QualifiedLead", label: "Lead qualificado" },
+            { eventName: "InitiateCheckout", label: "Checkout iniciado" },
+            { eventName: "Purchase", label: "Compras" },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const element = await EventsPage({
+      searchParams: Promise.resolve({
+        since: "2026-07-06",
+        until: "2026-07-12",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain('value="InitiateCheckout"');
+    expect(html).toContain("Checkout iniciado");
+    // Ordem do funil preservada: checkout antes de compra.
+    expect(html.indexOf('value="InitiateCheckout"')).toBeLessThan(
+      html.indexOf('value="Purchase"'),
+    );
+  });
+
+  it("falls back to the events on the page when the API omits the list", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify(
+          auditResponse([
+            auditEvent({
+              id: "event_checkout",
+              eventName: "InitiateCheckout",
+              eventLabel: "Checkout iniciado",
+            }),
+          ]),
+        ),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const element = await EventsPage({
+      searchParams: Promise.resolve({
+        since: "2026-07-06",
+        until: "2026-07-12",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain('value="InitiateCheckout"');
+    // Nada inventado: eventos ausentes do periodo nao viram opcao.
+    expect(html).not.toContain('value="QualifiedLead"');
+  });
+
+  it("keeps the selected event in the filter when the API is unavailable", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ message: "unavailable" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const element = await EventsPage({
+      searchParams: Promise.resolve({
+        since: "2026-07-06",
+        until: "2026-07-12",
+        eventName: "InitiateCheckout",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain('value="InitiateCheckout"');
+    expect(html).toContain("Checkout iniciado");
   });
 
   it("replaces the desktop audit table with readable event cards on mobile", () => {

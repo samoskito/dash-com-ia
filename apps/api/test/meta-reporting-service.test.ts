@@ -863,28 +863,45 @@ function createHarness() {
     new WhatsappCampaignClassifierService(),
     new ReportingMetricsEngine(),
     {
-      getConfiguration: vi.fn(async () => ({
-        stages: [
+      getConfiguration: vi.fn(async (workspaceId: string) => {
+        const stages = [
           {
             eventName: "LeadSubmitted",
             label: "Conversas reais iniciadas",
-            position: 1,
-            visible: true,
           },
-          {
-            eventName: "QualifiedLead",
-            label: "Lead qualificado",
-            position: 2,
+          ...db.conversionRules
+            .filter(
+              (rule) =>
+                rule.workspaceId === workspaceId && rule.active === true,
+            )
+            .sort(
+              (left, right) =>
+                ["QualifiedLead", "InitiateCheckout", "Purchase"].indexOf(
+                  left.eventName,
+                ) -
+                ["QualifiedLead", "InitiateCheckout", "Purchase"].indexOf(
+                  right.eventName,
+                ),
+            )
+            .map((rule) => ({
+              eventName: rule.eventName,
+              label:
+                {
+                  QualifiedLead: "Lead qualificado",
+                  InitiateCheckout: "Checkout iniciado",
+                  Purchase: "Compras",
+                }[rule.eventName] ?? rule.eventName,
+            })),
+        ];
+
+        return {
+          stages: stages.map((stage, index) => ({
+            ...stage,
+            position: index + 1,
             visible: true,
-          },
-          {
-            eventName: "Purchase",
-            label: "Compras",
-            position: 3,
-            visible: true,
-          },
-        ],
-      })),
+          })),
+        };
+      }),
     } as never,
     connectionResolver as never,
   );
@@ -1257,6 +1274,11 @@ describe("meta reporting service", () => {
           errorMessage: "Valor do evento nao configurado",
           valueSource: null,
         },
+      ],
+      availableEvents: [
+        { eventName: "LeadSubmitted", label: "Conversas reais iniciadas" },
+        { eventName: "QualifiedLead", label: "Lead qualificado" },
+        { eventName: "Purchase", label: "Compras" },
       ],
     });
 
@@ -1710,6 +1732,39 @@ describe("meta reporting service", () => {
       }),
       _count: { _all: true },
     });
+  });
+
+  it("exposes every workspace-configured event as an audit filter option", async () => {
+    const { db, service } = createHarness();
+    db.conversionRules = [
+      ...db.conversionRules,
+      {
+        workspaceId: "workspace_1",
+        eventName: "InitiateCheckout",
+        active: true,
+      },
+      {
+        workspaceId: "workspace_2",
+        eventName: "OrderShipped",
+        active: true,
+      },
+    ];
+
+    const result = await service.getConversionEventAudit({
+      workspaceId: "workspace_1",
+      rangeLabel: "2026-07-01 a 2026-07-02",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(result.availableEvents).toEqual([
+      { eventName: "LeadSubmitted", label: "Conversas reais iniciadas" },
+      { eventName: "QualifiedLead", label: "Lead qualificado" },
+      { eventName: "InitiateCheckout", label: "Checkout iniciado" },
+      { eventName: "Purchase", label: "Compras" },
+    ]);
   });
 
   it("includes provider conversion webhook events in the WhatsApp automation audit filter", async () => {

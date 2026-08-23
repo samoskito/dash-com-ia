@@ -116,6 +116,68 @@ describe("funnel configuration service", () => {
     ]);
   });
 
+  it("places a newly activated InitiateCheckout rule before Purchase", async () => {
+    const { db, service } = createHarness();
+
+    // Caso Caxias: regra de checkout criada depois de tudo, sem funil persistido.
+    db.rules = [
+      { workspaceId: "workspace_1", eventName: "InitiateCheckout", active: true }
+    ];
+
+    const configuration = await service.getConfiguration("workspace_1");
+
+    expect(configuration.stages.map((stage) => stage.eventName)).toEqual([
+      "LeadSubmitted",
+      "QualifiedLead",
+      "InitiateCheckout",
+      "Purchase"
+    ]);
+  });
+
+  it("anchors new events to the persisted funnel instead of appending them", async () => {
+    const { db, service } = createHarness();
+
+    db.stages = [
+      {
+        workspaceId: "workspace_1",
+        eventName: "Purchase",
+        label: "Vendas",
+        position: 1,
+        visible: true,
+        defaultValueCents: null,
+        defaultCurrency: null,
+        defaultContentName: null
+      },
+      {
+        workspaceId: "workspace_1",
+        eventName: "LeadSubmitted",
+        label: "Conversas",
+        position: 2,
+        visible: true,
+        defaultValueCents: null,
+        defaultCurrency: null,
+        defaultContentName: null
+      }
+    ];
+    db.rules = [
+      { workspaceId: "workspace_1", eventName: "InitiateCheckout", active: true }
+    ];
+
+    const configuration = await service.getConfiguration("workspace_1");
+
+    // A ordem manual do cliente manda; os eventos novos entram depois da etapa
+    // persistida que os precede no catalogo.
+    expect(configuration.stages.map((stage) => stage.eventName)).toEqual([
+      "Purchase",
+      "LeadSubmitted",
+      "QualifiedLead",
+      "InitiateCheckout"
+    ]);
+    expect(configuration.stages.map((stage) => stage.position)).toEqual([
+      1, 2, 3, 4
+    ]);
+  });
+
   it("persists custom labels, visibility and normalized ordering", async () => {
     const { db, service } = createHarness();
 
