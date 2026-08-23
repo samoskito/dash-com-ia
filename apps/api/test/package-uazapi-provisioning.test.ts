@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { WhatsappSeat } from "@prisma/client";
+import type { WhatsappSeatDto } from "@wpptrack/shared";
 import { PackageUazapiProvisioningService } from "../src/billing/package-uazapi-provisioning.service";
 
 const reservedSeatDto = {
@@ -14,14 +16,14 @@ const reservedSeatDto = {
   activatedAt: null,
   suspendedAt: null,
   releasedAt: null,
-} as const;
+} as const satisfies WhatsappSeatDto;
 
 const activeSeatDto = {
   ...reservedSeatDto,
   status: "active",
   reservationExpiresAt: null,
   activatedAt: "2026-07-26T14:00:00.000Z",
-} as const;
+} as const satisfies WhatsappSeatDto;
 
 const reservedSeatRecord = {
   ...reservedSeatDto,
@@ -32,7 +34,7 @@ const reservedSeatRecord = {
   createdAt: new Date("2026-07-26T14:00:00.000Z"),
   updatedAt: new Date("2026-07-26T14:00:00.000Z"),
   releaseReason: null,
-};
+} as const satisfies WhatsappSeat;
 
 function createHarness() {
   const prisma = {
@@ -55,7 +57,11 @@ function createHarness() {
       }),
     },
     whatsappSeat: {
-      findFirst: vi.fn().mockResolvedValue(reservedSeatRecord),
+      // `reservationExpiresAt` only appears on the "is a QR flow still running"
+      // probe; every other lookup wants the seat of a known instance.
+      findFirst: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
+        where.reservationExpiresAt === undefined ? reservedSeatRecord : null,
+      ),
       update: vi.fn().mockResolvedValue({
         ...reservedSeatRecord,
         status: "released",
@@ -133,6 +139,15 @@ function createHarness() {
     }),
     decrypt: vi.fn().mockReturnValue("secret"),
   };
+  const uazapiBridge = {
+    retireBridge: vi.fn().mockResolvedValue({
+      whatsappInstanceId: "instance_1",
+      connectionId: "connection_1",
+      channelId: "channel_1",
+      migratedToConnectionId: null,
+      migratedRuleIds: [],
+    }),
+  };
   const service = new PackageUazapiProvisioningService(
     prisma as never,
     configuration as never,
@@ -140,6 +155,7 @@ function createHarness() {
     seats as never,
     uazapi as never,
     tokenEncryption as never,
+    uazapiBridge as never,
   );
 
   return {
@@ -150,6 +166,7 @@ function createHarness() {
     service,
     tokenEncryption,
     uazapi,
+    uazapiBridge,
   };
 }
 
@@ -176,6 +193,42 @@ describe("PackageUazapiProvisioningService", () => {
       where: { id: "instance_1" },
     });
     expect(harness.uazapi.createInstance).not.toHaveBeenCalled();
+  });
+
+  it("refuses a second provision while a QR flow is still running", async () => {
+    const harness = createHarness();
+    harness.prisma.whatsappSeat.findFirst.mockResolvedValueOnce({
+      ...reservedSeatRecord,
+      whatsappInstanceId: "instance_0",
+    });
+
+    await expect(
+      harness.service.provision("workspace_1", "Whats Foz", "user_1"),
+    ).rejects.toThrow(
+      "Ja existe uma conexao NOD API aguardando a leitura do QR code",
+    );
+
+    expect(harness.prisma.whatsappInstance.create).not.toHaveBeenCalled();
+    expect(harness.seats.reserveSeat).not.toHaveBeenCalled();
+    expect(harness.uazapi.createInstance).not.toHaveBeenCalled();
+  });
+
+  it("provisions again once the previous reservation has expired", async () => {
+    const harness = createHarness();
+
+    await harness.service.provision("workspace_1", "Whats Foz", "user_1");
+
+    expect(harness.prisma.whatsappSeat.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: "workspace_1",
+          provider: "uazapi",
+          status: "reserved",
+          reservationExpiresAt: { gt: expect.any(Date) },
+        }),
+      }),
+    );
+    expect(harness.prisma.whatsappInstance.create).toHaveBeenCalled();
   });
 
   it("keeps the seat reserved while the provider is waiting for the QR code", async () => {
@@ -496,6 +549,78 @@ describe("PackageUazapiProvisioningService", () => {
       instanceName: "Vendas",
       releasedSeatId: "seat_1",
       providerAlreadyMissing: false,
+    });
+  });
+
+  it("retires the bridged origin so a removed number stops being listed", async () => {
+    const harness = createHarness();
+
+    await harness.service.removeInstance(
+      "workspace_1",
+      "instance_1",
+      "Vendas",
+      "user_1",
+    );
+
+    expect(harness.uazapiBridge.retireBridge).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      whatsappInstanceId: "instance_1",
+      reason: "uazapi_instance_removed_by_user",
+      actorUserId: "user_1",
+    });
+  });
+
+  it("still reports the removal when the bridge retirement fails", async () => {
+    const harness = createHarness();
+    harness.uazapiBridge.retireBridge.mockRejectedValueOnce(
+      new Error("bridge_unavailable"),
+    );
+
+    await expect(
+      harness.service.removeInstance(
+        "workspace_1",
+        "instance_1",
+        "Vendas",
+        "user_1",
+      ),
+    ).resolves.toMatchObject({ whatsappInstanceId: "instance_1" });
+  });
+
+  it("retires a leftover origin when the number was already disconnected", async () => {
+    const harness = createHarness();
+    harness.prisma.whatsappInstance.findFirst.mockResolvedValueOnce({
+      id: "instance_1",
+      name: "Vendas",
+      workspaceId: "workspace_1",
+      provider: "uazapi",
+      status: "disconnected",
+      providerInstanceId: "provider_1",
+      providerTokenEncrypted: "encrypted",
+      providerTokenIv: "iv",
+      providerTokenTag: "tag",
+      webhookTokenHash: "webhook_hash",
+      updatedAt: new Date("2026-07-26T14:00:00.000Z"),
+    });
+    harness.prisma.whatsappSeat.findFirst.mockResolvedValueOnce({
+      ...reservedSeatRecord,
+      status: "released",
+      releasedAt: new Date("2026-07-27T12:00:00.000Z"),
+    });
+
+    const result = await harness.service.removeInstance(
+      "workspace_1",
+      "instance_1",
+      "Vendas",
+      "user_1",
+    );
+
+    expect(result.providerAlreadyMissing).toBe(true);
+    expect(harness.uazapi.deleteInstance).not.toHaveBeenCalled();
+    expect(harness.uazapiBridge.retireBridge).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      whatsappInstanceId: "instance_1",
+      reason: "uazapi_instance_removed_by_user",
+      actorUserId: "user_1",
     });
   });
 });

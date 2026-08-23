@@ -424,6 +424,12 @@ export class InboundWebhookConnectionsService {
    * builder without requiring a webhook to have arrived yet. Best-effort:
    * a failure here just means the instance stays invisible until its next
    * successful webhook (see UazapiProviderConversionService), not a 500.
+   *
+   * The reconcile pass afterwards keeps this list in sync with the number of
+   * seats the workspace actually pays for: abandoned QR attempts leave a
+   * bridged connection behind, and without it the Gatilhos panel shows one
+   * "active-looking" origin card per attempt (see UazapiConversionBridge
+   * Service.reconcileWorkspaceBridges).
    */
   private async syncUazapiBridges(workspaceId: string): Promise<void> {
     if (!this.uazapiBridge) return;
@@ -444,6 +450,12 @@ export class InboundWebhookConnectionsService {
       } catch {
         // best-effort; see doc comment above
       }
+    }
+
+    try {
+      await this.uazapiBridge.reconcileWorkspaceBridges(workspaceId);
+    } catch {
+      // best-effort; a failed reconcile only means the duplicate card stays
     }
   }
 
