@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
+import { BillingSeatModule } from "../billing/billing-seat.module";
 import { PrismaModule } from "../common/prisma/prisma.module";
 import { RuntimeModule } from "../common/runtime/runtime.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
@@ -20,7 +21,15 @@ import { ProviderConversionShadowComparisonService } from "./provider-conversion
 import { ProviderConversionTraceService } from "./provider-conversion-trace.service";
 
 @Module({
-  imports: [AuthModule, PrismaModule, RuntimeModule, WorkspacesModule],
+  imports: [
+    AuthModule,
+    // ProviderConversionRulesService promotes the inbound connection when a
+    // rule goes "Envio ativo", which bills external channel seats.
+    BillingSeatModule,
+    PrismaModule,
+    RuntimeModule,
+    WorkspacesModule,
+  ],
   controllers: [ConversionRulesController],
   providers: [
     ConversionRulesService,
