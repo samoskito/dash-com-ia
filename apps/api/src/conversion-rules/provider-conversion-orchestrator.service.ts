@@ -101,24 +101,11 @@ export class ProviderConversionOrchestrator {
       };
     }
 
-    if (input.disposition.state === "observed") {
-      this.logResult(input, "observation_only");
-      return this.emptyResult();
-    }
-
     const execution = await this.persistExecution({
       persistedDecision,
       disposition: input.disposition,
     });
-    this.logResult(
-      input,
-      execution.status === "eligible"
-        ? "execution_eligible"
-        : execution.status === "blocked"
-          ? "execution_blocked"
-          : `execution_${execution.status}`,
-      execution.id,
-    );
+    this.logResult(input, `execution_${execution.status}`, execution.id);
 
     return {
       executionId: execution.id,
@@ -130,15 +117,14 @@ export class ProviderConversionOrchestrator {
 
   private async persistExecution(input: {
     persistedDecision: PersistedProviderConversionDecision;
-    disposition: Exclude<
-      ProviderConversionTechnicalDisposition,
-      { state: "observed" }
-    >;
+    disposition: ProviderConversionTechnicalDisposition;
   }): Promise<{ id: string; status: string }> {
     const persisted = input.persistedDecision;
     const decision = persisted.decision;
-    const status =
-      input.disposition.state === "eligible" ? "eligible" : "blocked";
+    // The disposition state is the execution status one-to-one: only
+    // `eligible` is ever picked up by the production pipeline, so `observed`
+    // stays visible in the audit UI without any chance of reaching CAPI.
+    const status = input.disposition.state;
     const existing =
       await this.prisma.providerConversionRuleExecution.findUnique({
         where: {
