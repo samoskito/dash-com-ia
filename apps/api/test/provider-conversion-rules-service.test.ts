@@ -177,6 +177,7 @@ function createHarness(
               channel.workspaceId === where.workspaceId &&
               (!where.connectionId ||
                 channel.connectionId === where.connectionId) &&
+              (!where.id?.in || where.id.in.includes(channel.id)) &&
               (!where.status || channel.status === where.status),
           )
           .map((channel) => ({
@@ -298,7 +299,9 @@ function createHarness(
         const remaining = channels.filter(
           (channel) =>
             channel.workspaceId !== where.workspaceId ||
-            channel.providerRuleId !== where.providerRuleId,
+            channel.providerRuleId !== where.providerRuleId ||
+            (where.channelId?.in &&
+              !where.channelId.in.includes(channel.channelId)),
         );
         const removedCount = channels.length - remaining.length;
         channels.length = 0;
@@ -482,6 +485,8 @@ function createHarness(
     inboundChannels,
     leads,
     prisma,
+    // The ProviderConversionRuleChannel rows, i.e. the rule -> channel scope.
+    ruleChannels: channels,
     service,
   };
 }

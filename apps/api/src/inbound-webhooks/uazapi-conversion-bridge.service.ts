@@ -28,6 +28,7 @@ export type UazapiBridgeRetirement = {
   channelId: string;
   migratedToConnectionId: string | null;
   migratedRuleIds: string[];
+  prunedChannelScopes: number;
 };
 
 type BridgeMigrationTarget = {
@@ -138,8 +139,14 @@ export class UazapiConversionBridgeService {
    * When `migrateTo` is given, the provider-conversion rules scoped to the
    * retired connection are re-pointed at the live bridge so a superseded
    * connection does not silently take the workspace's rules down with it.
-   * Migration is additive: the live channel is added to each rule's scope and
-   * nothing is deleted.
+   *
+   * Either way the `ProviderConversionRuleChannel` rows that point at this
+   * connection's channels are deleted. Leaving them behind is what broke Foz:
+   * the rule was migrated to the live connection but kept a scope row on the
+   * retired channel, and "Envio ativo" then died on that orphan with
+   * `Recurso de webhook nao encontrado` because activation requires
+   * `connection.removedAt: null`. The scope row is the only thing dropped —
+   * the channel row, its executions and its decisions are all kept.
    */
   async retireBridge(input: {
     workspaceId: string;
@@ -200,12 +207,24 @@ export class UazapiConversionBridgeService {
           })
         : [];
 
+      // After the migration, never before it: the live channel has to be in the
+      // rule scope before the retired one leaves, or a rule would briefly hold
+      // no channel at all.
+      const prunedChannelScopes = await this.pruneRuleChannelScopes(
+        transaction,
+        {
+          workspaceId: input.workspaceId,
+          connectionId: channel.connectionId,
+        },
+      );
+
       const retirement: UazapiBridgeRetirement = {
         whatsappInstanceId: input.whatsappInstanceId,
         connectionId: channel.connectionId,
         channelId: channel.id,
         migratedToConnectionId: input.migrateTo?.connectionId ?? null,
         migratedRuleIds,
+        prunedChannelScopes,
       };
 
       await transaction.auditLog.create({
@@ -223,6 +242,7 @@ export class UazapiConversionBridgeService {
             channelId: channel.id,
             migratedToConnectionId: retirement.migratedToConnectionId,
             migratedRuleIds,
+            prunedChannelScopes,
           },
         },
       });
@@ -364,8 +384,8 @@ export class UazapiConversionBridgeService {
         where: { id: config.id },
         data: { connectionId: input.target.connectionId },
       });
-      // Additive: the live channel joins the rule scope, the stale scope row is
-      // left alone. The retired channel receives no traffic, so it cannot match.
+      // The live channel joins the rule scope; the scope rows of the retired
+      // connection are dropped right after by `pruneRuleChannelScopes`.
       await transaction.providerConversionRuleChannel.createMany({
         data: [
           {
@@ -379,6 +399,35 @@ export class UazapiConversionBridgeService {
     }
 
     return configs.map((config) => config.id);
+  }
+
+  /**
+   * Drops every rule -> channel scope row that points at a channel of the
+   * connection being retired, workspace-wide: the orphan is invisible in the
+   * builder but blocks "Envio ativo" for whatever rule still carries it, even a
+   * rule that has since moved to another connection.
+   */
+  private async pruneRuleChannelScopes(
+    transaction: Prisma.TransactionClient,
+    input: { workspaceId: string; connectionId: string },
+  ): Promise<number> {
+    const channels = await transaction.inboundWebhookChannel.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        connectionId: input.connectionId,
+      },
+      select: { id: true },
+    });
+    if (channels.length === 0) return 0;
+
+    const pruned = await transaction.providerConversionRuleChannel.deleteMany({
+      where: {
+        workspaceId: input.workspaceId,
+        channelId: { in: channels.map((channel) => channel.id) },
+      },
+    });
+
+    return pruned.count;
   }
 
   private async findExisting(

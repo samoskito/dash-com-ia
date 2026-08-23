@@ -79,6 +79,7 @@ type RetireHarnessOptions = {
   } | null;
   claimedCount?: number;
   ruleConfigs?: Array<{ id: string }>;
+  retiredChannels?: Array<{ id: string }>;
 };
 
 function createRetireHarness(options: RetireHarnessOptions = {}) {
@@ -89,10 +90,16 @@ function createRetireHarness(options: RetireHarnessOptions = {}) {
           ? {
               id: "channel_old",
               connectionId: "connection_old",
-              connection: { status: "observation", productionActivatedAt: null },
+              connection: {
+                status: "observation",
+                productionActivatedAt: null,
+              },
             }
           : options.channel,
       ),
+      findMany: vi
+        .fn()
+        .mockResolvedValue(options.retiredChannels ?? [{ id: "channel_old" }]),
     },
     inboundWebhookConnection: {
       updateMany: vi
@@ -105,6 +112,7 @@ function createRetireHarness(options: RetireHarnessOptions = {}) {
     },
     providerConversionRuleChannel: {
       createMany: vi.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     auditLog: {
       create: vi.fn().mockResolvedValue({ id: "audit_1" }),
@@ -240,6 +248,49 @@ describe("UazapiConversionBridgeService.retireBridge", () => {
       skipDuplicates: true,
     });
   });
+
+  // Foz: the rule was re-pointed at the live connection but kept a scope row on
+  // the retired connection's channel, and "Envio ativo" then died on that orphan
+  // with "Recurso de webhook nao encontrado".
+  it("prunes the rule channel scopes that point at the retired connection", async () => {
+    const harness = createRetireHarness({ ruleConfigs: [{ id: "rule_ic" }] });
+
+    const retirement = await harness.service.retireBridge({
+      workspaceId: "workspace_1",
+      whatsappInstanceId: "instance_old",
+      reason: "reconcile",
+      migrateTo: { connectionId: "connection_live", channelId: "channel_live" },
+    });
+
+    expect(
+      harness.transaction.providerConversionRuleChannel.deleteMany,
+    ).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        channelId: { in: ["channel_old"] },
+      },
+    });
+    expect(retirement?.prunedChannelScopes).toBe(1);
+  });
+
+  it("prunes the orphan scopes even when there is no live bridge to migrate to", async () => {
+    const harness = createRetireHarness();
+
+    await harness.service.retireBridge({
+      workspaceId: "workspace_1",
+      whatsappInstanceId: "instance_old",
+      reason: "uazapi_instance_removed_by_user",
+    });
+
+    expect(
+      harness.transaction.providerConversionRuleChannel.deleteMany,
+    ).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        channelId: { in: ["channel_old"] },
+      },
+    });
+  });
 });
 
 type ReconcileChannel = {
@@ -279,6 +330,7 @@ function createReconcileHarness(
       channelId: `channel_of_${input.whatsappInstanceId}`,
       migratedToConnectionId: input.migrateTo?.connectionId ?? null,
       migratedRuleIds: [],
+      prunedChannelScopes: 0,
     }));
 
   return { prisma, retireBridge, service };
