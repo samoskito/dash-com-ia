@@ -1,3 +1,27 @@
+## F3.2 update — MVP defaults applied, defer_review resolved
+
+Samuel's locked MVP defaults resolved every `defer_review` item below except
+`meta/oauth/advanced` (still open). Short version — see README.md "F3.2
+status" for the full writeup and `sanitize-allowdeny.yml` for the data:
+
+- `billing/` verdict below changes from DEFER(F4+) to **STRIP** (whole
+  module — the seat concept was not cleanly isolable; see README).
+- `inbound-webhook-replay/`, the `inbound-webhooks/backoffice-*` files, and
+  the mirroring `apps/web/(backoffice)/backoffice/{diagnostics,inbound-webhooks,webhooks}/`
+  areas: DEFER(F4+) → **STRIP** (cross-workspace staff tooling).
+- `apps/web/(app)/subscription/`: DEFER(F4+) → **STRIP**.
+- `design-system/`, `wpptrack-design-system/`: DEFER(F4+) → **STRIP** (out
+  of v1 export entirely).
+- `auth/platform-admin.service.ts` + bootstrap scripts +
+  `backoffice-workspaces.controller.ts`: DEFER(F4+) → **STRIP** (single-owner
+  bootstrap redesign left as a TODO for F3.3/F6, not invented here).
+- `meta/oauth/advanced` endpoints: **still DEFER(F4+)**, untouched.
+
+Also newly classified during the F3.2 real dry-run (secret-scan-driven,
+`docs/` and `apps/api/test/` were never covered by the F3.1 table above):
+both **STRIP**ped wholesale for v1 (internal engineering notes / test
+fixtures naming secret identifiers and testing now-removed modules).
+
 # RastrackDash sanitize inventory (F3.1)
 
 Human-readable companion to [`sanitize-allowdeny.yml`](./sanitize-allowdeny.yml).
