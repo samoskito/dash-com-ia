@@ -25,7 +25,7 @@ const activeSeatDto = {
   activatedAt: "2026-07-26T14:00:00.000Z",
 } as const satisfies WhatsappSeatDto;
 
-const reservedSeatRecord = {
+const reservedSeatRecord: WhatsappSeat = {
   ...reservedSeatDto,
   reservationExpiresAt: new Date("2099-07-26T15:00:00.000Z"),
   activatedAt: null,
@@ -34,7 +34,7 @@ const reservedSeatRecord = {
   createdAt: new Date("2026-07-26T14:00:00.000Z"),
   updatedAt: new Date("2026-07-26T14:00:00.000Z"),
   releaseReason: null,
-} as const satisfies WhatsappSeat;
+};
 
 function createHarness() {
   const prisma = {
