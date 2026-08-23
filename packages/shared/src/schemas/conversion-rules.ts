@@ -634,6 +634,64 @@ export const providerConversionAutomationAuditSchema = z.object({
   items: z.array(providerConversionAutomationAuditItemSchema).max(100),
 });
 
+/**
+ * Auditoria por execucao da regra, independente de PurchaseReview. Regras que
+ * nao materializam compra (InitiateCheckout, QualifiedLead, ...) so existem
+ * como ProviderConversionRuleExecution; este contrato e o que o painel mostra
+ * para elas.
+ */
+export const providerConversionRuleExecutionAuditItemSchema = z.object({
+  executionId: idSchema,
+  sourceDeliveryId: idSchema,
+  occurredAt: z.string().datetime(),
+  status: providerConversionExecutionStatusSchema,
+  reasonCode: z.string().trim().min(1).max(160).nullable(),
+  matchedTriggerPhrase: z.string().trim().min(1).max(240).nullable(),
+  channel: z
+    .object({
+      id: idSchema,
+      name: z.string().trim().min(1).max(160).nullable(),
+      connectedPhone: z.string().trim().min(1).max(32),
+    })
+    .nullable(),
+  leadId: idSchema.nullable(),
+  leadName: z.string().trim().min(1).max(180).nullable(),
+  phoneDisplay: z.string().trim().min(1).max(40).nullable(),
+  valueCents: z.number().int().positive().nullable(),
+  currency: currencySchema.nullable(),
+  conversionEventLogId: idSchema.nullable(),
+  purchaseReviewId: idSchema.nullable(),
+  attemptCount: z.number().int().nonnegative(),
+  processedAt: z.string().datetime().nullable(),
+});
+
+export const providerConversionRuleExecutionAuditSchema = z.object({
+  providerRuleId: idSchema,
+  eventName: conversionEventNameSchema,
+  summary: z.object({
+    total: z.number().int().nonnegative(),
+    observed: z.number().int().nonnegative(),
+    eligible: z.number().int().nonnegative(),
+    materialized: z.number().int().nonnegative(),
+    duplicate: z.number().int().nonnegative(),
+    blocked: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+  items: z.array(providerConversionRuleExecutionAuditItemSchema).max(50),
+  pagination: z.object({
+    page: z.number().int().positive(),
+    pageSize: z.number().int().positive(),
+    totalItems: z.number().int().nonnegative(),
+    totalPages: z.number().int().nonnegative(),
+  }),
+});
+
+export const providerConversionRuleExecutionAuditQuerySchema = z.object({
+  status: providerConversionExecutionStatusSchema.optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(25),
+});
+
 export const providerConversionAutomationPayloadSchema = z.object({
   providerRuleId: idSchema,
   deliveryId: idSchema,
@@ -863,6 +921,15 @@ export type ProviderConversionAutomationReprocessBatchResultDto = z.infer<
 >;
 export type ProviderConversionExecutionDto = z.infer<
   typeof providerConversionExecutionSchema
+>;
+export type ProviderConversionRuleExecutionAuditItemDto = z.infer<
+  typeof providerConversionRuleExecutionAuditItemSchema
+>;
+export type ProviderConversionRuleExecutionAuditDto = z.infer<
+  typeof providerConversionRuleExecutionAuditSchema
+>;
+export type ProviderConversionRuleExecutionAuditQueryDto = z.infer<
+  typeof providerConversionRuleExecutionAuditQuerySchema
 >;
 export type StructuredCatalogParsedItemDto = z.infer<
   typeof structuredCatalogParsedItemSchema

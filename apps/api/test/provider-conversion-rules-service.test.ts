@@ -65,6 +65,7 @@ function createHarness(
   let catalog: Record<string, any> | null = null;
   const channels: Array<Record<string, any>> = [];
   const executions: Array<Record<string, any>> = [];
+  const leads: Array<Record<string, any>> = [];
   const audits: Array<Record<string, any>> = [];
 
   const fullRule = (): Record<string, any> | null =>
@@ -273,7 +274,57 @@ function createHarness(
       }),
     },
     providerConversionRuleExecution: {
-      count: vi.fn(async () => executions.length),
+      count: vi.fn(async ({ where } = {}) =>
+        executions.filter(
+          (execution) =>
+            (!where?.workspaceId || execution.workspaceId === where.workspaceId) &&
+            (!where?.providerRuleId ||
+              execution.providerRuleId === where.providerRuleId) &&
+            (!where?.status || execution.status === where.status),
+        ).length,
+      ),
+      findMany: vi.fn(async ({ where, skip = 0, take } = {}) =>
+        executions
+          .filter(
+            (execution) =>
+              (!where?.workspaceId || execution.workspaceId === where.workspaceId) &&
+              (!where?.providerRuleId ||
+                execution.providerRuleId === where.providerRuleId) &&
+              (!where?.status || execution.status === where.status),
+          )
+          .sort(
+            (left, right) =>
+              right.occurredAt.getTime() - left.occurredAt.getTime() ||
+              right.id.localeCompare(left.id),
+          )
+          .slice(skip, take === undefined ? undefined : skip + take),
+      ),
+      groupBy: vi.fn(async ({ where }) => {
+        const counts = new Map<string, number>();
+        for (const execution of executions) {
+          if (
+            execution.workspaceId === where.workspaceId &&
+            execution.providerRuleId === where.providerRuleId
+          ) {
+            counts.set(execution.status, (counts.get(execution.status) ?? 0) + 1);
+          }
+        }
+        return [...counts].map(([status, count]) => ({
+          status,
+          _count: { _all: count },
+        }));
+      }),
+    },
+    lead: {
+      findMany: vi.fn(async ({ where }) =>
+        leads
+          .filter(
+            (lead) =>
+              lead.workspaceId === where.workspaceId &&
+              where.id.in.includes(lead.id),
+          )
+          .map(({ id, name, phoneDisplay }) => ({ id, name, phoneDisplay })),
+      ),
     },
     auditLog: {
       create: vi.fn(async ({ data }) => {
@@ -302,6 +353,7 @@ function createHarness(
       return conversionRule;
     },
     executions,
+    leads,
     prisma,
     service,
   };
@@ -360,6 +412,125 @@ function addCatalogExecution(
 }
 
 describe("provider conversion rules service", () => {
+  it("lists executions for a message_phrase rule with status summary and lead lookup", async () => {
+    const harness = createHarness();
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Lead qualificado por mensagem",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+        triggerPhrases: ["quero saber mais"],
+        messageAuthorScope: "contact",
+      },
+      "user_1",
+    );
+    harness.leads.push({
+      id: "lead_1",
+      workspaceId: "workspace_1",
+      name: "Cliente IC",
+      phoneDisplay: "+5511999990000",
+    });
+    harness.executions.push(
+      {
+        id: "execution_observed",
+        workspaceId: "workspace_1",
+        providerRuleId: created.rule.id,
+        sourceDeliveryId: "delivery_observed",
+        channelId: "channel_1",
+        occurredAt: new Date("2026-07-22T15:00:00.000Z"),
+        status: "observed",
+        reasonCode: "message_matched_observation",
+        normalizedResult: { matchedTriggerPhrase: "quero saber mais" },
+        leadId: "lead_1",
+        valueCents: null,
+        currency: null,
+        conversionEventLogId: null,
+        attemptCount: 1,
+        processedAt: null,
+        channel: { id: "channel_1", name: "Comercial", connectedPhone: "+5511888880000" },
+        purchaseReview: null,
+      },
+      {
+        id: "execution_blocked",
+        workspaceId: "workspace_1",
+        providerRuleId: created.rule.id,
+        sourceDeliveryId: "delivery_blocked",
+        channelId: "channel_1",
+        occurredAt: new Date("2026-07-22T14:00:00.000Z"),
+        status: "blocked",
+        reasonCode: "message_author_not_allowed",
+        normalizedResult: null,
+        leadId: null,
+        valueCents: null,
+        currency: null,
+        conversionEventLogId: null,
+        attemptCount: 0,
+        processedAt: null,
+        channel: null,
+        purchaseReview: null,
+      },
+    );
+
+    const result = await harness.service.listRuleExecutions(
+      "workspace_1",
+      created.rule.id,
+      { page: 1, pageSize: 50 },
+    );
+
+    expect(result.eventName).toBe("QualifiedLead");
+    expect(result.summary).toMatchObject({ total: 2, observed: 1, blocked: 1 });
+    expect(result.items[0]).toMatchObject({
+      executionId: "execution_observed",
+      leadName: "Cliente IC",
+      phoneDisplay: "+5511999990000",
+      matchedTriggerPhrase: "quero saber mais",
+    });
+    expect(harness.prisma.lead.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { workspaceId: "workspace_1", id: { in: ["lead_1"] } },
+      }),
+    );
+  });
+
+  it("returns zeroed summary when the rule has no executions", async () => {
+    const harness = createHarness();
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Lead sem historico",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "observation",
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+        triggerPhrases: ["quero contato"],
+        messageAuthorScope: "contact",
+      },
+      "user_1",
+    );
+
+    const result = await harness.service.listRuleExecutions(
+      "workspace_1",
+      created.rule.id,
+      { page: 1, pageSize: 50 },
+    );
+
+    expect(result.summary.total).toBe(0);
+    expect(result.summary).toMatchObject({
+      observed: 0,
+      eligible: 0,
+      materialized: 0,
+      duplicate: 0,
+      blocked: 0,
+      failed: 0,
+    });
+    expect(result.items).toEqual([]);
+  });
+
   it("promotes a legacy purchase rule to an Umbler message rule in observation", async () => {
     const now = new Date("2026-07-21T20:00:00.000Z");
     const harness = createHarness(1, {

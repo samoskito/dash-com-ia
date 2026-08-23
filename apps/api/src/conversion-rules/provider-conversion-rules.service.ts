@@ -24,6 +24,8 @@ import type {
   ProviderConversionRuleAdaptInputDto,
   ProviderConversionRuleCreateInputDto,
   ProviderConversionRuleCreateResultDto,
+  ProviderConversionRuleExecutionAuditDto,
+  ProviderConversionRuleExecutionAuditQueryDto,
   ProviderConversionRuleDto,
   ProviderConversionRuleUpdateInputDto,
 } from "@wpptrack/shared";
@@ -82,6 +84,119 @@ export class ProviderConversionRulesService {
     });
 
     return rules.map((rule) => this.toDto(rule));
+  }
+
+  async listRuleExecutions(
+    workspaceId: string,
+    providerRuleId: string,
+    query: ProviderConversionRuleExecutionAuditQueryDto,
+  ): Promise<ProviderConversionRuleExecutionAuditDto> {
+    this.requireRulesEnabled();
+    const rule = await this.requireRule(
+      this.prisma,
+      workspaceId,
+      providerRuleId,
+    );
+    const where: Prisma.ProviderConversionRuleExecutionWhereInput = {
+      workspaceId,
+      providerRuleId,
+      ...(query.status ? { status: query.status } : {}),
+    };
+
+    const [executions, totalItems, statusCounts] = await Promise.all([
+      this.prisma.providerConversionRuleExecution.findMany({
+        where,
+        orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: {
+          channel: true,
+          purchaseReview: { select: { id: true } },
+        },
+      }),
+      this.prisma.providerConversionRuleExecution.count({ where }),
+      this.prisma.providerConversionRuleExecution.groupBy({
+        by: ["status"],
+        where: { workspaceId, providerRuleId },
+        _count: { _all: true },
+      }),
+    ]);
+    const leadIds = [
+      ...new Set(
+        executions
+          .map((execution) => execution.leadId)
+          .filter((leadId): leadId is string => Boolean(leadId)),
+      ),
+    ];
+    const leads = leadIds.length
+      ? await this.prisma.lead.findMany({
+          where: { workspaceId, id: { in: leadIds } },
+          select: { id: true, name: true, phoneDisplay: true },
+        })
+      : [];
+    const leadsById = new Map(leads.map((lead) => [lead.id, lead]));
+    const summary = {
+      total: 0,
+      observed: 0,
+      eligible: 0,
+      materialized: 0,
+      duplicate: 0,
+      blocked: 0,
+      failed: 0,
+    };
+    for (const statusCount of statusCounts) {
+      summary[statusCount.status] = statusCount._count._all;
+      summary.total += statusCount._count._all;
+    }
+
+    return {
+      providerRuleId,
+      eventName: conversionEventNameSchema.parse(rule.conversionRule.eventName),
+      summary,
+      items: executions.map((execution) => {
+        const lead = execution.leadId
+          ? (leadsById.get(execution.leadId) ?? null)
+          : null;
+        const normalized = execution.normalizedResult;
+        const matchedTriggerPhrase =
+          typeof normalized === "object" &&
+          normalized !== null &&
+          "matchedTriggerPhrase" in normalized
+            ? String(normalized.matchedTriggerPhrase || "") || null
+            : null;
+
+        return {
+          executionId: execution.id,
+          sourceDeliveryId: execution.sourceDeliveryId,
+          occurredAt: execution.occurredAt.toISOString(),
+          status: execution.status,
+          reasonCode: execution.reasonCode,
+          matchedTriggerPhrase,
+          channel: execution.channel
+            ? {
+                id: execution.channel.id,
+                name: execution.channel.name,
+                connectedPhone: execution.channel.connectedPhone,
+              }
+            : null,
+          leadId: execution.leadId,
+          leadName: lead?.name ?? null,
+          phoneDisplay: lead?.phoneDisplay ?? null,
+          valueCents: execution.valueCents,
+          currency: execution.currency,
+          conversionEventLogId: execution.conversionEventLogId,
+          purchaseReviewId: execution.purchaseReview?.id ?? null,
+          attemptCount: execution.attemptCount,
+          processedAt: execution.processedAt?.toISOString() ?? null,
+        };
+      }),
+      pagination: {
+        page: query.page,
+        pageSize: query.pageSize,
+        totalItems,
+        totalPages: Math.max(1, Math.ceil(totalItems / query.pageSize)),
+      },
+    };
   }
 
   async createRule(

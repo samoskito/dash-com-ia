@@ -11,6 +11,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
 } from "@nestjs/common";
 import {
   conversionRuleCreateInputSchema,
@@ -19,6 +20,7 @@ import {
   funnelConfigurationUpdateInputSchema,
   providerConversionRuleAdaptInputSchema,
   providerConversionRuleCreateInputSchema,
+  providerConversionRuleExecutionAuditQuerySchema,
   providerConversionRuleUpdateInputSchema,
   structuredCatalogTestMessageInputSchema,
 } from "@wpptrack/shared";
@@ -154,6 +156,26 @@ export class ConversionRulesController {
     }
 
     return this.conversionCatalogService.testMessage(
+      workspaceId,
+      providerRuleId,
+      parsed.data,
+    );
+  }
+
+  @Get("providers/:id/executions")
+  async listProviderRuleExecutions(
+    @AuthToken() refreshToken: string,
+    @Param("id") providerRuleId: string,
+    @Query() query: Record<string, unknown>,
+  ) {
+    const workspaceId = await this.getCurrentWorkspaceId(refreshToken);
+    const parsed = providerConversionRuleExecutionAuditQuerySchema.safeParse(query);
+
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten());
+    }
+
+    return this.providerConversionRulesService.listRuleExecutions(
       workspaceId,
       providerRuleId,
       parsed.data,
