@@ -370,6 +370,74 @@ describe("UazapiProviderConversionService", () => {
     });
   });
 
+  /**
+   * The live webhook path must never backfill traffic that predates the
+   * operator's activation: only an explicit manual recovery may do that.
+   */
+  it("observes live traffic that predates the rule activation instead of queueing CAPI", async () => {
+    prisma.providerConversionRuleConfig.findMany.mockResolvedValue([
+      sampleRule({
+        productionActivatedAt: new Date("2026-08-23T00:14:17.000Z"),
+      }),
+    ]);
+    paidLeads.resolve.mockResolvedValue({
+      status: "resolved",
+      reasonCode: "paid_lead_resolved",
+      candidateLeadId: "lead_1",
+      leadId: "lead_1",
+    });
+    decisionEngine.evaluate.mockReturnValue({
+      decisionCode: "eligible",
+      reasonCode: "matched_message_phrase",
+      rule: {
+        mode: "production",
+        eventName: "InitiateCheckout",
+        triggerType: "message_phrase",
+      },
+      occurrence: {},
+      conversion: { valueCents: 25_000 },
+      leadResolution: { status: "resolved", leadId: "lead_1" },
+    });
+    prisma.inboundWebhookDelivery.findUnique.mockResolvedValue({
+      id: "delivery_1",
+    });
+    decisions.recordInitial.mockResolvedValue({
+      decision: {
+        decisionCode: "eligible",
+        reasonCode: "matched_message_phrase",
+        rule: { mode: "production", eventName: "InitiateCheckout" },
+      },
+    });
+    orchestrator.orchestrate.mockResolvedValue({
+      eligibleExecutionId: null,
+    });
+
+    const result = await service.evaluateTeamMessage({
+      workspaceId: "workspace_1",
+      instance: {
+        id: "instance_1",
+        workspaceId: "workspace_1",
+        name: "NOD",
+        providerInstanceId: "p1",
+      },
+      phone: "+5541999999999",
+      messageText: "Cliente iniciou checkout",
+      externalMessageId: "msg_1",
+      occurredAt: new Date("2026-08-20T15:43:32.000Z"),
+    });
+
+    expect(result).toEqual({ evaluated: true, eligibleExecutionId: null });
+    expect(orchestrator.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        disposition: {
+          state: "observed",
+          reasonCode: "before_production_activation",
+        },
+      }),
+    );
+    expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
+  });
+
   it("evaluates a qualified-lead message rule without a value", async () => {
     prisma.providerConversionRuleConfig.findMany.mockResolvedValue([
       sampleRule({
@@ -839,11 +907,144 @@ describe("UazapiProviderConversionService", () => {
     expect(result).toMatchObject({
       disposition: {
         state: "blocked",
-        reasonCode: "production_context_invalid",
+        reasonCode: "connection_not_production",
       },
       enqueued: false,
     });
     expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Caxias/Carla in production: the operator enabled "Envio ativo" days after
+   * the message arrived, so the frozen occurrence is older than the rule's
+   * productionActivatedAt. A manual, operator-picked recovery must still be
+   * able to send it (same carve-out the Umbler recovery already has).
+   */
+  it("recovers an occurrence older than the rule activation when the live context is production", async () => {
+    prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
+      id: "decision_frozen",
+      workspaceId: "workspace_1",
+      providerRuleId: "provider_rule_1",
+    });
+    decisions.findById.mockResolvedValue(frozenDecision());
+    prisma.providerConversionRuleConfig.findFirst.mockResolvedValue(
+      sampleRule({
+        productionActivatedAt: new Date("2026-08-23T00:14:17.000Z"),
+      }),
+    );
+    // Channel promoted after the message too, and without a stamped
+    // activation date - manual recovery must not depend on it.
+    prisma.inboundWebhookChannel.findFirst.mockResolvedValue({
+      status: "active",
+      productionActivatedAt: null,
+    });
+    orchestrator.orchestrate.mockResolvedValue({
+      executionId: "execution_recovered",
+      eligibleExecutionId: "execution_recovered",
+      reviewId: null,
+    });
+
+    const result = await service.recoverDecision({
+      decisionId: "decision_frozen",
+      execute: true,
+    });
+
+    expect(result).toMatchObject({
+      disposition: {
+        state: "eligible",
+        reasonCode: "average_value_message_matched",
+      },
+      eligibleExecutionId: "execution_recovered",
+      enqueued: true,
+    });
+    expect(productionQueue.enqueueProviderConversion).toHaveBeenCalledWith({
+      providerConversionExecutionId: "execution_recovered",
+      workspaceId: "workspace_1",
+    });
+  });
+
+  it("blocks recovery with connection_not_production while the connection is still observing", async () => {
+    prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
+      id: "decision_frozen",
+      workspaceId: "workspace_1",
+      providerRuleId: "provider_rule_1",
+    });
+    decisions.findById.mockResolvedValue(frozenDecision());
+    prisma.providerConversionRuleConfig.findFirst.mockResolvedValue(
+      sampleRule({
+        connection: { ...sampleRule().connection, status: "observation" },
+      }),
+    );
+
+    const result = await service.recoverDecision({
+      decisionId: "decision_frozen",
+    });
+
+    expect(result).toMatchObject({
+      mode: "dry-run",
+      disposition: {
+        state: "blocked",
+        reasonCode: "connection_not_production",
+      },
+    });
+    expect(orchestrator.orchestrate).not.toHaveBeenCalled();
+  });
+
+  it("blocks recovery with channel_not_active while the channel is only discovered", async () => {
+    prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
+      id: "decision_frozen",
+      workspaceId: "workspace_1",
+      providerRuleId: "provider_rule_1",
+    });
+    decisions.findById.mockResolvedValue(frozenDecision());
+    prisma.providerConversionRuleConfig.findFirst.mockResolvedValue(
+      sampleRule(),
+    );
+    prisma.inboundWebhookChannel.findFirst.mockResolvedValue({
+      status: "discovered",
+      productionActivatedAt: null,
+    });
+
+    const result = await service.recoverDecision({
+      decisionId: "decision_frozen",
+    });
+
+    expect(result).toMatchObject({
+      mode: "dry-run",
+      disposition: {
+        state: "blocked",
+        reasonCode: "channel_not_active",
+      },
+    });
+    expect(orchestrator.orchestrate).not.toHaveBeenCalled();
+  });
+
+  it("blocks recovery with parser_release_mismatch when rule and connection parsers diverge", async () => {
+    prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
+      id: "decision_frozen",
+      workspaceId: "workspace_1",
+      providerRuleId: "provider_rule_1",
+    });
+    decisions.findById.mockResolvedValue(frozenDecision());
+    prisma.providerConversionRuleConfig.findFirst.mockResolvedValue(
+      sampleRule({
+        connection: {
+          ...sampleRule().connection,
+          parserReleaseId: "release_2",
+        },
+      }),
+    );
+
+    const result = await service.recoverDecision({
+      decisionId: "decision_frozen",
+    });
+
+    expect(result).toMatchObject({
+      disposition: {
+        state: "blocked",
+        reasonCode: "parser_release_mismatch",
+      },
+    });
   });
 
   it("refuses to recover a decision from another provider", async () => {

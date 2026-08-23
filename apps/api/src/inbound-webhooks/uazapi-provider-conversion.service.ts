@@ -615,6 +615,7 @@ export class UazapiProviderConversionService {
             rule: input.rule,
             channel: input.channel,
             occurredAt: input.occurredAt,
+            manualRecovery: input.manualRecovery === true,
           }),
     };
   }
@@ -706,6 +707,11 @@ export class UazapiProviderConversionService {
    *
    * `observed` is not a no-op: the orchestrator persists it as an `observed`
    * execution, which the audit UI lists and the production pipeline ignores.
+   *
+   * Every blocking branch reports which live gate failed. Activating a rule
+   * ("Envio ativo") only sets the rule's own mode/productionActivatedAt — it
+   * never promotes the connection or the channel — so the single opaque
+   * `production_context_invalid` left the operator guessing what to fix.
    */
   private disposition(input: {
     config: ReturnType<typeof parseInboundWebhooksConfig>;
@@ -714,6 +720,7 @@ export class UazapiProviderConversionService {
     rule: Rule;
     channel: { status: string; productionActivatedAt: Date | null } | null;
     occurredAt: Date;
+    manualRecovery: boolean;
   }): ProviderConversionTechnicalDisposition {
     if (
       !input.config.conversionProductionEnabled ||
@@ -724,27 +731,64 @@ export class UazapiProviderConversionService {
         reasonCode: `${input.reasonCode}_observation`,
       };
     }
-    if (
-      input.rule.parserRelease.status !== "certified" ||
-      input.rule.connection.parserRelease.status !== "certified" ||
-      input.rule.parserReleaseId !== input.rule.connection.parserReleaseId ||
-      input.rule.connection.status !== "production" ||
-      input.rule.connection.removedAt !== null ||
-      !input.channel ||
-      input.channel.status !== "active"
-    ) {
-      return { state: "blocked", reasonCode: "production_context_invalid" };
+    const blockedReason = this.productionContextBlock(input);
+    if (blockedReason) {
+      return { state: "blocked", reasonCode: blockedReason };
+    }
+    // Manual recovery replays an occurrence the operator picked by id after
+    // enabling production, so the "don't backfill pre-activation traffic"
+    // guard does not apply to it — same carve-out as the Umbler observation
+    // service. The live path keeps the full date comparison.
+    if (!input.rule.productionActivatedAt) {
+      return {
+        state: "observed",
+        reasonCode: "rule_production_not_activated",
+      };
     }
     if (
-      !input.rule.productionActivatedAt ||
-      !input.channel.productionActivatedAt ||
-      input.occurredAt < input.rule.productionActivatedAt ||
-      input.occurredAt < input.channel.productionActivatedAt
+      !input.manualRecovery &&
+      (!input.channel?.productionActivatedAt ||
+        input.occurredAt < input.rule.productionActivatedAt ||
+        input.occurredAt < input.channel.productionActivatedAt)
     ) {
       return { state: "observed", reasonCode: "before_production_activation" };
     }
 
     return { state: "eligible", reasonCode: input.reasonCode };
+  }
+
+  /**
+   * Returns the specific live gate that blocks production for this rule, or
+   * null when the production context is complete. Fail-closed: any unknown
+   * state falls through to a blocking reason, never to eligibility.
+   */
+  private productionContextBlock(input: {
+    rule: Rule;
+    channel: { status: string; productionActivatedAt: Date | null } | null;
+  }): string | null {
+    const { rule, channel } = input;
+    if (rule.parserRelease.status !== "certified") {
+      return "rule_parser_not_certified";
+    }
+    if (rule.connection.parserRelease.status !== "certified") {
+      return "connection_parser_not_certified";
+    }
+    if (rule.parserReleaseId !== rule.connection.parserReleaseId) {
+      return "parser_release_mismatch";
+    }
+    if (rule.connection.removedAt !== null) {
+      return "connection_removed";
+    }
+    if (rule.connection.status !== "production") {
+      return "connection_not_production";
+    }
+    if (!channel) {
+      return "channel_unresolved";
+    }
+    if (channel.status !== "active") {
+      return "channel_not_active";
+    }
+    return null;
   }
 
   private ruleSnapshot(
