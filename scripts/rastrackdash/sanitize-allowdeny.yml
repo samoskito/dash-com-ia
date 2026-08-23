@@ -443,6 +443,34 @@ rewrite_rules:
       for a follow-up slice (F3.3/F4 TODO), not guessed here.
     evidence:
       - apps/api/src/ops-alerts/ops-alerts.service.ts
+  - id: web-billing-subscription-ui-removal
+    description: >
+      F3.4b: a real `tsc --noEmit` run against apps/web (F3.4b task) surfaced
+      8 errors from two pages still importing billing/backoffice DTOs that
+      billing/ + backoffice-workspaces.controller.ts stripping (F3.1-F3.4)
+      already removed from @wpptrack/shared. integrations/page.tsx: the
+      WhatsApp instance marketplace (checkout/quote/subscription-summary/
+      package-billing panel, all wired to WhatsappConnectionsController +
+      billing/* endpoints that no longer exist) is removed and replaced with
+      a minimal native/BYO Uazapi status readout sourced from the
+      already-kept /integrations/health provider list; getWhatsappInstances/
+      getWhatsappInstanceStatuses/getWhatsappQuote/getBillingSubscription/
+      getPackageBillingState + the connectWhatsappInstance/
+      createWhatsappCheckout server actions go with it (dead callers). The
+      Meta manual connection UI and the inbound-webhook/native-source panels
+      are untouched. settings/page.tsx: resendWorkspaceOwnerAccess (wired to
+      backoffice-workspaces.controller.ts, already stripped) is removed
+      outright, same treatment as client-swap-web-panel-removal — a
+      staff-only "manage other clients' workspaces" action with no backing
+      controller left. getWhatsappLabelSuggestions's WhatsappInstanceSummaryDto
+      is replaced with a local structural type (id/provider/billingStatus)
+      instead of deleting the function — same call as
+      platform-admin-user-local-type — since it already degrades gracefully
+      to an empty label list via its own try/catch once
+      WhatsappConnectionsController 404s.
+    evidence:
+      - apps/web/src/app/(app)/integrations/page.tsx
+      - apps/web/src/app/(app)/settings/page.tsx
 
 # ---------------------------------------------------------------------------
 # secret_fail_patterns — export MUST fail (non-zero exit, no output written)

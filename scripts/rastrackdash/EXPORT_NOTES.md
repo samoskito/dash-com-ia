@@ -3,8 +3,8 @@
 Auto-written by `scripts/rastrackdash/sanitize-export.mjs` after each run.
 Never contains secret values, only counts/paths/pattern names.
 
-- When: 2026-08-23T14:50:28.562Z
-- Source commit: 6230770
+- When: 2026-08-23T18:01:50.601Z
+- Source commit: 6dc65dc
 - Destination: /tmp/rastrackdash-export
 - Result: OK (secret scan passed)
 - remove_paths deleted: 57

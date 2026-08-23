@@ -1486,6 +1486,432 @@ function applyMetaOAuthStateResidueRemoval(out, log) {
 }
 
 // ---------------------------------------------------------------------------
+// F3.4b web dangling-import resolution codemods — a real `tsc --noEmit` run
+// against apps/web (F3.4b task) surfaced 8 errors the F3.1-F3.4 codemod
+// passes never targeted: two web pages still imported billing/backoffice
+// DTOs that billing/ + backoffice-workspaces.controller.ts stripping (F3.1-
+// F3.4) already removed from @wpptrack/shared. Unlike the earlier API-side
+// residue, these aren't unreachable code behind a dead branch — they're live
+// JSX rendering a WhatsApp instance marketplace (checkout/quote/subscription/
+// package-billing) and a staff "resend client-owner access" action, both
+// wired to API endpoints (WhatsappConnectionsController, billing/*,
+// backoffice-workspaces.controller.ts) that no longer exist in the export.
+// Each codemod below traces to a rewrite_rules entry
+// (web-billing-subscription-ui-removal) in sanitize-allowdeny.yml.
+// ---------------------------------------------------------------------------
+
+function applyStringCodemodF34b(out, file, steps, log) {
+  const target = join(out, file);
+  if (!existsSync(target)) {
+    log.f34bCodemodFailed.push(`${file}: file absent`);
+    return;
+  }
+  let content = readFileSync(target, "utf8");
+  for (const step of steps) {
+    if (content.includes(step.search)) {
+      content = content.replace(step.search, step.replace ?? "");
+      log.f34bCodemod.push(`${file}: ${step.label}`);
+    } else {
+      log.f34bCodemodFailed.push(`${file}: ${step.label} — marker not found (source may have drifted)`);
+    }
+  }
+  writeFileSync(target, content);
+}
+
+function applyAnchoredRemovalsF34b(out, file, spans, log) {
+  const target = join(out, file);
+  if (!existsSync(target)) {
+    log.f34bCodemodFailed.push(`${file}: file absent`);
+    return;
+  }
+  let content = readFileSync(target, "utf8");
+  for (const span of spans) {
+    const result = removeAnchoredSpan(content, span.startAnchor, span.endAnchor);
+    if (result.removed) {
+      content = result.content;
+      log.f34bCodemod.push(`${file}: ${span.label}`);
+    } else {
+      log.f34bCodemodFailed.push(`${file}: ${span.label} — ${result.reason} (source may have drifted)`);
+    }
+  }
+  writeFileSync(target, content);
+}
+
+// Like removeAnchoredSpan, but splices `replacement` in between the anchors
+// instead of deleting the span outright — used where the dead JSX can't just
+// be dropped (the surrounding conditional-render still needs *some* body).
+function replaceAnchoredSpan(content, startAnchor, endAnchor, replacement) {
+  const startIdx = content.indexOf(startAnchor);
+  if (startIdx === -1) return { content, changed: false, reason: "start marker not found" };
+  const endIdx = content.indexOf(endAnchor, startIdx + startAnchor.length);
+  if (endIdx === -1) return { content, changed: false, reason: "end marker not found" };
+  return {
+    content: content.slice(0, startIdx) + replacement + content.slice(endIdx),
+    changed: true,
+  };
+}
+
+function applyAnchoredReplaceF34b(out, file, specs, log) {
+  const target = join(out, file);
+  if (!existsSync(target)) {
+    log.f34bCodemodFailed.push(`${file}: file absent`);
+    return;
+  }
+  let content = readFileSync(target, "utf8");
+  for (const spec of specs) {
+    const result = replaceAnchoredSpan(content, spec.startAnchor, spec.endAnchor, spec.replacement);
+    if (result.changed) {
+      content = result.content;
+      log.f34bCodemod.push(`${file}: ${spec.label}`);
+    } else {
+      log.f34bCodemodFailed.push(`${file}: ${spec.label} — ${result.reason} (source may have drifted)`);
+    }
+  }
+  writeFileSync(target, content);
+}
+
+// rewrite_rules.web-billing-subscription-ui-removal (integrations page half):
+// strips the WhatsApp instance marketplace (checkout/quote/subscription/
+// package-billing) — WhatsappConnectionsController + billing/ are both
+// stripped, so every one of these fetches 404s in the export. KEEPS the Meta
+// manual connection UI and the inbound-webhook/native (Uazapi BYO) source
+// panels untouched; only replaces the dead marketplace panel with a minimal
+// status readout for the single BYO instance (health.providers "uazapi"
+// entry, already populated by the kept /integrations/health endpoint).
+function applyWebIntegrationsBillingUiRemoval(out, log) {
+  const file = "apps/web/src/app/(app)/integrations/page.tsx";
+
+  applyStringCodemodF34b(out, file, [
+    {
+      search:
+        "  CurrentWorkspaceDto,\n" +
+        "  WhatsappInstanceCheckoutDto,\n" +
+        "  WhatsappInstanceConnectionDto,\n" +
+        "  WhatsappInstanceQuoteDto,\n" +
+        "  WhatsappInstanceSummaryDto,\n" +
+        "  WorkspacePackageBillingStateDto,\n" +
+        "  WorkspaceSubscriptionSummaryDto,\n" +
+        '} from "@wpptrack/shared";\n',
+      replace: "  CurrentWorkspaceDto,\n} from \"@wpptrack/shared\";\n",
+      label: "billing/instance-marketplace DTO imports trimmed",
+    },
+    {
+      search:
+        "  const [\n" +
+        "    healthResult,\n" +
+        "    whatsappInstancesResult,\n" +
+        "    metaConnectionResult,\n" +
+        "    metaAssetsResult,\n" +
+        "    whatsappQuoteResult,\n" +
+        "    billingSubscriptionResult,\n" +
+        "    pipelineResult,\n" +
+        "    workspaceResult,\n" +
+        "    metaCapabilitiesResult,\n" +
+        "    packageBillingResult,\n" +
+        "  ] = await Promise.all([\n" +
+        "    getHealth(),\n" +
+        "    getWhatsappInstances(),\n" +
+        "    getMetaConnection(),\n" +
+        "    getMetaAssets(),\n" +
+        "    getWhatsappQuote(),\n" +
+        "    getBillingSubscription(),\n" +
+        "    getIntegrationPipeline(),\n" +
+        "    getCurrentWorkspaceResource(),\n" +
+        "    getMetaCapabilities(),\n" +
+        "    getPackageBillingState(),\n" +
+        "  ]);\n",
+      replace:
+        "  const [\n" +
+        "    healthResult,\n" +
+        "    metaConnectionResult,\n" +
+        "    metaAssetsResult,\n" +
+        "    pipelineResult,\n" +
+        "    workspaceResult,\n" +
+        "    metaCapabilitiesResult,\n" +
+        "  ] = await Promise.all([\n" +
+        "    getHealth(),\n" +
+        "    getMetaConnection(),\n" +
+        "    getMetaAssets(),\n" +
+        "    getIntegrationPipeline(),\n" +
+        "    getCurrentWorkspaceResource(),\n" +
+        "    getMetaCapabilities(),\n" +
+        "  ]);\n",
+      label: "whatsappInstances/whatsappQuote/billingSubscription/packageBilling dropped from the page load Promise.all",
+    },
+    {
+      search:
+        "  const health = healthResult.data;\n" +
+        "  const whatsappInstances = whatsappInstancesResult.data;\n" +
+        "  const whatsappInstanceStatuses = usesExternalWhatsapp\n" +
+        "    ? {}\n" +
+        "    : await getWhatsappInstanceStatuses(whatsappInstances);\n" +
+        "  const metaConnection = metaConnectionResult.data;\n",
+      replace:
+        "  const health = healthResult.data;\n" +
+        "  const metaConnection = metaConnectionResult.data;\n",
+      label: "whatsappInstances/whatsappInstanceStatuses derivation removed",
+    },
+    {
+      search:
+        "  const whatsappQuote = whatsappQuoteResult.data;\n" +
+        "  const billingSubscription = billingSubscriptionResult.data;\n" +
+        "  const packageBilling = packageBillingResult.data;\n" +
+        "  const packageBillingEnabled = Boolean(\n" +
+        "    packageBilling?.capabilities?.packageBilling,\n" +
+        "  );\n" +
+        "  const pipeline = pipelineResult.data;\n",
+      replace: "  const pipeline = pipelineResult.data;\n",
+      label: "whatsappQuote/billingSubscription/packageBilling/packageBillingEnabled derivation removed",
+    },
+    {
+      search: "  const canManageBilling = Boolean(workspace?.permissions.canManageBilling);\n",
+      replace: "",
+      label: "canManageBilling flag removed (only used by the removed checkout form)",
+    },
+    {
+      search:
+        "    ...(inboundWebhookData?.capabilities.enabled\n" +
+        "      ? [inboundWebhookResult.state]\n" +
+        "      : []),\n" +
+        "    ...(usesExternalWhatsapp\n" +
+        "      ? []\n" +
+        "      : [\n" +
+        "          whatsappInstancesResult.state,\n" +
+        "          whatsappQuoteResult.state,\n" +
+        "          billingSubscriptionResult.state,\n" +
+        '        ]),\n' +
+        '  ].includes("error");\n',
+      replace:
+        "    ...(inboundWebhookData?.capabilities.enabled\n" +
+        "      ? [inboundWebhookResult.state]\n" +
+        "      : []),\n" +
+        '  ].includes("error");\n',
+      label: "hasIntegrationError no longer reads the removed resource results",
+    },
+    {
+      search:
+        "  const whatsappInstancesEmptyTitle =\n" +
+        '    whatsappInstancesResult.state === "error"\n' +
+        '      ? "Nao foi possivel carregar instancias"\n' +
+        '      : "Nenhuma instancia";\n' +
+        "  const metaDestinationCount = manualConfigured\n",
+      replace: "  const metaDestinationCount = manualConfigured\n",
+      label: "whatsappInstancesEmptyTitle removed (only used by the removed instance table)",
+    },
+    {
+      search:
+        "  const whatsappSourceLabel = usesExternalWhatsapp\n" +
+        '    ? "MySQL externo"\n' +
+        "    : inboundConnectionCount > 0\n" +
+        '      ? `${inboundConnectionCount} webhook${inboundConnectionCount === 1 ? "" : "s"}`\n' +
+        "      : whatsappInstances.length > 0\n" +
+        '        ? `${whatsappInstances.length} instancia${whatsappInstances.length === 1 ? "" : "s"}`\n' +
+        '        : "Aguardando fonte";\n' +
+        "  const whatsappSourceDetail = usesExternalWhatsapp\n" +
+        '    ? "Leitura incremental configurada"\n' +
+        "    : inboundConnectionCount > 0\n" +
+        '      ? "Plataformas WhatsApp em observacao"\n' +
+        "      : whatsappInstances.length > 0\n" +
+        '        ? "Instancias WhatsApp cadastradas"\n' +
+        '        : "Nenhuma origem ativa";\n',
+      replace:
+        "  const whatsappSourceLabel = usesExternalWhatsapp\n" +
+        '    ? "MySQL externo"\n' +
+        "    : inboundConnectionCount > 0\n" +
+        '      ? `${inboundConnectionCount} webhook${inboundConnectionCount === 1 ? "" : "s"}`\n' +
+        '      : "Aguardando fonte";\n' +
+        "  const whatsappSourceDetail = usesExternalWhatsapp\n" +
+        '    ? "Leitura incremental configurada"\n' +
+        "    : inboundConnectionCount > 0\n" +
+        '      ? "Plataformas WhatsApp em observacao"\n' +
+        '      : "Nenhuma origem ativa";\n',
+      label: "whatsappSourceLabel/whatsappSourceDetail no longer reference the removed instance list",
+    },
+  ], log);
+
+  applyAnchoredRemovalsF34b(out, file, [
+    {
+      startAnchor: "\n\nasync function getWhatsappInstances(): Promise<",
+      endAnchor: "\n\nasync function getIntegrationPipeline(): Promise<",
+      label:
+        "getWhatsappInstances/getWhatsappInstanceStatuses/getWhatsappQuote/getBillingSubscription/" +
+        "getPackageBillingState removed (dead: WhatsappConnectionsController + billing/ stripped)",
+    },
+    {
+      startAnchor: "\n\nasync function connectWhatsappInstance(formData: FormData) {",
+      endAnchor: "\n\nasync function saveMetaConversionDestination(formData: FormData) {",
+      label:
+        "connectWhatsappInstance/createWhatsappCheckout server actions removed " +
+        "(dead: WhatsappConnectionsController + billing/whatsapp-instance/* stripped)",
+    },
+  ], log);
+
+  applyAnchoredReplaceF34b(out, file, [
+    {
+      startAnchor: '          {packageBillingEnabled && packageBilling ? (\n',
+      endAnchor: '          )}\n        </div>\n      </section>',
+      replacement:
+        '          {!usesExternalWhatsapp && (\n' +
+        '            <div className="surface-panel whatsapp-instance-panel">\n' +
+        '              <span className="eyebrow">WhatsApp Business</span>\n' +
+        '              <h2>Instancia Uazapi (BYO)</h2>\n' +
+        '              <p className="muted">\n' +
+        '                Esta edicao conecta uma unica instancia Uazapi configurada por\n' +
+        '                variavel de ambiente (UAZAPI_BASE_URL/UAZAPI_TOKEN). Nao ha\n' +
+        '                marketplace de instancias nem cobranca dentro do painel.\n' +
+        '              </p>\n' +
+        '              <div className="metric-grid compact">\n' +
+        '                <div className="metric-card">\n' +
+        '                  <span className="micro-label">Status Uazapi</span>\n' +
+        '                  <strong>\n' +
+        '                    {statusLabel(\n' +
+        '                      health?.providers.find(\n' +
+        '                        (item) => item.provider === "uazapi",\n' +
+        '                      )?.status ?? "not_configured",\n' +
+        '                    )}\n' +
+        '                  </strong>\n' +
+        '                </div>\n' +
+        '                <div className="metric-card">\n' +
+        '                  <span className="micro-label">Webhooks recebidos</span>\n' +
+        '                  <strong>\n' +
+        '                    {inboundConnectionCount > 0\n' +
+        '                      ? `${inboundConnectionCount} webhook${inboundConnectionCount === 1 ? "" : "s"}`\n' +
+        '                      : "Nenhum webhook ativo"}\n' +
+        '                  </strong>\n' +
+        '                </div>\n' +
+        '              </div>\n' +
+        '            </div>\n',
+      label:
+        "package-integration-summary + whatsapp-instance-panel (checkout/quote/subscription-table JSX) " +
+        "replaced with a minimal native/BYO Uazapi status readout",
+    },
+  ], log);
+}
+
+// rewrite_rules.web-billing-subscription-ui-removal (settings page half):
+// ClientOwnerAccessResendResultDto backed a staff-only "resend client-owner
+// access" action wired to backoffice-workspaces.controller.ts, stripped in
+// F3.1/F3.2 (same controller applyStaffOnlyBackofficeMethodsRemoval's
+// auth.service.ts/workspaces.service.ts companions already went dead for) —
+// removed outright, same treatment as client-swap-web-panel-removal (F3.3).
+// WhatsappInstanceSummaryDto only typed a listInstances() response read for
+// id/provider/billingStatus; kept the label-suggestion lookup itself (it
+// already degrades gracefully to an empty list via its own try/catch once
+// WhatsappConnectionsController 404s) behind a local structural type instead
+// of deleting real, if currently unreachable, business logic — same call as
+// platform-admin-user-local-type (F3.3).
+function applyWebSettingsBillingUiRemoval(out, log) {
+  const file = "apps/web/src/app/(app)/settings/page.tsx";
+
+  applyStringCodemodF34b(out, file, [
+    {
+      search:
+        "import type {\n" +
+        "  ClientOwnerAccessResendResultDto,\n" +
+        "  ConversionEventNameDto,\n" +
+        "  ConversionRuleDto,\n" +
+        "  CurrentWorkspaceDto,\n" +
+        "  FunnelConfigurationDto,\n" +
+        "  InboundWebhookChannelDto,\n" +
+        "  InboundWebhookConnectionDto,\n" +
+        "  ProviderConversionRuleDto,\n" +
+        "  WhatsappInstanceSummaryDto,\n" +
+        "  WhatsappLabelDto,\n" +
+        "  WorkspaceOpsAlertSettings,\n" +
+        "  WorkspaceInviteDto,\n" +
+        "  WorkspaceMemberDto,\n" +
+        '} from "@wpptrack/shared";\n',
+      replace:
+        "import type {\n" +
+        "  ConversionEventNameDto,\n" +
+        "  ConversionRuleDto,\n" +
+        "  CurrentWorkspaceDto,\n" +
+        "  FunnelConfigurationDto,\n" +
+        "  InboundWebhookChannelDto,\n" +
+        "  InboundWebhookConnectionDto,\n" +
+        "  ProviderConversionRuleDto,\n" +
+        "  WhatsappLabelDto,\n" +
+        "  WorkspaceOpsAlertSettings,\n" +
+        "  WorkspaceInviteDto,\n" +
+        "  WorkspaceMemberDto,\n" +
+        '} from "@wpptrack/shared";\n',
+      label: "ClientOwnerAccessResendResultDto/WhatsappInstanceSummaryDto imports trimmed",
+    },
+    {
+      search:
+        "async function getWhatsappLabelSuggestions(): Promise<WhatsappLabelSuggestionsResult> {\n" +
+        "  try {\n" +
+        "    const instances = await serverApiFetch<WhatsappInstanceSummaryDto[]>(\n",
+      replace:
+        "// rastrackdash sanitize (rewrite_rules.web-billing-subscription-ui-removal):\n" +
+        "// WhatsappInstanceSummaryDto lived in the billing schema (stripped in this\n" +
+        "// edition). This function only ever read id/provider/billingStatus off the\n" +
+        "// listInstances() response, so a local structural type keeps the label-\n" +
+        "// suggestion lookup intact instead of deleting it; the underlying\n" +
+        "// /integrations/whatsapp/instances endpoint (WhatsappConnectionsController)\n" +
+        "// is also stripped, so this now always falls into the catch below and\n" +
+        "// degrades to an empty label list rather than throwing.\n" +
+        "type WhatsappInstanceSummaryLocal = {\n" +
+        "  id: string;\n" +
+        "  provider: string;\n" +
+        "  billingStatus: string;\n" +
+        "};\n" +
+        "\n" +
+        "async function getWhatsappLabelSuggestions(): Promise<WhatsappLabelSuggestionsResult> {\n" +
+        "  try {\n" +
+        "    const instances = await serverApiFetch<WhatsappInstanceSummaryLocal[]>(\n",
+      label: "WhatsappInstanceSummaryDto replaced with a local structural type",
+    },
+    {
+      search:
+        '                      {isPlatformOwnerSupport && member.role === "owner" ? (\n' +
+        "                        <div\n" +
+        '                          className="member-controls member-owner-controls"\n' +
+        '                          data-presentation-sensitive-action="true"\n' +
+        "                        >\n" +
+        "                          <BackofficeActionForm\n" +
+        "                            action={resendWorkspaceOwnerAccess}\n" +
+        "                          >\n" +
+        "                            <input\n" +
+        '                              name="workspaceId"\n' +
+        '                              type="hidden"\n' +
+        '                              value={workspace?.id ?? ""}\n' +
+        "                            />\n" +
+        "                            <input\n" +
+        '                              name="ownerUserId"\n' +
+        '                              type="hidden"\n' +
+        "                              value={member.userId}\n" +
+        "                            />\n" +
+        "                            <PendingSubmitButton\n" +
+        '                              className="button ghost compact-button"\n' +
+        '                              label="Reenviar e-mail de acesso"\n' +
+        '                              pendingLabel="Enviando..."\n' +
+        "                            />\n" +
+        "                          </BackofficeActionForm>\n" +
+        "                        </div>\n" +
+        "                      ) : null}\n",
+      replace: "",
+      label: '"Reenviar e-mail de acesso" (member-owner-controls) JSX block removed',
+    },
+  ], log);
+
+  applyAnchoredRemovalsF34b(out, file, [
+    {
+      startAnchor: "\n\nasync function resendWorkspaceOwnerAccess(\n",
+      endAnchor: "\n\nasync function updateWorkspaceProfile(formData: FormData) {",
+      label:
+        "resendWorkspaceOwnerAccess server action removed " +
+        "(dead: backoffice-workspaces.controller.ts already stripped)",
+    },
+  ], log);
+}
+
+function applyWebBillingSubscriptionUiRemoval(out, log) {
+  applyWebIntegrationsBillingUiRemoval(out, log);
+  applyWebSettingsBillingUiRemoval(out, log);
+}
+
+// ---------------------------------------------------------------------------
 // Prisma model stripping
 // ---------------------------------------------------------------------------
 
@@ -1731,6 +2157,14 @@ function writeExportReport(out, ctx) {
   );
   for (const a of log.f34Codemod) lines.push(`- OK: ${a}`);
   for (const a of log.f34CodemodFailed) lines.push(`- FAILED: ${a}`);
+  lines.push("");
+  lines.push("## F3.4b web typecheck residue codemods");
+  lines.push(
+    "web-billing-subscription-ui-removal (integrations + settings pages) — " +
+      "see sanitize-allowdeny.yml rewrite_rules for the full rationale per entry.",
+  );
+  for (const a of log.f34bCodemod) lines.push(`- OK: ${a}`);
+  for (const a of log.f34bCodemodFailed) lines.push(`- FAILED: ${a}`);
   lines.push("");
   lines.push("## .env.example");
   lines.push(`- Vars kept: ${log.envVarsKept.length}`);
@@ -1978,6 +2412,8 @@ async function main() {
     f33CodemodFailed: [],
     f34Codemod: [],
     f34CodemodFailed: [],
+    f34bCodemod: [],
+    f34bCodemodFailed: [],
     envVarsKept: [],
     envVarsStripped: [],
   };
@@ -2031,6 +2467,9 @@ async function main() {
   console.log("Applying F3.4 typecheck residue codemods ...");
   applyStaffOnlyBackofficeMethodsRemoval(out, log);
   applyMetaOAuthStateResidueRemoval(out, log);
+
+  console.log("Applying F3.4b web billing/subscription UI removal codemods ...");
+  applyWebBillingSubscriptionUiRemoval(out, log);
 
   console.log("Stripping Prisma models ...");
   const prismaRemove = doc.prisma_models_remove?.remove ?? [];
