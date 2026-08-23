@@ -607,6 +607,42 @@ function applyStringCodemod(out, file, steps, log) {
   writeFileSync(target, content);
 }
 
+// F3.4: removes a contiguous span of source between two unique anchor
+// strings (each including its own leading "\n\n" so the join reconnects
+// with exactly one blank line, matching the surrounding style). Used for
+// deleting whole dead methods/types that are too large to spell out as a
+// single exact-text replacement without risking a transcription typo —
+// only the (short, unique) boundary markers need to match exactly.
+function removeAnchoredSpan(content, startAnchor, endAnchor) {
+  const startIdx = content.indexOf(startAnchor);
+  if (startIdx === -1) return { content, removed: false, reason: "start marker not found" };
+  const endIdx = content.indexOf(endAnchor, startIdx + startAnchor.length);
+  if (endIdx === -1) return { content, removed: false, reason: "end marker not found" };
+  return {
+    content: content.slice(0, startIdx) + content.slice(endIdx),
+    removed: true,
+  };
+}
+
+function applyAnchoredRemovals(out, file, spans, log) {
+  const target = join(out, file);
+  if (!existsSync(target)) {
+    log.f34CodemodFailed.push(`${file}: file absent`);
+    return;
+  }
+  let content = readFileSync(target, "utf8");
+  for (const span of spans) {
+    const result = removeAnchoredSpan(content, span.startAnchor, span.endAnchor);
+    if (result.removed) {
+      content = result.content;
+      log.f34Codemod.push(`${file}: ${span.label}`);
+    } else {
+      log.f34CodemodFailed.push(`${file}: ${span.label} — ${result.reason} (source may have drifted)`);
+    }
+  }
+  writeFileSync(target, content);
+}
+
 // rewrite_rules.external-channel-seat-gate-noop
 function applySeatGateNoop(out, log) {
   const files = [
@@ -683,6 +719,53 @@ function applySeatGateNoop(out, log) {
   ];
 
   for (const file of files) applyStringCodemod(out, file, steps, log);
+
+  // F3.4: unlike the other two seat-gate files, InboundWebhookConnectionsService
+  // also releases a seat directly inside removeConnection() — a second,
+  // independent this.billingConfiguration/this.whatsappSeats usage the F3.3
+  // seat-gate-noop steps above never targeted (they only cover the shared
+  // externalChannelEnforcementEnabled()/seatHook() pair). With the
+  // constructor params removed above, this block references two fields that
+  // no longer exist. Since externalChannelEnforcementEnabled() is now
+  // hardcoded false, a seat could never have been allocated for this
+  // connection in the first place — removing the release block is a true
+  // noop, not a behavior change.
+  applyStringCodemod(
+    out,
+    "apps/api/src/inbound-webhooks/inbound-webhook-connections.service.ts",
+    [
+      {
+        search:
+          "      if (\n" +
+          "        this.billingConfiguration?.isPackageBillingEnabled() &&\n" +
+          "        this.whatsappSeats\n" +
+          "      ) {\n" +
+          "        const channels = await transaction.inboundWebhookChannel.findMany({\n" +
+          "          where: {\n" +
+          "            workspaceId,\n" +
+          "            connectionId,\n" +
+          "          },\n" +
+          "          select: { id: true },\n" +
+          "        });\n" +
+          "\n" +
+          "        for (const channel of channels) {\n" +
+          "          await this.whatsappSeats.releaseExternalChannelSeat(transaction, {\n" +
+          "            workspaceId,\n" +
+          "            channelId: channel.id,\n" +
+          "            actorUserId,\n" +
+          "            reason: \"connection_removed\",\n" +
+          "          });\n" +
+          "        }\n" +
+          "      }\n",
+        replace:
+          "      // rastrackdash sanitize (rewrite_rules.external-channel-seat-gate-noop):\n" +
+          "      // billing/ is stripped in this edition, so external-channel seats are\n" +
+          "      // never allocated and there is nothing to release here.\n",
+        label: "removeConnection() seat-release-on-remove block noop'd",
+      },
+    ],
+    log,
+  );
 }
 
 // rewrite_rules.external-channel-billing-access-stub
@@ -1151,6 +1234,258 @@ function applyOpsAlertsWhatsappConnectionsStub(out, log) {
 }
 
 // ---------------------------------------------------------------------------
+// F3.4 dangling-import resolution codemods (round 2 — real typecheck run).
+//
+// F3.1-F3.3 codemods were designed from static grep/inventory review. Running
+// an actual `tsc --noEmit` against the export (F3.4) surfaced three more
+// clusters of import/property breaks that inventory review missed, all
+// documented in sanitize-allowdeny.yml rewrite_rules:
+//   - staff-only-backoffice-methods-removal: auth.service.ts/workspaces.service.ts
+//     still had the platform-owner "manage other clients' workspaces" methods
+//     (list/provision/block client workspaces, client-owner activation
+//     delivery, platform-user role management, per-workspace billing config)
+//     wired up even though every controller that called them was already
+//     removed (backoffice-workspaces.controller.ts, backoffice-platform-
+//     users.controller.ts) — genuinely dead, staff-only multi-client code,
+//     not a stub candidate.
+//   - meta-oauth-state-residue-removal: the meta/start + meta/callback broker
+//     endpoints were removed from integrations.controller.ts in F3.2, but the
+//     service methods they called (which read/write the also-removed
+//     MetaOAuthState Prisma model) were left behind as unreachable code.
+// ---------------------------------------------------------------------------
+
+// rewrite_rules.staff-only-backoffice-methods-removal
+function applyStaffOnlyBackofficeMethodsRemoval(out, log) {
+  // auth.service.ts: platform-user management (list/provision/update-role)
+  // and the client-owner activation-delivery helpers are only ever called
+  // from workspaces.service.ts's own staff-only methods (removed below) or
+  // from backoffice-platform-users.controller.ts (removed in F3.1/F3.2).
+  applyStringCodemod(out, "apps/api/src/auth/auth.service.ts", [
+    {
+      search: "  ClientOwnerAccessDeliveryDto,\n",
+      replace: "",
+      label: "ClientOwnerAccessDeliveryDto import removed",
+    },
+    {
+      search:
+        "  PlatformUserProvisionInputDto,\n" +
+        "  PlatformUserRoleUpdateInputDto,\n" +
+        "  PlatformUserDto,\n",
+      replace: "",
+      label: "PlatformUser*Dto imports removed",
+    },
+    {
+      search:
+        'import { platformUserListSchema, platformUserSchema } from "@wpptrack/shared";\n',
+      replace: "",
+      label: "platformUserListSchema/platformUserSchema import removed",
+    },
+    {
+      search:
+        "export type ClientOwnerActivationIssueResult = {\n" +
+        '  mode: "activation";\n' +
+        '  delivery: "email_queued" | "failed" | "not_configured" | "link_only";\n' +
+        "  token: string;\n" +
+        "  expiresAt: Date;\n" +
+        "  emailAttempted: boolean;\n" +
+        "  actionTokenId: string;\n" +
+        "  tokenHashPrefix: string;\n" +
+        "};\n\n",
+      replace: "",
+      label: "ClientOwnerActivationIssueResult local type removed",
+    },
+  ], log);
+  applyAnchoredRemovals(
+    out,
+    "apps/api/src/auth/auth.service.ts",
+    [
+      {
+        startAnchor: "\n\n  async listPlatformUsers(): Promise<PlatformUserDto[]> {",
+        endAnchor: "\n\n  async logout(refreshToken: string): Promise<void> {",
+        label:
+          "listPlatformUsers/provisionPlatformUser/updatePlatformUserRole removed " +
+          "(platform-owner-only, no remaining caller once backoffice-platform-users.controller.ts is stripped)",
+      },
+      {
+        startAnchor: "\n\n  async issueClientOwnerActivation(input: {",
+        endAnchor: "\n\n  async activateProvisionedAccount(",
+        label:
+          "issueClientOwnerActivation/issueClientOwnerActivationLink/createClientOwnerActivation removed " +
+          "(only called from workspaces.service.ts's client-owner-provisioning methods, removed below)",
+      },
+    ],
+    log,
+  );
+
+  // workspaces.service.ts: the "PalmUP staff manages other clients'
+  // workspaces" surface (client workspace provisioning, client-owner access
+  // delivery, per-workspace billing config, block/unblock) — every caller
+  // was backoffice-workspaces.controller.ts, already removed.
+  applyStringCodemod(out, "apps/api/src/workspaces/workspaces.service.ts", [
+    {
+      search:
+        "import {\n" +
+        "  backofficeClientWorkspaceListSchema,\n" +
+        "  clientOwnerAccessResendResultSchema,\n" +
+        "  clientOwnerActivationLinkResultSchema,\n" +
+        "  clientOwnerSetPasswordResultSchema,\n" +
+        "  clientWorkspaceProvisionResultSchema,\n" +
+        "  type BackofficeClientWorkspaceDto,\n" +
+        "  type ClientOwnerAccessDeliveryDto,\n" +
+        "  type ClientOwnerAccessResendResultDto,\n" +
+        "  type ClientOwnerActivationLinkResultDto,\n" +
+        "  type ClientOwnerSetPasswordInputDto,\n" +
+        "  type ClientOwnerSetPasswordResultDto,\n" +
+        "  type ClientWorkspaceProvisionInputDto,\n" +
+        "  type ClientWorkspaceProvisionResultDto,\n" +
+        "  type CurrentWorkspaceDto,\n" +
+        "  type BackofficeWhatsappInstanceDto,\n" +
+        "  type WorkspaceBillingDto,\n" +
+        "  type WorkspaceBillingUpdateInputDto,\n" +
+        "  type WorkspaceOperationalStatusUpdateInputDto,\n" +
+        "  type WorkspaceInviteDto,\n" +
+        "  type WorkspaceInviteAcceptDto,\n" +
+        "  type WorkspaceInviteAcceptInputDto,\n" +
+        "  type WorkspaceInviteInspectionDto,\n" +
+        "  type WorkspaceInviteInputDto,\n" +
+        "  type WorkspaceInviteNewUserAcceptInputDto,\n" +
+        "  type WorkspaceListDto,\n" +
+        "  type WorkspaceMemberManagerUpdateInputDto,\n" +
+        "  type WorkspaceMemberDto,\n" +
+        "  type WorkspaceMemberRoleUpdateInputDto,\n" +
+        "  type WorkspacePermissionsDto,\n" +
+        "  type WorkspaceUpdateInputDto,\n" +
+        "  type WorkspaceRole,\n" +
+        '} from "@wpptrack/shared";\n',
+      replace:
+        "import type {\n" +
+        "  CurrentWorkspaceDto,\n" +
+        "  WorkspaceInviteDto,\n" +
+        "  WorkspaceInviteAcceptDto,\n" +
+        "  WorkspaceInviteAcceptInputDto,\n" +
+        "  WorkspaceInviteInspectionDto,\n" +
+        "  WorkspaceInviteInputDto,\n" +
+        "  WorkspaceInviteNewUserAcceptInputDto,\n" +
+        "  WorkspaceListDto,\n" +
+        "  WorkspaceMemberManagerUpdateInputDto,\n" +
+        "  WorkspaceMemberDto,\n" +
+        "  WorkspaceMemberRoleUpdateInputDto,\n" +
+        "  WorkspacePermissionsDto,\n" +
+        "  WorkspaceUpdateInputDto,\n" +
+        "  WorkspaceRole,\n" +
+        '} from "@wpptrack/shared";\n',
+      label:
+        "backoffice/client-owner/billing schema+dto imports trimmed to the surviving product surface",
+    },
+  ], log);
+  applyAnchoredRemovals(
+    out,
+    "apps/api/src/workspaces/workspaces.service.ts",
+    [
+      {
+        startAnchor: "\n\ntype WorkspaceBillingRecord = {",
+        endAnchor: "\n\nconst inviteTtlMs = 1000 * 60 * 60 * 24 * 7;",
+        label: "WorkspaceBillingRecord/BackofficeWhatsappInstanceRecord local types removed",
+      },
+      {
+        startAnchor:
+          "\n\n  async listClientWorkspaces(): Promise<BackofficeClientWorkspaceDto[]> {",
+        endAnchor:
+          "\n\n  async listMembers(workspaceId: string): Promise<WorkspaceMemberDto[]> {",
+        label:
+          "listClientWorkspaces/provisionClientWorkspace/resendClientOwnerAccess/" +
+          "issueClientOwnerActivationLink/setClientOwnerPassword/deliverClientOwnerAccess/" +
+          "resolveWorkspaceSlug/slugify removed (staff-only, backoffice-workspaces.controller.ts already stripped)",
+      },
+      {
+        startAnchor: "\n\n  async getBillingConfiguration(",
+        endAnchor: "\n\n  async createInvite(",
+        label:
+          "getBillingConfiguration/listBillingConfigurations/listBackofficeWhatsappInstances/" +
+          "updateBillingConfiguration/updateOperationalStatus removed (staff-only; also the source " +
+          "of the now-invalid Prisma `subscriptions` select)",
+      },
+      {
+        startAnchor: "\n\n  private alreadyActivatedConflict(): ConflictException {",
+        endAnchor: "\n\n  private getWebOrigin(): string {",
+        label: "alreadyActivatedConflict/findClientOwnerMembership removed (only used by the removed methods above)",
+      },
+      {
+        startAnchor: "\n\n  private workspaceBillingAuditSummary(",
+        endAnchor: "\n}\n",
+        label:
+          "workspaceBillingAuditSummary/toWorkspaceBillingDto/toWorkspaceBillingStatus/" +
+          "toWhatsappProvider/toWhatsappBillingStatus removed (billing-dto helpers, only used by the removed methods above)",
+      },
+    ],
+    log,
+  );
+}
+
+// rewrite_rules.meta-oauth-state-residue-removal
+function applyMetaOAuthStateResidueRemoval(out, log) {
+  applyStringCodemod(out, "apps/api/src/integrations/integrations.service.ts", [
+    {
+      search: "  MetaOAuthCallbackQueryDto,\n  MetaOAuthCallbackResultDto,\n",
+      replace: "",
+      label: "MetaOAuthCallbackQueryDto/MetaOAuthCallbackResultDto imports removed",
+    },
+    {
+      search: "const metaOAuthStateTtlMs = 1000 * 60 * 10;\n\n",
+      replace: "",
+      label: "metaOAuthStateTtlMs constant removed",
+    },
+  ], log);
+  applyAnchoredRemovals(
+    out,
+    "apps/api/src/integrations/integrations.service.ts",
+    [
+      {
+        startAnchor: "\n\n  async getMetaStartAction(\n",
+        endAnchor:
+          "\n\n  async getMetaConnection(workspaceId: string): Promise<MetaConnectionDto> {",
+        label:
+          "getMetaStartAction/handleMetaCallback removed (meta/start + meta/callback broker " +
+          "endpoints already stripped from integrations.controller.ts in F3.2; these were the " +
+          "now-unreachable service methods behind them)",
+      },
+      {
+        startAnchor: "\n\n  private async createMetaOAuthState(\n",
+        endAnchor: "\n\n  getMetaConnectionCapabilities(): MetaConnectionCapabilitiesDto {",
+        label:
+          "createMetaOAuthState/consumeMetaOAuthState/hashMetaOAuthState removed " +
+          "(MetaOAuthState Prisma model stripped in F3.2; only callers were the broker methods above)",
+      },
+      {
+        startAnchor: "\n\n  private isMetaOAuthEnabled(): boolean {",
+        endAnchor: "\n\n  private requireMetaConnectionsService(): MetaConnectionsService {",
+        label: "isMetaOAuthEnabled removed (only called by the removed broker methods above)",
+      },
+    ],
+    log,
+  );
+
+  applyStringCodemod(
+    out,
+    "apps/api/src/integrations/meta/meta-connections.service.ts",
+    [
+      {
+        search:
+          "      await transaction.metaOAuthState.deleteMany({\n" +
+          "        where: { workspaceId: input.workspaceId },\n" +
+          "      });\n" +
+          "      await transaction.auditLog.create({\n",
+        replace: "      await transaction.auditLog.create({\n",
+        label:
+          "disconnectAndSwitchToManual(): metaOAuthState.deleteMany cleanup removed " +
+          "(MetaOAuthState Prisma model stripped in F3.2 — nothing left to delete)",
+      },
+    ],
+    log,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Prisma model stripping
 // ---------------------------------------------------------------------------
 
@@ -1388,6 +1723,14 @@ function writeExportReport(out, ctx) {
   );
   for (const a of log.f33Codemod) lines.push(`- OK: ${a}`);
   for (const a of log.f33CodemodFailed) lines.push(`- FAILED: ${a}`);
+  lines.push("");
+  lines.push("## F3.4 typecheck residue codemods");
+  lines.push(
+    "staff-only-backoffice-methods-removal, meta-oauth-state-residue-removal — " +
+      "see sanitize-allowdeny.yml rewrite_rules for the full rationale per entry.",
+  );
+  for (const a of log.f34Codemod) lines.push(`- OK: ${a}`);
+  for (const a of log.f34CodemodFailed) lines.push(`- FAILED: ${a}`);
   lines.push("");
   lines.push("## .env.example");
   lines.push(`- Vars kept: ${log.envVarsKept.length}`);
@@ -1633,6 +1976,8 @@ async function main() {
     residueCodemodFailed: [],
     f33Codemod: [],
     f33CodemodFailed: [],
+    f34Codemod: [],
+    f34CodemodFailed: [],
     envVarsKept: [],
     envVarsStripped: [],
   };
@@ -1682,6 +2027,10 @@ async function main() {
   applyMetaOAuthAdvancedRemoval(out, log);
   applySubscriptionDeadLinksRemoval(out, log);
   applyOpsAlertsWhatsappConnectionsStub(out, log);
+
+  console.log("Applying F3.4 typecheck residue codemods ...");
+  applyStaffOnlyBackofficeMethodsRemoval(out, log);
+  applyMetaOAuthStateResidueRemoval(out, log);
 
   console.log("Stripping Prisma models ...");
   const prismaRemove = doc.prisma_models_remove?.remove ?? [];
