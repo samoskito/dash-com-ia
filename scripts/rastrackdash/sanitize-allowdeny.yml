@@ -1,0 +1,402 @@
+# RastrackDash sanitize allow/deny inventory (F3.1)
+#
+# Consumed by the future export script (F3.2, scripts/rastrackdash/sanitize-export.mjs).
+# This file is DATA ONLY — it does not implement the export. See README.md for gates.
+#
+# Evidence basis: apps/api/src (22 top-level modules), apps/web/src, packages/shared,
+# apps/api/prisma/schema.prisma (79 models), .env.example, root configs.
+# Walked at commit eebcfec (feat/rastrackdash-f3-sanitize branch base).
+
+version: 1
+generated_by: "F3.1 sanitize inventory (manual, evidence-based)"
+
+# ---------------------------------------------------------------------------
+# remove_paths — entire files/dirs dropped wholesale from export output.
+# Confident strips: PalmUP-exclusive license server, PalmUP-only billing
+# rails, staff/support tooling, PalmUP-vertical integrations.
+# ---------------------------------------------------------------------------
+remove_paths:
+  # License server (F1/F2) — entirely PalmUP-operated, must never ship.
+  - apps/api/src/licensing/
+  - apps/api/prisma/schema.prisma#License
+  - apps/api/prisma/schema.prisma#LicenseDeliveryArtifact
+  - apps/api/prisma/schema.prisma#LicenseActivation
+  - apps/api/prisma/schema.prisma#LicenseWebhookEvent
+
+  # Asaas payment gateway — PalmUP's own billing provider, not generic.
+  - apps/api/src/integrations/asaas/
+  - apps/api/src/billing/asaas.adapter.ts
+  - apps/api/src/billing/package-asaas.adapter.ts
+  - apps/api/src/billing/split.controller.ts
+  - apps/api/src/billing/split.service.ts
+
+  # Platform-owner support/staff tooling (cross-client operations).
+  - apps/api/src/workspaces/client-swap/
+  - apps/api/src/auth/backoffice-platform-users.controller.ts
+  - apps/web/src/components/client-swap-panel.tsx
+  - apps/web/src/app/(backoffice)/backoffice/clients/
+  - apps/web/src/app/(backoffice)/backoffice/billing/
+
+  # PalmUP-internal ops/audit scripts.
+  - apps/api/src/scripts/audit-gupshup-ctwa.ts
+
+  # XMAX = bespoke integration with a single external CRM tenant
+  # ("atenderbem.com"), not a generic student-facing feature.
+  - apps/api/src/xmax/
+  - apps/api/prisma/schema.prisma#XmaxIngress
+  - apps/api/prisma/schema.prisma#XmaxAccount
+  - apps/api/prisma/schema.prisma#XmaxContactEventDedup
+  - apps/api/prisma/schema.prisma#XmaxShadowEvent
+
+  # Internal planning / sales artifacts, never public.
+  - Projeto.md
+  - artifacts/
+  - visualizacao-wpptrack.html
+  - wpptrack-saas-visual.html
+
+# ---------------------------------------------------------------------------
+# remove_path_patterns — glob/regex patterns applied repo-wide in addition
+# to remove_paths above (catches generated/build artifacts and stray dumps).
+# ---------------------------------------------------------------------------
+remove_path_patterns:
+  - "**/*.env"
+  - "**/*.env.local"
+  - "**/*.env.production"
+  - "**/.env.*.local"
+  - "**/*secret*.json"
+  - "**/*credentials*.json"
+  - "**/node_modules/**"
+  - "**/.next/**"
+  - "**/dist/**"
+  - "**/coverage/**"
+  - "**/*.pem"
+  - "**/*.key"
+
+# ---------------------------------------------------------------------------
+# keep_paths — high-level modules to preserve as-is (may still need
+# rewrite_rules applied; see INVENTORY.md for per-file caveats).
+# ---------------------------------------------------------------------------
+keep_paths:
+  - apps/api/src/auth/                    # email/password + Google login
+  - apps/api/src/workspaces/               # multi-tenant workspaces (minus client-swap/)
+  - apps/api/src/common/
+  - apps/api/src/config/                   # note: rewrite_rules for Brevo/domain asserts
+  - apps/api/src/conversion-events/
+  - apps/api/src/conversion-rules/
+  - apps/api/src/diagnostics/
+  - apps/api/src/email/                    # note: rewrite_rules for BYO SMTP
+  - apps/api/src/external-data/
+  - apps/api/src/health/
+  - apps/api/src/inbound-webhook-production/
+  - apps/api/src/inbound-webhook-replay/
+  - apps/api/src/inbound-webhooks/         # minus PalmUP-wide backoffice recovery/replay UI, see DEFER
+  - apps/api/src/integrations/meta/        # manual connections only, see rewrite_rules
+  - apps/api/src/integrations/uazapi/      # BYO instance token
+  - apps/api/src/leads/
+  - apps/api/src/ops-alerts/
+  - apps/api/src/reporting/
+  - apps/api/src/webhooks/
+  - apps/api/src/scripts/create-user.ts
+  - apps/web/src/app/(app)/
+  - apps/web/src/app/actions/
+  - apps/web/src/app/invite/
+  - apps/web/src/app/login/
+  - apps/web/src/components/               # minus client-swap-panel.tsx, backoffice-*.tsx
+  - apps/web/src/lib/
+  - apps/web/src/styles/                   # note: rewrite_rules for branding tokens
+  - packages/shared/                       # export surface, trim billing/platform-admin schemas in F3.2
+  - docker-compose.yml
+  - Dockerfile
+  - turbo.json
+  - pnpm-workspace.yaml
+
+# ---------------------------------------------------------------------------
+# defer_review — ambiguous modules that need a product decision before F3.2
+# commits to strip or keep. Do not auto-delete these.
+# ---------------------------------------------------------------------------
+defer_review:
+  - path: apps/api/src/billing/
+    reason: >
+      Bulk of directory is Asaas/package/subscription billing (PalmUP-only
+      monetization) and should strip, but whatsapp-seat.service.ts and
+      billing-seat.module.ts encode a generic "seat = WhatsApp instance"
+      concept the student edition may still want for BYO Uazapi capacity
+      planning. Split before deleting; do not blanket-remove.
+  - path: apps/api/prisma/schema.prisma#WhatsappSeat
+    reason: Same seat-concept ambiguity as billing/ above.
+  - path: apps/api/prisma/schema.prisma#WhatsappInstanceActivation
+    reason: Same seat-concept ambiguity as billing/ above.
+  - path: apps/api/src/integrations/integrations.controller.ts#meta/oauth/advanced
+    reason: >
+      Unclear if "advanced" Meta credential/routing endpoints are wired only
+      to legacy_oauth connections (strip) or also usable from manual
+      connections (keep). meta-connection-resolver.service.ts tags both
+      "legacy_oauth" and "manual" sources; needs a read-through before F3.2.
+  - path: apps/api/src/auth/platform-admin.service.ts
+  - path: apps/api/src/auth/platform-admin-bootstrap.ts
+  - path: apps/api/src/scripts/create-platform-admin.ts
+  - path: apps/api/src/scripts/promote-platform-owner.ts
+    reason: >
+      Self-host deploy still needs *one* bootstrap admin/owner path (the
+      student becomes sole platform owner of their instance), but current
+      code assumes a PalmUP multi-client staff hierarchy. Needs REWRITE to
+      a single-owner bootstrap, not a straight keep or strip.
+  - path: apps/api/src/workspaces/backoffice-workspaces.controller.ts
+    reason: Cross-client workspace listing for PalmUP staff; may become a self-host single-owner admin view in F4, or strip outright.
+  - path: apps/api/src/inbound-webhooks/backoffice-inbound-webhooks.controller.ts
+  - path: apps/api/src/inbound-webhooks/backoffice-inbound-webhooks.service.ts
+  - path: apps/api/src/inbound-webhooks/backoffice-inbound-webhook-recovery.controller.ts
+  - path: apps/api/src/inbound-webhooks/backoffice-inbound-webhook-recovery.service.ts
+  - path: apps/api/src/inbound-webhook-replay/inbound-webhook-replay.controller.ts
+    reason: >
+      Built as PalmUP-staff, cross-workspace triage tools. Student edition
+      may want a workspace-scoped version of webhook recovery/replay, but
+      that's a rewrite (scope to caller's own workspace), not a keep-as-is.
+  - path: apps/web/src/app/(backoffice)/backoffice/diagnostics/
+  - path: apps/web/src/app/(backoffice)/backoffice/inbound-webhooks/
+  - path: apps/web/src/app/(backoffice)/backoffice/webhooks/
+    reason: Mirrors the API-side backoffice ambiguity above; UI depends on the API decision.
+  - path: apps/web/src/app/(app)/subscription/
+    reason: >
+      Subscription page is presumably wired to package-billing/Asaas
+      checkout flows; confirm full removal or a BYO-billing stub before F3.2.
+  - path: design-system/
+  - path: wpptrack-design-system/
+    reason: >
+      Large branded design-system asset bundle (PDF, PNGs, component/token
+      library). Needs its own review pass for (a) WppTrack->RastrackDash
+      rebrand scope and (b) whether any third-party/commercial asset
+      licensing blocks public redistribution. Out of scope for F3.1.
+
+# ---------------------------------------------------------------------------
+# rewrite_rules — descriptive only in F3.1; F3.2 turns these into codemods.
+# ---------------------------------------------------------------------------
+rewrite_rules:
+  - id: branding-package-name
+    description: Rename package/app identifiers WppTrack -> RastrackDash (package.json "name" fields, EMAIL_FROM_NAME default, page <title>s).
+    evidence:
+      - package.json
+      - .env.example (EMAIL_FROM_NAME=WppTrack)
+  - id: branding-web-shell
+    description: Web app shell copy/labels/tokens reference WppTrack; rebrand strings and design tokens.
+    evidence:
+      - apps/web/src/styles/
+      - apps/web/src/components/app-shell.tsx
+  - id: brevo-domain-assert
+    description: >
+      assertProductionBrevoConfig() hardcodes noreply@rastrack.app /
+      suporte@rastrack.app and fails production boot otherwise. Rewrite to a
+      generic "from/reply-to must be a verified sender for EMAIL_PROVIDER"
+      check with no hardcoded domain, documented as BYO SMTP.
+    evidence:
+      - apps/api/src/config/deployment-config.ts:199-232
+  - id: meta-oauth-broker-removal
+    description: >
+      Drop the OAuth-broker flow (GET /integrations/meta/start,
+      GET /integrations/meta/callback, MetaOAuthState model, "legacy_oauth"
+      source in meta-connection-resolver.service.ts) because it requires
+      PalmUP's own META_APP_ID/SECRET. Keep only the "manual" connection
+      path (POST /integrations/meta/manual/*) where the student supplies
+      their own long-lived token.
+    evidence:
+      - apps/api/src/integrations/integrations.controller.ts:75-99
+      - apps/api/src/integrations/meta/meta-connection-resolver.service.ts
+      - apps/web/src/app/(app)/integrations/meta-oauth-button.tsx
+  - id: uazapi-byo-only
+    description: >
+      Strip every code path that reads UAZAPI_ADMIN_TOKEN (a PalmUP fleet
+      admin credential used to provision instances on shared infra). Student
+      edition talks to a single Uazapi instance the student owns, using only
+      UAZAPI_BASE_URL + UAZAPI_TOKEN.
+    evidence:
+      - .env.example (UAZAPI_ADMIN_TOKEN=)
+      - apps/api/src/billing/package-uazapi-provisioning.service.ts
+  - id: cookie-and-url-domains
+    description: Replace hardcoded rastrack.app defaults (AUTH_COOKIE_DOMAIN, API_PUBLIC_URL, META_OAUTH_REDIRECT_URL) with neutral placeholder / documented "set your own domain" env guidance.
+    evidence:
+      - .env.example
+  - id: license-terminology-removal
+    description: Remove all references to license keys/activation/Guru in docs, error messages, and onboarding copy once licensing/ is stripped.
+    evidence:
+      - apps/api/src/licensing/**
+
+# ---------------------------------------------------------------------------
+# secret_fail_patterns — export MUST fail (non-zero exit, no output written)
+# if any pattern matches anywhere in the sanitized output tree.
+# Mix of (a) identifier names that must not appear at all because the whole
+# concept is stripped, and (b) real secret-value shapes.
+# ---------------------------------------------------------------------------
+secret_fail_patterns:
+  # (a) identifiers whose mere presence signals leftover PalmUP-only code
+  - 'UAZAPI_ADMIN_TOKEN'
+  - 'LICENSE_SIGNING_PRIVATE_KEY'
+  - 'LICENSE_SIGNING_PUBLIC_KEY'
+  - 'LICENSE_DELIVERY_SECRET'
+  - 'LICENSE_NOTIFY_UAZAPI_TOKEN'
+  - 'GURU_WEBHOOK_SECRET'
+  - 'ASAAS_API_KEY'
+  - 'ASAAS_WEBHOOK_AUTH_TOKEN'
+  - 'ASAAS_WEBHOOK_TOKEN'
+  # (b) key/secret material shapes
+  - '-----BEGIN PRIVATE KEY-----'
+  - '-----BEGIN OPENSSH PRIVATE KEY-----'
+  - '-----BEGIN RSA PRIVATE KEY-----'
+  - '-----BEGIN EC PRIVATE KEY-----'
+  - '\$aact_[A-Za-z0-9_=+/]{20,}'      # Asaas API key shape (sandbox+prod share the $aact_ prefix)
+  - 'sk_live_[A-Za-z0-9]{16,}'
+  - 'AKIA[0-9A-Z]{16}'
+  - 'xox[baprs]-[A-Za-z0-9-]{10,}'     # belt-and-suspenders: Slack-style tokens if any ops script leaks in
+  # (c) values assigned to the vars above must not be non-empty in exported
+  # .env.example (values MUST stay blank in template):
+  - '(?i)^(UAZAPI_ADMIN_TOKEN|LICENSE_[A-Z_]+|GURU_WEBHOOK_SECRET|ASAAS_[A-Z_]+)\s*=\s*\S+'
+
+# ---------------------------------------------------------------------------
+# env_strip — .env.example vars removed entirely from the exported template.
+# ---------------------------------------------------------------------------
+env_strip:
+  - LICENSE_SIGNING_PRIVATE_KEY
+  - LICENSE_SIGNING_PUBLIC_KEY
+  - LICENSE_KEY_PREFIX
+  - LICENSE_DELIVERY_SECRET
+  - LICENSE_NOTIFY_REPO_URL
+  - LICENSE_NOTIFY_PRODUCT_NAME
+  - LICENSE_NOTIFY_SUPPORT_EMAIL
+  - LICENSE_NOTIFY_UAZAPI_BASE_URL
+  - LICENSE_NOTIFY_UAZAPI_TOKEN
+  - LICENSE_NOTIFY_UAZAPI_INSTANCE
+  - GURU_WEBHOOK_SECRET
+  - UAZAPI_ADMIN_TOKEN
+  - ASAAS_BASE_URL
+  - ASAAS_API_URL
+  - ASAAS_API_KEY
+  - ASAAS_WEBHOOK_AUTH_TOKEN
+  - ASAAS_WEBHOOK_TOKEN
+  - WPPTRACK_PACKAGE_BILLING_ENABLED
+  - WPPTRACK_PACKAGE_BILLING_ENFORCEMENT_ENABLED
+  - WPPTRACK_ASAAS_RECURRING_ENABLED
+  - WPPTRACK_BILLING_LIFECYCLE_ENABLED
+  - WPPTRACK_ASAAS_FISCAL_ENABLED
+  - WPPTRACK_UAZAPI_PACKAGE_PROVISIONING_ENABLED
+  - WPPTRACK_EXTERNAL_CHANNEL_BILLING_ENFORCEMENT_ENABLED
+  - WPPTRACK_BILLING_LEGACY_BACKFILL_ENABLED
+  - WPPTRACK_ASAAS_RECONCILIATION_ENABLED
+  - WPPTRACK_BILLING_SEAT_RESERVATION_TTL_MINUTES   # revisit if seat concept survives defer_review
+  - WPPTRACK_BILLING_GRACE_PERIOD_DAYS
+  - WPPTRACK_BILLING_RECONCILIATION_INTERVAL_MS
+  - WPPTRACK_ASAAS_RECONCILIATION_INTERVAL_MS
+  - WPPTRACK_ASAAS_RECONCILIATION_BATCH_SIZE
+  - WPPTRACK_BILLING_CHECKOUT_SUCCESS_URL
+  - WPPTRACK_BILLING_CHECKOUT_CANCEL_URL
+  - WPPTRACK_WHATSAPP_INSTANCE_PRICE_CENTS
+
+# ---------------------------------------------------------------------------
+# env_allow — .env.example vars kept, some with rewritten default values
+# (see rewrite_rules.cookie-and-url-domains). Not exhaustive of every var in
+# the private .env.example; anything not listed in env_strip and not obviously
+# billing/license-only should be triaged in F3.2 against this allowlist.
+# ---------------------------------------------------------------------------
+env_allow:
+  - NODE_ENV
+  - WEB_ORIGIN
+  - NEXT_PUBLIC_API_URL
+  - API_PUBLIC_URL              # rewrite: neutral placeholder domain
+  - API_PORT
+  - INBOUND_WEBHOOKS_ENABLED
+  - INBOUND_WEBHOOK_ENCRYPTION_KEY
+  - INBOUND_WEBHOOK_REPLAY_ENABLED
+  - INBOUND_WEBHOOK_PRODUCTION_ENABLED
+  - INBOUND_CONVERSION_RULES_ENABLED
+  - INBOUND_CONVERSION_PRODUCTION_ENABLED
+  - WPPTRACK_API_SLOW_REQUEST_MS
+  - WPPTRACK_API_SLOW_REPORT_QUERY_MS
+  - WPPTRACK_WEB_SLOW_REQUEST_MS
+  - WPPTRACK_WEB_PROVIDER_STATUS_TIMEOUT_MS
+  - WPPTRACK_EXTERNAL_SYNC_ENABLED
+  - WPPTRACK_EXTERNAL_SYNC_INTERVAL_MINUTES
+  - WPPTRACK_EXTERNAL_SYNC_INITIAL_DELAY_SECONDS
+  - WPPTRACK_EXTERNAL_SYNC_CONNECTOR_LIMIT
+  - WPPTRACK_EXTERNAL_SYNC_ROW_BATCH_SIZE
+  - WPPTRACK_EXTERNAL_MYSQL_CONNECT_TIMEOUT_MS
+  - WPPTRACK_EXTERNAL_MYSQL_QUERY_TIMEOUT_MS
+  - DATABASE_URL
+  - REDIS_URL
+  - EXTERNAL_CONNECTOR_ENCRYPTION_KEY
+  - JWT_ACCESS_SECRET
+  - JWT_REFRESH_SECRET
+  - AUTH_PUBLIC_REGISTRATION_ENABLED
+  - AUTH_GOOGLE_ENABLED
+  - AUTH_COOKIE_DOMAIN           # rewrite: neutral placeholder domain
+  - AUTH_EXPOSE_DEV_TOKENS
+  - EMAIL_PROVIDER
+  - SMTP_HOST
+  - SMTP_PORT
+  - SMTP_SECURE
+  - SMTP_USER
+  - SMTP_PASSWORD
+  - EMAIL_FROM_NAME              # rewrite: RastrackDash branding
+  - EMAIL_FROM_ADDRESS           # rewrite: placeholder domain
+  - EMAIL_REPLY_TO               # rewrite: placeholder domain
+  - WPPTRACK_PLATFORM_ADMIN_EMAILS   # rewrite: single self-host owner bootstrap
+  - GOOGLE_CLIENT_ID
+  - GOOGLE_CLIENT_SECRET
+  - GOOGLE_REDIRECT_URI
+  - GOOGLE_OAUTH_STATE_SECRET
+  - META_APP_ID                  # keep only if meta/oauth/advanced defer_review resolves to "still needed"; otherwise drop with the broker
+  - META_APP_SECRET
+  - META_GRAPH_API_VERSION
+  - META_TOKEN_ENCRYPTION_KEY
+  - META_WEBHOOK_VERIFY_TOKEN
+  - WPPTRACK_META_AUTO_SYNC_ENABLED
+  - WPPTRACK_META_AUTO_SYNC_INTERVAL_MINUTES
+  - WPPTRACK_META_AUTO_SYNC_INITIAL_DELAY_SECONDS
+  - WPPTRACK_META_AUTO_SYNC_LOOKBACK_DAYS
+  - WPPTRACK_META_AUTO_SYNC_BATCH_LIMIT
+  - WPPTRACK_REPORT_TIMEZONE
+  - UAZAPI_BASE_URL
+  - UAZAPI_TOKEN                 # BYO instance token, not the admin/fleet token
+  - UAZAPI_WEBHOOK_AUTH_TOKEN
+
+env_strip_notes:
+  - "META_CONNECTION_MODES default is 'oauth' in the private template; rewrite default to 'manual' once the broker is removed (see rewrite_rules.meta-oauth-broker-removal)."
+  - "META_OAUTH_REDIRECT_URL should be removed alongside the broker unless meta/oauth/advanced defer_review keeps some legacy_oauth path alive."
+
+# ---------------------------------------------------------------------------
+# prisma_models_remove — models tied only to PalmUP billing/licensing/XMAX.
+# Split into `remove` (confident) and the defer_review list above for
+# ambiguous seat-related models. See INVENTORY.md for full model count.
+# ---------------------------------------------------------------------------
+prisma_models_remove:
+  remove:
+    - License
+    - LicenseDeliveryArtifact
+    - LicenseActivation
+    - LicenseWebhookEvent
+    - SubscriptionPlan
+    - WorkspaceSubscription
+    - WorkspaceBillingProfile
+    - BillingProviderEvent
+    - BillingContractAudit
+    - PlatformFiscalSettings
+    - BillingInvoice
+    - PaymentCharge
+    - SplitReceiver
+    - SplitRule
+    - XmaxIngress
+    - XmaxAccount
+    - XmaxContactEventDedup
+    - XmaxShadowEvent
+    - MetaOAuthState   # only used by the OAuth broker flow being removed
+  notes: >
+    WhatsappSeat and WhatsappInstanceActivation are intentionally NOT in this
+    list — see defer_review above. Do not remove them without a product
+    decision on the BYO seat-tracking concept.
+
+# ---------------------------------------------------------------------------
+# app_module_imports_remove — Nest modules dropped from app.module.ts.
+# ---------------------------------------------------------------------------
+app_module_imports_remove:
+  remove:
+    - LicensingModule
+    - XmaxModule
+  defer_review:
+    - BillingModule   # split before removing; see defer_review.apps/api/src/billing/ above
