@@ -778,15 +778,13 @@ describe("UazapiProviderConversionService", () => {
     expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
   });
 
-  it("queues a recovered production decision on an activated channel", async () => {
+  it("upgrades a frozen observation decision to eligible and queues it when the live rule is production", async () => {
     prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
       id: "decision_frozen",
       workspaceId: "workspace_1",
       providerRuleId: "provider_rule_1",
     });
-    decisions.findById.mockResolvedValue(
-      frozenDecision({ ruleMode: "production" }),
-    );
+    decisions.findById.mockResolvedValue(frozenDecision());
     prisma.providerConversionRuleConfig.findFirst.mockResolvedValue(
       sampleRule(),
     );
@@ -813,6 +811,39 @@ describe("UazapiProviderConversionService", () => {
       providerConversionExecutionId: "execution_recovered",
       workspaceId: "workspace_1",
     });
+  });
+
+  it("keeps recovery fail-closed when live production context is invalid", async () => {
+    prisma.providerConversionDecisionAudit.findFirst.mockResolvedValue({
+      id: "decision_frozen",
+      workspaceId: "workspace_1",
+      providerRuleId: "provider_rule_1",
+    });
+    decisions.findById.mockResolvedValue(frozenDecision());
+    prisma.providerConversionRuleConfig.findFirst.mockResolvedValue(
+      sampleRule({
+        connection: { ...sampleRule().connection, status: "draft" },
+      }),
+    );
+    orchestrator.orchestrate.mockResolvedValue({
+      executionId: "execution_blocked",
+      eligibleExecutionId: null,
+      reviewId: null,
+    });
+
+    const result = await service.recoverDecision({
+      decisionId: "decision_frozen",
+      execute: true,
+    });
+
+    expect(result).toMatchObject({
+      disposition: {
+        state: "blocked",
+        reasonCode: "production_context_invalid",
+      },
+      enqueued: false,
+    });
+    expect(productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
   });
 
   it("refuses to recover a decision from another provider", async () => {

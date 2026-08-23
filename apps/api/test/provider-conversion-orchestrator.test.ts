@@ -247,6 +247,40 @@ function createHarness() {
 }
 
 describe("provider conversion orchestrator", () => {
+  it("upgrades an observed execution to eligible during recovery", async () => {
+    const harness = createHarness();
+    harness.providerConversionRuleExecution.findUnique.mockResolvedValue({
+      id: "execution_observed",
+      status: "observed",
+      providerDecisionId: "decision_1",
+    });
+    harness.providerConversionRuleExecution.upsert.mockResolvedValue({
+      id: "execution_observed",
+      status: "eligible",
+    });
+
+    const result = await harness.orchestrator.orchestrate({
+      persistedDecision: persisted(decision("eligible")),
+      disposition: { state: "eligible", reasonCode: "catalog_matched" },
+    });
+
+    expect(result).toEqual({
+      executionId: "execution_observed",
+      eligibleExecutionId: "execution_observed",
+      reviewId: null,
+    });
+    expect(
+      harness.providerConversionRuleExecution.upsert,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          status: "eligible",
+          processedAt: null,
+        }),
+      }),
+    );
+  });
+
   it.each(["ignored_empty_template", "duplicate"] as const)(
     "keeps %s as internal audit only",
     async (decisionCode) => {
