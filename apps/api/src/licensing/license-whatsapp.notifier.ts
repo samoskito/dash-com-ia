@@ -26,10 +26,12 @@ export class LicenseWhatsappNotifier {
     const baseUrl = this.env.LICENSE_NOTIFY_UAZAPI_BASE_URL?.trim();
     const token = this.env.LICENSE_NOTIFY_UAZAPI_TOKEN?.trim();
     if (!baseUrl || !token) {
+      this.logger.warn("license_notify_whatsapp_send_failed reason=not_configured");
       return false;
     }
     const digits = phone.replace(/\D/g, "");
     if (!digits) {
+      this.logger.warn("license_notify_whatsapp_send_failed reason=empty_phone");
       return false;
     }
     try {
@@ -41,9 +43,14 @@ export class LicenseWhatsappNotifier {
         },
         body: JSON.stringify({ number: digits, text: message }),
       });
+      if (!response.ok) {
+        this.logger.warn(
+          `license_notify_whatsapp_send_failed reason=http_not_ok status=${response.status}`,
+        );
+      }
       return response.ok;
     } catch {
-      this.logger.warn("license_notify_whatsapp_send_failed");
+      this.logger.warn("license_notify_whatsapp_send_failed reason=network");
       return false;
     }
   }

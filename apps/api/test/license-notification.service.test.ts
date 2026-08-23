@@ -1,7 +1,10 @@
+import { Logger } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { LicenseNotificationService } from "../src/licensing/license-notification.service";
 
 const RAW_KEY = "PALMUP-ABCD-1234-EFGH-5678";
+const DEFAULT_REPO_URL = "https://github.com/samoskito/nod-rastrackdash-wpp";
+const DEFAULT_PRODUCT_NAME = "RastrackDash";
 
 function baseLicense(overrides: Partial<{
   buyerEmail: string | null;
@@ -18,7 +21,9 @@ function baseLicense(overrides: Partial<{
   };
 }
 
-function createHarness(options: { emailEnabled?: boolean } = {}) {
+function createHarness(
+  options: { emailEnabled?: boolean; env?: Record<string, string | undefined> } = {},
+) {
   const artifacts = new Map<string, Record<string, unknown>>();
 
   const licenses = new Map<string, Record<string, unknown>>([
@@ -87,7 +92,7 @@ function createHarness(options: { emailEnabled?: boolean } = {}) {
     emailQueue as never,
     deliverySecrets as never,
     whatsapp as never,
-    {},
+    options.env ?? {},
   );
 
   return { service, prisma, deliverySecrets, emailQueue, whatsapp, artifacts };
@@ -137,6 +142,103 @@ describe("LicenseNotificationService", () => {
     expect(prisma.licenseDeliveryArtifact.upsert).toHaveBeenCalledTimes(1);
   });
 
+  it("uses default repo/product name and omits supportEmail when no env overrides are set", async () => {
+    const { service, emailQueue } = createHarness();
+
+    await service.notifyLicenseIssued({
+      license: baseLicense(),
+      rawKey: RAW_KEY,
+      reason: "issue",
+    });
+
+    const input = emailQueue.enqueue.mock.calls[0]?.[0] as {
+      envelope: {
+        data: { repoUrl: string; productName: string; supportEmail?: string };
+      };
+    };
+    expect(input.envelope.data.repoUrl).toBe(DEFAULT_REPO_URL);
+    expect(input.envelope.data.productName).toBe(DEFAULT_PRODUCT_NAME);
+    expect(input.envelope.data.supportEmail).toBeUndefined();
+  });
+
+  it("keeps a valid custom repoUrl and supportEmail from env", async () => {
+    const { service, emailQueue } = createHarness({
+      env: {
+        LICENSE_NOTIFY_REPO_URL: "https://github.com/palmup/rastrackdash",
+        LICENSE_NOTIFY_SUPPORT_EMAIL: "suporte@palmup.com.br",
+        LICENSE_NOTIFY_PRODUCT_NAME: "PalmUp RastrackDash",
+      },
+    });
+
+    await service.notifyLicenseIssued({
+      license: baseLicense(),
+      rawKey: RAW_KEY,
+      reason: "issue",
+    });
+
+    const input = emailQueue.enqueue.mock.calls[0]?.[0] as {
+      envelope: {
+        data: { repoUrl: string; productName: string; supportEmail?: string };
+      };
+    };
+    expect(input.envelope.data.repoUrl).toBe("https://github.com/palmup/rastrackdash");
+    expect(input.envelope.data.supportEmail).toBe("suporte@palmup.com.br");
+    expect(input.envelope.data.productName).toBe("PalmUp RastrackDash");
+  });
+
+  it("falls back to the default repo URL when LICENSE_NOTIFY_REPO_URL is invalid, and still enqueues", async () => {
+    const { service, emailQueue } = createHarness({
+      env: { LICENSE_NOTIFY_REPO_URL: "not-a-valid-url" },
+    });
+
+    const result = await service.notifyLicenseIssued({
+      license: baseLicense(),
+      rawKey: RAW_KEY,
+      reason: "issue",
+    });
+
+    expect(result.email).toBe("queued");
+    const input = emailQueue.enqueue.mock.calls[0]?.[0] as {
+      envelope: { data: { repoUrl: string } };
+    };
+    expect(input.envelope.data.repoUrl).toBe(DEFAULT_REPO_URL);
+  });
+
+  it("omits supportEmail and still enqueues when LICENSE_NOTIFY_SUPPORT_EMAIL is invalid", async () => {
+    const { service, emailQueue } = createHarness({
+      env: { LICENSE_NOTIFY_SUPPORT_EMAIL: "not-an-email" },
+    });
+
+    const result = await service.notifyLicenseIssued({
+      license: baseLicense(),
+      rawKey: RAW_KEY,
+      reason: "issue",
+    });
+
+    expect(result.email).toBe("queued");
+    const input = emailQueue.enqueue.mock.calls[0]?.[0] as {
+      envelope: { data: { supportEmail?: string } };
+    };
+    expect(input.envelope.data.supportEmail).toBeUndefined();
+  });
+
+  it("strips newlines and falls back to the default product name when LICENSE_NOTIFY_PRODUCT_NAME is blank", async () => {
+    const { service, emailQueue } = createHarness({
+      env: { LICENSE_NOTIFY_PRODUCT_NAME: "  \n\n  " },
+    });
+
+    await service.notifyLicenseIssued({
+      license: baseLicense(),
+      rawKey: RAW_KEY,
+      reason: "issue",
+    });
+
+    const input = emailQueue.enqueue.mock.calls[0]?.[0] as {
+      envelope: { data: { productName: string } };
+    };
+    expect(input.envelope.data.productName).toBe(DEFAULT_PRODUCT_NAME);
+  });
+
   it("skips email when there is no buyer email", async () => {
     const { service, emailQueue } = createHarness();
 
@@ -163,7 +265,8 @@ describe("LicenseNotificationService", () => {
     expect(emailQueue.enqueue).not.toHaveBeenCalled();
   });
 
-  it("returns failed and does not throw when the email queue throws", async () => {
+  it("returns failed, logs a reason code, and does not throw when the email queue throws", async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const { service, emailQueue } = createHarness();
     emailQueue.enqueue.mockRejectedValueOnce(new Error("queue down"));
 
@@ -174,6 +277,10 @@ describe("LicenseNotificationService", () => {
     });
 
     expect(result.email).toBe("failed");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("license_notify_email_failed reason=enqueue_failed"),
+    );
+    warnSpy.mockRestore();
   });
 
   it("skips whatsapp when no phone is provided", async () => {
@@ -246,7 +353,6 @@ describe("LicenseNotificationService", () => {
       }),
     ).resolves.toMatchObject({ email: "queued" });
   });
-});
 
   it("resends from a valid delivery artifact without returning the raw key", async () => {
     const { service, emailQueue, deliverySecrets, artifacts } = createHarness();
@@ -295,4 +401,4 @@ describe("LicenseNotificationService", () => {
       status: 409,
     });
   });
-
+});

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable } from "@nestjs/common";
 import type { Queue } from "bullmq";
+import { ZodError } from "zod";
 import { createBullJobId } from "../common/queue/job-id";
 import { EmailConfigurationService } from "./email-configuration.service";
 import { EmailDeliveryAuditService } from "./email-delivery-audit.service";
@@ -45,7 +46,22 @@ export class EmailQueueService {
       actionId: input.action.id,
       actionVersion: input.action.version,
     } satisfies EmailEnvelopeContext;
-    const encrypted = this.crypto.encrypt(input.envelope, context);
+    let encrypted: ReturnType<EmailEnvelopeCryptoService["encrypt"]>;
+    try {
+      encrypted = this.crypto.encrypt(input.envelope, context);
+    } catch (error) {
+      // Encryption/validation failed before the job ever reached the queue.
+      // Audit this fail-closed so a bad envelope never disappears silently.
+      await this.safeAudit({
+        deliveryId: context.deliveryId,
+        workspaceId: context.workspaceId,
+        template: context.template,
+        recipientHash: context.recipientHash,
+        status: "failed",
+        errorCode: error instanceof ZodError ? "zod_envelope" : "encrypt_failed",
+      });
+      throw error;
+    }
     const payload: EmailDeliveryJobPayload = {
       ...context,
       ...encrypted,
