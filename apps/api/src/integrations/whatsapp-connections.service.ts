@@ -526,6 +526,7 @@ export class WhatsappConnectionsService {
       provider: instance.provider,
       billingStatus: instance.status,
       connectionStatus: result.connectionStatus,
+      providerStatusText: result.providerStatusText ?? null,
       qrCode: result.qrCode,
       connectedPhone: result.connectedPhone,
       message: result.message,

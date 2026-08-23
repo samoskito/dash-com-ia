@@ -212,6 +212,27 @@ describe("uazapi adapter", () => {
     expect(status.connectedPhone).toBe("5549998347468");
   });
 
+  it("surfaces the raw provider status text alongside the normalized status", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            instance: { id: "provider_instance_1", status: "hibernated" },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    const adapter = new UazapiAdapter(
+      { UAZAPI_BASE_URL: "https://uazapi.test", UAZAPI_TOKEN: "secret-token" },
+      fetch,
+    );
+
+    const status = await adapter.getInstanceStatus("provider_instance_1");
+
+    expect(status.connectionStatus).toBe("disconnected");
+    expect(status.providerStatusText).toBe("hibernated");
+  });
+
   it("deletes an instance with its per-instance token", async () => {
     const fetch = vi.fn(
       async () =>

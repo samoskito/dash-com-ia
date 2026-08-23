@@ -530,6 +530,7 @@ export const whatsappInstanceConnectionSchema = z.object({
     "error",
   ]),
   connectionStatus: z.enum(whatsappConnectionStatuses),
+  providerStatusText: z.string().min(1).nullable().default(null),
   qrCode: z.string().min(1).nullable(),
   connectedPhone: z.string().min(8).max(24).nullable().default(null),
   message: z.string().min(1).nullable(),

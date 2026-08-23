@@ -23,6 +23,9 @@ export type UazapiConnectionResult = {
   qrCode: string | null;
   connectedPhone: string | null;
   message: string | null;
+  // Raw provider status text, kept so callers can tell a real logout apart from
+  // transient states (hibernated/offline) that also normalize to "disconnected".
+  providerStatusText?: string | null;
 };
 
 export type UazapiLabelListResult = {
@@ -451,6 +454,7 @@ export class UazapiAdapter implements IntegrationAdapter {
         this.asString(payload.instance_id) ??
         fallbackInstanceId,
       connectionStatus: this.normalizeStatus(instanceStatus, status, qrCode),
+      providerStatusText: instanceStatus?.trim().toLowerCase() ?? null,
       qrCode,
       connectedPhone: this.firstNormalizedPhone(
         instance?.owner,

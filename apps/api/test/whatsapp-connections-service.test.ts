@@ -245,6 +245,7 @@ describe("whatsapp connections service", () => {
       provider: "cloud_api",
       billingStatus: "active",
       connectionStatus: "not_configured",
+      providerStatusText: null,
       qrCode: null,
       connectedPhone: null,
       message:
