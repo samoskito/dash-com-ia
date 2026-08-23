@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../common/prisma/prisma.module";
+import { EmailModule } from "../email/email.module";
 import { GuruLicenseWebhookController } from "./guru-license-webhook.controller";
 import { GuruLicenseWebhookService } from "./guru-license-webhook.service";
 import { LicenseAccountBindingService } from "./license-account-binding.service";
@@ -13,9 +14,12 @@ import { LicensingAdminController } from "./licensing.admin.controller";
 import { LicensingController } from "./licensing.controller";
 import { LicensingService } from "./licensing.service";
 
-// EmailModule is @Global(); EmailQueueService is optional on LicenseNotificationService.
+// EmailModule is @Global() and imported everywhere via AppModule, but it's
+// imported here explicitly too so LicenseNotificationService's required
+// EmailQueueService dependency resolves even when LicensingModule is
+// compiled standalone (e.g. in tests).
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, EmailModule],
   controllers: [
     LicensingController,
     GuruLicenseWebhookController,

@@ -153,7 +153,9 @@ export class LicensingAdminController {
     return {
       licenseId: result.licenseId,
       email: result.email,
+      emailReason: result.emailReason,
       whatsapp: result.whatsapp,
+      whatsappReason: result.whatsappReason,
     };
   }
 

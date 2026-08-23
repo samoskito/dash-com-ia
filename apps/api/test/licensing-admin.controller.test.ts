@@ -73,6 +73,7 @@ async function createApp(options?: { admin?: boolean }) {
       licenseId: "lic_1",
       email: "queued" as const,
       whatsapp: "skipped" as const,
+      whatsappReason: "empty_phone" as const,
     })),
   };
   const rateLimit = {
@@ -174,6 +175,8 @@ describe("licensing admin controller", () => {
       .expect(({ body }) => {
         expect(body.licenseId).toBe("lic_1");
         expect(body.email).toBe("queued");
+        expect(body.whatsapp).toBe("skipped");
+        expect(body.whatsappReason).toBe("empty_phone");
         expect(JSON.stringify(body)).not.toMatch(/PALMUP-[A-Z0-9]{4}-[A-Z0-9]{4}/);
       });
 
