@@ -466,6 +466,7 @@ export class ProviderConversionRulesService {
       if (input.mode === "production") {
         await this.cascadeProductionActivation(transaction, {
           workspaceId,
+          providerRuleId: providerRule.id,
           connectionId: connection.id,
           channelIds: input.channelIds,
           actorUserId,
@@ -814,6 +815,7 @@ export class ProviderConversionRulesService {
       ) {
         await this.cascadeProductionActivation(transaction, {
           workspaceId,
+          providerRuleId,
           connectionId: current.connectionId,
           channelIds:
             input.channelIds ??
@@ -1000,6 +1002,7 @@ export class ProviderConversionRulesService {
     transaction: Prisma.TransactionClient,
     input: {
       workspaceId: string;
+      providerRuleId: string;
       connectionId: string;
       channelIds: string[];
       actorUserId: string;
@@ -1017,11 +1020,18 @@ export class ProviderConversionRulesService {
       connection.provider,
     );
     const seats = this.seatHook();
+    const channelIds = await this.pruneOrphanChannelScopes(transaction, {
+      workspaceId,
+      providerRuleId: input.providerRuleId,
+      connectionId,
+      channelIds: input.channelIds,
+      actorUserId,
+    });
 
     // Channels first: promoting the connection refuses to run without at least
     // one active channel, and it stamps productionActivatedAt on every channel
     // that is already active by then.
-    for (const channelId of [...new Set(input.channelIds)]) {
+    for (const channelId of channelIds) {
       const channel = await requireInboundWebhookChannel(
         transaction,
         workspaceId,
@@ -1067,6 +1077,75 @@ export class ProviderConversionRulesService {
       requireValidMetaRoute,
       seats,
     });
+  }
+
+  /**
+   * A rule keeps its `ProviderConversionRuleChannel` rows when the channel they
+   * point at goes away with its connection — a superseded UAZAPI bridge being
+   * soft-removed, a channel re-scoped to another connection. The orphan is
+   * invisible in the builder but fatal on activation: the cascade used to walk
+   * it and fail with `Recurso de webhook nao encontrado` (404) or "Um ou mais
+   * canais nao pertencem a esta conexao e workspace", leaving Foz's rule stuck
+   * in Observando with no way out from the UI.
+   *
+   * So drop the orphans here and keep going with the channels that are really
+   * on this rule's live connection. Only a rule left with no valid channel at
+   * all is a genuine dead end, and it says so instead of blaming the webhook.
+   */
+  private async pruneOrphanChannelScopes(
+    transaction: Prisma.TransactionClient,
+    input: {
+      workspaceId: string;
+      providerRuleId: string;
+      connectionId: string;
+      channelIds: string[];
+      actorUserId: string;
+    },
+  ): Promise<string[]> {
+    const { workspaceId, providerRuleId, connectionId } = input;
+    const requested = [...new Set(input.channelIds)];
+    const live = await transaction.inboundWebhookChannel.findMany({
+      where: {
+        workspaceId,
+        connectionId,
+        id: { in: requested },
+        connection: { is: { workspaceId, removedAt: null } },
+      },
+      select: { id: true },
+    });
+
+    const liveIds = new Set(live.map((channel) => channel.id));
+    const orphanIds = requested.filter((channelId) => !liveIds.has(channelId));
+
+    if (orphanIds.length > 0) {
+      await transaction.providerConversionRuleChannel.deleteMany({
+        where: {
+          workspaceId,
+          providerRuleId,
+          channelId: { in: orphanIds },
+        },
+      });
+      await this.createAudit(transaction, {
+        workspaceId,
+        actorUserId: input.actorUserId,
+        action: "provider_conversion_rule.channel_scope_pruned",
+        targetId: providerRuleId,
+        resultStatus: "pruned",
+        afterSummary: {
+          connectionId,
+          prunedChannelIds: orphanIds,
+          remainingChannelIds: [...liveIds],
+        },
+      });
+    }
+
+    if (liveIds.size === 0) {
+      throw new ConflictException(
+        "Nenhum canal valido na conexao da regra; reconecte o WhatsApp ou selecione o canal live",
+      );
+    }
+
+    return requested.filter((channelId) => liveIds.has(channelId));
   }
 
   private requireProductionEnabledConfig() {

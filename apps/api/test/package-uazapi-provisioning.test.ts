@@ -146,6 +146,7 @@ function createHarness() {
       channelId: "channel_1",
       migratedToConnectionId: null,
       migratedRuleIds: [],
+      prunedChannelScopes: 0,
     }),
   };
   const service = new PackageUazapiProvisioningService(
