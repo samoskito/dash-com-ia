@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus, Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { z, ZodError } from "zod";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import type { EmailQueueService } from "../email/email-queue.service";
@@ -8,6 +9,43 @@ import { LicenseWhatsappNotifier } from "./license-whatsapp.notifier";
 const DELIVERY_ARTIFACT_TTL_DAYS = 7;
 const DEFAULT_REPO_URL = "https://github.com/samoskito/nod-rastrackdash-wpp";
 const DEFAULT_PRODUCT_NAME = "RastrackDash";
+const supportEmailSchema = z.string().trim().max(320).email();
+
+/**
+ * The license_key_delivery email envelope is validated strictly (Zod) before
+ * it ever reaches the queue. Env-driven fields must be sanitized here so a
+ * misconfigured/invalid env var (bad URL, bad email) never throws out of
+ * `encrypt()` and silently drops the whole enqueue+audit before it starts.
+ */
+function sanitizeRepoUrl(raw: string | undefined): string {
+  const value = raw?.trim();
+  if (!value) {
+    return DEFAULT_REPO_URL;
+  }
+  try {
+    new URL(value);
+    return value;
+  } catch {
+    return DEFAULT_REPO_URL;
+  }
+}
+
+function sanitizeSupportEmail(raw: string | undefined): string | undefined {
+  const value = raw?.trim();
+  if (!value) {
+    return undefined;
+  }
+  const parsed = supportEmailSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function sanitizeProductName(raw: string | undefined): string {
+  const cleaned = raw?.replace(/[\r\n]+/g, " ").trim();
+  if (!cleaned) {
+    return DEFAULT_PRODUCT_NAME;
+  }
+  return cleaned.slice(0, 200);
+}
 
 export type NotifyLicenseIssuedInput = {
   license: {
@@ -186,9 +224,11 @@ export class LicenseNotificationService {
     input: NotifyLicenseIssuedInput,
   ): Promise<NotifyLicenseIssuedResult["email"]> {
     if (!input.license.buyerEmail) {
+      this.logger.debug("license_notify_email_skipped reason=missing_email");
       return "skipped";
     }
     if (!this.emailQueue || !this.emailQueue.isEnabled()) {
+      this.logger.debug("license_notify_email_skipped reason=queue_disabled");
       return "skipped";
     }
     try {
@@ -213,17 +253,16 @@ export class LicenseNotificationService {
             licenseKey: input.rawKey,
             keyPrefix: input.license.keyPrefix,
             expiresAt: input.license.expiresAt.toISOString(),
-            productName:
-              this.env.LICENSE_NOTIFY_PRODUCT_NAME?.trim() || DEFAULT_PRODUCT_NAME,
-            repoUrl: this.env.LICENSE_NOTIFY_REPO_URL?.trim() || DEFAULT_REPO_URL,
-            supportEmail:
-              this.env.LICENSE_NOTIFY_SUPPORT_EMAIL?.trim() || undefined,
+            productName: sanitizeProductName(this.env.LICENSE_NOTIFY_PRODUCT_NAME),
+            repoUrl: sanitizeRepoUrl(this.env.LICENSE_NOTIFY_REPO_URL),
+            supportEmail: sanitizeSupportEmail(this.env.LICENSE_NOTIFY_SUPPORT_EMAIL),
           },
         },
       });
       return "queued";
-    } catch {
-      this.logger.warn("license_notify_email_failed");
+    } catch (error) {
+      const reason = error instanceof ZodError ? "zod_envelope" : "enqueue_failed";
+      this.logger.warn(`license_notify_email_failed reason=${reason}`);
       return "failed";
     }
   }
@@ -232,19 +271,20 @@ export class LicenseNotificationService {
     input: NotifyLicenseIssuedInput,
   ): Promise<NotifyLicenseIssuedResult["whatsapp"]> {
     if (!input.phoneE164) {
+      this.logger.debug("license_notify_whatsapp_skipped reason=empty_phone");
       return "skipped";
     }
     if (!this.whatsapp || !this.whatsapp.isConfigured()) {
+      this.logger.debug("license_notify_whatsapp_skipped reason=not_configured");
       return "skipped";
     }
     try {
-      const productName =
-        this.env.LICENSE_NOTIFY_PRODUCT_NAME?.trim() || DEFAULT_PRODUCT_NAME;
+      const productName = sanitizeProductName(this.env.LICENSE_NOTIFY_PRODUCT_NAME);
       const message = `${productName}: sua licenca e ${input.rawKey}. Guarde este codigo em local seguro.`;
       const sent = await this.whatsapp.sendLicenseKey(input.phoneE164, message);
       return sent ? "sent" : "failed";
     } catch {
-      this.logger.warn("license_notify_whatsapp_failed");
+      this.logger.warn("license_notify_whatsapp_failed reason=network");
       return "failed";
     }
   }
