@@ -435,8 +435,15 @@ export class GuruLicenseWebhookService {
     @Optional()
     @Inject(RUNTIME_ENV)
     private readonly env: RuntimeEnv = process.env,
-    @Optional()
-    private readonly notifications?: LicenseNotificationService,
+    // Required, not @Optional(): LicensingModule always provides
+    // LicenseNotificationService, and an @Optional() dependency here let a
+    // future DI misconfiguration silently drop notify() to a no-op (see
+    // license-notification-di.test.ts for the sibling incident this class
+    // of bug caused in LicenseNotificationService itself). Failing to
+    // resolve this now throws at boot instead of silently skipping every
+    // license delivery.
+    @Inject(LicenseNotificationService)
+    private readonly notifications: LicenseNotificationService,
   ) {}
 
   async handle(
@@ -605,11 +612,18 @@ export class GuruLicenseWebhookService {
     issued: { license: License; rawKey: string | null },
     phoneE164: string | undefined,
   ): Promise<void> {
-    if (!this.notifications || !issued.rawKey) {
+    if (!issued.rawKey) {
+      // Should not happen from dispatch()'s current call site (it only
+      // calls notify() when rawKey is truthy), but guard defensively so a
+      // future refactor can't silently drop delivery without a trace.
+      // Never log the key itself — id/prefix only.
+      this.logger.warn(
+        `guru_webhook_notify_skipped license=${issued.license.id} keyPrefix=${issued.license.keyPrefix} reason=missing_raw_key`,
+      );
       return;
     }
     try {
-      await this.notifications.notifyLicenseIssued({
+      const result = await this.notifications.notifyLicenseIssued({
         license: {
           id: issued.license.id,
           keyPrefix: issued.license.keyPrefix,
@@ -622,8 +636,12 @@ export class GuruLicenseWebhookService {
         phoneE164: phoneE164 ?? null,
         reason: "issue",
       });
+      // Delivery status/reason codes only — never the raw key or buyer PII.
+      this.logger.log(
+        `guru_webhook_notify_result license=${issued.license.id} email=${result.email} emailReason=${result.emailReason ?? "none"} whatsapp=${result.whatsapp} whatsappReason=${result.whatsappReason ?? "none"}`,
+      );
     } catch {
-      this.logger.warn("guru_webhook_notify_failed");
+      this.logger.warn(`guru_webhook_notify_failed license=${issued.license.id}`);
     }
   }
 
