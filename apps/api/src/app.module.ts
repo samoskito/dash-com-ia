@@ -18,6 +18,7 @@ import { InboundWebhookReplayModule } from "./inbound-webhook-replay/inbound-web
 import { IntegrationsModule } from "./integrations/integrations.module";
 import { LeadsModule } from "./leads/leads.module";
 import { LicensingModule } from "./licensing/licensing.module";
+import { NodApiModule } from "./integrations/nod-api/nod-api.module";
 import { ReportingModule } from "./reporting/reporting.module";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
@@ -42,6 +43,7 @@ import { OpsAlertsModule } from "./ops-alerts/ops-alerts.module";
     ConversionRulesModule,
     LeadsModule,
     LicensingModule,
+    NodApiModule,
     ReportingModule,
     WebhooksModule,
     XmaxModule,
