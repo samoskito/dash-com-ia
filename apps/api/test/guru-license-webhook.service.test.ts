@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { GuruLicenseWebhookService } from "../src/licensing/guru-license-webhook.service";
 
@@ -8,9 +9,23 @@ function daysFromNow(days: number, now = new Date()): Date {
   return new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
+function defaultNotifications() {
+  return {
+    notifyLicenseIssued: vi.fn(
+      async (_input: { phoneE164: string | null; rawKey: string }) => ({
+        email: "skipped" as const,
+        emailReason: "missing_email" as const,
+        whatsapp: "skipped" as const,
+        whatsappReason: "empty_phone" as const,
+      }),
+    ),
+  };
+}
+
 function createHarness(options?: { notifications?: { notifyLicenseIssued: ReturnType<typeof vi.fn> } }) {
   const webhookEvents: Array<Record<string, unknown>> = [];
   const licenses = new Map<string, Record<string, unknown>>();
+  const notifications = options?.notifications ?? defaultNotifications();
 
   const prisma = {
     licenseWebhookEvent: {
@@ -185,10 +200,10 @@ function createHarness(options?: { notifications?: { notifyLicenseIssued: Return
     prisma as never,
     licensingService as never,
     { GURU_WEBHOOK_SECRET: SECRET },
-    options?.notifications as never,
+    notifications as never,
   );
 
-  return { service, prisma, licensingService, webhookEvents, licenses };
+  return { service, prisma, licensingService, webhookEvents, licenses, notifications };
 }
 
 describe("GuruLicenseWebhookService", () => {
@@ -564,4 +579,90 @@ describe("GuruLicenseWebhookService", () => {
     expect(licensingService.issueLicenseForPurchase.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("calls notify with the buyer phone when the payload has one", async () => {
+    const notifications = defaultNotifications();
+    const { service } = createHarness({ notifications });
+
+    await service.handle(
+      {
+        eventType: "purchase_approved",
+        id: "txn_phone",
+        subscriber: {
+          email: "aluno@example.com",
+          name: "Aluno",
+          phone_local_code: "55",
+          phone_number: "11999998888",
+        },
+      },
+      SECRET,
+    );
+
+    expect(notifications.notifyLicenseIssued).toHaveBeenCalledTimes(1);
+    const call = notifications.notifyLicenseIssued.mock.calls[0]?.[0] as {
+      phoneE164: string | null;
+      rawKey: string;
+    };
+    expect(call.phoneE164).toBe("5511999998888");
+    expect(call.rawKey).toBe(RAW_KEY);
+  });
+
+  it("logs the delivery result with status/reason codes and never the raw key", async () => {
+    const logSpy = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const notifications = {
+      notifyLicenseIssued: vi.fn(async () => ({
+        email: "queued" as const,
+        whatsapp: "skipped" as const,
+        whatsappReason: "empty_phone" as const,
+      })),
+    };
+    const { service } = createHarness({ notifications });
+
+    const result = await service.handle(
+      {
+        eventType: "purchase_approved",
+        id: "txn_log",
+        subscriber: { email: "aluno@example.com", name: "Aluno" },
+      },
+      SECRET,
+    );
+
+    expect(result.body).toMatchObject({ resultStatus: "license_issued" });
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^guru_webhook_notify_result license=\S+ email=queued emailReason=none whatsapp=skipped whatsappReason=empty_phone$/,
+      ),
+    );
+    const loggedLines = logSpy.mock.calls.map((call) => String(call[0]));
+    expect(loggedLines.some((line) => line.includes(RAW_KEY))).toBe(false);
+    logSpy.mockRestore();
+  });
+
+  it("warns and does not throw when notifyLicenseIssued rejects", async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const notifications = {
+      notifyLicenseIssued: vi.fn(async () => {
+        throw new Error("smtp down");
+      }),
+    };
+    const { service } = createHarness({ notifications });
+
+    const result = await service.handle(
+      {
+        eventType: "purchase_approved",
+        id: "txn_notify_fail",
+        subscriber: { email: "aluno@example.com" },
+      },
+      SECRET,
+    );
+
+    // Guru still gets a 200 so it doesn't retry the whole purchase.
+    expect(result.httpStatus).toBe(200);
+    expect(result.body).toMatchObject({ resultStatus: "license_issued" });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/^guru_webhook_notify_failed license=\S+$/),
+    );
+    const warnedLines = warnSpy.mock.calls.map((call) => String(call[0]));
+    expect(warnedLines.some((line) => line.includes("smtp down"))).toBe(false);
+    warnSpy.mockRestore();
+  });
 });
