@@ -60,6 +60,78 @@ function reportMetrics(overrides: Record<string, unknown> = {}) {
   return { ...metrics, ...overrides };
 }
 
+type MetricCard = { label: string; value: string; delta: string };
+
+/** Parses the rendered primary KPI cards in DOM order. */
+function metricCards(html: string): MetricCard[] {
+  const grid = html.slice(
+    html.indexOf("overview-primary-metrics"),
+    html.indexOf("overview-funnel-panel"),
+  );
+  const pattern =
+    /<div class="metric-card[^"]*"><span>(.*?)<\/span><strong>(.*?)<\/strong><small>(.*?)<\/small><\/div>/g;
+  const cards: MetricCard[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(grid)) !== null) {
+    cards.push({ label: match[1]!, value: match[2]!, delta: match[3]! });
+  }
+
+  return cards;
+}
+
+function overviewResponse(body: Record<string, unknown>) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function renderOverview(body: Record<string, unknown>) {
+  vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(overviewResponse(body));
+  const element = await OverviewPage({});
+  return renderToStaticMarkup(createElement("div", null, element));
+}
+
+const leadOnlyMetrics = () =>
+  reportMetrics({
+    qualifiedLead: 4,
+    costPerQualifiedLeadCents: 2500,
+    purchases: 0,
+    firstPurchases: 0,
+    repurchases: 0,
+    costPerPurchaseCents: null,
+    trafficRevenueCents: 0,
+    organicRevenueCents: 0,
+    totalRevenueCents: 0,
+    firstPurchaseRevenueCents: 0,
+    repurchaseRevenueCents: 0,
+    roasAcquisition: null,
+    roasWithRepurchase: null,
+    funnelSteps: [
+      {
+        key: "real_conversations",
+        label: "Conversas reais iniciadas",
+        value: 6,
+        costCents: 1666,
+      },
+      {
+        key: "event_view_content",
+        label: "Pre-qualificado",
+        value: 12,
+        costCents: 833,
+      },
+      {
+        key: "qualified_lead",
+        label: "Lead qualificado",
+        value: 4,
+        costCents: 2500,
+      },
+    ],
+  });
+
+const salesMetrics = () => reportMetrics();
+
 describe("overview route", () => {
   it("applies period and Meta account filters and renders the daily comparison", async () => {
     vi.spyOn(globalThis, "fetch")
@@ -244,7 +316,7 @@ describe("overview route", () => {
     expect(html).not.toContain("Campanha Real");
     expect(html).not.toContain("Segunda Campanha");
     expect(html).toContain("2 campanhas");
-    expect(html.match(/class=\"metric-card/g)).toHaveLength(5);
+    expect(html.match(/class=\"metric-card/g)).toHaveLength(6);
     expect(html).toContain("Investimento");
     expect(html).not.toContain("Cobertura das conversas");
     expect(html).not.toContain("Conversas organicas");
@@ -390,7 +462,7 @@ describe("overview route", () => {
     expect(html).toContain("Custo por checkout iniciado");
     // Aggregated IC value 3+2 across campaigns
     expect(html).toContain(">5<");
-    expect(html.match(/class=\"metric-card/g)).toHaveLength(6);
+    expect(html.match(/class=\"metric-card/g)).toHaveLength(7);
   });
 
   it("renders an empty overview state without mock campaign data", async () => {
@@ -477,5 +549,273 @@ describe("overview route", () => {
     expect(html).not.toContain("Qualidade do rastreamento");
     expect(html).not.toContain("0% conciliadas");
     expect(html).not.toContain("Black Friday WhatsApp");
+  });
+});
+
+describe("overview configurable KPI cards", () => {
+  it("lead-only workspace: shows configured stages and omits Compras/Receita", async () => {
+    const html = await renderOverview({
+      workspaceId: "workspace_leads",
+      rangeLabel: "Ultimos 7 dias",
+      campaigns: [
+        {
+          id: "cmp_1",
+          name: "Campanha Leads",
+          status: "active",
+          ...leadOnlyMetrics(),
+        },
+      ],
+    });
+    const cards = metricCards(html);
+
+    expect(cards.map((card) => card.label)).toEqual([
+      "Investimento",
+      "Conversas Meta",
+      "Conversas reais",
+      "Pre-qualificado",
+      "Lead qualificado",
+    ]);
+    expect(html).not.toContain("Receita trafego");
+    expect(html).not.toContain(">Compras<");
+    expect(html).not.toContain("ROAS");
+    expect(html).not.toContain("primeira compra");
+    expect(html).not.toContain("primeiras compras");
+  });
+
+  it("respects custom stage labels instead of catalog defaults", async () => {
+    const html = await renderOverview({
+      workspaceId: "workspace_leads",
+      rangeLabel: "Ultimos 7 dias",
+      campaigns: [
+        {
+          id: "cmp_1",
+          name: "Campanha Leads",
+          status: "active",
+          ...leadOnlyMetrics(),
+        },
+      ],
+    });
+    const cards = metricCards(html);
+    const viewContent = cards.find((card) => card.label === "Pre-qualificado");
+
+    expect(viewContent).toBeDefined();
+    expect(viewContent?.value).toBe("12");
+    expect(viewContent?.delta).toContain("Custo por pre-qualificado");
+    expect(viewContent?.delta).toContain("8,33");
+    expect(html).not.toContain("Conteudo visualizado");
+  });
+
+  it("hides stages excluded from the workspace funnel even when events exist", async () => {
+    const html = await renderOverview({
+      workspaceId: "workspace_leads",
+      rangeLabel: "Ultimos 7 dias",
+      campaigns: [
+        {
+          id: "cmp_1",
+          name: "Campanha Leads",
+          status: "active",
+          // qualifiedLead events happened, but the stage is hidden in the funnel
+          // configuration, so the API omits it from funnelSteps.
+          ...leadOnlyMetrics(),
+          funnelSteps: leadOnlyMetrics().funnelSteps.filter(
+            (step) => step.key !== "qualified_lead",
+          ),
+        },
+      ],
+    });
+    const cards = metricCards(html);
+
+    expect(cards.map((card) => card.label)).toEqual([
+      "Investimento",
+      "Conversas Meta",
+      "Conversas reais",
+      "Pre-qualificado",
+    ]);
+    expect(html).not.toContain("Lead qualificado");
+    expect(html).not.toContain("Custo por lead qualificado");
+  });
+
+  it("sales workspace keeps Compras and Receita trafego after the configured stages", async () => {
+    const html = await renderOverview({
+      workspaceId: "workspace_sales",
+      rangeLabel: "Ultimos 7 dias",
+      campaigns: [
+        {
+          id: "cmp_1",
+          name: "Campanha Vendas",
+          status: "active",
+          ...salesMetrics(),
+        },
+      ],
+    });
+    const cards = metricCards(html);
+
+    expect(cards.map((card) => card.label)).toEqual([
+      "Investimento",
+      "Conversas Meta",
+      "Conversas reais",
+      "Lead qualificado",
+      "Compras",
+      "Receita trafego",
+    ]);
+    expect(cards.find((card) => card.label === "Compras")?.delta).toBe(
+      "1 primeira compra",
+    );
+    expect(cards.find((card) => card.label === "Receita trafego")?.delta).toBe(
+      "ROAS 3.00x",
+    );
+    // first_purchase is a Purchase breakdown, not a separate KPI card.
+    expect(cards.map((card) => card.label)).not.toContain("Primeira compra");
+  });
+
+  it("stages without monetary value show a real count and no revenue", async () => {
+    const html = await renderOverview({
+      workspaceId: "workspace_leads",
+      rangeLabel: "Ultimos 7 dias",
+      campaigns: [],
+      // Summary comes straight from the API (no client-side recomputation):
+      // stages without spend or value carry costCents null.
+      summary: {
+        id: "workspace_summary",
+        name: "Resumo do workspace",
+        status: "unknown",
+        ...leadOnlyMetrics(),
+        spendCents: 0,
+        funnelSteps: leadOnlyMetrics().funnelSteps.map((step) => ({
+          ...step,
+          costCents: null,
+        })),
+      },
+    });
+    const cards = metricCards(html);
+    const viewContent = cards.find((card) => card.label === "Pre-qualificado");
+
+    expect(viewContent?.value).toBe("12");
+    expect(viewContent?.delta).toBe("Ultimos 7 dias");
+    expect(viewContent?.delta).not.toContain("R$");
+    expect(html).not.toContain("Receita trafego");
+    expect(html).not.toContain("ROAS");
+  });
+
+  it("derives cards per workspace payload rather than a fixed list", async () => {
+    const leadHtml = await renderOverview({
+      workspaceId: "workspace_leads",
+      rangeLabel: "Ultimos 7 dias",
+      campaigns: [],
+      summary: {
+        id: "workspace_summary",
+        name: "Resumo do workspace",
+        status: "unknown",
+        ...leadOnlyMetrics(),
+      },
+    });
+    vi.restoreAllMocks();
+    const salesHtml = await renderOverview({
+      workspaceId: "workspace_sales",
+      rangeLabel: "Ultimos 7 dias",
+      campaigns: [],
+      summary: {
+        id: "workspace_summary",
+        name: "Resumo do workspace",
+        status: "unknown",
+        ...salesMetrics(),
+      },
+    });
+
+    expect(metricCards(leadHtml).map((card) => card.label)).toEqual([
+      "Investimento",
+      "Conversas Meta",
+      "Conversas reais",
+      "Pre-qualificado",
+      "Lead qualificado",
+    ]);
+    expect(metricCards(salesHtml).map((card) => card.label)).toEqual([
+      "Investimento",
+      "Conversas Meta",
+      "Conversas reais",
+      "Lead qualificado",
+      "Compras",
+      "Receita trafego",
+    ]);
+  });
+
+  it("keeps the base cards when the funnel is empty", async () => {
+    const html = await renderOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 7 dias",
+      campaigns: [],
+    });
+
+    expect(metricCards(html).map((card) => card.label)).toEqual([
+      "Investimento",
+      "Conversas Meta",
+      "Conversas reais",
+    ]);
+  });
+
+  it("renamed QualifiedLead: card label and cost caption use the custom label", async () => {
+    const metrics = leadOnlyMetrics();
+    const html = await renderOverview({
+      workspaceId: "workspace_leads",
+      rangeLabel: "Ultimos 7 dias",
+      campaigns: [
+        {
+          id: "cmp_1",
+          name: "Campanha Leads",
+          status: "active",
+          ...metrics,
+          funnelSteps: metrics.funnelSteps.map((step) =>
+            step.key === "qualified_lead"
+              ? { ...step, label: "Cliente potencial" }
+              : step,
+          ),
+        },
+      ],
+    });
+    const cards = metricCards(html);
+    const qualified = cards.find((card) => card.label === "Cliente potencial");
+
+    expect(qualified).toBeDefined();
+    expect(qualified?.value).toBe("4");
+    expect(qualified?.delta).toBe("Custo por cliente potencial R$\u00a025,00");
+    expect(html).not.toContain("Lead qualificado");
+    expect(html).not.toContain("Custo por lead qualificado");
+  });
+
+  it("renamed Purchase: card label and funnel cost caption use the custom label", async () => {
+    const metrics = salesMetrics();
+    const html = await renderOverview({
+      workspaceId: "workspace_sales",
+      rangeLabel: "Ultimos 7 dias",
+      campaigns: [
+        {
+          id: "cmp_1",
+          name: "Campanha Vendas",
+          status: "active",
+          ...metrics,
+          funnelSteps: metrics.funnelSteps.map((step) =>
+            step.key === "purchase" ? { ...step, label: "Vendas" } : step,
+          ),
+        },
+      ],
+    });
+    const cards = metricCards(html);
+
+    expect(cards.map((card) => card.label)).toEqual([
+      "Investimento",
+      "Conversas Meta",
+      "Conversas reais",
+      "Lead qualificado",
+      "Vendas",
+      "Receita trafego",
+    ]);
+    expect(cards.find((card) => card.label === "Vendas")?.delta).toBe(
+      "1 primeira compra",
+    );
+    expect(html).toContain("Custo por vendas");
+    expect(html).not.toContain("Custo por compra<");
+    expect(html).not.toContain(">Compras<");
+    // Purchase breakdown keeps its own caption.
+    expect(html).toContain("Custo por primeira compra");
   });
 });
