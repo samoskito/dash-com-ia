@@ -93,6 +93,12 @@ export const CLIENT_SWAP_WIPE_DELEGATES = [
  * schema.prisma (explicit onDelete: Restrict, or required relations with the
  * Prisma default). Child must be deleted before parent. Same-table self-FKs
  * are omitted because deleteMany is a single statement.
+ *
+ * This list is hand-maintained but NOT self-trusted: it is cross-checked
+ * against every Restrict/default-required edge independently re-derived
+ * from the live apps/api/prisma/schema.prisma by
+ * test/client-swap.schema-order.test.ts, which fails the build if this
+ * list (or CLIENT_SWAP_WIPE_DELEGATES' order) drifts from the real schema.
  */
 export const CLIENT_SWAP_RESTRICT_EDGES = [
   ["whatsappSeat", "whatsappInstance"],

@@ -1,0 +1,133 @@
+/**
+ * Minimal Prisma schema parser used ONLY by tests to independently derive
+ * FK "hard delete" edges (Restrict / NoAction / default-required) straight
+ * from apps/api/prisma/schema.prisma, so wipe-order tests never rely on a
+ * hand-typed edge list as their own oracle.
+ *
+ * Scope is intentionally narrow: it understands exactly the subset of the
+ * Prisma schema language this repo uses (single-line field declarations,
+ * single-line @relation(...) attributes, no relationMode override — see
+ * apps/api/prisma/schema.prisma `datasource` block, which targets
+ * postgresql with no `relationMode`, so Prisma's default referential
+ * actions apply: mandatory relation -> Restrict, optional relation ->
+ * SetNull, unless overridden by an explicit onDelete).
+ */
+
+type PrismaField = {
+  name: string;
+  /** Base type with `?`/`[]` stripped, e.g. "Workspace" */
+  type: string;
+  optional: boolean;
+  isArray: boolean;
+  /** Everything after the type on the field's line (attributes). */
+  attrs: string;
+};
+
+type PrismaModel = {
+  name: string;
+  fields: PrismaField[];
+};
+
+export function parsePrismaModels(schemaSource: string): Map<string, PrismaModel> {
+  const models = new Map<string, PrismaModel>();
+  let current: PrismaModel | null = null;
+
+  for (const rawLine of schemaSource.split("\n")) {
+    const line = rawLine.replace(/\/\/.*$/, "").trim();
+    if (!line) continue;
+
+    const modelMatch = line.match(/^model\s+(\w+)\s*\{/);
+    if (modelMatch) {
+      current = { name: modelMatch[1], fields: [] };
+      models.set(current.name, current);
+      continue;
+    }
+
+    if (line === "}") {
+      current = null;
+      continue;
+    }
+
+    if (!current || line.startsWith("@@")) continue;
+
+    const fieldMatch = line.match(/^(\w+)\s+([\w[\]?]+)(.*)$/);
+    if (!fieldMatch) continue;
+    const [, name, typeRaw, attrs] = fieldMatch;
+
+    current.fields.push({
+      name,
+      type: typeRaw.replace(/[[\]?]/g, ""),
+      optional: typeRaw.endsWith("?"),
+      isArray: typeRaw.endsWith("[]"),
+      attrs: attrs.trim(),
+    });
+  }
+
+  return models;
+}
+
+/**
+ * Derives every FK edge, among the given delegate names, whose deletion
+ * order matters: child rows referencing a parent via a relation that
+ * Postgres will enforce with RESTRICT/NO ACTION (either explicit or
+ * Prisma's implicit default for a required relation). Cascade/SetNull
+ * relations are excluded since the database resolves them without
+ * requiring the child to be deleted first. Self-relations are excluded:
+ * a single deleteMany() statement handles same-table references.
+ *
+ * `delegateNames` are Prisma Client delegate names (camelCase). Model
+ * names are assumed to be the PascalCase form of the delegate name, which
+ * holds for every model referenced by client-swap (verified in tests).
+ */
+export function deriveHardDeleteEdges(
+  schemaSource: string,
+  delegateNames: readonly string[],
+): Array<[child: string, parent: string]> {
+  const models = parsePrismaModels(schemaSource);
+  const toModelName = (delegate: string) =>
+    delegate.charAt(0).toUpperCase() + delegate.slice(1);
+  const modelToDelegate = new Map(
+    delegateNames.map((delegate) => [toModelName(delegate), delegate]),
+  );
+
+  for (const delegate of delegateNames) {
+    if (!models.has(toModelName(delegate))) {
+      throw new Error(
+        `prisma-schema-fk-graph: no model "${toModelName(delegate)}" found for delegate "${delegate}" — delegate name no longer maps to a PascalCase model in schema.prisma`,
+      );
+    }
+  }
+
+  const edges: Array<[string, string]> = [];
+
+  for (const model of models.values()) {
+    const childDelegate = modelToDelegate.get(model.name);
+    if (!childDelegate) continue;
+
+    for (const field of model.fields) {
+      if (field.isArray) continue; // "many" side never holds the FK column(s)
+
+      const relationMatch = field.attrs.match(/@relation\(([^)]*)\)/);
+      if (!relationMatch) continue;
+      const relationArgs = relationMatch[1];
+      if (!/fields:\s*\[/.test(relationArgs)) continue; // back-relation side, no FK here
+
+      const parentDelegate = modelToDelegate.get(field.type);
+      if (!parentDelegate) continue; // parent outside the wiped delegate universe
+      if (field.type === model.name) continue; // self-relation
+
+      const onDeleteMatch = relationArgs.match(/onDelete:\s*(\w+)/);
+      const explicitOnDelete = onDeleteMatch?.[1] ?? null;
+
+      const isHardDelete = explicitOnDelete
+        ? explicitOnDelete === "Restrict" || explicitOnDelete === "NoAction"
+        : !field.optional; // Postgres default: mandatory -> Restrict, optional -> SetNull
+
+      if (isHardDelete) {
+        edges.push([childDelegate, parentDelegate]);
+      }
+    }
+  }
+
+  return edges;
+}
