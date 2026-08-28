@@ -8,12 +8,33 @@ import {
   CLIENT_SWAP_WIPE_DELEGATES,
 } from "../src/workspaces/client-swap/client-swap.service";
 import {
+  deriveClientSwapDelegates,
   deriveHardDeleteEdges,
   type PrismaHardDeleteEdge,
 } from "./support/prisma-schema-fk-graph";
 
 const schemaPath = join(__dirname, "..", "prisma", "schema.prisma");
 const schemaSource = readFileSync(schemaPath, "utf8");
+
+/**
+ * Immutable client-swap boundary for workspace-owned models deliberately
+ * retained by the existing contract. The schema-derived population otherwise
+ * includes every model with workspaceId. These are account/access workflow,
+ * audit, and billing records rather than previous-client operational data.
+ */
+const CLIENT_SWAP_RETAINED_WORKSPACE_MODELS = [
+  "WorkspaceMember",
+  "AuthActionToken",
+  "MetaOAuthState",
+  "WorkspaceInvite",
+  "AuditLog",
+  "WorkspaceSubscription",
+  "WorkspaceBillingProfile",
+  "BillingProviderEvent",
+  "BillingContractAudit",
+  "BillingInvoice",
+  "PaymentCharge",
+] as const;
 
 function internalEdgeKey([child, parent]: readonly [string, string]): string {
   return `${child}->${parent}`;
@@ -33,17 +54,38 @@ function declaredExternalEdgeKey([
 }
 
 describe("client swap wipe order vs real schema.prisma FK edges", () => {
-  const realEdges = deriveHardDeleteEdges(
+  const expectedDelegates = deriveClientSwapDelegates(
     schemaSource,
-    CLIENT_SWAP_WIPE_DELEGATES,
+    CLIENT_SWAP_RETAINED_WORKSPACE_MODELS,
   );
+  const expectedDelegateSet = new Set(expectedDelegates);
   const wipedDelegates = new Set<string>(CLIENT_SWAP_WIPE_DELEGATES);
+  const realEdges = deriveHardDeleteEdges(schemaSource, expectedDelegates);
   const internalEdges = realEdges.filter((edge) =>
-    wipedDelegates.has(edge.parent),
+    expectedDelegateSet.has(edge.parent),
   );
   const externalEdges = realEdges.filter(
-    (edge) => !wipedDelegates.has(edge.parent),
+    (edge) => !expectedDelegateSet.has(edge.parent),
   );
+
+  it("matches the schema-derived client-data population exactly", () => {
+    expect(expectedDelegates.length).toBeGreaterThan(40);
+    expect(expectedDelegateSet.size).toBe(expectedDelegates.length);
+    expect(wipedDelegates.size).toBe(CLIENT_SWAP_WIPE_DELEGATES.length);
+    expect(
+      [...expectedDelegateSet].filter(
+        (delegate) => !wipedDelegates.has(delegate),
+      ),
+      "schema-derived client data missing from CLIENT_SWAP_WIPE_DELEGATES",
+    ).toEqual([]);
+    expect(
+      [...wipedDelegates].filter(
+        (delegate) => !expectedDelegateSet.has(delegate),
+      ),
+      "CLIENT_SWAP_WIPE_DELEGATES contains a model outside the client-swap scope",
+    ).toEqual([]);
+    expect(expectedDelegateSet).toContain("externalSyncCursor");
+  });
 
   it("finds non-trivial internal and external hard edges (parser sanity check)", () => {
     // Guards against a silently-broken parser (e.g. a schema.prisma

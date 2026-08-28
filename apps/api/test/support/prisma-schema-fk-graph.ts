@@ -28,6 +28,8 @@ type PrismaModel = {
   fields: PrismaField[];
 };
 
+const CLIENT_SWAP_CONNECTOR_MODEL = "ExternalDataConnector";
+
 export type PrismaHardDeleteEdge = {
   /** Prisma Client delegate holding the FK (the row deleted by client swap). */
   child: string;
@@ -77,6 +79,63 @@ export function parsePrismaModels(
   }
 
   return models;
+}
+
+/**
+ * Derives the Prisma Client delegates that hold client data for a swap.
+ *
+ * The schema is the source of truth for direct workspace ownership: every
+ * model with a `workspaceId` scalar is in scope unless it is named in the
+ * caller's retained-model boundary. Connector cursors are the one indirect
+ * child: they belong to a workspace through ExternalDataConnector and are
+ * selected by connectorId in the service. This intentionally does not read
+ * CLIENT_SWAP_WIPE_DELEGATES, so deleting an entry from that execution list
+ * cannot reduce the expected population used by the tests.
+ */
+export function deriveClientSwapDelegates(
+  schemaSource: string,
+  retainedWorkspaceModels: readonly string[],
+): string[] {
+  const models = parsePrismaModels(schemaSource);
+  const toDelegateName = (model: string) =>
+    model.charAt(0).toLowerCase() + model.slice(1);
+  const retained = new Set(retainedWorkspaceModels);
+
+  for (const modelName of retained) {
+    const model = models.get(modelName);
+    if (!model) {
+      throw new Error(
+        `prisma-schema-fk-graph: retained client-swap model "${modelName}" no longer exists in schema.prisma`,
+      );
+    }
+    if (!model.fields.some((field) => field.name === "workspaceId")) {
+      throw new Error(
+        `prisma-schema-fk-graph: retained client-swap model "${modelName}" no longer has a workspaceId field`,
+      );
+    }
+  }
+
+  const delegates = new Set<string>();
+  for (const model of models.values()) {
+    if (
+      model.fields.some((field) => field.name === "workspaceId") &&
+      !retained.has(model.name)
+    ) {
+      delegates.add(toDelegateName(model.name));
+    }
+
+    const belongsToConnector = model.fields.some(
+      (field) =>
+        !field.isArray &&
+        field.type === CLIENT_SWAP_CONNECTOR_MODEL &&
+        /@relation\([^)]*fields:\s*\[/.test(field.attrs),
+    );
+    if (belongsToConnector) {
+      delegates.add(toDelegateName(model.name));
+    }
+  }
+
+  return [...delegates];
 }
 
 /**
