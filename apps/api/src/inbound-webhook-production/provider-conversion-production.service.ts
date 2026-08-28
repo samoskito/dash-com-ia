@@ -240,10 +240,12 @@ export class ProviderConversionProductionService {
       );
     }
 
-    await this.billingAccess.assertProductionAccess(
-      execution.workspaceId,
-      execution.channelId,
-    );
+    if (execution.providerRule.connection.provider !== "datacrazy") {
+      await this.billingAccess.assertProductionAccess(
+        execution.workspaceId,
+        execution.channelId,
+      );
+    }
 
     if (execution.providerDecision) {
       return this.materializeFrozenDecision(
@@ -1436,9 +1438,16 @@ export class ProviderConversionProductionService {
         deliveryId: delivery.id,
       },
     );
+    const plaintext = decrypted.toString("utf8");
     try {
-      return JSON.parse(decrypted.toString("utf8")) as unknown;
+      return JSON.parse(plaintext) as unknown;
     } catch {
+      if (
+        execution.providerRule.connection.provider === "datacrazy" &&
+        execution.providerRule.connection.parserRelease.version === "v1"
+      ) {
+        return plaintext;
+      }
       throw new ProviderConversionProductionFailure(
         "provider_conversion_payload_invalid",
       );

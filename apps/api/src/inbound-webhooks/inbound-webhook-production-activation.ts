@@ -68,9 +68,9 @@ export type ExternalChannelSeatHook = {
     input: {
       workspaceId: string;
       channelId: string;
-      // "uazapi" is excluded on purpose: those channels already hold a
-      // WhatsappInstance seat, so every caller narrows it away first.
-      provider: Exclude<$Enums.InboundWebhookProvider, "uazapi">;
+      // UAZAPI holds a WhatsappInstance seat and Data Crazy is lead tracking,
+      // so neither provider consumes an external-channel seat.
+      provider: Exclude<$Enums.InboundWebhookProvider, "uazapi" | "datacrazy">;
       normalizedPhone: string | null;
       actorUserId: string;
     },
@@ -181,6 +181,7 @@ export async function applyInboundWebhookChannelStatus(
     status === "active" &&
     current.connection.status === "production" &&
     current.connection.provider !== "uazapi" &&
+    current.connection.provider !== "datacrazy" &&
     input.seats.enforcementEnabled()
   ) {
     // UAZAPI/NOD channels are billed as WhatsappInstance seats already
@@ -433,7 +434,11 @@ async function activateProductionSeats(
   connection: PersistedInboundWebhookConnection,
   options: { actorUserId: string; seats: ExternalChannelSeatHook },
 ): Promise<void> {
-  if (!options.seats.enforcementEnabled() || connection.provider === "uazapi") {
+  if (
+    !options.seats.enforcementEnabled() ||
+    connection.provider === "uazapi" ||
+    connection.provider === "datacrazy"
+  ) {
     // UAZAPI/NOD channels are billed as WhatsappInstance seats already
     // (see WhatsappSeatProvider "uazapi"); billing them again here as an
     // "external channel" seat would double-charge the workspace.

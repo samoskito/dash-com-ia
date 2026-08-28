@@ -24,6 +24,7 @@ function runtimeEnvironment(enabled = true) {
 
 function createHarness(options?: {
   connectionId?: string;
+  provider?: "umbler" | "datacrazy";
   status?: "observation" | "production" | "paused";
   removed?: boolean;
   secretHash?: string | null;
@@ -33,7 +34,7 @@ function createHarness(options?: {
   const connection = {
     id: options?.connectionId ?? "connection_1",
     workspaceId: "workspace_safe",
-    provider: "umbler" as const,
+    provider: options?.provider ?? ("umbler" as const),
     displayName: "Umbler Teste",
     parserReleaseId: "inbound_parser_umbler_v1",
     secretHash:
@@ -47,7 +48,7 @@ function createHarness(options?: {
     updatedAt: now,
     parserRelease: {
       id: "inbound_parser_umbler_v1",
-      provider: "umbler" as const,
+      provider: options?.provider ?? ("umbler" as const),
       version: "v1",
       status: "observation_only" as const,
       certifiedByUserId: null,
@@ -290,6 +291,28 @@ describe("inbound webhook ingestion service", () => {
 
     expect(harness.deliveries.size).toBe(0);
     expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
+  });
+
+  it("accepts malformed UTF-8-safe JSON only for Data Crazy v1 so its parser can repair templates", async () => {
+    const harness = createHarness({ provider: "datacrazy" });
+    const rawBody = Buffer.from(
+      '{"Telefone":"5511999991234","mensagem":"{\"received\":true,\n',
+      "utf8",
+    );
+
+    const result = await harness.service.ingest(requestInput(rawBody));
+
+    expect(result).toMatchObject({ status: "accepted", duplicate: false });
+    expect([...harness.deliveries.values()][0]).toMatchObject({
+      workspaceId: "workspace_safe",
+      provider: "datacrazy",
+      ingressKey: `raw:${createHash("sha256").update(rawBody).digest("hex")}`,
+    });
+    await vi.waitFor(() => {
+      expect(harness.queue.enqueueDelivery).toHaveBeenCalledWith(
+        expect.objectContaining({ workspaceId: "workspace_safe" }),
+      );
+    });
   });
 
   it("accepts a valid Umbler payload larger than the old 96 KiB limit", async () => {

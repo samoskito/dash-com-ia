@@ -100,7 +100,11 @@ export class InboundWebhookIngestionService {
       input.connectionId,
       input.token,
     );
-    const rawBody = this.requireJsonBody(input.contentType, input.rawBody);
+    const rawBody = this.requireJsonBody(
+      connection,
+      input.contentType,
+      input.rawBody,
+    );
     const providerAttempt = parseInboundWebhookProviderAttempt(
       input.providerAttempt,
     );
@@ -228,6 +232,7 @@ export class InboundWebhookIngestionService {
   }
 
   private requireJsonBody(
+    connection: PublicInboundWebhookConnection,
     contentType: string | undefined,
     rawBody: Buffer | undefined,
   ): Buffer {
@@ -247,9 +252,21 @@ export class InboundWebhookIngestionService {
       throw new PayloadTooLargeException("Payload do webhook excede o limite");
     }
 
+    const plaintext = rawBody.toString("utf8");
+
+    if (!Buffer.from(plaintext, "utf8").equals(rawBody)) {
+      throw new BadRequestException("Payload JSON invalido");
+    }
+
     try {
-      JSON.parse(rawBody.toString("utf8"));
+      JSON.parse(plaintext);
     } catch {
+      if (
+        connection.provider === "datacrazy" &&
+        connection.parserRelease.version === "v1"
+      ) {
+        return rawBody;
+      }
       throw new BadRequestException("Payload JSON invalido");
     }
 

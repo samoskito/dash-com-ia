@@ -20,6 +20,7 @@ import {
 import { InboundWebhookParserRegistry } from "../src/inbound-webhooks/providers/inbound-webhook-parser.registry";
 import { UmblerV1Parser } from "../src/inbound-webhooks/providers/umbler/umbler-v1.parser";
 import type { UmblerV1Envelope } from "../src/inbound-webhooks/providers/umbler/umbler-v1.types";
+import { DataCrazyV1Parser } from "../src/inbound-webhooks/providers/datacrazy/datacrazy-v1.parser";
 
 const fixturePath = resolve(
   __dirname,
@@ -40,6 +41,29 @@ afterEach(() => {
 
 function loadFixture(): UmblerV1Envelope {
   return JSON.parse(readFileSync(fixturePath, "utf8")) as UmblerV1Envelope;
+}
+
+function dataCrazyMessage(overrides: MutableRecord = {}) {
+  return {
+    id: "dc-message-001",
+    received: true,
+    createdAt: "2026-08-28T10:30:00.000Z",
+    body: "Quero saber mais",
+    contact: {
+      id: "dc-contact-001",
+      phoneNumber: "5511999991234",
+    },
+    instanceData: {
+      organizationId: "dc-org-001",
+      instanceId: "dc-instance-001",
+      phoneNumber: "5511988880000",
+    },
+    referral: {
+      ctwa_clid: "ctwa-001",
+      source_id: "ad-001",
+    },
+    ...overrides,
+  };
 }
 
 type MutableRecord = Record<string, any>;
@@ -348,6 +372,7 @@ function createHarness(parser?: InboundWebhookParser) {
     encryption,
     events,
     prisma,
+    productionIntake,
     productionQueue,
     providerConversions,
     service,
@@ -546,6 +571,118 @@ describe("inbound webhook observation processor", () => {
     expect(harness.encryption.decrypt).toHaveBeenCalledOnce();
     expect(harness.events).toHaveLength(1);
     expect(harness.diagnostics.recordObservation).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed before channel upsert for Data Crazy payloads without verified routing identity", async () => {
+    const harness = createHarness(new DataCrazyV1Parser());
+    harness.addConnection("connection_datacrazy", "workspace_1", {
+      provider: "datacrazy",
+      parserReleaseId: "parser_release_datacrazy",
+      parserRelease: {
+        id: "parser_release_datacrazy",
+        provider: "datacrazy",
+        version: "v1",
+        status: "observation_only",
+      },
+    });
+
+    const payloads = [
+      dataCrazyMessage({ instanceData: undefined }),
+      dataCrazyMessage({
+        instanceData: {
+          instanceId: "dc-instance-001",
+          phoneNumber: "5511988880000",
+        },
+      }),
+      dataCrazyMessage({
+        instanceData: {
+          organizationId: "dc-org-001",
+          phoneNumber: "5511988880000",
+        },
+      }),
+      dataCrazyMessage({ type: {} }),
+    ];
+
+    for (const [index, payload] of payloads.entries()) {
+      const deliveryId = `delivery_datacrazy_invalid_${index}`;
+      harness.addDelivery(deliveryId, payload, {
+        connectionId: "connection_datacrazy",
+        provider: "datacrazy",
+      });
+
+      await expect(
+        harness.service.processDelivery({
+          deliveryId,
+          connectionId: "connection_datacrazy",
+          workspaceId: "workspace_1",
+        }),
+      ).resolves.toMatchObject({
+        status: "failed",
+        classification: "invalid_payload",
+        persistedEventCount: 0,
+      });
+    }
+
+    expect(harness.channels).toHaveLength(0);
+    expect(harness.events).toHaveLength(0);
+    expect(harness.prisma.inboundWebhookChannel.upsert).not.toHaveBeenCalled();
+    expect(harness.productionIntake.enqueueDelivery).not.toHaveBeenCalled();
+    expect(
+      harness.productionQueue.enqueueProviderConversion,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("keeps Data Crazy out of chat enqueue while retaining the Meta conversion pipeline", async () => {
+    const harness = createHarness(new DataCrazyV1Parser());
+    harness.addConnection("connection_datacrazy", "workspace_1", {
+      provider: "datacrazy",
+      parserReleaseId: "parser_release_datacrazy",
+      parserRelease: {
+        id: "parser_release_datacrazy",
+        provider: "datacrazy",
+        version: "v1",
+        status: "observation_only",
+      },
+    });
+    harness.addDelivery("delivery_datacrazy", dataCrazyMessage(), {
+      connectionId: "connection_datacrazy",
+      provider: "datacrazy",
+    });
+    harness.providerConversions.observeDelivery.mockResolvedValueOnce({
+      executionIds: ["provider_conversion_datacrazy"],
+      eligibleExecutionIds: ["provider_conversion_datacrazy"],
+    });
+
+    await expect(
+      harness.service.processDelivery({
+        deliveryId: "delivery_datacrazy",
+        connectionId: "connection_datacrazy",
+        workspaceId: "workspace_1",
+      }),
+    ).resolves.toMatchObject({
+      status: "processed",
+      classification: "eligible_route_unresolved",
+      persistedEventCount: 1,
+    });
+
+    expect(harness.productionIntake.enqueueDelivery).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      connectionId: "connection_datacrazy",
+      deliveryId: "delivery_datacrazy",
+    });
+    expect(harness.providerConversions.observeDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        connectionId: "connection_datacrazy",
+        deliveryId: "delivery_datacrazy",
+      }),
+    );
+    expect(
+      harness.productionQueue.enqueueProviderConversion,
+    ).toHaveBeenCalledWith({
+      providerConversionExecutionId: "provider_conversion_datacrazy",
+      workspaceId: "workspace_1",
+    });
   });
 
   it("processes a Gupshup delivery as raw observation without creating canonical events", async () => {

@@ -45,6 +45,10 @@ const connection = {
 };
 
 describe("inbound webhook contracts", () => {
+  it("accepts Data Crazy only in the inbound provider contract", () => {
+    expect(inboundWebhookProviderSchema.parse("datacrazy")).toBe("datacrazy");
+  });
+
   it("accepts bounded parser recovery batches and redacted previews", () => {
     expect(
       backofficeInboundWebhookParserRecoveryInputSchema.parse({

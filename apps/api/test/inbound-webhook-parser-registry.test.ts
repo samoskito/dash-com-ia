@@ -4,6 +4,7 @@ import {
   InboundWebhookParserResolutionError,
 } from "../src/inbound-webhooks/providers/inbound-webhook-parser.registry";
 import { GupshupV1Parser } from "../src/inbound-webhooks/providers/gupshup/gupshup-v1.parser";
+import { DataCrazyV1Parser } from "../src/inbound-webhooks/providers/datacrazy/datacrazy-v1.parser";
 import { UmblerV1Parser } from "../src/inbound-webhooks/providers/umbler/umbler-v1.parser";
 
 describe("inbound webhook parser registry", () => {
@@ -29,6 +30,19 @@ describe("inbound webhook parser registry", () => {
     expect(parser).toBeInstanceOf(GupshupV1Parser);
     expect(parser.provider).toBe("gupshup");
     expect(parser.parserVersion).toBe("v1");
+  });
+
+  it("resolves the Data Crazy parser without changing Umbler or Gupshup selection", () => {
+    const registry = new InboundWebhookParserRegistry();
+
+    const parser = registry.resolve({
+      provider: "datacrazy",
+      parserVersion: "v1",
+    });
+
+    expect(parser).toBeInstanceOf(DataCrazyV1Parser);
+    expect(parser).not.toBeInstanceOf(UmblerV1Parser);
+    expect(parser).not.toBeInstanceOf(GupshupV1Parser);
   });
 
   it("does not fall back for an unknown provider or parser version", () => {
