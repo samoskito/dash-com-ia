@@ -10277,6 +10277,17 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   flex: 0 0 auto;
 }
 
+.package-add-number {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 8px;
+  justify-items: end;
+}
+
+.package-add-number .form-status {
+  text-align: right;
+}
+
 .package-seat-panel,
 .package-uazapi-panel,
 .package-invoice-panel,
@@ -10703,8 +10714,17 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   }
 
   .package-contract-checkout form,
-  .package-contract-checkout .button {
+  .package-contract-checkout .button,
+  .package-add-number {
     width: 100%;
+  }
+
+  .package-add-number {
+    justify-items: stretch;
+  }
+
+  .package-add-number .form-status {
+    text-align: left;
   }
 
   .package-alert span {

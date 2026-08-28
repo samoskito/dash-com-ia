@@ -26,6 +26,7 @@ import {
   saveBillingProfileAction,
   startPackageCheckoutAction,
 } from "./actions";
+import { AddWhatsappNumberButton } from "./add-whatsapp-number-button";
 import { PackageBillingActionForm } from "./package-billing-action-form";
 import { PackageInstanceRemoveButton } from "./package-instance-remove-button";
 
@@ -198,6 +199,17 @@ export default async function SubscriptionPage() {
     billing.capabilities.uazapiProvisioning &&
     billing.seats.available > 0 &&
     Boolean(contract && contractAllowsProvisioning(contract.status));
+  const canAddNumber =
+    canManageBilling &&
+    billing.capabilities.packageBilling &&
+    contract?.status === "active";
+  const addNumberDisabledReason = canAddNumber
+    ? null
+    : !canManageBilling
+      ? "Somente quem gerencia a cobranca pode adicionar numeros."
+      : !billing.capabilities.packageBilling
+        ? "Recurso ainda em rollout protegido."
+        : "Disponivel apenas com assinatura ativa.";
 
   return (
     <section className="page-stack page-standard package-billing-page">
@@ -311,6 +323,21 @@ export default async function SubscriptionPage() {
                   : "Iniciar pagamento"}
               </SubmitButton>
             </PackageBillingActionForm>
+          </div>
+        ) : null}
+        {contract && !checkoutPending && !planIsManagedByPlatform ? (
+          <div className="package-contract-checkout">
+            <div>
+              <strong>Numero avulso adicional</strong>
+              <span>
+                Adicione mais um numero de WhatsApp ao contrato atual por
+                R$ 30,00/mes.
+              </span>
+            </div>
+            <AddWhatsappNumberButton
+              disabled={!canAddNumber}
+              disabledReason={addNumberDisabledReason}
+            />
           </div>
         ) : null}
       </section>
