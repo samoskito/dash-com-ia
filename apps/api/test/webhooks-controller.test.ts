@@ -1427,6 +1427,15 @@ describe("webhooks controller", () => {
       })
       .expect(401);
 
+    await request(app.getHttpServer())
+      .post("/webhooks/asaas")
+      .set("asaas-access-token", "secure-webhook-token-123456789013345")
+      .send({
+        event: "PAYMENT_RECEIVED",
+        id: "evt_asaas_1",
+      })
+      .expect(401);
+
     expect(billingService.processAsaasPaymentWebhook).not.toHaveBeenCalled();
     expect(
       billingService.resolveAsaasPaymentWebhookContext,

@@ -11,7 +11,7 @@ const contract = {
   cancelAtPeriodEnd: false,
   cancellationRequestedAt: null,
   contractStatus: "active",
-  currentPeriodEnd: new Date("2026-08-27T12:00:00.000Z")
+  currentPeriodEnd: new Date("2026-08-27T12:00:00.000Z"),
 };
 
 const subscriptionWebhook = {
@@ -19,14 +19,14 @@ const subscriptionWebhook = {
   event: "SUBSCRIPTION_UPDATED",
   subscription: {
     id: "sub_asaas_1",
-    externalReference: "signed-reference"
-  }
+    externalReference: "signed-reference",
+  },
 };
 
 function duplicateError() {
   return new Prisma.PrismaClientKnownRequestError("duplicate", {
     code: "P2002",
-    clientVersion: "6.19.3"
+    clientVersion: "6.19.3",
   });
 }
 
@@ -34,41 +34,44 @@ function createHarness() {
   const prisma = {
     workspaceSubscription: {
       findFirst: vi.fn().mockResolvedValue(contract),
-      update: vi.fn().mockResolvedValue(contract)
+      update: vi.fn().mockResolvedValue(contract),
     },
     billingProviderEvent: {
       create: vi.fn().mockResolvedValue({
         id: "provider_event_1",
-        status: "processing"
+        status: "processing",
       }),
       findUnique: vi.fn(),
       updateMany: vi.fn(),
       update: vi.fn().mockResolvedValue({
         id: "provider_event_1",
-        status: "processed"
-      })
+        status: "processed",
+      }),
     },
     billingInvoice: {
-      findFirst: vi.fn()
+      findFirst: vi.fn(),
     },
     paymentCharge: {
       findFirst: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue({ id: "charge_1" }),
-      update: vi.fn()
-    }
+      update: vi.fn(),
+    },
   };
   const configuration = {
-    isPackageBillingEnabled: () => true
+    isPackageBillingEnabled: () => true,
   };
   const asaas = {
     parseContractExternalReference: vi.fn().mockReturnValue({
       workspaceId: "workspace_1",
-      subscriptionId: "contract_1"
-    })
+      subscriptionId: "contract_1",
+    }),
   };
   const lifecycle = {
     markPaymentDeleted: vi.fn().mockResolvedValue(contract),
-    markPaymentOverdue: vi.fn().mockResolvedValue(contract)
+    markPaymentOverdue: vi.fn().mockResolvedValue(contract),
+  };
+  const additiveBilling = {
+    recordPaidCheckout: vi.fn().mockResolvedValue(true),
   };
   const service = new PackageBillingWebhookService(
     prisma as never,
@@ -76,13 +79,69 @@ function createHarness() {
     asaas as never,
     {} as never,
     lifecycle as never,
-    {} as never
+    {} as never,
+    additiveBilling as never,
   );
 
-  return { asaas, lifecycle, prisma, service };
+  return { additiveBilling, asaas, lifecycle, prisma, service };
 }
 
 describe("PackageBillingWebhookService", () => {
+  it("activates an additive item only for its exact paid Asaas payment", async () => {
+    const { additiveBilling, prisma, service } = createHarness();
+    prisma.paymentCharge.findFirst.mockResolvedValueOnce({
+      id: "charge_additive_1",
+      workspaceId: "workspace_1",
+      subscriptionId: "contract_1",
+      externalChargeId: "payment_additive_1",
+      additiveItem: {
+        id: "item_1",
+        workspaceId: "workspace_1",
+        subscriptionId: "contract_1",
+      },
+    });
+
+    const result = await service.tryProcess({
+      id: "event_additive_1",
+      event: "PAYMENT_CONFIRMED",
+      payment: {
+        id: "payment_additive_1",
+        value: 30,
+        externalReference: "wpptrack:additive:workspace_1:contract_1:item_1",
+      },
+    });
+
+    expect(result).toMatchObject({ handled: true, status: "processed" });
+    expect(additiveBilling.recordPaidCheckout).toHaveBeenCalledWith(
+      "payment_additive_1",
+      3000,
+    );
+  });
+
+  it("does not activate additive capacity for a non-paid provider event", async () => {
+    const { additiveBilling, prisma, service } = createHarness();
+    prisma.paymentCharge.findFirst.mockResolvedValueOnce({
+      id: "charge_additive_1",
+      workspaceId: "workspace_1",
+      subscriptionId: "contract_1",
+      externalChargeId: "payment_additive_1",
+      additiveItem: {
+        id: "item_1",
+        workspaceId: "workspace_1",
+        subscriptionId: "contract_1",
+      },
+    });
+
+    const result = await service.tryProcess({
+      id: "event_additive_pending_1",
+      event: "PAYMENT_CREATED",
+      payment: { id: "payment_additive_1", value: 30 },
+    });
+
+    expect(result).toMatchObject({ handled: true, status: "ignored" });
+    expect(additiveBilling.recordPaidCheckout).not.toHaveBeenCalled();
+  });
+
   it("resolves a checkout-created subscription by checkout session", async () => {
     const { asaas, prisma, service } = createHarness();
     asaas.parseContractExternalReference.mockReturnValueOnce(null);
@@ -92,9 +151,7 @@ describe("PackageBillingWebhookService", () => {
           asaasCheckoutId?: string;
         };
       }) =>
-        args.where?.asaasCheckoutId === "checkout_asaas_1"
-          ? contract
-          : null
+        args.where?.asaasCheckoutId === "checkout_asaas_1" ? contract : null,
     );
 
     const result = await service.tryProcess({
@@ -108,24 +165,24 @@ describe("PackageBillingWebhookService", () => {
         value: 30,
         status: "ACTIVE",
         externalReference: null,
-        checkoutSession: "checkout_asaas_1"
-      }
+        checkoutSession: "checkout_asaas_1",
+      },
     });
 
     expect(result).toMatchObject({
       handled: true,
       status: "processed",
-      workspaceId: "workspace_1"
+      workspaceId: "workspace_1",
     });
     expect(prisma.workspaceSubscription.findFirst).toHaveBeenCalledWith({
       where: {
         asaasCheckoutId: "checkout_asaas_1",
-        planNameSnapshot: { not: null }
-      }
+        planNameSnapshot: { not: null },
+      },
     });
     expect(prisma.workspaceSubscription.update).toHaveBeenCalledWith({
       where: { id: "contract_1" },
-      data: { asaasSubscriptionId: "sub_checkout_1" }
+      data: { asaasSubscriptionId: "sub_checkout_1" },
     });
     expect(prisma.billingProviderEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -133,8 +190,8 @@ describe("PackageBillingWebhookService", () => {
         resourceId: "sub_checkout_1",
         resourceType: "subscription",
         subscriptionId: "contract_1",
-        workspaceId: "workspace_1"
-      })
+        workspaceId: "workspace_1",
+      }),
     });
   });
 
@@ -144,7 +201,7 @@ describe("PackageBillingWebhookService", () => {
     prisma.billingProviderEvent.findUnique.mockResolvedValueOnce({
       id: "provider_event_1",
       status: "processed",
-      updatedAt: new Date()
+      updatedAt: new Date(),
     });
 
     const result = await service.tryProcess(subscriptionWebhook);
@@ -152,7 +209,7 @@ describe("PackageBillingWebhookService", () => {
     expect(result).toMatchObject({
       handled: true,
       status: "duplicate",
-      workspaceId: "workspace_1"
+      workspaceId: "workspace_1",
     });
     expect(prisma.billingProviderEvent.updateMany).not.toHaveBeenCalled();
     expect(prisma.workspaceSubscription.update).not.toHaveBeenCalled();
@@ -165,12 +222,12 @@ describe("PackageBillingWebhookService", () => {
       .mockResolvedValueOnce({
         id: "provider_event_1",
         status: "failed",
-        updatedAt: new Date()
+        updatedAt: new Date(),
       })
       .mockResolvedValueOnce({
         id: "provider_event_1",
         status: "processing",
-        updatedAt: new Date()
+        updatedAt: new Date(),
       });
     prisma.billingProviderEvent.updateMany.mockResolvedValueOnce({ count: 1 });
 
@@ -179,7 +236,7 @@ describe("PackageBillingWebhookService", () => {
     expect(result).toMatchObject({
       handled: true,
       status: "processed",
-      workspaceId: "workspace_1"
+      workspaceId: "workspace_1",
     });
     expect(prisma.billingProviderEvent.updateMany).toHaveBeenCalledWith({
       where: {
@@ -188,20 +245,20 @@ describe("PackageBillingWebhookService", () => {
           { status: "failed" },
           {
             status: "processing",
-            updatedAt: { lte: expect.any(Date) }
-          }
-        ]
+            updatedAt: { lte: expect.any(Date) },
+          },
+        ],
       },
       data: expect.objectContaining({
         status: "processing",
         processedAt: null,
         lastErrorCode: null,
-        lastErrorMessage: null
-      })
+        lastErrorMessage: null,
+      }),
     });
     expect(prisma.workspaceSubscription.update).toHaveBeenCalledWith({
       where: { id: "contract_1" },
-      data: { asaasSubscriptionId: "sub_asaas_1" }
+      data: { asaasSubscriptionId: "sub_asaas_1" },
     });
   });
 
@@ -213,12 +270,12 @@ describe("PackageBillingWebhookService", () => {
       access_token: "must-not-be-persisted",
       customer: {
         cpfCnpj: "12345678901",
-        email: "payer@example.test"
+        email: "payer@example.test",
       },
       subscription: {
         ...subscriptionWebhook.subscription,
-        creditCardToken: "must-not-be-persisted"
-      }
+        creditCardToken: "must-not-be-persisted",
+      },
     });
 
     const payload =
@@ -231,7 +288,7 @@ describe("PackageBillingWebhookService", () => {
       eventId: "evt_asaas_1",
       eventType: "SUBSCRIPTION_UPDATED",
       resourceId: "sub_asaas_1",
-      resourceType: "subscription"
+      resourceType: "subscription",
     });
   });
 
@@ -244,24 +301,24 @@ describe("PackageBillingWebhookService", () => {
       payment: {
         id: "payment_future_1",
         subscription: "sub_asaas_1",
-        value: 30
-      }
+        value: 30,
+      },
     });
 
     expect(result).toMatchObject({
       handled: true,
       status: "processed",
-      workspaceId: "workspace_1"
+      workspaceId: "workspace_1",
     });
     expect(prisma.paymentCharge.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         externalChargeId: "payment_future_1",
-        status: "canceled"
-      })
+        status: "canceled",
+      }),
     });
     expect(lifecycle.markPaymentDeleted).toHaveBeenCalledWith(
       "contract_1",
-      "payment_future_1"
+      "payment_future_1",
     );
     expect(lifecycle.markPaymentOverdue).not.toHaveBeenCalled();
   });

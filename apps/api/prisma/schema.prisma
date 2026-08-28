@@ -387,6 +387,7 @@ model User {
   purchaseValueAdjustments         PurchaseValueAdjustment[]         @relation("PurchaseValueAdjustmentActor")
   assignedWorkspaceSubscriptions   WorkspaceSubscription[]           @relation("WorkspaceSubscriptionAssigner")
   billingContractAudits            BillingContractAudit[]            @relation("BillingContractAuditActor")
+  addedSubscriptionItems           WorkspaceSubscriptionItem[]       @relation("WorkspaceSubscriptionItemAdder")
   validatedPlatformFiscalSettings  PlatformFiscalSettings[]          @relation("PlatformFiscalSettingsValidator")
 
   @@index([lastWorkspaceId])
@@ -416,6 +417,7 @@ model Workspace {
   whatsappSeats                    WhatsappSeat[]
   billingProviderEvents            BillingProviderEvent[]
   billingContractAudits            BillingContractAudit[]
+  subscriptionItems                WorkspaceSubscriptionItem[]
   billingInvoices                  BillingInvoice[]
   paymentCharges                   PaymentCharge[]
   whatsappInstanceActivations      WhatsappInstanceActivation[]
@@ -999,14 +1001,15 @@ model WorkspaceSubscription {
   createdAt                       DateTime                            @default(now())
   updatedAt                       DateTime                            @updatedAt
 
-  workspace       Workspace              @relation(fields: [workspaceId], references: [id])
-  plan            SubscriptionPlan?      @relation(fields: [planId], references: [id])
-  assignedBy      User?                  @relation("WorkspaceSubscriptionAssigner", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  workspace       Workspace                   @relation(fields: [workspaceId], references: [id])
+  plan            SubscriptionPlan?           @relation(fields: [planId], references: [id])
+  assignedBy      User?                       @relation("WorkspaceSubscriptionAssigner", fields: [assignedByUserId], references: [id], onDelete: SetNull)
   whatsappSeats   WhatsappSeat[]
   providerEvents  BillingProviderEvent[]
   contractAudits  BillingContractAudit[]
   paymentCharges  PaymentCharge[]
   billingInvoices BillingInvoice[]
+  items           WorkspaceSubscriptionItem[]
 
   @@unique([workspaceId, id])
   @@index([workspaceId, status])
@@ -1018,6 +1021,37 @@ model WorkspaceSubscription {
   @@index([accessEndsAt])
   @@index([fiscalStatus, fiscalLastErrorAt])
   @@index([assignedByUserId])
+}
+
+/// Additive F1 capacity is recorded independently from the base contract. A
+/// paid item is only reflected in the denormalized contract snapshots after
+/// the existing Asaas subscription has accepted the new recurring total.
+model WorkspaceSubscriptionItem {
+  id                       String   @id @default(cuid())
+  workspaceId              String
+  subscriptionId           String
+  key                      String
+  nameSnapshot             String
+  quantity                 Int      @default(1)
+  capacityPerUnit          Int
+  monthlyPriceCentsPerUnit Int
+  status                   String   @default("pending_payment")
+  idempotencyKey           String?
+  paymentChargeId          String?  @unique
+  providerSyncStatus       String   @default("not_required")
+  providerSyncAttempts     Int      @default(0)
+  providerSyncLastError    String?
+  addedByUserId            String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  workspace     Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  subscription  WorkspaceSubscription @relation(fields: [workspaceId, subscriptionId], references: [workspaceId, id], onDelete: Restrict, map: "WorkspaceSubscriptionItem_subscriptionId_fkey")
+  addedBy       User?                 @relation("WorkspaceSubscriptionItemAdder", fields: [addedByUserId], references: [id], onDelete: SetNull)
+  paymentCharge PaymentCharge?        @relation("AdditiveSubscriptionItemPayment", fields: [paymentChargeId], references: [id], onDelete: SetNull)
+
+  @@unique([subscriptionId, idempotencyKey])
+  @@index([workspaceId, subscriptionId, status])
 }
 
 model WorkspaceBillingProfile {
@@ -1205,6 +1239,7 @@ model PaymentCharge {
   subscription    WorkspaceSubscription?      @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   activation      WhatsappInstanceActivation?
   billingInvoices BillingInvoice[]
+  additiveItem    WorkspaceSubscriptionItem?  @relation("AdditiveSubscriptionItemPayment")
 
   @@index([workspaceId, status])
   @@index([subscriptionId, status])
@@ -2506,8 +2541,8 @@ model XmaxAccount {
   createdAt                DateTime          @default(now())
   updatedAt                DateTime          @updatedAt
 
-  workspace    Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  ingress      XmaxIngress?             @relation(fields: [ingressId], references: [id], onDelete: Restrict)
+  workspace    Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  ingress      XmaxIngress?            @relation(fields: [ingressId], references: [id], onDelete: Restrict)
   eventDedups  XmaxContactEventDedup[]
   shadowEvents XmaxShadowEvent[]
 
@@ -2579,30 +2614,30 @@ enum LicenseHeartbeatStatus {
 /// RastrackDash license server (PalmUP). Raw key is never persisted after issue.
 /// Expiry is derived from expiresAt at validation time; it is not a stored status.
 model License {
-  id                 String          @id @default(cuid())
+  id                String          @id @default(cuid())
   /// SHA-256 hex of the raw key (PALMUP-XXXX-...). Never store the raw key.
-  keyHash            String          @unique
+  keyHash           String          @unique
   /// First segment for support UI, e.g. PALMUP-XXXX. Not secret alone.
-  keyPrefix          String
-  buyerEmail         String?
-  buyerName          String?
-  guruTransactionId  String?         @unique
-  productSku         String          @default("rastrackdash_annual")
-  interval           LicenseInterval @default(annual)
-  expiresAt          DateTime
-  status             LicenseStatus   @default(active)
-  issuedAt           DateTime        @default(now())
-  revokedAt          DateTime?
-  revokedReason      String?
-  boundAccountEmail  String?
-  boundAccountId     String?
-  boundAt            DateTime?
-  nodApiEnabled      Boolean         @default(false)
-  nodApiExpiresAt    DateTime?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  keyPrefix         String
+  buyerEmail        String?
+  buyerName         String?
+  guruTransactionId String?         @unique
+  productSku        String          @default("rastrackdash_annual")
+  interval          LicenseInterval @default(annual)
+  expiresAt         DateTime
+  status            LicenseStatus   @default(active)
+  issuedAt          DateTime        @default(now())
+  revokedAt         DateTime?
+  revokedReason     String?
+  boundAccountEmail String?
+  boundAccountId    String?
+  boundAt           DateTime?
+  nodApiEnabled     Boolean         @default(false)
+  nodApiExpiresAt   DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
-  activations LicenseActivation[]
+  activations      LicenseActivation[]
   deliveryArtifact LicenseDeliveryArtifact?
 
   @@index([status, issuedAt])
@@ -2629,15 +2664,15 @@ model LicenseDeliveryArtifact {
 
 /// Telemetry of student instances. Unlimited fingerprints for the same bound account.
 model LicenseActivation {
-  id                   String                  @id @default(cuid())
-  licenseId            String
-  fingerprint          String
-  appVersion           String?
-  deployLabel          String?
-  firstActivatedAt     DateTime                @default(now())
-  lastHeartbeatAt      DateTime                @default(now())
-  lastHeartbeatStatus  LicenseHeartbeatStatus  @default(ok)
-  ipAddress            String?
+  id                  String                 @id @default(cuid())
+  licenseId           String
+  fingerprint         String
+  appVersion          String?
+  deployLabel         String?
+  firstActivatedAt    DateTime               @default(now())
+  lastHeartbeatAt     DateTime               @default(now())
+  lastHeartbeatStatus LicenseHeartbeatStatus @default(ok)
+  ipAddress           String?
 
   license License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
 

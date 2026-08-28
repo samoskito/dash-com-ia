@@ -413,10 +413,15 @@ export class WebhooksController {
   private assertAsaasWebhookToken(receivedToken?: string) {
     const expectedToken = process.env.ASAAS_WEBHOOK_AUTH_TOKEN;
 
+    if (!expectedToken || !receivedToken) {
+      throw new UnauthorizedException("Webhook Asaas nao autorizado");
+    }
+
+    const expectedBuffer = Buffer.from(expectedToken, "utf8");
+    const receivedBuffer = Buffer.from(receivedToken, "utf8");
     if (
-      !expectedToken ||
-      !receivedToken ||
-      this.hashToken(receivedToken) !== this.hashToken(expectedToken)
+      expectedBuffer.length !== receivedBuffer.length ||
+      !timingSafeEqual(receivedBuffer, expectedBuffer)
     ) {
       throw new UnauthorizedException("Webhook Asaas nao autorizado");
     }

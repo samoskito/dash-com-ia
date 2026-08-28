@@ -192,10 +192,40 @@ export const workspacePackageSubscriptionSchema = z.object({
   cancelAtPeriodEnd: z.boolean(),
   accessEndsAt: z.string().datetime().nullable(),
   fiscalStatus: billingInvoiceStatusSchema,
+  items: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        key: z.string().min(1),
+        name: z.string().min(1),
+        quantity: z.number().int().positive(),
+        capacity: z.number().int().positive(),
+        monthlyPriceCents: z.number().int().positive(),
+        status: z.enum(["pending_payment", "active"]),
+      }),
+    )
+    .default([]),
 });
 
 export const workspacePackageCheckoutInputSchema = z.object({
   planId: z.string().min(1),
+});
+
+// Idempotency is carried only by the required HTTP Idempotency-Key header.
+// Unknown legacy body fields are stripped and can never supply the key.
+export const workspaceAddWhatsappNumberInputSchema = z.object({});
+
+export const workspaceAddWhatsappNumberSchema = z.object({
+  subscriptionId: z.string().min(1),
+  itemId: z.string().min(1),
+  chargeId: z.string().min(1),
+  addedCapacity: z.number().int().nonnegative(),
+  capacity: z.number().int().positive(),
+  monthlyPriceCents: z.number().int().positive(),
+  paymentAmountCents: z.number().int().positive(),
+  checkoutUrl: z.string().url(),
+  externalPaymentId: z.string().min(1),
+  status: z.enum(["awaiting_payment", "active"]),
 });
 
 export const workspacePackageCheckoutSchema = z.object({
@@ -705,6 +735,12 @@ export type WorkspacePackageCheckoutInputDto = z.infer<
 >;
 export type WorkspacePackageCheckoutDto = z.infer<
   typeof workspacePackageCheckoutSchema
+>;
+export type WorkspaceAddWhatsappNumberInputDto = z.infer<
+  typeof workspaceAddWhatsappNumberInputSchema
+>;
+export type WorkspaceAddWhatsappNumberDto = z.infer<
+  typeof workspaceAddWhatsappNumberSchema
 >;
 export type WorkspaceSubscriptionCancellationInputDto = z.infer<
   typeof workspaceSubscriptionCancellationInputSchema
