@@ -28,7 +28,20 @@ type PrismaModel = {
   fields: PrismaField[];
 };
 
-export function parsePrismaModels(schemaSource: string): Map<string, PrismaModel> {
+export type PrismaHardDeleteEdge = {
+  /** Prisma Client delegate holding the FK (the row deleted by client swap). */
+  child: string;
+  /** Prisma Client delegate/model referenced by that FK. */
+  parent: string;
+  /** Relation field on `child`, used to distinguish independent FKs. */
+  relationField: string;
+  /** Explicit restrictive action, or Prisma's required-relation default. */
+  onDelete: "Restrict" | "NoAction" | "default-required";
+};
+
+export function parsePrismaModels(
+  schemaSource: string,
+): Map<string, PrismaModel> {
   const models = new Map<string, PrismaModel>();
   let current: PrismaModel | null = null;
 
@@ -67,13 +80,16 @@ export function parsePrismaModels(schemaSource: string): Map<string, PrismaModel
 }
 
 /**
- * Derives every FK edge, among the given delegate names, whose deletion
- * order matters: child rows referencing a parent via a relation that
+ * Derives every FK edge held by the given child delegates whose deletion
+ * behavior matters: child rows referencing a parent via a relation that
  * Postgres will enforce with RESTRICT/NO ACTION (either explicit or
  * Prisma's implicit default for a required relation). Cascade/SetNull
  * relations are excluded since the database resolves them without
- * requiring the child to be deleted first. Self-relations are excluded:
- * a single deleteMany() statement handles same-table references.
+ * requiring the child to be deleted first. This deliberately retains
+ * parents outside `delegateNames`; callers need those edges to make an
+ * explicit client-swap boundary decision instead of silently dropping them.
+ * Self-relations are excluded because a single deleteMany() statement
+ * handles same-table references.
  *
  * `delegateNames` are Prisma Client delegate names (camelCase). Model
  * names are assumed to be the PascalCase form of the delegate name, which
@@ -82,10 +98,12 @@ export function parsePrismaModels(schemaSource: string): Map<string, PrismaModel
 export function deriveHardDeleteEdges(
   schemaSource: string,
   delegateNames: readonly string[],
-): Array<[child: string, parent: string]> {
+): PrismaHardDeleteEdge[] {
   const models = parsePrismaModels(schemaSource);
   const toModelName = (delegate: string) =>
     delegate.charAt(0).toUpperCase() + delegate.slice(1);
+  const toDelegateName = (model: string) =>
+    model.charAt(0).toLowerCase() + model.slice(1);
   const modelToDelegate = new Map(
     delegateNames.map((delegate) => [toModelName(delegate), delegate]),
   );
@@ -98,7 +116,7 @@ export function deriveHardDeleteEdges(
     }
   }
 
-  const edges: Array<[string, string]> = [];
+  const edges: PrismaHardDeleteEdge[] = [];
 
   for (const model of models.values()) {
     const childDelegate = modelToDelegate.get(model.name);
@@ -112,19 +130,26 @@ export function deriveHardDeleteEdges(
       const relationArgs = relationMatch[1];
       if (!/fields:\s*\[/.test(relationArgs)) continue; // back-relation side, no FK here
 
-      const parentDelegate = modelToDelegate.get(field.type);
-      if (!parentDelegate) continue; // parent outside the wiped delegate universe
       if (field.type === model.name) continue; // self-relation
 
       const onDeleteMatch = relationArgs.match(/onDelete:\s*(\w+)/);
       const explicitOnDelete = onDeleteMatch?.[1] ?? null;
 
-      const isHardDelete = explicitOnDelete
+      const onDelete = explicitOnDelete
         ? explicitOnDelete === "Restrict" || explicitOnDelete === "NoAction"
-        : !field.optional; // Postgres default: mandatory -> Restrict, optional -> SetNull
+          ? explicitOnDelete
+          : null
+        : !field.optional
+          ? "default-required" // Postgres default: mandatory -> Restrict
+          : null; // optional relation default is SetNull
 
-      if (isHardDelete) {
-        edges.push([childDelegate, parentDelegate]);
+      if (onDelete) {
+        edges.push({
+          child: childDelegate,
+          parent: modelToDelegate.get(field.type) ?? toDelegateName(field.type),
+          relationField: field.name,
+          onDelete,
+        });
       }
     }
   }
