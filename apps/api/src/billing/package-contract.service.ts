@@ -2,7 +2,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
-  NotFoundException
+  NotFoundException,
 } from "@nestjs/common";
 import {
   Prisma,
@@ -11,7 +11,7 @@ import {
   type WhatsappSeat,
   type WorkspaceBillingProfile,
   type WorkspaceSubscription,
-  type WorkspaceSubscriptionContractStatus
+  type WorkspaceSubscriptionContractStatus,
 } from "@prisma/client";
 import type {
   BillingInvoiceDto,
@@ -19,14 +19,14 @@ import type {
   WorkspaceBillingProfileInputDto,
   WorkspacePackageAssignmentDto,
   WorkspacePackageBillingStateDto,
-  WorkspacePackageSubscriptionDto
+  WorkspacePackageSubscriptionDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { PackageBillingConfiguration } from "./package-billing.configuration";
 import {
   assertDowngradeCapacity,
   contractAllowsWhatsappAccess,
-  seatConsumesCapacity
+  seatConsumesCapacity,
 } from "./package-billing.policy";
 import { PackagePlanService } from "./package-plan.service";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
@@ -34,8 +34,15 @@ import { WhatsappSeatService } from "./whatsapp-seat.service";
 type TransactionClient = Prisma.TransactionClient;
 
 type ContractWithRelations = WorkspaceSubscription & {
-  plan: SubscriptionPlan | null;
-  whatsappSeats: WhatsappSeat[];
+  items?: Array<{
+    id: string;
+    key: string;
+    nameSnapshot: string;
+    quantity: number;
+    capacityPerUnit: number;
+    monthlyPriceCentsPerUnit: number;
+    status: string;
+  }>;
 };
 
 @Injectable()
@@ -47,65 +54,75 @@ export class PackageContractService {
     @Inject(PackageBillingConfiguration)
     private readonly configuration: PackageBillingConfiguration,
     @Inject(WhatsappSeatService)
-    private readonly seats: WhatsappSeatService
+    private readonly seats: WhatsappSeatService,
   ) {}
 
   async getWorkspaceBillingState(
-    workspaceId: string
+    workspaceId: string,
   ): Promise<WorkspacePackageBillingStateDto> {
-    const [profile, currentContract, pendingContract, availablePlans, invoices] =
-      await Promise.all([
-        this.prisma.workspaceBillingProfile.findUnique({
-          where: { workspaceId }
-        }),
-        this.prisma.workspaceSubscription.findFirst({
-          where: {
-            workspaceId,
-            isCurrent: true,
-            planNameSnapshot: { not: null }
+    const [
+      profile,
+      currentContract,
+      pendingContract,
+      availablePlans,
+      invoices,
+    ] = await Promise.all([
+      this.prisma.workspaceBillingProfile.findUnique({
+        where: { workspaceId },
+      }),
+      this.prisma.workspaceSubscription.findFirst({
+        where: {
+          workspaceId,
+          isCurrent: true,
+          planNameSnapshot: { not: null },
+        },
+        include: {
+          plan: true,
+          whatsappSeats: true,
+          items: {
+            where: { status: { in: ["pending_payment", "active"] } },
+            orderBy: { createdAt: "asc" },
           },
-          include: {
-            plan: true,
-            whatsappSeats: true
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      this.prisma.workspaceSubscription.findFirst({
+        where: {
+          workspaceId,
+          isCurrent: false,
+          contractStatus: {
+            in: ["draft", "awaiting_payment"],
           },
-          orderBy: { createdAt: "desc" }
-        }),
-        this.prisma.workspaceSubscription.findFirst({
-          where: {
-            workspaceId,
-            isCurrent: false,
-            contractStatus: {
-              in: ["draft", "awaiting_payment"]
-            },
-            planNameSnapshot: { not: null }
+          planNameSnapshot: { not: null },
+        },
+        include: {
+          plan: true,
+          whatsappSeats: true,
+          items: {
+            where: { status: { in: ["pending_payment", "active"] } },
+            orderBy: { createdAt: "asc" },
           },
-          include: {
-            plan: true,
-            whatsappSeats: true
-          },
-          orderBy: { createdAt: "desc" }
-        }),
-        this.packagePlans.listPublicPlans(),
-        this.prisma.billingInvoice.findMany({
-          where: { workspaceId },
-          orderBy: { createdAt: "desc" },
-          take: 20
-        })
-      ]);
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      this.packagePlans.listPublicPlans(),
+      this.prisma.billingInvoice.findMany({
+        where: { workspaceId },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      }),
+    ]);
 
     const contract = currentContract ?? pendingContract;
     const seats = currentContract?.whatsappSeats ?? [];
     const occupied = seats.filter((seat) =>
-      seatConsumesCapacity(seat.status)
+      seatConsumesCapacity(seat.status),
     ).length;
-    const capacity =
-      currentContract?.includedWhatsappNumbersSnapshot ?? 0;
+    const capacity = currentContract?.includedWhatsappNumbersSnapshot ?? 0;
 
     return {
       profile: profile ? this.mapProfile(profile) : null,
-      contract: contract
-        ? this.mapSubscription(contract, occupied)
-        : null,
+      contract: contract ? this.mapSubscription(contract, occupied) : null,
       availablePlans,
       seats: {
         capacity,
@@ -113,7 +130,7 @@ export class PackageContractService {
         available: Math.max(0, capacity - occupied),
         reserved: seats.filter((seat) => seat.status === "reserved").length,
         active: seats.filter((seat) => seat.status === "active").length,
-        suspended: seats.filter((seat) => seat.status === "suspended").length
+        suspended: seats.filter((seat) => seat.status === "suspended").length,
       },
       invoices: invoices.map((invoice) => this.mapInvoice(invoice)),
       enforcementEnabled: this.configuration.isEnforcementEnabled(),
@@ -122,31 +139,30 @@ export class PackageContractService {
         recurringCheckout: this.configuration.isAsaasRecurringEnabled(),
         lifecycle: this.configuration.isLifecycleEnabled(),
         automaticInvoices: this.configuration.isFiscalEnabled(),
-        uazapiProvisioning:
-          this.configuration.isUazapiProvisioningEnabled(),
+        uazapiProvisioning: this.configuration.isUazapiProvisioningEnabled(),
         externalChannelEnforcement:
-          this.configuration.isExternalChannelEnforcementEnabled()
-      }
+          this.configuration.isExternalChannelEnforcementEnabled(),
+      },
     };
   }
 
   async upsertBillingProfile(
     workspaceId: string,
-    input: WorkspaceBillingProfileInputDto
+    input: WorkspaceBillingProfileInputDto,
   ): Promise<WorkspaceBillingProfileDto> {
     const profile = await this.prisma.workspaceBillingProfile.upsert({
       where: { workspaceId },
       create: {
         workspaceId,
         ...input,
-        status: "incomplete"
+        status: "incomplete",
       },
       update: {
         ...input,
         status: "incomplete",
         validatedAt: null,
-        validationErrorCode: null
-      }
+        validationErrorCode: null,
+      },
     });
 
     return this.mapProfile(profile);
@@ -157,7 +173,7 @@ export class PackageContractService {
     planId: string,
     actorUserId: string,
     reason: string,
-    actorType = "platform_owner"
+    actorType = "platform_owner",
   ): Promise<WorkspacePackageAssignmentDto> {
     const plan = await this.packagePlans.getPackagePlan(planId);
 
@@ -170,7 +186,7 @@ export class PackageContractService {
         await this.lockWorkspace(transaction, workspaceId);
         const occupied = await this.countWorkspaceOccupiedSeats(
           transaction,
-          workspaceId
+          workspaceId,
         );
         const capacity = this.requiredCapacity(plan);
         assertDowngradeCapacity(capacity, occupied);
@@ -187,7 +203,7 @@ export class PackageContractService {
         const previous = immediate
           ? await transaction.workspaceSubscription.findFirst({
               where: { workspaceId, isCurrent: true },
-              orderBy: { createdAt: "desc" }
+              orderBy: { createdAt: "desc" },
             })
           : null;
 
@@ -196,8 +212,8 @@ export class PackageContractService {
             where: { workspaceId, isCurrent: true },
             data: {
               isCurrent: false,
-              endedAt: new Date()
-            }
+              endedAt: new Date(),
+            },
           });
         } else {
           await transaction.workspaceSubscription.updateMany({
@@ -205,14 +221,14 @@ export class PackageContractService {
               workspaceId,
               isCurrent: false,
               contractStatus: { in: ["draft", "awaiting_payment"] },
-              planNameSnapshot: { not: null }
+              planNameSnapshot: { not: null },
             },
             data: {
               contractStatus: "canceled",
               status: "cancelled",
               canceledAt: new Date(),
-              endedAt: new Date()
-            }
+              endedAt: new Date(),
+            },
           });
         }
 
@@ -232,8 +248,8 @@ export class PackageContractService {
             assignedByUserId: actorUserId,
             assignmentReason: reason,
             activatedAt: immediate ? new Date() : null,
-            fiscalStatus: plan.kind === "exempt" ? "not_configured" : undefined
-          }
+            fiscalStatus: plan.kind === "exempt" ? "not_configured" : undefined,
+          },
         });
 
         if (immediate) {
@@ -242,7 +258,7 @@ export class PackageContractService {
             workspaceId,
             subscription.id,
             "special_plan_assigned",
-            new Date()
+            new Date(),
           );
         }
 
@@ -258,13 +274,13 @@ export class PackageContractService {
             beforeSnapshot: previous
               ? this.contractSnapshot(previous)
               : undefined,
-            afterSnapshot: this.contractSnapshot(subscription)
-          }
+            afterSnapshot: this.contractSnapshot(subscription),
+          },
         });
 
         return subscription;
       },
-      { isolationLevel: "Serializable" }
+      { isolationLevel: "Serializable" },
     );
 
     return {
@@ -272,7 +288,7 @@ export class PackageContractService {
       subscriptionId: created.id,
       status: created.contractStatus,
       plan: this.packagePlans.mapPlan(plan),
-      assignedAt: (created.assignedAt ?? created.createdAt).toISOString()
+      assignedAt: (created.assignedAt ?? created.createdAt).toISOString(),
     };
   }
 
@@ -283,7 +299,7 @@ export class PackageContractService {
       checkoutId: string;
       checkoutUrl: string;
       checkoutExpiresAt: Date | null;
-    }
+    },
   ): Promise<WorkspaceSubscription> {
     return this.prisma.workspaceSubscription.update({
       where: { id: subscriptionId },
@@ -293,8 +309,8 @@ export class PackageContractService {
         asaasCustomerId: references.customerId,
         asaasCheckoutId: references.checkoutId,
         asaasCheckoutUrl: references.checkoutUrl,
-        asaasCheckoutExpiresAt: references.checkoutExpiresAt
-      }
+        asaasCheckoutExpiresAt: references.checkoutExpiresAt,
+      },
     });
   }
 
@@ -309,7 +325,7 @@ export class PackageContractService {
     return this.prisma.$transaction(
       async (transaction) => {
         let pending = await transaction.workspaceSubscription.findUnique({
-          where: { id: input.subscriptionId }
+          where: { id: input.subscriptionId },
         });
 
         if (!pending) {
@@ -319,7 +335,7 @@ export class PackageContractService {
         await this.lockWorkspace(transaction, pending.workspaceId);
         pending =
           (await transaction.workspaceSubscription.findUnique({
-            where: { id: input.subscriptionId }
+            where: { id: input.subscriptionId },
           })) ?? pending;
 
         const existingPeriodStart = pending.currentPeriodStart?.getTime();
@@ -337,8 +353,8 @@ export class PackageContractService {
             pending = await transaction.workspaceSubscription.update({
               where: { id: pending.id },
               data: {
-                asaasSubscriptionId: input.asaasSubscriptionId
-              }
+                asaasSubscriptionId: input.asaasSubscriptionId,
+              },
             });
           }
           return pending;
@@ -346,23 +362,23 @@ export class PackageContractService {
 
         const occupied = await this.countWorkspaceOccupiedSeats(
           transaction,
-          pending.workspaceId
+          pending.workspaceId,
         );
         assertDowngradeCapacity(
           pending.includedWhatsappNumbersSnapshot ?? 0,
-          occupied
+          occupied,
         );
 
         await transaction.workspaceSubscription.updateMany({
           where: {
             workspaceId: pending.workspaceId,
             isCurrent: true,
-            id: { not: pending.id }
+            id: { not: pending.id },
           },
           data: {
             isCurrent: false,
-            endedAt: input.periodStart
-          }
+            endedAt: input.periodStart,
+          },
         });
 
         const activated = await transaction.workspaceSubscription.update({
@@ -379,8 +395,8 @@ export class PackageContractService {
             graceEndsAt: null,
             activatedAt: pending.activatedAt ?? new Date(),
             suspendedAt: null,
-            lastPaymentConfirmedAt: new Date()
-          }
+            lastPaymentConfirmedAt: new Date(),
+          },
         });
 
         await this.seats.bindWorkspaceSeatsToContract(
@@ -388,7 +404,7 @@ export class PackageContractService {
           pending.workspaceId,
           pending.id,
           "payment_confirmed",
-          input.periodStart
+          input.periodStart,
         );
 
         await transaction.billingContractAudit.create({
@@ -403,28 +419,28 @@ export class PackageContractService {
             afterSnapshot: this.contractSnapshot(activated),
             providerReferences: {
               paymentId: input.providerPaymentId,
-              subscriptionId: input.asaasSubscriptionId
-            }
-          }
+              subscriptionId: input.asaasSubscriptionId,
+            },
+          },
         });
 
         return activated;
       },
-      { isolationLevel: "Serializable" }
+      { isolationLevel: "Serializable" },
     );
   }
 
   async getCurrentAccessContract(
     workspaceId: string,
-    now = new Date()
+    now = new Date(),
   ): Promise<WorkspaceSubscription> {
     const contract = await this.prisma.workspaceSubscription.findFirst({
       where: {
         workspaceId,
         isCurrent: true,
-        planNameSnapshot: { not: null }
+        planNameSnapshot: { not: null },
       },
-      orderBy: { createdAt: "desc" }
+      orderBy: { createdAt: "desc" },
     });
 
     if (
@@ -432,7 +448,7 @@ export class PackageContractService {
       !contractAllowsWhatsappAccess(
         contract.contractStatus,
         now,
-        contract.accessEndsAt
+        contract.accessEndsAt,
       )
     ) {
       throw new ConflictException("Workspace sem contrato com acesso ativo");
@@ -449,20 +465,20 @@ export class PackageContractService {
       where: {
         workspaceId: filters.workspaceId,
         contractStatus: filters.status,
-        planNameSnapshot: { not: null }
+        planNameSnapshot: { not: null },
       },
       include: {
         workspace: {
           select: {
             id: true,
             name: true,
-            slug: true
-          }
+            slug: true,
+          },
         },
-        whatsappSeats: true
+        whatsappSeats: true,
       },
       orderBy: { createdAt: "desc" },
-      take: 200
+      take: 200,
     });
 
     return contracts.map((contract) => ({
@@ -470,9 +486,9 @@ export class PackageContractService {
       contract: this.mapSubscription(
         contract,
         contract.whatsappSeats.filter((seat) =>
-          seatConsumesCapacity(seat.status)
-        ).length
-      )
+          seatConsumesCapacity(seat.status),
+        ).length,
+      ),
     }));
   }
 
@@ -497,13 +513,13 @@ export class PackageContractService {
       validatedAt: profile.validatedAt?.toISOString() ?? null,
       validationErrorCode: profile.validationErrorCode,
       createdAt: profile.createdAt.toISOString(),
-      updatedAt: profile.updatedAt.toISOString()
+      updatedAt: profile.updatedAt.toISOString(),
     };
   }
 
   mapSubscription(
-    contract: WorkspaceSubscription,
-    occupiedWhatsappNumbers: number
+    contract: ContractWithRelations,
+    occupiedWhatsappNumbers: number,
   ): WorkspacePackageSubscriptionDto {
     return {
       id: contract.id,
@@ -513,8 +529,7 @@ export class PackageContractService {
       planName: contract.planNameSnapshot ?? "Plano sem nome",
       planVersion: contract.planVersionSnapshot ?? 1,
       monthlyPriceCents: contract.monthlyPriceCentsSnapshot ?? 0,
-      includedWhatsappNumbers:
-        contract.includedWhatsappNumbersSnapshot ?? 1,
+      includedWhatsappNumbers: contract.includedWhatsappNumbersSnapshot ?? 1,
       occupiedWhatsappNumbers,
       billingMethod: contract.billingMethod,
       currentPeriodStart: contract.currentPeriodStart?.toISOString() ?? null,
@@ -522,7 +537,16 @@ export class PackageContractService {
       graceEndsAt: contract.graceEndsAt?.toISOString() ?? null,
       cancelAtPeriodEnd: contract.cancelAtPeriodEnd,
       accessEndsAt: contract.accessEndsAt?.toISOString() ?? null,
-      fiscalStatus: contract.fiscalStatus
+      fiscalStatus: contract.fiscalStatus,
+      items: (contract.items ?? []).map((item) => ({
+        id: item.id,
+        key: item.key,
+        name: item.nameSnapshot,
+        quantity: item.quantity,
+        capacity: item.capacityPerUnit * item.quantity,
+        monthlyPriceCents: item.monthlyPriceCentsPerUnit * item.quantity,
+        status: item.status === "active" ? "active" : "pending_payment",
+      })),
     };
   }
 
@@ -541,28 +565,28 @@ export class PackageContractService {
       canceledAt: invoice.canceledAt?.toISOString() ?? null,
       lastErrorCode: invoice.lastErrorCode,
       lastAttemptAt: invoice.lastAttemptAt?.toISOString() ?? null,
-      createdAt: invoice.createdAt.toISOString()
+      createdAt: invoice.createdAt.toISOString(),
     };
   }
 
   private async countWorkspaceOccupiedSeats(
     transaction: TransactionClient,
-    workspaceId: string
+    workspaceId: string,
   ): Promise<number> {
     return transaction.whatsappSeat.count({
       where: {
         workspaceId,
-        status: { in: ["reserved", "active", "suspended"] }
-      }
+        status: { in: ["reserved", "active", "suspended"] },
+      },
     });
   }
 
   private async lockWorkspace(
     transaction: TransactionClient,
-    workspaceId: string
+    workspaceId: string,
   ): Promise<void> {
     await transaction.$executeRaw(
-      Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${workspaceId}))`
+      Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${workspaceId}))`,
     );
   }
 
@@ -582,9 +606,7 @@ export class PackageContractService {
     return plan.monthlyPriceCents;
   }
 
-  private legacyStatus(
-    status: WorkspaceSubscriptionContractStatus
-  ): string {
+  private legacyStatus(status: WorkspaceSubscriptionContractStatus): string {
     if (
       status === "active" ||
       status === "exempt" ||
@@ -601,7 +623,7 @@ export class PackageContractService {
   }
 
   private contractSnapshot(
-    contract: WorkspaceSubscription
+    contract: WorkspaceSubscription,
   ): Prisma.InputJsonObject {
     return {
       id: contract.id,
@@ -612,11 +634,10 @@ export class PackageContractService {
       planNameSnapshot: contract.planNameSnapshot,
       planVersionSnapshot: contract.planVersionSnapshot,
       monthlyPriceCentsSnapshot: contract.monthlyPriceCentsSnapshot,
-      includedWhatsappNumbersSnapshot:
-        contract.includedWhatsappNumbersSnapshot,
+      includedWhatsappNumbersSnapshot: contract.includedWhatsappNumbersSnapshot,
       currentPeriodStart: contract.currentPeriodStart?.toISOString() ?? null,
       currentPeriodEnd: contract.currentPeriodEnd?.toISOString() ?? null,
-      accessEndsAt: contract.accessEndsAt?.toISOString() ?? null
+      accessEndsAt: contract.accessEndsAt?.toISOString() ?? null,
     };
   }
 }

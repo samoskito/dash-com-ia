@@ -11,6 +11,7 @@ import {
   Put,
 } from "@nestjs/common";
 import {
+  workspaceAddWhatsappNumberInputSchema,
   workspaceBillingProfileInputSchema,
   workspacePackageCheckoutInputSchema,
   workspaceSubscriptionCancellationInputSchema,
@@ -27,6 +28,7 @@ import { PackageSubscriptionLifecycleService } from "./package-subscription-life
 import { PackageUazapiProvisioningService } from "./package-uazapi-provisioning.service";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
 import { WorkspacePackageAccessService } from "./workspace-package-access.service";
+import { AdditiveWhatsappBillingService } from "./additive-whatsapp-billing.service";
 
 @Controller("billing/package")
 export class PackageBillingController {
@@ -48,12 +50,34 @@ export class PackageBillingController {
     private readonly seats: WhatsappSeatService,
     @Inject(WorkspacePackageAccessService)
     private readonly packageAccess: WorkspacePackageAccessService,
+    @Inject(AdditiveWhatsappBillingService)
+    private readonly additiveBilling: AdditiveWhatsappBillingService,
   ) {}
 
   @Get("plans")
   async listPlans(@AuthToken() refreshToken: string) {
     await this.getCurrentWorkspaceContext(refreshToken);
     return this.packagePlans.listPublicPlans();
+  }
+
+  @Post("add-number")
+  async addNumber(@AuthToken() refreshToken: string, @Body() body: unknown) {
+    const parsed = workspaceAddWhatsappNumberInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Solicitacao de numero invalida");
+    }
+
+    const { canManageBilling, userId, workspaceId } =
+      await this.getCurrentWorkspaceContext(refreshToken);
+    if (!canManageBilling) {
+      throw new ForbiddenException("Sem permissao para gerenciar cobranca");
+    }
+
+    return this.additiveBilling.addIndividualNumber(
+      workspaceId,
+      userId,
+      parsed.data.idempotencyKey,
+    );
   }
 
   @Get("state")

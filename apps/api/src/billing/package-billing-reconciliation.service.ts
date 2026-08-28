@@ -3,20 +3,22 @@ import {
   Injectable,
   Logger,
   OnApplicationBootstrap,
-  OnModuleDestroy
+  OnModuleDestroy,
+  Optional,
 } from "@nestjs/common";
 import type {
   WorkspaceSubscription,
-  WorkspaceSubscriptionContractStatus
+  WorkspaceSubscriptionContractStatus,
 } from "@prisma/client";
 import { PrismaService } from "../common/prisma/prisma.service";
 import {
   PackageAsaasAdapter,
   type AsaasInvoiceResult,
-  type AsaasPaymentResult
+  type AsaasPaymentResult,
 } from "./package-asaas.adapter";
 import { PackageBillingConfiguration } from "./package-billing.configuration";
 import { PackageBillingWebhookService } from "./package-billing-webhook.service";
+import { AdditiveWhatsappBillingService } from "./additive-whatsapp-billing.service";
 
 type ReconciliationResult = {
   contracts: number;
@@ -34,7 +36,7 @@ const RECONCILIABLE_STATUSES: WorkspaceSubscriptionContractStatus[] = [
   "past_due",
   "grace_period",
   "cancel_at_period_end",
-  "suspended"
+  "suspended",
 ];
 
 @Injectable()
@@ -42,7 +44,7 @@ export class PackageBillingReconciliationService
   implements OnApplicationBootstrap, OnModuleDestroy
 {
   private readonly logger = new Logger(
-    PackageBillingReconciliationService.name
+    PackageBillingReconciliationService.name,
   );
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
@@ -54,7 +56,10 @@ export class PackageBillingReconciliationService
     @Inject(PackageAsaasAdapter)
     private readonly asaas: PackageAsaasAdapter,
     @Inject(PackageBillingWebhookService)
-    private readonly webhooks: PackageBillingWebhookService
+    private readonly webhooks: PackageBillingWebhookService,
+    @Optional()
+    @Inject(AdditiveWhatsappBillingService)
+    private readonly additiveBilling?: AdditiveWhatsappBillingService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -68,13 +73,13 @@ export class PackageBillingReconciliationService
     const run = () => {
       void this.reconcileAll().catch((error) => {
         this.logger.warn(
-          `Asaas reconciliation failed: ${this.errorCode(error)}`
+          `Asaas reconciliation failed: ${this.errorCode(error)}`,
         );
       });
     };
     this.timer = setInterval(
       run,
-      this.configuration.asaasReconciliationIntervalMs()
+      this.configuration.asaasReconciliationIntervalMs(),
     );
     run();
   }
@@ -93,17 +98,17 @@ export class PackageBillingReconciliationService
 
     this.running = true;
     try {
+      await this.additiveBilling?.retryProviderSyncs(
+        this.configuration.asaasReconciliationBatchSize(),
+      );
       const contracts = await this.prisma.workspaceSubscription.findMany({
         where: {
           planNameSnapshot: { not: null },
           contractStatus: { in: RECONCILIABLE_STATUSES },
-          OR: [
-            { isCurrent: true },
-            { contractStatus: "awaiting_payment" }
-          ]
+          OR: [{ isCurrent: true }, { contractStatus: "awaiting_payment" }],
         },
         orderBy: { updatedAt: "asc" },
-        take: this.configuration.asaasReconciliationBatchSize()
+        take: this.configuration.asaasReconciliationBatchSize(),
       });
 
       return this.reconcileContracts(contracts);
@@ -114,19 +119,16 @@ export class PackageBillingReconciliationService
 
   async reconcileWorkspace(
     workspaceId: string,
-    actorUserId?: string
+    actorUserId?: string,
   ): Promise<ReconciliationResult> {
     const contracts = await this.prisma.workspaceSubscription.findMany({
       where: {
         workspaceId,
         planNameSnapshot: { not: null },
         contractStatus: { in: RECONCILIABLE_STATUSES },
-        OR: [
-          { isCurrent: true },
-          { contractStatus: "awaiting_payment" }
-        ]
+        OR: [{ isCurrent: true }, { contractStatus: "awaiting_payment" }],
       },
-      orderBy: { createdAt: "desc" }
+      orderBy: { createdAt: "desc" },
     });
     const result = await this.reconcileContracts(contracts);
 
@@ -139,8 +141,8 @@ export class PackageBillingReconciliationService
           targetType: "Workspace",
           targetId: workspaceId,
           resultStatus: result.failures > 0 ? "partial" : "success",
-          afterSummary: result
-        }
+          afterSummary: result,
+        },
       });
     }
 
@@ -148,7 +150,7 @@ export class PackageBillingReconciliationService
   }
 
   private async reconcileContracts(
-    contracts: WorkspaceSubscription[]
+    contracts: WorkspaceSubscription[],
   ): Promise<ReconciliationResult> {
     const result = this.emptyResult();
     result.contracts = contracts.length;
@@ -166,7 +168,7 @@ export class PackageBillingReconciliationService
         }
 
         const payments = await this.asaas.listSubscriptionPayments(
-          providerSubscriptionId
+          providerSubscriptionId,
         );
         result.paymentsChecked += payments.length;
         for (const payment of payments) {
@@ -186,16 +188,16 @@ export class PackageBillingReconciliationService
                 dueDate: payment.dueDate,
                 paymentDate: payment.paymentDate,
                 subscription: providerSubscriptionId,
-                externalReference: payment.externalReference
-              }
+                externalReference: payment.externalReference,
+              },
             },
-            result
+            result,
           );
         }
 
         if (this.configuration.isFiscalEnabled()) {
           const invoices = await this.asaas.listSubscriptionInvoices(
-            providerSubscriptionId
+            providerSubscriptionId,
           );
           result.invoicesChecked += invoices.length;
           for (const invoice of invoices) {
@@ -212,10 +214,10 @@ export class PackageBillingReconciliationService
                   status: invoice.status,
                   payment: invoice.paymentId,
                   subscription: providerSubscriptionId,
-                  externalReference: invoice.externalReference
-                }
+                  externalReference: invoice.externalReference,
+                },
               },
-              result
+              result,
             );
           }
         }
@@ -223,8 +225,8 @@ export class PackageBillingReconciliationService
         result.failures += 1;
         this.logger.warn(
           `Contract ${contract.id} reconciliation failed: ${this.errorCode(
-            error
-          )}`
+            error,
+          )}`,
         );
       }
     }
@@ -233,7 +235,7 @@ export class PackageBillingReconciliationService
   }
 
   private async resolveProviderSubscription(
-    contract: WorkspaceSubscription
+    contract: WorkspaceSubscription,
   ): Promise<string | null> {
     if (contract.asaasSubscriptionId) {
       return contract.asaasSubscriptionId;
@@ -241,12 +243,10 @@ export class PackageBillingReconciliationService
 
     const externalReference = this.asaas.contractExternalReference(
       contract.workspaceId,
-      contract.id
+      contract.id,
     );
     const providerSubscription =
-      await this.asaas.findSubscriptionByExternalReference(
-        externalReference
-      );
+      await this.asaas.findSubscriptionByExternalReference(externalReference);
     if (!providerSubscription) {
       return null;
     }
@@ -254,7 +254,7 @@ export class PackageBillingReconciliationService
     await this.prisma.$transaction([
       this.prisma.workspaceSubscription.update({
         where: { id: contract.id },
-        data: { asaasSubscriptionId: providerSubscription.id }
+        data: { asaasSubscriptionId: providerSubscription.id },
       }),
       this.prisma.billingContractAudit.create({
         data: {
@@ -266,17 +266,17 @@ export class PackageBillingReconciliationService
           reason: "Assinatura Asaas recuperada por referencia externa",
           providerReferences: {
             asaasSubscriptionId: providerSubscription.id,
-            externalReference
-          }
-        }
-      })
+            externalReference,
+          },
+        },
+      }),
     ]);
     return providerSubscription.id;
   }
 
   private async processSyntheticEvent(
     event: Record<string, unknown>,
-    result: ReconciliationResult
+    result: ReconciliationResult,
   ): Promise<void> {
     const processed = await this.webhooks.tryProcess(event);
     if (!processed.handled || processed.status === "failed") {
@@ -292,9 +292,7 @@ export class PackageBillingReconciliationService
     }
   }
 
-  private paymentEventType(
-    payment: AsaasPaymentResult
-  ): string | null {
+  private paymentEventType(payment: AsaasPaymentResult): string | null {
     switch (payment.status.toUpperCase()) {
       case "CONFIRMED":
         return "PAYMENT_CONFIRMED";
@@ -316,9 +314,7 @@ export class PackageBillingReconciliationService
     }
   }
 
-  private invoiceEventType(
-    invoice: AsaasInvoiceResult
-  ): string | null {
+  private invoiceEventType(invoice: AsaasInvoiceResult): string | null {
     switch (invoice.status?.toUpperCase()) {
       case "AUTHORIZED":
         return "INVOICE_AUTHORIZED";
@@ -354,7 +350,7 @@ export class PackageBillingReconciliationService
       invoicesChecked: 0,
       eventsProcessed: 0,
       eventsDuplicated: 0,
-      failures: 0
+      failures: 0,
     };
   }
 

@@ -6,6 +6,7 @@ import { UazapiConversionBridgeModule } from "../inbound-webhooks/uazapi-convers
 import { IntegrationsModule } from "../integrations/integrations.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AsaasAdapter } from "./asaas.adapter";
+import { AdditiveWhatsappBillingService } from "./additive-whatsapp-billing.service";
 import { BackofficePackageBillingController } from "./backoffice-package-billing.controller";
 import { BackofficeBillingController } from "./backoffice-billing.controller";
 import { BillingSeatModule } from "./billing-seat.module";
@@ -51,6 +52,7 @@ import { WorkspacePackageAccessService } from "./workspace-package-access.servic
       useFactory: () => new AsaasAdapter(),
     },
     BillingService,
+    AdditiveWhatsappBillingService,
     PackageAsaasAdapter,
     PackageBillingReconciliationService,
     PackageBillingWebhookService,
@@ -70,6 +72,7 @@ import { WorkspacePackageAccessService } from "./workspace-package-access.servic
   ],
   exports: [
     BillingService,
+    AdditiveWhatsappBillingService,
     BillingSeatModule,
     PackageAsaasAdapter,
     PackageBillingReconciliationService,
