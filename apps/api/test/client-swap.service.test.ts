@@ -3,6 +3,8 @@ import {
   ConflictException,
   InternalServerErrorException,
 } from "@nestjs/common";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ClientSwapRateLimitService } from "../src/workspaces/client-swap/client-swap-rate-limit.service";
 import {
@@ -183,14 +185,34 @@ describe("client swap service", () => {
     );
   });
 
-  it("deletes Restrict children before their parents", () => {
+  it("covers every schema-declared wiped Restrict edge in child-before-parent order and retains auth, billing, and audit boundaries", () => {
     const sequence = [...CLIENT_SWAP_WIPE_DELEGATES];
+    const schema = readFileSync(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+    const schemaRestrictEdges: Array<[string, string]> = [];
+    const modelPattern = /model\s+(\w+)\s*\{([\s\S]*?)\n\}/g;
+    for (const match of schema.matchAll(modelPattern)) {
+      const child = `${match[1][0].toLowerCase()}${match[1].slice(1)}`;
+      for (const line of match[2].split("\n")) {
+        const relation = line.match(/^\s*\w+\s+(\w+)(?:\?|\[\])?\s+@relation\([^\n]*onDelete:\s*Restrict/);
+        if (!relation) continue;
+        const parent = `${relation[1][0].toLowerCase()}${relation[1].slice(1)}`;
+        if (sequence.includes(child as never) && sequence.includes(parent as never) && child !== parent) schemaRestrictEdges.push([child, parent]);
+      }
+    }
+
+    expect(new Set(sequence).size).toBe(sequence.length);
+    expect(new Set(CLIENT_SWAP_RESTRICT_EDGES.map((edge) => edge.join(":"))).size).toBe(CLIENT_SWAP_RESTRICT_EDGES.length);
+    expect(CLIENT_SWAP_RESTRICT_EDGES).toEqual(expect.arrayContaining(schemaRestrictEdges));
 
     for (const [child, parent] of CLIENT_SWAP_RESTRICT_EDGES) {
-      expect(sequence.indexOf(child)).toBeGreaterThanOrEqual(0);
-      expect(sequence.indexOf(parent)).toBeGreaterThanOrEqual(0);
-      expect(sequence.indexOf(child)).toBeLessThan(sequence.indexOf(parent));
+      const childIndex = sequence.indexOf(child);
+      const parentIndex = sequence.indexOf(parent);
+      expect(childIndex).toBeGreaterThanOrEqual(0);
+      expect(parentIndex).toBeGreaterThanOrEqual(0);
+      expect(childIndex).toBeLessThan(parentIndex);
     }
+
+    expect(sequence).not.toEqual(expect.arrayContaining(["authSession", "subscription", "auditLog"]));
   });
 
   it("refuses confirm !== true without wiping", async () => {

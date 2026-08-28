@@ -24,6 +24,7 @@ import { WebhooksModule } from "./webhooks/webhooks.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
 import { XmaxModule } from "./xmax/xmax.module";
 import { OpsAlertsModule } from "./ops-alerts/ops-alerts.module";
+import { GuimoModule } from "./guimo/guimo.module";
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { OpsAlertsModule } from "./ops-alerts/ops-alerts.module";
     WebhooksModule,
     XmaxModule,
     OpsAlertsModule,
+    GuimoModule,
   ],
   controllers: [HealthController],
   providers: [

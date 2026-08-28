@@ -46,6 +46,7 @@ enum WhatsappInstanceStatus {
 }
 
 enum DiagnosticSource {
+  guimo
   meta
   uazapi
   umbler
@@ -467,6 +468,9 @@ model Workspace {
   purchaseValueAdjustments         PurchaseValueAdjustment[]
   xmaxAccounts                     XmaxAccount[]
   xmaxShadowEvents                 XmaxShadowEvent[]
+  guimoIntegrations                GuimoIntegration[]
+  guimoWebhookEvents               GuimoWebhookEvent[]
+  guimoWebhookRateLimits           GuimoWebhookRateLimit[]
   opsAlertSettings                 WorkspaceOpsAlertSettings?
   opsAlertDeliveries               WorkspaceOpsAlertDelivery[]
 
@@ -1643,6 +1647,76 @@ model Lead {
   @@index([workspaceId, adSetId])
   @@index([workspaceId, adId])
   @@index([workspaceId, ctwaClid])
+}
+
+/// Per-workspace Guimo CRM webhook configuration. CRM headers are encrypted
+/// server-side; the provider webhook token is stored only as a hash.
+model GuimoIntegration {
+  id                     String   @id @default(cuid())
+  workspaceId            String
+  status                 String   @default("blocked")
+  webhookSecretHash      String   @unique
+  webhookVersion         String   @default("v1")
+  crmHeadersEncrypted    String?
+  crmHeadersIv           String?
+  crmHeadersTag          String?
+  qualifiedStageId       String?
+  qualifiedStageName     String?
+  purchaseStageId        String?
+  purchaseStageName      String?
+  purchaseCurrency       String?
+  purchaseValueUnit      String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  events    GuimoWebhookEvent[]
+  rateLimit GuimoWebhookRateLimit?
+
+  @@index([workspaceId, status])
+}
+
+/// Provisional idempotency ledger: scoped to one integration. Without a native
+/// Guimo movement id, a legitimate later re-entry into the same stage on that
+/// integration is indistinguishable.
+model GuimoWebhookEvent {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  integrationId String
+  dedupeKey     String   @unique
+  status        String   @default("accepted")
+  eventType     String?
+  negotiationId String
+  contactId     String
+  stageId       String
+  stageName     String
+  previousStageId String?
+  previousStageName String?
+  jobId         String?
+  errorCode     String?
+  createdAt     DateTime @default(now())
+  processedAt   DateTime?
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  integration GuimoIntegration @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, status, createdAt])
+  @@index([integrationId, createdAt])
+}
+
+/// Durable bad-token limiter for the public Guimo webhook endpoint.
+model GuimoWebhookRateLimit {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  integrationId   String   @unique
+  windowStartedAt DateTime
+  attempts        Int      @default(0)
+  updatedAt       DateTime @updatedAt
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  integration GuimoIntegration @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, windowStartedAt])
 }
 
 model MetaIntegration {
