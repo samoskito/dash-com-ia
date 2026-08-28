@@ -4,6 +4,7 @@ import type {
   ConversionEventCategoryDto,
   ConversionEventNameDto,
   InboundWebhookChannelDto,
+  InboundWebhookProviderDto,
   ProviderConversionAutomationAuditDto,
   ProviderConversionAutomationAuditItemDto,
   ProviderConversionAutomationPayloadDto,
@@ -129,7 +130,7 @@ type Notice = {
 
 export type ProviderConversionRulePanelProps = {
   connectionId: string;
-  connectionProvider: "umbler" | "gupshup" | "uazapi";
+  connectionProvider: InboundWebhookProviderDto;
   channels: InboundWebhookChannelDto[];
   rules: ProviderConversionRuleDto[];
   enabled: boolean;
