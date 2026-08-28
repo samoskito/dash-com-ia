@@ -559,15 +559,19 @@ export class InboundWebhookObservationService {
       );
     }
 
+    const plaintextString = plaintext.toString("utf8");
     let payload: unknown;
 
     try {
-      payload = JSON.parse(plaintext.toString("utf8"));
+      payload = JSON.parse(plaintextString);
     } catch {
-      throw new InboundWebhookDeterministicFailure(
-        "inbound_webhook_payload_json_invalid",
-        "invalid_payload",
-      );
+      if (parser.provider !== "datacrazy" || parser.parserVersion !== "v1") {
+        throw new InboundWebhookDeterministicFailure(
+          "inbound_webhook_payload_json_invalid",
+          "invalid_payload",
+        );
+      }
+      payload = plaintextString;
     }
 
     try {

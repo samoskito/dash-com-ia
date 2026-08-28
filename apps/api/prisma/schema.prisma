@@ -50,6 +50,7 @@ enum DiagnosticSource {
   uazapi
   umbler
   gupshup
+  datacrazy
   asaas
   external_mysql
   internal
@@ -275,6 +276,7 @@ enum InboundWebhookProvider {
   umbler
   gupshup
   uazapi
+  datacrazy
 }
 
 enum InboundWebhookParserReleaseStatus {

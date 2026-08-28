@@ -221,10 +221,12 @@ export class InboundWebhookProductionService {
       );
     }
 
-    await this.billingAccess.assertProductionAccess(
-      event.workspaceId,
-      event.channelId,
-    );
+    if (event.provider !== "datacrazy") {
+      await this.billingAccess.assertProductionAccess(
+        event.workspaceId,
+        event.channelId,
+      );
+    }
 
     const parsedEvent = this.reparseEvent(item);
     const phone = normalizePhoneIdentity(parsedEvent.contact.phoneNumber);
@@ -338,14 +340,21 @@ export class InboundWebhookProductionService {
         deliveryId: delivery.id,
       },
     );
+    const plaintext = decrypted.toString("utf8");
     let payload: unknown;
 
     try {
-      payload = JSON.parse(decrypted.toString("utf8"));
+      payload = JSON.parse(plaintext);
     } catch {
-      throw new ProductionItemFailure(
-        "inbound_webhook_production_payload_invalid",
-      );
+      if (
+        connection.provider !== "datacrazy" ||
+        connection.parserRelease.version !== "v1"
+      ) {
+        throw new ProductionItemFailure(
+          "inbound_webhook_production_payload_invalid",
+        );
+      }
+      payload = plaintext;
     }
 
     const parser = this.parserRegistry.resolve({
