@@ -238,6 +238,21 @@ function createHarness(options?: {
 }
 
 describe("AdditiveWhatsappBillingService", () => {
+  it("fails closed before creating a charge when the idempotency key is absent", async () => {
+    const { asaas, items, service, tx } = createHarness();
+
+    await expect(
+      service.addIndividualNumber("workspace_1", "user_1", undefined as never),
+    ).rejects.toMatchObject({
+      status: 409,
+      message: "Header Idempotency-Key é obrigatório",
+    });
+
+    expect(items).toHaveLength(0);
+    expect(tx.paymentCharge.create).not.toHaveBeenCalled();
+    expect(asaas.createAdditivePayment).not.toHaveBeenCalled();
+  });
+
   it("creates the first R$30 additive checkout but redirect alone grants no capacity", async () => {
     const { asaas, contracts, items, service, tx } = createHarness();
 
@@ -284,6 +299,53 @@ describe("AdditiveWhatsappBillingService", () => {
       12000,
     );
     expect(audits).toHaveLength(6);
+  });
+
+  it("records sequential audit snapshots when multiple paid additions settle together", async () => {
+    const { audits, charges, items, service } = createHarness();
+    await Promise.all([
+      service.addIndividualNumber("workspace_1", "user_1", "request-0001"),
+      service.addIndividualNumber("workspace_1", "user_1", "request-0002"),
+    ]);
+
+    for (const item of items) {
+      item.providerSyncStatus = "pending";
+      const charge = charges.find(
+        (candidate) => candidate.id === item.paymentChargeId,
+      )!;
+      charge.status = "paid";
+    }
+
+    await (service as any).syncPaidItems("workspace_1", "contract_1");
+
+    const activations = audits.filter(
+      (audit) => audit.action === "contract.additive_capacity_activated",
+    );
+    expect(activations).toHaveLength(2);
+    expect(activations).toMatchObject([
+      {
+        reason: "item_1",
+        beforeSnapshot: {
+          monthlyPriceCentsSnapshot: 3000,
+          includedWhatsappNumbersSnapshot: 1,
+        },
+        afterSnapshot: {
+          monthlyPriceCentsSnapshot: 6000,
+          includedWhatsappNumbersSnapshot: 2,
+        },
+      },
+      {
+        reason: "item_2",
+        beforeSnapshot: {
+          monthlyPriceCentsSnapshot: 6000,
+          includedWhatsappNumbersSnapshot: 2,
+        },
+        afterSnapshot: {
+          monthlyPriceCentsSnapshot: 9000,
+          includedWhatsappNumbersSnapshot: 3,
+        },
+      },
+    ]);
   });
 
   it("serializes concurrent retries with one idempotency key into one charge", async () => {
@@ -367,7 +429,11 @@ describe("AdditiveWhatsappBillingService", () => {
   it("fails closed when no active individual contract or capacity exists", async () => {
     const noContract = createHarness({ contract: null });
     await expect(
-      noContract.service.addIndividualNumber("workspace_1", "user_1"),
+      noContract.service.addIndividualNumber(
+        "workspace_1",
+        "user_1",
+        "request-0001",
+      ),
     ).rejects.toBeInstanceOf(ConflictException);
 
     const noCapacity = createHarness({
@@ -377,7 +443,11 @@ describe("AdditiveWhatsappBillingService", () => {
       },
     });
     await expect(
-      noCapacity.service.addIndividualNumber("workspace_1", "user_1"),
+      noCapacity.service.addIndividualNumber(
+        "workspace_1",
+        "user_1",
+        "request-0001",
+      ),
     ).rejects.toBeInstanceOf(ConflictException);
 
     const packagePrice = createHarness({
@@ -387,7 +457,11 @@ describe("AdditiveWhatsappBillingService", () => {
       },
     });
     await expect(
-      packagePrice.service.addIndividualNumber("workspace_1", "user_1"),
+      packagePrice.service.addIndividualNumber(
+        "workspace_1",
+        "user_1",
+        "request-0001",
+      ),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 });

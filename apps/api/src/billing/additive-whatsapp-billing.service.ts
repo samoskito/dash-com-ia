@@ -40,8 +40,10 @@ export class AdditiveWhatsappBillingService {
   async addIndividualNumber(
     workspaceId: string,
     actorUserId: string,
-    idempotencyKey?: string,
+    idempotencyKey: string,
   ): Promise<WorkspaceAddWhatsappNumberDto> {
+    this.assertIdempotencyKey(idempotencyKey);
+
     const prepared = await this.prisma.$transaction(
       async (transaction) => {
         await this.lockWorkspace(transaction, workspaceId);
@@ -64,15 +66,13 @@ export class AdditiveWhatsappBillingService {
           throw new ConflictException("Dados de cobranca Asaas incompletos");
         }
 
-        let item = idempotencyKey
-          ? await transaction.workspaceSubscriptionItem.findFirst({
-              where: {
-                workspaceId,
-                subscriptionId: contract.id,
-                idempotencyKey,
-              },
-            })
-          : null;
+        let item = await transaction.workspaceSubscriptionItem.findFirst({
+          where: {
+            workspaceId,
+            subscriptionId: contract.id,
+            idempotencyKey,
+          },
+        });
         if (!item) {
           const charge = await transaction.paymentCharge.create({
             data: {
@@ -341,21 +341,21 @@ export class AdditiveWhatsappBillingService {
             (total, item) => total + item.capacityPerUnit * item.quantity,
             0,
           );
-          const targetMonthlyPrice =
-            (contract.monthlyPriceCentsSnapshot ?? 0) + monthlyIncrease;
+          const initialMonthlyPrice = contract.monthlyPriceCentsSnapshot ?? 0;
+          const initialCapacity = contract.includedWhatsappNumbersSnapshot ?? 0;
+          const targetMonthlyPrice = initialMonthlyPrice + monthlyIncrease;
 
           await this.asaas.updateSubscriptionValue(
             contract.asaasSubscriptionId!,
             targetMonthlyPrice,
           );
 
-          const updated = await transaction.workspaceSubscription.update({
+          await transaction.workspaceSubscription.update({
             where: { id: contract.id },
             data: {
               monthlyPriceCentsSnapshot: targetMonthlyPrice,
               includedWhatsappNumbersSnapshot:
-                (contract.includedWhatsappNumbersSnapshot ?? 0) +
-                capacityIncrease,
+                initialCapacity + capacityIncrease,
             },
           });
           await transaction.workspaceSubscriptionItem.updateMany({
@@ -367,7 +367,16 @@ export class AdditiveWhatsappBillingService {
               providerSyncAttempts: { increment: 1 },
             },
           });
+          let auditMonthlyPrice = initialMonthlyPrice;
+          let auditCapacity = initialCapacity;
           for (const item of items) {
+            const beforeSnapshot = this.contractSnapshot(
+              contract,
+              auditMonthlyPrice,
+              auditCapacity,
+            );
+            auditMonthlyPrice += item.monthlyPriceCentsPerUnit * item.quantity;
+            auditCapacity += item.capacityPerUnit * item.quantity;
             await transaction.billingContractAudit.create({
               data: {
                 workspaceId,
@@ -375,8 +384,12 @@ export class AdditiveWhatsappBillingService {
                 actorType: "provider",
                 action: "contract.additive_capacity_activated",
                 reason: item.id,
-                beforeSnapshot: this.contractSnapshot(contract),
-                afterSnapshot: this.contractSnapshot(updated),
+                beforeSnapshot,
+                afterSnapshot: this.contractSnapshot(
+                  contract,
+                  auditMonthlyPrice,
+                  auditCapacity,
+                ),
                 providerReferences: {
                   paymentChargeId: item.paymentChargeId,
                   asaasSubscriptionId: contract.asaasSubscriptionId,
@@ -459,13 +472,25 @@ export class AdditiveWhatsappBillingService {
 
   private contractSnapshot(
     contract: WorkspaceSubscription,
+    monthlyPriceCentsSnapshot = contract.monthlyPriceCentsSnapshot,
+    includedWhatsappNumbersSnapshot = contract.includedWhatsappNumbersSnapshot,
   ): Prisma.InputJsonObject {
     return {
       id: contract.id,
       workspaceId: contract.workspaceId,
-      monthlyPriceCentsSnapshot: contract.monthlyPriceCentsSnapshot,
-      includedWhatsappNumbersSnapshot: contract.includedWhatsappNumbersSnapshot,
+      monthlyPriceCentsSnapshot,
+      includedWhatsappNumbersSnapshot,
     };
+  }
+
+  private assertIdempotencyKey(idempotencyKey: string): void {
+    if (
+      typeof idempotencyKey !== "string" ||
+      idempotencyKey.trim().length === 0 ||
+      idempotencyKey.length > 128
+    ) {
+      throw new ConflictException("Header Idempotency-Key é obrigatório");
+    }
   }
 
   private errorCode(error: unknown): string {

@@ -6,11 +6,23 @@ import {
   whatsappPackagePlanSchema,
   whatsappSeatSchema,
   workspaceBillingProfileInputSchema,
+  workspaceAddWhatsappNumberInputSchema,
   workspacePackageCheckoutSchema,
   workspaceSubscriptionCancellationInputSchema,
 } from "../src";
 
 describe("WhatsApp package billing contracts", () => {
+  it("does not accept an additive idempotency key from the request body", () => {
+    expect(workspaceAddWhatsappNumberInputSchema.safeParse({}).success).toBe(
+      true,
+    );
+    expect(
+      workspaceAddWhatsappNumberInputSchema.parse({
+        idempotencyKey: "request-0001",
+      }),
+    ).toEqual({});
+  });
+
   it("accepts negotiated and exempt packages with explicit capacity", () => {
     expect(
       whatsappPackagePlanSchema.parse({

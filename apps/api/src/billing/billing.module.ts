@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../common/prisma/prisma.module";
+import { IdempotencyGuard } from "../common/guards/idempotency.guard";
 import { UazapiConversionBridgeModule } from "../inbound-webhooks/uazapi-conversion-bridge.module";
 import { IntegrationsModule } from "../integrations/integrations.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
@@ -52,6 +53,7 @@ import { WorkspacePackageAccessService } from "./workspace-package-access.servic
       useFactory: () => new AsaasAdapter(),
     },
     BillingService,
+    IdempotencyGuard,
     AdditiveWhatsappBillingService,
     PackageAsaasAdapter,
     PackageBillingReconciliationService,

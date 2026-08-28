@@ -5,10 +5,12 @@ import {
   ForbiddenException,
   Get,
   Inject,
+  Req,
   Delete,
   Param,
   Post,
   Put,
+  UseGuards,
 } from "@nestjs/common";
 import {
   workspaceAddWhatsappNumberInputSchema,
@@ -29,6 +31,7 @@ import { PackageUazapiProvisioningService } from "./package-uazapi-provisioning.
 import { WhatsappSeatService } from "./whatsapp-seat.service";
 import { WorkspacePackageAccessService } from "./workspace-package-access.service";
 import { AdditiveWhatsappBillingService } from "./additive-whatsapp-billing.service";
+import { IdempotencyGuard } from "../common/guards/idempotency.guard";
 
 @Controller("billing/package")
 export class PackageBillingController {
@@ -61,7 +64,12 @@ export class PackageBillingController {
   }
 
   @Post("add-number")
-  async addNumber(@AuthToken() refreshToken: string, @Body() body: unknown) {
+  @UseGuards(IdempotencyGuard)
+  async addNumber(
+    @AuthToken() refreshToken: string,
+    @Body() body: unknown,
+    @Req() request: { idempotencyKey: string },
+  ) {
     const parsed = workspaceAddWhatsappNumberInputSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException("Solicitacao de numero invalida");
@@ -76,7 +84,7 @@ export class PackageBillingController {
     return this.additiveBilling.addIndividualNumber(
       workspaceId,
       userId,
-      parsed.data.idempotencyKey,
+      request.idempotencyKey,
     );
   }
 

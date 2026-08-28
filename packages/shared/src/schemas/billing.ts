@@ -211,9 +211,9 @@ export const workspacePackageCheckoutInputSchema = z.object({
   planId: z.string().min(1),
 });
 
-export const workspaceAddWhatsappNumberInputSchema = z.object({
-  idempotencyKey: z.string().trim().min(8).max(120).optional(),
-});
+// Idempotency is carried only by the required HTTP Idempotency-Key header.
+// Unknown legacy body fields are stripped and can never supply the key.
+export const workspaceAddWhatsappNumberInputSchema = z.object({});
 
 export const workspaceAddWhatsappNumberSchema = z.object({
   subscriptionId: z.string().min(1),
