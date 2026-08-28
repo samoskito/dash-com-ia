@@ -10,7 +10,7 @@ import { InboundWebhookConnectionsService } from "../src/inbound-webhooks/inboun
 
 type TestParserRelease = {
   id: string;
-  provider: "umbler" | "gupshup";
+  provider: "umbler" | "gupshup" | "datacrazy";
   version: string;
   status: "observation_only" | "certified";
   certifiedByUserId: null;
@@ -22,7 +22,7 @@ type TestParserRelease = {
 type TestConnection = {
   id: string;
   workspaceId: string;
-  provider: "umbler" | "gupshup";
+  provider: "umbler" | "gupshup" | "datacrazy";
   displayName: string;
   parserReleaseId: string;
   secretHash: string | null;
@@ -63,6 +63,16 @@ function createHarness() {
     {
       id: "inbound_parser_gupshup_v1",
       provider: "gupshup",
+      version: "v1",
+      status: "observation_only",
+      certifiedByUserId: null,
+      certifiedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "inbound_parser_datacrazy_v1",
+      provider: "datacrazy",
       version: "v1",
       status: "observation_only",
       certifiedByUserId: null,
@@ -283,7 +293,7 @@ describe("inbound webhook connections service", () => {
     });
   });
 
-  it("advertises and creates Gupshup only as an observation connection", async () => {
+  it("advertises and creates Gupshup and Data Crazy as observation connections", async () => {
     const harness = createHarness();
     const capabilities = await harness.service.getCapabilities();
 
@@ -296,6 +306,12 @@ describe("inbound webhook connections service", () => {
       },
       {
         provider: "gupshup",
+        parserVersion: "v1",
+        parserReleaseStatus: "observation_only",
+        creationEnabled: true,
+      },
+      {
+        provider: "datacrazy",
         parserVersion: "v1",
         parserReleaseStatus: "observation_only",
         creationEnabled: true,
@@ -320,6 +336,22 @@ describe("inbound webhook connections service", () => {
     expect(new URL(created.webhookUrl).searchParams.get("token")).toBe(
       created.secret,
     );
+
+    const dataCrazy = await harness.service.createConnection(
+      "workspace_2",
+      {
+        provider: "datacrazy",
+        displayName: "Data Crazy Cliente",
+      },
+      "user_2",
+    );
+    expect(dataCrazy.connection).toMatchObject({
+      workspaceId: "workspace_2",
+      provider: "datacrazy",
+      parserVersion: "v1",
+      parserReleaseStatus: "observation_only",
+      status: "observation",
+    });
   });
 
   it("rotates the hash and returns a single new URL without exposing it later", async () => {

@@ -631,6 +631,10 @@ export class InboundWebhookConnectionsService {
     connection: PersistedInboundWebhookConnection,
     actorUserId: string,
   ): Promise<void> {
+    if (connection.provider === "datacrazy") {
+      return;
+    }
+
     if (!this.externalChannelEnforcementEnabled()) {
       return;
     }

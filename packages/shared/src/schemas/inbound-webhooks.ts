@@ -2,7 +2,11 @@ import { z } from "zod";
 import { conversionEventNameSchema } from "./conversion-events";
 import { providerConversionDecisionCodeSchema } from "./provider-conversion-decisions";
 
-export const inboundWebhookProviders = ["umbler", "gupshup"] as const;
+export const inboundWebhookProviders = [
+  "umbler",
+  "gupshup",
+  "datacrazy",
+] as const;
 export const inboundWebhookParserReleaseStatuses = [
   "observation_only",
   "certified",

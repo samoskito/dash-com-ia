@@ -43,6 +43,10 @@ function createService(enabled = true) {
           provider: "gupshup",
           status: "observation_only",
         },
+        {
+          provider: "datacrazy",
+          status: "observation_only",
+        },
       ]),
     },
     inboundWebhookConnection: {
@@ -128,6 +132,12 @@ describe("inbound webhook connection overview", () => {
           parserReleaseStatus: "observation_only",
           creationEnabled: true,
         },
+        {
+          provider: "datacrazy",
+          parserVersion: "v1",
+          parserReleaseStatus: "observation_only",
+          creationEnabled: true,
+        },
       ],
     });
     expect(JSON.stringify(capabilities)).not.toContain("secret");
@@ -147,6 +157,10 @@ describe("inbound webhook connection overview", () => {
         }),
         expect.objectContaining({
           provider: "gupshup",
+          creationEnabled: false,
+        }),
+        expect.objectContaining({
+          provider: "datacrazy",
           creationEnabled: false,
         }),
       ],

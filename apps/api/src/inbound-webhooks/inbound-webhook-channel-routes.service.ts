@@ -372,6 +372,7 @@ export class InboundWebhookChannelRoutesService {
       if (
         input.status === "active" &&
         current.connection.status === "production" &&
+        current.connection.provider !== "datacrazy" &&
         this.externalChannelEnforcementEnabled()
       ) {
         await this.whatsappSeats!.activateExternalChannelSeat(transaction, {
