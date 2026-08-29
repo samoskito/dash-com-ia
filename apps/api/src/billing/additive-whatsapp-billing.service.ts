@@ -188,9 +188,10 @@ export class AdditiveWhatsappBillingService {
   }
 
   /** Reconciles only payments already verified and durably marked paid. */
-  async retryProviderSyncs(limit = 50): Promise<number> {
+  async retryProviderSyncs(limit = 50, workspaceId?: string): Promise<number> {
     const items = await this.prisma.workspaceSubscriptionItem.findMany({
       where: {
+        workspaceId,
         status: "pending_payment",
         providerSyncStatus: { in: ["pending", "failed"] },
         paymentCharge: { status: "paid" },

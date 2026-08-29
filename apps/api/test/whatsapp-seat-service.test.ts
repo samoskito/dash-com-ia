@@ -16,10 +16,13 @@ const seatRecord = {
   releasedAt: null,
   releaseReason: null,
   createdAt: new Date("2026-07-26T14:00:00.000Z"),
-  updatedAt: new Date("2026-07-26T14:00:00.000Z")
+  updatedAt: new Date("2026-07-26T14:00:00.000Z"),
 };
 
-function createReserveHarness(occupiedSeats = 0) {
+function createReserveHarness(
+  occupiedSeats = 0,
+  additiveItems: Record<string, any>[] = [],
+) {
   const transaction = {
     $executeRaw: vi.fn().mockResolvedValue(1),
     whatsappSeat: {
@@ -27,7 +30,7 @@ function createReserveHarness(occupiedSeats = 0) {
       findFirst: vi.fn().mockResolvedValue(null),
       count: vi.fn().mockResolvedValue(occupiedSeats),
       create: vi.fn().mockResolvedValue(seatRecord),
-      update: vi.fn()
+      update: vi.fn(),
     },
     workspaceSubscription: {
       findFirst: vi.fn().mockResolvedValue({
@@ -35,31 +38,34 @@ function createReserveHarness(occupiedSeats = 0) {
         workspaceId: "workspace_1",
         contractStatus: "active",
         accessEndsAt: null,
-        includedWhatsappNumbersSnapshot: 1
-      })
+        includedWhatsappNumbersSnapshot: 1,
+      }),
+    },
+    workspaceSubscriptionItem: {
+      findMany: vi.fn().mockResolvedValue(additiveItems),
     },
     billingContractAudit: {
-      create: vi.fn().mockResolvedValue({ id: "audit_1" })
-    }
+      create: vi.fn().mockResolvedValue({ id: "audit_1" }),
+    },
   };
   const prisma = {
     whatsappSeat: {
       findMany: vi.fn(),
-      findFirst: vi.fn()
+      findFirst: vi.fn(),
     },
     $transaction: vi
       .fn()
       .mockImplementation(
         (callback: (client: typeof transaction) => Promise<unknown>) =>
-          callback(transaction)
-      )
+          callback(transaction),
+      ),
   };
   const configuration = {
-    reservationTtlMinutes: () => 10
+    reservationTtlMinutes: () => 10,
   };
   const service = new WhatsappSeatService(
     prisma as never,
-    configuration as never
+    configuration as never,
   );
 
   return { prisma, service, transaction };
@@ -75,9 +81,9 @@ describe("WhatsappSeatService", () => {
         provider: "uazapi",
         whatsappInstanceId: "instance_1",
         inboundWebhookChannelId: null,
-        normalizedPhone: null
+        normalizedPhone: null,
       },
-      "user_1"
+      "user_1",
     );
 
     expect(result.status).toBe("reserved");
@@ -88,8 +94,8 @@ describe("WhatsappSeatService", () => {
         subscriptionId: "contract_1",
         actorUserId: "user_1",
         actorType: "user",
-        action: "seat.reserved"
-      })
+        action: "seat.reserved",
+      }),
     });
   });
 
@@ -101,13 +107,38 @@ describe("WhatsappSeatService", () => {
         provider: "uazapi",
         whatsappInstanceId: "instance_2",
         inboundWebhookChannelId: null,
-        normalizedPhone: null
-      })
+        normalizedPhone: null,
+      }),
     ).rejects.toMatchObject({
-      message: "Todas as vagas do pacote estao ocupadas"
+      message: "Todas as vagas do pacote estao ocupadas",
     });
 
     expect(transaction.whatsappSeat.create).not.toHaveBeenCalled();
+  });
+
+  it("uses verified paid additive capacity while provider sync is retrying", async () => {
+    const { service, transaction } = createReserveHarness(1, [
+      {
+        key: "individual-whatsapp-number",
+        status: "pending_payment",
+        providerSyncStatus: "failed",
+        quantity: 1,
+        capacityPerUnit: 1,
+        monthlyPriceCentsPerUnit: 3000,
+        paymentCharge: { status: "paid", amountCents: 3000 },
+      },
+    ]);
+
+    await expect(
+      service.reserveSeat("workspace_1", {
+        provider: "uazapi",
+        whatsappInstanceId: "instance_2",
+        inboundWebhookChannelId: null,
+        normalizedPhone: null,
+      }),
+    ).resolves.toMatchObject({ status: "reserved" });
+
+    expect(transaction.whatsappSeat.create).toHaveBeenCalledOnce();
   });
 
   it("never releases a seat through a different workspace scope", async () => {
@@ -119,14 +150,14 @@ describe("WhatsappSeatService", () => {
         "workspace_other",
         "seat_1",
         "manual_release",
-        "user_2"
-      )
+        "user_2",
+      ),
     ).rejects.toMatchObject({
-      message: "Vaga de WhatsApp nao encontrada"
+      message: "Vaga de WhatsApp nao encontrada",
     });
 
     expect(prisma.whatsappSeat.findFirst).toHaveBeenCalledWith({
-      where: { id: "seat_1", workspaceId: "workspace_other" }
+      where: { id: "seat_1", workspaceId: "workspace_other" },
     });
   });
 
@@ -142,7 +173,7 @@ describe("WhatsappSeatService", () => {
       status: "released",
       reservationExpiresAt: null,
       releasedAt: now,
-      releaseReason: "reservation_expired"
+      releaseReason: "reservation_expired",
     });
 
     const result = await service.expireAllReservations(now);
@@ -154,8 +185,8 @@ describe("WhatsappSeatService", () => {
         subscriptionId: "contract_1",
         actorType: "system",
         action: "seat.reservation_expired",
-        reason: "reservation_expired"
-      })
+        reason: "reservation_expired",
+      }),
     });
   });
 
@@ -166,14 +197,14 @@ describe("WhatsappSeatService", () => {
       workspaceId: "workspace_1",
       contractStatus: "suspended",
       accessEndsAt: new Date("2026-07-28T19:29:53.233Z"),
-      includedWhatsappNumbersSnapshot: 1
+      includedWhatsappNumbersSnapshot: 1,
     });
     transaction.whatsappSeat.findFirst.mockResolvedValueOnce({
       ...seatRecord,
       provider: "umbler",
       whatsappInstanceId: null,
       inboundWebhookChannelId: "channel_1",
-      status: "suspended"
+      status: "suspended",
     });
 
     await expect(
@@ -182,10 +213,10 @@ describe("WhatsappSeatService", () => {
         channelId: "channel_1",
         provider: "umbler",
         normalizedPhone: "+5511999999999",
-        actorUserId: "user_1"
-      })
+        actorUserId: "user_1",
+      }),
     ).rejects.toMatchObject({
-      message: "Workspace sem contrato com acesso ativo"
+      message: "Workspace sem contrato com acesso ativo",
     });
 
     expect(transaction.whatsappSeat.update).not.toHaveBeenCalled();
@@ -201,7 +232,7 @@ describe("WhatsappSeatService", () => {
       inboundWebhookChannelId: "channel_1",
       status: "released",
       reservationExpiresAt: null,
-      releasedAt: new Date("2026-07-28T18:00:00.000Z")
+      releasedAt: new Date("2026-07-28T18:00:00.000Z"),
     });
 
     await expect(
@@ -210,10 +241,10 @@ describe("WhatsappSeatService", () => {
         channelId: "channel_1",
         provider: "umbler",
         normalizedPhone: "+5511999999999",
-        actorUserId: "user_1"
-      })
+        actorUserId: "user_1",
+      }),
     ).rejects.toMatchObject({
-      message: "Todas as vagas do pacote estao ocupadas"
+      message: "Todas as vagas do pacote estao ocupadas",
     });
 
     expect(transaction.whatsappSeat.update).not.toHaveBeenCalled();
