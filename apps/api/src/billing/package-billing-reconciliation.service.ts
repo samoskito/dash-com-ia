@@ -121,6 +121,10 @@ export class PackageBillingReconciliationService
     workspaceId: string,
     actorUserId?: string,
   ): Promise<ReconciliationResult> {
+    await this.additiveBilling?.retryProviderSyncs(
+      this.configuration.asaasReconciliationBatchSize(),
+      workspaceId,
+    );
     const contracts = await this.prisma.workspaceSubscription.findMany({
       where: {
         workspaceId,

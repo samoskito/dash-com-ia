@@ -412,6 +412,32 @@ describe("AdditiveWhatsappBillingService", () => {
     expect(contracts.workspace_1.includedWhatsappNumbersSnapshot).toBe(2);
   });
 
+  it("recovers a verified paid item after provider sync fails", async () => {
+    const { asaas, charges, contracts, items, service } = createHarness();
+    const purchase = await service.addIndividualNumber(
+      "workspace_1",
+      "user_1",
+      "request-recovery",
+    );
+    asaas.updateSubscriptionValue.mockRejectedValueOnce(new Error("timeout"));
+
+    await expect(
+      service.recordPaidCheckout(purchase.externalPaymentId, 3000),
+    ).rejects.toThrow("timeout");
+    expect(charges[0]).toMatchObject({ status: "paid" });
+    expect(items[0]).toMatchObject({
+      status: "pending_payment",
+      providerSyncStatus: "failed",
+    });
+
+    await expect(service.retryProviderSyncs()).resolves.toBe(1);
+    expect(items[0]).toMatchObject({
+      status: "active",
+      providerSyncStatus: "synced",
+    });
+    expect(contracts.workspace_1.includedWhatsappNumbersSnapshot).toBe(2);
+  });
+
   it("keeps payment activation inside its workspace", async () => {
     const { contracts, service } = createHarness({ secondWorkspace: true });
     const [first, second] = await Promise.all([

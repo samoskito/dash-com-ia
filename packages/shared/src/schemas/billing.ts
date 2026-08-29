@@ -202,6 +202,12 @@ export const workspacePackageSubscriptionSchema = z.object({
         capacity: z.number().int().positive(),
         monthlyPriceCents: z.number().int().positive(),
         status: z.enum(["pending_payment", "active"]),
+        providerSyncStatus: z.enum([
+          "not_required",
+          "pending",
+          "synced",
+          "failed",
+        ]),
       }),
     )
     .default([]),

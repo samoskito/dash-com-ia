@@ -26,6 +26,7 @@ import { PackageBillingConfiguration } from "./package-billing.configuration";
 import {
   assertDowngradeCapacity,
   contractAllowsWhatsappAccess,
+  effectiveWhatsappCapacity,
   seatConsumesCapacity,
 } from "./package-billing.policy";
 import { PackagePlanService } from "./package-plan.service";
@@ -42,6 +43,8 @@ type ContractWithRelations = WorkspaceSubscription & {
     capacityPerUnit: number;
     monthlyPriceCentsPerUnit: number;
     status: string;
+    providerSyncStatus: string;
+    paymentCharge: { status: string; amountCents: number } | null;
   }>;
 };
 
@@ -81,6 +84,9 @@ export class PackageContractService {
           whatsappSeats: true,
           items: {
             where: { status: { in: ["pending_payment", "active"] } },
+            include: {
+              paymentCharge: { select: { status: true, amountCents: true } },
+            },
             orderBy: { createdAt: "asc" },
           },
         },
@@ -100,6 +106,9 @@ export class PackageContractService {
           whatsappSeats: true,
           items: {
             where: { status: { in: ["pending_payment", "active"] } },
+            include: {
+              paymentCharge: { select: { status: true, amountCents: true } },
+            },
             orderBy: { createdAt: "asc" },
           },
         },
@@ -118,7 +127,9 @@ export class PackageContractService {
     const occupied = seats.filter((seat) =>
       seatConsumesCapacity(seat.status),
     ).length;
-    const capacity = currentContract?.includedWhatsappNumbersSnapshot ?? 0;
+    const capacity = currentContract
+      ? this.effectiveCapacity(currentContract)
+      : 0;
 
     return {
       profile: profile ? this.mapProfile(profile) : null,
@@ -529,7 +540,7 @@ export class PackageContractService {
       planName: contract.planNameSnapshot ?? "Plano sem nome",
       planVersion: contract.planVersionSnapshot ?? 1,
       monthlyPriceCents: contract.monthlyPriceCentsSnapshot ?? 0,
-      includedWhatsappNumbers: contract.includedWhatsappNumbersSnapshot ?? 1,
+      includedWhatsappNumbers: this.effectiveCapacity(contract),
       occupiedWhatsappNumbers,
       billingMethod: contract.billingMethod,
       currentPeriodStart: contract.currentPeriodStart?.toISOString() ?? null,
@@ -546,6 +557,8 @@ export class PackageContractService {
         capacity: item.capacityPerUnit * item.quantity,
         monthlyPriceCents: item.monthlyPriceCentsPerUnit * item.quantity,
         status: item.status === "active" ? "active" : "pending_payment",
+        providerSyncStatus:
+          item.providerSyncStatus as WorkspacePackageSubscriptionDto["items"][number]["providerSyncStatus"],
       })),
     };
   }
@@ -579,6 +592,13 @@ export class PackageContractService {
         status: { in: ["reserved", "active", "suspended"] },
       },
     });
+  }
+
+  private effectiveCapacity(contract: ContractWithRelations): number {
+    return effectiveWhatsappCapacity(
+      contract.includedWhatsappNumbersSnapshot ?? 0,
+      contract.items ?? [],
+    );
   }
 
   private async lockWorkspace(
