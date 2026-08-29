@@ -10289,7 +10289,6 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
 }
 
 .package-seat-panel,
-.package-uazapi-panel,
 .package-invoice-panel,
 .package-cancel-panel {
   display: grid;
@@ -10332,11 +10331,67 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   border-right: 0;
 }
 
+.package-instances-panel {
+  display: grid;
+  gap: 20px;
+}
+
 .package-instance-inventory {
   display: grid;
   gap: 12px;
-  padding: 18px 0 4px;
+}
+
+.package-seat-zero-hint {
+  padding: 10px 12px;
+  border-left: 3px solid var(--yellow);
+  background: rgba(234, 179, 8, 0.08);
+  font-size: 12px;
+}
+
+.package-uazapi-form-block {
+  display: grid;
+  gap: 14px;
+  padding: 18px 0 0;
   border-top: 1px solid var(--border);
+}
+
+.package-additive-cta {
+  border-color: rgba(66, 240, 168, 0.32);
+}
+
+.package-additive-items {
+  display: grid;
+  gap: 12px;
+  padding: 18px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.package-additive-items ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.package-additive-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+}
+
+.package-additive-item-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.package-additive-item-row span {
+  color: var(--ink-muted);
+  font-size: 12px;
 }
 
 .package-instance-heading {
