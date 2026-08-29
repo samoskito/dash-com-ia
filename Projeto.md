@@ -417,6 +417,22 @@ Direcao confirmada: usar Meta Ads real via OAuth desde o inicio, aproveitando o 
 
 Pendente de definicao: validar quais permissoes, produtos e callbacks esse app Meta ja possui, quais podem ser reutilizados diretamente e se sera necessario criar ambiente/app separado para o WppTrack.
 
+### Guimo CRM
+
+Backend-only vertical slice aprovada em 2026-08-28: Guimo envia movimentos de
+estagio a um webhook WppTrack versionado e autenticado; o worker consulta os
+dois endpoints CRM observados e encaminha `QualifiedLead` ou `Purchase` ao
+pipeline interno. Configuracao, token e credenciais sao estritamente por
+workspace; o token de webhook fica somente como hash e headers CRM cifrados.
+
+Ingress duravel cobre retry de fila e limite de tentativas de token ruim por
+workspace/integracao, sem expor a existencia do endpoint. Pendente de
+definicao: identificador nativo de movimento, autenticacao/headers oficiais,
+sandbox, mapeamento conta Guimo-workspace e moeda/unidade de `valor`. Purchase
+fica bloqueado sem moeda e unidade explicitamente configuradas; dedupe atual e
+provisoria por integracao/negociacao/contato/novo estagio e nao distingue uma
+reentrada legitima na mesma etapa.
+
 ### IA
 
 IA de analise de conversa fica preparada, mas nao ativa como foco inicial.

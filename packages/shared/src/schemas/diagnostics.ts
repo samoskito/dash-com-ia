@@ -2,6 +2,7 @@ import { z } from "zod";
 import { conversionEventTestInputSchema } from "./conversion-events";
 
 export const diagnosticSources = [
+  "guimo",
   "meta",
   "uazapi",
   "umbler",
