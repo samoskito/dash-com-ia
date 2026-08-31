@@ -25,13 +25,23 @@ describe("guimoIntegrationProvisionInputSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects a payload with no stage identifiers at all", () => {
+  it("accepts credentials-only provisioning without legacy stage or purchase fields", () => {
     const result = guimoIntegrationProvisionInputSchema.safeParse({
-      purchaseCurrency: "BRL",
-      purchaseValueUnit: "major",
+      crmHeaders: { authorization: "Bearer secret" },
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts null optional legacy fields so an update can clear them", () => {
+    const result = guimoIntegrationProvisionInputSchema.safeParse({
+      qualifiedStageName: null,
+      purchaseStageName: null,
+      purchaseCurrency: null,
+      purchaseValueUnit: null,
+    });
+
+    expect(result.success).toBe(true);
   });
 
   it("rejects an invalid purchaseValueUnit", () => {

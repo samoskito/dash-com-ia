@@ -15,7 +15,7 @@ import { parseGuimoCrmHeaders } from "./guimo.schema";
 type GuimoStatus = "active" | "blocked" | "paused";
 
 type Headers = Record<string, string>;
-type ConfigureInput = { qualifiedStageId?: string; qualifiedStageName?: string; purchaseStageId?: string; purchaseStageName?: string; purchaseCurrency?: string; purchaseValueUnit?: "major" | "cents"; crmHeaders?: Headers };
+type ConfigureInput = { qualifiedStageId?: string | null; qualifiedStageName?: string | null; purchaseStageId?: string | null; purchaseStageName?: string | null; purchaseCurrency?: string | null; purchaseValueUnit?: "major" | "cents" | null; crmHeaders?: Headers };
 type GuimoRule = { id: string; stageName: string; eventName: string; valueMode: string; fixedValueCents: number | null; active: boolean; createdAt: Date; updatedAt: Date };
 type GuimoIntegrationSafeRecord = Pick<GuimoIntegration, "id" | "status" | "webhookVersion" | "qualifiedStageId" | "qualifiedStageName" | "purchaseStageId" | "purchaseStageName" | "purchaseCurrency" | "purchaseValueUnit" | "crmHeadersEncrypted" | "crmHeadersIv" | "crmHeadersTag" | "createdAt" | "updatedAt"> & { rules?: GuimoRule[] };
 
@@ -63,8 +63,7 @@ export class GuimoService {
     const token = randomBytes(32).toString("base64url");
     const crmHeaders = parseGuimoCrmHeaders(input.crmHeaders);
     const encrypted = crmHeaders && this.key() ? this.encryptHeaders(crmHeaders) : null;
-    const stagesValid = this.hasStage(input.qualifiedStageId, input.qualifiedStageName) || this.hasStage(input.purchaseStageId, input.purchaseStageName);
-    const status = stagesValid && encrypted ? "active" : "blocked";
+    const status = encrypted ? "active" : "blocked";
     const integration = await this.prisma.guimoIntegration.create({ data: { workspaceId, status, webhookSecretHash: this.hash(token), qualifiedStageId: this.clean(input.qualifiedStageId), qualifiedStageName: this.clean(input.qualifiedStageName), purchaseStageId: this.clean(input.purchaseStageId), purchaseStageName: this.clean(input.purchaseStageName), purchaseCurrency: this.clean(input.purchaseCurrency), purchaseValueUnit: input.purchaseValueUnit ?? null, ...(encrypted ?? {}) } });
     await this.prisma.auditLog.create({ data: { workspaceId, actorUserId, actorType: "user", action: "guimo.integration_provisioned", targetType: "GuimoIntegration", targetId: integration.id, resultStatus: status === "active" ? "success" : "blocked", afterSummary: { status, hasCrmHeaders: Boolean(encrypted), qualifiedConfigured: this.hasStage(input.qualifiedStageId, input.qualifiedStageName), purchaseConfigured: this.hasStage(input.purchaseStageId, input.purchaseStageName), purchaseValueUnit: input.purchaseValueUnit ?? null } } });
     return { id: integration.id, status: status as "active" | "blocked", webhookVersion: integration.webhookVersion, webhookToken: token, ...this.webhookLocation(integration.id) };
@@ -95,9 +94,8 @@ export class GuimoService {
     const purchaseStageName = input.purchaseStageName !== undefined ? this.clean(input.purchaseStageName) : current.purchaseStageName;
     const purchaseCurrency = input.purchaseCurrency !== undefined ? this.clean(input.purchaseCurrency) : current.purchaseCurrency;
     const purchaseValueUnit = input.purchaseValueUnit !== undefined ? input.purchaseValueUnit : current.purchaseValueUnit;
-    const hasCrmHeaders = encrypted !== undefined ? Boolean(encrypted.crmHeadersEncrypted) : Boolean(current.crmHeadersEncrypted);
-    const stagesValid = this.hasStage(qualifiedStageId ?? undefined, qualifiedStageName ?? undefined) || this.hasStage(purchaseStageId ?? undefined, purchaseStageName ?? undefined);
-    const status: GuimoStatus = current.status === "paused" ? "paused" : stagesValid && hasCrmHeaders ? "active" : "blocked";
+    const hasCrmHeaders = encrypted !== undefined ? Boolean(encrypted.crmHeadersEncrypted) : this.hasUsableCrmCredentials(current);
+    const status: GuimoStatus = current.status === "paused" ? "paused" : hasCrmHeaders ? "active" : "blocked";
     const integration = await this.prisma.guimoIntegration.update({ where: { id: current.id }, data: { qualifiedStageId, qualifiedStageName, purchaseStageId, purchaseStageName, purchaseCurrency, purchaseValueUnit, status, ...(encrypted ?? {}) } });
     await this.prisma.auditLog.create({ data: { workspaceId, actorUserId, actorType: "user", action: "guimo.integration_updated", targetType: "GuimoIntegration", targetId: integration.id, resultStatus: "success", afterSummary: { status: integration.status, qualifiedConfigured: this.hasStage(qualifiedStageId ?? undefined, qualifiedStageName ?? undefined), purchaseConfigured: this.hasStage(purchaseStageId ?? undefined, purchaseStageName ?? undefined) } } });
     return this.toDto(integration);
@@ -107,8 +105,7 @@ export class GuimoService {
   async setActive(workspaceId: string, integrationId: string, actorUserId: string, active: boolean): Promise<GuimoIntegrationDto> {
     const current = await this.prisma.guimoIntegration.findFirst({ where: { id: integrationId, workspaceId } });
     if (!current) throw new NotFoundException("Integracao Guimo nao encontrada");
-    const stagesValid = this.hasStage(current.qualifiedStageId ?? undefined, current.qualifiedStageName ?? undefined) || this.hasStage(current.purchaseStageId ?? undefined, current.purchaseStageName ?? undefined);
-    const status: GuimoStatus = !active ? "paused" : stagesValid && current.crmHeadersEncrypted ? "active" : "blocked";
+    const status: GuimoStatus = !active ? "paused" : this.hasUsableCrmCredentials(current) ? "active" : "blocked";
     const integration = await this.prisma.guimoIntegration.update({ where: { id: current.id }, data: { status } });
     await this.prisma.auditLog.create({ data: { workspaceId, actorUserId, actorType: "user", action: active ? "guimo.integration_resumed" : "guimo.integration_paused", targetType: "GuimoIntegration", targetId: integration.id, resultStatus: "success", afterSummary: { status: integration.status } } });
     return this.toDto(integration);
@@ -157,7 +154,7 @@ export class GuimoService {
       let valueCents: number | null = null; let currency: string | null = null;
       if (resolved.valueMode === "fixed") {
         valueCents = resolved.fixedValueCents;
-        currency = integration.purchaseCurrency;
+        currency = integration.purchaseCurrency ?? "BRL";
       } else if (resolved.eventName === "Purchase") {
         const negotiation = await this.adapter.getNegotiation(event.negotiationId, headers);
         if (!(negotiation.value && negotiation.value > 0)) return this.complete(event, "blocked", "purchase_value_not_positive");
@@ -200,7 +197,7 @@ export class GuimoService {
   private async recordDiscard(i: GuimoIntegration, errorCode: string) { await this.logWebhook(i.workspaceId, null, "discarded", { errorCode }); return { status: "discarded" as const }; }
   private async logWebhook(workspaceId: string, _key: string | null, status: string, summary: Record<string, unknown>) { await this.prisma.webhookLog.create({ data: { workspaceId, source: "guimo", eventType: "guimo.stage_movement", status, summaryPayload: summary as Prisma.InputJsonValue } }); }
   private async integrationFailure(event: GuimoWebhookEvent, code: string) { const log = await this.prisma.integrationLog.create({ data: { workspaceId: event.workspaceId, source: "guimo", operation: "guimo.crm_enrichment", status: "failed", providerErrorCode: code, requestSummary: { eventId: event.id }, responseSummary: { redacted: true } } }); await this.prisma.guimoWebhookEvent.update({ where: { id: event.id }, data: { status: "failed", errorCode: code } }); await this.prisma.diagnosticEvent.create({ data: { workspaceId: event.workspaceId, source: "guimo", eventType: "guimo.crm_enrichment_failed", severity: "error", status: "failed", title: "Falha ao enriquecer evento Guimo", message: "A integracao Guimo falhou sem registrar dados sensiveis.", errorCode: code, integrationLogId: log.id, summaryPayload: { eventId: event.id, redacted: true } } }); }
-  private hasStage(id?: string, name?: string) { return Boolean(this.clean(id) || this.clean(name)); } private clean(v?: string) { return v?.trim() || null; } private hash(v: string) { return createHash("sha256").update(v).digest("hex"); } private matchesToken(token: unknown, hash: string) { if (typeof token !== "string" || !token) return false; const a = Buffer.from(this.hash(token)); const b = Buffer.from(hash); return a.length === b.length && timingSafeEqual(a, b); } private unique(e: unknown) { return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002"; }
+  private hasStage(id?: string | null, name?: string | null) { return Boolean(this.clean(id) || this.clean(name)); } private clean(v?: string | null) { return v?.trim() || null; } private hasUsableCrmCredentials(integration: Pick<GuimoIntegration, "crmHeadersEncrypted" | "crmHeadersIv" | "crmHeadersTag">) { return Boolean(this.key() && integration.crmHeadersEncrypted && integration.crmHeadersIv && integration.crmHeadersTag); } private hash(v: string) { return createHash("sha256").update(v).digest("hex"); } private matchesToken(token: unknown, hash: string) { if (typeof token !== "string" || !token) return false; const a = Buffer.from(this.hash(token)); const b = Buffer.from(hash); return a.length === b.length && timingSafeEqual(a, b); } private unique(e: unknown) { return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002"; }
   private toDto(integration: GuimoIntegrationSafeRecord): GuimoIntegrationDto { return { id: integration.id, status: integration.status as GuimoStatus, webhookVersion: integration.webhookVersion, qualifiedStageId: integration.qualifiedStageId, qualifiedStageName: integration.qualifiedStageName, purchaseStageId: integration.purchaseStageId, purchaseStageName: integration.purchaseStageName, purchaseCurrency: integration.purchaseCurrency, purchaseValueUnit: integration.purchaseValueUnit as "major" | "cents" | null, hasCrmHeaders: Boolean(integration.crmHeadersEncrypted && integration.crmHeadersIv && integration.crmHeadersTag), rules: (integration.rules ?? []).map((rule) => this.toRuleDto(rule)), createdAt: integration.createdAt.toISOString(), updatedAt: integration.updatedAt.toISOString() }; }
   private toRuleDto(rule: GuimoRule): GuimoConversionRuleDto { return { id: rule.id, stageName: rule.stageName, eventName: rule.eventName as GuimoConversionRuleDto["eventName"], valueMode: rule.valueMode as "dynamic" | "fixed", fixedValueCents: rule.fixedValueCents, active: rule.active, createdAt: rule.createdAt.toISOString(), updatedAt: rule.updatedAt.toISOString() }; }
   private async auditRule(workspaceId: string, actorUserId: string, action: string, ruleId: string, rule: GuimoRule) { await this.prisma.auditLog.create({ data: { workspaceId, actorUserId, actorType: "user", action, targetType: "GuimoConversionRule", targetId: ruleId, resultStatus: "success", afterSummary: { stageName: rule.stageName, eventName: rule.eventName, valueMode: rule.valueMode, fixedValueCents: rule.fixedValueCents, active: rule.active } } }); }

@@ -53,10 +53,6 @@ export async function provisionGuimoIntegrationAction(
   }
 
   const input = guimoIntegrationProvisionInputSchema.safeParse({
-    qualifiedStageId: formText(formData, "qualifiedStageId") ?? undefined,
-    qualifiedStageName: formText(formData, "qualifiedStageName") ?? undefined,
-    purchaseStageId: formText(formData, "purchaseStageId") ?? undefined,
-    purchaseStageName: formText(formData, "purchaseStageName") ?? undefined,
     purchaseCurrency: formText(formData, "purchaseCurrency") ?? undefined,
     purchaseValueUnit: formText(formData, "purchaseValueUnit") ?? undefined,
     crmHeaders: crmHeadersInput(formData),
@@ -148,10 +144,6 @@ export async function updateGuimoIntegrationAction(
   }
 
   const input = guimoIntegrationUpdateInputSchema.safeParse({
-    qualifiedStageId: formText(formData, "qualifiedStageId") ?? undefined,
-    qualifiedStageName: formText(formData, "qualifiedStageName") ?? undefined,
-    purchaseStageId: formText(formData, "purchaseStageId") ?? undefined,
-    purchaseStageName: formText(formData, "purchaseStageName") ?? undefined,
     purchaseCurrency: formText(formData, "purchaseCurrency") ?? undefined,
     purchaseValueUnit: formText(formData, "purchaseValueUnit") ?? undefined,
     crmHeaders: crmHeadersInput(formData),

@@ -1,7 +1,9 @@
+// @vitest-environment jsdom
 import type { GuimoIntegrationDto } from "@wpptrack/shared";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GuimoConversionPanel } from "../src/app/(app)/settings/guimo-conversion-panel";
 
 vi.mock("next/navigation", () => ({
@@ -9,6 +11,10 @@ vi.mock("next/navigation", () => ({
     refresh: () => undefined,
   }),
 }));
+
+afterEach(() => {
+  cleanup();
+});
 
 const activeIntegration = {
   id: "guimo_integration_1",
@@ -132,6 +138,105 @@ describe("guimo conversion panel", () => {
     expect(html).not.toContain("crmHeadersEncrypted");
   });
 });
+
+describe("guimo activation form", () => {
+  it("asks only for CRM credentials, with stage/moeda/unidade fully removed from the main form", () => {
+    renderInteractive({ integrations: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Ativar conexao Guimo" }));
+
+    const form = screen
+      .getByRole("button", { name: "Ativar conexao" })
+      .closest("form") as HTMLFormElement;
+    const scope = within(form);
+
+    expect(scope.getByPlaceholderText("Bearer ...")).toBeTruthy();
+    expect(scope.getByPlaceholderText("Chave de API")).toBeTruthy();
+    expect(form.querySelector('input[name="crmAuthorization"]')).toBeTruthy();
+    expect(form.querySelector('input[name="crmApiKey"]')).toBeTruthy();
+
+    // Legacy stage fields never appear anywhere in the activation form, not even collapsed.
+    expect(form.querySelector('[name="qualifiedStageId"]')).toBeNull();
+    expect(form.querySelector('[name="qualifiedStageName"]')).toBeNull();
+    expect(form.querySelector('[name="purchaseStageId"]')).toBeNull();
+    expect(form.querySelector('[name="purchaseStageName"]')).toBeNull();
+    expect(scope.queryByPlaceholderText("Ex.: Lead Qualificado")).toBeNull();
+    expect(scope.queryByPlaceholderText("Ex.: Venda Fechada")).toBeNull();
+  });
+
+  it("keeps moeda/unidade behind a collapsed, default-closed Avancado (opcional) block", () => {
+    renderInteractive({ integrations: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Ativar conexao Guimo" }));
+
+    const form = screen
+      .getByRole("button", { name: "Ativar conexao" })
+      .closest("form") as HTMLFormElement;
+    const details = form.querySelector("details") as HTMLDetailsElement;
+
+    expect(details).toBeTruthy();
+    expect(details.open).toBe(false);
+    expect(within(details).getByText("Avancado (opcional)")).toBeTruthy();
+
+    const currencyField = details.querySelector('input[name="purchaseCurrency"]');
+    const unitField = details.querySelector('select[name="purchaseValueUnit"]');
+    expect(currencyField).toBeTruthy();
+    expect(unitField).toBeTruthy();
+
+    fireEvent.click(within(details).getByText("Avancado (opcional)"));
+    expect(details.open).toBe(true);
+  });
+
+  it("requires both CRM credential fields before the browser allows submission", () => {
+    renderInteractive({ integrations: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Ativar conexao Guimo" }));
+
+    const form = screen
+      .getByRole("button", { name: "Ativar conexao" })
+      .closest("form") as HTMLFormElement;
+
+    const authorization = form.querySelector(
+      'input[name="crmAuthorization"]',
+    ) as HTMLInputElement;
+    const apiKey = form.querySelector('input[name="crmApiKey"]') as HTMLInputElement;
+
+    expect(authorization.required).toBe(true);
+    expect(apiKey.required).toBe(true);
+  });
+});
+
+function renderInteractive({
+  canManage = true,
+  integrations = [],
+}: {
+  canManage?: boolean;
+  integrations?: GuimoIntegrationDto[];
+} = {}) {
+  const connectAction = vi.fn(async (_formData: FormData) => ({
+    ok: true as const,
+    message: "ok",
+  }));
+  const ruleAction = vi.fn(async (_formData: FormData) => ({
+    ok: true as const,
+    message: "ok",
+  }));
+  const conversionRuleAction = vi.fn(async (_formData: FormData) => ({
+    ok: true as const,
+    message: "ok",
+  }));
+
+  return render(
+    createElement(GuimoConversionPanel, {
+      workspaceId: "workspace_1",
+      integrations,
+      canManage,
+      provisionAction: connectAction,
+      rotateAction: connectAction,
+      setActiveAction: ruleAction,
+      createRuleAction: conversionRuleAction,
+      updateRuleAction: conversionRuleAction,
+      deleteRuleAction: conversionRuleAction,
+    }),
+  );
+}
 
 function renderPanel({
   canManage = true,

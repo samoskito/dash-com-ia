@@ -17,7 +17,8 @@ describe("Guimo v1 contract boundary", () => {
     expect(normalizeGuimoStageName(" LEAD  QUALIFICADO ")).toBe("lead qualificado");
   });
   it("validates configuration without accepting arbitrary credential shapes", () => {
-    expect(parseGuimoConfiguration({ qualifiedStageId: "2", crmHeaders: { Authorization: "[REDACTED]" } })).toMatchObject({ qualifiedStageId: "2" });
+    expect(parseGuimoConfiguration({ crmHeaders: { Authorization: "[REDACTED]" } })).toMatchObject({ crmHeaders: { authorization: "[REDACTED]" } });
+    expect(parseGuimoConfiguration({ qualifiedStageId: null, purchaseStageName: null, crmHeaders: { Authorization: "[REDACTED]" } })).toMatchObject({ qualifiedStageId: null, purchaseStageName: null });
     expect(parseGuimoConfiguration({ qualifiedStageId: "2", crmHeaders: { ["Authorization"]: 1 + 2 } })).toBeNull();
     expect(parseGuimoConfiguration({ qualifiedStageId: "2", crmHeaders: {} })).toBeNull();
     expect(parseGuimoConfiguration({ qualifiedStageId: "2", crmHeaders: { Authorization: "   " } })).toBeNull();

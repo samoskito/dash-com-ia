@@ -81,7 +81,9 @@ export const guimoIntegrationRotateWebhookTokenResultSchema =
  * replace, the backend's own `parseGuimoConfiguration` validation. */
 export const guimoCrmHeaderNames = ["authorization", "x-api-key"] as const;
 
-const stageFieldSchema = z.string().trim().min(1).max(255).optional();
+const optionalStageFieldSchema = z.string().trim().min(1).max(255).nullable().optional();
+const optionalPurchaseCurrencySchema = z.string().trim().min(1).max(10).nullable().optional();
+const optionalPurchaseValueUnitSchema = z.enum(["major", "cents"]).nullable().optional();
 
 export const guimoIntegrationCrmHeadersInputSchema = z
   .record(z.string(), z.string().trim().min(1))
@@ -95,26 +97,15 @@ export const guimoIntegrationCrmHeadersInputSchema = z
     { message: "Apenas os cabecalhos Authorization e X-API-Key sao aceitos" },
   );
 
-export const guimoIntegrationProvisionInputSchema = z
-  .object({
-    qualifiedStageId: stageFieldSchema,
-    qualifiedStageName: stageFieldSchema,
-    purchaseStageId: stageFieldSchema,
-    purchaseStageName: stageFieldSchema,
-    purchaseCurrency: z.string().trim().min(1).max(10).optional(),
-    purchaseValueUnit: z.enum(["major", "cents"]).optional(),
-    crmHeaders: guimoIntegrationCrmHeadersInputSchema.optional(),
-  })
-  .refine(
-    (value) =>
-      Boolean(
-        value.qualifiedStageId ||
-          value.qualifiedStageName ||
-          value.purchaseStageId ||
-          value.purchaseStageName,
-      ),
-    { message: "Informe ao menos um estagio (qualificado ou compra)" },
-  );
+export const guimoIntegrationProvisionInputSchema = z.object({
+  qualifiedStageId: optionalStageFieldSchema,
+  qualifiedStageName: optionalStageFieldSchema,
+  purchaseStageId: optionalStageFieldSchema,
+  purchaseStageName: optionalStageFieldSchema,
+  purchaseCurrency: optionalPurchaseCurrencySchema,
+  purchaseValueUnit: optionalPurchaseValueUnitSchema,
+  crmHeaders: guimoIntegrationCrmHeadersInputSchema.optional(),
+});
 
 export type GuimoIntegrationProvisionInputDto = z.infer<
   typeof guimoIntegrationProvisionInputSchema
@@ -124,12 +115,12 @@ export type GuimoIntegrationProvisionInputDto = z.infer<
  * (unlike provisioning) the integration already exists. */
 export const guimoIntegrationUpdateInputSchema = z
   .object({
-    qualifiedStageId: stageFieldSchema,
-    qualifiedStageName: stageFieldSchema,
-    purchaseStageId: stageFieldSchema,
-    purchaseStageName: stageFieldSchema,
-    purchaseCurrency: z.string().trim().min(1).max(10).optional(),
-    purchaseValueUnit: z.enum(["major", "cents"]).optional(),
+    qualifiedStageId: optionalStageFieldSchema,
+    qualifiedStageName: optionalStageFieldSchema,
+    purchaseStageId: optionalStageFieldSchema,
+    purchaseStageName: optionalStageFieldSchema,
+    purchaseCurrency: optionalPurchaseCurrencySchema,
+    purchaseValueUnit: optionalPurchaseValueUnitSchema,
     crmHeaders: guimoIntegrationCrmHeadersInputSchema.optional(),
   })
   .refine(
