@@ -4,6 +4,16 @@ const GUIMO_OPERATIONAL_HEADER_NAMES = new Set(["accept", "content-type", "host"
 
 export type GuimoConfigurationInput = { qualifiedStageId?: string; qualifiedStageName?: string; purchaseStageId?: string; purchaseStageName?: string; purchaseCurrency?: string; purchaseValueUnit?: "major" | "cents"; crmHeaders?: Record<string, string> };
 
+export function parseGuimoConversionRuleCreate(value: unknown): GuimoConversionRuleCreateInputDto | null {
+  const parsed = guimoConversionRuleCreateInputSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+export function parseGuimoConversionRuleUpdate(value: unknown): GuimoConversionRuleUpdateInputDto | null {
+  const parsed = guimoConversionRuleUpdateInputSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 /** Accept only the observed CRM authentication headers; callers never control transport headers. */
 export function parseGuimoCrmHeaders(value: unknown): Record<string, string> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -19,11 +29,25 @@ export function parseGuimoCrmHeaders(value: unknown): Record<string, string> | n
 }
 
 export function parseGuimoConfiguration(value: unknown): GuimoConfigurationInput | null {
+  const result = parseGuimoConfigurationFields(value);
+  if (!result) return null;
+  return result.qualifiedStageId || result.qualifiedStageName || result.purchaseStageId || result.purchaseStageName ? result : null;
+}
+
+/** Same field parsing as `parseGuimoConfiguration`, but for a partial update: any single
+ * field (including only currency/unit/credentials) is enough, since the rule already exists. */
+export function parseGuimoConfigurationUpdate(value: unknown): GuimoConfigurationInput | null {
+  const result = parseGuimoConfigurationFields(value);
+  if (!result) return null;
+  return Object.values(result).some((field) => field !== undefined) ? result : null;
+}
+
+function parseGuimoConfigurationFields(value: unknown): GuimoConfigurationInput | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>; const text = (key: string) => typeof v[key] === "string" && v[key].trim() ? v[key].trim() : undefined;
   const unit = text("purchaseValueUnit"); if (unit && unit !== "major" && unit !== "cents") return null;
   const headers = v.crmHeaders === undefined ? undefined : parseGuimoCrmHeaders(v.crmHeaders);
   if (v.crmHeaders !== undefined && !headers) return null;
-  const result = { qualifiedStageId: text("qualifiedStageId"), qualifiedStageName: text("qualifiedStageName"), purchaseStageId: text("purchaseStageId"), purchaseStageName: text("purchaseStageName"), purchaseCurrency: text("purchaseCurrency"), purchaseValueUnit: unit as "major" | "cents" | undefined, crmHeaders: headers ?? undefined };
-  return result.qualifiedStageId || result.qualifiedStageName || result.purchaseStageId || result.purchaseStageName ? result : null;
+  return { qualifiedStageId: text("qualifiedStageId"), qualifiedStageName: text("qualifiedStageName"), purchaseStageId: text("purchaseStageId"), purchaseStageName: text("purchaseStageName"), purchaseCurrency: text("purchaseCurrency"), purchaseValueUnit: unit as "major" | "cents" | undefined, crmHeaders: headers ?? undefined };
 }
+import { guimoConversionRuleCreateInputSchema, guimoConversionRuleUpdateInputSchema, type GuimoConversionRuleCreateInputDto, type GuimoConversionRuleUpdateInputDto } from "@wpptrack/shared";

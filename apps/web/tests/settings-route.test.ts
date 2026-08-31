@@ -75,6 +75,7 @@ function mockSettingsFetch(options: {
   opsAlertSettings?: unknown;
   opsAlertSettingsStatus?: number;
   opsAlertSettingsEmptyBody?: boolean;
+  guimoIntegrations?: unknown[];
 }) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
@@ -113,6 +114,13 @@ function mockSettingsFetch(options: {
           headers: { "Content-Type": "application/json" },
         },
       );
+    }
+
+    if (url.endsWith("/guimo/integrations")) {
+      return new Response(JSON.stringify(options.guimoIntegrations ?? []), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     if (url.endsWith("/conversion-rules/providers")) {
@@ -457,6 +465,112 @@ describe("settings route", () => {
       '<option value="CompleteRegistration">CompleteRegistration</option>',
     );
     expect(html).toContain("Pausar");
+  });
+
+  it("shows the Guimo activation CTA when no connection is active", async () => {
+    mockSettingsFetch({ rulesBody: [], guimoIntegrations: [] });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Movimentacao no CRM (Guimo)");
+    expect(html).toContain("Nao conectado");
+    expect(html).toContain("Ativar conexao Guimo");
+    expect(html).toContain("Nenhuma conexao Guimo ativa.");
+    expect(html).not.toContain("Nome do estagio na Guimo");
+    expect(html).not.toContain("Nova regra");
+  });
+
+  it("shows free-form Guimo rules by stage name, chosen conversion and value mode once connected", async () => {
+    mockSettingsFetch({
+      rulesBody: [],
+      guimoIntegrations: [
+        {
+          id: "guimo_integration_1",
+          status: "active",
+          webhookVersion: "guimo/v1",
+          qualifiedStageId: null,
+          qualifiedStageName: "Lead Qualificado",
+          purchaseStageId: null,
+          purchaseStageName: "Venda Fechada",
+          purchaseCurrency: "BRL",
+          purchaseValueUnit: "cents",
+          hasCrmHeaders: true,
+          rules: [
+            {
+              id: "rule_1",
+              stageName: "Lead Qualificado",
+              eventName: "QualifiedLead",
+              valueMode: "dynamic",
+              fixedValueCents: null,
+              active: true,
+              createdAt: "2026-07-17T18:00:00.000Z",
+              updatedAt: "2026-07-17T18:00:00.000Z",
+            },
+            {
+              id: "rule_2",
+              stageName: "Venda Fechada",
+              eventName: "Purchase",
+              valueMode: "fixed",
+              fixedValueCents: 19990,
+              active: true,
+              createdAt: "2026-07-17T18:00:00.000Z",
+              updatedAt: "2026-07-17T18:00:00.000Z",
+            },
+          ],
+          createdAt: "2026-07-17T18:00:00.000Z",
+          updatedAt: "2026-07-17T19:00:00.000Z",
+        },
+      ],
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Ativa");
+    expect(html).toContain("Movimentacao no CRM (Guimo)");
+    expect(html).toContain("Nova regra");
+    // Stage by name (not id) for each conversion.
+    expect(html).toContain("Estagio na Guimo: Lead Qualificado");
+    expect(html).toContain("Estagio na Guimo: Venda Fechada");
+    expect(html).toContain("Nome do estagio na Guimo");
+    // Chosen conversion event per rule.
+    expect(html).toContain("Lead qualificado");
+    expect(html).toContain("Compras");
+    expect(html).toContain("Conversao disparada");
+    // Dynamic-or-fixed value mode.
+    expect(html).toContain("Valor dinamico do negocio (Guimo)");
+    expect(html).toContain("Valor fixo");
+    expect(html).not.toContain("Nenhuma conexao Guimo ativa.");
+  });
+
+  it("shows the empty-rules state when Guimo is connected but has no rules yet", async () => {
+    mockSettingsFetch({
+      rulesBody: [],
+      guimoIntegrations: [
+        {
+          id: "guimo_integration_2",
+          status: "active",
+          webhookVersion: "guimo/v1",
+          qualifiedStageId: null,
+          qualifiedStageName: "Lead Qualificado",
+          purchaseStageId: null,
+          purchaseStageName: null,
+          purchaseCurrency: null,
+          purchaseValueUnit: null,
+          hasCrmHeaders: true,
+          rules: [],
+          createdAt: "2026-07-17T18:00:00.000Z",
+          updatedAt: "2026-07-17T19:00:00.000Z",
+        },
+      ],
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Nenhuma regra cadastrada ainda");
+    expect(html).toContain("Nova regra");
   });
 
   it("centralizes Umbler rules by connection and offers assisted legacy adaptation", async () => {

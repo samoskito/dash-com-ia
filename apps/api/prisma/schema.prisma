@@ -469,6 +469,7 @@ model Workspace {
   xmaxAccounts                     XmaxAccount[]
   xmaxShadowEvents                 XmaxShadowEvent[]
   guimoIntegrations                GuimoIntegration[]
+  guimoConversionRules             GuimoConversionRule[]
   guimoWebhookEvents               GuimoWebhookEvent[]
   guimoWebhookRateLimits           GuimoWebhookRateLimit[]
   opsAlertSettings                 WorkspaceOpsAlertSettings?
@@ -1672,8 +1673,31 @@ model GuimoIntegration {
   workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   events    GuimoWebhookEvent[]
   rateLimit GuimoWebhookRateLimit?
+  rules     GuimoConversionRule[]
 
   @@index([workspaceId, status])
+}
+
+/// Free-form conversion mapping for Guimo stage movements. Stage matching is
+/// deliberately by name so CRM stage IDs may change without reconfiguration.
+model GuimoConversionRule {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  integrationId   String
+  stageName       String
+  eventName       String
+  valueMode       String   @default("dynamic")
+  fixedValueCents Int?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  integration GuimoIntegration @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+
+  @@unique([integrationId, stageName, eventName])
+  @@index([integrationId])
+  @@index([workspaceId])
 }
 
 /// Provisional idempotency ledger: scoped to one integration. Without a native

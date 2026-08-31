@@ -4,6 +4,7 @@ import type {
   ConversionRuleDto,
   CurrentWorkspaceDto,
   FunnelConfigurationDto,
+  GuimoIntegrationListDto,
   InboundWebhookChannelDto,
   InboundWebhookConnectionDto,
   ProviderConversionRuleDto,
@@ -46,6 +47,15 @@ import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { ProviderConversionRulePanel } from "../integrations/provider-conversion-rule-panel";
+import {
+  createGuimoConversionRuleAction,
+  deleteGuimoConversionRuleAction,
+  provisionGuimoIntegrationAction,
+  rotateGuimoWebhookTokenAction,
+  setGuimoIntegrationActiveAction,
+  updateGuimoConversionRuleAction,
+} from "../integrations/guimo-actions";
+import { GuimoConversionPanel } from "./guimo-conversion-panel";
 import { clientSwapAction } from "./client-swap-actions";
 import { saveOpsAlertSettingsAction } from "./ops-alert-settings-actions";
 import {
@@ -393,6 +403,39 @@ async function getProviderConversionSettings(): Promise<ProviderConversionSettin
       enabled: false,
       state: "error",
     };
+  }
+}
+
+type GuimoIntegrationsResult = {
+  integrations: GuimoIntegrationListDto;
+  state: "real" | "empty" | "error";
+};
+
+async function getGuimoIntegrations(): Promise<GuimoIntegrationsResult> {
+  try {
+    const workspace = await getCurrentWorkspace();
+    // Guimo endpoints are owner-only server-side (WorkspaceOwnerGuard); gating on
+    // canManageIntegrations alone would let non-owner managers hit a 403.
+    const isPlatformSupport = workspace.accessMode === "platform_support";
+    const isPlatformOwnerSupport =
+      isPlatformSupport && workspace.platformRole === "platform_owner";
+    const canManageGuimo =
+      workspace.role === "owner" && (!isPlatformSupport || isPlatformOwnerSupport);
+
+    if (!canManageGuimo) {
+      return { integrations: [], state: "empty" };
+    }
+
+    const integrations = await serverApiFetch<GuimoIntegrationListDto>(
+      `/workspaces/${encodeURIComponent(workspace.id)}/guimo/integrations`,
+    );
+
+    return {
+      integrations,
+      state: integrations.length > 0 ? "real" : "empty",
+    };
+  } catch {
+    return { integrations: [], state: "error" };
   }
 }
 
@@ -970,6 +1013,7 @@ export default async function SettingsPage() {
     workspaceSettings,
     conversionRules,
     providerConversionSettings,
+    guimoIntegrationsResult,
     funnelConfiguration,
     accountSettings,
     whatsappLabelSuggestions,
@@ -978,6 +1022,7 @@ export default async function SettingsPage() {
     getWorkspaceSettings(),
     getConversionRules(),
     getProviderConversionSettings(),
+    getGuimoIntegrations(),
     getFunnelConfiguration(),
     getAccountSettings(),
     getWhatsappLabelSuggestions(),
@@ -1008,6 +1053,13 @@ export default async function SettingsPage() {
   const isPlatformOwnerSupport = Boolean(
     isPlatformSupport && workspace?.platformRole === "platform_owner",
   );
+  // Mirrors WorkspaceOwnerGuard on the Guimo endpoints.
+  const canManageGuimo = Boolean(
+    workspace &&
+      workspace.role === "owner" &&
+      (!isPlatformSupport || isPlatformOwnerSupport),
+  );
+  const guimoIntegrations = guimoIntegrationsResult.integrations;
   const canManageTeam = Boolean(
     workspace?.permissions.canManageMembers &&
     (!isPlatformSupport || isPlatformOwnerSupport),
@@ -1902,6 +1954,33 @@ export default async function SettingsPage() {
                   </div>
                 )}
               </section>
+
+              {canManageGuimo && workspace ? (
+                <section className="trigger-source-section guimo-trigger-section">
+                  <header className="trigger-center-section-heading">
+                    <div>
+                      <span className="eyebrow">Gatilho opcional</span>
+                      <h3>Movimentacao no CRM (Guimo)</h3>
+                      <p className="muted">
+                        Dispare uma conversao quando um negocio entra em um
+                        estagio da Guimo. Fica desligado ate o workspace
+                        ativar a conexao.
+                      </p>
+                    </div>
+                  </header>
+                  <GuimoConversionPanel
+                    workspaceId={workspace.id}
+                    integrations={guimoIntegrations}
+                    canManage={canManageGuimo}
+                    provisionAction={provisionGuimoIntegrationAction}
+                    rotateAction={rotateGuimoWebhookTokenAction}
+                    setActiveAction={setGuimoIntegrationActiveAction}
+                    createRuleAction={createGuimoConversionRuleAction}
+                    updateRuleAction={updateGuimoConversionRuleAction}
+                    deleteRuleAction={deleteGuimoConversionRuleAction}
+                  />
+                </section>
+              ) : null}
 
               <section className="legacy-trigger-section">
                 <header className="trigger-center-section-heading">

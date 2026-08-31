@@ -10,8 +10,13 @@ vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("../src/lib/server-api", () => ({ serverApiFetch }));
 
 import {
+  createGuimoConversionRuleAction,
+  deleteGuimoConversionRuleAction,
   provisionGuimoIntegrationAction,
   rotateGuimoWebhookTokenAction,
+  setGuimoIntegrationActiveAction,
+  updateGuimoConversionRuleAction,
+  updateGuimoIntegrationAction,
 } from "../src/app/(app)/integrations/guimo-actions";
 
 const webhookToken = "a".repeat(43);
@@ -77,7 +82,7 @@ describe("guimo server actions", () => {
     });
     expect(result.message).not.toContain(webhookToken);
     expect(JSON.stringify(result)).not.toContain("Bearer secret-token");
-    expect(revalidatePath).toHaveBeenCalledWith("/integrations");
+    expect(revalidatePath).toHaveBeenCalledWith("/settings");
   });
 
   it("omits crmHeaders entirely when no CRM credential fields are filled", async () => {
@@ -187,7 +192,7 @@ describe("guimo server actions", () => {
       },
     });
     expect(result.message).not.toContain(rotatedToken);
-    expect(revalidatePath).toHaveBeenCalledWith("/integrations");
+    expect(revalidatePath).toHaveBeenCalledWith("/settings");
   });
 
   it("rejects a rotate call missing the integration id before calling the API", async () => {
@@ -208,6 +213,364 @@ describe("guimo server actions", () => {
 
     expect(result).toMatchObject({ ok: false });
     expect(JSON.stringify(result)).not.toContain("leaked-value");
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("updates the stage name and value fields of an existing rule", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      id: "integration_1",
+      status: "active",
+      webhookVersion: "guimo/v1",
+      qualifiedStageId: null,
+      qualifiedStageName: "Lead Qualificado",
+      purchaseStageId: null,
+      purchaseStageName: "Venda Fechada",
+      purchaseCurrency: "BRL",
+      purchaseValueUnit: "cents",
+      hasCrmHeaders: true,
+      rules: [],
+      createdAt: "2026-07-17T18:00:00.000Z",
+      updatedAt: "2026-07-17T19:00:00.000Z",
+    });
+
+    const result = await updateGuimoIntegrationAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        purchaseStageName: "Venda Fechada",
+        purchaseCurrency: "BRL",
+        purchaseValueUnit: "cents",
+      }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/workspaces/workspace_1/guimo/integrations/integration_1",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          purchaseStageName: "Venda Fechada",
+          purchaseCurrency: "BRL",
+          purchaseValueUnit: "cents",
+        }),
+      },
+    );
+    expect(result).toMatchObject({ ok: true, message: "Regra Guimo atualizada." });
+    expect(revalidatePath).toHaveBeenCalledWith("/settings");
+  });
+
+  it("rejects an update with a blank stage name before calling the API", async () => {
+    const result = await updateGuimoIntegrationAction(
+      form({ workspaceId: "workspace_1", integrationId: "integration_1" }),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(serverApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes update API errors instead of leaking backend detail", async () => {
+    serverApiFetch.mockRejectedValueOnce(new Error("crm-secret=super-secret-value"));
+
+    const result = await updateGuimoIntegrationAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        purchaseStageName: "Venda Fechada",
+      }),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(JSON.stringify(result)).not.toContain("super-secret-value");
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("pauses an active rule through the tenant-scoped active endpoint", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      id: "integration_1",
+      status: "paused",
+      webhookVersion: "guimo/v1",
+      qualifiedStageId: null,
+      qualifiedStageName: "Lead Qualificado",
+      purchaseStageId: null,
+      purchaseStageName: "Venda Fechada",
+      purchaseCurrency: "BRL",
+      purchaseValueUnit: "cents",
+      hasCrmHeaders: true,
+      rules: [],
+      createdAt: "2026-07-17T18:00:00.000Z",
+      updatedAt: "2026-07-17T19:00:00.000Z",
+    });
+
+    const result = await setGuimoIntegrationActiveAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        active: "false",
+      }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/workspaces/workspace_1/guimo/integrations/integration_1/active",
+      { method: "POST", body: JSON.stringify({ active: false }) },
+    );
+    expect(result).toMatchObject({ ok: true, message: "Regra Guimo pausada." });
+    expect(revalidatePath).toHaveBeenCalledWith("/settings");
+  });
+
+  it("rejects a set-active call missing the integration id before calling the API", async () => {
+    const result = await setGuimoIntegrationActiveAction(
+      form({ workspaceId: "workspace_1", active: "true" }),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(serverApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("creates a free-form conversion rule with a dynamic value", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      id: "rule_1",
+      stageName: "Lead Qualificado",
+      eventName: "QualifiedLead",
+      valueMode: "dynamic",
+      fixedValueCents: null,
+      active: true,
+      createdAt: "2026-08-31T18:00:00.000Z",
+      updatedAt: "2026-08-31T18:00:00.000Z",
+    });
+
+    const result = await createGuimoConversionRuleAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        stageName: "Lead Qualificado",
+        eventName: "QualifiedLead",
+        valueMode: "dynamic",
+      }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/workspaces/workspace_1/guimo/integrations/integration_1/rules",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          stageName: "Lead Qualificado",
+          eventName: "QualifiedLead",
+          valueMode: "dynamic",
+          fixedValueCents: null,
+        }),
+      },
+    );
+    expect(result).toMatchObject({ ok: true, message: "Regra Guimo criada." });
+    expect(revalidatePath).toHaveBeenCalledWith("/settings");
+  });
+
+  it("creates a free-form conversion rule with a fixed value in cents", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      id: "rule_2",
+      stageName: "Venda Fechada",
+      eventName: "Purchase",
+      valueMode: "fixed",
+      fixedValueCents: 19990,
+      active: true,
+      createdAt: "2026-08-31T18:00:00.000Z",
+      updatedAt: "2026-08-31T18:00:00.000Z",
+    });
+
+    const result = await createGuimoConversionRuleAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        stageName: "Venda Fechada",
+        eventName: "Purchase",
+        valueMode: "fixed",
+        fixedValueAmount: "199,90",
+      }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/workspaces/workspace_1/guimo/integrations/integration_1/rules",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          stageName: "Venda Fechada",
+          eventName: "Purchase",
+          valueMode: "fixed",
+          fixedValueCents: 19990,
+        }),
+      },
+    );
+    expect(result).toMatchObject({ ok: true, message: "Regra Guimo criada." });
+  });
+
+  it("rejects a fixed-value rule creation without a positive value before calling the API", async () => {
+    const result = await createGuimoConversionRuleAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        stageName: "Venda Fechada",
+        eventName: "Purchase",
+        valueMode: "fixed",
+      }),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(serverApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a rule creation missing the stage name before calling the API", async () => {
+    const result = await createGuimoConversionRuleAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        eventName: "QualifiedLead",
+        valueMode: "dynamic",
+      }),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(serverApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("updates a conversion rule's stage name and conversion event", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      id: "rule_1",
+      stageName: "Lead Muito Qualificado",
+      eventName: "QualifiedLead",
+      valueMode: "dynamic",
+      fixedValueCents: null,
+      active: true,
+      createdAt: "2026-08-31T18:00:00.000Z",
+      updatedAt: "2026-08-31T19:00:00.000Z",
+    });
+
+    const result = await updateGuimoConversionRuleAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        ruleId: "rule_1",
+        stageName: "Lead Muito Qualificado",
+        eventName: "QualifiedLead",
+        valueMode: "dynamic",
+      }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/workspaces/workspace_1/guimo/integrations/integration_1/rules/rule_1",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          stageName: "Lead Muito Qualificado",
+          eventName: "QualifiedLead",
+          valueMode: "dynamic",
+          fixedValueCents: null,
+        }),
+      },
+    );
+    expect(result).toMatchObject({ ok: true, message: "Regra Guimo atualizada." });
+    expect(revalidatePath).toHaveBeenCalledWith("/settings");
+  });
+
+  it("pauses a rule by toggling active without touching other fields", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      id: "rule_1",
+      stageName: "Lead Qualificado",
+      eventName: "QualifiedLead",
+      valueMode: "dynamic",
+      fixedValueCents: null,
+      active: false,
+      createdAt: "2026-08-31T18:00:00.000Z",
+      updatedAt: "2026-08-31T19:00:00.000Z",
+    });
+
+    const result = await updateGuimoConversionRuleAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        ruleId: "rule_1",
+        active: "false",
+      }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/workspaces/workspace_1/guimo/integrations/integration_1/rules/rule_1",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ active: false }),
+      },
+    );
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  it("rejects a rule update to a fixed value without a positive amount before calling the API", async () => {
+    const result = await updateGuimoConversionRuleAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        ruleId: "rule_1",
+        valueMode: "fixed",
+        fixedValueAmount: "0",
+      }),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(serverApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a rule update missing the rule id before calling the API", async () => {
+    const result = await updateGuimoConversionRuleAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        stageName: "Lead Qualificado",
+      }),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(serverApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("deletes a conversion rule through the tenant-scoped endpoint", async () => {
+    serverApiFetch.mockResolvedValueOnce({ status: "deleted" });
+
+    const result = await deleteGuimoConversionRuleAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        ruleId: "rule_1",
+      }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/workspaces/workspace_1/guimo/integrations/integration_1/rules/rule_1",
+      { method: "DELETE" },
+    );
+    expect(result).toMatchObject({ ok: true, message: "Regra Guimo removida." });
+    expect(revalidatePath).toHaveBeenCalledWith("/settings");
+  });
+
+  it("rejects a rule deletion missing the rule id before calling the API", async () => {
+    const result = await deleteGuimoConversionRuleAction(
+      form({ workspaceId: "workspace_1", integrationId: "integration_1" }),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(serverApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes rule mutation API errors instead of leaking backend detail", async () => {
+    serverApiFetch.mockRejectedValueOnce(new Error("crm-secret=super-secret-value"));
+
+    const result = await createGuimoConversionRuleAction(
+      form({
+        workspaceId: "workspace_1",
+        integrationId: "integration_1",
+        stageName: "Lead Qualificado",
+        eventName: "QualifiedLead",
+        valueMode: "dynamic",
+      }),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(JSON.stringify(result)).not.toContain("super-secret-value");
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 });

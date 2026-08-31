@@ -7,6 +7,7 @@ const prisma = new PrismaClient();
 const WS = process.argv[2];
 
 const order = [
+  "guimoConversionRule",
   "guimoWebhookEvent",
   "guimoWebhookRateLimit",
   "purchaseValueAdjustment",

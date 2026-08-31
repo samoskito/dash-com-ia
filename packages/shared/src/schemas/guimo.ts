@@ -1,13 +1,49 @@
 import { z } from "zod";
+import { conversionEventNameSchema } from "./conversion-events";
 
 const idSchema = z.string().trim().min(1).max(255);
 const dateTimeSchema = z.string().datetime();
 const oneTimeWebhookTokenSchema = z.string().min(43).max(512);
+const guimoStageNameSchema = z.string().trim().min(1).max(255);
+
+export const guimoConversionRuleValueModeSchema = z.enum(["dynamic", "fixed"]);
+export const guimoConversionRuleSchema = z.object({
+  id: idSchema,
+  stageName: guimoStageNameSchema,
+  eventName: conversionEventNameSchema,
+  valueMode: guimoConversionRuleValueModeSchema,
+  fixedValueCents: z.number().int().positive().nullable(),
+  active: z.boolean(),
+  createdAt: dateTimeSchema,
+  updatedAt: dateTimeSchema,
+}).superRefine((value, context) => {
+  if (value.valueMode === "fixed" && value.fixedValueCents === null) context.addIssue({ code: z.ZodIssueCode.custom, message: "fixedValueCents e obrigatorio para valor fixo", path: ["fixedValueCents"] });
+  if (value.valueMode === "dynamic" && value.fixedValueCents !== null) context.addIssue({ code: z.ZodIssueCode.custom, message: "fixedValueCents deve ser nulo para valor dinamico", path: ["fixedValueCents"] });
+});
+
+export const guimoConversionRuleCreateInputSchema = z.object({
+  stageName: guimoStageNameSchema,
+  eventName: conversionEventNameSchema,
+  valueMode: guimoConversionRuleValueModeSchema,
+  fixedValueCents: z.number().int().positive().nullable().optional(),
+  active: z.boolean().optional(),
+}).superRefine((value, context) => {
+  if (value.valueMode === "fixed" && !value.fixedValueCents) context.addIssue({ code: z.ZodIssueCode.custom, message: "fixedValueCents e obrigatorio para valor fixo", path: ["fixedValueCents"] });
+  if (value.valueMode === "dynamic" && value.fixedValueCents != null) context.addIssue({ code: z.ZodIssueCode.custom, message: "fixedValueCents deve ser nulo para valor dinamico", path: ["fixedValueCents"] });
+});
+
+export const guimoConversionRuleUpdateInputSchema = z.object({
+  stageName: guimoStageNameSchema.optional(),
+  eventName: conversionEventNameSchema.optional(),
+  valueMode: guimoConversionRuleValueModeSchema.optional(),
+  fixedValueCents: z.number().int().positive().nullable().optional(),
+  active: z.boolean().optional(),
+}).refine((value) => Object.values(value).some((field) => field !== undefined), { message: "Informe ao menos um campo para atualizar" });
 
 /** Safe, persisted Guimo integration data. Deliberately excludes all secrets. */
 export const guimoIntegrationSchema = z.object({
   id: idSchema,
-  status: z.enum(["active", "blocked"]),
+  status: z.enum(["active", "blocked", "paused"]),
   webhookVersion: z.string().trim().min(1).max(80),
   qualifiedStageId: z.string().nullable(),
   qualifiedStageName: z.string().nullable(),
@@ -16,6 +52,7 @@ export const guimoIntegrationSchema = z.object({
   purchaseCurrency: z.string().nullable(),
   purchaseValueUnit: z.enum(["major", "cents"]).nullable(),
   hasCrmHeaders: z.boolean(),
+  rules: z.array(guimoConversionRuleSchema),
   createdAt: dateTimeSchema,
   updatedAt: dateTimeSchema,
 });
@@ -83,7 +120,39 @@ export type GuimoIntegrationProvisionInputDto = z.infer<
   typeof guimoIntegrationProvisionInputSchema
 >;
 
+/** Partial edit of an existing integration: any single field is enough, since
+ * (unlike provisioning) the integration already exists. */
+export const guimoIntegrationUpdateInputSchema = z
+  .object({
+    qualifiedStageId: stageFieldSchema,
+    qualifiedStageName: stageFieldSchema,
+    purchaseStageId: stageFieldSchema,
+    purchaseStageName: stageFieldSchema,
+    purchaseCurrency: z.string().trim().min(1).max(10).optional(),
+    purchaseValueUnit: z.enum(["major", "cents"]).optional(),
+    crmHeaders: guimoIntegrationCrmHeadersInputSchema.optional(),
+  })
+  .refine(
+    (value) => Object.values(value).some((field) => field !== undefined),
+    { message: "Informe ao menos um campo para atualizar" },
+  );
+
+export type GuimoIntegrationUpdateInputDto = z.infer<
+  typeof guimoIntegrationUpdateInputSchema
+>;
+
+export const guimoIntegrationSetActiveInputSchema = z.object({
+  active: z.boolean(),
+});
+
+export type GuimoIntegrationSetActiveInputDto = z.infer<
+  typeof guimoIntegrationSetActiveInputSchema
+>;
+
 export type GuimoIntegrationDto = z.infer<typeof guimoIntegrationSchema>;
+export type GuimoConversionRuleDto = z.infer<typeof guimoConversionRuleSchema>;
+export type GuimoConversionRuleCreateInputDto = z.infer<typeof guimoConversionRuleCreateInputSchema>;
+export type GuimoConversionRuleUpdateInputDto = z.infer<typeof guimoConversionRuleUpdateInputSchema>;
 export type GuimoIntegrationListDto = z.infer<typeof guimoIntegrationListSchema>;
 export type GuimoIntegrationProvisionResultDto = z.infer<
   typeof guimoIntegrationProvisionResultSchema
