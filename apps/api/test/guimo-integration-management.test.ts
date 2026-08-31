@@ -35,17 +35,15 @@ async function createApp() {
       id: integration.id,
       status: "active",
       webhookVersion: "v1",
-      webhookToken: "a".repeat(43),
-      webhookUrl: "https://api.example.com/webhooks/guimo/v1/guimo_1",
-      webhookPath: "/webhooks/guimo/v1/guimo_1",
+      webhookUrl: `https://api.example.com/webhooks/guimo/v1/guimo_1?token=${"a".repeat(43)}`,
+      webhookPath: `/webhooks/guimo/v1/guimo_1?token=${"a".repeat(43)}`,
     })),
     rotateWebhookToken: vi.fn(async () => ({
       id: integration.id,
       status: "active",
       webhookVersion: "v1",
-      webhookToken: "b".repeat(43),
-      webhookUrl: "https://api.example.com/webhooks/guimo/v1/guimo_1",
-      webhookPath: "/webhooks/guimo/v1/guimo_1",
+      webhookUrl: `https://api.example.com/webhooks/guimo/v1/guimo_1?token=${"b".repeat(43)}`,
+      webhookPath: `/webhooks/guimo/v1/guimo_1?token=${"b".repeat(43)}`,
     })),
     update: vi.fn(async () => ({
       ...integration,
@@ -107,7 +105,7 @@ describe("Guimo integration management endpoints", () => {
     expect(guimo.list).toHaveBeenCalledTimes(1);
   });
 
-  it("returns webhook tokens only from provision and rotate responses", async () => {
+  it("returns only a complete webhook URL/path from provision and rotate, never a separate token field", async () => {
     const { app, guimo } = await createApp();
     apps.push(app);
 
@@ -116,7 +114,8 @@ describe("Guimo integration management endpoints", () => {
       .set("Authorization", "Bearer refresh-token")
       .send({ qualifiedStageId: "qualified" })
       .expect(201);
-    expect(create.body.webhookToken).toBe("a".repeat(43));
+    expect(create.body).not.toHaveProperty("webhookToken");
+    expect(create.body.webhookPath).toContain(`token=${"a".repeat(43)}`);
 
     const rotated = await request(app.getHttpServer())
       .post(
@@ -124,8 +123,9 @@ describe("Guimo integration management endpoints", () => {
       )
       .set("Authorization", "Bearer refresh-token")
       .expect(200);
-    expect(rotated.body.webhookToken).toBe("b".repeat(43));
-    expect(rotated.body.webhookToken).not.toBe(create.body.webhookToken);
+    expect(rotated.body).not.toHaveProperty("webhookToken");
+    expect(rotated.body.webhookPath).toContain(`token=${"b".repeat(43)}`);
+    expect(rotated.body.webhookPath).not.toBe(create.body.webhookPath);
     expect(guimo.rotateWebhookToken).toHaveBeenCalledWith(
       "workspace_1",
       "guimo_1",

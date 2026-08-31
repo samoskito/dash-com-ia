@@ -16,7 +16,6 @@ import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../lib/server-api";
 
 export type GuimoOneTimeWebhook = {
-  webhookToken: string;
   webhookUrl: string | null;
   webhookPath: string;
 };
@@ -52,11 +51,11 @@ export async function provisionGuimoIntegrationAction(
     return failure(invalidFormMessage);
   }
 
-  const input = guimoIntegrationProvisionInputSchema.safeParse({
-    purchaseCurrency: formText(formData, "purchaseCurrency") ?? undefined,
-    purchaseValueUnit: formText(formData, "purchaseValueUnit") ?? undefined,
-    crmHeaders: crmHeadersInput(formData),
-  });
+  // Guimo only lets a user configure a target URL, not a custom
+  // Authorization/X-API-Key header or a separate token — so there is
+  // nothing left to collect here. The request body is intentionally
+  // empty; the returned URL is the whole capability.
+  const input = guimoIntegrationProvisionInputSchema.safeParse({});
 
   if (!input.success) {
     return failure(invalidFormMessage);
@@ -73,22 +72,21 @@ export async function provisionGuimoIntegrationAction(
     const result = guimoIntegrationProvisionResultSchema.safeParse(response);
 
     if (!result.success) {
-      return failure("Nao foi possivel provisionar a integracao Guimo.");
+      return failure("Nao foi possivel gerar a URL do webhook Guimo.");
     }
 
     revalidatePath(settingsPath);
     return {
       ok: true,
       message:
-        "Integracao Guimo criada. Copie o token e a URL agora; eles nao serao exibidos novamente.",
+        "URL do webhook Guimo gerada. Copie-a agora; ela nao sera exibida novamente.",
       oneTimeWebhook: {
-        webhookToken: result.data.webhookToken,
         webhookUrl: result.data.webhookUrl,
         webhookPath: result.data.webhookPath,
       },
     };
   } catch {
-    return failure("Nao foi possivel provisionar a integracao Guimo.");
+    return failure("Nao foi possivel gerar a URL do webhook Guimo.");
   }
 }
 
@@ -114,22 +112,21 @@ export async function rotateGuimoWebhookTokenAction(
       guimoIntegrationRotateWebhookTokenResultSchema.safeParse(response);
 
     if (!result.success) {
-      return failure("Nao foi possivel rotacionar o token deste webhook.");
+      return failure("Nao foi possivel gerar uma nova URL para este webhook.");
     }
 
     revalidatePath(settingsPath);
     return {
       ok: true,
       message:
-        "Token rotacionado. Copie o novo token agora; ele nao sera exibido novamente.",
+        "Nova URL do webhook Guimo gerada; a URL anterior foi invalidada. Copie-a agora; ela nao sera exibida novamente.",
       oneTimeWebhook: {
-        webhookToken: result.data.webhookToken,
         webhookUrl: result.data.webhookUrl,
         webhookPath: result.data.webhookPath,
       },
     };
   } catch {
-    return failure("Nao foi possivel rotacionar o token deste webhook.");
+    return failure("Nao foi possivel gerar uma nova URL para este webhook.");
   }
 }
 

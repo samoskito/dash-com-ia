@@ -94,7 +94,6 @@ export function GuimoConversionPanel({
   const [notice, setNotice] = useState<Notice | null>(null);
   const [oneTimeWebhook, setOneTimeWebhook] =
     useState<GuimoOneTimeWebhook | null>(null);
-  const [copiedToken, setCopiedToken] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
 
   async function handleConnect(event: FormEvent<HTMLFormElement>) {
@@ -110,7 +109,6 @@ export function GuimoConversionPanel({
     if (result.ok && result.oneTimeWebhook) {
       form.reset();
       setOneTimeWebhook(result.oneTimeWebhook);
-      setCopiedToken(false);
       setCopiedUrl(false);
       setConnectOpen(false);
       router.refresh();
@@ -121,7 +119,9 @@ export function GuimoConversionPanel({
 
   async function handleRotate() {
     if (pending || !integration) return;
-    if (!window.confirm("Gerar um novo token invalida o token atual. Continuar?")) {
+    if (
+      !window.confirm("Gerar uma nova URL invalida a URL atual. Continuar?")
+    ) {
       return;
     }
 
@@ -136,7 +136,6 @@ export function GuimoConversionPanel({
 
     if (result.ok && result.oneTimeWebhook) {
       setOneTimeWebhook(result.oneTimeWebhook);
-      setCopiedToken(false);
       setCopiedUrl(false);
       router.refresh();
     }
@@ -198,19 +197,6 @@ export function GuimoConversionPanel({
     setPending(null);
   }
 
-  async function copyToken() {
-    if (!oneTimeWebhook) return;
-    try {
-      await navigator.clipboard.writeText(oneTimeWebhook.webhookToken);
-      setCopiedToken(true);
-    } catch {
-      setNotice({
-        tone: "error",
-        message: "Nao foi possivel copiar automaticamente. Selecione o token.",
-      });
-    }
-  }
-
   async function copyUrl() {
     if (!oneTimeWebhook) return;
     try {
@@ -255,7 +241,7 @@ export function GuimoConversionPanel({
               ) : (
                 <Plus size={15} aria-hidden="true" />
               )}
-              {connectOpen ? "Fechar" : "Ativar conexao Guimo"}
+              {connectOpen ? "Fechar" : "Gerar URL do webhook"}
             </button>
           ) : null}
           {canManage && integration ? (
@@ -283,23 +269,9 @@ export function GuimoConversionPanel({
             data-presentation-sensitive-action="true"
           >
             <div>
-              <span className="micro-label">Mostrados uma unica vez</span>
-              <strong>Token e URL do webhook Guimo</strong>
+              <span className="micro-label">URL exibida uma unica vez</span>
+              <strong>Webhook Guimo</strong>
             </div>
-            <input
-              readOnly
-              value={oneTimeWebhook.webhookToken}
-              aria-label="Token privado do webhook Guimo"
-              data-presentation-sensitive-field="true"
-            />
-            <button className="button" type="button" onClick={copyToken}>
-              {copiedToken ? (
-                <Check size={15} aria-hidden="true" />
-              ) : (
-                <Copy size={15} aria-hidden="true" />
-              )}
-              {copiedToken ? "Copiado" : "Copiar token"}
-            </button>
             <input
               readOnly
               value={oneTimeWebhook.webhookUrl ?? oneTimeWebhook.webhookPath}
@@ -318,12 +290,17 @@ export function GuimoConversionPanel({
               className="icon-button"
               type="button"
               title="Ocultar"
-              aria-label="Ocultar token e URL"
+              aria-label="Ocultar URL"
               onClick={() => setOneTimeWebhook(null)}
             >
               <X size={15} aria-hidden="true" />
             </button>
           </div>
+          <p className="action-note">
+            Cole essa URL completa na configuracao de webhook da Guimo. Nao ha
+            header, token ou segredo adicional para configurar la — a
+            autenticacao ja vai embutida na URL.
+          </p>
         </div>
       ) : null}
 
@@ -348,77 +325,22 @@ export function GuimoConversionPanel({
           {connectOpen && canManage ? (
             <form className="provider-conversion-builder" onSubmit={handleConnect}>
               <input type="hidden" name="workspaceId" value={workspaceId} />
-              <div className="provider-conversion-base-fields provider-conversion-base-fields-2col">
-                <label>
-                  <span className="field-label">CRM - Authorization</span>
-                  <input
-                    type="password"
-                    name="crmAuthorization"
-                    placeholder="Bearer ..."
-                    autoComplete="off"
-                    disabled={pending === "connect"}
-                    required
-                  />
-                </label>
-                <label>
-                  <span className="field-label">CRM - X-API-Key</span>
-                  <input
-                    type="password"
-                    name="crmApiKey"
-                    placeholder="Chave de API"
-                    autoComplete="off"
-                    disabled={pending === "connect"}
-                    required
-                  />
-                </label>
-              </div>
-
-              <details className="provider-conversion-rule-scope">
-                <summary>
-                  <span>Avancado (opcional)</span>
-                </summary>
-                <div className="provider-conversion-base-fields provider-conversion-base-fields-2col">
-                  <label>
-                    <span className="field-label">Moeda da compra</span>
-                    <input
-                      name="purchaseCurrency"
-                      defaultValue="BRL"
-                      maxLength={10}
-                      disabled={pending === "connect"}
-                    />
-                  </label>
-                  <label>
-                    <span className="field-label">Unidade do valor do negocio</span>
-                    <select
-                      name="purchaseValueUnit"
-                      defaultValue="cents"
-                      disabled={pending === "connect"}
-                    >
-                      <option value="major">Valor cheio (Ex.: 199.90)</option>
-                      <option value="cents">Centavos (Ex.: 19990)</option>
-                    </select>
-                  </label>
-                </div>
-                <p className="action-note">
-                  Usado somente pelas regras de valor dinamico do Purchase,
-                  quando o negocio tem valor monetario na Guimo. Deixe em
-                  branco se todas as suas regras usarem valor fixo.
-                </p>
-              </details>
+              <p className="action-note">
+                Gere a URL do webhook e cole exatamente essa URL na
+                configuracao de webhook da Guimo (a Guimo so permite
+                configurar uma URL de destino, sem headers). Nao ha
+                Authorization, X-API-Key ou token separado para informar —
+                a autenticacao ja vai embutida na URL gerada.
+              </p>
 
               <div className="provider-conversion-builder-footer">
-                <span className="action-note">
-                  As credenciais do CRM ficam so aqui, na conexao — nao se
-                  repetem por regra. Depois de conectar, cadastre livremente
-                  quais estagios disparam quais conversoes.
-                </span>
                 <button
                   className="button primary"
                   type="submit"
                   disabled={pending === "connect"}
                 >
                   <Check size={15} aria-hidden="true" />
-                  {pending === "connect" ? "Ativando..." : "Ativar conexao"}
+                  {pending === "connect" ? "Gerando..." : "Gerar URL do webhook"}
                 </button>
               </div>
             </form>
@@ -483,7 +405,7 @@ export function GuimoConversionPanel({
                 onClick={() => void handleRotate()}
               >
                 <RefreshCw size={15} aria-hidden="true" />
-                {pending === "rotate" ? "Girando..." : "Girar novo token"}
+                {pending === "rotate" ? "Gerando..." : "Gerar nova URL"}
               </button>
             </div>
           ) : null}

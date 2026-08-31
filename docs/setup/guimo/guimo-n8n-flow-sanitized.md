@@ -148,7 +148,6 @@ A configuração deve ser por workspace, com credenciais cifradas no backend. O 
 
 ```text
 identificador nativo do evento/movimentação;
-autenticação e headers oficiais do webhook WppTrack;
 se Authorization e X-API-Key são ambos obrigatórios;
 retry/status esperado pelo emissor;
 sandbox da API;
@@ -157,5 +156,12 @@ moeda e unidade do campo valor;
 regra para contato/lead inexistente;
 mapeamento conta Guimo → workspace;
 ```
+
+**Resolvido:** autenticação e headers oficiais do webhook WppTrack.
+Confirmado pelo usuário: o Guimo só permite configurar uma URL de destino no
+webhook, sem headers/token adicionais. O contrato passou a ser URL-only —
+`POST /webhooks/guimo/v1/:integrationId?token=...` — com o token embutido na
+própria URL retornada na ativação/rotação, sem header custom nem segredo
+fora de banda. Ver `docs/integrations/guimo-crm.md`.
 
 Essas lacunas devem permanecer explícitas no código e nos testes; não inventar comportamento silencioso.
