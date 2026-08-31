@@ -63,10 +63,16 @@ export class GuimoService {
     const token = randomBytes(32).toString("base64url");
     const crmHeaders = parseGuimoCrmHeaders(input.crmHeaders);
     const encrypted = crmHeaders && this.key() ? this.encryptHeaders(crmHeaders) : null;
-    const status = encrypted ? "active" : "blocked";
+    // URL-only contract: the webhook capability (this token, embedded in the
+    // returned URL) is the only credential Guimo ever provides, so it alone
+    // is enough to activate the integration. CRM headers are optional
+    // enrichment; only block when the caller tried to supply them and they
+    // could not be encrypted (misconfiguration or invalid headers) so that
+    // failure isn't silently swallowed.
+    const status = input.crmHeaders !== undefined && !encrypted ? "blocked" : "active";
     const integration = await this.prisma.guimoIntegration.create({ data: { workspaceId, status, webhookSecretHash: this.hash(token), qualifiedStageId: this.clean(input.qualifiedStageId), qualifiedStageName: this.clean(input.qualifiedStageName), purchaseStageId: this.clean(input.purchaseStageId), purchaseStageName: this.clean(input.purchaseStageName), purchaseCurrency: this.clean(input.purchaseCurrency), purchaseValueUnit: input.purchaseValueUnit ?? null, ...(encrypted ?? {}) } });
     await this.prisma.auditLog.create({ data: { workspaceId, actorUserId, actorType: "user", action: "guimo.integration_provisioned", targetType: "GuimoIntegration", targetId: integration.id, resultStatus: status === "active" ? "success" : "blocked", afterSummary: { status, hasCrmHeaders: Boolean(encrypted), qualifiedConfigured: this.hasStage(input.qualifiedStageId, input.qualifiedStageName), purchaseConfigured: this.hasStage(input.purchaseStageId, input.purchaseStageName), purchaseValueUnit: input.purchaseValueUnit ?? null } } });
-    return { id: integration.id, status: status as "active" | "blocked", webhookVersion: integration.webhookVersion, webhookToken: token, ...this.webhookLocation(integration.id) };
+    return { id: integration.id, status: status as "active" | "blocked", webhookVersion: integration.webhookVersion, ...this.webhookLocation(integration.id, token) };
   }
 
   async rotateWebhookToken(workspaceId: string, integrationId: string, actorUserId: string): Promise<GuimoIntegrationRotateWebhookTokenResultDto> {
@@ -75,7 +81,7 @@ export class GuimoService {
     const webhookToken = randomBytes(32).toString("base64url");
     const integration = await this.prisma.guimoIntegration.update({ where: { id: current.id }, data: { webhookSecretHash: this.hash(webhookToken) } });
     await this.prisma.auditLog.create({ data: { workspaceId, actorUserId, actorType: "user", action: "guimo.webhook_token_rotated", targetType: "GuimoIntegration", targetId: integration.id, resultStatus: "success", afterSummary: { status: integration.status, webhookTokenRotated: true } } });
-    return { id: integration.id, status: integration.status as "active" | "blocked", webhookVersion: integration.webhookVersion, webhookToken, ...this.webhookLocation(integration.id) };
+    return { id: integration.id, status: integration.status as "active" | "blocked", webhookVersion: integration.webhookVersion, ...this.webhookLocation(integration.id, webhookToken) };
   }
 
   /**
@@ -95,17 +101,26 @@ export class GuimoService {
     const purchaseCurrency = input.purchaseCurrency !== undefined ? this.clean(input.purchaseCurrency) : current.purchaseCurrency;
     const purchaseValueUnit = input.purchaseValueUnit !== undefined ? input.purchaseValueUnit : current.purchaseValueUnit;
     const hasCrmHeaders = encrypted !== undefined ? Boolean(encrypted.crmHeadersEncrypted) : this.hasUsableCrmCredentials(current);
-    const status: GuimoStatus = current.status === "paused" ? "paused" : hasCrmHeaders ? "active" : "blocked";
+    // URL-only contract: CRM headers are optional enrichment, not a
+    // requirement to keep the webhook active. Only block when this call
+    // itself tried to set CRM headers and they could not be encrypted;
+    // editing unrelated fields (or never having had CRM headers) must not
+    // downgrade an active integration.
+    const status: GuimoStatus = current.status === "paused" ? "paused" : input.crmHeaders !== undefined && !hasCrmHeaders ? "blocked" : "active";
     const integration = await this.prisma.guimoIntegration.update({ where: { id: current.id }, data: { qualifiedStageId, qualifiedStageName, purchaseStageId, purchaseStageName, purchaseCurrency, purchaseValueUnit, status, ...(encrypted ?? {}) } });
     await this.prisma.auditLog.create({ data: { workspaceId, actorUserId, actorType: "user", action: "guimo.integration_updated", targetType: "GuimoIntegration", targetId: integration.id, resultStatus: "success", afterSummary: { status: integration.status, qualifiedConfigured: this.hasStage(qualifiedStageId ?? undefined, qualifiedStageName ?? undefined), purchaseConfigured: this.hasStage(purchaseStageId ?? undefined, purchaseStageName ?? undefined) } } });
     return this.toDto(integration);
   }
 
-  /** Manual pause/resume. Resuming recomputes active/blocked from the stored configuration. */
+  /**
+   * Manual pause/resume. Resuming never requires CRM credentials: the
+   * webhook capability embedded in the URL is the only thing Guimo actually
+   * authenticates with, so resuming always reactivates the integration.
+   */
   async setActive(workspaceId: string, integrationId: string, actorUserId: string, active: boolean): Promise<GuimoIntegrationDto> {
     const current = await this.prisma.guimoIntegration.findFirst({ where: { id: integrationId, workspaceId } });
     if (!current) throw new NotFoundException("Integracao Guimo nao encontrada");
-    const status: GuimoStatus = !active ? "paused" : this.hasUsableCrmCredentials(current) ? "active" : "blocked";
+    const status: GuimoStatus = !active ? "paused" : "active";
     const integration = await this.prisma.guimoIntegration.update({ where: { id: current.id }, data: { status } });
     await this.prisma.auditLog.create({ data: { workspaceId, actorUserId, actorType: "user", action: active ? "guimo.integration_resumed" : "guimo.integration_paused", targetType: "GuimoIntegration", targetId: integration.id, resultStatus: "success", afterSummary: { status: integration.status } } });
     return this.toDto(integration);
@@ -201,7 +216,12 @@ export class GuimoService {
   private toDto(integration: GuimoIntegrationSafeRecord): GuimoIntegrationDto { return { id: integration.id, status: integration.status as GuimoStatus, webhookVersion: integration.webhookVersion, qualifiedStageId: integration.qualifiedStageId, qualifiedStageName: integration.qualifiedStageName, purchaseStageId: integration.purchaseStageId, purchaseStageName: integration.purchaseStageName, purchaseCurrency: integration.purchaseCurrency, purchaseValueUnit: integration.purchaseValueUnit as "major" | "cents" | null, hasCrmHeaders: Boolean(integration.crmHeadersEncrypted && integration.crmHeadersIv && integration.crmHeadersTag), rules: (integration.rules ?? []).map((rule) => this.toRuleDto(rule)), createdAt: integration.createdAt.toISOString(), updatedAt: integration.updatedAt.toISOString() }; }
   private toRuleDto(rule: GuimoRule): GuimoConversionRuleDto { return { id: rule.id, stageName: rule.stageName, eventName: rule.eventName as GuimoConversionRuleDto["eventName"], valueMode: rule.valueMode as "dynamic" | "fixed", fixedValueCents: rule.fixedValueCents, active: rule.active, createdAt: rule.createdAt.toISOString(), updatedAt: rule.updatedAt.toISOString() }; }
   private async auditRule(workspaceId: string, actorUserId: string, action: string, ruleId: string, rule: GuimoRule) { await this.prisma.auditLog.create({ data: { workspaceId, actorUserId, actorType: "user", action, targetType: "GuimoConversionRule", targetId: ruleId, resultStatus: "success", afterSummary: { stageName: rule.stageName, eventName: rule.eventName, valueMode: rule.valueMode, fixedValueCents: rule.fixedValueCents, active: rule.active } } }); }
-  private webhookLocation(integrationId: string) { const webhookPath = `/webhooks/guimo/v1/${encodeURIComponent(integrationId)}`; const apiPublicUrl = process.env.API_PUBLIC_URL?.trim(); if (!apiPublicUrl) return { webhookPath, webhookUrl: null }; try { return { webhookPath, webhookUrl: new URL(webhookPath, apiPublicUrl).toString() }; } catch { return { webhookPath, webhookUrl: null }; } }
+  // Guimo cannot send a custom header, so the one-time token is the sole
+  // credential and must travel inside the URL Guimo is configured with
+  // (query string, matching the other URL-only inbound webhooks in this
+  // codebase). `webhookPath` keeps a relative fallback for deployments
+  // without API_PUBLIC_URL, but still embeds the token for local testing.
+  private webhookLocation(integrationId: string, token: string) { const basePath = `/webhooks/guimo/v1/${encodeURIComponent(integrationId)}`; const webhookPath = `${basePath}?token=${encodeURIComponent(token)}`; const apiPublicUrl = process.env.API_PUBLIC_URL?.trim(); if (!apiPublicUrl) return { webhookPath, webhookUrl: null }; try { const url = new URL(basePath, apiPublicUrl); url.searchParams.set("token", token); return { webhookPath, webhookUrl: url.toString() }; } catch { return { webhookPath, webhookUrl: null }; } }
   private key(): Buffer | null { const value = process.env.GUIMO_CRM_ENCRYPTION_KEY?.trim(); if (!value || !/^[A-Za-z0-9+/]{43}=$/.test(value)) return null; const key = Buffer.from(value, "base64"); return key.length === 32 && key.toString("base64") === value ? key : null; }
   private encryptHeaders(headers: Headers) { const key = this.key(); if (!key) throw new Error("Guimo CRM encryption key is invalid"); const iv = randomBytes(12); const cipher = createCipheriv("aes-256-gcm", key, iv); cipher.setAAD(this.headersAad()); const encrypted = Buffer.concat([cipher.update(JSON.stringify(headers), "utf8"), cipher.final()]); return { crmHeadersEncrypted: encrypted.toString("base64"), crmHeadersIv: iv.toString("base64"), crmHeadersTag: cipher.getAuthTag().toString("base64") }; }
   private decryptHeaders(i: GuimoIntegration): Headers | null { const key = this.key(); if (!i.crmHeadersEncrypted || !i.crmHeadersIv || !i.crmHeadersTag || !key) return null; try { const decipher = createDecipheriv("aes-256-gcm", key, this.base64(i.crmHeadersIv, 12)); decipher.setAAD(this.headersAad()); decipher.setAuthTag(this.base64(i.crmHeadersTag, 16)); const parsed: unknown = JSON.parse(Buffer.concat([decipher.update(this.base64(i.crmHeadersEncrypted)), decipher.final()]).toString("utf8")); return parseGuimoCrmHeaders(parsed); } catch { return null; } }

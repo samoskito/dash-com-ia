@@ -151,14 +151,14 @@ describe("provider conversion rule panel — Guimo trigger source", () => {
     openCreateDialog();
 
     expect(screen.getByLabelText("Origem do gatilho")).toBeTruthy();
-    expect(screen.queryByText("Ativar conexao Guimo")).toBeNull();
+    expect(screen.queryByText("Gerar URL do webhook")).toBeNull();
     expect(screen.queryByText("Nome do estagio na Guimo")).toBeNull();
 
     selectOrigin("tag");
-    expect(screen.queryByText("Ativar conexao Guimo")).toBeNull();
+    expect(screen.queryByText("Gerar URL do webhook")).toBeNull();
 
     selectOrigin("catalog");
-    expect(screen.queryByText("Ativar conexao Guimo")).toBeNull();
+    expect(screen.queryByText("Gerar URL do webhook")).toBeNull();
   });
 
   it("reveals the Guimo activation form inline only after selecting the Guimo origin, with no connection yet", () => {
@@ -166,7 +166,7 @@ describe("provider conversion rule panel — Guimo trigger source", () => {
     openCreateDialog();
     selectOrigin("guimo");
 
-    expect(screen.getByText("Ativar conexao Guimo")).toBeTruthy();
+    expect(screen.getByText("Gerar URL do webhook")).toBeTruthy();
     expect(container.textContent).toContain("Nenhuma conexao Guimo ativa.");
     // Provider-specific fields must not leak into the Guimo origin.
     expect(screen.queryByPlaceholderText("Ex.: Compra confirmada")).toBeNull();

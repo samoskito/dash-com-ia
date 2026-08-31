@@ -3,7 +3,6 @@ import { conversionEventNameSchema } from "./conversion-events";
 
 const idSchema = z.string().trim().min(1).max(255);
 const dateTimeSchema = z.string().datetime();
-const oneTimeWebhookTokenSchema = z.string().min(43).max(512);
 const guimoStageNameSchema = z.string().trim().min(1).max(255);
 
 export const guimoConversionRuleValueModeSchema = z.enum(["dynamic", "fixed"]);
@@ -60,10 +59,13 @@ export const guimoIntegrationSchema = z.object({
 export const guimoIntegrationListSchema = z.array(guimoIntegrationSchema);
 
 const guimoOneTimeWebhookSchema = z.object({
-  webhookToken: oneTimeWebhookTokenSchema,
+  // Guimo can only be configured with a target URL, not a custom header, so
+  // the URL itself must be the credential: the capability token is embedded
+  // in webhookUrl/webhookPath's `token` query param and never exposed as a
+  // separate field (nothing to display, copy or accidentally log on its own).
   // API_PUBLIC_URL is optional in local/development deployments.
   webhookUrl: z.string().url().nullable(),
-  // This path never embeds the token; callers send it in the documented header.
+  // Relative fallback for when webhookUrl is null; still carries the token.
   webhookPath: z.string().startsWith("/webhooks/guimo/v1/"),
 });
 

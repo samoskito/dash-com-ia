@@ -64,7 +64,7 @@ describe("guimo conversion panel", () => {
     const html = renderPanel({ integrations: [] });
 
     expect(html).toContain("Nao conectado");
-    expect(html).toContain("Ativar conexao Guimo");
+    expect(html).toContain("Gerar URL do webhook");
     expect(html).toContain("Nenhuma conexao Guimo ativa.");
     expect(html).not.toContain("Nome do estagio na Guimo");
     expect(html).not.toContain("Pausar conexao");
@@ -120,100 +120,129 @@ describe("guimo conversion panel", () => {
     const analystEmptyHtml = renderPanel({ canManage: false, integrations: [] });
 
     expect(managerHtml).toContain("Pausar conexao");
-    expect(managerHtml).toContain("Girar novo token");
+    expect(managerHtml).toContain("Gerar nova URL");
     expect(managerHtml).toContain("Nova regra");
     expect(managerHtml).toContain("Editar regra");
     expect(analystHtml).not.toContain("Pausar conexao");
-    expect(analystHtml).not.toContain("Girar novo token");
+    expect(analystHtml).not.toContain("Gerar nova URL");
     expect(analystHtml).not.toContain("Nova regra");
     expect(analystHtml).not.toContain("Editar regra");
-    expect(managerEmptyHtml).toContain("Ativar conexao Guimo");
-    expect(analystEmptyHtml).not.toContain("Ativar conexao Guimo");
+    expect(managerEmptyHtml).toContain("Gerar URL do webhook");
+    expect(analystEmptyHtml).not.toContain("Gerar URL do webhook");
   });
 
-  it("never renders CRM credentials in the connected rule list", () => {
+  it("never renders CRM credentials, headers or a separate token field/button in the connected rule list", () => {
     const html = renderPanel({ integrations: [activeIntegration] });
 
     expect(html).not.toContain("Bearer");
     expect(html).not.toContain("crmHeadersEncrypted");
+    expect(html).not.toContain("Authorization");
+    expect(html).not.toContain("X-API-Key");
+    expect(html).not.toContain("Copiar token");
   });
 });
 
-describe("guimo activation form", () => {
-  it("asks only for CRM credentials, with stage/moeda/unidade fully removed from the main form", () => {
+describe("guimo activation flow (URL-only, no credentials)", () => {
+  it("asks for nothing but generates the webhook URL — no Authorization/Bearer/X-API-Key/separate token field anywhere", () => {
     renderInteractive({ integrations: [] });
-    fireEvent.click(screen.getByRole("button", { name: "Ativar conexao Guimo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Gerar URL do webhook" }));
 
     const form = screen
-      .getByRole("button", { name: "Ativar conexao" })
-      .closest("form") as HTMLFormElement;
-    const scope = within(form);
+      .getAllByRole("button", { name: "Gerar URL do webhook" })
+      .map((button) => button.closest("form"))
+      .find((candidate): candidate is HTMLFormElement => candidate !== null);
+    expect(form).toBeTruthy();
 
-    expect(scope.getByPlaceholderText("Bearer ...")).toBeTruthy();
-    expect(scope.getByPlaceholderText("Chave de API")).toBeTruthy();
-    expect(form.querySelector('input[name="crmAuthorization"]')).toBeTruthy();
-    expect(form.querySelector('input[name="crmApiKey"]')).toBeTruthy();
+    // No credential inputs of any kind — the form only carries the hidden
+    // workspaceId and the submit button.
+    expect(form?.querySelectorAll("input, select").length).toBe(1);
+    expect(form?.querySelector('input[name="workspaceId"]')).toBeTruthy();
+    expect(form?.querySelector('input[name="crmAuthorization"]')).toBeNull();
+    expect(form?.querySelector('input[name="crmApiKey"]')).toBeNull();
+    expect(form?.querySelector('input[name="purchaseCurrency"]')).toBeNull();
+    expect(form?.querySelector('select[name="purchaseValueUnit"]')).toBeNull();
+    expect(screen.queryByPlaceholderText("Bearer ...")).toBeNull();
+    expect(screen.queryByPlaceholderText("Chave de API")).toBeNull();
+    expect(screen.queryByText("Avancado (opcional)")).toBeNull();
+    expect(document.body.textContent).toContain(
+      "Nao ha Authorization, X-API-Key ou token separado para informar",
+    );
 
     // Legacy stage fields never appear anywhere in the activation form, not even collapsed.
-    expect(form.querySelector('[name="qualifiedStageId"]')).toBeNull();
-    expect(form.querySelector('[name="qualifiedStageName"]')).toBeNull();
-    expect(form.querySelector('[name="purchaseStageId"]')).toBeNull();
-    expect(form.querySelector('[name="purchaseStageName"]')).toBeNull();
-    expect(scope.queryByPlaceholderText("Ex.: Lead Qualificado")).toBeNull();
-    expect(scope.queryByPlaceholderText("Ex.: Venda Fechada")).toBeNull();
+    expect(form?.querySelector('[name="qualifiedStageId"]')).toBeNull();
+    expect(form?.querySelector('[name="qualifiedStageName"]')).toBeNull();
+    expect(form?.querySelector('[name="purchaseStageId"]')).toBeNull();
+    expect(form?.querySelector('[name="purchaseStageName"]')).toBeNull();
   });
 
-  it("keeps moeda/unidade behind a collapsed, default-closed Avancado (opcional) block", () => {
-    renderInteractive({ integrations: [] });
-    fireEvent.click(screen.getByRole("button", { name: "Ativar conexao Guimo" }));
+  it("submits an empty payload and shows only the resulting URL with a copy button, never the raw token", async () => {
+    const provisionAction = vi.fn(async (_formData: FormData) => ({
+      ok: true as const,
+      message: "URL do webhook Guimo gerada.",
+      oneTimeWebhook: {
+        webhookUrl: "https://api.wpptrack.test/webhooks/guimo/v1/integration_1?token=raw-secret-token-value",
+        webhookPath: "/webhooks/guimo/v1/integration_1?token=raw-secret-token-value",
+      },
+    }));
 
-    const form = screen
-      .getByRole("button", { name: "Ativar conexao" })
-      .closest("form") as HTMLFormElement;
-    const details = form.querySelector("details") as HTMLDetailsElement;
+    renderInteractive({ integrations: [], provisionAction });
+    fireEvent.click(screen.getByRole("button", { name: "Gerar URL do webhook" }));
+    fireEvent.click(screen.getByRole("button", { name: "Gerar URL do webhook" }));
 
-    expect(details).toBeTruthy();
-    expect(details.open).toBe(false);
-    expect(within(details).getByText("Avancado (opcional)")).toBeTruthy();
+    await screen.findByLabelText("URL do webhook Guimo");
 
-    const currencyField = details.querySelector('input[name="purchaseCurrency"]');
-    const unitField = details.querySelector('select[name="purchaseValueUnit"]');
-    expect(currencyField).toBeTruthy();
-    expect(unitField).toBeTruthy();
+    expect(provisionAction).toHaveBeenCalledTimes(1);
+    const sentFormData = provisionAction.mock.calls[0][0] as FormData;
+    expect(sentFormData.get("workspaceId")).toBe("workspace_1");
+    expect(sentFormData.get("crmAuthorization")).toBeNull();
+    expect(sentFormData.get("crmApiKey")).toBeNull();
 
-    fireEvent.click(within(details).getByText("Avancado (opcional)"));
-    expect(details.open).toBe(true);
-  });
-
-  it("requires both CRM credential fields before the browser allows submission", () => {
-    renderInteractive({ integrations: [] });
-    fireEvent.click(screen.getByRole("button", { name: "Ativar conexao Guimo" }));
-
-    const form = screen
-      .getByRole("button", { name: "Ativar conexao" })
-      .closest("form") as HTMLFormElement;
-
-    const authorization = form.querySelector(
-      'input[name="crmAuthorization"]',
+    const urlField = screen.getByLabelText(
+      "URL do webhook Guimo",
     ) as HTMLInputElement;
-    const apiKey = form.querySelector('input[name="crmApiKey"]') as HTMLInputElement;
+    expect(urlField.value).toBe(
+      "https://api.wpptrack.test/webhooks/guimo/v1/integration_1?token=raw-secret-token-value",
+    );
+    expect(screen.getByRole("button", { name: /Copiar URL/ })).toBeTruthy();
+    expect(screen.queryByLabelText("Token privado do webhook Guimo")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Copiar token/ })).toBeNull();
+    expect(document.body.textContent).toContain(
+      "Cole essa URL completa na configuracao de webhook da Guimo",
+    );
+  });
+});
 
-    expect(authorization.required).toBe(true);
-    expect(apiKey.required).toBe(true);
+describe("guimo connected connection actions", () => {
+  it("labels rotation as generating a new URL and warns it invalidates the previous one", () => {
+    renderInteractive({ integrations: [activeIntegration] });
+
+    expect(screen.getByRole("button", { name: /Gerar nova URL/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Girar novo token/ })).toBeNull();
   });
 });
 
 function renderInteractive({
   canManage = true,
   integrations = [],
+  provisionAction,
 }: {
   canManage?: boolean;
   integrations?: GuimoIntegrationDto[];
+  provisionAction?: (formData: FormData) => Promise<{
+    ok: true;
+    message: string;
+    oneTimeWebhook?: {
+      webhookUrl: string | null;
+      webhookPath: string;
+    };
+  }>;
 } = {}) {
-  const connectAction = vi.fn(async (_formData: FormData) => ({
-    ok: true as const,
-    message: "ok",
-  }));
+  const connectAction =
+    provisionAction ??
+    vi.fn(async (_formData: FormData) => ({
+      ok: true as const,
+      message: "ok",
+    }));
   const ruleAction = vi.fn(async (_formData: FormData) => ({
     ok: true as const,
     message: "ok",

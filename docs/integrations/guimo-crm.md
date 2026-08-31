@@ -19,9 +19,13 @@ integration `blocked`; credentials are never logged.
 
 ## Webhook contract
 
-Guimo calls `POST /webhooks/guimo/v1/:integrationId` with
-`x-wpptrack-webhook-token`. Version 1 accepts only the observed movement
-fields:
+Guimo's webhook integration only lets a user configure a target URL — it
+cannot send a custom header, CRM `Authorization`/`X-API-Key`, or any other
+out-of-band secret. So Guimo calls `POST /webhooks/guimo/v1/:integrationId`
+with the one-time webhook token as a `token` query-string parameter on that
+same URL (`?token=...`), which the response's `webhookUrl`/`webhookPath`
+already embeds — there is no separate value to configure or send. Version 1
+accepts only the observed movement fields:
 
 - `id_negociacao`
 - `id_contato`
@@ -33,6 +37,19 @@ rate-limited bad-token path. Bad-token attempts are durably limited per
 workspace/integration. Accepted events are persisted before queueing; a retry
 repairs an accepted or failed event that was not queued, while a processed or
 successfully queued duplicate is not re-enqueued.
+
+**Security tradeoff.** The token is a 256-bit random value (32 bytes,
+base64url) hashed with SHA-256 at rest and compared with a constant-time
+check — the same strength as the previous header-based token, just carried
+in the URL instead. Moving it into the query string is a deliberate,
+user-confirmed tradeoff to match what Guimo can actually send (URL only, no
+headers): query strings are more likely than headers to be captured by
+proxy/access logs, browser history, or `Referer` headers than a header would
+be. The webhook path itself does not log the URL, and the token must be
+treated as a bearer secret end-to-end (HTTPS only, never pasted into
+non-secure notes/tickets). This mirrors the existing `?token=` pattern
+already used by this codebase's other URL-only inbound webhooks
+(`/webhooks/inbound/:connectionId`).
 
 The provisional idempotency key includes workspace, integration, negotiation,
 contact, and destination stage. Guimo v1 does not expose a native movement ID,

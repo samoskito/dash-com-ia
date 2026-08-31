@@ -4,12 +4,12 @@ import {
   Controller,
   Delete,
   Get,
-  Headers,
   HttpCode,
   Inject,
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { AuthToken } from "../auth/auth-user.decorator";
@@ -25,11 +25,15 @@ export class GuimoController {
     @Inject(AuthService) private readonly auth: AuthService,
   ) {}
 
+  // Guimo can only configure a target URL, not custom headers: the whole
+  // request must be self-authenticating. The token lives in the query
+  // string (matching the other URL-only inbound webhooks in this codebase)
+  // instead of a header Guimo has no way to send.
   @Post("webhooks/guimo/v1/:integrationId")
   @HttpCode(202)
   receive(
     @Param("integrationId") id: string,
-    @Headers("x-wpptrack-webhook-token") token: unknown,
+    @Query("token") token: unknown,
     @Body() body: unknown,
   ) {
     return this.guimo.receive(id, token, body);

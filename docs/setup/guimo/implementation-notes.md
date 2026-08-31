@@ -1,9 +1,14 @@
 # Guimo CRM backend slice — operational notes
 
 The public ingress is `POST /webhooks/guimo/v1/:integrationId`, authenticated
-only with `x-wpptrack-webhook-token`. The token is generated when the
-workspace-owned integration is provisioned, returned once, and retained only
-as a SHA-256 hash. It is intentionally independent from CRM credentials.
+only with a `token` query-string parameter on that same URL — Guimo's webhook
+integration can only be configured with a target URL, not a custom header,
+so the URL itself (as returned in `webhookUrl`/`webhookPath`) is the whole
+credential; there is no separate header or out-of-band secret to configure.
+The token is generated when the workspace-owned integration is provisioned,
+returned once (embedded in the URL and as a standalone value for display),
+and retained only as a SHA-256 hash. It is intentionally independent from
+CRM credentials.
 
 CRM credentials are accepted only as server-side request headers and encrypted
 with AES-256-GCM and fixed Guimo AAD using `GUIMO_CRM_ENCRYPTION_KEY`, which

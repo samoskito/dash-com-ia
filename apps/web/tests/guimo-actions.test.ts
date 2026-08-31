@@ -28,61 +28,41 @@ afterEach(() => {
 });
 
 describe("guimo server actions", () => {
-  it("provisions an integration and returns the token only as an ephemeral result", async () => {
+  it("provisions an integration with an empty payload and returns the generated URL", async () => {
     serverApiFetch.mockResolvedValueOnce({
       id: "integration_1",
       status: "active",
       webhookVersion: "guimo/v1",
-      webhookToken,
-      webhookUrl: `https://api.wpptrack.test/webhooks/guimo/v1/integration_1`,
-      webhookPath: "/webhooks/guimo/v1/integration_1",
+      webhookUrl: `https://api.wpptrack.test/webhooks/guimo/v1/integration_1?token=${webhookToken}`,
+      webhookPath: `/webhooks/guimo/v1/integration_1?token=${webhookToken}`,
     });
 
     const result = await provisionGuimoIntegrationAction(
-      form({
-        workspaceId: "workspace_1",
-        purchaseCurrency: "BRL",
-        purchaseValueUnit: "cents",
-        crmAuthorization: "Bearer secret-token",
-        crmApiKey: "api-key-value",
-      }),
+      form({ workspaceId: "workspace_1" }),
     );
 
     expect(serverApiFetch).toHaveBeenCalledWith(
       "/workspaces/workspace_1/guimo/integrations",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          purchaseCurrency: "BRL",
-          purchaseValueUnit: "cents",
-          crmHeaders: {
-            authorization: "Bearer secret-token",
-            "x-api-key": "api-key-value",
-          },
-        }),
-      },
+      { method: "POST", body: "{}" },
     );
     expect(result).toEqual({
       ok: true,
       message:
-        "Integracao Guimo criada. Copie o token e a URL agora; eles nao serao exibidos novamente.",
+        "URL do webhook Guimo gerada. Copie-a agora; ela nao sera exibida novamente.",
       oneTimeWebhook: {
-        webhookToken,
-        webhookUrl: "https://api.wpptrack.test/webhooks/guimo/v1/integration_1",
-        webhookPath: "/webhooks/guimo/v1/integration_1",
+        webhookUrl: `https://api.wpptrack.test/webhooks/guimo/v1/integration_1?token=${webhookToken}`,
+        webhookPath: `/webhooks/guimo/v1/integration_1?token=${webhookToken}`,
       },
     });
     expect(result.message).not.toContain(webhookToken);
-    expect(JSON.stringify(result)).not.toContain("Bearer secret-token");
     expect(revalidatePath).toHaveBeenCalledWith("/settings");
   });
 
-  it("omits crmHeaders while forwarding only the optional fields that are filled", async () => {
+  it("never serializes CRM credentials or a separate token even if a form somehow carries them", async () => {
     serverApiFetch.mockResolvedValueOnce({
       id: "integration_1",
       status: "blocked",
       webhookVersion: "guimo/v1",
-      webhookToken,
       webhookUrl: null,
       webhookPath: "/webhooks/guimo/v1/integration_1",
     });
@@ -90,56 +70,22 @@ describe("guimo server actions", () => {
     await provisionGuimoIntegrationAction(
       form({
         workspaceId: "workspace_1",
+        crmAuthorization: "Bearer secret-token",
+        crmApiKey: "api-key-value",
         purchaseCurrency: "BRL",
       }),
     );
 
+    // The action ignores any extraneous fields and always sends an empty,
+    // URL-only payload — there is nothing left for the user to configure.
     expect(serverApiFetch).toHaveBeenCalledWith(
       "/workspaces/workspace_1/guimo/integrations",
-      {
-        method: "POST",
-        body: JSON.stringify({ purchaseCurrency: "BRL" }),
-      },
+      { method: "POST", body: "{}" },
     );
-  });
-
-  it("provisions an integration with only CRM credentials, no Avancado fields required", async () => {
-    serverApiFetch.mockResolvedValueOnce({
-      id: "integration_1",
-      status: "active",
-      webhookVersion: "guimo/v1",
-      webhookToken,
-      webhookUrl: null,
-      webhookPath: "/webhooks/guimo/v1/integration_1",
-    });
-
-    const result = await provisionGuimoIntegrationAction(
-      form({
-        workspaceId: "workspace_1",
-        crmAuthorization: "Bearer secret-token",
-        crmApiKey: "api-key-value",
-      }),
-    );
-
-    expect(serverApiFetch).toHaveBeenCalledWith(
-      "/workspaces/workspace_1/guimo/integrations",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          crmHeaders: {
-            authorization: "Bearer secret-token",
-            "x-api-key": "api-key-value",
-          },
-        }),
-      },
-    );
-    expect(result).toMatchObject({ ok: true });
   });
 
   it("rejects a provision form missing the workspace id before calling the API", async () => {
-    const result = await provisionGuimoIntegrationAction(
-      form({ crmAuthorization: "Bearer secret-token" }),
-    );
+    const result = await provisionGuimoIntegrationAction(form({}));
 
     expect(result).toMatchObject({ ok: false });
     expect(serverApiFetch).not.toHaveBeenCalled();
@@ -150,7 +96,7 @@ describe("guimo server actions", () => {
     serverApiFetch.mockRejectedValueOnce(new Error(sensitive));
 
     const result = await provisionGuimoIntegrationAction(
-      form({ workspaceId: "workspace_1", crmAuthorization: "Bearer secret-token" }),
+      form({ workspaceId: "workspace_1" }),
     );
 
     expect(result).toMatchObject({ ok: false });
@@ -158,19 +104,18 @@ describe("guimo server actions", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  it("does not forward an invalid token-bearing API response", async () => {
+  it("does not forward an invalid API response", async () => {
     serverApiFetch.mockResolvedValueOnce({
       id: "integration_1",
       status: "active",
       webhookVersion: "guimo/v1",
-      webhookToken: "short",
       webhookUrl: null,
-      webhookPath: "/webhooks/guimo/v1/integration_1",
+      webhookPath: "not-a-guimo-webhook-path",
       extraSecret: "must-not-leak",
     });
 
     const result = await provisionGuimoIntegrationAction(
-      form({ workspaceId: "workspace_1", crmAuthorization: "Bearer secret-token" }),
+      form({ workspaceId: "workspace_1" }),
     );
 
     expect(result).toMatchObject({ ok: false });
@@ -178,14 +123,13 @@ describe("guimo server actions", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  it("rotates the webhook token through the tenant-scoped endpoint", async () => {
+  it("rotates the webhook URL through the tenant-scoped endpoint and flags the previous URL as invalidated", async () => {
     serverApiFetch.mockResolvedValueOnce({
       id: "integration_1",
       status: "active",
       webhookVersion: "guimo/v1",
-      webhookToken: rotatedToken,
-      webhookUrl: "https://api.wpptrack.test/webhooks/guimo/v1/integration_1",
-      webhookPath: "/webhooks/guimo/v1/integration_1",
+      webhookUrl: `https://api.wpptrack.test/webhooks/guimo/v1/integration_1?token=${rotatedToken}`,
+      webhookPath: `/webhooks/guimo/v1/integration_1?token=${rotatedToken}`,
     });
 
     const result = await rotateGuimoWebhookTokenAction(
@@ -199,11 +143,10 @@ describe("guimo server actions", () => {
     expect(result).toEqual({
       ok: true,
       message:
-        "Token rotacionado. Copie o novo token agora; ele nao sera exibido novamente.",
+        "Nova URL do webhook Guimo gerada; a URL anterior foi invalidada. Copie-a agora; ela nao sera exibida novamente.",
       oneTimeWebhook: {
-        webhookToken: rotatedToken,
-        webhookUrl: "https://api.wpptrack.test/webhooks/guimo/v1/integration_1",
-        webhookPath: "/webhooks/guimo/v1/integration_1",
+        webhookUrl: `https://api.wpptrack.test/webhooks/guimo/v1/integration_1?token=${rotatedToken}`,
+        webhookPath: `/webhooks/guimo/v1/integration_1?token=${rotatedToken}`,
       },
     });
     expect(result.message).not.toContain(rotatedToken);
