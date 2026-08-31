@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Prisma, type GuimoIntegration, type GuimoWebhookEvent } from "@prisma/client";
+import type { GuimoIntegrationDto, GuimoIntegrationListDto, GuimoIntegrationProvisionResultDto, GuimoIntegrationRotateWebhookTokenResultDto } from "@wpptrack/shared";
 import { hashNormalizedPhone, normalizePhoneIdentityWithCountry } from "../common/phone/phone-identity";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsQueueService } from "../common/queue/conversion-events-queue.service";
@@ -13,12 +14,22 @@ import { parseGuimoCrmHeaders } from "./guimo.schema";
 
 type Headers = Record<string, string>;
 type ConfigureInput = { qualifiedStageId?: string; qualifiedStageName?: string; purchaseStageId?: string; purchaseStageName?: string; purchaseCurrency?: string; purchaseValueUnit?: "major" | "cents"; crmHeaders?: Headers };
+type GuimoIntegrationSafeRecord = Pick<GuimoIntegration, "id" | "status" | "webhookVersion" | "qualifiedStageId" | "qualifiedStageName" | "purchaseStageId" | "purchaseStageName" | "purchaseCurrency" | "purchaseValueUnit" | "crmHeadersEncrypted" | "crmHeadersIv" | "crmHeadersTag" | "createdAt" | "updatedAt">;
 
 @Injectable()
 export class GuimoService {
   constructor(private readonly prisma: PrismaService, private readonly queue: GuimoWebhookQueueService, private readonly conversionQueue: ConversionEventsQueueService, private readonly adapter: GuimoAdapter, private readonly conversions: ConversionEventsService, private readonly rateLimit: GuimoWebhookRateLimitService) {}
 
-  async provision(workspaceId: string, actorUserId: string, input: ConfigureInput) {
+  async list(workspaceId: string): Promise<GuimoIntegrationListDto> {
+    const integrations = await this.prisma.guimoIntegration.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true, webhookVersion: true, qualifiedStageId: true, qualifiedStageName: true, purchaseStageId: true, purchaseStageName: true, purchaseCurrency: true, purchaseValueUnit: true, crmHeadersEncrypted: true, crmHeadersIv: true, crmHeadersTag: true, createdAt: true, updatedAt: true },
+    });
+    return integrations.map((integration) => this.toDto(integration));
+  }
+
+  async provision(workspaceId: string, actorUserId: string, input: ConfigureInput): Promise<GuimoIntegrationProvisionResultDto> {
     const token = randomBytes(32).toString("base64url");
     const crmHeaders = parseGuimoCrmHeaders(input.crmHeaders);
     const encrypted = crmHeaders && this.key() ? this.encryptHeaders(crmHeaders) : null;
@@ -26,7 +37,16 @@ export class GuimoService {
     const status = stagesValid && encrypted ? "active" : "blocked";
     const integration = await this.prisma.guimoIntegration.create({ data: { workspaceId, status, webhookSecretHash: this.hash(token), qualifiedStageId: this.clean(input.qualifiedStageId), qualifiedStageName: this.clean(input.qualifiedStageName), purchaseStageId: this.clean(input.purchaseStageId), purchaseStageName: this.clean(input.purchaseStageName), purchaseCurrency: this.clean(input.purchaseCurrency), purchaseValueUnit: input.purchaseValueUnit ?? null, ...(encrypted ?? {}) } });
     await this.prisma.auditLog.create({ data: { workspaceId, actorUserId, actorType: "user", action: "guimo.integration_provisioned", targetType: "GuimoIntegration", targetId: integration.id, resultStatus: status === "active" ? "success" : "blocked", afterSummary: { status, hasCrmHeaders: Boolean(encrypted), qualifiedConfigured: this.hasStage(input.qualifiedStageId, input.qualifiedStageName), purchaseConfigured: this.hasStage(input.purchaseStageId, input.purchaseStageName), purchaseValueUnit: input.purchaseValueUnit ?? null } } });
-    return { id: integration.id, status, webhookVersion: integration.webhookVersion, webhookToken: token };
+    return { id: integration.id, status: status as "active" | "blocked", webhookVersion: integration.webhookVersion, webhookToken: token, ...this.webhookLocation(integration.id) };
+  }
+
+  async rotateWebhookToken(workspaceId: string, integrationId: string, actorUserId: string): Promise<GuimoIntegrationRotateWebhookTokenResultDto> {
+    const current = await this.prisma.guimoIntegration.findFirst({ where: { id: integrationId, workspaceId } });
+    if (!current) throw new NotFoundException("Integracao Guimo nao encontrada");
+    const webhookToken = randomBytes(32).toString("base64url");
+    const integration = await this.prisma.guimoIntegration.update({ where: { id: current.id }, data: { webhookSecretHash: this.hash(webhookToken) } });
+    await this.prisma.auditLog.create({ data: { workspaceId, actorUserId, actorType: "user", action: "guimo.webhook_token_rotated", targetType: "GuimoIntegration", targetId: integration.id, resultStatus: "success", afterSummary: { status: integration.status, webhookTokenRotated: true } } });
+    return { id: integration.id, status: integration.status as "active" | "blocked", webhookVersion: integration.webhookVersion, webhookToken, ...this.webhookLocation(integration.id) };
   }
 
   async receive(integrationId: string, token: unknown, body: unknown) {
@@ -113,6 +133,8 @@ export class GuimoService {
   private async logWebhook(workspaceId: string, _key: string | null, status: string, summary: Record<string, unknown>) { await this.prisma.webhookLog.create({ data: { workspaceId, source: "guimo", eventType: "guimo.stage_movement", status, summaryPayload: summary as Prisma.InputJsonValue } }); }
   private async integrationFailure(event: GuimoWebhookEvent, code: string) { const log = await this.prisma.integrationLog.create({ data: { workspaceId: event.workspaceId, source: "guimo", operation: "guimo.crm_enrichment", status: "failed", providerErrorCode: code, requestSummary: { eventId: event.id }, responseSummary: { redacted: true } } }); await this.prisma.guimoWebhookEvent.update({ where: { id: event.id }, data: { status: "failed", errorCode: code } }); await this.prisma.diagnosticEvent.create({ data: { workspaceId: event.workspaceId, source: "guimo", eventType: "guimo.crm_enrichment_failed", severity: "error", status: "failed", title: "Falha ao enriquecer evento Guimo", message: "A integracao Guimo falhou sem registrar dados sensiveis.", errorCode: code, integrationLogId: log.id, summaryPayload: { eventId: event.id, redacted: true } } }); }
   private hasStage(id?: string, name?: string) { return Boolean(this.clean(id) || this.clean(name)); } private clean(v?: string) { return v?.trim() || null; } private hash(v: string) { return createHash("sha256").update(v).digest("hex"); } private matchesToken(token: unknown, hash: string) { if (typeof token !== "string" || !token) return false; const a = Buffer.from(this.hash(token)); const b = Buffer.from(hash); return a.length === b.length && timingSafeEqual(a, b); } private unique(e: unknown) { return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002"; }
+  private toDto(integration: GuimoIntegrationSafeRecord): GuimoIntegrationDto { return { id: integration.id, status: integration.status as "active" | "blocked", webhookVersion: integration.webhookVersion, qualifiedStageId: integration.qualifiedStageId, qualifiedStageName: integration.qualifiedStageName, purchaseStageId: integration.purchaseStageId, purchaseStageName: integration.purchaseStageName, purchaseCurrency: integration.purchaseCurrency, purchaseValueUnit: integration.purchaseValueUnit as "major" | "cents" | null, hasCrmHeaders: Boolean(integration.crmHeadersEncrypted && integration.crmHeadersIv && integration.crmHeadersTag), createdAt: integration.createdAt.toISOString(), updatedAt: integration.updatedAt.toISOString() }; }
+  private webhookLocation(integrationId: string) { const webhookPath = `/webhooks/guimo/v1/${encodeURIComponent(integrationId)}`; const apiPublicUrl = process.env.API_PUBLIC_URL?.trim(); if (!apiPublicUrl) return { webhookPath, webhookUrl: null }; try { return { webhookPath, webhookUrl: new URL(webhookPath, apiPublicUrl).toString() }; } catch { return { webhookPath, webhookUrl: null }; } }
   private key(): Buffer | null { const value = process.env.GUIMO_CRM_ENCRYPTION_KEY?.trim(); if (!value || !/^[A-Za-z0-9+/]{43}=$/.test(value)) return null; const key = Buffer.from(value, "base64"); return key.length === 32 && key.toString("base64") === value ? key : null; }
   private encryptHeaders(headers: Headers) { const key = this.key(); if (!key) throw new Error("Guimo CRM encryption key is invalid"); const iv = randomBytes(12); const cipher = createCipheriv("aes-256-gcm", key, iv); cipher.setAAD(this.headersAad()); const encrypted = Buffer.concat([cipher.update(JSON.stringify(headers), "utf8"), cipher.final()]); return { crmHeadersEncrypted: encrypted.toString("base64"), crmHeadersIv: iv.toString("base64"), crmHeadersTag: cipher.getAuthTag().toString("base64") }; }
   private decryptHeaders(i: GuimoIntegration): Headers | null { const key = this.key(); if (!i.crmHeadersEncrypted || !i.crmHeadersIv || !i.crmHeadersTag || !key) return null; try { const decipher = createDecipheriv("aes-256-gcm", key, this.base64(i.crmHeadersIv, 12)); decipher.setAAD(this.headersAad()); decipher.setAuthTag(this.base64(i.crmHeadersTag, 16)); const parsed: unknown = JSON.parse(Buffer.concat([decipher.update(this.base64(i.crmHeadersEncrypted)), decipher.final()]).toString("utf8")); return parseGuimoCrmHeaders(parsed); } catch { return null; } }

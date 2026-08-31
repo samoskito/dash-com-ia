@@ -1,4 +1,5 @@
 import type {
+  GuimoIntegrationListDto,
   InboundWebhookCapabilitiesDto,
   InboundWebhookChannelDto,
   InboundWebhookConnectionDto,
@@ -47,6 +48,11 @@ import {
   InboundWebhookPanel,
   type InboundWebhookConnectionView,
 } from "./inbound-webhook-panel";
+import {
+  provisionGuimoIntegrationAction,
+  rotateGuimoWebhookTokenAction,
+} from "./guimo-actions";
+import { GuimoPanel } from "./guimo-panel";
 import {
   createMetaManualConnectionAction,
   createMetaManualCredentialAction,
@@ -442,6 +448,23 @@ async function getInboundWebhookData(): Promise<
       data: null,
       state: "error",
     };
+  }
+}
+
+async function getGuimoIntegrations(
+  workspaceId: string,
+): Promise<ResourceResult<GuimoIntegrationListDto>> {
+  try {
+    const integrations = await serverApiFetch<GuimoIntegrationListDto>(
+      `/workspaces/${encodeURIComponent(workspaceId)}/guimo/integrations`,
+    );
+
+    return {
+      data: integrations,
+      state: integrations.length > 0 ? "real" : "empty",
+    };
+  } catch {
+    return { data: [], state: "error" };
   }
 }
 
@@ -1013,6 +1036,22 @@ export default async function IntegrationsPage({
     workspace?.permissions.canManageIntegrations,
   );
   const canManageBilling = Boolean(workspace?.permissions.canManageBilling);
+  const isPlatformSupport = workspace?.accessMode === "platform_support";
+  const isPlatformOwnerSupport = Boolean(
+    isPlatformSupport && workspace?.platformRole === "platform_owner",
+  );
+  // Guimo endpoints are owner-only server-side (WorkspaceOwnerGuard); gating on
+  // canManageIntegrations alone would let non-owner managers hit a 403.
+  const canManageGuimo = Boolean(
+    workspace &&
+      workspace.role === "owner" &&
+      (!isPlatformSupport || isPlatformOwnerSupport),
+  );
+  const guimoResult: ResourceResult<GuimoIntegrationListDto> =
+    workspace && canManageGuimo
+      ? await getGuimoIntegrations(workspace.id)
+      : { data: [], state: "empty" };
+  const guimoIntegrations: GuimoIntegrationListDto = guimoResult.data;
   const maxPipelineValue = Math.max(
     ...(pipeline?.stages ?? []).map((stage) => stage.value),
     0,
@@ -1031,6 +1070,7 @@ export default async function IntegrationsPage({
     ...(inboundWebhookData?.capabilities.enabled
       ? [inboundWebhookResult.state]
       : []),
+    ...(canManageGuimo ? [guimoResult.state] : []),
     ...(usesExternalWhatsapp
       ? []
       : [
@@ -1243,6 +1283,10 @@ export default async function IntegrationsPage({
         <a href="#integracao-whatsapp">
           <Webhook size={16} aria-hidden="true" />
           Fontes WhatsApp
+        </a>
+        <a href="#integracao-guimo">
+          <Database size={16} aria-hidden="true" />
+          Guimo CRM
         </a>
         <a href="#integracao-fluxo">
           <Route size={16} aria-hidden="true" />
@@ -1598,6 +1642,18 @@ export default async function IntegrationsPage({
               setChannelStatusAction={setInboundWebhookChannelStatusAction}
               saveRoutesAction={saveInboundWebhookChannelRoutesAction}
             />
+          ) : null}
+
+          {workspace ? (
+            <div id="integracao-guimo">
+              <GuimoPanel
+                workspaceId={workspace.id}
+                integrations={guimoIntegrations}
+                canManage={canManageGuimo}
+                provisionAction={provisionGuimoIntegrationAction}
+                rotateAction={rotateGuimoWebhookTokenAction}
+              />
+            </div>
           ) : null}
 
           {packageBillingEnabled && packageBilling ? (
