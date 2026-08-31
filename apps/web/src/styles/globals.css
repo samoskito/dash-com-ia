@@ -14956,3 +14956,61 @@ button.meta-manual-entry[aria-expanded="true"] {
 .client-swap-dialog {
   max-width: min(560px, calc(100vw - 32px));
 }
+
+
+/* Guimo CRM panel (integrations) */
+.guimo-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.guimo-integration-form {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-items: end;
+}
+
+.guimo-integration-form .button.primary {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.guimo-webhook-secret {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.guimo-webhook-secret > div:first-child,
+.guimo-webhook-secret > input {
+  grid-column: 1 / -1;
+}
+
+.guimo-setup-instructions {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.guimo-integration-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.guimo-integration-detail {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  margin-bottom: 0.75rem;
+}
+
+.guimo-detail-field {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.guimo-detail-field span {
+  color: var(--muted, #94a3b8);
+  font-size: 0.75rem;
+}

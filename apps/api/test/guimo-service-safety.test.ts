@@ -9,18 +9,51 @@ const rateLimit = () => ({ assertAllowed: vi.fn(), recordBadToken: vi.fn() });
 const serviceFor = (prisma: any, queue: any = {}, limiter: any = rateLimit()) => new GuimoService(prisma, queue, {} as any, {} as any, {} as any, limiter);
 
 describe("Guimo ingress safety", () => {
+  it("lists only a workspace's safe integration fields", async () => {
+    const createdAt = new Date("2026-08-31T10:00:00.000Z");
+    const prisma: any = {
+      guimoIntegration: {
+        findMany: vi.fn(async () => [{ ...active, webhookVersion: "v1", crmHeadersEncrypted: "ciphertext", crmHeadersIv: "iv", crmHeadersTag: "tag", webhookSecretHash: "hash", createdAt, updatedAt: createdAt }]),
+      },
+    };
+    const result = await serviceFor(prisma).list("ws-a");
+    expect(prisma.guimoIntegration.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { workspaceId: "ws-a" }, orderBy: { createdAt: "desc" }, select: expect.not.objectContaining({ webhookSecretHash: expect.anything() }) }));
+    expect(result[0]).toMatchObject({ id: "g1", hasCrmHeaders: true, createdAt: createdAt.toISOString() });
+    expect(JSON.stringify(result)).not.toMatch(/secret|hash|encrypted|headersIv|headersTag/i);
+  });
+  it("rotates an integration token inside its workspace without auditing the token", async () => {
+    const current: any = { ...active, webhookVersion: "v1", createdAt: new Date(), updatedAt: new Date() };
+    const prisma: any = {
+      guimoIntegration: {
+        findFirst: vi.fn(async () => current),
+        update: vi.fn(async ({ data }) => ({ ...current, ...data })),
+      },
+      auditLog: { create: vi.fn(async () => undefined) },
+    };
+    const result = await serviceFor(prisma).rotateWebhookToken("ws-a", "g1", "user-a");
+    expect(prisma.guimoIntegration.findFirst).toHaveBeenCalledWith({ where: { id: "g1", workspaceId: "ws-a" } });
+    expect(result.webhookToken).toHaveLength(43);
+    expect(prisma.guimoIntegration.update.mock.calls[0][0].data.webhookSecretHash).toBeTruthy();
+    expect(JSON.stringify(prisma.auditLog.create.mock.calls[0][0])).not.toContain(result.webhookToken);
+  });
   it("keeps provisioning blocked unless valid CRM auth headers can be encrypted", async () => {
     const originalKey = process.env.GUIMO_CRM_ENCRYPTION_KEY;
+    const originalApiPublicUrl = process.env.API_PUBLIC_URL;
     process.env.GUIMO_CRM_ENCRYPTION_KEY = Buffer.alloc(32, 1).toString("base64");
+    process.env.API_PUBLIC_URL = "https://api.example.com";
     const prisma = { guimoIntegration: { create: vi.fn(async ({ data }) => ({ id: "g1", webhookVersion: "v1", ...data })) }, auditLog: { create: vi.fn() } };
     const service = serviceFor(prisma);
     const result = await service.provision("ws-a", "user-a", { qualifiedStageId: "2", crmHeaders: { Host: "bad", Authorization: "[REDACTED]" } });
     expect(result.status).toBe("blocked");
+    expect(result.webhookUrl).toBe("https://api.example.com/webhooks/guimo/v1/g1");
+    expect(result.webhookPath).toBe("/webhooks/guimo/v1/g1");
     const data = prisma.guimoIntegration.create.mock.calls[0][0].data;
     expect(data.crmHeadersEncrypted).toBeUndefined();
     expect(JSON.stringify(prisma.auditLog.create.mock.calls[0][0])).not.toContain("[REDACTED]");
     if (originalKey === undefined) delete process.env.GUIMO_CRM_ENCRYPTION_KEY;
     else process.env.GUIMO_CRM_ENCRYPTION_KEY = originalKey;
+    if (originalApiPublicUrl === undefined) delete process.env.API_PUBLIC_URL;
+    else process.env.API_PUBLIC_URL = originalApiPublicUrl;
   });
   it("fails closed for a wrong webhook token before parsing or writes", async () => {
     const prisma = { guimoIntegration: { findUnique: vi.fn().mockResolvedValue(active) } };
