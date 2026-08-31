@@ -971,6 +971,15 @@ function renderPanel({
       reprocessAutomationCallbacksAction: action,
       removeAction: action,
       testMessageAction: action,
+      guimoEnabled: false,
+      workspaceId: "workspace_1",
+      guimoIntegrations: [],
+      guimoProvisionAction: action,
+      guimoRotateAction: action,
+      guimoSetActiveAction: action,
+      guimoCreateRuleAction: action,
+      guimoUpdateRuleAction: action,
+      guimoDeleteRuleAction: action,
     }),
   );
 }

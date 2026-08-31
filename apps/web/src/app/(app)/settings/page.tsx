@@ -55,7 +55,6 @@ import {
   setGuimoIntegrationActiveAction,
   updateGuimoConversionRuleAction,
 } from "../integrations/guimo-actions";
-import { GuimoConversionPanel } from "./guimo-conversion-panel";
 import { clientSwapAction } from "./client-swap-actions";
 import { saveOpsAlertSettingsAction } from "./ops-alert-settings-actions";
 import {
@@ -1934,6 +1933,25 @@ export default async function SettingsPage() {
                               testMessageAction={
                                 testProviderCatalogMessageAction
                               }
+                              guimoEnabled={canManageGuimo}
+                              workspaceId={workspace?.id ?? ""}
+                              guimoIntegrations={guimoIntegrations}
+                              guimoProvisionAction={
+                                provisionGuimoIntegrationAction
+                              }
+                              guimoRotateAction={rotateGuimoWebhookTokenAction}
+                              guimoSetActiveAction={
+                                setGuimoIntegrationActiveAction
+                              }
+                              guimoCreateRuleAction={
+                                createGuimoConversionRuleAction
+                              }
+                              guimoUpdateRuleAction={
+                                updateGuimoConversionRuleAction
+                              }
+                              guimoDeleteRuleAction={
+                                deleteGuimoConversionRuleAction
+                              }
                             />
                           </div>
                         </details>
@@ -1954,33 +1972,6 @@ export default async function SettingsPage() {
                   </div>
                 )}
               </section>
-
-              {canManageGuimo && workspace ? (
-                <section className="trigger-source-section guimo-trigger-section">
-                  <header className="trigger-center-section-heading">
-                    <div>
-                      <span className="eyebrow">Gatilho opcional</span>
-                      <h3>Movimentacao no CRM (Guimo)</h3>
-                      <p className="muted">
-                        Dispare uma conversao quando um negocio entra em um
-                        estagio da Guimo. Fica desligado ate o workspace
-                        ativar a conexao.
-                      </p>
-                    </div>
-                  </header>
-                  <GuimoConversionPanel
-                    workspaceId={workspace.id}
-                    integrations={guimoIntegrations}
-                    canManage={canManageGuimo}
-                    provisionAction={provisionGuimoIntegrationAction}
-                    rotateAction={rotateGuimoWebhookTokenAction}
-                    setActiveAction={setGuimoIntegrationActiveAction}
-                    createRuleAction={createGuimoConversionRuleAction}
-                    updateRuleAction={updateGuimoConversionRuleAction}
-                    deleteRuleAction={deleteGuimoConversionRuleAction}
-                  />
-                </section>
-              ) : null}
 
               <section className="legacy-trigger-section">
                 <header className="trigger-center-section-heading">

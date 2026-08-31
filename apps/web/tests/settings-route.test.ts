@@ -467,21 +467,15 @@ describe("settings route", () => {
     expect(html).toContain("Pausar");
   });
 
-  it("shows the Guimo activation CTA when no connection is active", async () => {
-    mockSettingsFetch({ rulesBody: [], guimoIntegrations: [] });
-
-    const element = await SettingsPage();
-    const html = renderToStaticMarkup(createElement("div", null, element));
-
-    expect(html).toContain("Movimentacao no CRM (Guimo)");
-    expect(html).toContain("Nao conectado");
-    expect(html).toContain("Ativar conexao Guimo");
-    expect(html).toContain("Nenhuma conexao Guimo ativa.");
-    expect(html).not.toContain("Nome do estagio na Guimo");
-    expect(html).not.toContain("Nova regra");
-  });
-
-  it("shows free-form Guimo rules by stage name, chosen conversion and value mode once connected", async () => {
+  // Guimo e um gatilho opt-in revelado so dentro de "Nova regra" (origem
+  // "Movimentacao no CRM (Guimo)") do ProviderConversionRulePanel — nao existe
+  // mais uma secao Guimo permanente na pagina de configuracoes. O
+  // comportamento client-side (selecionar a origem, ativar a conexao, criar
+  // regras) e coberto por
+  // apps/web/tests/provider-conversion-rule-panel-guimo-origin.test.ts; aqui
+  // so garantimos que os dados do backend chegam ao componente e que nada
+  // Guimo aparece fora do fluxo "Nova regra".
+  it("fetches Guimo integrations without ever rendering them permanently on the page", async () => {
     mockSettingsFetch({
       rulesBody: [],
       guimoIntegrations: [
@@ -507,16 +501,6 @@ describe("settings route", () => {
               createdAt: "2026-07-17T18:00:00.000Z",
               updatedAt: "2026-07-17T18:00:00.000Z",
             },
-            {
-              id: "rule_2",
-              stageName: "Venda Fechada",
-              eventName: "Purchase",
-              valueMode: "fixed",
-              fixedValueCents: 19990,
-              active: true,
-              createdAt: "2026-07-17T18:00:00.000Z",
-              updatedAt: "2026-07-17T18:00:00.000Z",
-            },
           ],
           createdAt: "2026-07-17T18:00:00.000Z",
           updatedAt: "2026-07-17T19:00:00.000Z",
@@ -527,50 +511,33 @@ describe("settings route", () => {
     const element = await SettingsPage();
     const html = renderToStaticMarkup(createElement("div", null, element));
 
-    expect(html).toContain("Ativa");
-    expect(html).toContain("Movimentacao no CRM (Guimo)");
-    expect(html).toContain("Nova regra");
-    // Stage by name (not id) for each conversion.
-    expect(html).toContain("Estagio na Guimo: Lead Qualificado");
-    expect(html).toContain("Estagio na Guimo: Venda Fechada");
-    expect(html).toContain("Nome do estagio na Guimo");
-    // Chosen conversion event per rule.
-    expect(html).toContain("Lead qualificado");
-    expect(html).toContain("Compras");
-    expect(html).toContain("Conversao disparada");
-    // Dynamic-or-fixed value mode.
-    expect(html).toContain("Valor dinamico do negocio (Guimo)");
-    expect(html).toContain("Valor fixo");
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/workspaces/workspace_1/guimo/integrations",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(html).not.toContain("guimo-trigger-section");
+    expect(html).not.toContain("Movimentacao no CRM (Guimo)");
+    expect(html).not.toContain("Ativar conexao Guimo");
+    expect(html).not.toContain("Estagio na Guimo:");
     expect(html).not.toContain("Nenhuma conexao Guimo ativa.");
   });
 
-  it("shows the empty-rules state when Guimo is connected but has no rules yet", async () => {
+  it("does not fetch or render Guimo for roles that cannot manage it", async () => {
     mockSettingsFetch({
       rulesBody: [],
-      guimoIntegrations: [
-        {
-          id: "guimo_integration_2",
-          status: "active",
-          webhookVersion: "guimo/v1",
-          qualifiedStageId: null,
-          qualifiedStageName: "Lead Qualificado",
-          purchaseStageId: null,
-          purchaseStageName: null,
-          purchaseCurrency: null,
-          purchaseValueUnit: null,
-          hasCrmHeaders: true,
-          rules: [],
-          createdAt: "2026-07-17T18:00:00.000Z",
-          updatedAt: "2026-07-17T19:00:00.000Z",
-        },
-      ],
+      workspaceRole: "admin",
+      guimoIntegrations: [],
     });
 
     const element = await SettingsPage();
     const html = renderToStaticMarkup(createElement("div", null, element));
 
-    expect(html).toContain("Nenhuma regra cadastrada ainda");
-    expect(html).toContain("Nova regra");
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/guimo/integrations"),
+      expect.anything(),
+    );
+    expect(html).not.toContain("guimo-trigger-section");
+    expect(html).not.toContain("Movimentacao no CRM (Guimo)");
   });
 
   it("centralizes Umbler rules by connection and offers assisted legacy adaptation", async () => {

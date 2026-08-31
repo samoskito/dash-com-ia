@@ -3,6 +3,7 @@
 import type {
   ConversionEventCategoryDto,
   ConversionEventNameDto,
+  GuimoIntegrationDto,
   InboundWebhookChannelDto,
   InboundWebhookProviderDto,
   ProviderConversionAutomationAuditDto,
@@ -56,6 +57,12 @@ import {
   purchaseReviewStatusLabel,
   purchaseReviewTone,
 } from "../settings/provider-conversion-labels";
+import { GuimoConversionPanel } from "../settings/guimo-conversion-panel";
+import type {
+  GuimoActionResult,
+  GuimoConversionRuleActionResult,
+  GuimoRuleActionResult,
+} from "./guimo-actions";
 import {
   UazapiLabelPicker,
   type UazapiTriggerLabel,
@@ -65,25 +72,42 @@ type ProviderRuleAction = (
   formData: FormData,
 ) => Promise<ProviderConversionRuleActionResult>;
 
+type GuimoConnectAction = (formData: FormData) => Promise<GuimoActionResult>;
+type GuimoConnectionRuleAction = (
+  formData: FormData,
+) => Promise<GuimoRuleActionResult>;
+type GuimoConversionRuleAction = (
+  formData: FormData,
+) => Promise<GuimoConversionRuleActionResult>;
+
 /**
  * Onde a regra e reconhecida. Cada origem mapeia um triggerType do contrato:
  * message -> message_phrase, tag -> provider_automation, catalog ->
  * structured_catalog. O evento enviado a Meta e escolhido a parte.
+ *
+ * "guimo" nao mapeia para um triggerType de provedor: e um gatilho a parte
+ * (movimentacao de estagio no CRM Guimo), com sua propria conexao opt-in e
+ * suas proprias regras (GuimoConversionRuleDto), reveladas inline so quando
+ * esta origem e selecionada. Nao existe painel Guimo permanente em nenhuma
+ * tela; ele so aparece dentro do fluxo "Nova regra".
  */
-export type ConversionRuleOrigin = "message" | "tag" | "catalog";
+export type ConversionRuleOrigin = "message" | "tag" | "catalog" | "guimo";
 
 const conversionRuleOriginLabels: Record<ConversionRuleOrigin, string> = {
   message: "Mensagem no WhatsApp",
   tag: "Tag ou automacao do provedor",
   catalog: "Catalogo estruturado",
+  guimo: "Movimentacao no CRM (Guimo)",
 };
 
-const conversionEventCategoryLabels: Record<ConversionEventCategoryDto, string> =
-  {
-    journey: "Jornada",
-    conversion: "Conversao",
-    operational: "Operacional",
-  };
+const conversionEventCategoryLabels: Record<
+  ConversionEventCategoryDto,
+  string
+> = {
+  journey: "Jornada",
+  conversion: "Conversao",
+  operational: "Operacional",
+};
 
 /** structured_catalog continua restrito a Purchase (ver contrato em shared). */
 const catalogOriginEventName = "Purchase" satisfies ConversionEventNameDto;
@@ -145,6 +169,21 @@ export type ProviderConversionRulePanelProps = {
   reprocessAutomationCallbacksAction: ProviderRuleAction;
   removeAction: ProviderRuleAction;
   testMessageAction: ProviderRuleAction;
+  /**
+   * Guimo e um gatilho a parte (nao um canal WhatsApp): so fica disponivel no
+   * seletor de origem quando o workspace pode gerenciar a conexao. As acoes e
+   * a lista de integracoes vem prontas do settings/page.tsx e sao repassadas
+   * para o GuimoConversionPanel, montado inline dentro do fluxo "Nova regra".
+   */
+  guimoEnabled: boolean;
+  workspaceId: string;
+  guimoIntegrations: GuimoIntegrationDto[];
+  guimoProvisionAction: GuimoConnectAction;
+  guimoRotateAction: GuimoConnectAction;
+  guimoSetActiveAction: GuimoConnectionRuleAction;
+  guimoCreateRuleAction: GuimoConversionRuleAction;
+  guimoUpdateRuleAction: GuimoConversionRuleAction;
+  guimoDeleteRuleAction: GuimoConversionRuleAction;
 };
 
 export function ProviderConversionRulePanel({
@@ -164,6 +203,15 @@ export function ProviderConversionRulePanel({
   reprocessAutomationCallbacksAction,
   removeAction,
   testMessageAction,
+  guimoEnabled,
+  workspaceId,
+  guimoIntegrations,
+  guimoProvisionAction,
+  guimoRotateAction,
+  guimoSetActiveAction,
+  guimoCreateRuleAction,
+  guimoUpdateRuleAction,
+  guimoDeleteRuleAction,
 }: ProviderConversionRulePanelProps) {
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
@@ -481,384 +529,424 @@ export function ProviderConversionRulePanel({
       ) : null}
 
       {createOpen ? (
-        <form className="provider-conversion-builder" onSubmit={handleCreate}>
+        <div className="provider-conversion-builder">
           <ConversionRuleOriginEventSelector
             origin={origin}
             eventName={eventName}
             onOriginChange={selectOrigin}
             onEventChange={selectEvent}
+            guimoEnabled={guimoEnabled}
           />
 
-          <div className="provider-conversion-base-fields">
-            <label>
-              <span className="field-label">Nome da regra</span>
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                minLength={2}
-                maxLength={120}
-                placeholder="Ex.: Compra confirmada"
-                required
-              />
-            </label>
-            {origin === "tag" && conversionEventCarriesValue(eventName) ? (
-              <>
-                <label>
-                  <span className="field-label">
-                    {conversionEventRequiresValue(eventName)
-                      ? "Valor medio (R$)"
-                      : "Valor medio (opcional)"}
-                  </span>
-                  <input
-                    value={averageValue}
-                    onChange={(event) => setAverageValue(event.target.value)}
-                    inputMode="decimal"
-                    placeholder="Ex.: 299,90"
-                    required={conversionEventRequiresValue(eventName)}
-                  />
-                </label>
-                <label>
-                  <span className="field-label">Produto (opcional)</span>
-                  <input
-                    value={contentName}
-                    onChange={(event) => setContentName(event.target.value)}
-                    maxLength={180}
-                    placeholder="Ex.: Pedido medio"
-                  />
-                </label>
-              </>
-            ) : null}
-          </div>
-
-          {origin === "message" ? (
-            <MessagePhraseFields
-              eventName={eventName}
-              averageValue={averageValue}
-              contentName={contentName}
-              primaryPhrase={primaryPhrase}
-              variationPhrases={variationPhrases}
-              exampleMessage={exampleMessage}
-              valueMode={valueMode}
-              messageAuthorScope={messageAuthorScope}
-              onChange={(patch) => {
-                if (patch.averageValue !== undefined) {
-                  setAverageValue(patch.averageValue);
-                }
-                if (patch.contentName !== undefined) {
-                  setContentName(patch.contentName);
-                }
-                if (patch.primaryPhrase !== undefined) {
-                  setPrimaryPhrase(patch.primaryPhrase);
-                }
-                if (patch.variationPhrases !== undefined) {
-                  setVariationPhrases(patch.variationPhrases);
-                }
-                if (patch.exampleMessage !== undefined) {
-                  setExampleMessage(patch.exampleMessage);
-                }
-                if (patch.valueMode !== undefined) {
-                  setValueMode(patch.valueMode);
-                }
-                if (patch.messageAuthorScope !== undefined) {
-                  setMessageAuthorScope(patch.messageAuthorScope);
-                }
-              }}
+          {origin === "guimo" ? (
+            <GuimoConversionPanel
+              workspaceId={workspaceId}
+              integrations={guimoIntegrations}
+              canManage={canManage}
+              provisionAction={guimoProvisionAction}
+              rotateAction={guimoRotateAction}
+              setActiveAction={guimoSetActiveAction}
+              createRuleAction={guimoCreateRuleAction}
+              updateRuleAction={guimoUpdateRuleAction}
+              deleteRuleAction={guimoDeleteRuleAction}
             />
-          ) : null}
-
-          {origin === "tag" ? (
-            <div className="provider-conversion-message-fields">
-              {resolvedWhatsappInstanceId ? (
-                <UazapiLabelPicker
-                  whatsappInstanceId={resolvedWhatsappInstanceId}
-                  selectedLabels={triggerLabels}
-                  onLabelsChange={setTriggerLabels}
-                  fallbackValue={triggerPhrases}
-                  onFallbackChange={setTriggerPhrases}
-                />
-              ) : (
+          ) : (
+            <form onSubmit={handleCreate}>
+              <div className="provider-conversion-base-fields">
                 <label>
-                  <span className="field-label">Etiquetas do WhatsApp</span>
-                  <textarea
-                    value={triggerPhrases}
-                    onChange={(event) => setTriggerPhrases(event.target.value)}
-                    rows={3}
-                    maxLength={4_800}
-                    placeholder="Uma por linha. Ex.: Venda fechada"
-                    required
-                  />
-                  <small className="action-note">
-                    A regra dispara quando a conversa receber uma dessas
-                    etiquetas ou automacoes.
-                  </small>
-                </label>
-              )}
-            </div>
-          ) : null}
-
-          {origin === "catalog" ? (
-            <div className="provider-conversion-base-fields">
-              <label>
-                <span className="field-label">Frases gatilho</span>
-                <textarea
-                  value={triggerPhrases}
-                  onChange={(event) => setTriggerPhrases(event.target.value)}
-                  rows={3}
-                  maxLength={4_800}
-                  placeholder="Uma por linha. Ex.: Dados para confirmar o pedido"
-                  required
-                />
-              </label>
-              <label>
-                <span className="field-label">Quem pode enviar</span>
-                <select
-                  value={messageAuthorScope}
-                  onChange={(event) =>
-                    setMessageAuthorScope(
-                      event.target.value as MessageAuthorScope,
-                    )
-                  }
-                >
-                  <option value="team">Equipe ou bot</option>
-                  <option value="contact">Somente contato</option>
-                  <option value="both">Equipe, bot ou contato</option>
-                </select>
-              </label>
-            </div>
-          ) : null}
-
-          <ChannelSelector
-            channels={channels}
-            selectedChannelIds={selectedChannelIds}
-            onToggle={toggleChannel}
-          />
-
-          {origin === "catalog" ? (
-            <div className="provider-catalog-builder">
-              <div className="provider-catalog-meta">
-                <label>
-                  <span className="field-label">Nome do catalogo</span>
+                  <span className="field-label">Nome da regra</span>
                   <input
-                    value={catalogName}
-                    onChange={(event) => setCatalogName(event.target.value)}
-                    placeholder="Ex.: Produtos vendidos"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    minLength={2}
+                    maxLength={120}
+                    placeholder="Ex.: Compra confirmada"
                     required
                   />
                 </label>
-                <label>
-                  <span className="field-label">Produto principal</span>
-                  <input
-                    value={productName}
-                    onChange={(event) => setProductName(event.target.value)}
-                    placeholder="Ex.: Cama elastica"
-                    required
-                  />
-                </label>
-              </div>
-
-              <div className="provider-catalog-section">
-                <div className="provider-catalog-section-heading">
-                  <div>
-                    <span className="micro-label">Campos da mensagem</span>
-                    <strong>Atributos</strong>
-                  </div>
-                  {attributes.length < 2 ? (
-                    <button
-                      className="button subtle"
-                      type="button"
-                      onClick={addAttribute}
-                    >
-                      <Plus size={14} aria-hidden="true" />
-                      Adicionar atributo
-                    </button>
-                  ) : null}
-                </div>
-                <div className="provider-catalog-attributes">
-                  {attributes.map((attribute, index) => (
-                    <label key={attribute.id}>
-                      <span className="field-label">Atributo {index + 1}</span>
-                      <span className="provider-catalog-input-action">
-                        <input
-                          value={attribute.label}
-                          onChange={(event) =>
-                            setAttributes((current) =>
-                              current.map((item) =>
-                                item.id === attribute.id
-                                  ? { ...item, label: event.target.value }
-                                  : item,
-                              ),
-                            )
-                          }
-                          placeholder={
-                            index === 0 ? "Ex.: Tamanho" : "Ex.: Modelo"
-                          }
-                          required
-                        />
-                        {attributes.length > 1 ? (
-                          <button
-                            className="icon-button danger"
-                            type="button"
-                            title={`Remover atributo ${index + 1}`}
-                            aria-label={`Remover atributo ${index + 1}`}
-                            onClick={() => removeAttribute(index)}
-                          >
-                            <Trash2 size={14} aria-hidden="true" />
-                          </button>
-                        ) : null}
+                {origin === "tag" && conversionEventCarriesValue(eventName) ? (
+                  <>
+                    <label>
+                      <span className="field-label">
+                        {conversionEventRequiresValue(eventName)
+                          ? "Valor medio (R$)"
+                          : "Valor medio (opcional)"}
                       </span>
+                      <input
+                        value={averageValue}
+                        onChange={(event) =>
+                          setAverageValue(event.target.value)
+                        }
+                        inputMode="decimal"
+                        placeholder="Ex.: 299,90"
+                        required={conversionEventRequiresValue(eventName)}
+                      />
                     </label>
-                  ))}
-                </div>
+                    <label>
+                      <span className="field-label">Produto (opcional)</span>
+                      <input
+                        value={contentName}
+                        onChange={(event) => setContentName(event.target.value)}
+                        maxLength={180}
+                        placeholder="Ex.: Pedido medio"
+                      />
+                    </label>
+                  </>
+                ) : null}
               </div>
 
-              <div className="provider-catalog-section">
-                <div className="provider-catalog-section-heading">
-                  <div>
-                    <span className="micro-label">
-                      Preco fixo por combinacao
-                    </span>
-                    <strong>Variantes</strong>
-                  </div>
-                  <button
-                    className="button subtle"
-                    type="button"
-                    onClick={addVariant}
-                  >
-                    <Plus size={14} aria-hidden="true" />
-                    Adicionar variante
-                  </button>
+              {origin === "message" ? (
+                <MessagePhraseFields
+                  eventName={eventName}
+                  averageValue={averageValue}
+                  contentName={contentName}
+                  primaryPhrase={primaryPhrase}
+                  variationPhrases={variationPhrases}
+                  exampleMessage={exampleMessage}
+                  valueMode={valueMode}
+                  messageAuthorScope={messageAuthorScope}
+                  onChange={(patch) => {
+                    if (patch.averageValue !== undefined) {
+                      setAverageValue(patch.averageValue);
+                    }
+                    if (patch.contentName !== undefined) {
+                      setContentName(patch.contentName);
+                    }
+                    if (patch.primaryPhrase !== undefined) {
+                      setPrimaryPhrase(patch.primaryPhrase);
+                    }
+                    if (patch.variationPhrases !== undefined) {
+                      setVariationPhrases(patch.variationPhrases);
+                    }
+                    if (patch.exampleMessage !== undefined) {
+                      setExampleMessage(patch.exampleMessage);
+                    }
+                    if (patch.valueMode !== undefined) {
+                      setValueMode(patch.valueMode);
+                    }
+                    if (patch.messageAuthorScope !== undefined) {
+                      setMessageAuthorScope(patch.messageAuthorScope);
+                    }
+                  }}
+                />
+              ) : null}
+
+              {origin === "tag" ? (
+                <div className="provider-conversion-message-fields">
+                  {resolvedWhatsappInstanceId ? (
+                    <UazapiLabelPicker
+                      whatsappInstanceId={resolvedWhatsappInstanceId}
+                      selectedLabels={triggerLabels}
+                      onLabelsChange={setTriggerLabels}
+                      fallbackValue={triggerPhrases}
+                      onFallbackChange={setTriggerPhrases}
+                    />
+                  ) : (
+                    <label>
+                      <span className="field-label">Etiquetas do WhatsApp</span>
+                      <textarea
+                        value={triggerPhrases}
+                        onChange={(event) =>
+                          setTriggerPhrases(event.target.value)
+                        }
+                        rows={3}
+                        maxLength={4_800}
+                        placeholder="Uma por linha. Ex.: Venda fechada"
+                        required
+                      />
+                      <small className="action-note">
+                        A regra dispara quando a conversa receber uma dessas
+                        etiquetas ou automacoes.
+                      </small>
+                    </label>
+                  )}
                 </div>
-                <div className="provider-catalog-variants">
-                  {variants.map((variant, variantIndex) => (
-                    <div className="provider-catalog-variant" key={variant.id}>
-                      <span className="provider-catalog-variant-index">
-                        {variantIndex + 1}
-                      </span>
-                      <div
-                        className={`provider-catalog-variant-fields attributes-${attributes.length}`}
+              ) : null}
+
+              {origin === "catalog" ? (
+                <div className="provider-conversion-base-fields">
+                  <label>
+                    <span className="field-label">Frases gatilho</span>
+                    <textarea
+                      value={triggerPhrases}
+                      onChange={(event) =>
+                        setTriggerPhrases(event.target.value)
+                      }
+                      rows={3}
+                      maxLength={4_800}
+                      placeholder="Uma por linha. Ex.: Dados para confirmar o pedido"
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">Quem pode enviar</span>
+                    <select
+                      value={messageAuthorScope}
+                      onChange={(event) =>
+                        setMessageAuthorScope(
+                          event.target.value as MessageAuthorScope,
+                        )
+                      }
+                    >
+                      <option value="team">Equipe ou bot</option>
+                      <option value="contact">Somente contato</option>
+                      <option value="both">Equipe, bot ou contato</option>
+                    </select>
+                  </label>
+                </div>
+              ) : null}
+
+              <ChannelSelector
+                channels={channels}
+                selectedChannelIds={selectedChannelIds}
+                onToggle={toggleChannel}
+              />
+
+              {origin === "catalog" ? (
+                <div className="provider-catalog-builder">
+                  <div className="provider-catalog-meta">
+                    <label>
+                      <span className="field-label">Nome do catalogo</span>
+                      <input
+                        value={catalogName}
+                        onChange={(event) => setCatalogName(event.target.value)}
+                        placeholder="Ex.: Produtos vendidos"
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span className="field-label">Produto principal</span>
+                      <input
+                        value={productName}
+                        onChange={(event) => setProductName(event.target.value)}
+                        placeholder="Ex.: Cama elastica"
+                        required
+                      />
+                    </label>
+                  </div>
+
+                  <div className="provider-catalog-section">
+                    <div className="provider-catalog-section-heading">
+                      <div>
+                        <span className="micro-label">Campos da mensagem</span>
+                        <strong>Atributos</strong>
+                      </div>
+                      {attributes.length < 2 ? (
+                        <button
+                          className="button subtle"
+                          type="button"
+                          onClick={addAttribute}
+                        >
+                          <Plus size={14} aria-hidden="true" />
+                          Adicionar atributo
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="provider-catalog-attributes">
+                      {attributes.map((attribute, index) => (
+                        <label key={attribute.id}>
+                          <span className="field-label">
+                            Atributo {index + 1}
+                          </span>
+                          <span className="provider-catalog-input-action">
+                            <input
+                              value={attribute.label}
+                              onChange={(event) =>
+                                setAttributes((current) =>
+                                  current.map((item) =>
+                                    item.id === attribute.id
+                                      ? { ...item, label: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              placeholder={
+                                index === 0 ? "Ex.: Tamanho" : "Ex.: Modelo"
+                              }
+                              required
+                            />
+                            {attributes.length > 1 ? (
+                              <button
+                                className="icon-button danger"
+                                type="button"
+                                title={`Remover atributo ${index + 1}`}
+                                aria-label={`Remover atributo ${index + 1}`}
+                                onClick={() => removeAttribute(index)}
+                              >
+                                <Trash2 size={14} aria-hidden="true" />
+                              </button>
+                            ) : null}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="provider-catalog-section">
+                    <div className="provider-catalog-section-heading">
+                      <div>
+                        <span className="micro-label">
+                          Preco fixo por combinacao
+                        </span>
+                        <strong>Variantes</strong>
+                      </div>
+                      <button
+                        className="button subtle"
+                        type="button"
+                        onClick={addVariant}
                       >
-                        <div className="provider-catalog-variant-attributes">
-                          {attributes.map((attribute, attributeIndex) => (
-                            <div
-                              className="provider-catalog-variant-attribute"
-                              key={attribute.id}
-                            >
+                        <Plus size={14} aria-hidden="true" />
+                        Adicionar variante
+                      </button>
+                    </div>
+                    <div className="provider-catalog-variants">
+                      {variants.map((variant, variantIndex) => (
+                        <div
+                          className="provider-catalog-variant"
+                          key={variant.id}
+                        >
+                          <span className="provider-catalog-variant-index">
+                            {variantIndex + 1}
+                          </span>
+                          <div
+                            className={`provider-catalog-variant-fields attributes-${attributes.length}`}
+                          >
+                            <div className="provider-catalog-variant-attributes">
+                              {attributes.map((attribute, attributeIndex) => (
+                                <div
+                                  className="provider-catalog-variant-attribute"
+                                  key={attribute.id}
+                                >
+                                  <label>
+                                    <span className="field-label">
+                                      {attribute.label ||
+                                        `Atributo ${attributeIndex + 1}`}
+                                    </span>
+                                    <input
+                                      value={
+                                        variant.values[attributeIndex] ?? ""
+                                      }
+                                      onChange={(event) =>
+                                        updateVariant(
+                                          variant.id,
+                                          (current) => ({
+                                            ...current,
+                                            values: replaceAt(
+                                              current.values,
+                                              attributeIndex,
+                                              event.target.value,
+                                            ),
+                                          }),
+                                        )
+                                      }
+                                      placeholder="Valor exato"
+                                      required
+                                    />
+                                  </label>
+                                  <label>
+                                    <span className="field-label">
+                                      Outras formas aceitas (opcional)
+                                    </span>
+                                    <input
+                                      value={
+                                        variant.aliases[attributeIndex] ?? ""
+                                      }
+                                      onChange={(event) =>
+                                        updateVariant(
+                                          variant.id,
+                                          (current) => ({
+                                            ...current,
+                                            aliases: replaceAt(
+                                              current.aliases,
+                                              attributeIndex,
+                                              event.target.value,
+                                            ),
+                                          }),
+                                        )
+                                      }
+                                      placeholder="Ex.: abreviacao, outra escrita"
+                                      title="Separe por virgulas apenas quando o mesmo valor puder chegar escrito de outra forma."
+                                    />
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="provider-catalog-variant-commerce">
                               <label>
                                 <span className="field-label">
-                                  {attribute.label ||
-                                    `Atributo ${attributeIndex + 1}`}
+                                  Preco da combinacao (R$)
                                 </span>
                                 <input
-                                  value={variant.values[attributeIndex] ?? ""}
+                                  value={variant.value}
                                   onChange={(event) =>
                                     updateVariant(variant.id, (current) => ({
                                       ...current,
-                                      values: replaceAt(
-                                        current.values,
-                                        attributeIndex,
-                                        event.target.value,
-                                      ),
+                                      value: event.target.value,
                                     }))
                                   }
-                                  placeholder="Valor exato"
+                                  inputMode="decimal"
+                                  placeholder="Ex.: 1.597,00"
                                   required
                                 />
                               </label>
                               <label>
                                 <span className="field-label">
-                                  Outras formas aceitas (opcional)
+                                  Nome da variante na Meta (opcional)
                                 </span>
                                 <input
-                                  value={variant.aliases[attributeIndex] ?? ""}
+                                  value={variant.contentName}
                                   onChange={(event) =>
                                     updateVariant(variant.id, (current) => ({
                                       ...current,
-                                      aliases: replaceAt(
-                                        current.aliases,
-                                        attributeIndex,
-                                        event.target.value,
-                                      ),
+                                      contentName: event.target.value,
                                     }))
                                   }
-                                  placeholder="Ex.: abreviacao, outra escrita"
-                                  title="Separe por virgulas apenas quando o mesmo valor puder chegar escrito de outra forma."
+                                  placeholder="Automatico: produto + atributos"
+                                  title="Se ficar vazio, o nome sera montado automaticamente com o produto e os atributos desta variante."
                                 />
                               </label>
                             </div>
-                          ))}
-                        </div>
-                        <div className="provider-catalog-variant-commerce">
-                          <label>
-                            <span className="field-label">
-                              Preco da combinacao (R$)
-                            </span>
-                            <input
-                              value={variant.value}
-                              onChange={(event) =>
-                                updateVariant(variant.id, (current) => ({
-                                  ...current,
-                                  value: event.target.value,
-                                }))
+                          </div>
+                          {variants.length > 1 ? (
+                            <button
+                              className="icon-button danger"
+                              type="button"
+                              title={`Remover variante ${variantIndex + 1}`}
+                              aria-label={`Remover variante ${variantIndex + 1}`}
+                              onClick={() =>
+                                setVariants((current) =>
+                                  current.filter(
+                                    (item) => item.id !== variant.id,
+                                  ),
+                                )
                               }
-                              inputMode="decimal"
-                              placeholder="Ex.: 1.597,00"
-                              required
-                            />
-                          </label>
-                          <label>
-                            <span className="field-label">
-                              Nome da variante na Meta (opcional)
-                            </span>
-                            <input
-                              value={variant.contentName}
-                              onChange={(event) =>
-                                updateVariant(variant.id, (current) => ({
-                                  ...current,
-                                  contentName: event.target.value,
-                                }))
-                              }
-                              placeholder="Automatico: produto + atributos"
-                              title="Se ficar vazio, o nome sera montado automaticamente com o produto e os atributos desta variante."
-                            />
-                          </label>
+                            >
+                              <Trash2 size={14} aria-hidden="true" />
+                            </button>
+                          ) : null}
                         </div>
-                      </div>
-                      {variants.length > 1 ? (
-                        <button
-                          className="icon-button danger"
-                          type="button"
-                          title={`Remover variante ${variantIndex + 1}`}
-                          aria-label={`Remover variante ${variantIndex + 1}`}
-                          onClick={() =>
-                            setVariants((current) =>
-                              current.filter((item) => item.id !== variant.id),
-                            )
-                          }
-                        >
-                          <Trash2 size={14} aria-hidden="true" />
-                        </button>
-                      ) : null}
+                      ))}
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
-            </div>
-          ) : null}
+              ) : null}
 
-          <div className="provider-conversion-builder-footer">
-            <span className="action-note">
-              A nova regra sera criada em modo de observacao.
-            </span>
-            <button
-              className="button primary"
-              type="submit"
-              disabled={pending === "create"}
-            >
-              <Check size={15} aria-hidden="true" />
-              {pending === "create" ? "Salvando..." : "Criar regra"}
-            </button>
-          </div>
-        </form>
+              <div className="provider-conversion-builder-footer">
+                <span className="action-note">
+                  A nova regra sera criada em modo de observacao.
+                </span>
+                <button
+                  className="button primary"
+                  type="submit"
+                  disabled={pending === "create"}
+                >
+                  <Check size={15} aria-hidden="true" />
+                  {pending === "create" ? "Salvando..." : "Criar regra"}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       ) : null}
 
       <div className="provider-conversion-rule-list">
@@ -910,7 +998,8 @@ export function ProviderConversionRulePanel({
                       </span>
                     </div>
                     <span>
-                      {eventLabel(rule)} / {uazapiAutomation
+                      {eventLabel(rule)} /{" "}
+                      {uazapiAutomation
                         ? "Lista WhatsApp (chat_labels)"
                         : triggerLabel(rule)}
                       {messagePhrase ? ` / ${valueModeLabel(rule)}` : ""} /{" "}
@@ -925,7 +1014,7 @@ export function ProviderConversionRulePanel({
                             : "Aguardando contato entrar na lista. Em producao, apenas leads pagos podem gerar eventos."
                           : automation
                             ? `Ultimo callback: ${formatDateTime(rule.endpoint?.lastDeliveryAt ?? null)}`
-                          : `${rule.catalog?.variants.length ?? 0} variante(s) cadastrada(s)`}
+                            : `${rule.catalog?.variants.length ?? 0} variante(s) cadastrada(s)`}
                     </small>
                   </div>
                 </div>
@@ -1813,12 +1902,7 @@ function PurchaseAuditRow({ review }: { review: PurchaseReviewDto }) {
 }
 
 type ExecutionAuditFilter =
-  | "all"
-  | "observed"
-  | "eligible"
-  | "materialized"
-  | "blocked"
-  | "failed";
+  "all" | "observed" | "eligible" | "materialized" | "blocked" | "failed";
 
 function ExecutionRuleAudit({
   rule,
@@ -1827,9 +1911,8 @@ function ExecutionRuleAudit({
   rule: ProviderConversionRuleDto;
   loadAuditAction: ProviderRuleAction;
 }) {
-  const [audit, setAudit] = useState<ProviderConversionRuleExecutionAuditDto | null>(
-    null,
-  );
+  const [audit, setAudit] =
+    useState<ProviderConversionRuleExecutionAuditDto | null>(null);
   const [filter, setFilter] = useState<ExecutionAuditFilter>("all");
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -1870,7 +1953,9 @@ function ExecutionRuleAudit({
           <ListChecks size={17} aria-hidden="true" />
           <span>
             <strong>Auditar execucoes reconhecidas</strong>
-            <small>Diagnostico e status desta regra fora do fluxo de compra</small>
+            <small>
+              Diagnostico e status desta regra fora do fluxo de compra
+            </small>
           </span>
         </span>
         <span className="status-chip">
@@ -1896,11 +1981,31 @@ function ExecutionRuleAudit({
             >
               <AuditMetric label="Total" value={audit.summary.total} />
               <AuditMetric label="Observados" value={audit.summary.observed} />
-              <AuditMetric label="Elegiveis" value={audit.summary.eligible} tone="info" />
-              <AuditMetric label="Eventos criados" value={audit.summary.materialized} tone="success" />
-              <AuditMetric label="Duplicados" value={audit.summary.duplicate} tone="warn" />
-              <AuditMetric label="Bloqueados" value={audit.summary.blocked} tone="warn" />
-              <AuditMetric label="Falhas" value={audit.summary.failed} tone="warn" />
+              <AuditMetric
+                label="Elegiveis"
+                value={audit.summary.eligible}
+                tone="info"
+              />
+              <AuditMetric
+                label="Eventos criados"
+                value={audit.summary.materialized}
+                tone="success"
+              />
+              <AuditMetric
+                label="Duplicados"
+                value={audit.summary.duplicate}
+                tone="warn"
+              />
+              <AuditMetric
+                label="Bloqueados"
+                value={audit.summary.blocked}
+                tone="warn"
+              />
+              <AuditMetric
+                label="Falhas"
+                value={audit.summary.failed}
+                tone="warn"
+              />
             </div>
 
             <div className="provider-callback-toolbar">
@@ -2007,11 +2112,13 @@ function ExecutionAuditRow({
         <small>{executionReasonLabel(item.reasonCode)}</small>
       </span>
       <span>
-        <strong>{item.leadName ?? item.phoneDisplay ?? "Lead nao localizado"}</strong>
+        <strong>
+          {item.leadName ?? item.phoneDisplay ?? "Lead nao localizado"}
+        </strong>
         <small>
           {item.valueCents !== null && item.currency
             ? formatMoney(item.valueCents, item.currency)
-            : item.matchedTriggerPhrase ?? "Sem valor identificado"}
+            : (item.matchedTriggerPhrase ?? "Sem valor identificado")}
         </small>
       </span>
       <span className="provider-callback-row-actions">
@@ -2234,8 +2341,7 @@ export function UmblerAutomationPayloadPanel({
         <li>Cole o corpo JSON acima no campo de body da acao HTTP.</li>
         <li>
           Mapeie contact.phone, conversation.id e conversation.created_at_utc
-          para os campos reais do contato e da conversa na automacao da
-          Umbler.
+          para os campos reais do contato e da conversa na automacao da Umbler.
         </li>
       </ol>
     </div>
@@ -2256,9 +2362,8 @@ function UmblerAutomationSetupDetails({
       </summary>
       <div className="provider-conversion-payload-helper-body">
         <p className="action-note">
-          A URL secreta so aparece uma vez, na criacao da regra. Se perdeu,
-          gere uma nova URL acima e repita a configuracao na automacao da
-          Umbler.
+          A URL secreta so aparece uma vez, na criacao da regra. Se perdeu, gere
+          uma nova URL acima e repita a configuracao na automacao da Umbler.
         </p>
         <UmblerAutomationPayloadPanel eventName={eventName} />
       </div>
@@ -2276,19 +2381,25 @@ export function ConversionRuleOriginEventSelector({
   eventName,
   onOriginChange,
   onEventChange,
+  guimoEnabled = true,
 }: {
   origin: ConversionRuleOrigin;
   eventName: ConversionEventNameDto;
   onOriginChange: (origin: ConversionRuleOrigin) => void;
   onEventChange: (eventName: ConversionEventNameDto) => void;
+  guimoEnabled?: boolean;
 }) {
   const catalogOnly = origin === "catalog";
+  const isGuimoOrigin = origin === "guimo";
   const events = catalogOnly
     ? conversionEventCatalogOrdered.filter(
         (event) => event.eventName === catalogOriginEventName,
       )
     : conversionEventCatalogOrdered;
   const categories = [...new Set(events.map((event) => event.category))];
+  const originOptions = (
+    Object.keys(conversionRuleOriginLabels) as ConversionRuleOrigin[]
+  ).filter((value) => value !== "guimo" || guimoEnabled);
 
   return (
     <div className="provider-conversion-target">
@@ -2301,42 +2412,52 @@ export function ConversionRuleOriginEventSelector({
               onOriginChange(event.target.value as ConversionRuleOrigin)
             }
           >
-            {(
-              Object.keys(conversionRuleOriginLabels) as ConversionRuleOrigin[]
-            ).map((value) => (
+            {originOptions.map((value) => (
               <option key={value} value={value}>
                 {conversionRuleOriginLabels[value]}
               </option>
             ))}
           </select>
         </label>
-        <label>
-          <span className="field-label">Evento enviado a Meta</span>
-          <select
-            value={eventName}
-            disabled={catalogOnly}
-            onChange={(event) =>
-              onEventChange(event.target.value as ConversionEventNameDto)
-            }
-          >
-            {categories.map((category) => (
-              <optgroup
-                key={category}
-                label={conversionEventCategoryLabels[category]}
-              >
-                {events
-                  .filter((event) => event.category === category)
-                  .map((event) => (
-                    <option key={event.eventName} value={event.eventName}>
-                      {event.label}
-                    </option>
-                  ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
+        {isGuimoOrigin ? null : (
+          <label>
+            <span className="field-label">Evento enviado a Meta</span>
+            <select
+              value={eventName}
+              disabled={catalogOnly}
+              onChange={(event) =>
+                onEventChange(event.target.value as ConversionEventNameDto)
+              }
+            >
+              {categories.map((category) => (
+                <optgroup
+                  key={category}
+                  label={conversionEventCategoryLabels[category]}
+                >
+                  {events
+                    .filter((event) => event.category === category)
+                    .map((event) => (
+                      <option key={event.eventName} value={event.eventName}>
+                        {event.label}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
-      <ConversionEventHint eventName={eventName} />
+      {isGuimoOrigin ? (
+        <div className="provider-conversion-event-hint">
+          <span className="micro-label">Movimentacao no CRM (Guimo)</span>
+          <small>
+            A conversao disparada e escolhida em cada regra Guimo, pelo nome do
+            estagio — nao ha um unico evento Meta fixo para essa origem.
+          </small>
+        </div>
+      ) : (
+        <ConversionEventHint eventName={eventName} />
+      )}
     </div>
   );
 }
@@ -2410,8 +2531,7 @@ export function MessagePhraseFields({
           }
         />
         <small className="action-note">
-          Secretarias nem sempre usam a mesma frase. Cadastre variacoes
-          comuns.
+          Secretarias nem sempre usam a mesma frase. Cadastre variacoes comuns.
         </small>
       </label>
 
@@ -2420,7 +2540,9 @@ export function MessagePhraseFields({
           <span className="field-label">Exemplo da mensagem</span>
           <textarea
             value={exampleMessage}
-            onChange={(event) => onChange({ exampleMessage: event.target.value })}
+            onChange={(event) =>
+              onChange({ exampleMessage: event.target.value })
+            }
             rows={3}
             maxLength={2_000}
             placeholder={
@@ -3233,7 +3355,9 @@ export function mergeTriggerPhrases(
   primaryPhrase: string,
   variationPhrases: string,
 ): string {
-  return [primaryPhrase, variationPhrases].filter((part) => part.trim()).join("\n");
+  return [primaryPhrase, variationPhrases]
+    .filter((part) => part.trim())
+    .join("\n");
 }
 
 function emptyVariant(id: number, attributeCount: number): CatalogVariantDraft {
@@ -3360,11 +3484,7 @@ function automationAuditTone(
   status: ProviderConversionAutomationAuditItemDto["status"],
 ): "" | "warn" | "bad" | "neutral" {
   if (status === "materialized") return "";
-  if (
-    status === "observed" ||
-    status === "eligible" ||
-    status === "ignored"
-  ) {
+  if (status === "observed" || status === "eligible" || status === "ignored") {
     return "neutral";
   }
   if (status === "blocked" || status === "duplicate") return "warn";
