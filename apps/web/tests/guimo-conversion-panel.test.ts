@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import type { GuimoIntegrationDto } from "@wpptrack/shared";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -221,10 +228,89 @@ describe("guimo connected connection actions", () => {
   });
 });
 
+describe("guimo rule form value mode (value-bearing events only)", () => {
+  it("shows no value mode selector or fixed amount for Lead qualificado, the default event", () => {
+    renderInteractive({ integrations: [connectedNoRules] });
+    fireEvent.click(screen.getByRole("button", { name: "Nova regra" }));
+
+    const createForm = screen
+      .getByRole("button", { name: "Criar regra" })
+      .closest("form") as HTMLFormElement;
+    const scope = within(createForm);
+
+    expect(
+      (scope.getByLabelText("Conversao disparada") as HTMLSelectElement)
+        .value,
+    ).toBe("QualifiedLead");
+    expect(scope.queryByText("Valor")).toBeNull();
+    expect(scope.queryByLabelText("Valor fixo")).toBeNull();
+    expect(
+      scope.queryByLabelText("Valor dinamico do negocio (Guimo)"),
+    ).toBeNull();
+  });
+
+  it("reveals the value mode selector for a value-bearing event and clears it again when switching back", () => {
+    renderInteractive({ integrations: [connectedNoRules] });
+    fireEvent.click(screen.getByRole("button", { name: "Nova regra" }));
+
+    const createForm = screen
+      .getByRole("button", { name: "Criar regra" })
+      .closest("form") as HTMLFormElement;
+    const scope = within(createForm);
+
+    fireEvent.change(scope.getByLabelText("Conversao disparada"), {
+      target: { value: "Purchase" },
+    });
+    expect(
+      scope.getByLabelText("Valor dinamico do negocio (Guimo)"),
+    ).toBeTruthy();
+
+    fireEvent.click(scope.getByLabelText("Valor fixo"));
+    fireEvent.change(scope.getByPlaceholderText("Ex.: 199,90"), {
+      target: { value: "199,90" },
+    });
+
+    fireEvent.change(scope.getByLabelText("Conversao disparada"), {
+      target: { value: "QualifiedLead" },
+    });
+
+    expect(scope.queryByLabelText("Valor fixo")).toBeNull();
+    expect(scope.queryByPlaceholderText("Ex.: 199,90")).toBeNull();
+  });
+
+  it("submits an explicit dynamic valueMode (and no fixedValueAmount) when creating a Lead qualificado rule", async () => {
+    const conversionRuleAction = vi.fn(async (_formData: FormData) => ({
+      ok: true as const,
+      message: "ok",
+    }));
+    renderInteractive({
+      integrations: [connectedNoRules],
+      createRuleAction: conversionRuleAction,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Nova regra" }));
+
+    const createForm = screen
+      .getByRole("button", { name: "Criar regra" })
+      .closest("form") as HTMLFormElement;
+    const scope = within(createForm);
+
+    fireEvent.change(scope.getByPlaceholderText("Ex.: Lead Qualificado"), {
+      target: { value: "Novo Lead" },
+    });
+    fireEvent.click(scope.getByRole("button", { name: "Criar regra" }));
+
+    await waitFor(() => expect(conversionRuleAction).toHaveBeenCalledTimes(1));
+    const sentFormData = conversionRuleAction.mock.calls[0][0] as FormData;
+    expect(sentFormData.get("valueMode")).toBe("dynamic");
+    expect(sentFormData.get("fixedValueAmount")).toBeNull();
+  });
+});
+
 function renderInteractive({
   canManage = true,
   integrations = [],
   provisionAction,
+  createRuleAction,
 }: {
   canManage?: boolean;
   integrations?: GuimoIntegrationDto[];
@@ -235,6 +321,10 @@ function renderInteractive({
       webhookUrl: string | null;
       webhookPath: string;
     };
+  }>;
+  createRuleAction?: (formData: FormData) => Promise<{
+    ok: true;
+    message: string;
   }>;
 } = {}) {
   const connectAction =
@@ -247,10 +337,12 @@ function renderInteractive({
     ok: true as const,
     message: "ok",
   }));
-  const conversionRuleAction = vi.fn(async (_formData: FormData) => ({
-    ok: true as const,
-    message: "ok",
-  }));
+  const conversionRuleAction =
+    createRuleAction ??
+    vi.fn(async (_formData: FormData) => ({
+      ok: true as const,
+      message: "ok",
+    }));
 
   return render(
     createElement(GuimoConversionPanel, {

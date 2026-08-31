@@ -5,7 +5,11 @@ import type {
   GuimoConversionRuleDto,
   GuimoIntegrationDto,
 } from "@wpptrack/shared";
-import { conversionEventDisplayLabels, conversionEventNameSchema } from "@wpptrack/shared";
+import {
+  conversionEventCarriesValue,
+  conversionEventDisplayLabels,
+  conversionEventNameSchema,
+} from "@wpptrack/shared";
 import {
   Check,
   Copy,
@@ -444,6 +448,21 @@ function GuimoRuleForm({
       ? (initial.fixedValueCents / 100).toFixed(2).replace(".", ",")
       : "",
   );
+  const carriesValue = conversionEventCarriesValue(eventName);
+
+  /**
+   * Some conversions (ex.: Lead qualificado) never carry a monetary value.
+   * Switching into one of those drops the stale value mode/amount from state
+   * so they cannot leak into the payload; switching back starts from the
+   * "dynamic" default, same as a brand-new rule.
+   */
+  function selectEventName(next: ConversionEventNameDto) {
+    setEventName(next);
+    if (!conversionEventCarriesValue(next)) {
+      setValueMode("dynamic");
+      setFixedValueAmount("");
+    }
+  }
 
   return (
     <form className="provider-conversion-builder" onSubmit={onSubmit}>
@@ -458,9 +477,6 @@ function GuimoRuleForm({
             disabled={pending}
             required
           />
-          <small className="action-note">
-            O casamento e feito pelo nome do estagio, nao pelo ID.
-          </small>
         </label>
         <label>
           <span className="field-label">Conversao disparada</span>
@@ -468,7 +484,7 @@ function GuimoRuleForm({
             name="eventName"
             value={eventName}
             onChange={(event) =>
-              setEventName(event.target.value as ConversionEventNameDto)
+              selectEventName(event.target.value as ConversionEventNameDto)
             }
             disabled={pending}
           >
@@ -480,51 +496,64 @@ function GuimoRuleForm({
           </select>
         </label>
       </div>
+      <p className="action-note">
+        O casamento e feito pelo nome do estagio, nao pelo ID.
+      </p>
 
-      <fieldset className="provider-conversion-value-modes">
-        <legend className="field-label">Valor</legend>
-        <div>
-          <label>
-            <input
-              type="radio"
-              name="valueMode"
-              value="dynamic"
-              checked={valueMode === "dynamic"}
-              onChange={() => setValueMode("dynamic")}
-              disabled={pending}
-            />
-            <span>Valor dinamico do negocio (Guimo)</span>
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="valueMode"
-              value="fixed"
-              checked={valueMode === "fixed"}
-              onChange={() => setValueMode("fixed")}
-              disabled={pending}
-            />
-            <span>Valor fixo</span>
-          </label>
-        </div>
-      </fieldset>
+      {carriesValue ? (
+        <>
+          <fieldset className="provider-conversion-value-modes">
+            <legend className="field-label">Valor</legend>
+            <div>
+              <label>
+                <input
+                  type="radio"
+                  name="valueMode"
+                  value="dynamic"
+                  checked={valueMode === "dynamic"}
+                  onChange={() => setValueMode("dynamic")}
+                  disabled={pending}
+                />
+                <span>Valor dinamico do negocio (Guimo)</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="valueMode"
+                  value="fixed"
+                  checked={valueMode === "fixed"}
+                  onChange={() => setValueMode("fixed")}
+                  disabled={pending}
+                />
+                <span>Valor fixo</span>
+              </label>
+            </div>
+          </fieldset>
 
-      {valueMode === "fixed" ? (
-        <div className="provider-conversion-base-fields">
-          <label>
-            <span className="field-label">Valor fixo (R$)</span>
-            <input
-              name="fixedValueAmount"
-              value={fixedValueAmount}
-              onChange={(event) => setFixedValueAmount(event.target.value)}
-              inputMode="decimal"
-              placeholder="Ex.: 199,90"
-              disabled={pending}
-              required
-            />
-          </label>
-        </div>
-      ) : null}
+          {valueMode === "fixed" ? (
+            <div className="provider-conversion-base-fields">
+              <label>
+                <span className="field-label">Valor fixo (R$)</span>
+                <input
+                  name="fixedValueAmount"
+                  value={fixedValueAmount}
+                  onChange={(event) => setFixedValueAmount(event.target.value)}
+                  inputMode="decimal"
+                  placeholder="Ex.: 199,90"
+                  disabled={pending}
+                  required
+                />
+              </label>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        // No value UI for events that never carry a monetary value: submit an
+        // explicit "dynamic" so edits clear any stale fixed value server-side
+        // instead of silently keeping it (updateGuimoConversionRuleAction only
+        // nulls fixedValueCents when it sees valueMode="dynamic").
+        <input type="hidden" name="valueMode" value="dynamic" />
+      )}
 
       <div className="provider-conversion-builder-footer">
         <span className="action-note">

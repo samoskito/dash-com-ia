@@ -189,7 +189,32 @@ describe("provider conversion rule panel — Guimo trigger source", () => {
     expect(container.textContent).toContain("Valor fixo:");
   });
 
-  it("requires a positive fixed amount only when the fixed value mode is chosen for a new rule", () => {
+  it("shows no value mode selector or fixed amount input for Lead qualificado, which never carries value", () => {
+    renderPanel({ guimoIntegrations: [connectedIntegration] });
+    openCreateDialog();
+    selectOrigin("guimo");
+    fireEvent.click(screen.getByRole("button", { name: "Nova regra" }));
+
+    const createForm = screen
+      .getByRole("button", { name: "Criar regra" })
+      .closest("form") as HTMLFormElement;
+    const scope = within(createForm);
+
+    // "Lead qualificado" (QualifiedLead) is the form's default event and
+    // never carries a monetary value.
+    const eventSelect = scope.getByLabelText(
+      "Conversao disparada",
+    ) as HTMLSelectElement;
+    expect(eventSelect.value).toBe("QualifiedLead");
+    expect(scope.queryByText("Valor")).toBeNull();
+    expect(scope.queryByLabelText("Valor fixo")).toBeNull();
+    expect(
+      scope.queryByLabelText("Valor dinamico do negocio (Guimo)"),
+    ).toBeNull();
+    expect(scope.queryByPlaceholderText("Ex.: 199,90")).toBeNull();
+  });
+
+  it("requires a positive fixed amount only when the fixed value mode is chosen for a value-bearing event", () => {
     renderPanel({ guimoIntegrations: [connectedIntegration] });
     openCreateDialog();
     selectOrigin("guimo");
@@ -202,6 +227,10 @@ describe("provider conversion rule panel — Guimo trigger source", () => {
 
     const stageNameInput = scope.getByPlaceholderText("Ex.: Lead Qualificado");
     expect(stageNameInput).toBeTruthy();
+
+    fireEvent.change(scope.getByLabelText("Conversao disparada"), {
+      target: { value: "Purchase" },
+    });
     expect(scope.queryByPlaceholderText("Ex.: 199,90")).toBeNull();
 
     fireEvent.click(scope.getByLabelText("Valor fixo"));
@@ -211,6 +240,44 @@ describe("provider conversion rule panel — Guimo trigger source", () => {
     expect(fixedInput.required).toBe(true);
 
     fireEvent.click(scope.getByLabelText("Valor dinamico do negocio (Guimo)"));
+    expect(scope.queryByPlaceholderText("Ex.: 199,90")).toBeNull();
+  });
+
+  it("clears the stale value mode/fixed amount when switching from a value-bearing event back to Lead qualificado", () => {
+    renderPanel({ guimoIntegrations: [connectedIntegration] });
+    openCreateDialog();
+    selectOrigin("guimo");
+    fireEvent.click(screen.getByRole("button", { name: "Nova regra" }));
+
+    const createForm = screen
+      .getByRole("button", { name: "Criar regra" })
+      .closest("form") as HTMLFormElement;
+    const scope = within(createForm);
+
+    fireEvent.change(scope.getByLabelText("Conversao disparada"), {
+      target: { value: "Purchase" },
+    });
+    fireEvent.click(scope.getByLabelText("Valor fixo"));
+    fireEvent.change(scope.getByPlaceholderText("Ex.: 199,90"), {
+      target: { value: "199,90" },
+    });
+
+    fireEvent.change(scope.getByLabelText("Conversao disparada"), {
+      target: { value: "QualifiedLead" },
+    });
+
+    expect(scope.queryByLabelText("Valor fixo")).toBeNull();
+    expect(scope.queryByPlaceholderText("Ex.: 199,90")).toBeNull();
+
+    // Switching back to a value-bearing event restores the "dynamic" default
+    // instead of resurrecting the stale fixed amount.
+    fireEvent.change(scope.getByLabelText("Conversao disparada"), {
+      target: { value: "Purchase" },
+    });
+    const dynamicRadio = scope.getByLabelText(
+      "Valor dinamico do negocio (Guimo)",
+    ) as HTMLInputElement;
+    expect(dynamicRadio.checked).toBe(true);
     expect(scope.queryByPlaceholderText("Ex.: 199,90")).toBeNull();
   });
 
