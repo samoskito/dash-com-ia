@@ -11,6 +11,7 @@ function activeIntegration(service: any) {
   return {
     id: "integration-guimo", workspaceId, status: "active", qualifiedStageId: "qualified", qualifiedStageName: null,
     purchaseStageId: null, purchaseStageName: null, purchaseCurrency: null, purchaseValueUnit: null,
+    rules: [],
     ...service.encryptHeaders({ authorization: "[REDACTED]" }),
   };
 }
@@ -69,7 +70,7 @@ describe("Guimo webhook queue processor", () => {
       await expect(harness.processor.process(job)).resolves.toEqual({ status: "processed", errorCode: null });
       expect(harness.updates).toContainEqual(expect.objectContaining({ eventType: "Purchase" }));
       expect(harness.adapter.getNegotiation).not.toHaveBeenCalled();
-      expect(harness.conversions.recordExternalConversion).toHaveBeenCalledWith(expect.objectContaining({ eventName: "Purchase", valueCents: 1250 }));
+      expect(harness.conversions.recordExternalConversion).toHaveBeenCalledWith(expect.objectContaining({ eventName: "Purchase", valueCents: 1250, currency: "BRL" }));
     } finally {
       if (harness.originalKey === undefined) delete process.env.GUIMO_CRM_ENCRYPTION_KEY;
       else process.env.GUIMO_CRM_ENCRYPTION_KEY = harness.originalKey;
@@ -91,6 +92,21 @@ describe("Guimo webhook queue processor", () => {
 
       event.integration.rules[0].active = false;
       await expect(harness.processor.process(job)).resolves.toEqual({ status: "ignored", errorCode: "stage_not_configured" });
+    } finally {
+      if (harness.originalKey === undefined) delete process.env.GUIMO_CRM_ENCRYPTION_KEY;
+      else process.env.GUIMO_CRM_ENCRYPTION_KEY = harness.originalKey;
+    }
+  });
+
+  it("blocks a dynamic Purchase rule without configured currency and unit", async () => {
+    const harness = processorHarness();
+    try {
+      const event = await harness.prisma.guimoWebhookEvent.findFirst();
+      event.stageName = "Venda";
+      event.integration.rules = [{ id: "rule-dynamic", stageName: "Venda", eventName: "Purchase", valueMode: "dynamic", fixedValueCents: null, active: true }];
+      harness.adapter.getNegotiation.mockResolvedValue({ value: 19.9 });
+      await expect(harness.processor.process(job)).resolves.toEqual({ status: "blocked", errorCode: "purchase_currency_or_unit_not_configured" });
+      expect(harness.conversions.recordExternalConversion).not.toHaveBeenCalled();
     } finally {
       if (harness.originalKey === undefined) delete process.env.GUIMO_CRM_ENCRYPTION_KEY;
       else process.env.GUIMO_CRM_ENCRYPTION_KEY = harness.originalKey;

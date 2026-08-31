@@ -350,48 +350,6 @@ export function GuimoConversionPanel({
               <input type="hidden" name="workspaceId" value={workspaceId} />
               <div className="provider-conversion-base-fields provider-conversion-base-fields-2col">
                 <label>
-                  <span className="field-label">
-                    Estagio de lead qualificado (nome na Guimo)
-                  </span>
-                  <input
-                    name="qualifiedStageName"
-                    placeholder="Ex.: Lead Qualificado"
-                    disabled={pending === "connect"}
-                  />
-                </label>
-                <label>
-                  <span className="field-label">
-                    Estagio de compra (nome na Guimo)
-                  </span>
-                  <input
-                    name="purchaseStageName"
-                    placeholder="Ex.: Venda Fechada"
-                    disabled={pending === "connect"}
-                  />
-                </label>
-                <label>
-                  <span className="field-label">Moeda da compra</span>
-                  <input
-                    name="purchaseCurrency"
-                    defaultValue="BRL"
-                    maxLength={10}
-                    disabled={pending === "connect"}
-                  />
-                </label>
-                <label>
-                  <span className="field-label">Unidade do valor do negocio</span>
-                  <select
-                    name="purchaseValueUnit"
-                    defaultValue="cents"
-                    disabled={pending === "connect"}
-                  >
-                    <option value="major">Valor cheio (Ex.: 199.90)</option>
-                    <option value="cents">Centavos (Ex.: 19990)</option>
-                  </select>
-                </label>
-              </div>
-              <div className="provider-conversion-base-fields provider-conversion-base-fields-2col">
-                <label>
                   <span className="field-label">CRM - Authorization</span>
                   <input
                     type="password"
@@ -399,6 +357,7 @@ export function GuimoConversionPanel({
                     placeholder="Bearer ..."
                     autoComplete="off"
                     disabled={pending === "connect"}
+                    required
                   />
                 </label>
                 <label>
@@ -409,9 +368,44 @@ export function GuimoConversionPanel({
                     placeholder="Chave de API"
                     autoComplete="off"
                     disabled={pending === "connect"}
+                    required
                   />
                 </label>
               </div>
+
+              <details className="provider-conversion-rule-scope">
+                <summary>
+                  <span>Avancado (opcional)</span>
+                </summary>
+                <div className="provider-conversion-base-fields provider-conversion-base-fields-2col">
+                  <label>
+                    <span className="field-label">Moeda da compra</span>
+                    <input
+                      name="purchaseCurrency"
+                      defaultValue="BRL"
+                      maxLength={10}
+                      disabled={pending === "connect"}
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">Unidade do valor do negocio</span>
+                    <select
+                      name="purchaseValueUnit"
+                      defaultValue="cents"
+                      disabled={pending === "connect"}
+                    >
+                      <option value="major">Valor cheio (Ex.: 199.90)</option>
+                      <option value="cents">Centavos (Ex.: 19990)</option>
+                    </select>
+                  </label>
+                </div>
+                <p className="action-note">
+                  Usado somente pelas regras de valor dinamico do Purchase,
+                  quando o negocio tem valor monetario na Guimo. Deixe em
+                  branco se todas as suas regras usarem valor fixo.
+                </p>
+              </details>
+
               <div className="provider-conversion-builder-footer">
                 <span className="action-note">
                   As credenciais do CRM ficam so aqui, na conexao — nao se

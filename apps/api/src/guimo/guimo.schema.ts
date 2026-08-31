@@ -2,7 +2,7 @@ export const GUIMO_CRM_AUTH_HEADER_NAMES = ["authorization", "x-api-key"] as con
 const GUIMO_CRM_AUTH_HEADER_NAME_SET = new Set<string>(GUIMO_CRM_AUTH_HEADER_NAMES);
 const GUIMO_OPERATIONAL_HEADER_NAMES = new Set(["accept", "content-type", "host", "origin"]);
 
-export type GuimoConfigurationInput = { qualifiedStageId?: string; qualifiedStageName?: string; purchaseStageId?: string; purchaseStageName?: string; purchaseCurrency?: string; purchaseValueUnit?: "major" | "cents"; crmHeaders?: Record<string, string> };
+export type GuimoConfigurationInput = { qualifiedStageId?: string | null; qualifiedStageName?: string | null; purchaseStageId?: string | null; purchaseStageName?: string | null; purchaseCurrency?: string | null; purchaseValueUnit?: "major" | "cents" | null; crmHeaders?: Record<string, string> };
 
 export function parseGuimoConversionRuleCreate(value: unknown): GuimoConversionRuleCreateInputDto | null {
   const parsed = guimoConversionRuleCreateInputSchema.safeParse(value);
@@ -30,8 +30,7 @@ export function parseGuimoCrmHeaders(value: unknown): Record<string, string> | n
 
 export function parseGuimoConfiguration(value: unknown): GuimoConfigurationInput | null {
   const result = parseGuimoConfigurationFields(value);
-  if (!result) return null;
-  return result.qualifiedStageId || result.qualifiedStageName || result.purchaseStageId || result.purchaseStageName ? result : null;
+  return result;
 }
 
 /** Same field parsing as `parseGuimoConfiguration`, but for a partial update: any single
@@ -44,10 +43,11 @@ export function parseGuimoConfigurationUpdate(value: unknown): GuimoConfiguratio
 
 function parseGuimoConfigurationFields(value: unknown): GuimoConfigurationInput | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const v = value as Record<string, unknown>; const text = (key: string) => typeof v[key] === "string" && v[key].trim() ? v[key].trim() : undefined;
+  const v = value as Record<string, unknown>;
+  const text = (key: string): string | null | undefined => v[key] === null ? null : typeof v[key] === "string" && v[key].trim() ? v[key].trim() : undefined;
   const unit = text("purchaseValueUnit"); if (unit && unit !== "major" && unit !== "cents") return null;
   const headers = v.crmHeaders === undefined ? undefined : parseGuimoCrmHeaders(v.crmHeaders);
   if (v.crmHeaders !== undefined && !headers) return null;
-  return { qualifiedStageId: text("qualifiedStageId"), qualifiedStageName: text("qualifiedStageName"), purchaseStageId: text("purchaseStageId"), purchaseStageName: text("purchaseStageName"), purchaseCurrency: text("purchaseCurrency"), purchaseValueUnit: unit as "major" | "cents" | undefined, crmHeaders: headers ?? undefined };
+  return { qualifiedStageId: text("qualifiedStageId"), qualifiedStageName: text("qualifiedStageName"), purchaseStageId: text("purchaseStageId"), purchaseStageName: text("purchaseStageName"), purchaseCurrency: text("purchaseCurrency"), purchaseValueUnit: unit as "major" | "cents" | null | undefined, crmHeaders: headers ?? undefined };
 }
 import { guimoConversionRuleCreateInputSchema, guimoConversionRuleUpdateInputSchema, type GuimoConversionRuleCreateInputDto, type GuimoConversionRuleUpdateInputDto } from "@wpptrack/shared";

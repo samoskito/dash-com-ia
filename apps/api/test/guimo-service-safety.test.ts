@@ -55,6 +55,27 @@ describe("Guimo ingress safety", () => {
     if (originalApiPublicUrl === undefined) delete process.env.API_PUBLIC_URL;
     else process.env.API_PUBLIC_URL = originalApiPublicUrl;
   });
+  it("activates credentials-only provisioning without legacy stages or purchase configuration", async () => {
+    const originalKey = process.env.GUIMO_CRM_ENCRYPTION_KEY;
+    process.env.GUIMO_CRM_ENCRYPTION_KEY = Buffer.alloc(32, 1).toString("base64");
+    const prisma: any = { guimoIntegration: { create: vi.fn(async ({ data }) => ({ id: "g1", webhookVersion: "v1", ...data })) }, auditLog: { create: vi.fn() } };
+    try {
+      await expect(serviceFor(prisma).provision("ws-a", "user-a", { crmHeaders: { authorization: "[REDACTED]" } })).resolves.toMatchObject({ status: "active" });
+      expect(prisma.guimoIntegration.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "active", qualifiedStageId: null, purchaseStageName: null, purchaseCurrency: null, purchaseValueUnit: null }) }));
+    } finally { if (originalKey === undefined) delete process.env.GUIMO_CRM_ENCRYPTION_KEY; else process.env.GUIMO_CRM_ENCRYPTION_KEY = originalKey; }
+  });
+  it("keeps a credentials-configured integration active after clearing legacy stages", async () => {
+    const originalKey = process.env.GUIMO_CRM_ENCRYPTION_KEY;
+    process.env.GUIMO_CRM_ENCRYPTION_KEY = Buffer.alloc(32, 1).toString("base64");
+    const now = new Date();
+    const current: any = { ...active, qualifiedStageId: "qualified", purchaseStageName: "Purchase", crmHeadersEncrypted: "ciphertext", crmHeadersIv: "iv", crmHeadersTag: "tag", webhookVersion: "v1", createdAt: now, updatedAt: now, rules: [] };
+    const prisma: any = { guimoIntegration: { findFirst: vi.fn(async () => current), update: vi.fn(async ({ data }) => ({ ...current, ...data })) }, auditLog: { create: vi.fn() } };
+    try {
+      const result = await serviceFor(prisma).update("ws-a", "g1", "user-a", { qualifiedStageId: null, purchaseStageName: null });
+      expect(result.status).toBe("active");
+      expect(prisma.guimoIntegration.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ qualifiedStageId: null, purchaseStageName: null, status: "active" }) }));
+    } finally { if (originalKey === undefined) delete process.env.GUIMO_CRM_ENCRYPTION_KEY; else process.env.GUIMO_CRM_ENCRYPTION_KEY = originalKey; }
+  });
   it("fails closed for a wrong webhook token before parsing or writes", async () => {
     const prisma = { guimoIntegration: { findUnique: vi.fn().mockResolvedValue(active) } };
     const limiter = rateLimit(); const service = serviceFor(prisma, {}, limiter);

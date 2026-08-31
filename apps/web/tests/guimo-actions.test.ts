@@ -41,10 +41,6 @@ describe("guimo server actions", () => {
     const result = await provisionGuimoIntegrationAction(
       form({
         workspaceId: "workspace_1",
-        qualifiedStageId: "stage_qualified",
-        qualifiedStageName: "Lead Qualificado",
-        purchaseStageId: "stage_purchase",
-        purchaseStageName: "Venda Fechada",
         purchaseCurrency: "BRL",
         purchaseValueUnit: "cents",
         crmAuthorization: "Bearer secret-token",
@@ -57,10 +53,6 @@ describe("guimo server actions", () => {
       {
         method: "POST",
         body: JSON.stringify({
-          qualifiedStageId: "stage_qualified",
-          qualifiedStageName: "Lead Qualificado",
-          purchaseStageId: "stage_purchase",
-          purchaseStageName: "Venda Fechada",
           purchaseCurrency: "BRL",
           purchaseValueUnit: "cents",
           crmHeaders: {
@@ -85,7 +77,7 @@ describe("guimo server actions", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/settings");
   });
 
-  it("omits crmHeaders entirely when no CRM credential fields are filled", async () => {
+  it("omits crmHeaders while forwarding only the optional fields that are filled", async () => {
     serverApiFetch.mockResolvedValueOnce({
       id: "integration_1",
       status: "blocked",
@@ -98,7 +90,7 @@ describe("guimo server actions", () => {
     await provisionGuimoIntegrationAction(
       form({
         workspaceId: "workspace_1",
-        qualifiedStageId: "stage_qualified",
+        purchaseCurrency: "BRL",
       }),
     );
 
@@ -106,24 +98,47 @@ describe("guimo server actions", () => {
       "/workspaces/workspace_1/guimo/integrations",
       {
         method: "POST",
-        body: JSON.stringify({ qualifiedStageId: "stage_qualified" }),
+        body: JSON.stringify({ purchaseCurrency: "BRL" }),
       },
     );
   });
 
-  it("rejects a provision form with no stage identifier before calling the API", async () => {
+  it("provisions an integration with only CRM credentials, no Avancado fields required", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      id: "integration_1",
+      status: "active",
+      webhookVersion: "guimo/v1",
+      webhookToken,
+      webhookUrl: null,
+      webhookPath: "/webhooks/guimo/v1/integration_1",
+    });
+
     const result = await provisionGuimoIntegrationAction(
-      form({ workspaceId: "workspace_1", purchaseCurrency: "BRL" }),
+      form({
+        workspaceId: "workspace_1",
+        crmAuthorization: "Bearer secret-token",
+        crmApiKey: "api-key-value",
+      }),
     );
 
-    expect(result).toMatchObject({ ok: false });
-    expect(serverApiFetch).not.toHaveBeenCalled();
-    expect(revalidatePath).not.toHaveBeenCalled();
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/workspaces/workspace_1/guimo/integrations",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          crmHeaders: {
+            authorization: "Bearer secret-token",
+            "x-api-key": "api-key-value",
+          },
+        }),
+      },
+    );
+    expect(result).toMatchObject({ ok: true });
   });
 
   it("rejects a provision form missing the workspace id before calling the API", async () => {
     const result = await provisionGuimoIntegrationAction(
-      form({ qualifiedStageId: "stage_qualified" }),
+      form({ crmAuthorization: "Bearer secret-token" }),
     );
 
     expect(result).toMatchObject({ ok: false });
@@ -135,7 +150,7 @@ describe("guimo server actions", () => {
     serverApiFetch.mockRejectedValueOnce(new Error(sensitive));
 
     const result = await provisionGuimoIntegrationAction(
-      form({ workspaceId: "workspace_1", qualifiedStageId: "stage_qualified" }),
+      form({ workspaceId: "workspace_1", crmAuthorization: "Bearer secret-token" }),
     );
 
     expect(result).toMatchObject({ ok: false });
@@ -155,7 +170,7 @@ describe("guimo server actions", () => {
     });
 
     const result = await provisionGuimoIntegrationAction(
-      form({ workspaceId: "workspace_1", qualifiedStageId: "stage_qualified" }),
+      form({ workspaceId: "workspace_1", crmAuthorization: "Bearer secret-token" }),
     );
 
     expect(result).toMatchObject({ ok: false });
@@ -216,7 +231,7 @@ describe("guimo server actions", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  it("updates the stage name and value fields of an existing rule", async () => {
+  it("updates moeda and unidade of an existing connection", async () => {
     serverApiFetch.mockResolvedValueOnce({
       id: "integration_1",
       status: "active",
@@ -237,7 +252,6 @@ describe("guimo server actions", () => {
       form({
         workspaceId: "workspace_1",
         integrationId: "integration_1",
-        purchaseStageName: "Venda Fechada",
         purchaseCurrency: "BRL",
         purchaseValueUnit: "cents",
       }),
@@ -248,7 +262,6 @@ describe("guimo server actions", () => {
       {
         method: "PATCH",
         body: JSON.stringify({
-          purchaseStageName: "Venda Fechada",
           purchaseCurrency: "BRL",
           purchaseValueUnit: "cents",
         }),
@@ -258,7 +271,7 @@ describe("guimo server actions", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/settings");
   });
 
-  it("rejects an update with a blank stage name before calling the API", async () => {
+  it("rejects an update with no fields to change before calling the API", async () => {
     const result = await updateGuimoIntegrationAction(
       form({ workspaceId: "workspace_1", integrationId: "integration_1" }),
     );
@@ -274,7 +287,7 @@ describe("guimo server actions", () => {
       form({
         workspaceId: "workspace_1",
         integrationId: "integration_1",
-        purchaseStageName: "Venda Fechada",
+        purchaseCurrency: "BRL",
       }),
     );
 
