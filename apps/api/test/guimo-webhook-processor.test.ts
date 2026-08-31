@@ -34,7 +34,7 @@ function processorHarness(adapterFailure?: Error) {
   const conversions = { recordExternalConversion: vi.fn(async () => ({ deliveryStatus: "not_ready", conversionEventLogId: "conversion" })) };
   const service: any = new GuimoService(prisma, {} as any, {} as any, adapter as any, conversions as any, {} as any);
   prisma.guimoWebhookEvent.findFirst.mockResolvedValue({ id: job.data.eventId, workspaceId, dedupeKey: "guimo:dedupe", contactId: "contact", negotiationId: "negotiation", stageId: "qualified", stageName: "Qualified", previousStageId: "other", previousStageName: "Other", createdAt: new Date(), integration: activeIntegration(service) });
-  return { originalKey, prisma, processor: new GuimoWebhookProcessor(service, prisma), updates };
+  return { originalKey, prisma, adapter, conversions, processor: new GuimoWebhookProcessor(service, prisma), updates };
 }
 
 describe("Guimo webhook queue processor", () => {
@@ -54,6 +54,43 @@ describe("Guimo webhook queue processor", () => {
       expect(attempt).toMatchObject({ source: "guimo", status: "processed", relatedEntityId: "event-guimo" });
       expect(attempt.summaryPayload).toEqual({ status: "processed", errorCode: null });
       expect(JSON.stringify(attempt.summaryPayload)).not.toContain("[REDACTED]");
+    } finally {
+      if (harness.originalKey === undefined) delete process.env.GUIMO_CRM_ENCRYPTION_KEY;
+      else process.env.GUIMO_CRM_ENCRYPTION_KEY = harness.originalKey;
+    }
+  });
+
+  it("matches an active rule by normalized name and uses its fixed value without CRM value lookup", async () => {
+    const harness = processorHarness();
+    try {
+      const event = await harness.prisma.guimoWebhookEvent.findFirst();
+      event.stageName = "  venda   fechada ";
+      event.integration.rules = [{ id: "rule-fixed", stageName: "Venda Fechada", eventName: "Purchase", valueMode: "fixed", fixedValueCents: 1250, active: true }];
+      await expect(harness.processor.process(job)).resolves.toEqual({ status: "processed", errorCode: null });
+      expect(harness.updates).toContainEqual(expect.objectContaining({ eventType: "Purchase" }));
+      expect(harness.adapter.getNegotiation).not.toHaveBeenCalled();
+      expect(harness.conversions.recordExternalConversion).toHaveBeenCalledWith(expect.objectContaining({ eventName: "Purchase", valueCents: 1250 }));
+    } finally {
+      if (harness.originalKey === undefined) delete process.env.GUIMO_CRM_ENCRYPTION_KEY;
+      else process.env.GUIMO_CRM_ENCRYPTION_KEY = harness.originalKey;
+    }
+  });
+
+  it("uses CRM negotiation value for a dynamic Purchase rule and ignores inactive rules", async () => {
+    const harness = processorHarness();
+    try {
+      const event = await harness.prisma.guimoWebhookEvent.findFirst();
+      event.stageName = "Venda";
+      event.integration.purchaseCurrency = "BRL";
+      event.integration.purchaseValueUnit = "major";
+      event.integration.rules = [{ id: "rule-dynamic", stageName: "Venda", eventName: "Purchase", valueMode: "dynamic", fixedValueCents: null, active: true }];
+      harness.adapter.getNegotiation.mockResolvedValue({ value: 19.9 });
+      await expect(harness.processor.process(job)).resolves.toEqual({ status: "processed", errorCode: null });
+      expect(harness.adapter.getNegotiation).toHaveBeenCalled();
+      expect(harness.conversions.recordExternalConversion).toHaveBeenCalledWith(expect.objectContaining({ valueCents: 1990, currency: "BRL" }));
+
+      event.integration.rules[0].active = false;
+      await expect(harness.processor.process(job)).resolves.toEqual({ status: "ignored", errorCode: "stage_not_configured" });
     } finally {
       if (harness.originalKey === undefined) delete process.env.GUIMO_CRM_ENCRYPTION_KEY;
       else process.env.GUIMO_CRM_ENCRYPTION_KEY = harness.originalKey;

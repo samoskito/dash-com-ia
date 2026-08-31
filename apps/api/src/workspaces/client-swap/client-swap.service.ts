@@ -22,6 +22,7 @@ export const CLIENT_SWAP_COMPLETED_ACTION = "workspace.client_swapped";
 
 /** Workspace-scoped Prisma delegates wiped in FK-safe order (children first). */
 export const CLIENT_SWAP_PRE_CONNECTOR_DELEGATES = [
+  "guimoConversionRule",
   "guimoWebhookEvent",
   "guimoWebhookRateLimit",
   "purchaseValueAdjustment",
@@ -98,6 +99,7 @@ export const CLIENT_SWAP_WIPE_DELEGATES = [
  * are omitted because deleteMany is a single statement.
  */
 export const CLIENT_SWAP_RESTRICT_EDGES = [
+  ["guimoConversionRule", "guimoIntegration"],
   ["guimoWebhookEvent", "guimoIntegration"],
   ["guimoWebhookRateLimit", "guimoIntegration"],
   ["whatsappSeat", "whatsappInstance"],

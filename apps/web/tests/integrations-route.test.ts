@@ -368,12 +368,6 @@ describe("integrations route", () => {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
       );
 
     const element = await IntegrationsPage({
@@ -386,14 +380,13 @@ describe("integrations route", () => {
     expect(html).toContain('aria-label="Atalhos das integracoes"');
     expect(html).toContain('href="#integracao-meta"');
     expect(html).toContain('href="#integracao-whatsapp"');
-    expect(html).toContain('href="#integracao-guimo"');
     expect(html).toContain('href="#integracao-fluxo"');
     expect(html).toContain('id="integracao-meta"');
     expect(html).toContain('id="integracao-whatsapp"');
-    expect(html).toContain('id="integracao-guimo"');
     expect(html).toContain('id="integracao-fluxo"');
-    expect(html).toContain("Guimo CRM");
-    expect(html).toContain("x-wpptrack-webhook-token");
+    expect(html).not.toContain("Guimo CRM");
+    expect(html).not.toContain('id="integracao-guimo"');
+    expect(html).not.toContain("x-wpptrack-webhook-token");
     expect(
       html.match(/class="integration-domain-section [^"]+"/g),
     ).toHaveLength(3);
@@ -576,10 +569,6 @@ describe("integrations route", () => {
           },
           stages: [],
         });
-      }
-
-      if (url.includes("/guimo/integrations")) {
-        return json([]);
       }
 
       if (url.endsWith("/workspaces/current")) {
