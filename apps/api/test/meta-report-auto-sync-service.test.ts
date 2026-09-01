@@ -110,7 +110,10 @@ describe("meta report auto sync service", () => {
   });
 
   it("continues enqueueing other workspaces when one workspace fails", async () => {
-    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const warn = vi
+      .spyOn(Logger.prototype, "warn")
+      .mockImplementation(() => undefined);
+    const secret = "synthetic-secret-meta-token";
     const prisma = {
       workspace: {
         findMany: vi.fn(async () => [
@@ -122,7 +125,7 @@ describe("meta report auto sync service", () => {
     const queueService = {
       enqueueWorkspaceSync: vi
         .fn()
-        .mockRejectedValueOnce(new Error("Redis indisponivel"))
+        .mockRejectedValueOnce(new Error(`Redis unavailable: ${secret}`))
         .mockResolvedValueOnce({ status: "queued" }),
     };
     const service = new MetaReportAutoSyncService(
@@ -133,7 +136,9 @@ describe("meta report auto sync service", () => {
       },
     );
 
-    await expect(service.syncDueWorkspaces()).resolves.toMatchObject({
+    const result = await service.syncDueWorkspaces();
+
+    expect(result).toMatchObject({
       enabled: true,
       workspacesFound: 2,
       enqueued: 1,
@@ -141,5 +146,40 @@ describe("meta report auto sync service", () => {
       since: "2026-07-03",
       until: "2026-07-09",
     });
+    expect(result).not.toHaveProperty("error");
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(warn).toHaveBeenCalledWith("META_REPORT_AUTO_SYNC_ENQUEUE_FAILED");
+    expect(warn.mock.calls.flat().join(" ")).not.toContain(secret);
+  });
+
+  it("uses a safe diagnostic when bootstrap sync fails", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("WPPTRACK_META_AUTO_SYNC_ENABLED", "true");
+    vi.stubEnv("WPPTRACK_META_AUTO_SYNC_INITIAL_DELAY_SECONDS", "1");
+    vi.stubEnv("WPPTRACK_META_AUTO_SYNC_INTERVAL_MINUTES", "999");
+    const warn = vi
+      .spyOn(Logger.prototype, "warn")
+      .mockImplementation(() => undefined);
+    const secret = "synthetic-secret-bootstrap-token";
+    const prisma = {
+      workspace: {
+        findMany: vi.fn(async () => {
+          throw new Error(`connection failed: ${secret}`);
+        }),
+      },
+    };
+    const service = new MetaReportAutoSyncService(
+      prisma as never,
+      { enqueueWorkspaceSync: vi.fn() } as never,
+    );
+
+    service.onApplicationBootstrap();
+    await vi.advanceTimersByTimeAsync(1_000);
+    service.onModuleDestroy();
+
+    expect(warn).toHaveBeenCalledWith(
+      "META_REPORT_AUTO_SYNC_BOOTSTRAP_FAILED",
+    );
+    expect(warn.mock.calls.flat().join(" ")).not.toContain(secret);
   });
 });

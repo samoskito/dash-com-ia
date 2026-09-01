@@ -52,6 +52,35 @@ describe("meta report sync queue service", () => {
     expect(queue.add).toHaveBeenCalledTimes(2);
   });
 
+  it("propagates an enqueue failure instead of reporting the workspace sync as queued", async () => {
+    const queue = {
+      add: vi.fn(async () => {
+        throw new Error("Redis indisponivel");
+      }),
+    };
+    const resolver = {
+      listReportingSyncTargets: vi.fn(async () => [
+        {
+          workspaceId: "workspace_1",
+          businessConnectionId: "connection_1",
+          reportingAccountId: "reporting_1",
+        },
+      ]),
+    };
+    const service = new MetaReportSyncQueueService(
+      queue as never,
+      resolver as never,
+    );
+
+    await expect(
+      service.enqueueWorkspaceSync({
+        workspaceId: "workspace_1",
+        since: "2026-08-26",
+        until: "2026-09-01",
+      }),
+    ).rejects.toThrow("Redis indisponivel");
+  });
+
   it("enqueues each manual Meta report sync as a fresh retryable job", async () => {
     const queue = {
       add: vi.fn(
