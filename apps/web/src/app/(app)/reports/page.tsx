@@ -22,6 +22,7 @@ import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { MetaEntityControls } from "./meta-entity-controls";
 import { MetaReportFilters } from "./meta-report-filters";
+import { logMetaReportingSyncEnqueueFailure } from "./reports-error-logging";
 import { ReportAdPreview } from "./report-ad-preview";
 import {
   ReportPageSelectionCheckbox,
@@ -95,6 +96,7 @@ type ReportEntityCopy = {
   unknownSingular: string;
   unknownPlural: string;
 };
+
 type StructureNameScope = "campaign" | "adset" | "ad";
 type StructureStatusFilter = "all" | "active" | "inactive";
 type MetaStructureFilters = {
@@ -433,7 +435,9 @@ async function syncMetaReports(formData: FormData) {
     );
     revalidatePath("/reports");
     redirectParams.set("notice", "meta-sync-queued");
-  } catch {
+  } catch (error) {
+    // Keep operational context without serializing the error or form values.
+    logMetaReportingSyncEnqueueFailure(error);
     redirectParams.set("notice", "meta-sync-error");
   }
 
@@ -1135,7 +1139,9 @@ function metaSyncPeriodState(
 
   const ranges = accounts
     .map((account) =>
-      account.syncStatus === "synced" &&
+      // Only a completed or currently running import can use its persisted
+      // range. Unknown, pending, and error statuses remain fail-closed.
+      (account.syncStatus === "synced" || account.syncStatus === "syncing") &&
       account.lastSyncSince &&
       account.lastSyncUntil
         ? `${account.lastSyncSince}|${account.lastSyncUntil}`
@@ -1177,7 +1183,7 @@ function metaSyncCoversPeriod(
     accounts.length > 0 &&
     accounts.every(
       (account) =>
-        account.syncStatus === "synced" &&
+        (account.syncStatus === "synced" || account.syncStatus === "syncing") &&
         Boolean(account.lastSyncSince) &&
         Boolean(account.lastSyncUntil) &&
         account.lastSyncSince! <= since &&
