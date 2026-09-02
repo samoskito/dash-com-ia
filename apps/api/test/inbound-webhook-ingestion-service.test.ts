@@ -318,6 +318,30 @@ describe("inbound webhook ingestion service", () => {
     expect(harness.deliveries.size).toBe(1);
   });
 
+  it("durably accepts a large WAHA relay payload above the former 2 MiB cap", async () => {
+    const harness = createHarness();
+    const rawBody = Buffer.from(
+      JSON.stringify({
+        event: "message.any",
+        session: "waha-session-1",
+        payload: {
+          id: "waha_message_1",
+          from: "5511999990000@c.us",
+          body: "x".repeat(2 * 1024 * 1024 + 1),
+        },
+      }),
+    );
+
+    const result = await harness.service.ingest(requestInput(rawBody));
+
+    expect(result).toMatchObject({
+      status: "accepted",
+      duplicate: false,
+      queueStatus: "pending",
+    });
+    expect(harness.deliveries.size).toBe(1);
+  });
+
   it("encrypts and persists a valid Umbler EventId under connection tenancy", async () => {
     const harness = createHarness();
     const privateMarker = "private-contact-marker";
