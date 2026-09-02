@@ -97,6 +97,12 @@ export const CLIENT_SWAP_WIPE_DELEGATES = [
  * schema.prisma (explicit onDelete: Restrict, or required relations with the
  * Prisma default). Child must be deleted before parent. Same-table self-FKs
  * are omitted because deleteMany is a single statement.
+ *
+ * This list is hand-maintained but NOT self-trusted: it is cross-checked
+ * against every Restrict/default-required edge independently re-derived
+ * from the live apps/api/prisma/schema.prisma by
+ * test/client-swap.schema-order.test.ts, which fails the build if this
+ * list (or CLIENT_SWAP_WIPE_DELEGATES' order) drifts from the real schema.
  */
 export const CLIENT_SWAP_RESTRICT_EDGES = [
   ["guimoConversionRule", "guimoIntegration"],
@@ -145,8 +151,109 @@ export const CLIENT_SWAP_RESTRICT_EDGES = [
   ["inboundWebhookProductionItem", "inboundWebhookEvent"],
 ] as const;
 
-type WorkspaceDelegateName =
-  (typeof CLIENT_SWAP_WORKSPACE_DELEGATES)[number];
+/**
+ * Restrict/NoAction/default-required FKs from wiped rows to retained models.
+ *
+ * Client swap is deliberately a client-data reset, not a workspace, identity,
+ * billing, or platform-configuration deletion. Each of these FKs is safe
+ * because its child is deleted in the transaction while its parent remains;
+ * there is no parent deletion or relation update to protect with an extra
+ * disconnect. Keep this exhaustive and let the schema-order test reject an
+ * unaccounted external hard FK.
+ */
+export const CLIENT_SWAP_EXTERNAL_HARD_PARENT_EDGES = [
+  ["whatsappInstance", "workspace", "workspace", "default-required"],
+  ["whatsappSeat", "workspace", "workspace", "Restrict"],
+  ["whatsappSeat", "workspaceSubscription", "subscription", "Restrict"],
+  ["whatsappInstanceActivation", "workspace", "workspace", "default-required"],
+  [
+    "whatsappInstanceActivation",
+    "paymentCharge",
+    "paymentCharge",
+    "default-required",
+  ],
+  ["conversionRule", "workspace", "workspace", "default-required"],
+  ["providerConversionRuleConfig", "workspace", "workspace", "Restrict"],
+  [
+    "providerConversionRuleConfig",
+    "inboundWebhookParserRelease",
+    "parserRelease",
+    "Restrict",
+  ],
+  ["providerConversionRuleChannel", "workspace", "workspace", "Restrict"],
+  ["providerConversionRuleEndpoint", "workspace", "workspace", "Restrict"],
+  ["conversionCatalog", "workspace", "workspace", "Restrict"],
+  ["conversionCatalogAttribute", "workspace", "workspace", "Restrict"],
+  ["conversionCatalogVariant", "workspace", "workspace", "Restrict"],
+  ["providerConversionRuleExecution", "workspace", "workspace", "Restrict"],
+  ["providerConversionDecisionAudit", "workspace", "workspace", "Restrict"],
+  ["providerConversionShadowComparison", "workspace", "workspace", "Restrict"],
+  ["lead", "workspace", "workspace", "default-required"],
+  ["metaIntegration", "workspace", "workspace", "default-required"],
+  ["metaCredential", "workspace", "workspace", "default-required"],
+  ["metaBusinessConnection", "workspace", "workspace", "default-required"],
+  ["metaAssetSnapshot", "workspace", "workspace", "default-required"],
+  ["metaConversionDestination", "workspace", "workspace", "default-required"],
+  ["metaReportingAccount", "workspace", "workspace", "default-required"],
+  ["metaReportingAccountDestination", "workspace", "workspace", "Restrict"],
+  ["metaAdDestinationAssignment", "workspace", "workspace", "Restrict"],
+  ["inboundWebhookConnection", "workspace", "workspace", "Restrict"],
+  [
+    "inboundWebhookConnection",
+    "inboundWebhookParserRelease",
+    "parserRelease",
+    "Restrict",
+  ],
+  ["inboundWebhookChannel", "workspace", "workspace", "Restrict"],
+  ["inboundWebhookChannelRoute", "workspace", "workspace", "Restrict"],
+  ["inboundWebhookDelivery", "workspace", "workspace", "Restrict"],
+  ["purchaseReview", "workspace", "workspace", "Restrict"],
+  ["purchaseReviewItem", "workspace", "workspace", "Restrict"],
+  ["purchaseValueAdjustment", "workspace", "workspace", "Restrict"],
+  ["inboundWebhookEvent", "workspace", "workspace", "Restrict"],
+  ["inboundWebhookReplayBatch", "workspace", "workspace", "Restrict"],
+  ["inboundWebhookReplayBatch", "user", "requestedBy", "Restrict"],
+  ["inboundWebhookReplayItem", "workspace", "workspace", "Restrict"],
+  ["inboundWebhookProductionItem", "workspace", "workspace", "Restrict"],
+  ["metaCampaign", "workspace", "workspace", "default-required"],
+  ["metaAdSet", "workspace", "workspace", "default-required"],
+  ["metaAd", "workspace", "workspace", "default-required"],
+] as const;
+
+/** Explicit referential-integrity strategy for every retained hard parent. */
+export const CLIENT_SWAP_EXTERNAL_PARENT_HANDLING = {
+  workspace: {
+    action: "preserve-parent",
+    referentialIntegrity: "delete-child",
+    reason:
+      "The workspace is renamed and retained by the client-swap contract.",
+  },
+  workspaceSubscription: {
+    action: "preserve-parent",
+    referentialIntegrity: "delete-child",
+    reason:
+      "The active subscription and its billing history are outside the reset.",
+  },
+  paymentCharge: {
+    action: "preserve-parent",
+    referentialIntegrity: "delete-child",
+    reason: "Payment charges are billing records and outside the reset.",
+  },
+  inboundWebhookParserRelease: {
+    action: "preserve-parent",
+    referentialIntegrity: "delete-child",
+    reason:
+      "Parser releases are shared platform configuration, not workspace data.",
+  },
+  user: {
+    action: "preserve-parent",
+    referentialIntegrity: "delete-child",
+    reason:
+      "User identities are retained; only their workspace-scoped replay rows are removed.",
+  },
+} as const;
+
+type WorkspaceDelegateName = (typeof CLIENT_SWAP_WORKSPACE_DELEGATES)[number];
 
 type WipeModel = {
   deleteMany: (args: unknown) => Promise<{ count: number }>;

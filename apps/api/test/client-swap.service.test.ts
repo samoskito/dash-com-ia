@@ -324,6 +324,47 @@ describe("client swap service", () => {
     expect(harness.prisma.auditLog.create).not.toHaveBeenCalled();
   });
 
+  it("never leaks Prisma error text/metadata, even for realistic Prisma exceptions", async () => {
+    class FakePrismaClientKnownRequestError extends Error {
+      code = "P2003";
+      meta = {
+        field_name: "ClientSwap_leadId_fkey (index)",
+        table: "public.Lead",
+        constraint: "Lead_workspaceId_fkey",
+      };
+      constructor() {
+        super(
+          "Foreign key constraint failed on the field: `Lead_workspaceId_fkey (index)`",
+        );
+        this.name = "PrismaClientKnownRequestError";
+      }
+    }
+
+    const harness = createHarness({
+      deleteFailures: { lead: new FakePrismaClientKnownRequestError() },
+    });
+
+    const err = await harness.service
+      .swap(workspaceId, actorUserId, { confirm: true }, idempotencyKey)
+      .catch((error: unknown) => error);
+
+    expect(err).toBeInstanceOf(InternalServerErrorException);
+    expect((err as Error).message).toBe(
+      "Nao foi possivel concluir a troca de cliente",
+    );
+    const serialized = JSON.stringify(err);
+    for (const leak of [
+      "P2003",
+      "Foreign key constraint",
+      "field_name",
+      "Lead_workspaceId_fkey",
+      "public.Lead",
+    ]) {
+      expect(serialized).not.toContain(leak);
+    }
+    expect(harness.prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
   it("uses a deterministic unique slug suffix on collision", async () => {
     const harness = createHarness({
       slugCollisions: ["novo-cliente"],
