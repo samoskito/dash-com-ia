@@ -416,6 +416,7 @@ describe("inbound webhook contracts", () => {
       providerChannelId: "provider_channel_1",
       connectedPhone: "+551143377011",
       channelName: "Central de Vendas",
+      whatsappInstanceId: null,
       status: "discovered",
       productionActivatedAt: null,
       firstSeenAt: timestamp,

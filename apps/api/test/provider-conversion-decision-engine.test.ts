@@ -265,7 +265,7 @@ describe("provider conversion decision engine", () => {
       occurrence: {
         businessDedupePolicy: {
           mode: "rolling_window",
-          scopeKey: "Purchase:workspace_1:lead_1",
+          scopeKey: "Purchase:workspace_1:connection_1:channel_1:lead_1",
           windowSeconds: 86_400,
         },
       },
@@ -374,7 +374,7 @@ describe("provider conversion decision engine", () => {
       occurrence: {
         businessDedupePolicy: {
           mode: "lifetime",
-          scopeKey: "QualifiedLead:workspace_1:lead_1",
+          scopeKey: "QualifiedLead:workspace_1:connection_1:channel_1:lead_1",
         },
       },
     });
@@ -699,8 +699,45 @@ describe("provider conversion decision engine", () => {
     });
     expect(decision?.occurrence.businessDedupePolicy).toEqual({
       mode: "lifetime",
-      scopeKey: "QualifiedLead:workspace_1:lead_1",
+      scopeKey: "QualifiedLead:workspace_1:connection_1:channel_1:lead_1",
     });
+  });
+
+  it("keeps dedupe isolated by channel while preserving it for matching entries", () => {
+    const sameChannelAutomation = engine.evaluate(
+      automationInput({ eventName: "QualifiedLead" }),
+    );
+    const sameChannelMessage = engine.evaluate(
+      messageInput({
+        messageText: "lead confirmado",
+        catalog: null,
+        rule: rule({
+          triggerType: "message_phrase",
+          eventName: "QualifiedLead",
+          triggerPhrases: ["lead confirmado"],
+        }),
+      }),
+    );
+    const otherChannelInput = messageInput({
+      messageText: "lead confirmado",
+      catalog: null,
+      rule: rule({
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+        triggerPhrases: ["lead confirmado"],
+      }),
+    });
+    const otherChannel = engine.evaluate({
+      ...otherChannelInput,
+      occurrence: { ...otherChannelInput.occurrence, channelId: "channel_2" },
+    });
+
+    expect(sameChannelAutomation?.occurrence.businessDedupePolicy).toEqual(
+      sameChannelMessage?.occurrence.businessDedupePolicy,
+    );
+    expect(otherChannel?.occurrence.businessDedupePolicy).not.toEqual(
+      sameChannelMessage?.occurrence.businessDedupePolicy,
+    );
   });
 
   it("recognizes an AddToCart message rule with a fixed value", () => {
@@ -802,7 +839,7 @@ describe("provider conversion decision engine", () => {
 
     expect(decision?.occurrence.businessDedupePolicy).toEqual({
       mode: "lifetime",
-      scopeKey: "LeadSubmitted:workspace_1:lead_1",
+      scopeKey: "LeadSubmitted:workspace_1:connection_1:channel_1:lead_1",
     });
   });
 

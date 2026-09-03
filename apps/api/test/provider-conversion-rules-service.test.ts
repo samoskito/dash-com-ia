@@ -104,6 +104,12 @@ function createHarness(
                 metaBusinessConnectionId: "meta_business_1",
                 metaReportingAccountId: "act_1",
                 metaConversionDestinationId: "dataset_1",
+                metaBusinessConnection: {
+                  status: "active",
+                  credential: { status: "active" },
+                },
+                metaReportingAccount: { active: true },
+                metaConversionDestination: { status: "configured" },
                 createdAt: now,
               },
             ],
@@ -136,7 +142,10 @@ function createHarness(
   const prisma: Record<string, any> = {
     inboundWebhookConnection: {
       findFirst: vi.fn(async ({ where }) => {
-        if (where.id !== connection.id || where.workspaceId !== connection.workspaceId) {
+        if (
+          where.id !== connection.id ||
+          where.workspaceId !== connection.workspaceId
+        ) {
           return null;
         }
         if ("provider" in where) {
@@ -182,15 +191,10 @@ function createHarness(
           )
           .map((channel) => ({
             ...channel,
-            // assertProductionReady only counts routes that are already
-            // filtered to the valid/complete ones by the query.
+            // Keep every active route in the harness so the production gate
+            // itself proves malformed routes remain fail-closed.
             routes: channel.routes.filter(
-              (route: Record<string, any>) =>
-                route.active &&
-                route.validationStatus === "valid" &&
-                route.metaBusinessConnectionId !== null &&
-                route.metaReportingAccountId !== null &&
-                route.metaConversionDestinationId !== null,
+              (route: Record<string, any>) => route.active,
             ),
           })),
       ),
@@ -403,20 +407,23 @@ function createHarness(
       }),
     },
     providerConversionRuleExecution: {
-      count: vi.fn(async ({ where } = {}) =>
-        executions.filter(
-          (execution) =>
-            (!where?.workspaceId || execution.workspaceId === where.workspaceId) &&
-            (!where?.providerRuleId ||
-              execution.providerRuleId === where.providerRuleId) &&
-            (!where?.status || execution.status === where.status),
-        ).length,
+      count: vi.fn(
+        async ({ where } = {}) =>
+          executions.filter(
+            (execution) =>
+              (!where?.workspaceId ||
+                execution.workspaceId === where.workspaceId) &&
+              (!where?.providerRuleId ||
+                execution.providerRuleId === where.providerRuleId) &&
+              (!where?.status || execution.status === where.status),
+          ).length,
       ),
       findMany: vi.fn(async ({ where, skip = 0, take } = {}) =>
         executions
           .filter(
             (execution) =>
-              (!where?.workspaceId || execution.workspaceId === where.workspaceId) &&
+              (!where?.workspaceId ||
+                execution.workspaceId === where.workspaceId) &&
               (!where?.providerRuleId ||
                 execution.providerRuleId === where.providerRuleId) &&
               (!where?.status || execution.status === where.status),
@@ -435,7 +442,10 @@ function createHarness(
             execution.workspaceId === where.workspaceId &&
             execution.providerRuleId === where.providerRuleId
           ) {
-            counts.set(execution.status, (counts.get(execution.status) ?? 0) + 1);
+            counts.set(
+              execution.status,
+              (counts.get(execution.status) ?? 0) + 1,
+            );
           }
         }
         return [...counts].map(([status, count]) => ({
@@ -888,7 +898,9 @@ describe("provider conversion rules service", () => {
     expect(created.rule.conversionRule.triggerType).toBe("message_phrase");
     expect(created.rule.connectionId).toBe("connection_1");
     expect(created.webhookUrl).toBeNull();
-    expect(harness.prisma.inboundWebhookConnection.findFirst).toHaveBeenCalledWith(
+    expect(
+      harness.prisma.inboundWebhookConnection.findFirst,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
           id: "connection_1",
@@ -925,7 +937,9 @@ describe("provider conversion rules service", () => {
     expect(created.webhookUrl).toBeNull();
     expect(created.rule.triggerPhrases).toEqual(["Venda fechada", "VIP"]);
     expect(created.rule.conversionRule.triggerValue).toBe("Venda fechada");
-    expect(harness.prisma.providerConversionRuleEndpoint.create).not.toHaveBeenCalled();
+    expect(
+      harness.prisma.providerConversionRuleEndpoint.create,
+    ).not.toHaveBeenCalled();
   });
 
   it("requires at least one label for UAZAPI tag automation", async () => {
@@ -1122,7 +1136,8 @@ describe("provider conversion rules service", () => {
       ),
     ).rejects.toMatchObject({
       status: 400,
-      message: "O modo de valor pertence apenas a regras por mensagem com valor",
+      message:
+        "O modo de valor pertence apenas a regras por mensagem com valor",
     });
   });
 
@@ -1437,7 +1452,7 @@ describe("provider conversion rules Envio ativo cascade", () => {
     );
   });
 
-  it("cascades when the rule is created straight in production", async () => {
+  it("activates directly in production when the channel has a valid Meta route", async () => {
     const harness = createHarness(1, null, {
       connectionProvider: "uazapi",
       connectionStatus: "observation",
@@ -1570,7 +1585,35 @@ describe("provider conversion rules Envio ativo cascade", () => {
       ),
     ).rejects.toMatchObject({
       status: 409,
-      message: "Configure uma rota Meta valida antes de ativar o canal",
+      message: "Configure uma rota Meta válida antes de ativar o canal",
+    });
+
+    expect(harness.connection.status).toBe("observation");
+    expect(harness.inboundChannels[0]).toMatchObject({ status: "discovered" });
+  });
+
+  it("fails closed when an active Meta route is present but incomplete", async () => {
+    const harness = createHarness(1, null, {
+      connectionStatus: "observation",
+      channelStatus: "discovered",
+    });
+    harness.inboundChannels[0]!.routes[0]!.metaConversionDestinationId = null;
+    const created = await harness.service.createRule(
+      "workspace_1",
+      messageRuleInput("observation"),
+      "user_1",
+    );
+
+    await expect(
+      harness.service.updateRule(
+        "workspace_1",
+        created.rule.id,
+        { mode: "production" },
+        "user_1",
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      message: "Configure uma rota Meta válida antes de ativar o canal",
     });
 
     expect(harness.connection.status).toBe("observation");

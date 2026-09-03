@@ -102,9 +102,9 @@ describe("provider conversion rule contracts", () => {
       page: 1,
       pageSize: 25,
     });
-    expect(
-      purchaseReviewListQuerySchema.parse({ view: "history" }).view,
-    ).toBe("history");
+    expect(purchaseReviewListQuerySchema.parse({ view: "history" }).view).toBe(
+      "history",
+    );
   });
 
   it("accepts only an observation-safe channel scope when adapting a legacy rule", () => {
@@ -153,6 +153,26 @@ describe("provider conversion rule contracts", () => {
       eventName: "QualifiedLead",
     });
     expect("defaultValueCents" in parsed).toBe(false);
+  });
+
+  it("accepts independent automation and manual-message entries for one event", () => {
+    const automation = providerConversionRuleCreateInputSchema.parse({
+      ...channelScope,
+      triggerType: "provider_automation",
+      eventName: "QualifiedLead",
+      triggerPhrases: ["Lead qualificado"],
+    });
+    const message = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "QualifiedLead",
+      triggerPhrases: ["quero avançar"],
+    });
+
+    expect(automation.eventName).toBe(message.eventName);
+    expect(automation.triggerType).toBe("provider_automation");
+    expect(message.triggerType).toBe("message_phrase");
+    expect(message).not.toHaveProperty("triggerLabels");
   });
 
   it("requires a positive average value for Purchase automation", () => {

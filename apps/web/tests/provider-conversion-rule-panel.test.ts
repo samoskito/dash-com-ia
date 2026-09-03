@@ -612,6 +612,45 @@ describe("provider conversion rule panel", () => {
     expect(payload).not.toHaveProperty("defaultValueCents");
   });
 
+  it("allows a tag and a manual message rule for the same Meta event", () => {
+    const tag = createPayload({
+      origin: "tag",
+      eventName: "QualifiedLead",
+      name: "Lead por tag",
+      triggerPhrases: "Lead qualificado",
+    });
+    const message = createPayload({
+      origin: "message",
+      eventName: "QualifiedLead",
+      name: "Lead por mensagem",
+      triggerPhrases: "quero avançar",
+    });
+
+    expect(tag).toMatchObject({
+      triggerType: "provider_automation",
+      eventName: "QualifiedLead",
+      triggerPhrases: ["Lead qualificado"],
+    });
+    expect(message).toMatchObject({
+      triggerType: "message_phrase",
+      eventName: "QualifiedLead",
+      triggerPhrases: ["quero avançar"],
+    });
+    expect(message).not.toHaveProperty("triggerLabels");
+  });
+
+  it("keeps direct production activation in the payload instead of forcing observation", () => {
+    expect(
+      createPayload({
+        origin: "message",
+        eventName: "QualifiedLead",
+        name: "Lead em produção",
+        triggerPhrases: "lead confirmado",
+        mode: "production",
+      }),
+    ).toMatchObject({ mode: "production" });
+  });
+
   it("keeps the average value required for fixed message rules", () => {
     const result = buildCreatePayload({
       ...payloadInput,
@@ -853,10 +892,8 @@ describe("provider conversion rule panel", () => {
         averageValue: "",
         contentName: "",
         primaryPhrase: "A sua consulta esta agendada",
-        variationPhrases:
-          "consulta confirmada\nestou confirmando sua consulta",
-        exampleMessage:
-          "Perfeito, estou confirmando sua consulta para as 14h.",
+        variationPhrases: "consulta confirmada\nestou confirmando sua consulta",
+        exampleMessage: "Perfeito, estou confirmando sua consulta para as 14h.",
         valueMode: "fixed",
         messageAuthorScope: "team",
         onChange: () => undefined,

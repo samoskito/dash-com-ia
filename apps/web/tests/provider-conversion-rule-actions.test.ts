@@ -377,6 +377,8 @@ describe("provider conversion rule server actions", () => {
           purchaseReviewId: null,
           attemptCount: 0,
           processedAt: null,
+          technicalDelivery: null,
+          lastProductionFailure: null,
         },
       ],
       pagination: { page: 1, pageSize: 50, totalItems: 1, totalPages: 1 },

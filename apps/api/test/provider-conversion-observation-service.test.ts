@@ -599,7 +599,7 @@ describe("provider conversion observation service", () => {
     expect(harness.purchaseReview.upsert).not.toHaveBeenCalled();
   });
 
-  it("persists an eligible observation without execution or review", async () => {
+  it("persists an eligible observation as an audit execution without review", async () => {
     const harness = createHarness("observation");
 
     const result = await harness.service.observeDelivery({
@@ -610,13 +610,20 @@ describe("provider conversion observation service", () => {
       events: [outboundCatalogEvent()],
     });
 
-    expect(result).toEqual({ executionIds: [], eligibleExecutionIds: [] });
+    expect(result).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: [],
+    });
     expect(
       harness.recordInitial.mock.calls[0]?.[0].decision.decisionCode,
     ).toBe("eligible");
     expect(
       harness.providerConversionRuleExecution.upsert,
-    ).not.toHaveBeenCalled();
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ status: "observed" }),
+      }),
+    );
     expect(harness.purchaseReview.upsert).not.toHaveBeenCalled();
   });
 
@@ -814,7 +821,10 @@ describe("provider conversion observation service", () => {
       manualRecovery: true,
     });
 
-    expect(observed).toEqual({ executionIds: [], eligibleExecutionIds: [] });
+    expect(observed).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: [],
+    });
     expect(recovered).toEqual({
       executionIds: ["execution_1"],
       eligibleExecutionIds: ["execution_1"],
@@ -840,7 +850,10 @@ describe("provider conversion observation service", () => {
       events: [event],
     });
 
-    expect(observed).toEqual({ executionIds: [], eligibleExecutionIds: [] });
+    expect(observed).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: [],
+    });
     expect(harness.recordInitial).toHaveBeenCalledTimes(1);
     expect(
       harness.recordInitial.mock.calls[0]?.[0].decision.rule.mode,
@@ -859,7 +872,7 @@ describe("provider conversion observation service", () => {
       events: [event],
     });
     expect(stillObservedWithoutRecovery).toEqual({
-      executionIds: [],
+      executionIds: ["execution_1"],
       eligibleExecutionIds: [],
     });
 

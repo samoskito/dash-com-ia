@@ -115,6 +115,7 @@ const catalogOriginEventName = "Purchase" satisfies ConversionEventNameDto;
 type MessageAuthorScope = "team" | "contact" | "both";
 
 type MessagePhraseValueMode = "fixed" | "message_extracted";
+type ProviderConversionRuleMode = "observation" | "production";
 
 /** Campos de uma regra message_phrase, qualquer que seja o evento. */
 type MessagePhraseValues = {
@@ -218,6 +219,8 @@ export function ProviderConversionRulePanel({
   const [origin, setOrigin] = useState<ConversionRuleOrigin>("message");
   const [eventName, setEventName] =
     useState<ConversionEventNameDto>("QualifiedLead");
+  const [initialMode, setInitialMode] =
+    useState<ProviderConversionRuleMode>("observation");
   const [name, setName] = useState("");
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>(() =>
     channels.map((channel) => channel.id),
@@ -263,6 +266,7 @@ export function ProviderConversionRulePanel({
       eventName,
       name,
       selectedChannelIds,
+      mode: initialMode,
       averageValue,
       contentName,
       triggerPhrases:
@@ -295,6 +299,7 @@ export function ProviderConversionRulePanel({
       setCreateOpen(false);
       setName("");
       setTriggerLabels([]);
+      setInitialMode("observation");
       if (result.oneTimeSecret) {
         setOneTimeSecret(result.oneTimeSecret);
         setOneTimeSecretEventName(origin === "tag" ? eventName : null);
@@ -702,6 +707,25 @@ export function ProviderConversionRulePanel({
                 onToggle={toggleChannel}
               />
 
+              <label className="provider-conversion-initial-mode">
+                <span className="field-label">Modo inicial</span>
+                <select
+                  value={initialMode}
+                  onChange={(event) =>
+                    setInitialMode(
+                      event.target.value as ProviderConversionRuleMode,
+                    )
+                  }
+                >
+                  <option value="observation">Observar primeiro</option>
+                  <option value="production">Ativar envio agora</option>
+                </select>
+                <small className="action-note">
+                  O envio direto só é ativado quando a rota Meta real de cada
+                  canal estiver válida; caso contrário, a API bloqueia a regra.
+                </small>
+              </label>
+
               {origin === "catalog" ? (
                 <div className="provider-catalog-builder">
                   <div className="provider-catalog-meta">
@@ -933,7 +957,9 @@ export function ProviderConversionRulePanel({
 
               <div className="provider-conversion-builder-footer">
                 <span className="action-note">
-                  A nova regra sera criada em modo de observacao.
+                  {initialMode === "production"
+                    ? "O envio será ativado agora, se os canais estiverem prontos."
+                    : "A nova regra será criada em modo de observação."}
                 </span>
                 <button
                   className="button primary"
@@ -3023,6 +3049,7 @@ export function buildCreatePayload(input: {
   eventName: ConversionEventNameDto;
   name: string;
   selectedChannelIds: string[];
+  mode?: ProviderConversionRuleMode;
   averageValue: string;
   contentName: string;
   triggerPhrases: string;
@@ -3047,7 +3074,7 @@ export function buildCreatePayload(input: {
     name,
     connectionId: input.connectionId,
     channelIds: input.selectedChannelIds,
-    mode: "observation" as const,
+    mode: input.mode ?? "observation",
   };
 
   const carriesValue = conversionEventCarriesValue(input.eventName);
