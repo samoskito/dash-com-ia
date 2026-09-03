@@ -363,6 +363,11 @@ export class ProviderConversionProductionService {
           where: {
             id: { not: execution.id },
             workspaceId: execution.workspaceId,
+            channelId: execution.channelId,
+            leadId: lead.id,
+            sourceDelivery: {
+              connectionId: execution.sourceDelivery.connectionId,
+            },
             contactIdentityHash: lead.phoneHash,
             status: "materialized",
             occurredAt: {
@@ -581,6 +586,11 @@ export class ProviderConversionProductionService {
         {
           id: { not: execution.id },
           workspaceId: execution.workspaceId,
+          channelId: execution.channelId,
+          leadId: lead.id,
+          sourceDelivery: {
+            connectionId: execution.sourceDelivery.connectionId,
+          },
           status: "materialized",
           OR: [
             {
@@ -868,6 +878,11 @@ export class ProviderConversionProductionService {
           where: {
             id: { not: execution.id },
             workspaceId: execution.workspaceId,
+            channelId: execution.channelId,
+            leadId: lead.id,
+            sourceDelivery: {
+              connectionId: execution.sourceDelivery.connectionId,
+            },
             contactIdentityHash: lead.phoneHash,
             status: "materialized",
             ...(rollingWindow

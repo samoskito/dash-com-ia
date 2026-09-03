@@ -19,6 +19,8 @@ const fixturePath = resolve(
 function createHarness(
   input: {
     duplicateHoursAgo?: number;
+    duplicateChannelId?: string;
+    duplicateConnectionId?: string;
     deliveryStatus?: string;
     automationEventName?: "QualifiedLead" | "Purchase";
     canonicalDecision?: boolean;
@@ -366,6 +368,22 @@ function createHarness(
   const executionFindFirst = vi.fn(async ({ where }: any) => {
     if (where.id && typeof where.id === "object") {
       if (!duplicateOccurredAt) return null;
+      const duplicateChannelId =
+        input.duplicateChannelId ?? execution.channelId;
+      if (
+        where.channelId !== undefined &&
+        where.channelId !== duplicateChannelId
+      ) {
+        return null;
+      }
+      const duplicateConnectionId =
+        input.duplicateConnectionId ?? execution.sourceDelivery.connectionId;
+      if (
+        where.sourceDelivery?.connectionId !== undefined &&
+        where.sourceDelivery.connectionId !== duplicateConnectionId
+      ) {
+        return null;
+      }
       if (!where.occurredAt) return { id: "older_conversion" };
       return duplicateOccurredAt > where.occurredAt.gt &&
         duplicateOccurredAt < where.occurredAt.lt
@@ -655,6 +673,55 @@ describe("provider conversion production service", () => {
       reasonCode: "purchase_within_24h",
       leadId: "lead_1",
     });
+  });
+
+  it("does not dedupe a message conversion observed on another channel", async () => {
+    const harness = createHarness({
+      duplicateHoursAgo: 23,
+      duplicateChannelId: "channel_2",
+    });
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "materialized" });
+
+    expect(harness.conversions.recordExternalConversion).toHaveBeenCalledOnce();
+  });
+
+  it("does not dedupe an automation conversion from another Meta connection", async () => {
+    const harness = createHarness({
+      automationEventName: "QualifiedLead",
+      duplicateHoursAgo: 1,
+      duplicateConnectionId: "connection_2",
+    });
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "materialized" });
+
+    expect(harness.conversions.recordExternalConversion).toHaveBeenCalledOnce();
+  });
+
+  it("keeps same-channel automation duplicates deduped", async () => {
+    const harness = createHarness({
+      automationEventName: "QualifiedLead",
+      duplicateHoursAgo: 1,
+    });
+
+    await expect(
+      harness.service.processExecution({
+        providerConversionExecutionId: harness.execution.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "duplicate" });
+
+    expect(harness.conversions.recordExternalConversion).not.toHaveBeenCalled();
   });
 
   it("accepts a repurchase exactly 24 hours after the previous purchase", async () => {
