@@ -55,6 +55,22 @@ export type PersistedInboundWebhookChannel =
     include: typeof channelActivationInclude;
   }>;
 
+type ValidatableMetaRoute = {
+  validationStatus: string;
+  metaBusinessConnectionId: string | null;
+  metaReportingAccountId: string | null;
+  metaConversionDestinationId: string | null;
+};
+
+function hasValidMetaRoute(route: ValidatableMetaRoute): boolean {
+  return (
+    route.validationStatus === validRouteStatus &&
+    Boolean(route.metaBusinessConnectionId?.trim()) &&
+    Boolean(route.metaReportingAccountId?.trim()) &&
+    Boolean(route.metaConversionDestinationId?.trim())
+  );
+}
+
 /**
  * Seat enforcement is billing-owned and optional in tests, so callers hand it
  * in. `enforcementEnabled` is only consulted at the exact point the legacy
@@ -164,16 +180,10 @@ export async function applyInboundWebhookChannelStatus(
   if (
     status === "active" &&
     input.requireValidMetaRoute &&
-    !current.routes.some(
-      (route) =>
-        route.validationStatus === validRouteStatus &&
-        route.metaBusinessConnectionId !== null &&
-        route.metaReportingAccountId !== null &&
-        route.metaConversionDestinationId !== null,
-    )
+    !current.routes.some(hasValidMetaRoute)
   ) {
     throw new ConflictException(
-      "Configure uma rota Meta valida antes de ativar o canal",
+      "Configure uma rota Meta válida antes de ativar o canal",
     );
   }
 
@@ -389,12 +399,14 @@ async function assertProductionReady(
       routes: {
         where: {
           active: true,
-          validationStatus: validRouteStatus,
-          metaBusinessConnectionId: { not: null },
-          metaReportingAccountId: { not: null },
-          metaConversionDestinationId: { not: null },
         },
-        select: { id: true },
+        select: {
+          id: true,
+          validationStatus: true,
+          metaBusinessConnectionId: true,
+          metaReportingAccountId: true,
+          metaConversionDestinationId: true,
+        },
       },
     },
   });
@@ -407,10 +419,10 @@ async function assertProductionReady(
 
   if (
     options.requireValidMetaRoute &&
-    activeChannels.some((channel) => channel.routes.length === 0)
+    activeChannels.some((channel) => !channel.routes.some(hasValidMetaRoute))
   ) {
     throw new ConflictException(
-      "Todo canal ativo precisa de uma rota Meta valida",
+      "Todo canal ativo precisa de uma rota Meta válida",
     );
   }
 

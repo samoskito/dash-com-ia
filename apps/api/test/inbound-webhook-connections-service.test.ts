@@ -547,7 +547,15 @@ describe("inbound webhook connections service", () => {
     harness.prisma.inboundWebhookChannel.findMany.mockResolvedValueOnce([
       {
         id: "channel_validated",
-        routes: [{ id: "route_validated" }],
+        routes: [
+          {
+            id: "route_validated",
+            validationStatus: "valid",
+            metaBusinessConnectionId: "meta_business_1",
+            metaReportingAccountId: "act_1",
+            metaConversionDestinationId: "dataset_1",
+          },
+        ],
       },
     ]);
 
@@ -603,7 +611,15 @@ describe("inbound webhook connections service", () => {
       .mockResolvedValueOnce([
         {
           id: "channel_billed",
-          routes: [{ id: "route_validated" }],
+          routes: [
+            {
+              id: "route_validated",
+              validationStatus: "valid",
+              metaBusinessConnectionId: "meta_business_1",
+              metaReportingAccountId: "act_1",
+              metaConversionDestinationId: "dataset_1",
+            },
+          ],
         },
       ])
       .mockResolvedValueOnce([

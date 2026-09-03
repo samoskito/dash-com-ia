@@ -234,7 +234,9 @@ export class ProviderConversionDecisionEngine {
     // the labels configured on the rule before entering the value policy.
     if (input.occurrence.labels) {
       const labels = new Set(
-        input.occurrence.labels.map((label) => label.trim().toLocaleLowerCase("pt-BR")),
+        input.occurrence.labels.map((label) =>
+          label.trim().toLocaleLowerCase("pt-BR"),
+        ),
       );
       const matched = input.rule.triggerPhrases.some((phrase) =>
         labels.has(phrase.trim().toLocaleLowerCase("pt-BR")),
@@ -352,8 +354,7 @@ export class ProviderConversionDecisionEngine {
   private base(
     input: ProviderConversionDecisionInput,
     conversion: ProviderConversionDecisionConversionDto,
-    businessDedupePolicy:
-      | ProviderConversionDecisionOccurrenceDto["businessDedupePolicy"],
+    businessDedupePolicy: ProviderConversionDecisionOccurrenceDto["businessDedupePolicy"],
   ) {
     return {
       engineVersion: PROVIDER_CONVERSION_DECISION_ENGINE_VERSION,
@@ -367,8 +368,7 @@ export class ProviderConversionDecisionEngine {
 
   private occurrence(
     input: ProviderConversionDecisionInput,
-    businessDedupePolicy:
-      | ProviderConversionDecisionOccurrenceDto["businessDedupePolicy"],
+    businessDedupePolicy: ProviderConversionDecisionOccurrenceDto["businessDedupePolicy"],
   ): ProviderConversionDecisionOccurrenceDto {
     const occurrence = input.occurrence;
 
@@ -402,6 +402,12 @@ export class ProviderConversionDecisionEngine {
     const scopeKey = [
       input.rule.eventName,
       input.occurrence.workspaceId,
+      input.occurrence.connectionId,
+      // A single paid lead can legitimately convert through two WhatsApp
+      // channels. Keep the business dedupe local to the channel that observed
+      // the fact; the production route then keeps each channel on its own Meta
+      // account/destination path.
+      input.occurrence.channelId ?? "unresolved-channel",
       input.leadResolution.lead.id,
     ].join(":");
 
