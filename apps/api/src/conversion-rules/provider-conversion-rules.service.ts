@@ -1044,14 +1044,13 @@ export class ProviderConversionRulesService {
         );
       }
 
-      // An already-active channel only needs a rewrite when the connection is
-      // production and its stamp was lost; otherwise the connection promote
-      // below stamps it.
-      if (
-        channel.status === "active" &&
-        (connection.status !== "production" ||
-          channel.productionActivatedAt !== null)
-      ) {
+      // A channel that is already active is already part of the connection's
+      // live input surface. Do not replay its activation just because a legacy
+      // row lacks productionActivatedAt: doing so re-runs the Meta-route guard
+      // while enabling an independent sibling rule. When a connection is
+      // promoted below it stamps all active channels; an already-production
+      // connection does not need this idempotent rewrite at all.
+      if (channel.status === "active") {
         continue;
       }
 
