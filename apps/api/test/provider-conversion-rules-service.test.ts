@@ -1620,6 +1620,58 @@ describe("provider conversion rules Envio ativo cascade", () => {
     expect(harness.inboundChannels[0]).toMatchObject({ status: "discovered" });
   });
 
+  it("activates a message phrase sibling on an already-production automation channel without rechecking its route", async () => {
+    const harness = createHarness(1, null, {
+      connectionStatus: "production",
+      channelStatus: "active",
+    });
+    const automation = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Lead qualificado por automacao",
+        connectionId: "connection_1",
+        channelIds: ["channel_1"],
+        mode: "production",
+        triggerType: "provider_automation",
+        eventName: "QualifiedLead",
+      },
+      "user_1",
+    );
+
+    // Existing live channels can predate productionActivatedAt. Their route
+    // must not be revalidated while adding an independent input rule.
+    harness.inboundChannels[0]!.productionActivatedAt = null;
+    harness.inboundChannels[0]!.routes = [];
+
+    const messagePhrase = await harness.service.createRule(
+      "workspace_1",
+      {
+        ...messageRuleInput("production"),
+        name: "Lead qualificado por mensagem",
+        eventName: "QualifiedLead",
+        triggerPhrases: ["Lead Qualificado Atendente"],
+      },
+      "user_1",
+    );
+
+    expect(automation.rule).toMatchObject({
+      mode: "production",
+      conversionRule: {
+        triggerType: "provider_automation",
+        eventName: "QualifiedLead",
+      },
+    });
+    expect(messagePhrase.rule).toMatchObject({
+      mode: "production",
+      conversionRule: {
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+      },
+    });
+    expect(harness.inboundChannels[0]).toMatchObject({ status: "active" });
+    expect(harness.prisma.inboundWebhookChannel.updateMany).not.toHaveBeenCalled();
+  });
+
   it("skips the Meta route requirement for UAZAPI, which resolves the destination per ad", async () => {
     const harness = createHarness(1, null, {
       connectionProvider: "uazapi",
