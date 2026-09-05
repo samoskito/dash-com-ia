@@ -187,6 +187,8 @@ function createHarness(
               (!where.connectionId ||
                 channel.connectionId === where.connectionId) &&
               (!where.id?.in || where.id.in.includes(channel.id)) &&
+              (!where.connectedPhone?.in ||
+                where.connectedPhone.in.includes(channel.connectedPhone)) &&
               (!where.status || channel.status === where.status),
           )
           .map((channel) => ({
@@ -1669,7 +1671,59 @@ describe("provider conversion rules Envio ativo cascade", () => {
       },
     });
     expect(harness.inboundChannels[0]).toMatchObject({ status: "active" });
-    expect(harness.prisma.inboundWebhookChannel.updateMany).not.toHaveBeenCalled();
+    expect(
+      harness.prisma.inboundWebhookChannel.updateMany,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("remaps a rediscovered same-phone channel to its active sibling before activating a second rule", async () => {
+    const harness = createHarness(1, null, {
+      connectionStatus: "production",
+      channelStatus: "discovered",
+      channelHasValidRoute: false,
+    });
+    const discovered = harness.inboundChannels[0]!;
+    const activeSibling = {
+      ...discovered,
+      id: "channel_live",
+      status: "active",
+      productionActivatedAt: null,
+      routes: [],
+    };
+    harness.inboundChannels.push(activeSibling);
+
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        ...messageRuleInput("production"),
+        name: "Lead qualificado por mensagem",
+        eventName: "QualifiedLead",
+        triggerPhrases: ["Lead Qualificado Atendente"],
+      },
+      "user_1",
+    );
+
+    expect(created.rule.channelIds).toEqual(["channel_live"]);
+    expect(harness.ruleChannels.map((scope) => scope.channelId)).toEqual([
+      "channel_live",
+    ]);
+    expect(discovered).toMatchObject({ status: "discovered" });
+    expect(activeSibling).toMatchObject({ status: "active" });
+    expect(
+      harness.prisma.inboundWebhookChannel.updateMany,
+    ).not.toHaveBeenCalled();
+    expect(harness.audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "provider_conversion_rule.channel_scope_remapped",
+          afterSummary: expect.objectContaining({
+            remappedChannels: [
+              { fromChannelId: "channel_1", toChannelId: "channel_live" },
+            ],
+          }),
+        }),
+      ]),
+    );
   });
 
   it("skips the Meta route requirement for UAZAPI, which resolves the destination per ad", async () => {

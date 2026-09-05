@@ -1110,11 +1110,64 @@ export class ProviderConversionRulesService {
         id: { in: requested },
         connection: { is: { workspaceId, removedAt: null } },
       },
-      select: { id: true },
+      select: { id: true, connectedPhone: true, status: true },
     });
 
     const liveIds = new Set(live.map((channel) => channel.id));
     const orphanIds = requested.filter((channelId) => !liveIds.has(channelId));
+
+    // Discovery is keyed by provider channel + organization, not by phone. A
+    // provider can consequently rediscover a number under a new identity while
+    // its original channel is already the live input surface. Never promote
+    // that stale discovered row (and demand a second Meta route) for a rule
+    // whose number already has an active sibling on this same connection.
+    const discoveredPhones = [
+      ...new Set(
+        live
+          .filter(
+            (channel) =>
+              channel.status === "discovered" && channel.connectedPhone,
+          )
+          .map((channel) => channel.connectedPhone),
+      ),
+    ];
+    const activeSiblings =
+      discoveredPhones.length === 0
+        ? []
+        : await transaction.inboundWebhookChannel.findMany({
+            where: {
+              workspaceId,
+              connectionId,
+              status: "active",
+              connectedPhone: { in: discoveredPhones },
+              connection: { is: { workspaceId, removedAt: null } },
+            },
+            select: { id: true, connectedPhone: true },
+            orderBy: { id: "asc" },
+          });
+    const activeSiblingByPhone = new Map<string, string>();
+    for (const sibling of activeSiblings) {
+      if (!activeSiblingByPhone.has(sibling.connectedPhone)) {
+        activeSiblingByPhone.set(sibling.connectedPhone, sibling.id);
+      }
+    }
+    const replacements = new Map<string, string>();
+    for (const channel of live) {
+      const activeSibling =
+        channel.status === "discovered"
+          ? activeSiblingByPhone.get(channel.connectedPhone)
+          : undefined;
+      if (activeSibling && activeSibling !== channel.id) {
+        replacements.set(channel.id, activeSibling);
+      }
+    }
+    const resolvedIds = [
+      ...new Set(
+        requested
+          .filter((channelId) => liveIds.has(channelId))
+          .map((channelId) => replacements.get(channelId) ?? channelId),
+      ),
+    ];
 
     if (orphanIds.length > 0) {
       await transaction.providerConversionRuleChannel.deleteMany({
@@ -1138,13 +1191,54 @@ export class ProviderConversionRulesService {
       });
     }
 
-    if (liveIds.size === 0) {
+    if (replacements.size > 0) {
+      const staleIds = [...replacements.keys()];
+      await transaction.providerConversionRuleChannel.deleteMany({
+        where: {
+          workspaceId,
+          providerRuleId,
+          channelId: { in: staleIds },
+        },
+      });
+      const requestedSet = new Set(requested);
+      const replacementIds = [...new Set(replacements.values())].filter(
+        (channelId) => !requestedSet.has(channelId),
+      );
+      if (replacementIds.length > 0) {
+        await transaction.providerConversionRuleChannel.createMany({
+          data: replacementIds.map((channelId) => ({
+            workspaceId,
+            providerRuleId,
+            channelId,
+          })),
+        });
+      }
+      await this.createAudit(transaction, {
+        workspaceId,
+        actorUserId: input.actorUserId,
+        action: "provider_conversion_rule.channel_scope_remapped",
+        targetId: providerRuleId,
+        resultStatus: "remapped",
+        afterSummary: {
+          connectionId,
+          remappedChannels: [...replacements].map(
+            ([fromChannelId, toChannelId]) => ({
+              fromChannelId,
+              toChannelId,
+            }),
+          ),
+          remainingChannelIds: resolvedIds,
+        },
+      });
+    }
+
+    if (resolvedIds.length === 0) {
       throw new ConflictException(
         "Nenhum canal valido na conexao da regra; reconecte o WhatsApp ou selecione o canal live",
       );
     }
 
-    return requested.filter((channelId) => liveIds.has(channelId));
+    return resolvedIds;
   }
 
   private requireProductionEnabledConfig() {
