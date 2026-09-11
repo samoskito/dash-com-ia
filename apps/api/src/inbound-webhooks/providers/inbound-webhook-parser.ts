@@ -40,6 +40,7 @@ export type InboundWebhookEventNormalizedSummary = {
   messageDirection: ParsedInboundWebhookMessageDirection;
   messageAuthorType: ParsedInboundWebhookMessageAuthorType;
   messageType: string | null;
+  phoneDivergenceDetected?: boolean;
   classification: InboundWebhookEventClassification;
   classificationReason: string;
 };

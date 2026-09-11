@@ -274,6 +274,7 @@ enum AuthActionTokenType {
 enum InboundWebhookProvider {
   umbler
   gupshup
+  data_crazy
 }
 
 enum InboundWebhookParserReleaseStatus {

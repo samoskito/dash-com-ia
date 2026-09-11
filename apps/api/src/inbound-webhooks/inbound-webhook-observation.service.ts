@@ -690,6 +690,10 @@ export class InboundWebhookObservationService {
       summary.messageDirection === event.message.direction &&
       summary.messageAuthorType === event.message.authorType &&
       summary.messageType === event.message.messageType &&
+      (summary.phoneDivergenceDetected === undefined ||
+        typeof summary.phoneDivergenceDetected === "boolean") &&
+      summary.phoneDivergenceDetected ===
+        event.normalizedSummary.phoneDivergenceDetected &&
       summary.classification === event.classification &&
       summary.classificationReason === event.classificationReason
     );
@@ -1082,6 +1086,9 @@ export class InboundWebhookObservationService {
             connectedPhoneSuffix: event.normalizedSummary.connectedPhoneSuffix,
             adId: event.normalizedSummary.adId,
             hasCtwa: event.normalizedSummary.hasCtwa,
+            ...(event.normalizedSummary.phoneDivergenceDetected === true
+              ? { phoneDivergenceDetected: true }
+              : {}),
             classification: event.normalizedSummary.classification,
             routeStatus: this.routeStatus(
               event.normalizedSummary.classification,
@@ -1138,6 +1145,9 @@ export class InboundWebhookObservationService {
       messageDirection: summary.messageDirection,
       messageAuthorType: summary.messageAuthorType,
       messageType: summary.messageType,
+      ...(summary.phoneDivergenceDetected === undefined
+        ? {}
+        : { phoneDivergenceDetected: summary.phoneDivergenceDetected }),
       classification: summary.classification,
       classificationReason: summary.classificationReason,
     };

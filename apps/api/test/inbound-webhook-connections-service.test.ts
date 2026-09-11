@@ -300,6 +300,12 @@ describe("inbound webhook connections service", () => {
         parserReleaseStatus: "observation_only",
         creationEnabled: true,
       },
+      {
+        provider: "data_crazy",
+        parserVersion: "v1",
+        parserReleaseStatus: null,
+        creationEnabled: false,
+      },
     ]);
 
     const created = await harness.service.createConnection(

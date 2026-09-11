@@ -2,7 +2,11 @@ import { z } from "zod";
 import { conversionEventNameSchema } from "./conversion-events";
 import { providerConversionDecisionCodeSchema } from "./provider-conversion-decisions";
 
-export const inboundWebhookProviders = ["umbler", "gupshup"] as const;
+export const inboundWebhookProviders = [
+  "umbler",
+  "gupshup",
+  "data_crazy",
+] as const;
 export const inboundWebhookParserReleaseStatuses = [
   "observation_only",
   "certified",
@@ -728,6 +732,7 @@ export const inboundWebhookNormalizedObservationSchema = z.object({
   contactIdentityHash: z.string().min(16).max(128).nullable(),
   adId: idSchema.nullable(),
   hasCtwa: z.boolean(),
+  phoneDivergenceDetected: z.boolean().optional(),
   classification: inboundWebhookEventClassificationSchema,
   classificationReason: normalizedCodeSchema.nullable(),
   resolvedBusinessConnectionId: idSchema.nullable(),

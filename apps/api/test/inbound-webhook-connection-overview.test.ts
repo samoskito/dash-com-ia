@@ -128,6 +128,12 @@ describe("inbound webhook connection overview", () => {
           parserReleaseStatus: "observation_only",
           creationEnabled: true,
         },
+        {
+          provider: "data_crazy",
+          parserVersion: "v1",
+          parserReleaseStatus: null,
+          creationEnabled: false,
+        },
       ],
     });
     expect(JSON.stringify(capabilities)).not.toContain("secret");
