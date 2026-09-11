@@ -298,7 +298,7 @@ describe("inbound webhook contracts", () => {
   it("accepts the registered observation providers", () => {
     expect(inboundWebhookProviderSchema.parse("umbler")).toBe("umbler");
     expect(inboundWebhookProviderSchema.parse("gupshup")).toBe("gupshup");
-    expect(() => inboundWebhookProviderSchema.parse("data_crazy")).toThrow();
+    expect(inboundWebhookProviderSchema.parse("data_crazy")).toBe("data_crazy");
   });
 
   it("accepts a bounded safe display name", () => {

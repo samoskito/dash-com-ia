@@ -1,0 +1,16 @@
+[
+  {
+    "leadId": "lead_fixture_001",
+    "messageData": {
+      "id": "message_fixture_001",
+      "date": "2026-09-10T10:30:00.000Z"
+    },
+    "instanceData": {
+      "id": "instance_fixture_001",
+      "organizationId": "organization_fixture_001",
+      "connectedPhone": "5511988888000",
+      "name": "Synthetic Sales Instance"
+    },
+    "body": "{\"telefone\":\"5511999999123\",\"contact\":{\"phoneNumber\":\"551199999123\",\"name\":\"Synthetic Contact\"},\"mensagem\":\"{\\\"from\\\":\\\"551199999123\\\",\\\"timestamp\\\":\\\"2026-09-10T10:30:00.000Z\\\",\\\"type\\\":\\\"text\\\",\\\"text\\\":{\\\"body\\\":\\\"Synthetic inbound message.\\\"},\\\"referral\\\":{\\\"ctwa_clid\\\":\\\"ctwa_fixture_001\\\",\\\"source_id\\\":\\\"ad_fixture_001\\\",\\\"source_url\\\":\\\"https://example.invalid/ad/fixture-001\\\",\\\"video_url\\\":\\\"https://example.invalid/media/fixture-001.mp4\\\",\\\"source_type\\\":\\\"ad\\\",\\\"thumbnail_url\\\":\\\"https://example.invalid/thumb/fixture-001.jpg\\\",\\\"headline\\\":\\\"Synthetic headline\\\",\\\"body\\\":\\\"Synthetic ad description.\\\"}}\"}"
+  }
+]

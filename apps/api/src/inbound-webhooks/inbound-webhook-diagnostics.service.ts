@@ -27,6 +27,7 @@ export type InboundWebhookObservationDiagnosticInput = {
     connectedPhoneSuffix: string | null;
     adId: string | null;
     hasCtwa: boolean;
+    phoneDivergenceDetected?: boolean;
     classification: InboundWebhookEventClassification;
     routeStatus: ObservationRouteStatus;
   }>;
