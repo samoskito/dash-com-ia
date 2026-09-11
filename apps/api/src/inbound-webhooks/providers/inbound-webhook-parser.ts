@@ -112,10 +112,17 @@ export type InboundWebhookParserResult = {
   error: InboundWebhookParserError | null;
 };
 
+export type InboundWebhookParserContext = {
+  organizationId?: string;
+};
+
 export interface InboundWebhookParser {
   readonly provider: string;
   readonly parserVersion: string;
-  parse(payload: unknown): InboundWebhookParserResult;
+  parse(
+    payload: unknown,
+    context?: Readonly<InboundWebhookParserContext>,
+  ): InboundWebhookParserResult;
 }
 
 export type InboundWebhookEventDedupeIdentity = {

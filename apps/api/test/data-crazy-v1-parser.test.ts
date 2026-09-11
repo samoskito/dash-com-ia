@@ -41,9 +41,15 @@ function parseBody(item: Record<string, unknown>): {
 
 describe("Data Crazy v1 inbound webhook parser", () => {
   const parser = new DataCrazyV1Parser();
+  const parserContext = { organizationId: "organization_context_001" };
+  const parse = (payload: unknown) => parser.parse(payload, parserContext);
 
   it("parses the three-layer envelope and maps CTWA only from mensagem.referral", () => {
-    const result = parser.parse(loadFixture("ctwa-presente.json"));
+    const item = firstItem();
+    expect(item).not.toHaveProperty("messageData");
+    expect(item).not.toHaveProperty("instanceData");
+
+    const result = parse(loadFixture("ctwa-presente.json"));
     const event = result.events[0]!;
 
     expect(result).toMatchObject({
@@ -59,10 +65,10 @@ describe("Data Crazy v1 inbound webhook parser", () => {
       provider: DATA_CRAZY_V1_PROVIDER,
       externalEventId: "message_fixture_001",
       externalMessageId: "message_fixture_001",
-      organizationId: "organization_fixture_001",
+      organizationId: "organization_context_001",
       channel: {
         providerChannelId: "instance_fixture_001",
-        connectedPhone: "5511988888000",
+        connectedPhone: "5511999999123",
       },
       contact: {
         externalContactId: "lead_fixture_001",
@@ -81,15 +87,34 @@ describe("Data Crazy v1 inbound webhook parser", () => {
     expect(event.dedupeKey).toBe(
       buildInboundWebhookEventDedupeKey({
         provider: DATA_CRAZY_V1_PROVIDER,
-        organizationId: "organization_fixture_001",
+        organizationId: "organization_context_001",
         providerChannelId: "instance_fixture_001",
         externalMessageId: "message_fixture_001",
       }),
     );
   });
 
+  it("requires authenticated organization context and never trusts payload organization fields", () => {
+    expect(parser.parse(loadFixture("ctwa-presente.json"))).toMatchObject({
+      classification: "invalid_payload",
+      events: [],
+      error: { code: "data_crazy_v1_item_invalid" },
+    });
+
+    const item = firstItem();
+    const { body, mensagem } = parseBody(item);
+    body.organizationId = "payload_organization_must_be_ignored";
+    mensagem.organizationId = "payload_message_organization_must_be_ignored";
+    body.mensagem = JSON.stringify(mensagem);
+    item.body = JSON.stringify(body);
+
+    expect(parse([item]).events[0]?.organizationId).toBe(
+      "organization_context_001",
+    );
+  });
+
   it("keeps leadId as external identity and keeps sensitive values out of summaries", () => {
-    const result = parser.parse(loadFixture("ctwa-presente.json"));
+    const result = parse(loadFixture("ctwa-presente.json"));
     const event = result.events[0]!;
     const summary = JSON.stringify({
       delivery: result.normalizedSummary,
@@ -113,7 +138,7 @@ describe("Data Crazy v1 inbound webhook parser", () => {
   });
 
   it("observes a lead without CTWA but does not expose ad attribution", () => {
-    const result = parser.parse(loadFixture("ctwa-ausente.json"));
+    const result = parse(loadFixture("ctwa-ausente.json"));
     const event = result.events[0]!;
 
     expect(result).toMatchObject({
@@ -137,7 +162,7 @@ describe("Data Crazy v1 inbound webhook parser", () => {
     const payload = loadFixture("array-multiplo.json") as unknown[];
     payload.push({ body: "invalid" });
 
-    const result = parser.parse(payload);
+    const result = parse(payload);
 
     expect(result.events).toHaveLength(2);
     expect(result.classification).toBe("eligible_route_unresolved");
@@ -152,7 +177,7 @@ describe("Data Crazy v1 inbound webhook parser", () => {
     ["body-nao-json.json", "data_crazy_v1_body_json_invalid"],
     ["mensagem-nao-json.json", "data_crazy_v1_mensagem_json_invalid"],
   ])("reports the bounded parse failure for %s", (fixture, code) => {
-    expect(parser.parse(loadFixture(fixture))).toMatchObject({
+    expect(parse(loadFixture(fixture))).toMatchObject({
       classification: "invalid_payload",
       events: [],
       error: { code },
@@ -163,7 +188,7 @@ describe("Data Crazy v1 inbound webhook parser", () => {
     const item = firstItem();
     item.body = "{" + "x".repeat(512 * 1024) + "}";
 
-    expect(parser.parse([item])).toMatchObject({
+    expect(parse([item])).toMatchObject({
       classification: "invalid_payload",
       error: { code: "data_crazy_v1_body_too_large" },
     });
@@ -172,19 +197,29 @@ describe("Data Crazy v1 inbound webhook parser", () => {
   it("fails closed when stable message or instance contract fields are absent", () => {
     for (const mutate of [
       (item: Record<string, unknown>) => {
-        delete (item.messageData as Record<string, unknown>).id;
+        const { mensagem } = parseBody(item);
+        delete (mensagem.messageData as Record<string, unknown>).id;
+        const body = parseBody(item).body;
+        body.mensagem = JSON.stringify(mensagem);
+        item.body = JSON.stringify(body);
       },
       (item: Record<string, unknown>) => {
-        delete (item.instanceData as Record<string, unknown>).id;
+        const { mensagem } = parseBody(item);
+        delete (mensagem.instanceData as Record<string, unknown>).id;
+        const body = parseBody(item).body;
+        body.mensagem = JSON.stringify(mensagem);
+        item.body = JSON.stringify(body);
       },
       (item: Record<string, unknown>) => {
-        delete (item.instanceData as Record<string, unknown>).connectedPhone;
+        const body = parseBody(item).body;
+        delete body.telefone;
+        item.body = JSON.stringify(body);
       },
     ]) {
       const item = firstItem();
       mutate(item);
 
-      expect(parser.parse([item])).toMatchObject({
+      expect(parse([item])).toMatchObject({
         classification: "invalid_payload",
         events: [],
         error: { code: "data_crazy_v1_item_invalid" },
@@ -199,7 +234,7 @@ describe("Data Crazy v1 inbound webhook parser", () => {
     body.source_id = "top_level_ad_must_be_ignored";
     item.body = JSON.stringify(body);
 
-    const event = parser.parse([item]).events[0]!;
+    const event = parse([item]).events[0]!;
 
     expect(event).toMatchObject({
       hasCtwa: false,
@@ -209,26 +244,26 @@ describe("Data Crazy v1 inbound webhook parser", () => {
   });
 
   it("uses messageData.id as stable semantic identity across content changes", () => {
-    const first = parser.parse(loadFixture("ctwa-presente.json"));
+    const first = parse(loadFixture("ctwa-presente.json"));
     const item = firstItem();
     const { body, mensagem } = parseBody(item);
-    (mensagem.text as Record<string, unknown>).body =
+    (mensagem.messageData as Record<string, unknown>).text =
       "Synthetic changed content.";
     body.mensagem = JSON.stringify(mensagem);
     item.body = JSON.stringify(body);
 
-    const retry = parser.parse([item]);
+    const retry = parse([item]);
 
     expect(retry.events[0]?.dedupeKey).toBe(first.events[0]?.dedupeKey);
   });
 
   it("classifies an empty batch as unsupported and a non-array as invalid", () => {
-    expect(parser.parse(loadFixture("array-vazio.json"))).toMatchObject({
+    expect(parse(loadFixture("array-vazio.json"))).toMatchObject({
       classification: "unsupported_event",
       classificationReason: "empty_batch",
       error: null,
     });
-    expect(parser.parse({})).toMatchObject({
+    expect(parse({})).toMatchObject({
       classification: "invalid_payload",
       error: { code: "data_crazy_v1_root_array_required" },
     });

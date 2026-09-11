@@ -571,7 +571,9 @@ export class InboundWebhookObservationService {
     }
 
     try {
-      return parser.parse(payload);
+      return parser.parse(payload, {
+        organizationId: delivery.workspaceId,
+      });
     } catch {
       throw new InboundWebhookDeterministicFailure(
         "inbound_webhook_parser_execution_failed",
