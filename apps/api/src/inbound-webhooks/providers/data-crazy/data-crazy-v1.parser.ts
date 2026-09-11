@@ -5,6 +5,7 @@ import {
   type InboundWebhookEventClassification,
   type InboundWebhookEventNormalizedSummary,
   type InboundWebhookParser,
+  type InboundWebhookParserContext,
   type InboundWebhookParserError,
   type InboundWebhookParserResult,
   type ParsedInboundWebhookAd,
@@ -98,19 +99,6 @@ function optionalText(value: unknown, maximumLength: number): OptionalString {
 
 function requiredIdentifier(value: unknown): string | null {
   return boundedString(value, 255);
-}
-
-function firstRecordValue(
-  records: readonly (Record<string, unknown> | null)[],
-  field: string,
-): unknown {
-  for (const record of records) {
-    if (record && Object.prototype.hasOwnProperty.call(record, field)) {
-      return record[field];
-    }
-  }
-
-  return undefined;
 }
 
 function parsePhone(value: unknown): string | null {
@@ -291,7 +279,10 @@ function parseReferral(value: unknown): {
   };
 }
 
-function parseItem(item: Record<string, unknown>): ItemParseResult {
+function parseItem(
+  item: Record<string, unknown>,
+  context: Readonly<InboundWebhookParserContext> | undefined,
+): ItemParseResult {
   const bodyResult = parseNestedJson(item.body, "body");
 
   if ("error" in bodyResult) {
@@ -306,60 +297,39 @@ function parseItem(item: Record<string, unknown>): ItemParseResult {
   }
 
   const mensagem = mensagemResult.value;
-  const instanceData = asRecord(item.instanceData);
-  const messageData = asRecord(item.messageData);
-  const bodyContact = asRecord(body.contact);
-  const messageContact = asRecord(mensagem.contact);
+  const instanceData = asRecord(mensagem.instanceData);
+  const messageData = asRecord(mensagem.messageData);
+  const messageContact = asRecord(messageData?.contact);
 
   if (!instanceData || !messageData) {
     return { event: null, failure: failure("item_invalid") };
   }
 
-  const leadId = requiredIdentifier(item.leadId ?? body.leadId);
-  const organizationId = requiredIdentifier(
-    firstRecordValue([item, body, instanceData], "organizationId"),
-  );
-  const providerChannelId = requiredIdentifier(
-    instanceData.providerChannelId ?? instanceData.id,
-  );
-  const connectedPhone = parsePhone(
-    instanceData.connectedPhone ??
-      instanceData.phoneNumber ??
-      instanceData.phone ??
-      instanceData.number,
-  );
+  const leadId = requiredIdentifier(item.leadId);
+  const organizationId = requiredIdentifier(context?.organizationId);
+  const providerChannelId = requiredIdentifier(instanceData.id);
+  const connectedPhone = parsePhone(body.telefone);
   const externalMessageId = requiredIdentifier(messageData.id);
-  const externalEventId =
-    requiredIdentifier(item.eventId ?? body.eventId ?? messageData.eventId) ??
-    externalMessageId;
-  const occurredAt = parseOccurredAt(
-    messageData.date ?? messageData.timestamp ?? mensagem.timestamp,
-  );
+  const externalEventId = externalMessageId;
+  const occurredAt = parseOccurredAt(messageData.date);
   const messageType = optionalString(mensagem.type, 120);
-  const messageText = optionalText(asRecord(mensagem.text)?.body, 16_384);
+  const messageText = optionalText(messageData.text, 16_384);
   const senderPhone = parsePhone(mensagem.from);
-  const contactPhone = parsePhone(
-    messageContact?.phoneNumber ?? bodyContact?.phoneNumber,
-  );
-  const declaredPhone =
-    body.telefone === undefined ? null : parsePhone(body.telefone);
-  const phoneNumber = senderPhone ?? contactPhone;
+  const contactPhone = parsePhone(messageContact?.phoneNumber);
+  const declaredPhone = connectedPhone;
+  const phoneNumber = contactPhone;
   const phonesAgree =
-    senderPhone === null ||
-    contactPhone === null ||
+    senderPhone !== null &&
+    contactPhone !== null &&
     senderPhone === contactPhone;
   const phoneDivergenceDetected =
     declaredPhone !== null &&
-    phoneNumber !== null &&
-    declaredPhone !== phoneNumber;
-  const contactName = optionalText(
-    messageContact?.name ?? bodyContact?.name,
-    160,
-  );
-  const channelName = optionalString(
-    instanceData.name ?? instanceData.instanceName,
-    160,
-  );
+    (senderPhone === null ||
+      contactPhone === null ||
+      declaredPhone !== senderPhone ||
+      declaredPhone !== contactPhone);
+  const contactName = optionalText(messageContact?.name, 160);
+  const channelName = optionalString(instanceData.name, 160);
   const referral = parseReferral(mensagem.referral);
 
   if (
@@ -376,8 +346,7 @@ function parseItem(item: Record<string, unknown>): ItemParseResult {
     !phonesAgree ||
     !contactName.valid ||
     !channelName.valid ||
-    !referral.valid ||
-    (body.telefone !== undefined && !declaredPhone)
+    !referral.valid
   ) {
     return { event: null, failure: failure("item_invalid") };
   }
@@ -498,7 +467,10 @@ function aggregateResult(
   };
 }
 
-function parsePayload(payload: unknown): InboundWebhookParserResult {
+function parsePayload(
+  payload: unknown,
+  context: Readonly<InboundWebhookParserContext> | undefined,
+): InboundWebhookParserResult {
   if (!Array.isArray(payload)) {
     return invalidResult("root_array_required");
   }
@@ -520,7 +492,7 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
       continue;
     }
 
-    const parsed = parseItem(item);
+    const parsed = parseItem(item, context);
 
     if ("failure" in parsed) {
       firstFailure ??= parsed.failure;
@@ -539,9 +511,10 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
 
 export function parseDataCrazyV1Webhook(
   payload: unknown,
+  context?: Readonly<InboundWebhookParserContext>,
 ): InboundWebhookParserResult {
   try {
-    return parsePayload(payload);
+    return parsePayload(payload, context);
   } catch {
     return invalidResult("item_invalid");
   }
@@ -551,7 +524,10 @@ export class DataCrazyV1Parser implements InboundWebhookParser {
   readonly provider = DATA_CRAZY_V1_PROVIDER;
   readonly parserVersion = DATA_CRAZY_V1_PARSER_VERSION;
 
-  parse(payload: unknown): InboundWebhookParserResult {
-    return parseDataCrazyV1Webhook(payload);
+  parse(
+    payload: unknown,
+    context?: Readonly<InboundWebhookParserContext>,
+  ): InboundWebhookParserResult {
+    return parseDataCrazyV1Webhook(payload, context);
   }
 }

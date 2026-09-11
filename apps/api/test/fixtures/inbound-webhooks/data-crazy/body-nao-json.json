@@ -1,14 +1,6 @@
 [
   {
     "leadId": "lead_fixture_invalid_body",
-    "messageData": {
-      "id": "message_fixture_invalid_body"
-    },
-    "instanceData": {
-      "id": "instance_fixture_001",
-      "organizationId": "organization_fixture_001",
-      "connectedPhone": "5511988888000"
-    },
     "body": "not-json"
   }
 ]
