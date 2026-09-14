@@ -175,6 +175,49 @@ describe("Data Crazy v1 inbound webhook parser", () => {
     });
   });
 
+  it("parses a live-shaped direct lead with accented fields and an audio mensagem", () => {
+    const result = parser.parse(
+      directLead({
+        leadId: "lead-sanitized-live-001",
+        body: {
+          nome: "Luiz Sérgio Exemplo",
+          telefone: "5511999000000",
+          sourceURL: "https://facebook.example/lookaside/sanitized",
+        },
+        mensagem: {
+          from: "5511999000001",
+          type: "audio",
+          messageData: {
+            id: "dc-audio-sanitized-001",
+            date: "2026-09-14T19:17:00.000Z",
+            contact: {
+              phoneNumber: "5511999000001",
+              name: "Luiz Sérgio Exemplo",
+            },
+            attachments: [{ type: "audio", url: "https://cdn.example/audio" }],
+          },
+          instanceData: { id: "dc-instance-001", name: "Ageu Produtor" },
+        },
+      }),
+      context,
+    );
+
+    expect(result).toMatchObject({
+      classification: "eligible_route_unresolved",
+      externalDeliveryId: "dc-audio-sanitized-001",
+      events: [
+        {
+          contact: { externalContactId: "lead-sanitized-live-001" },
+          channel: {
+            name: "Ageu Produtor",
+            connectedPhone: "5511999000000",
+          },
+          externalMessageId: "dc-audio-sanitized-001",
+        },
+      ],
+    });
+  });
+
   it("audits a direct lead without referral CTWA metadata", () => {
     const result = parser.parse(
       directLead({

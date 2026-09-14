@@ -282,7 +282,10 @@ describe("inbound webhook ingestion service", () => {
     ).rejects.toMatchObject({ status: 415 });
     await expect(
       harness.service.ingest(requestInput(Buffer.from("{invalid"))),
-    ).rejects.toMatchObject({ status: 400 });
+    ).rejects.toMatchObject({
+      status: 400,
+      message: "Payload JSON invalido",
+    });
     await expect(
       harness.service.ingest(
         requestInput(Buffer.alloc(MAX_INBOUND_WEBHOOK_PAYLOAD_BYTES + 1, 32)),
@@ -336,6 +339,78 @@ describe("inbound webhook ingestion service", () => {
         expect.objectContaining({ workspaceId: "workspace_safe" }),
       );
     });
+  });
+
+  it("accepts a live-shaped Data Crazy lead with accents and a JSON mensagem string", async () => {
+    const harness = createHarness({ provider: "datacrazy" });
+    const payload = {
+      leadId: "lead-sanitized-001",
+      nome: "Luiz Sérgio Exemplo",
+      telefone: "5511999000000",
+      sourceID: "",
+      sourceURL: "https://facebook.example/lookaside/sanitized",
+      ctwaClid: "",
+      mensagem: JSON.stringify({
+        id: "message-wrapper-sanitized-001",
+        from: "5511999000001",
+        type: "audio",
+        timestamp: "2026-09-14T19:17:00.000Z",
+        messageData: {
+          id: "message-sanitized-001",
+          date: "2026-09-14T19:17:00.000Z",
+          contact: {
+            phoneNumber: "5511999000001",
+            name: "Luiz Sérgio Exemplo",
+          },
+          attachments: [{ type: "audio", url: "https://cdn.example/audio" }],
+        },
+        instanceData: {
+          id: "instance-sanitized-001",
+          name: "Ageu Produtor",
+        },
+      }),
+    };
+    const normalizedBody = Buffer.from(JSON.stringify(payload), "utf8");
+
+    const result = await harness.service.ingest(requestInput(normalizedBody));
+
+    expect(result).toMatchObject({ status: "accepted", duplicate: false });
+    const delivery = [...harness.deliveries.values()][0]!;
+    expect(
+      harness.encryption
+        .decrypt(
+          {
+            encryptedPayload: delivery.encryptedPayload,
+            payloadIv: delivery.payloadIv,
+            payloadTag: delivery.payloadTag,
+            encryptionKeyVersion: delivery.encryptionKeyVersion,
+          },
+          {
+            workspaceId: "workspace_safe",
+            connectionId: "connection_1",
+            deliveryId: result.deliveryId,
+          },
+        )
+        .equals(normalizedBody),
+    ).toBe(true);
+  });
+
+  it("accepts a BOM-prefixed JSON object and persists its canonical form", async () => {
+    const harness = createHarness({ provider: "datacrazy" });
+    const payload = { leadId: "lead-bom-001", nome: "José Exemplo" };
+    const normalizedBody = Buffer.from(JSON.stringify(payload), "utf8");
+    const rawBody = Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      normalizedBody,
+    ]);
+
+    const result = await harness.service.ingest(requestInput(rawBody));
+
+    expect(result).toMatchObject({ status: "accepted", duplicate: false });
+    const delivery = [...harness.deliveries.values()][0]!;
+    expect(delivery.ingressKey).toBe(
+      `raw:${createHash("sha256").update(normalizedBody).digest("hex")}`,
+    );
   });
 
   it("fails closed for invalid and scalar JSON bodies", async () => {

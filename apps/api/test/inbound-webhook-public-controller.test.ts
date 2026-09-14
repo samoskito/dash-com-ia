@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
@@ -11,7 +11,7 @@ import {
   InboundConversionAutomationIngestionService,
   type InboundConversionAutomationIngestionInput,
 } from "../src/inbound-webhooks/inbound-conversion-automation-ingestion.service";
-import { INBOUND_WEBHOOK_BODY_LIMIT } from "../src/inbound-webhooks/inbound-webhook-limits";
+import { configureInboundWebhookBodyParser } from "../src/inbound-webhooks/inbound-webhook-body-parser";
 import { InboundWebhookPublicController } from "../src/inbound-webhooks/inbound-webhook-public.controller";
 
 async function createApp() {
@@ -48,12 +48,9 @@ async function createApp() {
   }).compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>({
     rawBody: true,
+    bodyParser: false,
   });
-  // Mirror production: allow top-level JSON strings (Data Crazy double-encode).
-  app.useBodyParser("json", {
-    limit: INBOUND_WEBHOOK_BODY_LIMIT,
-    strict: false,
-  } as { limit: string });
+  configureInboundWebhookBodyParser(app);
   await app.init();
 
   return { app, ingestion, conversionAutomationIngestion };
@@ -182,17 +179,27 @@ describe("inbound webhook public controller", () => {
     await app.close();
   });
 
-  it("rejects invalid JSON before ingestion with a framework/body-parser error", async () => {
+  it("passes invalid JSON through to ingestion for the stable public validation response", async () => {
     const { app, ingestion } = await createApp();
     const payload = "{invalid";
+    ingestion.ingest.mockRejectedValueOnce(
+      new BadRequestException("Payload JSON invalido"),
+    );
 
     await request(app.getHttpServer())
       .post("/webhooks/inbound/connection_1?token=one-time-token")
       .set("Content-Type", "application/json")
       .send(payload)
-      .expect(400);
+      .expect(400)
+      .expect({
+        message: "Payload JSON invalido",
+        error: "Bad Request",
+        statusCode: 400,
+      });
 
-    expect(ingestion.ingest).not.toHaveBeenCalled();
+    expect(ingestion.ingest).toHaveBeenCalledWith(
+      expect.objectContaining({ rawBody: Buffer.from(payload) }),
+    );
 
     await app.close();
   });
