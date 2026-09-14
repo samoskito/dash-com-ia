@@ -44,26 +44,42 @@ function loadFixture(): UmblerV1Envelope {
 }
 
 function dataCrazyMessage(overrides: MutableRecord = {}) {
-  return {
-    id: "dc-message-001",
-    received: true,
-    createdAt: "2026-08-28T10:30:00.000Z",
-    body: "Quero saber mais",
-    contact: {
-      id: "dc-contact-001",
-      phoneNumber: "5511999991234",
+  return [
+    {
+      leadId: "dc-lead-001",
+      body: JSON.stringify({
+        telefone: "5511999991234",
+        mensagem: JSON.stringify({
+          id: "dc-message-wrapper-001",
+          from: "551199991234",
+          text: "Quero saber mais",
+          timestamp: "2026-08-28T10:30:00.000Z",
+          type: "text",
+          messageData: {
+            id: "dc-message-001",
+            date: "2026-08-28T10:30:00.000Z",
+            text: "Quero saber mais",
+            contact: {
+              id: "dc-contact-001",
+              phoneNumber: "551199991234",
+            },
+            conversationId: "dc-conversation-001",
+            attachments: [],
+            hasAttachments: false,
+          },
+          instanceData: {
+            id: "dc-instance-001",
+            name: "Data Crazy",
+          },
+          referral: {
+            ctwa_clid: "ctwa-001",
+            source_id: "ad-001",
+          },
+          ...overrides,
+        }),
+      }),
     },
-    instanceData: {
-      organizationId: "dc-org-001",
-      instanceId: "dc-instance-001",
-      phoneNumber: "5511988880000",
-    },
-    referral: {
-      ctwa_clid: "ctwa-001",
-      source_id: "ad-001",
-    },
-    ...overrides,
-  };
+  ];
 }
 
 type MutableRecord = Record<string, any>;
