@@ -37,7 +37,7 @@ async function createApp() {
       id: "batch_1",
       status: "queued",
     })),
-    retryTransientFailures: vi.fn(async () => ({
+    retryFailedItems: vi.fn(async () => ({
       id: "batch_1",
       status: "queued",
       retryCount: 1,
@@ -110,7 +110,7 @@ describe("inbound webhook replay controller", () => {
     await app.close();
   });
 
-  it("passes fixed canary scope and protects transient retry", async () => {
+  it("passes fixed canary scope and protects failed-item recovery", async () => {
     const { app, replay } = await createApp();
 
     await request(app.getHttpServer())
@@ -138,7 +138,7 @@ describe("inbound webhook replay controller", () => {
       .set("Authorization", "Bearer owner-token")
       .send({ confirmation: "observacao inicial" })
       .expect(201);
-    expect(replay.retryTransientFailures).toHaveBeenCalledWith(
+    expect(replay.retryFailedItems).toHaveBeenCalledWith(
       "connection_1",
       "batch_1",
       "observacao inicial",

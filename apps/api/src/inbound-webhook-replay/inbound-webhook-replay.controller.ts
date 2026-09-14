@@ -97,7 +97,7 @@ export class InboundWebhookReplayController {
       throw new BadRequestException("Confirmacao invalida");
     }
 
-    return this.replay.retryTransientFailures(
+    return this.replay.retryFailedItems(
       this.identifier(connectionId, "Conexao invalida"),
       this.identifier(batchId, "Lote invalido"),
       parsed.data.confirmation,
