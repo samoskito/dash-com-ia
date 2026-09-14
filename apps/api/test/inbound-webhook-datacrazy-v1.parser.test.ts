@@ -266,9 +266,13 @@ describe("Data Crazy v1 inbound webhook parser", () => {
       events: [],
       error: { code: "datacrazy_v1_invalid_payload" },
     });
-    expect(parser.parse(payload, context).events[0]?.organizationId).toBe(
-      "workspace_001",
-    );
+    const contextualResult = parser.parse(payload, context);
+    expect(contextualResult.events[0]?.organizationId).toBe("workspace_001");
+    expect(
+      contextualResult.events.find(
+        (event) => event.dedupeKey === contextualResult.events[0]?.dedupeKey,
+      ),
+    ).toMatchObject({ externalMessageId: "dc-message-001" });
   });
 
   it("uses messageData.id for event identity and leadId only as external contact identity", () => {
