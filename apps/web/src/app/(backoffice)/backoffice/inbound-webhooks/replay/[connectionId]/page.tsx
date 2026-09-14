@@ -194,8 +194,8 @@ function BatchSummary({
           <input type="hidden" name="batchId" value={batch.id} />
           <label>
             <span>
-              {batch.retryableFailedCount} falha(s) transitoria(s). Digite{" "}
-              <strong>{connectionName}</strong> para recuperar.
+              {batch.retryableFailedCount} falha(s) com payload disponivel.
+              Digite <strong>{connectionName}</strong> para recuperar.
             </span>
             <input
               name="confirmation"
@@ -209,6 +209,17 @@ function BatchSummary({
           </label>
           <InboundReplaySubmitButton mode="retry" />
         </BackofficeActionForm>
+      ) : null}
+      {batch.failedCount > 0 && batch.retryableFailedCount === 0 ? (
+        <p className="inbound-replay-retry-unavailable">
+          Falha permanente sem payload disponivel; recovery automatico
+          indisponivel.
+        </p>
+      ) : null}
+      {batch.latestFailureErrorCode ? (
+        <small>
+          Codigo da falha mais recente: {batch.latestFailureErrorCode}
+        </small>
       ) : null}
     </article>
   );

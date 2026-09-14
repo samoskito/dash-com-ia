@@ -4,6 +4,7 @@ import {
   backofficeInboundWebhookDeliveryQuerySchema,
   backofficeInboundWebhookDeliverySummaryQuerySchema,
   backofficeInboundWebhookDeliverySummarySchema,
+  backofficeInboundWebhookReplayBatchSchema,
   backofficeInboundWebhookParserRecoveryInputSchema,
   backofficeInboundWebhookParserRecoveryPreviewSchema,
   backofficeInboundWebhookParserRecoveryResultSchema,
@@ -45,6 +46,36 @@ const connection = {
 };
 
 describe("inbound webhook contracts", () => {
+  it("accepts an optional latest replay failure error code", () => {
+    expect(
+      backofficeInboundWebhookReplayBatchSchema.parse({
+        id: "batch_1",
+        workspaceId: "workspace_1",
+        connectionId: "connection_1",
+        channelId: null,
+        requestedByUserId: "owner_1",
+        selection: "canary_1",
+        requestedLimit: 1,
+        status: "completed_with_failures",
+        totalItems: 1,
+        materializedCount: 0,
+        duplicateCount: 0,
+        skippedCount: 0,
+        failedCount: 1,
+        retryableFailedCount: 1,
+        latestFailureErrorCode: "inbound_webhook_replay_route_invalid",
+        retryCount: 0,
+        startedAt: timestamp,
+        completedAt: timestamp,
+        lastRetriedAt: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    ).toMatchObject({
+      latestFailureErrorCode: "inbound_webhook_replay_route_invalid",
+    });
+  });
+
   it("accepts Data Crazy only in the inbound provider contract", () => {
     expect(inboundWebhookProviderSchema.parse("datacrazy")).toBe("datacrazy");
   });

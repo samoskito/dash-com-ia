@@ -779,6 +779,7 @@ export const backofficeInboundWebhookReplayBatchSchema = z.object({
   skippedCount: z.number().int().nonnegative(),
   failedCount: z.number().int().nonnegative(),
   retryableFailedCount: z.number().int().nonnegative(),
+  latestFailureErrorCode: z.string().min(1).nullable().optional(),
   retryCount: z.number().int().nonnegative(),
   startedAt: dateTimeSchema.nullable(),
   completedAt: dateTimeSchema.nullable(),

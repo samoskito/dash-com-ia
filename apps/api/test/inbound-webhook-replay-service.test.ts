@@ -249,7 +249,20 @@ describe("inbound webhook replay service", () => {
             lastRetriedAt: null,
             createdAt: now,
             updatedAt: now,
-            items: [{ id: "item_failed" }],
+            items: [
+              {
+                errorCode: "inbound_webhook_replay_route_invalid",
+                event: {
+                  delivery: {
+                    payloadExpiresAt: new Date("2026-07-19T15:00:00.000Z"),
+                    encryptedPayload: "private-ciphertext",
+                    payloadIv: "private-iv",
+                    payloadTag: "private-tag",
+                    encryptionKeyVersion: 1,
+                  },
+                },
+              },
+            ],
           },
         ]),
       },
@@ -284,7 +297,10 @@ describe("inbound webhook replay service", () => {
     expect(preview.recentBatches[0]).toMatchObject({
       id: "batch_preview",
       retryableFailedCount: 1,
+      latestFailureErrorCode: "inbound_webhook_replay_route_invalid",
     });
+    events.splice(0, events.length, events[5]!);
+    expect((await service.getPreview(connectionId)).counts.eligible).toBe(0);
     expect(JSON.stringify(preview)).not.toContain("private-ciphertext");
     expect(JSON.stringify(preview)).not.toContain("private-iv");
     expect(JSON.stringify(preview)).not.toContain("private-tag");
@@ -724,7 +740,7 @@ describe("inbound webhook replay service", () => {
     expect(enqueueBatch).not.toHaveBeenCalled();
   });
 
-  it("requeues only retained failures from the transient allowlist", async () => {
+  it("requeues retained failures, including permanent error codes", async () => {
     const batch = {
       id: "batch_retry",
       workspaceId,
@@ -751,8 +767,14 @@ describe("inbound webhook replay service", () => {
       .mockResolvedValueOnce(batch)
       .mockResolvedValueOnce(null);
     const itemFindMany = vi.fn(async () => [
-      { id: "item_retry_1" },
-      { id: "item_retry_2" },
+      {
+        id: "item_retry_1",
+        errorCode: "inbound_webhook_replay_route_invalid",
+      },
+      {
+        id: "item_retry_2",
+        errorCode: "inbound_webhook_replay_identity_missing",
+      },
     ]);
     const itemUpdateMany = vi.fn(async () => ({ count: 2 }));
     const batchUpdate = vi.fn(async ({ data }) => ({
@@ -793,7 +815,7 @@ describe("inbound webhook replay service", () => {
     });
 
     await expect(
-      service.retryTransientFailures(
+      service.retryFailedItems(
         connectionId,
         batch.id,
         connection.displayName,
@@ -811,13 +833,6 @@ describe("inbound webhook replay service", () => {
         workspaceId,
         batchId: batch.id,
         status: "failed",
-        errorCode: {
-          in: [
-            "inbound_webhook_replay_disabled",
-            "inbound_webhook_replay_queue_unavailable",
-            "inbound_webhook_replay_unexpected",
-          ],
-        },
         event: {
           delivery: {
             payloadExpiresAt: { gt: expect.any(Date) },
@@ -830,6 +845,9 @@ describe("inbound webhook replay service", () => {
       }),
       select: { id: true },
     });
+    expect(itemFindMany.mock.calls[0]?.[0]?.where).not.toHaveProperty(
+      "errorCode",
+    );
     expect(itemUpdateMany).toHaveBeenCalledWith({
       where: {
         workspaceId,
@@ -847,6 +865,152 @@ describe("inbound webhook replay service", () => {
     expect(enqueueBatch).toHaveBeenCalledWith({
       workspaceId,
       batchId: batch.id,
+    });
+  });
+
+  it("keeps the existing transient retry path available", async () => {
+    const batch = {
+      id: "batch_transient_retry",
+      workspaceId,
+      connectionId,
+      channelId: null,
+      requestedByUserId: owner.id,
+      selection: "canary_1" as const,
+      requestedLimit: 1,
+      status: "completed_with_failures" as const,
+      totalItems: 1,
+      materializedCount: 0,
+      duplicateCount: 0,
+      skippedCount: 0,
+      failedCount: 1,
+      retryableFailedCount: 1,
+      retryCount: 0,
+      startedAt: now,
+      completedAt: now,
+      lastRetriedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const tx = {
+      inboundWebhookReplayBatch: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce(batch)
+          .mockResolvedValueOnce(null),
+        update: vi.fn(async () => ({
+          ...batch,
+          status: "queued" as const,
+          failedCount: 0,
+          retryableFailedCount: 0,
+          retryCount: 1,
+          completedAt: null,
+          lastRetriedAt: now,
+        })),
+      },
+      inboundWebhookReplayItem: {
+        findMany: vi.fn(async () => [
+          {
+            id: "item_transient",
+            errorCode: "inbound_webhook_replay_unexpected",
+          },
+        ]),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+      },
+      auditLog: { create: vi.fn(async () => undefined) },
+    };
+    const enqueueBatch = vi.fn(async () => undefined);
+    const service = createService({
+      prisma: {
+        inboundWebhookConnection: { findFirst: vi.fn(async () => connection) },
+        $transaction: vi.fn(async (callback) => callback(tx)),
+      },
+      replayQueue: { enqueueBatch },
+    });
+
+    await expect(
+      service.retryFailedItems(
+        connectionId,
+        batch.id,
+        connection.displayName,
+        owner,
+        null,
+      ),
+    ).resolves.toMatchObject({ status: "queued", retryCount: 1 });
+    expect(enqueueBatch).toHaveBeenCalledOnce();
+  });
+
+  it("rejects recovery when every failed payload is expired or missing", async () => {
+    const batch = {
+      id: "batch_expired_retry",
+      workspaceId,
+      connectionId,
+      channelId: null,
+      requestedByUserId: owner.id,
+      selection: "canary_1" as const,
+      requestedLimit: 1,
+      status: "completed_with_failures" as const,
+      totalItems: 1,
+      materializedCount: 0,
+      duplicateCount: 0,
+      skippedCount: 0,
+      failedCount: 1,
+      retryableFailedCount: 0,
+      retryCount: 0,
+      startedAt: now,
+      completedAt: now,
+      lastRetriedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const itemFindMany = vi.fn(async () => []);
+    const batchUpdate = vi.fn(async () => batch);
+    const tx = {
+      inboundWebhookReplayBatch: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce(batch)
+          .mockResolvedValueOnce(null),
+        update: batchUpdate,
+      },
+      inboundWebhookReplayItem: { findMany: itemFindMany },
+      auditLog: { create: vi.fn(async () => undefined) },
+    };
+    const enqueueBatch = vi.fn(async () => undefined);
+    const service = createService({
+      prisma: {
+        inboundWebhookConnection: { findFirst: vi.fn(async () => connection) },
+        $transaction: vi.fn(async (callback) => callback(tx)),
+      },
+      replayQueue: { enqueueBatch },
+    });
+
+    await expect(
+      service.retryFailedItems(
+        connectionId,
+        batch.id,
+        connection.displayName,
+        owner,
+        null,
+      ),
+    ).rejects.toThrow(
+      "Nenhuma falha possui payload disponivel para recuperacao",
+    );
+    expect(batchUpdate).not.toHaveBeenCalled();
+    expect(enqueueBatch).not.toHaveBeenCalled();
+    expect(itemFindMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        status: "failed",
+        event: {
+          delivery: expect.objectContaining({
+            payloadExpiresAt: { gt: expect.any(Date) },
+            encryptedPayload: { not: null },
+            payloadIv: { not: null },
+            payloadTag: { not: null },
+            encryptionKeyVersion: { not: null },
+          }),
+        },
+      }),
+      select: { id: true },
     });
   });
 
