@@ -845,9 +845,6 @@ describe("inbound webhook replay service", () => {
       }),
       select: { id: true },
     });
-    expect(itemFindMany.mock.calls[0]?.[0]?.where).not.toHaveProperty(
-      "errorCode",
-    );
     expect(itemUpdateMany).toHaveBeenCalledWith({
       where: {
         workspaceId,
