@@ -30,7 +30,10 @@ export function configureInboundWebhookBodyParser(
   app.use(
     "/webhooks/inbound",
     raw({
-      type: "application/json",
+      // Providers do not consistently label webhook JSON as application/json.
+      // Capture every POST on this public ingress before any JSON parser can
+      // consume its stream; ingestion performs the fail-closed JSON check.
+      type: (request: { method?: string }) => request.method === "POST",
       limit: INBOUND_WEBHOOK_BODY_LIMIT,
       verify: captureRawBody,
     }),

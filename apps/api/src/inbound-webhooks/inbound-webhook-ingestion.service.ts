@@ -233,7 +233,13 @@ export class InboundWebhookIngestionService {
   ): Buffer {
     const mediaType = contentType?.split(";", 1)[0]?.trim().toLowerCase();
 
-    if (mediaType !== "application/json") {
+    const allowsJson =
+      mediaType === "application/json" ||
+      mediaType === "text/plain" ||
+      mediaType === "application/octet-stream" ||
+      !mediaType;
+
+    if (!allowsJson) {
       throw new UnsupportedMediaTypeException(
         "Webhook requer Content-Type application/json",
       );
@@ -254,6 +260,9 @@ export class InboundWebhookIngestionService {
         plaintext = plaintext.slice(1);
       }
       plaintext = plaintext.trim();
+      if (plaintext === "[object Object]") {
+        throw new SyntaxError("Object string is not JSON");
+      }
       payload = JSON.parse(plaintext);
       for (let index = 0; index < 3 && typeof payload === "string"; index++) {
         const nestedPayload = payload.trim();

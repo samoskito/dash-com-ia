@@ -9,9 +9,40 @@ import {
   Post,
   Query,
   RawBody,
+  Req,
 } from "@nestjs/common";
 import { InboundWebhookIngestionService } from "./inbound-webhook-ingestion.service";
 import { InboundConversionAutomationIngestionService } from "./inbound-conversion-automation-ingestion.service";
+
+type InboundWebhookRequest = {
+  body?: unknown;
+  rawBody?: Buffer;
+};
+
+export function resolveInboundRawBody(
+  rawBody: Buffer | undefined,
+  req: InboundWebhookRequest,
+): Buffer | undefined {
+  if (rawBody && rawBody.length > 0) {
+    return rawBody;
+  }
+  if (Buffer.isBuffer(req.rawBody) && req.rawBody.length > 0) {
+    return req.rawBody;
+  }
+  if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+    return req.body;
+  }
+  if (typeof req.body === "string" && req.body.length > 0) {
+    return Buffer.from(req.body, "utf8");
+  }
+  if (req.body && typeof req.body === "object") {
+    const serializedBody = JSON.stringify(req.body);
+    if (serializedBody) {
+      return Buffer.from(serializedBody, "utf8");
+    }
+  }
+  return rawBody;
+}
 
 @Controller("webhooks/inbound")
 export class InboundWebhookPublicController {
@@ -32,13 +63,14 @@ export class InboundWebhookPublicController {
     @Headers("content-type") contentType: string | undefined,
     @Headers("x-attempt") providerAttempt: unknown,
     @RawBody() rawBody: Buffer | undefined,
+    @Req() req: InboundWebhookRequest,
   ) {
     return this.conversionAutomationIngestion.ingest({
       endpointId,
       token,
       contentType,
       providerAttempt,
-      rawBody,
+      rawBody: resolveInboundRawBody(rawBody, req),
     });
   }
 
@@ -50,8 +82,10 @@ export class InboundWebhookPublicController {
     @Headers("content-type") contentType: string | undefined,
     @Headers("x-attempt") providerAttempt: unknown,
     @RawBody() rawBody: Buffer | undefined,
+    @Req() req: InboundWebhookRequest,
   ) {
     const startedAt = Date.now();
+    const resolvedRawBody = resolveInboundRawBody(rawBody, req);
 
     try {
       const result = await this.ingestion.ingest({
@@ -59,7 +93,7 @@ export class InboundWebhookPublicController {
         token,
         contentType,
         providerAttempt,
-        rawBody,
+        rawBody: resolvedRawBody,
       });
       const durationMs = Date.now() - startedAt;
 
@@ -69,7 +103,7 @@ export class InboundWebhookPublicController {
             event: "inbound_webhook.accepted_slow",
             connectionId,
             durationMs,
-            bodyBytes: rawBody?.length ?? 0,
+            bodyBytes: resolvedRawBody?.length ?? 0,
             queueStatus: result.queueStatus,
           }),
         );
@@ -83,7 +117,7 @@ export class InboundWebhookPublicController {
           connectionId,
           statusCode: error instanceof HttpException ? error.getStatus() : 500,
           durationMs: Date.now() - startedAt,
-          bodyBytes: rawBody?.length ?? 0,
+          bodyBytes: resolvedRawBody?.length ?? 0,
           contentType: contentType?.split(";", 1)[0] ?? null,
         }),
       );
