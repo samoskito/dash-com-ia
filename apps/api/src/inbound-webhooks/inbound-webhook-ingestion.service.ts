@@ -100,11 +100,7 @@ export class InboundWebhookIngestionService {
       input.connectionId,
       input.token,
     );
-    const rawBody = this.requireJsonBody(
-      connection,
-      input.contentType,
-      input.rawBody,
-    );
+    const rawBody = this.requireJsonBody(input.contentType, input.rawBody);
     const providerAttempt = parseInboundWebhookProviderAttempt(
       input.providerAttempt,
     );
@@ -232,7 +228,6 @@ export class InboundWebhookIngestionService {
   }
 
   private requireJsonBody(
-    connection: PublicInboundWebhookConnection,
     contentType: string | undefined,
     rawBody: Buffer | undefined,
   ): Buffer {
@@ -258,19 +253,21 @@ export class InboundWebhookIngestionService {
       throw new BadRequestException("Payload JSON invalido");
     }
 
+    let payload: unknown;
     try {
-      JSON.parse(plaintext);
-    } catch {
-      if (
-        connection.provider === "datacrazy" &&
-        connection.parserRelease.version === "v1"
-      ) {
-        return rawBody;
+      payload = JSON.parse(plaintext);
+      if (typeof payload === "string") {
+        payload = JSON.parse(payload);
       }
+    } catch {
       throw new BadRequestException("Payload JSON invalido");
     }
 
-    return rawBody;
+    if (!payload || (typeof payload !== "object" && !Array.isArray(payload))) {
+      throw new BadRequestException("Payload JSON invalido");
+    }
+
+    return Buffer.from(JSON.stringify(payload), "utf8");
   }
 
   private extractIdentity(
@@ -492,8 +489,7 @@ export class InboundWebhookIngestionService {
     results: PromiseSettledResult<unknown>[],
   ): void {
     const failures = results.filter(
-      (result): result is PromiseRejectedResult =>
-        result.status === "rejected",
+      (result): result is PromiseRejectedResult => result.status === "rejected",
     );
 
     if (failures.length === 0) {
@@ -506,9 +502,7 @@ export class InboundWebhookIngestionService {
         connectionId,
         deliveryId,
         failureCount: failures.length,
-        failureTypes: failures.map((failure) =>
-          this.errorType(failure.reason),
-        ),
+        failureTypes: failures.map((failure) => this.errorType(failure.reason)),
       }),
     );
   }
