@@ -363,7 +363,7 @@ export class InboundWebhookProductionService {
       parserReleaseStatus: connection.parserRelease.status,
     });
     const result = parser.parse(payload, {
-      organizationId: item.event.organizationId ?? delivery.workspaceId,
+      organizationId: delivery.workspaceId,
     });
     const parsedEvent = result.events.find(
       (candidate) => candidate.dedupeKey === item.event.dedupeKey,
