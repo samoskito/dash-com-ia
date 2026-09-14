@@ -50,6 +50,7 @@ enum DiagnosticSource {
   uazapi
   umbler
   gupshup
+  data_crazy
   asaas
   external_mysql
   internal
