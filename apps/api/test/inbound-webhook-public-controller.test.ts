@@ -12,7 +12,10 @@ import {
   type InboundConversionAutomationIngestionInput,
 } from "../src/inbound-webhooks/inbound-conversion-automation-ingestion.service";
 import { configureInboundWebhookBodyParser } from "../src/inbound-webhooks/inbound-webhook-body-parser";
-import { InboundWebhookPublicController } from "../src/inbound-webhooks/inbound-webhook-public.controller";
+import {
+  InboundWebhookPublicController,
+  resolveInboundRawBody,
+} from "../src/inbound-webhooks/inbound-webhook-public.controller";
 
 async function createApp() {
   const ingestion = {
@@ -129,6 +132,60 @@ describe("inbound webhook public controller", () => {
     expect(input).not.toHaveProperty("workspaceId");
 
     await app.close();
+  });
+
+  it("uses a JSON-parser object when Nest does not provide a raw body", async () => {
+    const { app, ingestion, conversionAutomationIngestion } = await createApp();
+    const controller = new InboundWebhookPublicController(
+      ingestion as never,
+      conversionAutomationIngestion as never,
+    );
+    const body = { leadId: "lead_1", nome: "Luiz Sérgio" };
+
+    await controller.receive(
+      "connection_1",
+      "one-time-token",
+      "application/json",
+      undefined,
+      undefined,
+      { body },
+    );
+
+    expect(ingestion.ingest).toHaveBeenCalledWith(
+      expect.objectContaining({ rawBody: Buffer.from(JSON.stringify(body)) }),
+    );
+    await app.close();
+  });
+
+  it("captures JSON bytes on text/plain and missing Content-Type posts", async () => {
+    for (const contentType of ["text/plain", undefined]) {
+      const { app, ingestion } = await createApp();
+      const payload = JSON.stringify({ leadId: `lead_${contentType ?? "none"}` });
+      let requestBuilder = request(app.getHttpServer())
+        .post("/webhooks/inbound/connection_1?token=one-time-token")
+        .send(payload);
+
+      if (contentType) {
+        requestBuilder = requestBuilder.set("Content-Type", contentType);
+      }
+
+      await requestBuilder.expect(202);
+      expect(ingestion.ingest).toHaveBeenCalledWith(
+        expect.objectContaining({ rawBody: Buffer.from(payload) }),
+      );
+      await app.close();
+    }
+  });
+
+  it("keeps the raw body resolver's precedence and string fallback", () => {
+    expect(
+      resolveInboundRawBody(Buffer.from("raw"), {
+        rawBody: Buffer.from("request-raw"),
+        body: { ignored: true },
+      })?.toString(),
+    ).toBe("raw");
+    expect(resolveInboundRawBody(undefined, { body: '{"leadId":"lead_1"}' }))
+      .toEqual(Buffer.from('{"leadId":"lead_1"}'));
   });
 
   it("accepts Umbler JSON payloads above the default 100 KiB parser limit", async () => {

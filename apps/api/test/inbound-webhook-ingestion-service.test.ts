@@ -270,13 +270,13 @@ describe("inbound webhook ingestion service", () => {
     }
   });
 
-  it("rejects non-JSON media, invalid JSON and oversized bytes before persistence", async () => {
+  it("rejects unsupported media, invalid JSON and oversized bytes before persistence", async () => {
     const harness = createHarness();
 
     await expect(
       harness.service.ingest(
         requestInput(Buffer.from("{}"), {
-          contentType: "text/plain",
+          contentType: "image/jpeg",
         }),
       ),
     ).rejects.toMatchObject({ status: 415 });
@@ -294,6 +294,19 @@ describe("inbound webhook ingestion service", () => {
 
     expect(harness.deliveries.size).toBe(0);
     expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
+  });
+
+  it("accepts JSON object bytes from text/plain and missing Content-Type", async () => {
+    for (const contentType of ["text/plain", undefined]) {
+      const harness = createHarness({ provider: "datacrazy" });
+      const result = await harness.service.ingest(
+        requestInput(Buffer.from('{"leadId":"lead_content_type"}'), {
+          contentType,
+        }),
+      );
+
+      expect(result).toMatchObject({ status: "accepted", duplicate: false });
+    }
   });
 
   it("unwraps a double-encoded Data Crazy JSON body before persistence", async () => {
@@ -416,7 +429,11 @@ describe("inbound webhook ingestion service", () => {
   it("fails closed for invalid and scalar JSON bodies", async () => {
     const harness = createHarness({ provider: "datacrazy" });
 
-    for (const body of [Buffer.from("{invalid"), Buffer.from('"not-json"')]) {
+    for (const body of [
+      Buffer.from("{invalid"),
+      Buffer.from('"not-json"'),
+      Buffer.from("[object Object]"),
+    ]) {
       await expect(
         harness.service.ingest(requestInput(body)),
       ).rejects.toMatchObject({
