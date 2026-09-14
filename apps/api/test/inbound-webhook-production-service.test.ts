@@ -59,22 +59,58 @@ const gupshupPayload = {
     },
   ],
 };
+const datacrazyPayload = [
+  {
+    leadId: "datacrazy-lead-1",
+    body: JSON.stringify({
+      telefone: "5511999990001",
+      mensagem: JSON.stringify({
+        from: "551199991234",
+        type: "text",
+        referral: {
+          source_id: "120000000000000001",
+          ctwa_clid: "ctwa-datacrazy-1",
+        },
+        messageData: {
+          id: "datacrazy-production-message-1",
+          date: "2026-07-21T12:00:00.000Z",
+          text: "Quero saber mais",
+          contact: {
+            phoneNumber: "551199991234",
+            name: "Contato Data Crazy",
+          },
+        },
+        instanceData: {
+          id: "datacrazy-instance-1",
+          name: "Comercial",
+        },
+      }),
+    }),
+  },
+];
 
 function createHarness(
   input: {
     channelStatus?: "active" | "paused";
-    provider?: "umbler" | "gupshup";
+    provider?: "umbler" | "gupshup" | "datacrazy";
   } = {},
 ) {
   const provider = input.provider ?? "umbler";
-  const providerPayload = provider === "gupshup" ? gupshupPayload : rawPayload;
+  const providerPayload =
+    provider === "gupshup"
+      ? gupshupPayload
+      : provider === "datacrazy"
+        ? datacrazyPayload
+        : rawPayload;
   const parserRegistry = new InboundWebhookParserRegistry();
   const parser = parserRegistry.resolve({
     provider,
     parserVersion: "v1",
     parserReleaseStatus: "certified",
   });
-  const parsed = parser.parse(providerPayload).events[0]!;
+  const parsed = parser.parse(providerPayload, {
+    organizationId: workspaceId,
+  }).events[0]!;
   const activatedAt = new Date("2026-07-21T12:00:00.000Z");
   const firstReceivedAt = new Date("2026-07-21T12:00:01.000Z");
   const item = {
@@ -288,6 +324,25 @@ describe("inbound webhook production service", () => {
       }),
     );
     expect(harness.conversionQueue.enqueueSend).toHaveBeenCalledOnce();
+  });
+
+  it("materializes a live Data Crazy lead with the stored organization context", async () => {
+    const harness = createHarness({ provider: "datacrazy" });
+
+    await expect(
+      harness.service.processItem({
+        productionItemId: harness.item.id,
+        workspaceId,
+      }),
+    ).resolves.toEqual({ status: "materialized" });
+
+    expect(harness.item).toMatchObject({
+      status: "materialized",
+      errorCode: null,
+    });
+    expect(harness.leads.upsertFromWhatsappWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "datacrazy" }),
+    );
   });
 
   it("rejects a paused channel before creating a lead or conversion", async () => {

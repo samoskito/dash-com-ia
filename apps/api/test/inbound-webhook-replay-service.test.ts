@@ -57,6 +57,35 @@ const owner = {
   email: "owner@example.com",
   role: "platform_owner" as const,
 };
+const datacrazyPayload = [
+  {
+    leadId: "datacrazy-lead-1",
+    body: JSON.stringify({
+      telefone: "5511999990001",
+      mensagem: JSON.stringify({
+        from: "551199991234",
+        type: "text",
+        referral: {
+          source_id: "ad_1",
+          ctwa_clid: "ctwa-datacrazy-1",
+        },
+        messageData: {
+          id: "datacrazy-message-1",
+          date: "2026-07-18T12:00:00.000Z",
+          text: "Quero saber mais",
+          contact: {
+            phoneNumber: "551199991234",
+            name: "Contato Data Crazy",
+          },
+        },
+        instanceData: {
+          id: "datacrazy-instance-1",
+          name: "Comercial",
+        },
+      }),
+    }),
+  },
+];
 
 function createService(input: {
   prisma: Record<string, unknown>;
@@ -1011,256 +1040,276 @@ describe("inbound webhook replay service", () => {
     });
   });
 
-  it("materializes one event through existing lead and CAPI pipelines exactly once", async () => {
-    const payload = readFileSync(
-      resolve(__dirname, "fixtures/umbler/message-with-ctwa.json"),
-    );
-    const parsed = new InboundWebhookParserRegistry()
-      .resolve({
-        provider: "umbler",
-        parserVersion: "v1",
-        parserReleaseStatus: "certified",
-      })
-      .parse(JSON.parse(payload.toString("utf8"))).events[0]!;
-    const itemState = {
-      status: "queued",
-      leadId: null as string | null,
-      conversionEventLogId: null as string | null,
-      errorCode: null as string | null,
-      attemptCount: 0,
-      lastAttemptedAt: null as Date | null,
-      processedAt: null as Date | null,
-    };
-    const batch = {
-      id: "batch_1",
-      workspaceId,
-      connectionId,
-      requestedByUserId: owner.id,
-      selection: "canary_1" as const,
-      requestedLimit: 1,
-      status: "queued",
-      totalItems: 1,
-      materializedCount: 0,
-      duplicateCount: 0,
-      skippedCount: 0,
-      failedCount: 0,
-      retryableFailedCount: 0,
-      retryCount: 0,
-      startedAt: null as Date | null,
-      completedAt: null as Date | null,
-      lastRetriedAt: null as Date | null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    const replayItem = {
-      id: "item_1",
-      workspaceId,
-      batchId: batch.id,
-      eventId: "event_1",
-      createdAt: now,
-      updatedAt: now,
-      ...itemState,
-      event: {
-        id: "event_1",
+  it.each([
+    {
+      provider: "umbler" as const,
+      payload: JSON.parse(
+        readFileSync(
+          resolve(__dirname, "fixtures/umbler/message-with-ctwa.json"),
+          "utf8",
+        ),
+      ) as unknown,
+    },
+    { provider: "datacrazy" as const, payload: datacrazyPayload as unknown },
+  ])(
+    "materializes one $provider event through existing lead and CAPI pipelines exactly once",
+    async ({ provider, payload }) => {
+      const encryptedPayload = Buffer.from(JSON.stringify(payload), "utf8");
+      const parsed = new InboundWebhookParserRegistry()
+        .resolve({
+          provider,
+          parserVersion: "v1",
+          parserReleaseStatus: "certified",
+        })
+        .parse(payload, { organizationId: workspaceId }).events[0]!;
+      const replayConnection = {
+        ...connection,
+        provider,
+        parserRelease: {
+          ...connection.parserRelease,
+          provider,
+        },
+      };
+      const itemState = {
+        status: "queued",
+        leadId: null as string | null,
+        conversionEventLogId: null as string | null,
+        errorCode: null as string | null,
+        attemptCount: 0,
+        lastAttemptedAt: null as Date | null,
+        processedAt: null as Date | null,
+      };
+      const batch = {
+        id: "batch_1",
         workspaceId,
         connectionId,
-        deliveryId: "delivery_1",
-        channelId: "channel_1",
-        provider: "umbler",
-        externalEventId: parsed.externalEventId,
-        externalMessageId: parsed.externalMessageId,
-        dedupeKey: parsed.dedupeKey,
-        occurredAt: parsed.occurredAt,
-        contactIdentityHash: "stored-contact-hash",
-        adId: parsed.adId,
-        hasCtwa: true,
-        classification: "eligible_route_resolved",
-        classificationReason: "route_resolved",
-        normalizedSummary: parsed.normalizedSummary,
+        requestedByUserId: owner.id,
+        selection: "canary_1" as const,
+        requestedLimit: 1,
+        status: "queued",
+        totalItems: 1,
+        materializedCount: 0,
+        duplicateCount: 0,
+        skippedCount: 0,
+        failedCount: 0,
+        retryableFailedCount: 0,
+        retryCount: 0,
+        startedAt: null as Date | null,
+        completedAt: null as Date | null,
+        lastRetriedAt: null as Date | null,
         createdAt: now,
         updatedAt: now,
-        resolvedBusinessConnectionWorkspaceId: workspaceId,
-        resolvedBusinessConnectionId: "business_1",
-        resolvedReportingAccountWorkspaceId: workspaceId,
-        resolvedReportingAccountId: "reporting_1",
-        resolvedConversionDestinationWorkspaceId: workspaceId,
-        resolvedConversionDestinationId: "destination_1",
-        delivery: {
-          id: "delivery_1",
+      };
+      const replayItem = {
+        id: "item_1",
+        workspaceId,
+        batchId: batch.id,
+        eventId: "event_1",
+        createdAt: now,
+        updatedAt: now,
+        ...itemState,
+        event: {
+          id: "event_1",
           workspaceId,
           connectionId,
-          parserVersion: "v1",
-          encryptedPayload: "ciphertext",
-          payloadIv: "iv",
-          payloadTag: "tag",
-          encryptionKeyVersion: 1,
-          payloadExpiresAt: new Date("2026-07-25T15:00:00.000Z"),
-        },
-        connection,
-        resolvedBusinessConnection: {
-          id: "business_1",
-          workspaceId,
-          status: "active",
-          credential: {
+          deliveryId: "delivery_1",
+          channelId: "channel_1",
+          provider,
+          externalEventId: parsed.externalEventId,
+          externalMessageId: parsed.externalMessageId,
+          dedupeKey: parsed.dedupeKey,
+          occurredAt: parsed.occurredAt,
+          contactIdentityHash: "stored-contact-hash",
+          adId: parsed.adId,
+          hasCtwa: true,
+          classification: "eligible_route_resolved",
+          classificationReason: "route_resolved",
+          normalizedSummary: parsed.normalizedSummary,
+          createdAt: now,
+          updatedAt: now,
+          resolvedBusinessConnectionWorkspaceId: workspaceId,
+          resolvedBusinessConnectionId: "business_1",
+          resolvedReportingAccountWorkspaceId: workspaceId,
+          resolvedReportingAccountId: "reporting_1",
+          resolvedConversionDestinationWorkspaceId: workspaceId,
+          resolvedConversionDestinationId: "destination_1",
+          delivery: {
+            id: "delivery_1",
+            workspaceId,
+            connectionId,
+            parserVersion: "v1",
+            encryptedPayload: "ciphertext",
+            payloadIv: "iv",
+            payloadTag: "tag",
+            encryptionKeyVersion: 1,
+            payloadExpiresAt: new Date("2026-07-25T15:00:00.000Z"),
+          },
+          connection: replayConnection,
+          resolvedBusinessConnection: {
+            id: "business_1",
+            workspaceId,
             status: "active",
+            credential: {
+              status: "active",
+            },
+          },
+          resolvedReportingAccount: {
+            id: "reporting_1",
+            workspaceId,
+            active: true,
+            businessConnectionId: "business_1",
+            adAccountId: "act_1",
+          },
+          resolvedConversionDestination: {
+            id: "destination_1",
+            workspaceId,
+            status: "configured",
+          },
+          channel: {
+            routes: [
+              {
+                metaBusinessConnectionId: "business_1",
+                metaReportingAccountId: "reporting_1",
+                metaConversionDestinationId: "destination_1",
+              },
+            ],
           },
         },
-        resolvedReportingAccount: {
-          id: "reporting_1",
-          workspaceId,
-          active: true,
-          businessConnectionId: "business_1",
-          adAccountId: "act_1",
-        },
-        resolvedConversionDestination: {
-          id: "destination_1",
-          workspaceId,
-          status: "configured",
-        },
-        channel: {
-          routes: [
-            {
-              metaBusinessConnectionId: "business_1",
-              metaReportingAccountId: "reporting_1",
-              metaConversionDestinationId: "destination_1",
-            },
-          ],
-        },
-      },
-    };
-    const itemUpdate = vi.fn(async ({ data }) => {
-      const attemptIncrement = data.attemptCount?.increment ?? 0;
-      Object.assign(itemState, {
-        ...data,
-        attemptCount: itemState.attemptCount + attemptIncrement,
+      };
+      const itemUpdate = vi.fn(async ({ data }) => {
+        const attemptIncrement = data.attemptCount?.increment ?? 0;
+        Object.assign(itemState, {
+          ...data,
+          attemptCount: itemState.attemptCount + attemptIncrement,
+        });
+        return { ...replayItem, ...itemState };
       });
-      return { ...replayItem, ...itemState };
-    });
-    const batchUpdate = vi.fn(async ({ data }) => {
-      Object.assign(batch, data);
-      return { ...batch };
-    });
-    const prisma = {
-      inboundWebhookReplayBatch: {
-        findFirst: vi.fn(async () => ({ ...batch })),
-        update: batchUpdate,
-      },
-      inboundWebhookReplayItem: {
-        findMany: vi.fn(async () =>
-          ["queued", "processing"].includes(itemState.status)
-            ? [{ id: replayItem.id }]
-            : [],
-        ),
-        findFirst: vi.fn(async () => ({
-          ...replayItem,
-          ...itemState,
-        })),
-        update: itemUpdate,
-        count: vi.fn(async ({ where }) =>
-          itemState.status === where.status ? 1 : 0,
-        ),
-      },
-      metaAd: {
-        findFirst: vi.fn(async () => ({
+      const batchUpdate = vi.fn(async ({ data }) => {
+        Object.assign(batch, data);
+        return { ...batch };
+      });
+      const prisma = {
+        inboundWebhookReplayBatch: {
+          findFirst: vi.fn(async () => ({ ...batch })),
+          update: batchUpdate,
+        },
+        inboundWebhookReplayItem: {
+          findMany: vi.fn(async () =>
+            ["queued", "processing"].includes(itemState.status)
+              ? [{ id: replayItem.id }]
+              : [],
+          ),
+          findFirst: vi.fn(async () => ({
+            ...replayItem,
+            ...itemState,
+          })),
+          update: itemUpdate,
+          count: vi.fn(async ({ where }) =>
+            itemState.status === where.status ? 1 : 0,
+          ),
+        },
+        metaAd: {
+          findFirst: vi.fn(async () => ({
+            campaignId: "campaign_1",
+            adSetId: "adset_1",
+            adAccountId: "act_1",
+          })),
+        },
+        auditLog: {
+          create: vi.fn(async () => undefined),
+        },
+        $transaction: vi.fn(async (callback) => callback(prisma)),
+      };
+      const upsertLead = vi.fn(async () => ({ id: "lead_1" }));
+      const recordConversion = vi.fn(
+        async (_input: {
+          sourcePayload: Record<string, unknown>;
+          [key: string]: unknown;
+        }) => ({
+          conversionEventLogId: "conversion_1",
+          status: "created",
+          deliveryStatus: "ready_to_send",
+        }),
+      );
+      const enqueueSend = vi.fn(async () => ({
+        conversionEventLogId: "conversion_1",
+        jobId: "conversion-send_conversion_1",
+        status: "queued",
+      }));
+      const service = createService({
+        prisma,
+        payloadEncryption: {
+          decrypt: vi.fn(() => encryptedPayload),
+        },
+        leads: {
+          upsertFromWhatsappWebhook: upsertLead,
+        },
+        conversions: {
+          recordExternalConversion: recordConversion,
+        },
+        conversionQueue: {
+          enqueueSend,
+        },
+      });
+
+      const result = await service.processBatch({
+        workspaceId,
+        batchId: batch.id,
+      });
+
+      expect(result).toMatchObject({
+        status: "completed",
+        totalItems: 1,
+        materializedCount: 1,
+        duplicateCount: 0,
+        failedCount: 0,
+      });
+      expect(upsertLead).toHaveBeenCalledOnce();
+      expect(upsertLead).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceId,
+          source: provider,
+          preserveExistingSource: true,
+          preserveEarliestFirstMessageAt: true,
           campaignId: "campaign_1",
           adSetId: "adset_1",
-          adAccountId: "act_1",
-        })),
-      },
-      auditLog: {
-        create: vi.fn(async () => undefined),
-      },
-      $transaction: vi.fn(async (callback) => callback(prisma)),
-    };
-    const upsertLead = vi.fn(async () => ({ id: "lead_1" }));
-    const recordConversion = vi.fn(
-      async (_input: {
-        sourcePayload: Record<string, unknown>;
-        [key: string]: unknown;
-      }) => ({
-        conversionEventLogId: "conversion_1",
-        status: "created",
-        deliveryStatus: "ready_to_send",
-      }),
-    );
-    const enqueueSend = vi.fn(async () => ({
-      conversionEventLogId: "conversion_1",
-      jobId: "conversion-send_conversion_1",
-      status: "queued",
-    }));
-    const service = createService({
-      prisma,
-      payloadEncryption: {
-        decrypt: vi.fn(() => payload),
-      },
-      leads: {
-        upsertFromWhatsappWebhook: upsertLead,
-      },
-      conversions: {
-        recordExternalConversion: recordConversion,
-      },
-      conversionQueue: {
-        enqueueSend,
-      },
-    });
+          adId: parsed.adId,
+          occurredAt: parsed.occurredAt,
+        }),
+      );
+      expect(recordConversion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceId,
+          externalConnectorId: null,
+          sourceTrigger: `inbound_webhook:${provider}`,
+          eventName: "LeadSubmitted",
+          leadId: "lead_1",
+          businessSource: "paid",
+          metaAccountId: "act_1",
+          metaBusinessConnectionId: "business_1",
+          metaConversionDestinationId: "destination_1",
+          eventOccurredAt: parsed.occurredAt,
+        }),
+      );
+      const conversionInput = recordConversion.mock.calls[0]![0];
+      expect(JSON.stringify(conversionInput.sourcePayload)).not.toContain(
+        parsed.contact.phoneNumber,
+      );
+      expect(JSON.stringify(conversionInput.sourcePayload)).not.toContain(
+        parsed.contact.name,
+      );
+      expect(JSON.stringify(conversionInput.sourcePayload)).not.toContain(
+        parsed.ctwaClid,
+      );
+      expect(enqueueSend).toHaveBeenCalledWith("conversion_1", workspaceId);
 
-    const result = await service.processBatch({
-      workspaceId,
-      batchId: batch.id,
-    });
-
-    expect(result).toMatchObject({
-      status: "completed",
-      totalItems: 1,
-      materializedCount: 1,
-      duplicateCount: 0,
-      failedCount: 0,
-    });
-    expect(upsertLead).toHaveBeenCalledOnce();
-    expect(upsertLead).toHaveBeenCalledWith(
-      expect.objectContaining({
+      await service.processBatch({
         workspaceId,
-        source: "umbler",
-        preserveExistingSource: true,
-        preserveEarliestFirstMessageAt: true,
-        campaignId: "campaign_1",
-        adSetId: "adset_1",
-        adId: parsed.adId,
-        occurredAt: parsed.occurredAt,
-      }),
-    );
-    expect(recordConversion).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId,
-        externalConnectorId: null,
-        sourceTrigger: "inbound_webhook:umbler",
-        eventName: "LeadSubmitted",
-        leadId: "lead_1",
-        businessSource: "paid",
-        metaAccountId: "act_1",
-        metaBusinessConnectionId: "business_1",
-        metaConversionDestinationId: "destination_1",
-        eventOccurredAt: parsed.occurredAt,
-      }),
-    );
-    const conversionInput = recordConversion.mock.calls[0]![0];
-    expect(JSON.stringify(conversionInput.sourcePayload)).not.toContain(
-      parsed.contact.phoneNumber,
-    );
-    expect(JSON.stringify(conversionInput.sourcePayload)).not.toContain(
-      parsed.contact.name,
-    );
-    expect(JSON.stringify(conversionInput.sourcePayload)).not.toContain(
-      parsed.ctwaClid,
-    );
-    expect(enqueueSend).toHaveBeenCalledWith("conversion_1", workspaceId);
-
-    await service.processBatch({
-      workspaceId,
-      batchId: batch.id,
-    });
-    expect(upsertLead).toHaveBeenCalledOnce();
-    expect(recordConversion).toHaveBeenCalledOnce();
-    expect(enqueueSend).toHaveBeenCalledOnce();
-  });
+        batchId: batch.id,
+      });
+      expect(upsertLead).toHaveBeenCalledOnce();
+      expect(recordConversion).toHaveBeenCalledOnce();
+      expect(enqueueSend).toHaveBeenCalledOnce();
+    },
+  );
 });

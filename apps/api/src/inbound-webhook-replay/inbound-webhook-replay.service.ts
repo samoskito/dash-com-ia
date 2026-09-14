@@ -1152,7 +1152,9 @@ export class InboundWebhookReplayService {
       parserVersion: connection.parserRelease.version,
       parserReleaseStatus: connection.parserRelease.status,
     });
-    const result = parser.parse(payload);
+    const result = parser.parse(payload, {
+      organizationId: item.event.organizationId ?? delivery.workspaceId,
+    });
     const parsedEvent = result.events.find(
       (candidate) => candidate.dedupeKey === item.event.dedupeKey,
     );
