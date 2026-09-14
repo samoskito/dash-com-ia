@@ -49,7 +49,11 @@ async function createApp() {
   const app = moduleRef.createNestApplication<NestExpressApplication>({
     rawBody: true,
   });
-  app.useBodyParser("json", { limit: INBOUND_WEBHOOK_BODY_LIMIT });
+  // Mirror production: allow top-level JSON strings (Data Crazy double-encode).
+  app.useBodyParser("json", {
+    limit: INBOUND_WEBHOOK_BODY_LIMIT,
+    strict: false,
+  } as { limit: string });
   await app.init();
 
   return { app, ingestion, conversionAutomationIngestion };
@@ -158,13 +162,34 @@ describe("inbound webhook public controller", () => {
     await app.close();
   });
 
-  it("rejects invalid JSON before the ingestion service", async () => {
+  it("passes a double-encoded JSON body through to ingestion", async () => {
     const { app, ingestion } = await createApp();
+    const payload = JSON.stringify(JSON.stringify({ leadId: "lead_1" }));
 
     await request(app.getHttpServer())
       .post("/webhooks/inbound/connection_1?token=one-time-token")
       .set("Content-Type", "application/json")
-      .send("{invalid")
+      .send(payload)
+      .expect(202);
+
+    expect(ingestion.ingest).toHaveBeenCalledTimes(1);
+    expect(
+      (ingestion.ingest.mock.calls[0][0].rawBody as Buffer).equals(
+        Buffer.from(payload),
+      ),
+    ).toBe(true);
+
+    await app.close();
+  });
+
+  it("rejects invalid JSON before ingestion with a framework/body-parser error", async () => {
+    const { app, ingestion } = await createApp();
+    const payload = "{invalid";
+
+    await request(app.getHttpServer())
+      .post("/webhooks/inbound/connection_1?token=one-time-token")
+      .set("Content-Type", "application/json")
+      .send(payload)
       .expect(400);
 
     expect(ingestion.ingest).not.toHaveBeenCalled();

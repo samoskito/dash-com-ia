@@ -77,7 +77,9 @@ function parseOccurredAt(value: unknown): Date | null {
   return Number.isFinite(milliseconds) ? new Date(milliseconds) : null;
 }
 
-function parseEncodedJsonRecord(value: unknown): Record<string, unknown> | null {
+function parseEncodedJsonRecord(
+  value: unknown,
+): Record<string, unknown> | null {
   if (typeof value !== "string") return null;
   const raw = value.trim();
   if (
@@ -192,13 +194,21 @@ function identifier(value: unknown, maximumLength = 255): string | null {
   return boundedString(value, maximumLength);
 }
 
+function directLeadItem(value: unknown): Record<string, unknown> | null {
+  const item = asRecord(value);
+  return item && !("body" in item) && identifier(item.leadId) ? item : null;
+}
+
 function parseItem(
   item: unknown,
   organizationId: string,
 ): ParsedInboundWebhookEvent | null {
   const envelopeItem = asRecord(item);
   if (!envelopeItem) return null;
-  const body = parseEncodedJsonRecord(envelopeItem.body);
+  const body =
+    "body" in envelopeItem
+      ? parseEncodedJsonRecord(envelopeItem.body)
+      : directLeadItem(envelopeItem);
   if (!body) return null;
   const mensagem = parseEncodedJsonRecord(body.mensagem);
   if (!mensagem) return null;
@@ -328,20 +338,25 @@ function parsePayload(
       classificationReason: "organization_context_missing",
     });
   }
-  if (!Array.isArray(payload)) {
+  const items = Array.isArray(payload)
+    ? payload
+    : directLeadItem(payload)
+      ? [payload]
+      : null;
+  if (!items) {
     return emptyResult({
       classification: "unsupported_event",
       classificationReason: "payload_envelope_unsupported",
     });
   }
-  if (payload.length === 0) {
+  if (items.length === 0) {
     return emptyResult({
       classification: "unsupported_event",
       classificationReason: "payload_batch_empty",
     });
   }
 
-  const events = payload.map((item) => parseItem(item, organizationId));
+  const events = items.map((item) => parseItem(item, organizationId));
   if (events.some((event) => event === null)) {
     return emptyResult({
       classification: "invalid_payload",

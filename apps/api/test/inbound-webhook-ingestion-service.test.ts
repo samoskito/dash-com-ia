@@ -293,12 +293,14 @@ describe("inbound webhook ingestion service", () => {
     expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
   });
 
-  it("accepts malformed UTF-8-safe JSON only for Data Crazy v1 so its parser can repair templates", async () => {
+  it("unwraps a double-encoded Data Crazy JSON body before persistence", async () => {
     const harness = createHarness({ provider: "datacrazy" });
+    const payload = { leadId: "lead_001", telefone: "5511999991234" };
     const rawBody = Buffer.from(
-      '{"Telefone":"5511999991234","mensagem":"{\"received\":true,\n',
+      JSON.stringify(JSON.stringify(payload)),
       "utf8",
     );
+    const normalizedBody = Buffer.from(JSON.stringify(payload), "utf8");
 
     const result = await harness.service.ingest(requestInput(rawBody));
 
@@ -306,13 +308,49 @@ describe("inbound webhook ingestion service", () => {
     expect([...harness.deliveries.values()][0]).toMatchObject({
       workspaceId: "workspace_safe",
       provider: "datacrazy",
-      ingressKey: `raw:${createHash("sha256").update(rawBody).digest("hex")}`,
+      ingressKey: `raw:${createHash("sha256").update(normalizedBody).digest("hex")}`,
     });
+    await vi.waitFor(() => {
+      expect(harness.queue.enqueueDelivery).toHaveBeenCalled();
+    });
+    const delivery = [...harness.deliveries.values()][0]!;
+    expect(
+      harness.encryption
+        .decrypt(
+          {
+            encryptedPayload: delivery.encryptedPayload,
+            payloadIv: delivery.payloadIv,
+            payloadTag: delivery.payloadTag,
+            encryptionKeyVersion: delivery.encryptionKeyVersion,
+          },
+          {
+            workspaceId: "workspace_safe",
+            connectionId: "connection_1",
+            deliveryId: result.deliveryId,
+          },
+        )
+        .equals(normalizedBody),
+    ).toBe(true);
     await vi.waitFor(() => {
       expect(harness.queue.enqueueDelivery).toHaveBeenCalledWith(
         expect.objectContaining({ workspaceId: "workspace_safe" }),
       );
     });
+  });
+
+  it("fails closed for invalid and scalar JSON bodies", async () => {
+    const harness = createHarness({ provider: "datacrazy" });
+
+    for (const body of [Buffer.from("{invalid"), Buffer.from('"not-json"')]) {
+      await expect(
+        harness.service.ingest(requestInput(body)),
+      ).rejects.toMatchObject({
+        status: 400,
+        message: "Payload JSON invalido",
+      });
+    }
+
+    expect(harness.deliveries.size).toBe(0);
   });
 
   it("accepts a valid Umbler payload larger than the old 96 KiB limit", async () => {

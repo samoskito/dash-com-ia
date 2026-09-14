@@ -71,6 +71,14 @@ function realEnvelope(options: EnvelopeOptions = {}) {
   ];
 }
 
+function directLead(options: EnvelopeOptions = {}) {
+  const [envelope] = realEnvelope(options);
+  return {
+    leadId: envelope.leadId,
+    ...JSON.parse(envelope.body),
+  };
+}
+
 describe("Data Crazy v1 inbound webhook parser", () => {
   it("parses the real array > body > mensagem envelope and keeps sensitive values out of summaries", () => {
     const result = parser.parse(realEnvelope(), context);
@@ -151,8 +159,55 @@ describe("Data Crazy v1 inbound webhook parser", () => {
     });
   });
 
+  it("parses a direct Data Crazy lead object", () => {
+    const result = parser.parse(directLead(), context);
+
+    expect(result).toMatchObject({
+      classification: "eligible_route_unresolved",
+      externalDeliveryId: "dc-message-001",
+      events: [
+        {
+          contact: { externalContactId: "lead-external-001" },
+          channel: { connectedPhone: "5511999991234" },
+          ctwaClid: "ctwa-secret-001",
+        },
+      ],
+    });
+  });
+
+  it("audits a direct lead without referral CTWA metadata", () => {
+    const result = parser.parse(
+      directLead({
+        mensagem: { referral: undefined },
+        body: { ctwaClid: "top-level-ctwa-is-ignored" },
+      }),
+      context,
+    );
+
+    expect(result).toMatchObject({
+      classification: "ignored_no_ctwa",
+      events: [
+        {
+          hasCtwa: false,
+          ctwaClid: null,
+          adId: null,
+          classificationReason: "ctwa_missing",
+        },
+      ],
+    });
+  });
+
+  it("parses an array of direct Data Crazy leads", () => {
+    const result = parser.parse(
+      [directLead(), directLead({ leadId: "lead-external-002" })],
+      context,
+    );
+
+    expect(result.normalizedSummary.eventCount).toBe(2);
+  });
+
   it("requires workspace context and never trusts payload organization fields", () => {
-    const payload = realEnvelope({
+    const payload = directLead({
       mensagem: {
         organizationId: "payload-org",
         instanceData: {
