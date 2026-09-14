@@ -575,7 +575,7 @@ export class InboundWebhookObservationService {
     }
 
     try {
-      return parser.parse(payload);
+      return parser.parse(payload, { organizationId: delivery.workspaceId });
     } catch {
       throw new InboundWebhookDeterministicFailure(
         "inbound_webhook_parser_execution_failed",
@@ -691,6 +691,8 @@ export class InboundWebhookObservationService {
       summary.occurredAt === event.occurredAt.toISOString() &&
       summary.adId === event.adId &&
       summary.hasCtwa === event.hasCtwa &&
+      (summary.phoneDivergenceDetected === undefined ||
+        typeof summary.phoneDivergenceDetected === "boolean") &&
       summary.messageDirection === event.message.direction &&
       summary.messageAuthorType === event.message.authorType &&
       summary.messageType === event.message.messageType &&

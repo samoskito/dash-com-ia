@@ -37,6 +37,7 @@ export type InboundWebhookEventNormalizedSummary = {
   occurredAt: string;
   adId: string | null;
   hasCtwa: boolean;
+  phoneDivergenceDetected?: boolean;
   messageDirection: ParsedInboundWebhookMessageDirection;
   messageAuthorType: ParsedInboundWebhookMessageAuthorType;
   messageType: string | null;
@@ -111,10 +112,17 @@ export type InboundWebhookParserResult = {
   error: InboundWebhookParserError | null;
 };
 
+export type InboundWebhookParserContext = {
+  organizationId?: string;
+};
+
 export interface InboundWebhookParser {
   readonly provider: string;
   readonly parserVersion: string;
-  parse(payload: unknown): InboundWebhookParserResult;
+  parse(
+    payload: unknown,
+    context?: InboundWebhookParserContext,
+  ): InboundWebhookParserResult;
 }
 
 export type InboundWebhookEventDedupeIdentity = {

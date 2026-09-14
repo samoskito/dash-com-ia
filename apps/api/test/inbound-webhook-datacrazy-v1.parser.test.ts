@@ -6,44 +6,74 @@ import {
 } from "../src/inbound-webhooks/providers/datacrazy/datacrazy-v1.parser";
 
 const parser = new DataCrazyV1Parser();
+const context = { organizationId: "workspace_001" };
 
-function message(overrides: Record<string, unknown> = {}) {
-  return {
-    id: "dc-message-001",
-    received: true,
-    createdAt: "2026-08-28T10:30:00.000Z",
-    body: "Quero saber mais",
-    contact: {
-      id: "dc-contact-001",
-      phoneNumber: "+55 (11) 99999-1234",
-      name: "Ana Cliente",
-    },
-    instanceData: {
-      organizationId: "dc-org-001",
-      instanceId: "dc-instance-001",
-      phoneNumber: "+55 (11) 98888-0000",
-      name: "Comercial",
-    },
+type EnvelopeOptions = {
+  leadId?: string;
+  body?: Record<string, unknown>;
+  mensagem?: Record<string, unknown>;
+};
+
+function realEnvelope(options: EnvelopeOptions = {}) {
+  const mensagem = {
+    id: "message-wrapper-001",
+    from: "551199991234",
+    text: "Quero saber mais",
+    timestamp: "2026-08-28T10:30:00.000Z",
+    type: "text",
     referral: {
       ctwa_clid: "ctwa-secret-001",
       source_id: "120000000000000001",
       source_url: "https://facebook.example/ad-secret",
-      headline: "Oferta especial",
+      source_type: "ad",
+      video_url: "https://cdn.example/video-secret.mp4",
       thumbnail_url: "https://cdn.example/thumb-secret.jpg",
+      headline: "Oferta especial",
+      body: "Confira a oferta",
     },
-    ...overrides,
+    messageData: {
+      id: "dc-message-001",
+      date: "2026-08-28T10:30:00.000Z",
+      text: "Quero saber mais",
+      contact: {
+        id: "dc-contact-001",
+        contactId: "contact-id-not-used-as-identity",
+        phoneNumber: "551199991234",
+        name: "Ana Cliente",
+      },
+      conversationId: "conversation-001",
+      attachments: [],
+      hasAttachments: false,
+    },
+    instanceData: {
+      id: "dc-instance-001",
+      name: "Comercial",
+    },
+    ...options.mensagem,
   };
+  const body = {
+    nome: "Ana Cliente",
+    cidade: "Sao Paulo",
+    estado: "SP",
+    telefone: "5511999991234",
+    sourceID: "", // Intentionally ignored: CTWA only comes from referral.
+    sourceURL: "",
+    ctwaClid: "",
+    mensagem: JSON.stringify(mensagem),
+    ...options.body,
+  };
+
+  return [
+    {
+      leadId: options.leadId ?? "lead-external-001",
+      body: JSON.stringify(body),
+    },
+  ];
 }
 
 describe("Data Crazy v1 inbound webhook parser", () => {
-  it("maps format A with a nested legacy message and keeps PII out of summaries", () => {
-    const payload = {
-      Telefone: "+55 11 99999-1234",
-      Nome: "Ana Cliente",
-      mensagem: JSON.stringify(message()),
-    };
-
-    const result = parser.parse(payload);
+  it("parses the real array > body > mensagem envelope and keeps sensitive values out of summaries", () => {
+    const result = parser.parse(realEnvelope(), context);
     const event = result.events[0]!;
 
     expect(result).toMatchObject({
@@ -53,29 +83,26 @@ describe("Data Crazy v1 inbound webhook parser", () => {
       error: null,
     });
     expect(event).toMatchObject({
-      provider: "datacrazy",
-      contact: { phoneNumber: "5511999991234", name: "Ana Cliente" },
+      externalMessageId: "dc-message-001",
+      organizationId: "workspace_001",
+      contact: {
+        externalContactId: "lead-external-001",
+        phoneNumber: "551199991234",
+      },
       channel: {
         providerChannelId: "dc-instance-001",
-        connectedPhone: "5511988880000",
+        connectedPhone: "5511999991234",
+        name: "Comercial",
       },
-      message: {
-        direction: "inbound",
-        authorType: "contact",
-        text: "Quero saber mais",
-      },
-      adId: "120000000000000001",
       ctwaClid: "ctwa-secret-001",
-      ad: {
-        sourceUrl: "https://facebook.example/ad-secret",
-        title: "Oferta especial",
-        thumbnailUrl: "https://cdn.example/thumb-secret.jpg",
-      },
+      adId: "120000000000000001",
+      hasCtwa: true,
+      normalizedSummary: { phoneDivergenceDetected: true },
     });
     expect(event.dedupeKey).toBe(
       buildInboundWebhookEventDedupeKey({
         provider: DATACRAZY_V1_PROVIDER,
-        organizationId: "dc-org-001",
+        organizationId: "workspace_001",
         providerChannelId: "dc-instance-001",
         externalMessageId: "dc-message-001",
       }),
@@ -87,6 +114,7 @@ describe("Data Crazy v1 inbound webhook parser", () => {
     for (const secret of [
       "Ana Cliente",
       "5511999991234",
+      "551199991234",
       "Quero saber mais",
       "ctwa-secret-001",
       "facebook.example",
@@ -96,169 +124,136 @@ describe("Data Crazy v1 inbound webhook parser", () => {
     }
   });
 
-  it("maps format B at the root and format C with case-insensitive message fields", () => {
-    const root = parser.parse(message());
-    const nested = parser.parse({
-      Nome: "Nome superior",
-      Telefone: "+55 11 99999-1234",
-      "JSON Produtos": message({ id: "dc-message-002", referral: undefined }),
-    });
+  it("uses referral.ctwa_clid exclusively and audits non-CTWA messages without ad attribution", () => {
+    const result = parser.parse(
+      realEnvelope({
+        mensagem: { referral: undefined },
+        body: {
+          sourceID: "body-source-must-not-count",
+          sourceURL: "https://body.example/ignored",
+          ctwaClid: "body-ctwa-must-not-count",
+        },
+      }),
+      context,
+    );
 
-    expect(root.events[0]).toMatchObject({
-      externalMessageId: "dc-message-001",
-      classification: "eligible_route_unresolved",
-    });
-    expect(nested.events[0]).toMatchObject({
-      externalMessageId: "dc-message-002",
-      contact: { name: "Ana Cliente" },
+    expect(result).toMatchObject({
       classification: "ignored_no_ctwa",
-      classificationReason: "ctwa_missing",
+      events: [
+        {
+          hasCtwa: false,
+          ctwaClid: null,
+          adId: null,
+          ad: null,
+          classificationReason: "ctwa_missing",
+        },
+      ],
     });
   });
 
-  it("repairs literal newlines/tabs only inside nested JSON strings", () => {
-    const malformed = JSON.stringify(
-      message({ body: "linha um\nlinha dois\tfinal" }),
-    )
-      .replace("\\n", "\n")
-      .replace("\\t", "\t");
-    const result = parser.parse({ Mensagem: malformed });
-
-    expect(result.events[0]?.message.text).toBe("linha um\nlinha dois\tfinal");
-    expect(result.classification).toBe("eligible_route_unresolved");
-  });
-
-  it("uses balanced extraction and CTWA regex fallback when the nested template is malformed", () => {
-    const balanced =
-      '{"received":true,"id":"dc-message-balanced","createdAt":"2026-08-28T10:30:00.000Z","body":"Oi","contact":{"phoneNumber":"5511999991234"},"instanceData":{"organizationId":"dc-org-001","instanceId":"dc-instance-001","phoneNumber":"5511988880000"},"referral":{"ctwa_clid":"ctwa-balanced","source_id":"ad-balanced"}} trailing';
-    const balancedResult = parser.parse({ mensagem: balanced });
-    expect(balancedResult.events[0]).toMatchObject({
-      externalMessageId: "dc-message-balanced",
-      ctwaClid: "ctwa-balanced",
-      adId: "ad-balanced",
+  it("requires workspace context and never trusts payload organization fields", () => {
+    const payload = realEnvelope({
+      mensagem: {
+        organizationId: "payload-org",
+        instanceData: {
+          id: "dc-instance-001",
+          name: "Comercial",
+          organizationId: "payload-instance-org",
+        },
+      },
     });
 
-    const fallback =
-      'broken template "ctwa_clid":"ctwa-regex", "source_id":"ad-regex", "source_url":"https://example.test/ad"';
-    const fallbackResult = parser.parse({
-      Telefone: "5511999991234",
-      mensagem: fallback,
-    });
-    expect(fallbackResult).toMatchObject({
+    expect(parser.parse(payload)).toMatchObject({
       classification: "invalid_payload",
       events: [],
       error: { code: "datacrazy_v1_invalid_payload" },
     });
+    expect(parser.parse(payload, context).events[0]?.organizationId).toBe(
+      "workspace_001",
+    );
+  });
+
+  it("uses messageData.id for event identity and leadId only as external contact identity", () => {
+    const first = parser.parse(realEnvelope(), context);
+    const retry = parser.parse(
+      realEnvelope({
+        leadId: "lead-external-001",
+        mensagem: {
+          messageData: {
+            id: "dc-message-001",
+            date: "2026-08-28T10:30:00.000Z",
+            text: "Texto alterado sem alterar a mensagem",
+            contact: { phoneNumber: "551199991234" },
+          },
+        },
+      }),
+      context,
+    );
+
+    expect(retry.events[0]?.externalMessageId).toBe("dc-message-001");
+    expect(retry.events[0]?.contact.externalContactId).toBe(
+      "lead-external-001",
+    );
+    expect(retry.events[0]?.contact.externalContactId).not.toBe(
+      retry.events[0]?.contact.phoneNumber,
+    );
+    expect(retry.events[0]?.dedupeKey).toBe(first.events[0]?.dedupeKey);
+  });
+
+  it("emits every item in a valid batch", () => {
+    const first = realEnvelope()[0]!;
+    const second = realEnvelope({
+      leadId: "lead-external-002",
+      mensagem: {
+        messageData: {
+          id: "dc-message-002",
+          date: "2026-08-28T10:31:00.000Z",
+          text: "Segunda mensagem",
+          contact: { phoneNumber: "551199991234" },
+        },
+        referral: undefined,
+      },
+    })[0]!;
+    const result = parser.parse([first, second], context);
+
+    expect(result).toMatchObject({
+      classification: "eligible_route_unresolved",
+      externalDeliveryId: null,
+      normalizedSummary: { eventCount: 2 },
+    });
+    expect(result.events.map((event) => event.externalMessageId)).toEqual([
+      "dc-message-001",
+      "dc-message-002",
+    ]);
+    expect(result.events[1]?.classification).toBe("ignored_no_ctwa");
   });
 
   it.each([
-    ["missing instanceData", message({ instanceData: undefined })],
-    [
-      "missing organizationId",
-      message({
-        instanceData: {
-          instanceId: "dc-instance-001",
-          phoneNumber: "5511988880000",
-        },
-      }),
-    ],
-    [
-      "missing providerChannelId",
-      message({
-        instanceData: {
-          organizationId: "dc-org-001",
-          phoneNumber: "5511988880000",
-        },
-      }),
-    ],
-    [
-      "missing verified connected phone",
-      message({
-        instanceData: {
-          organizationId: "dc-org-001",
-          instanceId: "dc-instance-001",
-          phoneNumber: "unknown",
-        },
-      }),
-    ],
-  ])("fails closed for %s without a routable event", (_scenario, payload) => {
-    const result = parser.parse(payload);
+    ["empty batch", []],
+    ["legacy root messageData regression", { messageData: {} }],
+  ])("fails closed for %s", (_scenario, payload) => {
+    const result = parser.parse(payload, context);
 
-    expect(result).toMatchObject({
-      classification: "invalid_payload",
-      events: [],
-      error: { code: "datacrazy_v1_invalid_payload" },
-    });
+    expect(result.events).toEqual([]);
+    expect(result.error).toBeNull();
+    expect(result.classification).toBe("unsupported_event");
   });
 
-  it("defaults message type only when absent or null and rejects present invalid types", () => {
+  it("marks malformed nested JSON as invalid payload", () => {
     for (const payload of [
-      message({ type: undefined }),
-      message({ type: null }),
+      [{ leadId: "lead-001", body: "not-json" }],
+      [
+        {
+          leadId: "lead-001",
+          body: JSON.stringify({ telefone: "5511999991234", mensagem: "{" }),
+        },
+      ],
     ]) {
-      expect(parser.parse(payload).events[0]?.message.messageType).toBe("text");
-    }
-
-    for (const type of [{}, 7, "   ", "x".repeat(121)]) {
-      expect(parser.parse(message({ type }))).toMatchObject({
+      expect(parser.parse(payload, context)).toMatchObject({
         classification: "invalid_payload",
         events: [],
         error: { code: "datacrazy_v1_invalid_payload" },
       });
     }
-  });
-
-  it("classifies received false and attendant fallback as outbound without enqueuing chat semantics", () => {
-    const explicit = parser.parse(
-      message({ id: "dc-outbound-001", received: false }),
-    );
-    const attendant = parser.parse(
-      message({
-        id: "dc-outbound-002",
-        received: undefined,
-        attendant: { id: "agent-1" },
-      }),
-    );
-
-    for (const result of [explicit, attendant]) {
-      expect(result).toMatchObject({
-        classification: "ignored_outbound",
-        events: [
-          {
-            message: {
-              direction: "outbound",
-              authorType: "organization_member",
-            },
-          },
-        ],
-      });
-      expect(result.events[0]?.normalizedSummary).not.toHaveProperty("text");
-    }
-  });
-
-  it("uses stable event identity for retries and rejects invalid or unsupported payloads without leaking values", () => {
-    const first = parser.parse(message());
-    const retry = parser.parse(
-      message({ body: "Mudou o texto mas e a mesma mensagem" }),
-    );
-    expect(retry.events[0]?.dedupeKey).toBe(first.events[0]?.dedupeKey);
-
-    const invalid = parser.parse({
-      mensagem: { received: true, contact: { phoneNumber: "not-a-phone" } },
-    });
-    const unsupported = parser.parse({
-      qualquerCoisa: "sem mensagem estruturada",
-    });
-    expect(invalid).toMatchObject({
-      classification: "invalid_payload",
-      events: [],
-      error: { code: "datacrazy_v1_invalid_payload" },
-    });
-    expect(unsupported).toMatchObject({
-      classification: "unsupported_event",
-      events: [],
-      error: null,
-    });
-    expect(JSON.stringify(invalid)).not.toContain("not-a-phone");
   });
 });

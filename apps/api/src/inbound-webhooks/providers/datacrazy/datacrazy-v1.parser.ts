@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { boundedString } from "../inbound-webhook-delivery-identity";
 import {
   buildInboundWebhookEventDedupeKey,
@@ -6,27 +5,20 @@ import {
   type InboundWebhookEventClassification,
   type InboundWebhookEventNormalizedSummary,
   type InboundWebhookParser,
+  type InboundWebhookParserContext,
   type InboundWebhookParserResult,
   type ParsedInboundWebhookAd,
-  type ParsedInboundWebhookMessage,
+  type ParsedInboundWebhookEvent,
 } from "../inbound-webhook-parser";
 
 export const DATACRAZY_V1_PROVIDER = "datacrazy";
 export const DATACRAZY_V1_PARSER_VERSION = "v1";
 
+const MAX_ENCODED_JSON_LENGTH = 256 * 1024;
 const invalidPayloadError = {
   code: "datacrazy_v1_invalid_payload",
   message: "Inbound webhook payload failed validation",
 } as const;
-const messageFieldNames = new Set([
-  "mensagem",
-  "message",
-  "msg",
-  "data",
-  "json produtos",
-  "jsonprodutos",
-  "json_produtos",
-]);
 
 type OptionalString = { valid: boolean; value: string | null };
 
@@ -36,18 +28,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function field(record: Record<string, unknown> | null, name: string): unknown {
-  if (!record) return undefined;
-  const lowerName = name.toLocaleLowerCase("en-US");
-  const key = Object.keys(record).find(
-    (candidate) => candidate.toLocaleLowerCase("en-US") === lowerName,
-  );
-  return key === undefined ? undefined : record[key];
-}
-
 function optionalString(value: unknown, maximumLength: number): OptionalString {
-  if (value === null || value === undefined)
+  if (value === null || value === undefined) {
     return { valid: true, value: null };
+  }
   if (typeof value !== "string") return { valid: false, value: null };
   if (value.trim().length === 0) return { valid: true, value: null };
   const normalized = boundedString(value, maximumLength);
@@ -57,8 +41,9 @@ function optionalString(value: unknown, maximumLength: number): OptionalString {
 }
 
 function optionalText(value: unknown, maximumLength: number): OptionalString {
-  if (value === null || value === undefined)
+  if (value === null || value === undefined) {
     return { valid: true, value: null };
+  }
   if (typeof value !== "string") return { valid: false, value: null };
   const normalized = value.trim();
   if (normalized.length === 0) return { valid: true, value: null };
@@ -92,109 +77,21 @@ function parseOccurredAt(value: unknown): Date | null {
   return Number.isFinite(milliseconds) ? new Date(milliseconds) : null;
 }
 
-function escapeLiteralControlsInJsonStrings(raw: string): string {
-  let inString = false;
-  let escaped = false;
-  let output = "";
-  for (const character of raw) {
-    if (escaped) {
-      output += character;
-      escaped = false;
-      continue;
-    }
-    if (character === "\\") {
-      output += character;
-      escaped = true;
-      continue;
-    }
-    if (character === '"') {
-      output += character;
-      inString = !inString;
-      continue;
-    }
-    if (inString && character === "\n") {
-      output += "\\n";
-    } else if (inString && character === "\r") {
-      output += "\\r";
-    } else if (inString && character === "\t") {
-      output += "\\t";
-    } else {
-      output += character;
-    }
+function parseEncodedJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "string") return null;
+  const raw = value.trim();
+  if (
+    raw.length === 0 ||
+    raw.length > MAX_ENCODED_JSON_LENGTH ||
+    /\u0000/u.test(raw)
+  ) {
+    return null;
   }
-  return output;
-}
-
-function extractBalancedMessage(raw: string): Record<string, unknown> | null {
-  const marker = /"(?:received|contact|conversationId|attendant)"/iu.exec(raw);
-  if (!marker || marker.index === undefined) return null;
-  const start = raw.lastIndexOf("{", marker.index);
-  if (start < 0) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let index = start; index < raw.length; index += 1) {
-    const character = raw[index]!;
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (character === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (character === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (character === "{") depth += 1;
-    if (character === "}") {
-      depth -= 1;
-      if (depth === 0) {
-        const candidate = raw.slice(start, index + 1);
-        for (const attempt of [
-          candidate,
-          escapeLiteralControlsInJsonStrings(candidate),
-        ]) {
-          try {
-            return asRecord(JSON.parse(attempt));
-          } catch {
-            // Try the next safe representation.
-          }
-        }
-      }
-    }
+  try {
+    return asRecord(JSON.parse(raw));
+  } catch {
+    return null;
   }
-  return null;
-}
-
-function parseResilientObject(raw: string): Record<string, unknown> | null {
-  for (const attempt of [raw, escapeLiteralControlsInJsonStrings(raw)]) {
-    try {
-      const parsed = asRecord(JSON.parse(attempt));
-      if (parsed) return parsed;
-    } catch {
-      // A malformed nested template is expected for this provider.
-    }
-  }
-  return extractBalancedMessage(raw);
-}
-
-function rawCtwaFallback(raw: string): Record<string, unknown> | null {
-  const capture = (name: string) =>
-    new RegExp(`"${name}"\\s*:\\s*"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)"`, "iu").exec(
-      raw,
-    )?.[1] ?? null;
-  const ctwaClid = capture("ctwa_?clid");
-  if (!ctwaClid) return null;
-  return {
-    ctwa_clid: ctwaClid,
-    source_id: capture("source_?id"),
-    source_url: capture("source_?url"),
-    headline: capture("headline") ?? capture("title"),
-    thumbnail_url: capture("thumbnail_?url"),
-  };
 }
 
 function parseReferral(value: unknown): {
@@ -208,41 +105,15 @@ function parseReferral(value: unknown): {
   }
   const referral = asRecord(value);
   if (!referral) return { valid: false, adId: null, ctwaClid: null, ad: null };
-  const adId = optionalString(
-    field(referral, "source_id") ?? field(referral, "sourceId"),
-    255,
-  );
-  const ctwaClid = optionalString(
-    field(referral, "ctwa_clid") ?? field(referral, "ctwaClid"),
-    2_048,
-  );
-  const sourceUrl = optionalString(
-    field(referral, "source_url") ?? field(referral, "sourceUrl"),
-    4_096,
-  );
-  const description = optionalText(
-    field(referral, "body") ?? field(referral, "description"),
-    4_096,
-  );
-  const title = optionalString(
-    field(referral, "headline") ?? field(referral, "title"),
-    512,
-  );
-  const thumbnailUrl = optionalString(
-    field(referral, "thumbnail_url") ?? field(referral, "thumbnailUrl"),
-    4_096,
-  );
-  const mediaUrl = optionalString(
-    field(referral, "media_url") ??
-      field(referral, "mediaUrl") ??
-      field(referral, "image_url") ??
-      field(referral, "imageUrl"),
-    4_096,
-  );
-  const sourceType = optionalString(
-    field(referral, "source_type") ?? field(referral, "sourceType"),
-    120,
-  );
+
+  const adId = optionalString(referral.source_id, 255);
+  const ctwaClid = optionalString(referral.ctwa_clid, 2_048);
+  const sourceUrl = optionalString(referral.source_url, 4_096);
+  const description = optionalText(referral.body, 4_096);
+  const title = optionalString(referral.headline, 512);
+  const thumbnailUrl = optionalString(referral.thumbnail_url, 4_096);
+  const mediaUrl = optionalString(referral.video_url, 4_096);
+  const sourceType = optionalString(referral.source_type, 120);
   if (
     [
       adId,
@@ -257,6 +128,11 @@ function parseReferral(value: unknown): {
   ) {
     return { valid: false, adId: null, ctwaClid: null, ad: null };
   }
+
+  // Referral metadata without a CTWA click ID is not ad attribution.
+  if (!ctwaClid.value) {
+    return { valid: true, adId: null, ctwaClid: null, ad: null };
+  }
   return {
     valid: true,
     adId: adId.value,
@@ -270,14 +146,6 @@ function parseReferral(value: unknown): {
       sourceType: sourceType.value,
     },
   };
-}
-
-function identifierOr(value: unknown, fallback: string): string {
-  return boundedString(value, 255) ?? fallback;
-}
-
-function stableFallbackId(parts: readonly unknown[]): string {
-  return `datacrazy:${createHash("sha256").update(JSON.stringify(parts), "utf8").digest("hex")}`;
 }
 
 function summary(input: {
@@ -297,23 +165,20 @@ function summary(input: {
 function emptyResult(input: {
   classification: "invalid_payload" | "unsupported_event";
   classificationReason: string;
-  providerEventType?: string | null;
-  externalDeliveryId?: string | null;
 }): InboundWebhookParserResult {
-  const providerEventType = input.providerEventType ?? null;
-  const externalDeliveryId = input.externalDeliveryId ?? null;
   return {
     provider: DATACRAZY_V1_PROVIDER,
     parserVersion: DATACRAZY_V1_PARSER_VERSION,
-    providerEventType,
-    externalDeliveryId,
+    providerEventType: null,
+    externalDeliveryId: null,
     classification: input.classification,
     classificationReason: input.classificationReason,
     events: [],
     normalizedSummary: summary({
-      ...input,
-      providerEventType,
-      externalDeliveryId,
+      providerEventType: null,
+      externalDeliveryId: null,
+      classification: input.classification,
+      classificationReason: input.classificationReason,
       eventCount: 0,
     }),
     error:
@@ -323,185 +188,77 @@ function emptyResult(input: {
   };
 }
 
-function parsePayload(payload: unknown): InboundWebhookParserResult {
-  const rawPayload = typeof payload === "string" ? payload : null;
-  const envelope =
-    asRecord(payload) ?? (rawPayload ? parseResilientObject(rawPayload) : null);
-  if (!envelope)
-    return emptyResult({
-      classification: "invalid_payload",
-      classificationReason: "payload_validation_failed",
-    });
+function identifier(value: unknown, maximumLength = 255): string | null {
+  return boundedString(value, maximumLength);
+}
 
-  const directMessage = [
-    "received",
-    "contact",
-    "conversationId",
-    "attendant",
-  ].some((name) => field(envelope, name) !== undefined);
-  let message: Record<string, unknown> | null = directMessage ? envelope : null;
-  let topLevelText: unknown = null;
-  let rawNestedMessage: string | null = null;
-  if (!message) {
-    for (const key of Object.keys(envelope)) {
-      if (!messageFieldNames.has(key.toLocaleLowerCase("en-US"))) continue;
-      const candidate = envelope[key];
-      if (typeof candidate === "string") {
-        rawNestedMessage = candidate;
-        message = parseResilientObject(candidate);
-        if (!message) topLevelText = candidate;
-      } else {
-        message = asRecord(candidate);
-      }
-      if (message || topLevelText !== null) break;
-    }
-  }
-  if (!message && topLevelText === null) {
-    return emptyResult({
-      classification: "unsupported_event",
-      classificationReason: "message_shape_unsupported",
-    });
-  }
+function parseItem(
+  item: unknown,
+  organizationId: string,
+): ParsedInboundWebhookEvent | null {
+  const envelopeItem = asRecord(item);
+  if (!envelopeItem) return null;
+  const body = parseEncodedJsonRecord(envelopeItem.body);
+  if (!body) return null;
+  const mensagem = parseEncodedJsonRecord(body.mensagem);
+  if (!mensagem) return null;
 
-  const contact = asRecord(field(message, "contact"));
-  const instance = asRecord(field(message, "instanceData"));
-  const phone = parsePhone(
-    field(contact, "phoneNumber") ??
-      field(contact, "contactId") ??
-      field(envelope, "telefone") ??
-      field(envelope, "phone"),
-  );
-  const contactName = optionalText(
-    field(contact, "name") ??
-      field(envelope, "nome") ??
-      field(envelope, "name"),
-    160,
-  );
-  const text = optionalText(
-    field(message, "body") ??
-      field(asRecord(field(message, "text")), "body") ??
-      topLevelText,
-    16_384,
-  );
-  if (!phone || !contactName.valid || !text.valid) {
-    return emptyResult({
-      classification: "invalid_payload",
-      classificationReason: "payload_validation_failed",
-    });
-  }
+  const leadId = identifier(envelopeItem.leadId);
+  const messageData = asRecord(mensagem.messageData);
+  const contact = asRecord(messageData?.contact);
+  const instanceData = asRecord(mensagem.instanceData);
+  if (!leadId || !messageData || !contact || !instanceData) return null;
 
-  const rawForFallback = rawPayload ?? rawNestedMessage;
-  const referral = parseReferral(
-    field(message, "referral") ??
-      (rawForFallback ? rawCtwaFallback(rawForFallback) : null),
-  );
-  if (!referral.valid)
-    return emptyResult({
-      classification: "invalid_payload",
-      classificationReason: "payload_validation_failed",
-    });
-
-  const received = field(message, "received");
-  const attendant = asRecord(field(message, "attendant"));
-  if (received !== undefined && typeof received !== "boolean") {
-    return emptyResult({
-      classification: "invalid_payload",
-      classificationReason: "payload_validation_failed",
-    });
-  }
-  const outbound =
-    received === false ||
-    (received === undefined &&
-      attendant !== null &&
-      Object.keys(attendant).length > 0);
-  const rawMessageType = field(message, "type");
-  const messageType = optionalString(rawMessageType, 120);
+  const externalMessageId = identifier(messageData.id);
+  const providerChannelId = identifier(instanceData.id);
+  const connectedPhone = parsePhone(body.telefone);
+  const contactPhone = parsePhone(contact.phoneNumber);
+  const senderPhone = parsePhone(mensagem.from);
+  const occurredAt =
+    parseOccurredAt(messageData.date) ?? parseOccurredAt(mensagem.timestamp);
   if (
+    !externalMessageId ||
+    !providerChannelId ||
+    !connectedPhone ||
+    !contactPhone ||
+    !senderPhone ||
+    !occurredAt
+  ) {
+    return null;
+  }
+
+  const contactName = optionalText(contact.name, 160);
+  const text = optionalText(messageData.text, 16_384);
+  const rawMessageType = mensagem.type;
+  const messageType = optionalString(rawMessageType, 120);
+  const channelName = optionalString(instanceData.name, 160);
+  const referral = parseReferral(mensagem.referral);
+  if (
+    !contactName.valid ||
+    !text.valid ||
     !messageType.valid ||
+    !channelName.valid ||
+    !referral.valid ||
     (messageType.value === null &&
       rawMessageType !== undefined &&
       rawMessageType !== null)
   ) {
-    return emptyResult({
-      classification: "invalid_payload",
-      classificationReason: "payload_validation_failed",
-    });
+    return null;
   }
 
-  const organizationId = boundedString(
-    field(instance, "organizationId") ??
-      field(message, "organizationId") ??
-      field(instance, "accountId"),
-    255,
-  );
-  const providerChannelId = boundedString(
-    field(instance, "instanceId") ??
-      field(instance, "id") ??
-      field(message, "instanceId"),
-    255,
-  );
-  const connectedPhone = parsePhone(
-    field(instance, "phoneNumber") ??
-      field(instance, "phone") ??
-      field(instance, "number"),
-  );
-  if (!organizationId || !providerChannelId || !connectedPhone) {
-    return emptyResult({
-      classification: "invalid_payload",
-      classificationReason: "payload_validation_failed",
-    });
-  }
-
-  const parsedMessage: ParsedInboundWebhookMessage = {
-    direction: outbound ? "outbound" : "inbound",
-    authorType: outbound ? "organization_member" : "contact",
-    messageType: messageType.value ?? "text",
-    text: text.value,
-    isPrivate: false,
-  };
-  const occurredAt =
-    parseOccurredAt(
-      field(message, "createdAt") ??
-        field(message, "timestamp") ??
-        field(message, "date") ??
-        field(message, "updatedAt"),
-    ) ?? new Date(0);
-  const channelName = optionalString(
-    field(instance, "name") ?? field(instance, "instanceName"),
-    160,
-  );
-  if (!channelName.valid)
-    return emptyResult({
-      classification: "invalid_payload",
-      classificationReason: "payload_validation_failed",
-    });
-  const externalMessageId = identifierOr(
-    field(message, "id") ?? field(message, "messageId"),
-    stableFallbackId([
-      phone,
-      text.value,
-      occurredAt.toISOString(),
-      referral.ctwaClid,
-      referral.adId,
-      outbound,
-    ]),
-  );
-  const externalEventId = identifierOr(
-    field(message, "eventId") ?? field(message, "id"),
-    externalMessageId,
-  );
   const hasCtwa = referral.ctwaClid !== null;
-  const classification: InboundWebhookEventClassification = outbound
-    ? "ignored_outbound"
-    : hasCtwa
-      ? "eligible_route_unresolved"
-      : "ignored_no_ctwa";
-  const classificationReason = outbound
-    ? "message_not_from_contact"
-    : hasCtwa
-      ? "route_resolution_pending"
-      : "ctwa_missing";
-  const normalizedSummary: InboundWebhookEventNormalizedSummary = {
+  const classification: InboundWebhookEventClassification = hasCtwa
+    ? "eligible_route_unresolved"
+    : "ignored_no_ctwa";
+  const classificationReason = hasCtwa
+    ? "route_resolution_pending"
+    : "ctwa_missing";
+  const externalEventId = externalMessageId;
+  const phoneDivergenceDetected =
+    connectedPhone !== contactPhone || connectedPhone !== senderPhone;
+  const normalizedSummary: InboundWebhookEventNormalizedSummary & {
+    phoneDivergenceDetected: boolean;
+  } = {
     provider: DATACRAZY_V1_PROVIDER,
     providerEventType: "message",
     externalEventId,
@@ -512,13 +269,15 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
     occurredAt: occurredAt.toISOString(),
     adId: referral.adId,
     hasCtwa,
-    messageDirection: parsedMessage.direction,
-    messageAuthorType: parsedMessage.authorType,
-    messageType: parsedMessage.messageType,
+    messageDirection: "inbound",
+    messageAuthorType: "contact",
+    messageType: messageType.value ?? "text",
     classification,
     classificationReason,
+    phoneDivergenceDetected,
   };
-  const event = {
+
+  return {
     provider: DATACRAZY_V1_PROVIDER,
     providerEventType: "message",
     externalEventId,
@@ -531,16 +290,23 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
     }),
     organizationId,
     occurredAt,
-    channel: { providerChannelId, connectedPhone, name: channelName.value },
+    channel: {
+      providerChannelId,
+      connectedPhone,
+      name: channelName.value,
+    },
     contact: {
-      externalContactId: identifierOr(
-        field(contact, "id") ?? field(contact, "contactId"),
-        phone,
-      ),
-      phoneNumber: phone,
+      externalContactId: leadId,
+      phoneNumber: contactPhone,
       name: contactName.value,
     },
-    message: parsedMessage,
+    message: {
+      direction: "inbound",
+      authorType: "contact",
+      messageType: messageType.value ?? "text",
+      text: text.value,
+      isPrivate: false,
+    },
     adId: referral.adId,
     ad: referral.ad,
     ctwaClid: referral.ctwaClid,
@@ -549,20 +315,66 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
     classificationReason,
     normalizedSummary,
   };
+}
+
+function parsePayload(
+  payload: unknown,
+  context: InboundWebhookParserContext | undefined,
+): InboundWebhookParserResult {
+  const organizationId = identifier(context?.organizationId);
+  if (!organizationId) {
+    return emptyResult({
+      classification: "invalid_payload",
+      classificationReason: "organization_context_missing",
+    });
+  }
+  if (!Array.isArray(payload)) {
+    return emptyResult({
+      classification: "unsupported_event",
+      classificationReason: "payload_envelope_unsupported",
+    });
+  }
+  if (payload.length === 0) {
+    return emptyResult({
+      classification: "unsupported_event",
+      classificationReason: "payload_batch_empty",
+    });
+  }
+
+  const events = payload.map((item) => parseItem(item, organizationId));
+  if (events.some((event) => event === null)) {
+    return emptyResult({
+      classification: "invalid_payload",
+      classificationReason: "payload_validation_failed",
+    });
+  }
+  const parsedEvents = events as ParsedInboundWebhookEvent[];
+  const hasEligibleEvent = parsedEvents.some(
+    (event) => event.classification === "eligible_route_unresolved",
+  );
+  const classification: InboundWebhookEventClassification = hasEligibleEvent
+    ? "eligible_route_unresolved"
+    : "ignored_no_ctwa";
+  const classificationReason = hasEligibleEvent
+    ? "route_resolution_pending"
+    : "ctwa_missing";
+  const externalDeliveryId =
+    parsedEvents.length === 1 ? parsedEvents[0]!.externalEventId : null;
+
   return {
     provider: DATACRAZY_V1_PROVIDER,
     parserVersion: DATACRAZY_V1_PARSER_VERSION,
     providerEventType: "message",
-    externalDeliveryId: externalEventId,
+    externalDeliveryId,
     classification,
     classificationReason,
-    events: [event],
+    events: parsedEvents,
     normalizedSummary: summary({
       providerEventType: "message",
-      externalDeliveryId: externalEventId,
+      externalDeliveryId,
       classification,
       classificationReason,
-      eventCount: 1,
+      eventCount: parsedEvents.length,
     }),
     error: null,
   };
@@ -570,9 +382,10 @@ function parsePayload(payload: unknown): InboundWebhookParserResult {
 
 export function parseDataCrazyV1Webhook(
   payload: unknown,
+  context?: InboundWebhookParserContext,
 ): InboundWebhookParserResult {
   try {
-    return parsePayload(payload);
+    return parsePayload(payload, context);
   } catch {
     return emptyResult({
       classification: "invalid_payload",
@@ -585,7 +398,10 @@ export class DataCrazyV1Parser implements InboundWebhookParser {
   readonly provider = DATACRAZY_V1_PROVIDER;
   readonly parserVersion = DATACRAZY_V1_PARSER_VERSION;
 
-  parse(payload: unknown): InboundWebhookParserResult {
-    return parseDataCrazyV1Webhook(payload);
+  parse(
+    payload: unknown,
+    context?: InboundWebhookParserContext,
+  ): InboundWebhookParserResult {
+    return parseDataCrazyV1Webhook(payload, context);
   }
 }
