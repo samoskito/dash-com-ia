@@ -38,6 +38,9 @@ importers:
       '@wpptrack/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      body-parser:
+        specifier: ^1.20.4
+        version: 1.20.4
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3

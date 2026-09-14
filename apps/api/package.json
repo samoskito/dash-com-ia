@@ -25,6 +25,7 @@
     "@nestjs/platform-express": "^10.4.4",
     "@prisma/client": "^6.19.3",
     "@wpptrack/shared": "workspace:*",
+    "body-parser": "^1.20.4",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.79.2",
     "ioredis": "^5.11.1",

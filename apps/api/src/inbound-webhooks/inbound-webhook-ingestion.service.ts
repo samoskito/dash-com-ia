@@ -247,23 +247,30 @@ export class InboundWebhookIngestionService {
       throw new PayloadTooLargeException("Payload do webhook excede o limite");
     }
 
-    const plaintext = rawBody.toString("utf8");
-
-    if (!Buffer.from(plaintext, "utf8").equals(rawBody)) {
-      throw new BadRequestException("Payload JSON invalido");
-    }
-
     let payload: unknown;
     try {
+      let plaintext = rawBody.toString("utf8");
+      if (plaintext.charCodeAt(0) === 0xfeff) {
+        plaintext = plaintext.slice(1);
+      }
+      plaintext = plaintext.trim();
       payload = JSON.parse(plaintext);
-      if (typeof payload === "string") {
-        payload = JSON.parse(payload);
+      for (let index = 0; index < 3 && typeof payload === "string"; index++) {
+        const nestedPayload = payload.trim();
+        if (
+          !nestedPayload.startsWith("{") &&
+          !nestedPayload.startsWith("[") &&
+          !nestedPayload.startsWith('"')
+        ) {
+          break;
+        }
+        payload = JSON.parse(nestedPayload);
       }
     } catch {
       throw new BadRequestException("Payload JSON invalido");
     }
 
-    if (!payload || (typeof payload !== "object" && !Array.isArray(payload))) {
+    if (!payload || typeof payload !== "object") {
       throw new BadRequestException("Payload JSON invalido");
     }
 
