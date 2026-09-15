@@ -175,6 +175,53 @@ describe("provider conversion rule contracts", () => {
     expect(message).not.toHaveProperty("triggerLabels");
   });
 
+  it("accepts a Payt purchase automation without average value or labels", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...channelScope,
+      channelIds: ["channel_1", "channel_2"],
+      triggerType: "provider_automation",
+      eventName: "Purchase",
+      automationSource: "payt",
+    });
+
+    expect(parsed).toMatchObject({
+      triggerType: "provider_automation",
+      eventName: "Purchase",
+      automationSource: "payt",
+      channelIds: ["channel_1", "channel_2"],
+      mode: "observation",
+    });
+    expect("defaultValueCents" in parsed).toBe(false);
+  });
+
+  it("keeps a Payt automation on Purchase, without labels and with channels", () => {
+    const payt = {
+      ...channelScope,
+      triggerType: "provider_automation",
+      eventName: "Purchase",
+      automationSource: "payt",
+    };
+
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...payt,
+        eventName: "QualifiedLead",
+      }).success,
+    ).toBe(false);
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...payt,
+        triggerPhrases: ["Venda fechada"],
+      }).success,
+    ).toBe(false);
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...payt,
+        channelIds: [],
+      }).success,
+    ).toBe(false);
+  });
+
   it("requires a positive average value for Purchase automation", () => {
     expect(
       providerConversionRuleCreateInputSchema.safeParse({

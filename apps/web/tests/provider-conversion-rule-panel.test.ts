@@ -14,6 +14,7 @@ import {
   mergeTriggerPhrases,
   MessagePhraseFields,
   parseMoneyToCents,
+  paytWebhookToken,
   previewMessagePhrase,
   ProviderConversionRulePanel,
   UmblerAutomationPayloadPanel,
@@ -485,6 +486,109 @@ describe("provider conversion rule panel", () => {
     expect(html).toContain("Compra realizada");
     expect(html).not.toContain("Adicionou ao carrinho");
     expect(html).not.toContain("Lead qualificado");
+  });
+
+  it("lists Payt as a Purchase-only origin", () => {
+    const html = renderToStaticMarkup(
+      createElement(ConversionRuleOriginEventSelector, {
+        origin: "payt",
+        eventName: "Purchase",
+        onOriginChange: () => undefined,
+        onEventChange: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Compra aprovada na Payt");
+    expect(html).toContain("Compra realizada");
+    expect(html).not.toContain("Lead qualificado");
+  });
+
+  it("builds a Payt purchase automation with only the selected channels", () => {
+    expect(
+      createPayload({
+        origin: "payt",
+        eventName: "QualifiedLead",
+        averageValue: "299,90",
+        selectedChannelIds: ["channel_1", "channel_2"],
+      }),
+    ).toEqual({
+      name: "Regra de teste",
+      connectionId: "connection_1",
+      channelIds: ["channel_1", "channel_2"],
+      mode: "observation",
+      triggerType: "provider_automation",
+      eventName: "Purchase",
+      automationSource: "payt",
+    });
+  });
+
+  it("refuses a Payt automation without any channel", () => {
+    expect(
+      buildCreatePayload({
+        ...payloadInput,
+        origin: "payt",
+        selectedChannelIds: [],
+      }),
+    ).toEqual({
+      ok: false,
+      message: "Marque ao menos um numero para receber as compras da Payt.",
+    });
+  });
+
+  it("extracts the Payt token from the webhook URL", () => {
+    expect(
+      paytWebhookToken(
+        "https://api.example.com/webhooks/inbound/conversions/endpoint_1?token=abc_123",
+      ),
+    ).toBe("abc_123");
+    expect(paytWebhookToken("nao e url")).toBeNull();
+  });
+
+  it("labels a Payt rule and shows the last purchase value in reais", () => {
+    const html = renderPanel({
+      rules: [
+        {
+          ...catalogRule,
+          id: "provider_rule_payt",
+          conversionRule: {
+            ...catalogRule.conversionRule,
+            id: "conversion_rule_payt",
+            name: "Compras Payt",
+            triggerType: "provider_automation",
+            triggerValue: "provider_automation",
+          },
+          triggerPhrases: [],
+          messageAuthorScope: null,
+          automationSource: "payt",
+          catalog: null,
+          lastExecution: {
+            id: "execution_payt",
+            workspaceId: "workspace_1",
+            providerRuleId: "provider_rule_payt",
+            sourceDeliveryId: "delivery_payt",
+            channelId: "channel_1",
+            externalExecutionKey: "payt:tx_1",
+            occurredAt: "2026-07-22T15:00:00.000Z",
+            status: "observed",
+            reasonCode: null,
+            matchedCatalogVariantId: null,
+            valueCents: 296616,
+            currency: "BRL",
+            leadId: null,
+            conversionEventLogId: null,
+            attemptCount: 0,
+            createdAt: "2026-07-22T15:00:00.000Z",
+            updatedAt: "2026-07-22T15:00:00.000Z",
+          },
+        },
+      ],
+    });
+
+    expect(html).toContain("Compra aprovada na Payt");
+    expect(html).toContain("R$ 2.966,16");
+    expect(html).toContain("Como configurar na Payt");
+    expect(html).not.toContain("Configuracao HTTP na Umbler");
+    expect(html).toContain('aria-label="Gerar nova URL"');
   });
 
   it("builds an InitiateCheckout message rule with a fixed average value", () => {
