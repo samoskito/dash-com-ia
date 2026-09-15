@@ -574,7 +574,7 @@ export class ProviderConversionObservationService {
     const recentEvent = await this.prisma.inboundWebhookEvent.findFirst({
       where: {
         workspaceId: input.workspaceId,
-        ...(input.rule.connection.provider === "payt"
+        ...(input.rule.parserRelease.provider === "payt"
           ? {}
           : { connectionId: input.connectionId }),
         channelId: { in: channelIds },
@@ -704,7 +704,7 @@ export class ProviderConversionObservationService {
     }
     // Phase 1+2 intentionally records Payt purchases without opening its CAPI
     // path, even if someone later certifies a parser release prematurely.
-    if (input.rule.connection.provider === "payt") {
+    if (input.rule.parserRelease.provider === "payt") {
       return {
         state: "observed",
         reasonCode: `${input.decision.reasonCode}_payt_observation`,

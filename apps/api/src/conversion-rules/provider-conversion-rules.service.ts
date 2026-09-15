@@ -302,9 +302,18 @@ export class ProviderConversionRulesService {
         throw new NotFoundException(connectionNotFoundMessage);
       }
 
+      const isPaytAutomation =
+        input.triggerType === "provider_automation" &&
+        input.automationSource === "payt";
+      if (isPaytAutomation && input.eventName !== "Purchase") {
+        // The HTTP schema enforces this too. Keep the invariant at the
+        // service boundary for internal callers and future entry points.
+        throw new BadRequestException("A Payt so envia compras aprovadas");
+      }
+
       if (
         input.triggerType === "provider_automation" &&
-        ["umbler", "payt"].includes(connection.provider)
+        (isPaytAutomation || ["umbler", "payt"].includes(connection.provider))
       ) {
         secret = this.generateSecret();
       }
@@ -313,12 +322,13 @@ export class ProviderConversionRulesService {
         transaction,
         workspaceId,
         connection.id,
-        connection.provider,
+        isPaytAutomation ? "payt" : connection.provider,
         input.channelIds,
       );
 
       if (
         input.triggerType === "provider_automation" &&
+        !isPaytAutomation &&
         !["umbler", "payt", "uazapi"].includes(connection.provider)
       ) {
         throw new BadRequestException(
@@ -328,10 +338,10 @@ export class ProviderConversionRulesService {
 
       const parserRelease =
         input.triggerType === "provider_automation" &&
-        ["umbler", "payt"].includes(connection.provider)
+        (isPaytAutomation || ["umbler", "payt"].includes(connection.provider))
           ? await transaction.inboundWebhookParserRelease.findFirst({
               where: {
-                provider: connection.provider,
+                provider: isPaytAutomation ? "payt" : connection.provider,
                 version: "automation-v1",
                 status: { not: "retired" },
               },
@@ -445,7 +455,10 @@ export class ProviderConversionRulesService {
         })),
       });
 
-      if (secret && ["umbler", "payt"].includes(connection.provider)) {
+      if (
+        secret &&
+        (isPaytAutomation || ["umbler", "payt"].includes(connection.provider))
+      ) {
         await transaction.providerConversionRuleEndpoint.create({
           data: {
             workspaceId,
@@ -662,7 +675,9 @@ export class ProviderConversionRulesService {
           transaction,
           workspaceId,
           current.connectionId,
-          current.connection.provider,
+          this.isPaytAutomationRule(current)
+            ? "payt"
+            : current.connection.provider,
           input.channelIds,
         );
       }
@@ -1335,6 +1350,13 @@ export class ProviderConversionRulesService {
     }
   }
 
+  private isPaytAutomationRule(rule: PersistedProviderRule): boolean {
+    return (
+      rule.conversionRule.triggerType === "provider_automation" &&
+      rule.parserRelease.provider === "payt"
+    );
+  }
+
   private messagePhraseConfig(input: {
     valueMode: MessagePhraseValueModeDto;
     exampleMessage: string | null;
@@ -1696,6 +1718,9 @@ export class ProviderConversionRulesService {
       messageAuthorScope: rule.messageAuthorScope,
       valueMode: messagePhrase.valueMode,
       exampleMessage: messagePhrase.exampleMessage,
+      // The parser release is stored with the rule, so this remains available
+      // after a connection changes and does not require a new database column.
+      automationSource: this.isPaytAutomationRule(rule) ? "payt" : null,
       endpoint: rule.endpoint ? this.endpointToDto(rule.endpoint) : null,
       catalog: rule.catalog ? this.catalogToDto(rule.catalog) : null,
       lastExecution: rule.executions[0]

@@ -22,7 +22,8 @@ function jsonOrNull(value: unknown) {
 }
 
 type HarnessOptions = {
-  connectionProvider?: "umbler" | "gupshup" | "uazapi";
+  connectionProvider?: "umbler" | "payt" | "gupshup" | "uazapi" | "datacrazy";
+  automationParserProvider?: "umbler" | "payt";
   connectionStatus?: "observation" | "production";
   channelStatus?: "discovered" | "active" | "paused";
   channelHasValidRoute?: boolean;
@@ -36,7 +37,7 @@ function createHarness(
   const now = new Date("2026-07-21T21:00:00.000Z");
   const parserRelease = {
     id: "inbound_parser_umbler_automation_v1",
-    provider: "umbler" as const,
+    provider: options.automationParserProvider ?? ("umbler" as const),
     version: "automation-v1",
     status: "certified" as const,
     certifiedByUserId: "user_1",
@@ -49,7 +50,8 @@ function createHarness(
   const connection = {
     id: "connection_1",
     workspaceId: "workspace_1",
-    provider: connectionProvider as "umbler" | "gupshup" | "uazapi",
+    provider: connectionProvider as
+      "umbler" | "payt" | "gupshup" | "uazapi" | "datacrazy",
     displayName: "Umbler Cliente",
     parserReleaseId: "inbound_parser_umbler_v1",
     secretHash: "connection-hash",
@@ -836,6 +838,50 @@ describe("provider conversion rules service", () => {
     expect(listed).toHaveLength(1);
     expect(JSON.stringify(listed)).not.toContain(plaintextSecret);
     expect(JSON.stringify(listed)).not.toContain(harness.endpoint?.secretHash);
+  });
+
+  it("creates a Payt automation on a non-Payt connection with workspace channels", async () => {
+    const harness = createHarness(1, null, {
+      connectionProvider: "gupshup",
+      automationParserProvider: "payt",
+    });
+    harness.inboundChannels.push({
+      ...harness.inboundChannels[0],
+      id: "channel_other_connection",
+      connectionId: "connection_other",
+    });
+
+    const created = await harness.service.createRule(
+      "workspace_1",
+      {
+        name: "Compra aprovada Payt",
+        connectionId: "connection_1",
+        channelIds: ["channel_other_connection"],
+        mode: "observation",
+        triggerType: "provider_automation",
+        eventName: "Purchase",
+        automationSource: "payt",
+      },
+      "user_1",
+    );
+
+    expect(created.rule.automationSource).toBe("payt");
+    expect(created.rule.channelIds).toEqual(["channel_other_connection"]);
+    expect(created.webhookUrl).toContain(
+      "/webhooks/inbound/conversions/endpoint_1",
+    );
+    expect(harness.endpoint).toMatchObject({
+      providerRuleId: "provider_rule_1",
+    });
+    expect(
+      harness.prisma.inboundWebhookParserRelease.findFirst,
+    ).toHaveBeenCalledWith({
+      where: {
+        provider: "payt",
+        version: "automation-v1",
+        status: { not: "retired" },
+      },
+    });
   });
 
   it("creates a message_phrase rule on a UAZAPI connection without requiring Umbler", async () => {

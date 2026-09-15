@@ -808,10 +808,10 @@ function input(rawBody: Buffer, token: unknown = secret) {
 }
 
 describe("inbound conversion automation ingestion", () => {
-  it("accepts a paid Payt purchase for observation and ignores a non-paid order", async () => {
+  it("uses the Payt parser for a rule attached to a non-Payt connection", async () => {
     const harness = createHarness({ eventName: "Purchase" });
-    harness.endpoint.providerRule.connection.provider = "payt";
-    harness.endpoint.providerRule.connection.parserRelease.provider = "payt";
+    harness.endpoint.providerRule.connection.provider = "gupshup";
+    harness.endpoint.providerRule.connection.parserRelease.provider = "gupshup";
     harness.endpoint.providerRule.parserRelease.provider = "payt";
 
     const paid = Buffer.from(
@@ -837,8 +837,9 @@ describe("inbound conversion automation ingestion", () => {
     );
 
     const nonPaidHarness = createHarness({ eventName: "Purchase" });
-    nonPaidHarness.endpoint.providerRule.connection.provider = "payt";
-    nonPaidHarness.endpoint.providerRule.connection.parserRelease.provider = "payt";
+    nonPaidHarness.endpoint.providerRule.connection.provider = "gupshup";
+    nonPaidHarness.endpoint.providerRule.connection.parserRelease.provider =
+      "gupshup";
     nonPaidHarness.endpoint.providerRule.parserRelease.provider = "payt";
     const nonPaid = Buffer.from(
       readFileSync(

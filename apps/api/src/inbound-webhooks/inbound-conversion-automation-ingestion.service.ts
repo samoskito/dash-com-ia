@@ -1121,6 +1121,12 @@ export class InboundConversionAutomationIngestionService {
       token,
     );
     const rule = endpoint?.providerRule;
+    // Payt rules can intentionally sit on any WhatsApp connection. The
+    // persisted parser release, not that connection's provider, identifies
+    // the callback contract.
+    const isPaytAutomation =
+      rule?.parserRelease.provider === "payt" &&
+      rule?.parserRelease.version === PAYT_AUTOMATION_V1_PARSER_VERSION;
 
     if (
       !endpoint ||
@@ -1130,7 +1136,8 @@ export class InboundConversionAutomationIngestionService {
       rule.removedAt !== null ||
       !rule.conversionRule.active ||
       rule.conversionRule.triggerType !== "provider_automation" ||
-      !["umbler", "payt"].includes(rule.connection.provider) ||
+      (!isPaytAutomation &&
+        !["umbler", "payt"].includes(rule.connection.provider)) ||
       rule.connection.removedAt !== null ||
       !["observation", "production"].includes(rule.connection.status) ||
       rule.parserRelease.status === "retired"
@@ -1171,13 +1178,13 @@ export class InboundConversionAutomationIngestionService {
   ): AutomationParseResult {
     const rule = endpoint.providerRule;
     if (
-      rule.connection.provider === "payt" &&
+      rule.parserRelease.provider === "payt" &&
       rule.parserRelease.version === PAYT_AUTOMATION_V1_PARSER_VERSION
     ) {
       return parsePaytAutomationV1(payload);
     }
     if (
-      rule.connection.provider === "umbler" &&
+      rule.parserRelease.provider === "umbler" &&
       rule.parserRelease.version === UMBLER_AUTOMATION_V1_PARSER_VERSION
     ) {
       return parseUmblerAutomationV1(payload);
@@ -1190,7 +1197,7 @@ export class InboundConversionAutomationIngestionService {
   }
 
   private automationIngressNamespace(endpoint: PublicConversionEndpoint): string {
-    return endpoint.providerRule.connection.provider === "payt"
+    return endpoint.providerRule.parserRelease.provider === "payt"
       ? "payt-automation-v1"
       : "umbler-automation-v1";
   }
