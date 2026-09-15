@@ -52,6 +52,7 @@ enum DiagnosticSource {
   umbler
   gupshup
   datacrazy
+  payt
   asaas
   external_mysql
   internal
